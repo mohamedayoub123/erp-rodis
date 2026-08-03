@@ -1,8 +1,41 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+
+// Supprime une ligne de detail puis, si c'etait la derniere ligne de son
+// mouvement (groupe), renvoie vers la liste au lieu de laisser la page
+// detail se rafraichir sur un groupe qui n'existe plus plus (notFound()).
+async function deleteMpDetailLineAndRedirectIfEmpty(lotId: number) {
+  const { data: lotRow } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .select("mouvement_groupe_id")
+    .eq("id", lotId)
+    .maybeSingle();
+
+  const groupeId = (lotRow as { mouvement_groupe_id: number | null } | null)?.mouvement_groupe_id ?? null;
+
+  const { error } = await supabaseServer.rpc("stock_mp_delete_lot", { p_lot_id: lotId });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateMouvementsMpPages();
+
+  if (groupeId) {
+    const { count } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .select("id", { count: "exact", head: true })
+      .eq("mouvement_groupe_id", groupeId);
+
+    if (!count) {
+      redirect("/mouvements/matiere-premiere");
+    }
+  }
+}
 
 type PendingEntreeMpRow = {
   article_id: number;
@@ -217,13 +250,7 @@ export async function deleteLotFromEntreeMpDetailAction(formData: FormData) {
     throw new Error("Ligne stock matiere premiere invalide.");
   }
 
-  const { error } = await supabaseServer.rpc("stock_mp_delete_lot", { p_lot_id: lotId });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  revalidateMouvementsMpPages();
+  await deleteMpDetailLineAndRedirectIfEmpty(lotId);
 }
 
 export async function deleteLotFromSortieMpDetailAction(formData: FormData) {
@@ -239,11 +266,5 @@ export async function deleteLotFromSortieMpDetailAction(formData: FormData) {
     throw new Error("Ligne stock matiere premiere invalide.");
   }
 
-  const { error } = await supabaseServer.rpc("stock_mp_delete_lot", { p_lot_id: lotId });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  revalidateMouvementsMpPages();
+  await deleteMpDetailLineAndRedirectIfEmpty(lotId);
 }
