@@ -11,11 +11,11 @@ const mainButtons = [
   },
   {
     label: "Gestion Stock PF",
-    href: "/stock",
+    href: "/gestion-stock-pf",
     icon: "\u{1F4CA}",
     accent: "from-emerald-500 to-teal-400",
     panel: "bg-emerald-50 text-emerald-950 border-emerald-200",
-    pageKey: "stock" as const,
+    pageKey: "gestionStockPf" as const,
   },
   {
     label: "Gestion Stock MP",

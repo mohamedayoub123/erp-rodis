@@ -80,6 +80,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
 
   // Stock
   {
+    key: "gestionStockPf",
+    module: "Stock",
+    label: "Accueil Gestion Stock PF",
+    pathPrefixes: ["/gestion-stock-pf"],
+    hasWrite: false,
+  },
+  {
     key: "stock",
     module: "Stock",
     label: "Stock (liste, modifier, supprimer)",
