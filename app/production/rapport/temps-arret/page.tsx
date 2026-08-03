@@ -25,6 +25,8 @@ type SearchParams = Promise<{
   date_from?: string;
   date_to?: string;
   months?: string | string[];
+  chaine?: string;
+  zone?: string;
   page?: string;
 }>;
 
@@ -148,6 +150,19 @@ export default async function RapportTempsArretPage({
     rows = rows.filter((row) => row.date_jour && selectedMonths.includes(row.date_jour.slice(0, 7)));
   }
 
+  const availableChaines = [...new Set(rows.map((row) => row.chaine).filter(Boolean))].sort() as string[];
+  const availableZones = [...new Set(rows.map((row) => row.zone).filter(Boolean))].sort() as string[];
+
+  const chaineFilter = (params.chaine || "").trim();
+  const zoneFilter = (params.zone || "").trim();
+
+  if (chaineFilter) {
+    rows = rows.filter((row) => row.chaine === chaineFilter);
+  }
+  if (zoneFilter) {
+    rows = rows.filter((row) => row.zone === zoneFilter);
+  }
+
   const enriched = rows
     .map((row) => {
       const rapport = firstRapport(row.production_rapports);
@@ -189,6 +204,8 @@ export default async function RapportTempsArretPage({
     if (dateFrom) qs.set("date_from", dateFrom);
     if (dateTo) qs.set("date_to", dateTo);
     selectedMonths.forEach((month) => qs.append("months", month));
+    if (chaineFilter) qs.set("chaine", chaineFilter);
+    if (zoneFilter) qs.set("zone", zoneFilter);
     return `/production/rapport/temps-arret?${qs.toString()}`;
   };
 
@@ -250,6 +267,39 @@ export default async function RapportTempsArretPage({
                   Effacer
                 </Link>
               </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                Chaine
+                <select
+                  name="chaine"
+                  defaultValue={chaineFilter}
+                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                >
+                  <option value="">Toutes les chaines</option>
+                  {availableChaines.map((chaine) => (
+                    <option key={chaine} value={chaine}>
+                      {chaine}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                Zone
+                <select
+                  name="zone"
+                  defaultValue={zoneFilter}
+                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                >
+                  <option value="">Toutes les zones</option>
+                  {availableZones.map((zone) => (
+                    <option key={zone} value={zone}>
+                      {zone}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             {availableMonths.length > 0 ? (
