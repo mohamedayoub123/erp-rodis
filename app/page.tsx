@@ -18,12 +18,20 @@ const mainButtons = [
     pageKey: "articlesHub" as const,
   },
   {
-    label: "Stock",
+    label: "Gestion Stock PF",
     href: "/stock",
     icon: "\u{1F4CA}",
     accent: "from-emerald-500 to-teal-400",
     panel: "bg-emerald-50 text-emerald-950 border-emerald-200",
     pageKey: "stock" as const,
+  },
+  {
+    label: "Gestion Stock MP",
+    href: "/stock/matiere-premiere",
+    icon: "\u{1F9EA}",
+    accent: "from-cyan-600 to-sky-500",
+    panel: "bg-cyan-50 text-cyan-950 border-cyan-200",
+    pageKey: "stockMatierePremiere" as const,
   },
   {
     label: "Commandes",

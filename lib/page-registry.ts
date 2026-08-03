@@ -86,6 +86,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/stock"],
     legacyWrite: "editStock",
   },
+  {
+    key: "stockMatierePremiere",
+    module: "Stock",
+    label: "Stock Matiere Premiere",
+    pathPrefixes: ["/stock/matiere-premiere"],
+    hasWrite: false,
+  },
 
   // Commandes
   {
