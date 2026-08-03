@@ -1,9 +1,12 @@
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { updateLotMpNoteAction } from "./actions";
+
+const FENETRE_JOURS = 90; // ~3 mois avant peremption
 
 type LotRow = {
   id: number;
@@ -29,7 +32,7 @@ async function fetchAllLots() {
     const { data, error } = await supabaseServer
       .from("lots_matiere_premiere")
       .select("id, nom_article, article_normalise, numero_lot, date_expiration, stock_actuel, note")
-      .order("nom_article", { ascending: true })
+      .order("date_expiration", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -72,7 +75,28 @@ function formatNumber(value: number | null) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ q?: string }>;
+function joursRestants(dateExpiration: string) {
+  const today = new Date().toISOString().slice(0, 10);
+  const msParJour = 1000 * 60 * 60 * 24;
+  return Math.round(
+    (new Date(`${dateExpiration}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / msParJour
+  );
+}
+
+function formatJoursRestants(jours: number) {
+  if (jours < 0) {
+    const retard = Math.abs(jours);
+    return retard >= 60
+      ? `Perime depuis ${Math.round(retard / 30)} mois`
+      : `Perime depuis ${retard} jour${retard > 1 ? "s" : ""}`;
+  }
+  if (jours === 0) return "Perime aujourd'hui";
+  return jours >= 60 ? `Reste ${Math.round(jours / 30)} mois` : `Reste ${jours} jour${jours > 1 ? "s" : ""}`;
+}
+
+type Statut = "tous" | "perime" | "proche";
+
+type SearchParams = Promise<{ q?: string; statut?: string }>;
 
 export default async function StockPerimeMpPage({
   searchParams,
@@ -82,6 +106,9 @@ export default async function StockPerimeMpPage({
   noStore();
   const params = await searchParams;
   const q = (params.q || "").trim().toLowerCase();
+  const statut = (["tous", "perime", "proche"].includes(params.statut || "")
+    ? params.statut
+    : "tous") as Statut;
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "stockPerimeMp");
@@ -91,15 +118,26 @@ export default async function StockPerimeMpPage({
     fetchCategorieByArticle(),
   ]);
 
-  // "Perime" est determine par la date d'expiration reelle (comparee a
-  // aujourd'hui), pas par le texte "Etat" fige au moment de l'import Excel -
-  // un article "Actif" a l'import peut avoir expire depuis.
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const perimes = allLots.filter((lot) => {
-    if (!lot.date_expiration || lot.date_expiration >= todayIso) return false;
+  // Fenetre d'alerte : articles deja perimes OU qui vont perimer dans les
+  // ~3 mois qui viennent - le filtre "perime" permet ensuite de ne garder
+  // que ceux vraiment depasses.
+  const withJours = allLots
+    .filter((lot) => Boolean(lot.date_expiration))
+    .map((lot) => ({ ...lot, jours: joursRestants(lot.date_expiration as string) }))
+    .filter((lot) => lot.jours <= FENETRE_JOURS);
+
+  const filtered = withJours.filter((lot) => {
+    if (statut === "perime" && lot.jours >= 0) return false;
+    if (statut === "proche" && lot.jours < 0) return false;
     if (q && !lot.nom_article.toLowerCase().includes(q)) return false;
     return true;
   });
+
+  const statutTabs: { key: Statut; label: string }[] = [
+    { key: "tous", label: "Tous (perime + < 3 mois)" },
+    { key: "perime", label: "Vraiment perime" },
+    { key: "proche", label: "Bientot perime" },
+  ];
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fef2f2_0%,#fffafa_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -113,7 +151,7 @@ export default async function StockPerimeMpPage({
               Stock Perime MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Tous les articles dont la date d&apos;expiration est depassee.
+              Articles deja perimes ou qui vont perimer dans les 3 prochains mois.
             </p>
           </div>
 
@@ -124,21 +162,40 @@ export default async function StockPerimeMpPage({
         </div>
 
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <form className="flex gap-2 border-b border-slate-100 p-6">
-            <input
-              type="text"
-              name="q"
-              defaultValue={q}
-              placeholder="Rechercher un article..."
-              className="w-full max-w-sm rounded-2xl border border-slate-200 px-4 py-2 text-sm outline-none"
-            />
-            <button
-              type="submit"
-              className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              Filtrer
-            </button>
-          </form>
+          <div className="flex flex-col gap-3 border-b border-slate-100 p-6 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap gap-2">
+              {statutTabs.map((tab) => (
+                <Link
+                  key={tab.key}
+                  href={`/stock/matiere-premiere/perime?statut=${tab.key}&q=${encodeURIComponent(q)}`}
+                  className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                    statut === tab.key
+                      ? "bg-red-600 text-white"
+                      : "border border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                  }`}
+                >
+                  {tab.label}
+                </Link>
+              ))}
+            </div>
+
+            <form className="flex gap-2">
+              <input type="hidden" name="statut" value={statut} />
+              <input
+                type="text"
+                name="q"
+                defaultValue={q}
+                placeholder="Rechercher un article..."
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm outline-none"
+              />
+              <button
+                type="submit"
+                className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+              >
+                Filtrer
+              </button>
+            </form>
+          </div>
 
           {error ? (
             <div className="px-6 py-8">
@@ -146,8 +203,8 @@ export default async function StockPerimeMpPage({
                 {error.message}
               </p>
             </div>
-          ) : perimes.length === 0 ? (
-            <div className="px-6 py-8 text-sm text-slate-500">Aucun article perime pour le moment.</div>
+          ) : filtered.length === 0 ? (
+            <div className="px-6 py-8 text-sm text-slate-500">Aucun article pour le moment.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -157,17 +214,29 @@ export default async function StockPerimeMpPage({
                     <th className="px-6 py-4 font-semibold">Qte</th>
                     <th className="px-6 py-4 font-semibold">Code</th>
                     <th className="px-6 py-4 font-semibold">Categorie</th>
+                    <th className="px-6 py-4 font-semibold">Reste</th>
                     <th className="px-6 py-4 font-semibold">Note</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {perimes.map((lot) => (
+                  {filtered.map((lot) => (
                     <tr key={lot.id} className="border-t border-slate-100 align-top">
                       <td className="px-6 py-4 font-medium text-slate-900">{lot.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(lot.stock_actuel)}</td>
                       <td className="px-6 py-4 text-slate-600">{lot.numero_lot || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {categorieByArticle.get(lot.article_normalise) || "-"}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                            lot.jours < 0
+                              ? "bg-red-100 text-red-800"
+                              : "bg-amber-100 text-amber-800"
+                          }`}
+                        >
+                          {formatJoursRestants(lot.jours)}
+                        </span>
                       </td>
                       <td className="px-6 py-4">
                         {canEdit ? (
