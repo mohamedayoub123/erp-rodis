@@ -115,9 +115,8 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "stockPerimeMp",
     module: "Stock",
-    label: "Stock Perime MP",
+    label: "Stock Perime MP (liste + note)",
     pathPrefixes: ["/stock/matiere-premiere/perime"],
-    hasWrite: false,
   },
   {
     key: "stockDormantMp",
