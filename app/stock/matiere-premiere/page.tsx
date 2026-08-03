@@ -53,6 +53,13 @@ const TILES = [
     icon: "\u{1F6D1}",
     description: "Lots perimes et actifs par article.",
   },
+  {
+    label: "Import",
+    href: "/stock/matiere-premiere/commande",
+    pageKey: "commandeMp",
+    icon: "\u{1F4E5}",
+    description: "Suivi des commandes matiere premiere.",
+  },
 ] as const;
 
 export default async function StockMatierePremierePage() {
