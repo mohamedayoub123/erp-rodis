@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { deleteLotFromSortieMpDetailAction } from "@/app/mouvements/matiere-premiere/actions";
+import {
+  deleteLotFromSortieMpDetailAction,
+  updateLotFromSortieMpDetailAction,
+} from "@/app/mouvements/matiere-premiere/actions";
 import {
   buildSortieMpRows,
   fetchWebMouvementMpSourceRows,
@@ -77,10 +80,69 @@ export default async function SortieMpDetailPage({
                     <td className="px-4 py-3 text-slate-600">{ligne.utilisateur || "-"}</td>
                     {canEditStock ? (
                       <td className="px-4 py-3">
-                        <form action={deleteLotFromSortieMpDetailAction}>
-                          <input type="hidden" name="lot_id" value={ligne.id} />
-                          <DeleteIconButton label="Supprimer ligne" />
-                        </form>
+                        <div className="flex items-start gap-2">
+                          <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                            <summary className="cursor-pointer text-xs font-semibold text-slate-800">
+                              Modifier
+                            </summary>
+                            <form
+                              action={updateLotFromSortieMpDetailAction}
+                              className="mt-2 grid w-56 gap-2"
+                            >
+                              <input type="hidden" name="lot_id" value={ligne.id} />
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Quantite
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  name="quantite"
+                                  defaultValue={ligne.quantite}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                  required
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Client
+                                <input
+                                  type="text"
+                                  name="client"
+                                  defaultValue={ligne.client || ""}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Doss. ERP
+                                <input
+                                  type="text"
+                                  name="n_doss_erp"
+                                  defaultValue={ligne.n_doss_erp || ""}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Doss. 4D
+                                <input
+                                  type="text"
+                                  name="n_doss_4d"
+                                  defaultValue={ligne.n_doss_4d || ""}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                />
+                              </label>
+                              <button
+                                type="submit"
+                                className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                              >
+                                Enregistrer
+                              </button>
+                            </form>
+                          </details>
+
+                          <form action={deleteLotFromSortieMpDetailAction}>
+                            <input type="hidden" name="lot_id" value={ligne.id} />
+                            <DeleteIconButton label="Supprimer ligne" />
+                          </form>
+                        </div>
                       </td>
                     ) : null}
                   </tr>

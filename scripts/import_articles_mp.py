@@ -40,8 +40,9 @@ def build_rows(workbook_path: Path) -> list[dict]:
     rows_by_key: dict[str, dict] = {}
 
     # Colonnes de la feuille Parametres : Reference, Designation, Categorie,
-    # Stock_actuel, Unite, ... - seuls Designation/Categorie/Unite nous
-    # interessent ici (le reste est du calcul de stock, deja gere ailleurs).
+    # Stock_actuel, Unite, N_Rotation, Stock_moyen, CMJ, Seuil_Securite,
+    # Seuil_Alerte, ... - Seuil_Alerte joue le meme role que min_stock sur les
+    # articles Produit Fini (seuil sous lequel l'article est en alerte).
     for row in sheet.iter_rows(min_row=3, values_only=True):
         designation = row[1]
         if not designation:
@@ -53,12 +54,14 @@ def build_rows(workbook_path: Path) -> list[dict]:
 
         categorie = row[2]
         unite = row[4]
+        seuil_alerte = row[9]
 
         rows_by_key[article_normalise] = {
             "nom_article": str(designation).strip(),
             "article_normalise": article_normalise,
             "categorie": str(categorie).strip() if categorie else None,
             "unite": str(unite).strip() if unite else None,
+            "min_stock": float(seuil_alerte) if seuil_alerte not in (None, "") else None,
         }
 
     workbook.close()

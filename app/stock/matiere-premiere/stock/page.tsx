@@ -1,9 +1,14 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
+import {
+  updateLotFromEntreeMpDetailAction,
+  updateLotFromSortieMpDetailAction,
+} from "@/app/mouvements/matiere-premiere/actions";
 
 const PAGE_SIZE = 200;
 
@@ -100,6 +105,11 @@ export default async function StockMatierePremiereStockPage({
 }) {
   noStore();
   const params = await searchParams;
+  const currentStockUser = await getCurrentStockUser();
+  const [canEditEntree, canEditSortie] = await Promise.all([
+    canWritePageUser(currentStockUser, "mouvementsMatierePremiereEntreeDetail"),
+    canWritePageUser(currentStockUser, "mouvementsMatierePremiereSortieDetail"),
+  ]);
   const q = (params.q || "").trim().toLowerCase();
   const codeQ = (params.code_q || "").trim().toLowerCase();
   const dateFrom = (params.date_from || "").trim();
@@ -389,6 +399,7 @@ export default async function StockMatierePremiereStockPage({
                     <th className="px-4 py-3 font-semibold">Doss. ERP</th>
                     <th className="px-4 py-3 font-semibold">Doss. 4D</th>
                     <th className="px-4 py-3 font-semibold">Saisi par</th>
+                    <th className="px-4 py-3 font-semibold">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -425,6 +436,116 @@ export default async function StockMatierePremiereStockPage({
                       <td className="px-4 py-3 text-slate-600">{row.n_doss_erp || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.n_doss_4d || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.utilisateur || "-"}</td>
+                      <td className="px-4 py-3">
+                        {row.mouvement_type === "entree" && canEditEntree ? (
+                          <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                            <summary className="cursor-pointer text-xs font-semibold text-slate-800">
+                              Modifier
+                            </summary>
+                            <form
+                              action={updateLotFromEntreeMpDetailAction}
+                              className="mt-2 grid w-64 gap-2"
+                            >
+                              <input type="hidden" name="lot_id" value={row.id} />
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Quantite
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  name="quantite"
+                                  defaultValue={row.qte_entree}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                  required
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Lot
+                                <input
+                                  type="text"
+                                  name="numero_lot"
+                                  defaultValue={row.numero_lot || ""}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Fabrication
+                                <input
+                                  type="date"
+                                  name="date_fabrication"
+                                  defaultValue={row.date_fabrication || ""}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Expiration
+                                <input
+                                  type="date"
+                                  name="date_expiration"
+                                  defaultValue={row.date_expiration || ""}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Fournisseur
+                                <input
+                                  type="text"
+                                  name="fournisseur"
+                                  defaultValue={row.fournisseur || ""}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                />
+                              </label>
+                              <button
+                                type="submit"
+                                className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                              >
+                                Enregistrer
+                              </button>
+                            </form>
+                          </details>
+                        ) : row.mouvement_type === "sortie" && canEditSortie ? (
+                          <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                            <summary className="cursor-pointer text-xs font-semibold text-slate-800">
+                              Modifier
+                            </summary>
+                            <form
+                              action={updateLotFromSortieMpDetailAction}
+                              className="mt-2 grid w-56 gap-2"
+                            >
+                              <input type="hidden" name="lot_id" value={row.id} />
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Quantite
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  name="quantite"
+                                  defaultValue={row.qte_sortie}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                  required
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Client
+                                <input
+                                  type="text"
+                                  name="client"
+                                  defaultValue={row.client || ""}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                />
+                              </label>
+                              <button
+                                type="submit"
+                                className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                              >
+                                Enregistrer
+                              </button>
+                            </form>
+                          </details>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
