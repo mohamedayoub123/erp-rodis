@@ -5,8 +5,6 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
-import { updateCommandeBcMpAction } from "./actions";
-import { STATUT_BC_OPTIONS } from "./constants";
 
 type CommandeBcRow = {
   id: number;
@@ -17,6 +15,16 @@ type CommandeBcRow = {
   n_doss_erp: string | null;
   statut: string;
   date_jour: string | null;
+};
+
+type BcGroup = {
+  code: string;
+  n_doss_4d: string | null;
+  n_doss_erp: string | null;
+  statut: string;
+  date_jour: string | null;
+  nbArticles: number;
+  quantiteTotale: number;
 };
 
 async function fetchAllCommandesBc() {
@@ -43,11 +51,6 @@ async function fetchAllCommandesBc() {
   return { rows, error: null };
 }
 
-function formatNumber(value: number | null) {
-  if (value === null || value === undefined) return "-";
-  return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
-}
-
 function statutBadgeClass(statut: string) {
   switch (statut) {
     case "Stand":
@@ -65,9 +68,34 @@ export default async function CommandeBcMpPage() {
   noStore();
   const currentUser = await getCurrentStockUser();
   const canWriteNouvelle = await canWritePageUser(currentUser, "commandeBcMpNouvelle");
-  const canEdit = await canWritePageUser(currentUser, "commandeBcMp");
 
-  const { rows: commandes, error } = await fetchAllCommandesBc();
+  const { rows, error } = await fetchAllCommandesBc();
+
+  const byCode = new Map<string, CommandeBcRow[]>();
+  for (const row of rows) {
+    const list = byCode.get(row.code) ?? [];
+    list.push(row);
+    byCode.set(row.code, list);
+  }
+
+  const groups: BcGroup[] = [...byCode.entries()]
+    .map(([code, groupRows]) => {
+      const first = groupRows[0];
+      return {
+        code,
+        n_doss_4d: first.n_doss_4d,
+        n_doss_erp: first.n_doss_erp,
+        statut: first.statut,
+        date_jour: first.date_jour,
+        nbArticles: groupRows.length,
+        quantiteTotale: groupRows.reduce((sum, row) => sum + Number(row.quantite ?? 0), 0),
+      };
+    })
+    .sort((a, b) => {
+      const numA = Number(a.code.replace("BC", ""));
+      const numB = Number(b.code.replace("BC", ""));
+      return numB - numA;
+    });
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -81,7 +109,7 @@ export default async function CommandeBcMpPage() {
               Commande MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Bons de commande matiere premiere (BC) : article, quantite, dossier, statut.
+              Bons de commande matiere premiere (BC) - un BC peut regrouper plusieurs articles.
             </p>
           </div>
 
@@ -106,7 +134,7 @@ export default async function CommandeBcMpPage() {
                 {error.message}
               </p>
             </div>
-          ) : commandes.length === 0 ? (
+          ) : groups.length === 0 ? (
             <div className="px-6 py-8 text-sm text-slate-500">Aucune commande pour le moment.</div>
           ) : (
             <div className="overflow-x-auto">
@@ -114,99 +142,39 @@ export default async function CommandeBcMpPage() {
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-6 py-4 font-semibold">BC</th>
-                    <th className="px-6 py-4 font-semibold">Article</th>
-                    <th className="px-6 py-4 font-semibold">Qte</th>
+                    <th className="px-6 py-4 font-semibold">Nb articles</th>
+                    <th className="px-6 py-4 font-semibold">Qte totale</th>
                     <th className="px-6 py-4 font-semibold">Doss. 4D</th>
                     <th className="px-6 py-4 font-semibold">Doss. ERP</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
                     <th className="px-6 py-4 font-semibold">Date</th>
-                    {canEdit ? <th className="px-6 py-4 font-semibold">Modifier</th> : null}
                   </tr>
                 </thead>
                 <tbody>
-                  {commandes.map((commande) => (
-                    <tr key={commande.id} className="border-t border-slate-100 align-top">
-                      <td className="px-6 py-4 font-semibold text-slate-900">{commande.code}</td>
-                      <td className="px-6 py-4 font-medium text-slate-900">
-                        {commande.article_label || "-"}
+                  {groups.map((group) => (
+                    <tr key={group.code} className="border-t border-slate-100">
+                      <td className="px-6 py-4 font-semibold">
+                        <Link
+                          href={`/stock/matiere-premiere/bc/${group.code}`}
+                          className="text-sky-700 underline"
+                        >
+                          {group.code}
+                        </Link>
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(commande.quantite)}</td>
-                      <td className="px-6 py-4 text-slate-600">{commande.n_doss_4d || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{commande.n_doss_erp || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{group.nbArticles}</td>
+                      <td className="px-6 py-4 text-slate-900">{group.quantiteTotale}</td>
+                      <td className="px-6 py-4 text-slate-600">{group.n_doss_4d || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{group.n_doss_erp || "-"}</td>
                       <td className="px-6 py-4">
                         <span
                           className={`rounded-full px-3 py-1 text-xs font-semibold ${statutBadgeClass(
-                            commande.statut
+                            group.statut
                           )}`}
                         >
-                          {commande.statut}
+                          {group.statut}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{formatDate(commande.date_jour)}</td>
-                      {canEdit ? (
-                        <td className="px-6 py-4">
-                          <details className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                            <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-                              Modifier
-                            </summary>
-
-                            <form action={updateCommandeBcMpAction} className="mt-4 grid w-64 gap-3">
-                              <input type="hidden" name="bc_id" value={commande.id} />
-                              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                                Quantite
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  name="quantite"
-                                  defaultValue={commande.quantite ?? ""}
-                                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                                Doss. 4D
-                                <input
-                                  type="text"
-                                  name="n_doss_4d"
-                                  defaultValue={commande.n_doss_4d || ""}
-                                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                                Doss. ERP
-                                <input
-                                  type="text"
-                                  name="n_doss_erp"
-                                  defaultValue={commande.n_doss_erp || ""}
-                                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                                Statut
-                                <select
-                                  name="statut"
-                                  defaultValue={commande.statut}
-                                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none"
-                                >
-                                  {STATUT_BC_OPTIONS.map((option) => (
-                                    <option key={option} value={option}>
-                                      {option}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <div>
-                                <button
-                                  type="submit"
-                                  className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                                >
-                                  Enregistrer
-                                </button>
-                              </div>
-                            </form>
-                          </details>
-                        </td>
-                      ) : null}
+                      <td className="px-6 py-4 text-slate-600">{formatDate(group.date_jour)}</td>
                     </tr>
                   ))}
                 </tbody>
