@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 const TILES = [
   {
@@ -40,7 +41,10 @@ export default function StockMatierePremierePage() {
               </p>
             </div>
 
-            <BackButton href="/" label="Retour accueil" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/" label="Retour accueil" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

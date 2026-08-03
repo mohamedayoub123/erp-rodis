@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default function MouvementsHubPage() {
   return (
@@ -16,7 +17,10 @@ export default function MouvementsHubPage() {
               </h1>
             </div>
 
-            <BackButton href="/gestion-stock-pf" label="Retour gestion stock PF" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/gestion-stock-pf" label="Retour gestion stock PF" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

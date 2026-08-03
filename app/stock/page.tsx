@@ -5,6 +5,7 @@ import { deleteLotStockAction, updateLotStockAction } from "./actions";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 
@@ -379,6 +380,7 @@ export default async function StockPage({
 
             <div className="flex items-center gap-3">
               <BackButton href="/gestion-stock-pf" label="Retour gestion stock PF" />
+              <RefreshButton />
               {canWriteMouvements ? (
                 <>
                   <Link

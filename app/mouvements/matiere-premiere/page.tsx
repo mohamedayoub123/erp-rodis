@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default function MouvementsMatierePremierePage() {
   return (
@@ -21,6 +22,7 @@ export default function MouvementsMatierePremierePage() {
 
             <div className="flex flex-wrap items-center gap-2">
               <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
+              <RefreshButton />
               <Link
                 href="/mouvements/matiere-premiere/entree"
                 className="rounded-full bg-emerald-700 px-5 py-2 text-sm font-semibold text-white"

@@ -1,4 +1,5 @@
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default function ArticlesMatierePremierePage() {
   return (
@@ -15,7 +16,10 @@ export default function ArticlesMatierePremierePage() {
               </h1>
             </div>
 
-            <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 
