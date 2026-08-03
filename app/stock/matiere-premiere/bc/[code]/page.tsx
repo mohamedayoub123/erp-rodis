@@ -21,6 +21,7 @@ type CommandeBcRow = {
   n_doss_4d: string | null;
   n_doss_erp: string | null;
   date_jour: string | null;
+  statut: string | null;
 };
 
 type ImportEvenementRow = {
@@ -35,7 +36,7 @@ type ImportEvenementRow = {
 async function fetchGroup(code: string) {
   const { data, error } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, date_jour")
+    .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, date_jour, statut")
     .eq("code", code)
     .order("id", { ascending: true });
 
@@ -168,7 +169,7 @@ export default async function CommandeBcMpDetailPage({
                         (sum, imp) => sum + Number(imp.quantite_importee ?? 0),
                         0
                       );
-                      const statut = computeStatutBc(quantite, quantiteImportee);
+                      const statut = computeStatutBc(quantite, quantiteImportee, row.statut);
                       const reste = quantite - quantiteImportee;
 
                       return (

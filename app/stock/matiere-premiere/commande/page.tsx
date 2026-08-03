@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
 import { encodeDossierId } from "./dossier-id";
+import { updateDossierMpStatutAction } from "./actions";
+import { STATUT_DOSSIER_MP_OPTIONS, statutDossierMpBadgeClass } from "./constants";
 
 type ImportRow = {
   id: number;
@@ -15,13 +18,24 @@ type ImportRow = {
   date_import: string | null;
 };
 
+type DossierStatutRow = {
+  n_doss_4d: string | null;
+  n_doss_erp: string | null;
+  statut: string;
+};
+
 type DossierGroup = {
   nDoss4d: string | null;
   nDossErp: string | null;
   nbArticles: number;
   quantiteTotale: number;
   dateRecente: string | null;
+  statut: string;
 };
+
+function dossierKey(nDoss4d: string | null, nDossErp: string | null) {
+  return `${nDoss4d ?? ""}|||${nDossErp ?? ""}`;
+}
 
 async function fetchAllImports() {
   const rows: ImportRow[] = [];
@@ -47,21 +61,41 @@ async function fetchAllImports() {
   return { rows, error: null };
 }
 
+async function fetchAllDossierStatuts() {
+  const { data, error } = await supabaseServer
+    .from("dossiers_import_mp_statut")
+    .select("n_doss_4d, n_doss_erp, statut");
+
+  if (error) return { rows: [] as DossierStatutRow[], error };
+
+  return { rows: (data ?? []) as DossierStatutRow[], error: null };
+}
+
 export default async function CommandeMpPage() {
   noStore();
 
-  const { rows, error } = await fetchAllImports();
+  const currentUser = await getCurrentStockUser();
+  const canEdit = await canWritePageUser(currentUser, "commandeMp");
+
+  const [{ rows, error }, { rows: statutRows }] = await Promise.all([
+    fetchAllImports(),
+    fetchAllDossierStatuts(),
+  ]);
+
+  const statutByDossier = new Map(
+    statutRows.map((row) => [dossierKey(row.n_doss_4d, row.n_doss_erp), row.statut])
+  );
 
   const byDossier = new Map<string, ImportRow[]>();
   for (const row of rows) {
-    const key = `${row.n_doss_4d_import ?? ""}|||${row.n_doss_erp_import ?? ""}`;
+    const key = dossierKey(row.n_doss_4d_import, row.n_doss_erp_import);
     const list = byDossier.get(key) ?? [];
     list.push(row);
     byDossier.set(key, list);
   }
 
-  const groups: DossierGroup[] = [...byDossier.values()]
-    .map((groupRows) => {
+  const groups: DossierGroup[] = [...byDossier.entries()]
+    .map(([key, groupRows]) => {
       const first = groupRows[0];
       return {
         nDoss4d: first.n_doss_4d_import,
@@ -73,6 +107,7 @@ export default async function CommandeMpPage() {
           if (!latest || row.date_import > latest) return row.date_import;
           return latest;
         }, null),
+        statut: statutByDossier.get(key) ?? STATUT_DOSSIER_MP_OPTIONS[0],
       };
     })
     .sort((a, b) => (b.dateRecente ?? "").localeCompare(a.dateRecente ?? ""));
@@ -117,6 +152,7 @@ export default async function CommandeMpPage() {
                     <th className="px-6 py-4 font-semibold">Nb articles</th>
                     <th className="px-6 py-4 font-semibold">Qte importee</th>
                     <th className="px-6 py-4 font-semibold">Date recente</th>
+                    <th className="px-6 py-4 font-semibold">Statut</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -137,6 +173,41 @@ export default async function CommandeMpPage() {
                         <td className="px-6 py-4 text-slate-600">{group.nbArticles}</td>
                         <td className="px-6 py-4 text-slate-900">{group.quantiteTotale}</td>
                         <td className="px-6 py-4 text-slate-600">{formatDate(group.dateRecente)}</td>
+                        <td className="px-6 py-4">
+                          {canEdit ? (
+                            <form action={updateDossierMpStatutAction} className="flex items-center gap-2">
+                              <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
+                              <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
+                              <select
+                                name="statut"
+                                defaultValue={group.statut}
+                                className={`rounded-full border-none px-3 py-1 text-xs font-semibold outline-none ${statutDossierMpBadgeClass(
+                                  group.statut
+                                )}`}
+                              >
+                                {STATUT_DOSSIER_MP_OPTIONS.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="submit"
+                                className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800"
+                              >
+                                OK
+                              </button>
+                            </form>
+                          ) : (
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-semibold ${statutDossierMpBadgeClass(
+                                group.statut
+                              )}`}
+                            >
+                              {group.statut}
+                            </span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}

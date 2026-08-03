@@ -15,6 +15,7 @@ type CommandeBcRow = {
   n_doss_4d: string | null;
   n_doss_erp: string | null;
   date_jour: string | null;
+  statut: string | null;
 };
 
 type ImportEvenementRow = {
@@ -30,6 +31,7 @@ type BcGroup = {
   nbArticles: number;
   quantiteTotale: number;
   quantiteImporteeTotale: number;
+  statutLigne: string | null;
 };
 
 async function fetchAllCommandesBc() {
@@ -40,7 +42,7 @@ async function fetchAllCommandesBc() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("bons_commande_matiere_premiere")
-      .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, date_jour")
+      .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, date_jour, statut")
       .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
 
@@ -114,6 +116,10 @@ export default async function CommandeBcMpPage() {
           (sum, row) => sum + (importeeParLigne.get(row.id) ?? 0),
           0
         ),
+        // Un BC groupe peut avoir plusieurs lignes/articles - si au moins
+        // une a ete marquee "Receptionne" a la main, le badge du groupe
+        // affiche ce statut en priorite (coherent avec le detail par ligne).
+        statutLigne: groupRows.some((row) => row.statut === "Receptionne") ? "Receptionne" : null,
       };
     })
     .sort((a, b) => {
@@ -179,7 +185,11 @@ export default async function CommandeBcMpPage() {
                 </thead>
                 <tbody>
                   {groups.map((group) => {
-                    const statut = computeStatutBc(group.quantiteTotale, group.quantiteImporteeTotale);
+                    const statut = computeStatutBc(
+                      group.quantiteTotale,
+                      group.quantiteImporteeTotale,
+                      group.statutLigne
+                    );
                     const reste = group.quantiteTotale - group.quantiteImporteeTotale;
 
                     return (

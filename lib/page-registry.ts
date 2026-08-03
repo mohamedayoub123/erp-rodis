@@ -135,9 +135,8 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "commandeMp",
     module: "Stock",
-    label: "Import MP (vue calculee)",
+    label: "Import MP (vue calculee, reception, statut dossier)",
     pathPrefixes: ["/stock/matiere-premiere/commande"],
-    hasWrite: false,
   },
   {
     key: "commandeBcMp",
