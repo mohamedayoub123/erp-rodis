@@ -5,6 +5,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
+import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { encodeDossierId } from "./dossier-id";
 import { updateDossierMpStatutAction } from "./actions";
 import { STATUT_DOSSIER_MP_OPTIONS, statutDossierMpBadgeClass } from "./constants";
@@ -22,6 +23,7 @@ type DossierStatutRow = {
   n_doss_4d: string | null;
   n_doss_erp: string | null;
   statut: string;
+  date_prevue_reception: string | null;
 };
 
 type DossierGroup = {
@@ -31,6 +33,7 @@ type DossierGroup = {
   quantiteTotale: number;
   dateRecente: string | null;
   statut: string;
+  datePrevueReception: string | null;
 };
 
 function dossierKey(nDoss4d: string | null, nDossErp: string | null) {
@@ -64,7 +67,7 @@ async function fetchAllImports() {
 async function fetchAllDossierStatuts() {
   const { data, error } = await supabaseServer
     .from("dossiers_import_mp_statut")
-    .select("n_doss_4d, n_doss_erp, statut");
+    .select("n_doss_4d, n_doss_erp, statut, date_prevue_reception");
 
   if (error) return { rows: [] as DossierStatutRow[], error };
 
@@ -83,7 +86,10 @@ export default async function CommandeMpPage() {
   ]);
 
   const statutByDossier = new Map(
-    statutRows.map((row) => [dossierKey(row.n_doss_4d, row.n_doss_erp), row.statut])
+    statutRows.map((row) => [
+      dossierKey(row.n_doss_4d, row.n_doss_erp),
+      { statut: row.statut, datePrevueReception: row.date_prevue_reception },
+    ])
   );
 
   const byDossier = new Map<string, ImportRow[]>();
@@ -97,6 +103,7 @@ export default async function CommandeMpPage() {
   const groups: DossierGroup[] = [...byDossier.entries()]
     .map(([key, groupRows]) => {
       const first = groupRows[0];
+      const statutInfo = statutByDossier.get(key);
       return {
         nDoss4d: first.n_doss_4d_import,
         nDossErp: first.n_doss_erp_import,
@@ -107,7 +114,8 @@ export default async function CommandeMpPage() {
           if (!latest || row.date_import > latest) return row.date_import;
           return latest;
         }, null),
-        statut: statutByDossier.get(key) ?? STATUT_DOSSIER_MP_OPTIONS[0],
+        statut: statutInfo?.statut ?? STATUT_DOSSIER_MP_OPTIONS[0],
+        datePrevueReception: statutInfo?.datePrevueReception ?? null,
       };
     })
     .sort((a, b) => (b.dateRecente ?? "").localeCompare(a.dateRecente ?? ""));
@@ -153,6 +161,7 @@ export default async function CommandeMpPage() {
                     <th className="px-6 py-4 font-semibold">Qte importee</th>
                     <th className="px-6 py-4 font-semibold">Date recente</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
+                    <th className="px-6 py-4 font-semibold">Date prevue reception</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -206,6 +215,27 @@ export default async function CommandeMpPage() {
                             >
                               {group.statut}
                             </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          {canEdit ? (
+                            <form action={updateDossierMpStatutAction} className="flex items-center gap-2">
+                              <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
+                              <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
+                              <input type="hidden" name="statut" value={group.statut} />
+                              <DateJmaFormField
+                                name="date_prevue_reception"
+                                defaultValue={group.datePrevueReception}
+                              />
+                              <button
+                                type="submit"
+                                className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800"
+                              >
+                                OK
+                              </button>
+                            </form>
+                          ) : (
+                            <span className="text-slate-600">{formatDate(group.datePrevueReception)}</span>
                           )}
                         </td>
                       </tr>

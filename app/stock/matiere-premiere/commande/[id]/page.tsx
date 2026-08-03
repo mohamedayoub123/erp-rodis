@@ -24,7 +24,6 @@ type BcLigneRow = {
   id: number;
   code: string;
   article_label: string | null;
-  quantite: number | null;
   statut: string | null;
 };
 
@@ -47,7 +46,7 @@ async function fetchBcLignes(ligneIds: number[]) {
 
   const { data } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id, code, article_label, quantite, statut")
+    .select("id, code, article_label, statut")
     .in("id", ligneIds);
 
   return (data ?? []) as BcLigneRow[];
@@ -123,7 +122,6 @@ export default async function ImportMpDossierPage({
                     <tr>
                       <th className="px-4 py-3 font-semibold">BC</th>
                       <th className="px-4 py-3 font-semibold">Article</th>
-                      <th className="px-4 py-3 font-semibold">Qte commandee</th>
                       <th className="px-4 py-3 font-semibold">Qte receptionnee</th>
                       <th className="px-4 py-3 font-semibold">Statut</th>
                       {canEdit ? <th className="px-4 py-3 font-semibold">Action</th> : null}
@@ -141,7 +139,6 @@ export default async function ImportMpDossierPage({
                           <td className="px-4 py-3 font-medium text-slate-900">
                             {ligne.article_label || "-"}
                           </td>
-                          <td className="px-4 py-3 text-slate-900">{ligne.quantite ?? "-"}</td>
                           <td className="px-4 py-3 text-slate-600">{quantiteReceptionnee}</td>
                           <td className="px-4 py-3">
                             <span

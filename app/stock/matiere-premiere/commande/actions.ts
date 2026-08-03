@@ -16,32 +16,50 @@ async function requireEditAccess() {
   if (!(await canWritePageUser(currentUser, "commandeMp"))) {
     throw new Error("Cet utilisateur ne peut pas modifier les imports.");
   }
+
+  return currentUser;
 }
 
 function revalidateCommandeMpPages() {
   revalidatePath("/stock/matiere-premiere/bc");
   revalidatePath("/stock/matiere-premiere/commande");
+  revalidatePath("/stock/matiere-premiere/stock");
+  revalidatePath("/stock/matiere-premiere/alerte");
+  revalidatePath("/mouvements/matiere-premiere");
+  revalidatePath("/dashboard");
 }
 
 // Enregistre une reception (numero de lot, dates, quantite) pour une ligne
 // de commande, depuis le detail d'un dossier Import. Contrairement a
 // "Creer import" (bc/actions.ts), la quantite receptionnee peut etre plus
 // petite OU plus grande que la quantite commandee - des qu'on receptionne,
-// la ligne passe au statut "Receptionne" (vert), quel que soit l'ecart.
+// la ligne passe au statut "Receptionne" (vert), quel que soit l'ecart. La
+// quantite receptionnee entre aussi reellement dans le stock MP (meme table
+// lots_stock_matiere_premiere que les entrees classiques), sinon le Stock MP
+// et le Stock Alert MP ne bougeraient jamais suite a une reception.
 export async function createReceptionMpAction(formData: FormData) {
-  await requireEditAccess();
+  const currentUser = await requireEditAccess();
 
   const bcLigneId = Number(String(formData.get("bc_ligne_id") || "0"));
   const quantiteRaw = String(formData.get("quantite_importee") || "").trim().replace(",", ".");
   const quantiteImportee = quantiteRaw ? Number(quantiteRaw) : null;
+  const numeroLot = parseOptionalText(formData, "numero_lot");
+  const dateFabrication = parseOptionalText(formData, "date_fabrication");
+  const dateExpiration = parseOptionalText(formData, "date_expiration");
+  const nDoss4dImport = parseOptionalText(formData, "n_doss_4d_import");
+  const nDossErpImport = parseOptionalText(formData, "n_doss_erp_import");
 
   if (!bcLigneId || quantiteImportee === null || Number.isNaN(quantiteImportee) || quantiteImportee <= 0) {
     throw new Error("Quantite receptionnee invalide.");
   }
 
+  if (!numeroLot) {
+    throw new Error("Le numero de lot est obligatoire pour receptionner.");
+  }
+
   const { data: ligneRow, error: ligneError } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id")
+    .select("id, article_id")
     .eq("id", bcLigneId)
     .maybeSingle();
 
@@ -49,20 +67,76 @@ export async function createReceptionMpAction(formData: FormData) {
     throw new Error("Ligne de commande introuvable.");
   }
 
-  const { error: insertError } = await supabaseServer.from("bons_commande_mp_imports").insert([
+  const articleId = (ligneRow as { article_id: number | null }).article_id;
+
+  if (!articleId) {
+    throw new Error(
+      "Cet article n'est pas reconnu dans Articles Matiere Premiere - impossible de l'ajouter au stock. Verifie l'orthographe de l'article sur la commande."
+    );
+  }
+
+  const { data: articleRow } = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select("unite")
+    .eq("id", articleId)
+    .maybeSingle();
+
+  const unite = (articleRow as { unite: string | null } | null)?.unite ?? null;
+
+  const { error: insertImportError } = await supabaseServer.from("bons_commande_mp_imports").insert([
     {
       bc_ligne_id: bcLigneId,
       quantite_importee: quantiteImportee,
-      n_doss_4d_import: parseOptionalText(formData, "n_doss_4d_import"),
-      n_doss_erp_import: parseOptionalText(formData, "n_doss_erp_import"),
-      numero_lot: parseOptionalText(formData, "numero_lot"),
-      date_fabrication: parseOptionalText(formData, "date_fabrication"),
-      date_expiration: parseOptionalText(formData, "date_expiration"),
+      n_doss_4d_import: nDoss4dImport,
+      n_doss_erp_import: nDossErpImport,
+      numero_lot: numeroLot,
+      date_fabrication: dateFabrication,
+      date_expiration: dateExpiration,
     },
   ]);
 
-  if (insertError) {
-    throw new Error(insertError.message);
+  if (insertImportError) {
+    throw new Error(insertImportError.message);
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const { data: lotRow, error: insertLotError } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .insert([
+      {
+        article_id: articleId,
+        date_jour: today,
+        date_reception: today,
+        numero_lot: numeroLot,
+        code_normalise: numeroLot.toUpperCase(),
+        date_fabrication: dateFabrication,
+        date_expiration: dateExpiration,
+        qte_entree: quantiteImportee,
+        qte_sortie: 0,
+        unite,
+        n_doss_erp: nDossErpImport,
+        n_doss_4d: nDoss4dImport,
+        utilisateur: currentUser,
+        source_import: "web:entree-mp",
+      },
+    ])
+    .select("id")
+    .single();
+
+  if (insertLotError) {
+    throw new Error(insertLotError.message);
+  }
+
+  const lotId = (lotRow as { id: number }).id;
+
+  const { error: groupError } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .update({ mouvement_groupe_id: lotId })
+    .eq("id", lotId);
+
+  if (groupError) {
+    throw new Error(groupError.message);
   }
 
   const { error: updateError } = await supabaseServer
@@ -78,15 +152,17 @@ export async function createReceptionMpAction(formData: FormData) {
 }
 
 // Statut de suivi manuel d'un dossier Import (Fabrication -> Import ->
-// Receptionne au port -> Receptionne Rodis). Un dossier n'a pas de table
-// propre - identifie par la paire (n_doss_4d, n_doss_erp), comme partout
-// ailleurs dans cette fonctionnalite.
+// Receptionne au port -> Receptionne Rodis) + date prevue de reception
+// (saisie manuelle). Un dossier n'a pas de table propre - identifie par la
+// paire (n_doss_4d, n_doss_erp), comme partout ailleurs dans cette
+// fonctionnalite.
 export async function updateDossierMpStatutAction(formData: FormData) {
   await requireEditAccess();
 
   const nDoss4d = parseOptionalText(formData, "n_doss_4d");
   const nDossErp = parseOptionalText(formData, "n_doss_erp");
   const statut = String(formData.get("statut") || "").trim();
+  const datePrevueReception = parseOptionalText(formData, "date_prevue_reception");
 
   if (!(STATUT_DOSSIER_MP_OPTIONS as readonly string[]).includes(statut)) {
     throw new Error("Statut invalide.");
@@ -100,14 +176,14 @@ export async function updateDossierMpStatutAction(formData: FormData) {
   if (existing) {
     const { error } = await supabaseServer
       .from("dossiers_import_mp_statut")
-      .update({ statut, updated_at: new Date().toISOString() })
+      .update({ statut, date_prevue_reception: datePrevueReception, updated_at: new Date().toISOString() })
       .eq("id", (existing as { id: number }).id);
 
     if (error) throw new Error(error.message);
   } else {
     const { error } = await supabaseServer
       .from("dossiers_import_mp_statut")
-      .insert([{ n_doss_4d: nDoss4d, n_doss_erp: nDossErp, statut }]);
+      .insert([{ n_doss_4d: nDoss4d, n_doss_erp: nDossErp, statut, date_prevue_reception: datePrevueReception }]);
 
     if (error) throw new Error(error.message);
   }
