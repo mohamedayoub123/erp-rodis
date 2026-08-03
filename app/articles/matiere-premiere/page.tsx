@@ -14,6 +14,8 @@ type ArticleMpRow = {
   categorie: string | null;
   unite: string | null;
   gamme: string | null;
+  min_stock: number | null;
+  max_stock: number | null;
 };
 
 async function fetchAllArticlesMp() {
@@ -24,7 +26,7 @@ async function fetchAllArticlesMp() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite, gamme")
+      .select("id, nom_article, categorie, unite, gamme, min_stock, max_stock")
       .order("nom_article", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -176,6 +178,8 @@ export default async function ArticlesMatierePremierePage({
                       <th className="px-6 py-4 font-semibold">Categorie</th>
                       <th className="px-6 py-4 font-semibold">Unite</th>
                       <th className="px-6 py-4 font-semibold">Gamme</th>
+                      <th className="px-6 py-4 font-semibold">Stock min</th>
+                      <th className="px-6 py-4 font-semibold">Stock max</th>
                       {canEditArticles ? <th className="px-6 py-4 font-semibold">Modifier</th> : null}
                     </tr>
                   </thead>
@@ -186,6 +190,8 @@ export default async function ArticlesMatierePremierePage({
                         <td className="px-6 py-4 text-slate-600">{article.categorie || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.unite || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.gamme || "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{article.min_stock ?? "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{article.max_stock ?? "-"}</td>
                         {canEditArticles ? (
                           <td className="px-6 py-4">
                             <details className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -223,6 +229,24 @@ export default async function ArticlesMatierePremierePage({
                                   placeholder="Gamme"
                                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                                 />
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    name="min_stock"
+                                    defaultValue={article.min_stock ?? ""}
+                                    placeholder="Stock min"
+                                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                                  />
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    name="max_stock"
+                                    defaultValue={article.max_stock ?? ""}
+                                    placeholder="Stock max"
+                                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                                  />
+                                </div>
 
                                 <div>
                                   <button

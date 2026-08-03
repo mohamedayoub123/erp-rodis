@@ -60,6 +60,22 @@ export default async function NouvelArticleMpPage() {
                 placeholder="Gamme"
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
               />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  name="min_stock"
+                  placeholder="Stock min"
+                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  name="max_stock"
+                  placeholder="Stock max"
+                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                />
+              </div>
 
               <div>
                 <button

@@ -5,7 +5,14 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 function normalizeArticle(value: string) {
-  return value.replace(/ /g, "").trim().toUpperCase();
+  return value.replace(/ /g, "").trim().toUpperCase();
+}
+
+function parseOptionalNumber(formData: FormData, name: string) {
+  const raw = String(formData.get(name) || "").trim().replace(",", ".");
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isNaN(value) ? null : value;
 }
 
 async function requireWriteAccess() {
@@ -37,6 +44,8 @@ export async function createArticleMpAction(formData: FormData) {
   const categorie = String(formData.get("categorie") || "").trim();
   const unite = String(formData.get("unite") || "").trim();
   const gamme = String(formData.get("gamme") || "").trim();
+  const minStock = parseOptionalNumber(formData, "min_stock");
+  const maxStock = parseOptionalNumber(formData, "max_stock");
 
   if (!nomArticle) {
     throw new Error("Le nom de l'article est obligatoire.");
@@ -61,6 +70,8 @@ export async function createArticleMpAction(formData: FormData) {
       categorie: categorie || null,
       unite: unite || null,
       gamme: gamme || null,
+      min_stock: minStock,
+      max_stock: maxStock,
     },
   ]);
 
@@ -79,6 +90,8 @@ export async function updateArticleMpAction(formData: FormData) {
   const categorie = String(formData.get("categorie") || "").trim();
   const unite = String(formData.get("unite") || "").trim();
   const gamme = String(formData.get("gamme") || "").trim();
+  const minStock = parseOptionalNumber(formData, "min_stock");
+  const maxStock = parseOptionalNumber(formData, "max_stock");
 
   if (!articleId || !nomArticle) {
     throw new Error("Article invalide.");
@@ -105,6 +118,8 @@ export async function updateArticleMpAction(formData: FormData) {
       categorie: categorie || null,
       unite: unite || null,
       gamme: gamme || null,
+      min_stock: minStock,
+      max_stock: maxStock,
     })
     .eq("id", articleId);
 
