@@ -1,10 +1,30 @@
+import { supabaseServer } from "@/lib/supabase-server";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { EntreeMpClient } from "./entree-client";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 
-export default function MouvementsMatierePremiereEntreePage() {
+export default async function MouvementsMatierePremiereEntreePage() {
+  const currentStockUser = await getCurrentStockUser();
+  const canWriteMouvements = await canWritePageUser(currentStockUser, "mouvementsMatierePremiereEntree");
+
+  const { data: articlesData } = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select("id, nom_article, unite")
+    .order("nom_article", { ascending: true })
+    .limit(10000);
+
+  const articles = (
+    (articlesData as { id: number; nom_article: string; unite: string | null }[] | null) ?? []
+  ).map((article) => ({
+    id: article.id,
+    label: article.nom_article,
+    unite: article.unite || "",
+  }));
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
-      <div className="mx-auto w-full max-w-3xl space-y-6">
+      <div className="mx-auto w-full space-y-6">
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -23,9 +43,7 @@ export default function MouvementsMatierePremiereEntreePage() {
           </div>
         </section>
 
-        <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          Formulaire en attente de configuration.
-        </section>
+        <EntreeMpClient articles={articles} canWrite={canWriteMouvements} />
       </div>
     </main>
   );
