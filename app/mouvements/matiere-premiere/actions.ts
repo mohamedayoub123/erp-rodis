@@ -268,3 +268,82 @@ export async function deleteLotFromSortieMpDetailAction(formData: FormData) {
 
   await deleteMpDetailLineAndRedirectIfEmpty(lotId);
 }
+
+function parseOptionalNumber(formData: FormData, name: string) {
+  const raw = String(formData.get(name) || "").trim().replace(",", ".");
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isNaN(value) ? null : value;
+}
+
+function parseOptionalText(formData: FormData, name: string) {
+  const raw = String(formData.get(name) || "").trim();
+  return raw || null;
+}
+
+export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "mouvementsMatierePremiereEntreeDetail"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier une ligne.");
+  }
+
+  const lotId = Number(String(formData.get("lot_id") || "0"));
+  const quantite = parseOptionalNumber(formData, "quantite");
+
+  if (!lotId || quantite === null || quantite <= 0) {
+    throw new Error("Ligne stock matiere premiere invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .update({
+      qte_entree: quantite,
+      numero_lot: parseOptionalText(formData, "numero_lot"),
+      date_reception: parseOptionalText(formData, "date_reception"),
+      date_fabrication: parseOptionalText(formData, "date_fabrication"),
+      date_expiration: parseOptionalText(formData, "date_expiration"),
+      fournisseur: parseOptionalText(formData, "fournisseur"),
+      emplacement: parseOptionalText(formData, "emplacement"),
+      n_doss_erp: parseOptionalText(formData, "n_doss_erp"),
+      n_doss_4d: parseOptionalText(formData, "n_doss_4d"),
+    })
+    .eq("id", lotId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateMouvementsMpPages();
+}
+
+export async function updateLotFromSortieMpDetailAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "mouvementsMatierePremiereSortieDetail"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier une ligne.");
+  }
+
+  const lotId = Number(String(formData.get("lot_id") || "0"));
+  const quantite = parseOptionalNumber(formData, "quantite");
+
+  if (!lotId || quantite === null || quantite <= 0) {
+    throw new Error("Ligne stock matiere premiere invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .update({
+      qte_sortie: quantite,
+      client: parseOptionalText(formData, "client"),
+      n_doss_erp: parseOptionalText(formData, "n_doss_erp"),
+      n_doss_4d: parseOptionalText(formData, "n_doss_4d"),
+    })
+    .eq("id", lotId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateMouvementsMpPages();
+}
