@@ -65,7 +65,7 @@ export function GlobalNav({
               </p>
               <div className="flex flex-wrap items-center gap-3">
                 <h1 className="text-lg font-black tracking-tight text-slate-950">
-                  Gestion depot PF
+                  FluxPilote
                 </h1>
                 <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-900">
                   Page : {currentItem.label}
