@@ -5,15 +5,16 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
+import { computeStatutBc, statutBcBadgeClass } from "./constants";
 
 type CommandeBcRow = {
   id: number;
   code: string;
   article_label: string | null;
   quantite: number | null;
+  quantite_importee: number | null;
   n_doss_4d: string | null;
   n_doss_erp: string | null;
-  statut: string;
   date_jour: string | null;
 };
 
@@ -21,10 +22,10 @@ type BcGroup = {
   code: string;
   n_doss_4d: string | null;
   n_doss_erp: string | null;
-  statut: string;
   date_jour: string | null;
   nbArticles: number;
   quantiteTotale: number;
+  quantiteImporteeTotale: number;
 };
 
 async function fetchAllCommandesBc() {
@@ -35,7 +36,7 @@ async function fetchAllCommandesBc() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("bons_commande_matiere_premiere")
-      .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, statut, date_jour")
+      .select("id, code, article_label, quantite, quantite_importee, n_doss_4d, n_doss_erp, date_jour")
       .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
 
@@ -49,19 +50,6 @@ async function fetchAllCommandesBc() {
   }
 
   return { rows, error: null };
-}
-
-function statutBadgeClass(statut: string) {
-  switch (statut) {
-    case "Stand":
-      return "bg-slate-100 text-slate-800";
-    case "En cours":
-      return "bg-amber-100 text-amber-800";
-    case "Termine":
-      return "bg-emerald-100 text-emerald-800";
-    default:
-      return "bg-slate-100 text-slate-800";
-  }
 }
 
 export default async function CommandeBcMpPage() {
@@ -85,10 +73,13 @@ export default async function CommandeBcMpPage() {
         code,
         n_doss_4d: first.n_doss_4d,
         n_doss_erp: first.n_doss_erp,
-        statut: first.statut,
         date_jour: first.date_jour,
         nbArticles: groupRows.length,
         quantiteTotale: groupRows.reduce((sum, row) => sum + Number(row.quantite ?? 0), 0),
+        quantiteImporteeTotale: groupRows.reduce(
+          (sum, row) => sum + Number(row.quantite_importee ?? 0),
+          0
+        ),
       };
     })
     .sort((a, b) => {
@@ -143,7 +134,9 @@ export default async function CommandeBcMpPage() {
                   <tr>
                     <th className="px-6 py-4 font-semibold">BC</th>
                     <th className="px-6 py-4 font-semibold">Nb articles</th>
-                    <th className="px-6 py-4 font-semibold">Qte totale</th>
+                    <th className="px-6 py-4 font-semibold">Qte commandee</th>
+                    <th className="px-6 py-4 font-semibold">Qte importee</th>
+                    <th className="px-6 py-4 font-semibold">Reste a importer</th>
                     <th className="px-6 py-4 font-semibold">Doss. 4D</th>
                     <th className="px-6 py-4 font-semibold">Doss. ERP</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
@@ -151,32 +144,39 @@ export default async function CommandeBcMpPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {groups.map((group) => (
-                    <tr key={group.code} className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-semibold">
-                        <Link
-                          href={`/stock/matiere-premiere/bc/${group.code}`}
-                          className="text-sky-700 underline"
-                        >
-                          {group.code}
-                        </Link>
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">{group.nbArticles}</td>
-                      <td className="px-6 py-4 text-slate-900">{group.quantiteTotale}</td>
-                      <td className="px-6 py-4 text-slate-600">{group.n_doss_4d || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{group.n_doss_erp || "-"}</td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${statutBadgeClass(
-                            group.statut
-                          )}`}
-                        >
-                          {group.statut}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">{formatDate(group.date_jour)}</td>
-                    </tr>
-                  ))}
+                  {groups.map((group) => {
+                    const statut = computeStatutBc(group.quantiteTotale, group.quantiteImporteeTotale);
+                    const reste = group.quantiteTotale - group.quantiteImporteeTotale;
+
+                    return (
+                      <tr key={group.code} className="border-t border-slate-100">
+                        <td className="px-6 py-4 font-semibold">
+                          <Link
+                            href={`/stock/matiere-premiere/bc/${group.code}`}
+                            className="text-sky-700 underline"
+                          >
+                            {group.code}
+                          </Link>
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">{group.nbArticles}</td>
+                        <td className="px-6 py-4 text-slate-900">{group.quantiteTotale}</td>
+                        <td className="px-6 py-4 text-slate-600">{group.quantiteImporteeTotale}</td>
+                        <td className="px-6 py-4 font-semibold text-slate-900">{reste}</td>
+                        <td className="px-6 py-4 text-slate-600">{group.n_doss_4d || "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{group.n_doss_erp || "-"}</td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${statutBcBadgeClass(
+                              statut
+                            )}`}
+                          >
+                            {statut}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">{formatDate(group.date_jour)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

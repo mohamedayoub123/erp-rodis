@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { STATUT_BC_OPTIONS } from "./constants";
 
 type PendingBcLigne = {
   article: string;
@@ -17,6 +17,13 @@ function normalizeArticle(value: string) {
 function parseOptionalText(formData: FormData, name: string) {
   const raw = String(formData.get(name) || "").trim();
   return raw || null;
+}
+
+function parseOptionalNumber(formData: FormData, name: string) {
+  const raw = String(formData.get(name) || "").trim().replace(",", ".");
+  if (!raw) return 0;
+  const value = Number(raw);
+  return Number.isNaN(value) ? 0 : value;
 }
 
 async function requireWriteAccess() {
@@ -33,6 +40,8 @@ async function requireEditAccess() {
   if (!(await canWritePageUser(currentUser, "commandeBcMp"))) {
     throw new Error("Cet utilisateur ne peut pas modifier les commandes.");
   }
+
+  return currentUser;
 }
 
 function revalidateCommandeBcMpPages() {
@@ -40,8 +49,9 @@ function revalidateCommandeBcMpPages() {
 }
 
 // Un seul BC peut regrouper plusieurs articles (une ligne par article, tous
-// avec le meme code/doss/statut/date) - meme principe que les groupes
-// TE/TS/PD/MB ailleurs dans l'appli.
+// avec le meme code/doss/date) - meme principe que les groupes TE/TS/PD/MB
+// ailleurs dans l'appli. Le statut n'est plus saisi ici : il se calcule
+// depuis quantite/quantite_importee (toujours 0 a la creation).
 export async function createCommandeBcBatchAction(formData: FormData) {
   await requireWriteAccess();
 
@@ -104,7 +114,6 @@ export async function createCommandeBcBatchAction(formData: FormData) {
         quantite,
         n_doss_4d: nDoss4d,
         n_doss_erp: nDossErp,
-        statut: STATUT_BC_OPTIONS[0],
       };
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -154,6 +163,9 @@ export async function updateCommandeBcLigneAction(formData: FormData) {
       article_id: articleRow?.id ?? null,
       article_label: articleRow?.nom_article ?? articleName,
       quantite,
+      quantite_importee: parseOptionalNumber(formData, "quantite_importee"),
+      n_doss_4d_import: parseOptionalText(formData, "n_doss_4d_import"),
+      n_doss_erp_import: parseOptionalText(formData, "n_doss_erp_import"),
     })
     .eq("id", bcId);
 
@@ -164,8 +176,8 @@ export async function updateCommandeBcLigneAction(formData: FormData) {
   revalidateCommandeBcMpPages();
 }
 
-// Modifie le statut/dossier de TOUT le BC (toutes les lignes qui partagent
-// le meme code) en une seule fois.
+// Modifie le dossier de commande (pas le statut, calcule automatiquement)
+// pour TOUTES les lignes qui partagent le meme code.
 export async function updateCommandeBcGroupAction(formData: FormData) {
   await requireEditAccess();
 
@@ -175,14 +187,11 @@ export async function updateCommandeBcGroupAction(formData: FormData) {
     throw new Error("Commande invalide.");
   }
 
-  const statut = String(formData.get("statut") || "").trim() || STATUT_BC_OPTIONS[0];
-
   const { error } = await supabaseServer
     .from("bons_commande_matiere_premiere")
     .update({
       n_doss_4d: parseOptionalText(formData, "n_doss_4d"),
       n_doss_erp: parseOptionalText(formData, "n_doss_erp"),
-      statut,
     })
     .eq("code", code);
 
@@ -191,4 +200,44 @@ export async function updateCommandeBcGroupAction(formData: FormData) {
   }
 
   revalidateCommandeBcMpPages();
+}
+
+export async function deleteCommandeBcLigneAction(formData: FormData) {
+  await requireEditAccess();
+
+  const bcId = Number(String(formData.get("bc_id") || "0"));
+
+  if (!bcId) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const { data: ligneRow } = await supabaseServer
+    .from("bons_commande_matiere_premiere")
+    .select("code")
+    .eq("id", bcId)
+    .maybeSingle();
+
+  const code = (ligneRow as { code: string } | null)?.code ?? null;
+
+  const { error } = await supabaseServer
+    .from("bons_commande_matiere_premiere")
+    .delete()
+    .eq("id", bcId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateCommandeBcMpPages();
+
+  if (code) {
+    const { count } = await supabaseServer
+      .from("bons_commande_matiere_premiere")
+      .select("id", { count: "exact", head: true })
+      .eq("code", code);
+
+    if (!count) {
+      redirect("/stock/matiere-premiere/bc");
+    }
+  }
 }

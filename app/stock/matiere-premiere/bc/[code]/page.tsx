@@ -4,25 +4,34 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
-import { updateCommandeBcGroupAction, updateCommandeBcLigneAction } from "../actions";
-import { STATUT_BC_OPTIONS } from "../constants";
+import {
+  deleteCommandeBcLigneAction,
+  updateCommandeBcGroupAction,
+  updateCommandeBcLigneAction,
+} from "../actions";
+import { computeStatutBc, statutBcBadgeClass } from "../constants";
 
 type CommandeBcRow = {
   id: number;
   code: string;
   article_label: string | null;
   quantite: number | null;
+  quantite_importee: number | null;
   n_doss_4d: string | null;
   n_doss_erp: string | null;
-  statut: string;
+  n_doss_4d_import: string | null;
+  n_doss_erp_import: string | null;
   date_jour: string | null;
 };
 
 async function fetchGroup(code: string) {
   const { data, error } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, statut, date_jour")
+    .select(
+      "id, code, article_label, quantite, quantite_importee, n_doss_4d, n_doss_erp, n_doss_4d_import, n_doss_erp_import, date_jour"
+    )
     .eq("code", code)
     .order("id", { ascending: true });
 
@@ -81,8 +90,8 @@ export default async function CommandeBcMpDetailPage({
           <>
             {canEdit ? (
               <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-                <h2 className="mb-3 text-lg font-bold text-slate-900">Dossier / Statut</h2>
-                <form action={updateCommandeBcGroupAction} className="grid gap-4 md:grid-cols-4">
+                <h2 className="mb-3 text-lg font-bold text-slate-900">Dossier commande</h2>
+                <form action={updateCommandeBcGroupAction} className="grid gap-4 md:grid-cols-3">
                   <input type="hidden" name="code" value={code} />
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Doss. 4D
@@ -102,20 +111,6 @@ export default async function CommandeBcMpDetailPage({
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Statut
-                    <select
-                      name="statut"
-                      defaultValue={first?.statut}
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                    >
-                      {STATUT_BC_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
                   <div className="flex items-end">
                     <button
                       type="submit"
@@ -134,62 +129,123 @@ export default async function CommandeBcMpDetailPage({
                   <thead className="bg-slate-50 text-slate-500">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Article</th>
-                      <th className="px-4 py-3 font-semibold">Quantite</th>
-                      {canEdit ? <th className="px-4 py-3 font-semibold">Modifier</th> : null}
+                      <th className="px-4 py-3 font-semibold">Qte commandee</th>
+                      <th className="px-4 py-3 font-semibold">Qte importee</th>
+                      <th className="px-4 py-3 font-semibold">Reste a importer</th>
+                      <th className="px-4 py-3 font-semibold">Doss. import 4D</th>
+                      <th className="px-4 py-3 font-semibold">Doss. import ERP</th>
+                      <th className="px-4 py-3 font-semibold">Statut</th>
+                      {canEdit ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row) => (
-                      <tr key={row.id} className="border-t border-slate-100 align-top">
-                        <td className="px-4 py-3 font-medium text-slate-900">
-                          {row.article_label || "-"}
-                        </td>
-                        <td className="px-4 py-3 text-slate-900">{row.quantite ?? "-"}</td>
-                        {canEdit ? (
-                          <td className="px-4 py-3">
-                            <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
-                              <summary className="cursor-pointer text-xs font-semibold text-slate-800">
-                                Modifier
-                              </summary>
-                              <form
-                                action={updateCommandeBcLigneAction}
-                                className="mt-2 grid w-56 gap-2"
-                              >
-                                <input type="hidden" name="bc_id" value={row.id} />
-                                <label className="grid gap-1 text-xs text-slate-500">
-                                  Article
-                                  <input
-                                    type="text"
-                                    name="article"
-                                    defaultValue={row.article_label || ""}
-                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                    required
-                                  />
-                                </label>
-                                <label className="grid gap-1 text-xs text-slate-500">
-                                  Quantite
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    name="quantite"
-                                    defaultValue={row.quantite ?? ""}
-                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                    required
-                                  />
-                                </label>
-                                <button
-                                  type="submit"
-                                  className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
-                                >
-                                  Enregistrer
-                                </button>
-                              </form>
-                            </details>
+                    {rows.map((row) => {
+                      const quantite = Number(row.quantite ?? 0);
+                      const quantiteImportee = Number(row.quantite_importee ?? 0);
+                      const statut = computeStatutBc(quantite, quantiteImportee);
+                      const reste = quantite - quantiteImportee;
+
+                      return (
+                        <tr key={row.id} className="border-t border-slate-100 align-top">
+                          <td className="px-4 py-3 font-medium text-slate-900">
+                            {row.article_label || "-"}
                           </td>
-                        ) : null}
-                      </tr>
-                    ))}
+                          <td className="px-4 py-3 text-slate-900">{quantite}</td>
+                          <td className="px-4 py-3 text-slate-600">{quantiteImportee}</td>
+                          <td className="px-4 py-3 font-semibold text-slate-900">{reste}</td>
+                          <td className="px-4 py-3 text-slate-600">{row.n_doss_4d_import || "-"}</td>
+                          <td className="px-4 py-3 text-slate-600">{row.n_doss_erp_import || "-"}</td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-semibold ${statutBcBadgeClass(
+                                statut
+                              )}`}
+                            >
+                              {statut}
+                            </span>
+                          </td>
+                          {canEdit ? (
+                            <td className="px-4 py-3">
+                              <div className="flex items-start gap-2">
+                                <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                                  <summary className="cursor-pointer text-xs font-semibold text-slate-800">
+                                    Modifier
+                                  </summary>
+                                  <form
+                                    action={updateCommandeBcLigneAction}
+                                    className="mt-2 grid w-60 gap-2"
+                                  >
+                                    <input type="hidden" name="bc_id" value={row.id} />
+                                    <label className="grid gap-1 text-xs text-slate-500">
+                                      Article
+                                      <input
+                                        type="text"
+                                        name="article"
+                                        defaultValue={row.article_label || ""}
+                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        required
+                                      />
+                                    </label>
+                                    <label className="grid gap-1 text-xs text-slate-500">
+                                      Qte commandee
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        name="quantite"
+                                        defaultValue={quantite}
+                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        required
+                                      />
+                                    </label>
+                                    <label className="grid gap-1 text-xs text-slate-500">
+                                      Qte importee
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        name="quantite_importee"
+                                        defaultValue={quantiteImportee}
+                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                      />
+                                    </label>
+                                    <label className="grid gap-1 text-xs text-slate-500">
+                                      Doss. import 4D
+                                      <input
+                                        type="text"
+                                        name="n_doss_4d_import"
+                                        defaultValue={row.n_doss_4d_import || ""}
+                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                      />
+                                    </label>
+                                    <label className="grid gap-1 text-xs text-slate-500">
+                                      Doss. import ERP
+                                      <input
+                                        type="text"
+                                        name="n_doss_erp_import"
+                                        defaultValue={row.n_doss_erp_import || ""}
+                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                      />
+                                    </label>
+                                    <button
+                                      type="submit"
+                                      className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                    >
+                                      Enregistrer
+                                    </button>
+                                  </form>
+                                </details>
+
+                                <form action={deleteCommandeBcLigneAction}>
+                                  <input type="hidden" name="bc_id" value={row.id} />
+                                  <DeleteIconButton label="Supprimer ligne" />
+                                </form>
+                              </div>
+                            </td>
+                          ) : null}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
