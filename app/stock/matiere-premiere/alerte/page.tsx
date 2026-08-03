@@ -77,8 +77,22 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-export default async function StockAlerteMpPage() {
+type SearchParams = Promise<{
+  q?: string;
+  categorie?: string;
+}>;
+
+export default async function StockAlerteMpPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
   noStore();
+  const params = await searchParams;
+  const q = (params.q || "").trim();
+  const categorieFilter = (params.categorie || "").trim();
+  const qLower = q.toLowerCase();
+  const categorieLower = categorieFilter.toLowerCase();
 
   const [{ rows: articles, error: articlesError }, { rows: mouvements, error: mouvementsError }] =
     await Promise.all([fetchAllArticlesMp(), fetchAllMouvements()]);
@@ -106,7 +120,12 @@ export default async function StockAlerteMpPage() {
       min_stock: article.min_stock as number,
     }))
     .filter((row) => row.stock_actuel <= row.min_stock)
+    .filter((row) => !qLower || row.nom_article.toLowerCase().includes(qLower))
+    .filter((row) => !categorieLower || (row.categorie || "").toLowerCase().includes(categorieLower))
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
+
+  const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
+  const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#fffaf3_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -130,6 +149,45 @@ export default async function StockAlerteMpPage() {
             <RefreshButton />
           </div>
         </div>
+
+        <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <form className="grid gap-3 sm:grid-cols-3">
+            <input
+              type="text"
+              name="q"
+              list="alerte-mp-articles"
+              autoComplete="off"
+              defaultValue={q}
+              placeholder="Rechercher un article..."
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <datalist id="alerte-mp-articles">
+              {articleOptions.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
+            <input
+              type="text"
+              name="categorie"
+              list="alerte-mp-categories"
+              autoComplete="off"
+              defaultValue={categorieFilter}
+              placeholder="Categorie..."
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <datalist id="alerte-mp-categories">
+              {categorieOptions.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
+            <button
+              type="submit"
+              className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Filtrer
+            </button>
+          </form>
+        </section>
 
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           {error ? (
