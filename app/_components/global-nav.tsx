@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+type SubLink = { href: string; label: string; pageKey?: string };
+
 type NavItem = {
   href: string;
   label: string;
@@ -13,6 +15,11 @@ type NavItem = {
   // onglet (ex: /articles/produit-fini reste sous "Gestion Stock PF"). Le
   // plus long prefixe qui matche gagne, meme principe que PAGE_REGISTRY.
   matchPrefixes?: string[];
+  // Affiches sur une 2e ligne sous la barre principale quand cet onglet est
+  // actif - raccourci direct vers les pages internes de la section, sans
+  // repasser par la page hub (meme role que les cases affichees sur cette
+  // page hub, mais accessibles depuis n'importe quelle sous-page).
+  subLinks?: SubLink[];
 };
 
 const navItems: NavItem[] = [
@@ -35,6 +42,21 @@ const navItems: NavItem[] = [
       "/statistique-livraison",
       "/statistique-livraison-client",
     ],
+    subLinks: [
+      { href: "/stock", label: "Stock", pageKey: "stock" },
+      { href: "/articles", label: "Articles", pageKey: "articlesHub" },
+      { href: "/mouvements", label: "Mouvements", pageKey: "mouvementsHub" },
+      { href: "/commandes", label: "Commandes", pageKey: "commandesListe" },
+      { href: "/tableau-commandes", label: "Tableau cmd", pageKey: "tableauCommandes" },
+      { href: "/stock-dormant", label: "Dormant", pageKey: "stockDormant" },
+      {
+        href: "/stock-dormant-sans-commande",
+        label: "Dormant sans cmd",
+        pageKey: "stockDormantSansCommande",
+      },
+      { href: "/clients", label: "Client", pageKey: "clients" },
+      { href: "/statistique", label: "Statistique", pageKey: "statistiqueHub" },
+    ],
   },
   {
     href: "/stock/matiere-premiere",
@@ -44,6 +66,19 @@ const navItems: NavItem[] = [
       "/stock/matiere-premiere",
       "/mouvements/matiere-premiere",
       "/articles/matiere-premiere",
+    ],
+    subLinks: [
+      { href: "/stock/matiere-premiere/stock", label: "Stock", pageKey: "stockMatierePremiere" },
+      {
+        href: "/articles/matiere-premiere",
+        label: "Articles",
+        pageKey: "articlesMatierePremiere",
+      },
+      {
+        href: "/mouvements/matiere-premiere",
+        label: "Mouvements",
+        pageKey: "mouvementsMatierePremiere",
+      },
     ],
   },
   {
@@ -57,6 +92,28 @@ const navItems: NavItem[] = [
       "/historique-programme-dispatcher",
       "/ravitailleur-par-ligne",
       "/code-par-article",
+    ],
+    subLinks: [
+      { href: "/production/suivi", label: "Planning Production", pageKey: "productionSuiviHub" },
+      {
+        href: "/production/suivi-production",
+        label: "Suivi Production",
+        pageKey: "productionSuiviProductionListe",
+      },
+      { href: "/programe-par-ligne", label: "Programme par ligne", pageKey: "programeParLigne" },
+      { href: "/historique-programme", label: "Historique programme", pageKey: "historiqueProgramme" },
+      {
+        href: "/ravitailleur-par-ligne",
+        label: "Ravitailleur par ligne",
+        pageKey: "ravitailleurParLigne",
+      },
+      {
+        href: "/historique-programme-dispatcher",
+        label: "Historique Programme Dispatcher",
+        pageKey: "historiqueProgrammeDispatcher",
+      },
+      { href: "/code-par-article", label: "Code par article", pageKey: "codeParArticle" },
+      { href: "/production/rapport", label: "Rapport", pageKey: "productionRapportHub" },
     ],
   },
   { href: "/admin", label: "Admin", adminOnly: true },
@@ -97,6 +154,9 @@ export function GlobalNav({
       if (length > (bestMatch?.length ?? -1)) return { item, length };
       return bestMatch;
     }, null)?.item ?? visibleItems[0];
+  const visibleSubLinks = (currentItem.subLinks ?? []).filter(
+    (link) => !link.pageKey || (pageViewMap[link.pageKey] ?? false)
+  );
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur">
       <div className="mx-auto flex w-full flex-col gap-4 px-4 py-4 lg:px-8">
@@ -146,6 +206,28 @@ export function GlobalNav({
             );
           })}
         </nav>
+
+        {visibleSubLinks.length > 0 ? (
+          <nav className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+            {visibleSubLinks.map((link) => {
+              const isSubActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
+
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    isSubActive
+                      ? "bg-slate-900 text-white"
+                      : "border border-slate-200 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-900"
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
+          </nav>
+        ) : null}
       </div>
     </header>
   );
