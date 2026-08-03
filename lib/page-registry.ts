@@ -73,9 +73,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "articlesMatierePremiere",
     module: "Articles",
-    label: "Articles Matiere Premiere",
+    label: "Articles Matiere Premiere (liste + modifier)",
     pathPrefixes: ["/articles/matiere-premiere"],
-    hasWrite: false,
+  },
+  {
+    key: "articlesMatierePremiereNouvelle",
+    module: "Articles",
+    label: "Nouvel article matiere premiere",
+    pathPrefixes: ["/articles/matiere-premiere/nouvelle"],
   },
 
   // Stock
