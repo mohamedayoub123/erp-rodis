@@ -105,6 +105,34 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/stock/matiere-premiere"],
     hasWrite: false,
   },
+  {
+    key: "stockAlerteMp",
+    module: "Stock",
+    label: "Stock Alert MP",
+    pathPrefixes: ["/stock/matiere-premiere/alerte"],
+    hasWrite: false,
+  },
+  {
+    key: "stockPerimeMp",
+    module: "Stock",
+    label: "Stock Perime MP",
+    pathPrefixes: ["/stock/matiere-premiere/perime"],
+    hasWrite: false,
+  },
+  {
+    key: "stockDormantMp",
+    module: "Stock",
+    label: "Stock Dormant MP",
+    pathPrefixes: ["/stock/matiere-premiere/dormant"],
+    hasWrite: false,
+  },
+  {
+    key: "statistiqueMp",
+    module: "Stock",
+    label: "Statistique MP",
+    pathPrefixes: ["/stock/matiere-premiere/statistique"],
+    hasWrite: false,
+  },
 
   // Commandes
   {
@@ -487,9 +515,17 @@ export const ADMIN_SECTION_ORDER: AdminSection[] = [
 
 const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockMatierePremiere",
+  "stockAlerteMp",
+  "stockPerimeMp",
+  "stockDormantMp",
+  "statistiqueMp",
   "articlesMatierePremiere",
   "articlesMatierePremiereNouvelle",
   "mouvementsMatierePremiere",
+  "mouvementsMatierePremiereEntree",
+  "mouvementsMatierePremiereSortie",
+  "mouvementsMatierePremiereEntreeDetail",
+  "mouvementsMatierePremiereSortieDetail",
 ]);
 
 export function sectionForPage(page: PageDefinition): AdminSection {

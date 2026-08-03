@@ -1,29 +1,65 @@
 import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { getCurrentStockUser, getPageViewMap } from "@/lib/stock-auth";
 
 const TILES = [
   {
     label: "Stock",
     href: "/stock/matiere-premiere/stock",
+    pageKey: "stockMatierePremiere",
     icon: "\u{1F4CA}",
     description: "Suivi du stock matiere premiere.",
   },
   {
     label: "Mouvement",
     href: "/mouvements/matiere-premiere",
+    pageKey: "mouvementsMatierePremiere",
     icon: "\u{1F4E6}",
     description: "Entrees/sorties de matiere premiere.",
   },
   {
     label: "Article",
     href: "/articles/matiere-premiere",
+    pageKey: "articlesMatierePremiere",
     icon: "\u{1F9EA}",
     description: "Liste des articles matiere premiere.",
   },
+  {
+    label: "Stock Alert",
+    href: "/stock/matiere-premiere/alerte",
+    pageKey: "stockAlerteMp",
+    icon: "\u{26A0}\u{FE0F}",
+    description: "Articles sous le seuil d'alerte.",
+  },
+  {
+    label: "Stock Dormant",
+    href: "/stock/matiere-premiere/dormant",
+    pageKey: "stockDormantMp",
+    icon: "\u{23F3}",
+    description: "En attente de configuration.",
+  },
+  {
+    label: "Statistique",
+    href: "/stock/matiere-premiere/statistique",
+    pageKey: "statistiqueMp",
+    icon: "\u{1F4C8}",
+    description: "En attente de configuration.",
+  },
+  {
+    label: "Stock Perime",
+    href: "/stock/matiere-premiere/perime",
+    pageKey: "stockPerimeMp",
+    icon: "\u{1F6D1}",
+    description: "Lots perimes et actifs par article.",
+  },
 ] as const;
 
-export default function StockMatierePremierePage() {
+export default async function StockMatierePremierePage() {
+  const currentUser = await getCurrentStockUser();
+  const pageViewMap = await getPageViewMap(currentUser);
+  const visibleTiles = TILES.filter((tile) => pageViewMap[tile.pageKey] ?? false);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -49,7 +85,7 @@ export default function StockMatierePremierePage() {
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {TILES.map((tile) => (
+          {visibleTiles.map((tile) => (
             <Link
               key={tile.href}
               href={tile.href}
