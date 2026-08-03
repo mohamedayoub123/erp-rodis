@@ -78,8 +78,6 @@ export default async function ImportMpDossierPage({
   const bcLignes = await fetchBcLignes([...new Set(rows.map((row) => row.bc_ligne_id))]);
   const ligneById = new Map(bcLignes.map((ligne) => [ligne.id, ligne]));
 
-  const quantiteTotale = rows.reduce((sum, row) => sum + Number(row.quantite_importee ?? 0), 0);
-
   // "Receptionnee" ne compte que les evenements issus d'une vraie Reception
   // (lot_stock_id renseigne, stock reellement credite) - un simple "Creer
   // import" depuis le BC (avant la Reception) ne compte pas comme recu.
@@ -98,6 +96,15 @@ export default async function ImportMpDossierPage({
     quantiteReceptionneeParLigne.set(row.bc_ligne_id, current + Number(row.quantite_importee ?? 0));
   }
 
+  // L'historique n'affiche que les vraies Receptions (lot_stock_id
+  // renseigne) - un simple "Creer import" (sans lot, sans passer par le
+  // bouton Reception) ne doit pas y apparaitre.
+  const receptionRows = rows.filter((row) => row.lot_stock_id !== null);
+  const quantiteReceptionneeTotale = receptionRows.reduce(
+    (sum, row) => sum + Number(row.quantite_importee ?? 0),
+    0
+  );
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -111,7 +118,8 @@ export default async function ImportMpDossierPage({
                 {nDoss4d || "Sans dossier 4D"}
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Doss. ERP : {nDossErp || "-"} - {rows.length} import(s) - {quantiteTotale} au total
+                Doss. ERP : {nDossErp || "-"} - {receptionRows.length} reception(s) - {quantiteReceptionneeTotale} au
+                total
               </p>
             </div>
 
@@ -248,8 +256,13 @@ export default async function ImportMpDossierPage({
 
             <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
               <div className="border-b border-slate-100 px-4 py-3">
-                <h2 className="text-lg font-bold text-slate-900">Historique des imports</h2>
+                <h2 className="text-lg font-bold text-slate-900">Historique des receptions</h2>
               </div>
+              {receptionRows.length === 0 ? (
+                <div className="px-4 py-6 text-sm text-slate-500">
+                  Aucune reception pour le moment - utilise le bouton Reception ci-dessus.
+                </div>
+              ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
                   <thead className="bg-slate-50 text-slate-500">
@@ -265,7 +278,7 @@ export default async function ImportMpDossierPage({
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row) => {
+                    {receptionRows.map((row) => {
                       const ligne = ligneById.get(row.bc_ligne_id);
 
                       return (
@@ -295,6 +308,7 @@ export default async function ImportMpDossierPage({
                   </tbody>
                 </table>
               </div>
+              )}
             </section>
           </>
         )}
