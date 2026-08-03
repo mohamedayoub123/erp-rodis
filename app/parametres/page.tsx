@@ -1,5 +1,7 @@
 ﻿import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
+import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default async function ParametresPage() {
   const diagnostics = {
@@ -69,12 +71,16 @@ export default async function ParametresPage() {
             </p>
           </div>
 
-          <Link
-            href="/admin"
-            className="rounded-full bg-slate-950 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-          >
-            Ouvrir administration
-          </Link>
+          <div className="flex items-center gap-3">
+            <BackButton href="/" label="Retour accueil" />
+            <RefreshButton />
+            <Link
+              href="/admin"
+              className="rounded-full bg-slate-950 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Ouvrir administration
+            </Link>
+          </div>
         </div>
 
         <section className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">

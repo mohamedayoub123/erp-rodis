@@ -4,6 +4,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { ProgrammeLigneTable, type ArticleOption } from "./programme-table";
 import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 async function fetchAllArticleOptions(): Promise<ArticleOption[]> {
   const rows: ArticleOption[] = [];
@@ -67,6 +68,7 @@ export default async function ProgrameParLignePage() {
 
             <div className="flex flex-wrap items-center gap-3">
               <BackButton href="/production" label="Retour production" />
+              <RefreshButton />
               <Link
                 href="/ravitailleur-par-ligne"
                 className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700"

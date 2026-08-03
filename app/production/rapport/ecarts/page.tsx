@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import {
   buildPdLabelByCode,
@@ -172,7 +173,10 @@ export default async function RapportEcartsPage({
               ) : null}
             </div>
 
-            <BackButton href="/production/rapport" label="Retour rapports" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/production/rapport" label="Retour rapports" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

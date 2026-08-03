@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
+import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 type SearchParams = Promise<{
   client?: string;
@@ -115,12 +117,10 @@ export default async function StatistiqueLivraisonClientPage({
               </p>
             </div>
 
-            <Link
-              href="/statistique"
-              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
-            >
-              Retour
-            </Link>
+            <div className="flex items-center gap-3">
+              <BackButton href="/statistique" label="Retour" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

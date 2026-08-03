@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
+import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DormantTable } from "../stock-dormant/dormant-table";
 import { DormantFilterForm } from "../stock-dormant/filter-form";
 
@@ -366,13 +368,9 @@ export default async function StockDormantSansCommandePage({
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/"
-              className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900"
-            >
-              Retour accueil
-            </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <BackButton href="/" label="Retour accueil" />
+            <RefreshButton />
             <Link
               href="/stock"
               className="rounded-full bg-slate-950 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { deleteProgrammeDispatcherHistoryGroupAction } from "../../ravitailleur-par-ligne/dispatcher-actions";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 type HistoryRow = {
@@ -101,6 +102,7 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
 
             <div className="flex flex-wrap items-center gap-3">
               <BackButton href="/historique-programme-dispatcher" label="Retour historique" />
+              <RefreshButton />
               <form action={deleteProgrammeDispatcherHistoryGroupAction}>
                 <input type="hidden" name="groupe_id" value={groupeIdNumber} />
                 <DeleteIconButton />

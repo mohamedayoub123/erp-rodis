@@ -4,6 +4,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteStandFamilleBesoinsAction } from "./actions";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 type SearchParams = Promise<{
@@ -402,6 +403,7 @@ export default async function ArticleManquantPage({ searchParams }: { searchPara
 
             <div className="flex flex-wrap items-center gap-2">
               <BackButton href="/" />
+              <RefreshButton />
               <Link
                 href="/tableau-commandes"
                 className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white"

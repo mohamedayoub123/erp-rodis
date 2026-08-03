@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { fetchAllProgrammeLignes, formatQty, type ProgrammeLigneRow } from "../data";
 
 const MOIS_LABELS = [
@@ -110,7 +111,10 @@ export default async function PlanningCalendrierPage({
               </p>
             </div>
 
-            <BackButton href="/production/suivi" label="Retour planning production" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/production/suivi" label="Retour planning production" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

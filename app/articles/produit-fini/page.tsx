@@ -4,6 +4,8 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { updateArticleAction } from "./actions";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
+import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { ArticlesFilterForm } from "./filter-form";
 import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
 
@@ -173,12 +175,8 @@ export default async function ArticlesProduitFiniPage({
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Link
-              href="/articles"
-              className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900"
-            >
-              Retour articles
-            </Link>
+            <BackButton href="/gestion-stock-pf" label="Retour gestion stock PF" />
+            <RefreshButton />
             <Link
               href="/stock"
               className="rounded-full bg-slate-950 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"

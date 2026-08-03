@@ -2,6 +2,7 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 type SearchParams = Promise<{
   article_q?: string;
@@ -199,6 +200,7 @@ export default async function HistoriqueMouvementsPage({
 
             <div className="flex items-center gap-3">
               <BackButton href="/statistique" />
+              <RefreshButton />
               <Link
                 href="/stock"
                 className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white"

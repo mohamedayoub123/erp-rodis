@@ -2,6 +2,7 @@
 import { readPlanning } from "@/lib/excel-live";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 const PAGE_SIZE = 100;
 
@@ -93,6 +94,7 @@ export default async function PlanningPage({
 
           <div className="flex flex-wrap items-center gap-3">
             <BackButton href="/" label="Retour accueil" />
+            <RefreshButton />
             <Link
               href="/stock-dormant-sans-commande"
               className="rounded-full bg-slate-950 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"

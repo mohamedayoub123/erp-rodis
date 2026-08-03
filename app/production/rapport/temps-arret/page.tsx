@@ -2,6 +2,7 @@ import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
 import { formatMinutes, hhmmDiffMinutes } from "@/lib/suivi-tirage-time";
 
@@ -207,7 +208,10 @@ export default async function RapportTempsArretPage({
                 Temps d&apos;arret par chaine/zone/article, totaux par cause, et temps de travail par code.
               </p>
             </div>
-            <BackButton href="/production/rapport" label="Retour rapports" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/production/rapport" label="Retour rapports" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

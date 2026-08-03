@@ -3,6 +3,7 @@ import { createManualCommandeAction } from "../actions";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default async function NouvelleCommandePage() {
   const currentStockUser = await getCurrentStockUser();
@@ -45,7 +46,10 @@ export default async function NouvelleCommandePage() {
               </h1>
             </div>
 
-            <BackButton href="/commandes" label="Retour aux commandes" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/commandes" label="Retour aux commandes" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

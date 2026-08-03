@@ -8,6 +8,7 @@ import {
   parseSortieMeta,
 } from "../../shared";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 export default async function SortieDetailPage({
@@ -41,7 +42,10 @@ export default async function SortieDetailPage({
               </p>
             </div>
 
-            <BackButton href="/mouvements/produit-fini" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/mouvements/produit-fini" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

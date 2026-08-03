@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
 import { saveConditionnementRapportAction } from "../../actions";
 import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
@@ -135,7 +136,10 @@ export default async function RapportConditionnementPage({
               </div>
             </div>
 
-            <BackButton href="/production/suivi/dashboard" label="Retour dashboard" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/production/suivi/dashboard" label="Retour dashboard" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

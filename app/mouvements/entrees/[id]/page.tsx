@@ -3,6 +3,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteLotFromEntreeDetailAction } from "@/app/mouvements/actions";
 import { buildEntreeRows, fetchWebMouvementSourceRows, formatMouvementDate } from "../../shared";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 export default async function EntreeDetailPage({
@@ -36,7 +37,10 @@ export default async function EntreeDetailPage({
               </p>
             </div>
 
-            <BackButton href="/mouvements/produit-fini" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/mouvements/produit-fini" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

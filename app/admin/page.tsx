@@ -1,4 +1,6 @@
 import { readImportStatus } from "@/lib/import-status";
+import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import {
   getCurrentStockUser,
@@ -73,7 +75,7 @@ export default async function AdminPage({
     <main className="min-h-screen bg-[linear-gradient(180deg,#f2f7ff_0%,#fbfdff_50%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
         <section className="rounded-[2rem] border border-black/5 bg-white/85 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur">
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
                 ERP Rodis
@@ -85,6 +87,11 @@ export default async function AdminPage({
                 Page legere pour envoyer le fichier Excel principal, la feuille Data,
                 la feuille entrer, ou le fichier des commandes.
               </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <BackButton href="/" label="Retour accueil" />
+              <RefreshButton />
             </div>
           </div>
         </section>

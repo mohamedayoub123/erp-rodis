@@ -1,4 +1,5 @@
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default function MouvementsMatierePremiereSortiePage() {
   return (
@@ -15,7 +16,10 @@ export default function MouvementsMatierePremiereSortiePage() {
               </h1>
             </div>
 
-            <BackButton href="/mouvements/matiere-premiere" label="Retour mouvements matiere premiere" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/mouvements/matiere-premiere" label="Retour mouvements matiere premiere" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

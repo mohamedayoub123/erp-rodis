@@ -1,15 +1,26 @@
 import Link from "next/link";
+import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default function StatistiquePage() {
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f9ff_0%,#fbfdff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full max-w-4xl space-y-6">
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
-            ERP Rodis
-          </p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Statistique</h1>
-          <p className="mt-2 text-sm text-slate-600">Choisis quelle statistique tu veux voir.</p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
+                ERP Rodis
+              </p>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Statistique</h1>
+              <p className="mt-2 text-sm text-slate-600">Choisis quelle statistique tu veux voir.</p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <BackButton href="/" label="Retour accueil" />
+              <RefreshButton />
+            </div>
+          </div>
         </section>
 
         <section className="grid gap-4 sm:grid-cols-3">

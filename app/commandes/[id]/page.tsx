@@ -1,4 +1,5 @@
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import {
   addManualFifoLotAction,
   calculateFifoForCommandeAction,
@@ -516,6 +517,7 @@ export default async function CommandeDetailPage({
 
             <div className="no-print flex flex-wrap gap-2">
               <BackButton href="/commandes" label="Retour aux commandes" />
+              <RefreshButton />
               <PrintButton mode="commande" label="Imprimer commande" />
               <PrintButton mode="dispatch" label="Imprimer dispatch" />
               {canWriteCommandes ? (

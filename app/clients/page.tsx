@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { createClientAction, deleteClientAction, updateClientAction } from "./actions";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 const TRANSPORT_OPTIONS = ["CAMION", "CONTINAIR", "TC", "TC20", "TC40"];
@@ -63,7 +64,10 @@ export default async function ClientsPage({
               </p>
             </div>
 
-            <BackButton href="/" label="Retour accueil" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/" label="Retour accueil" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

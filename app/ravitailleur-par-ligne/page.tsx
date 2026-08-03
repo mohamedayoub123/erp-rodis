@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 const ZONE_BUTTONS = ["B1Z1", "B1Z2", "B4Z1", "B4Z2", "B4Z3", "D"];
 
@@ -18,7 +19,10 @@ export default function RavitailleurParLignePage() {
               </h1>
             </div>
 
-            <BackButton href="/production" label="Retour production" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/production" label="Retour production" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default function RapportPage() {
   return (
@@ -14,7 +15,10 @@ export default function RapportPage() {
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Rapport</h1>
             </div>
 
-            <BackButton href="/production" label="Retour production" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/production" label="Retour production" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

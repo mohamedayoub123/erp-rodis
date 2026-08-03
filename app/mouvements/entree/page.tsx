@@ -2,6 +2,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { EntreeClient } from "./entree-client";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default async function EntreeMouvementPage() {
   const currentStockUser = await getCurrentStockUser();
@@ -34,7 +35,10 @@ export default async function EntreeMouvementPage() {
               </h1>
             </div>
 
-            <BackButton href="/mouvements/produit-fini" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/mouvements/produit-fini" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

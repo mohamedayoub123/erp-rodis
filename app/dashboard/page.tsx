@@ -1,6 +1,7 @@
 ﻿import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
 
 type StockSummaryRow = {
@@ -201,6 +202,7 @@ export default async function DashboardPage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <BackButton href="/" label="Retour accueil" />
+            <RefreshButton />
             <Link
               href="/admin"
               className="rounded-full bg-slate-950 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"

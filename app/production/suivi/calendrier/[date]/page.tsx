@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { buildPdLabelByCode, fetchAllProgrammeLignes, formatQty, pdLabelsForNumeroLot } from "../../data";
 
 function formatDateLong(value: string) {
@@ -54,7 +55,10 @@ export default async function CalendrierJourPage({
               </p>
             </div>
 
-            <BackButton href="/production/suivi/calendrier" label="Retour calendrier" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/production/suivi/calendrier" label="Retour calendrier" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

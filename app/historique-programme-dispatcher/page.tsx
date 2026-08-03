@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { deleteProgrammeDispatcherHistoryGroupAction } from "../ravitailleur-par-ligne/dispatcher-actions";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 type HistoryRow = {
@@ -120,7 +121,10 @@ export default async function HistoriqueProgrammeDispatcherPage({
               </p>
             </div>
 
-            <BackButton href="/production" label="Retour production" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/production" label="Retour production" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

@@ -9,6 +9,7 @@ import {
   type MouvementGroup,
 } from "../shared";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 export default async function MouvementsProduitFiniPage() {
@@ -44,7 +45,8 @@ export default async function MouvementsProduitFiniPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <BackButton href="/mouvements" label="Retour mouvements" />
+              <BackButton href="/gestion-stock-pf" label="Retour gestion stock PF" />
+              <RefreshButton />
               <Link
                 href="/mouvements/entree"
                 className="rounded-full bg-emerald-700 px-5 py-2 text-sm font-semibold text-white"

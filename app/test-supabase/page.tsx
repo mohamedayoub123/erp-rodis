@@ -1,6 +1,7 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default async function TestSupabasePage() {
   const { data, error } = await supabaseServer
@@ -31,6 +32,7 @@ export default async function TestSupabasePage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <BackButton href="/" label="Retour accueil" />
+            <RefreshButton />
             <Link
               href="/articles/produit-fini"
               className="rounded-full bg-slate-950 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"

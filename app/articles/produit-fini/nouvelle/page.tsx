@@ -1,6 +1,7 @@
-import Link from "next/link";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { createArticleAction } from "../actions";
+import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default async function NouvelArticlePage() {
   const currentStockUser = await getCurrentStockUser();
@@ -20,12 +21,10 @@ export default async function NouvelArticlePage() {
               </h1>
             </div>
 
-            <Link
-              href="/articles/produit-fini"
-              className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700"
-            >
-              Retour
-            </Link>
+            <div className="flex items-center gap-3">
+              <BackButton href="/articles/produit-fini" label="Retour" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

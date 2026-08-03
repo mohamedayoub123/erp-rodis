@@ -2,6 +2,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { computeAvailableLots, fetchMouvementSourceRows } from "../shared";
 import { SortieClient } from "./sortie-client";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default async function SortieMouvementPage() {
   const currentStockUser = await getCurrentStockUser();
@@ -24,7 +25,10 @@ export default async function SortieMouvementPage() {
               </h1>
             </div>
 
-            <BackButton href="/mouvements/produit-fini" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/mouvements/produit-fini" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

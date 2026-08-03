@@ -2,6 +2,7 @@ import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../suivi/data";
 import { DeleteRowButton } from "./delete-row-button";
 
@@ -342,7 +343,10 @@ export default async function SuiviProductionListPage({
               </p>
             </div>
 
-            <BackButton href="/production" label="Retour production" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/production" label="Retour production" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

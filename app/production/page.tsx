@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 
 export default function ProductionPage() {
   return (
@@ -16,7 +17,10 @@ export default function ProductionPage() {
               </h1>
             </div>
 
-            <BackButton href="/" label="Retour accueil" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/" label="Retour accueil" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { deleteProgrammeLigneGroupAction } from "../programe-par-ligne/actions";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 type ProgrammeLigneRow = {
@@ -110,7 +111,10 @@ export default async function HistoriqueProgrammePage({
               </p>
             </div>
 
-            <BackButton href="/production" label="Retour production" />
+            <div className="flex items-center gap-3">
+              <BackButton href="/production" label="Retour production" />
+              <RefreshButton />
+            </div>
           </div>
         </section>
 

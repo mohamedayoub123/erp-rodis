@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { changeCommandeStatusAction, deleteProformaGroupAction } from "./actions";
 import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
@@ -205,6 +206,7 @@ export default async function CommandesPage({
 
             <div className="flex flex-wrap items-center gap-3">
               <BackButton href="/" label="Retour accueil" />
+              <RefreshButton />
               {canWriteCommandes ? (
                 <Link
                   href="/commandes/nouvelle"
