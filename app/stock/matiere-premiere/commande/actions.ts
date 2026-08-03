@@ -113,22 +113,29 @@ export async function createReceptionMpAction(formData: FormData) {
 
   const unite = (articleRow as { unite: string | null } | null)?.unite ?? null;
 
-  const { error: insertImportError } = await supabaseServer.from("bons_commande_mp_imports").insert([
-    {
-      bc_ligne_id: bcLigneId,
-      quantite_importee: quantiteImportee,
-      n_doss_4d_import: nDoss4dImport,
-      n_doss_erp_import: nDossErpImport,
-      numero_lot: numeroLot,
-      date_fabrication: dateFabrication,
-      date_expiration: dateExpiration,
-    },
-  ]);
+  const fournisseur = parseOptionalText(formData, "fournisseur");
+
+  const { data: importRow, error: insertImportError } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .insert([
+      {
+        bc_ligne_id: bcLigneId,
+        quantite_importee: quantiteImportee,
+        n_doss_4d_import: nDoss4dImport,
+        n_doss_erp_import: nDossErpImport,
+        numero_lot: numeroLot,
+        date_fabrication: dateFabrication,
+        date_expiration: dateExpiration,
+      },
+    ])
+    .select("id")
+    .single();
 
   if (insertImportError) {
     throw new Error(insertImportError.message);
   }
 
+  const importId = (importRow as { id: number }).id;
   const today = new Date().toISOString().slice(0, 10);
 
   const { data: lotRow, error: insertLotError } = await supabaseServer
@@ -145,6 +152,7 @@ export async function createReceptionMpAction(formData: FormData) {
         qte_entree: quantiteImportee,
         qte_sortie: 0,
         unite,
+        fournisseur,
         n_doss_erp: nDossErpImport,
         n_doss_4d: nDoss4dImport,
         utilisateur: currentUser,
@@ -169,6 +177,18 @@ export async function createReceptionMpAction(formData: FormData) {
     throw new Error(groupError.message);
   }
 
+  // Relie l'evenement d'import a la ligne de stock qu'il a creee, pour
+  // pouvoir retirer proprement le stock si cet import (ou tout le dossier,
+  // ou la ligne de commande) est supprime plus tard.
+  const { error: linkError } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .update({ lot_stock_id: lotId })
+    .eq("id", importId);
+
+  if (linkError) {
+    throw new Error(linkError.message);
+  }
+
   const { error: updateError } = await supabaseServer
     .from("bons_commande_matiere_premiere")
     .update({ statut: "Receptionne" })
@@ -176,6 +196,139 @@ export async function createReceptionMpAction(formData: FormData) {
 
   if (updateError) {
     throw new Error(updateError.message);
+  }
+
+  revalidateCommandeMpPages();
+}
+
+type ImportEvenementForCleanup = {
+  id: number;
+  bc_ligne_id: number;
+  lot_stock_id: number | null;
+};
+
+// Supprime le stock credite par des evenements d'import (ceux issus d'une
+// Reception) et remet leurs lignes de commande a "Stand" - a appeler AVANT
+// de supprimer les evenements/lignes eux-memes, sinon le stock reste
+// credite alors que la reception qui l'a cree n'existe plus.
+async function releaseStockForImportEvenements(rows: ImportEvenementForCleanup[]) {
+  const lotIds = rows.map((row) => row.lot_stock_id).filter((id): id is number => id !== null);
+  const ligneIds = [...new Set(rows.filter((row) => row.lot_stock_id !== null).map((row) => row.bc_ligne_id))];
+
+  if (lotIds.length > 0) {
+    const { error } = await supabaseServer.from("lots_stock_matiere_premiere").delete().in("id", lotIds);
+    if (error) throw new Error(error.message);
+  }
+
+  if (ligneIds.length > 0) {
+    const { error } = await supabaseServer
+      .from("bons_commande_matiere_premiere")
+      .update({ statut: "Stand" })
+      .in("id", ligneIds)
+      .eq("statut", "Receptionne");
+    if (error) throw new Error(error.message);
+  }
+}
+
+// Supprime un seul evenement d'import (une ligne de "Historique des
+// imports") - si c'etait une Reception, retire aussi le stock credite et
+// remet la ligne de commande a "Stand".
+export async function deleteImportEvenementAction(formData: FormData) {
+  await requireEditAccess();
+
+  const importId = Number(String(formData.get("import_id") || "0"));
+
+  if (!importId) {
+    throw new Error("Import invalide.");
+  }
+
+  const { data: importRow, error: fetchError } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .select("id, bc_ligne_id, lot_stock_id")
+    .eq("id", importId)
+    .maybeSingle();
+
+  if (fetchError || !importRow) {
+    throw new Error("Import introuvable.");
+  }
+
+  await releaseStockForImportEvenements([importRow as ImportEvenementForCleanup]);
+
+  const { error } = await supabaseServer.from("bons_commande_mp_imports").delete().eq("id", importId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateCommandeMpPages();
+}
+
+// Supprime tout un dossier Import (tous les evenements qui partagent le
+// meme doss. 4D/ERP), le stock credite par ses receptions, et son suivi de
+// statut - pour effacer un dossier cree par erreur.
+export async function deleteDossierImportsAction(formData: FormData) {
+  await requireEditAccess();
+
+  const nDoss4d = parseOptionalText(formData, "n_doss_4d");
+  const nDossErp = parseOptionalText(formData, "n_doss_erp");
+
+  let query = supabaseServer.from("bons_commande_mp_imports").select("id, bc_ligne_id, lot_stock_id");
+  query = nDoss4d ? query.eq("n_doss_4d_import", nDoss4d) : query.is("n_doss_4d_import", null);
+  query = nDossErp ? query.eq("n_doss_erp_import", nDossErp) : query.is("n_doss_erp_import", null);
+  const { data: importRows, error: fetchError } = await query;
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  const rows = (importRows ?? []) as ImportEvenementForCleanup[];
+  await releaseStockForImportEvenements(rows);
+
+  if (rows.length > 0) {
+    const { error } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .delete()
+      .in("id", rows.map((row) => row.id));
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  let statutQuery = supabaseServer.from("dossiers_import_mp_statut").delete();
+  statutQuery = nDoss4d ? statutQuery.eq("n_doss_4d", nDoss4d) : statutQuery.is("n_doss_4d", null);
+  statutQuery = nDossErp ? statutQuery.eq("n_doss_erp", nDossErp) : statutQuery.is("n_doss_erp", null);
+  await statutQuery;
+
+  revalidateCommandeMpPages();
+}
+
+// Supprime une ligne de commande depuis le detail d'un dossier Import -
+// meme effet que le bouton Supprimer sur le detail d'un BC (bc/actions.ts),
+// mais accessible ici et verifie contre la permission "commandeMp" de cette
+// page plutot que "commandeBcMp". Retire aussi le stock credite par une
+// eventuelle reception avant de supprimer la ligne (dont la suppression
+// cascade sur ses evenements d'import cote base).
+export async function deleteBcLigneFromDossierAction(formData: FormData) {
+  await requireEditAccess();
+
+  const bcId = Number(String(formData.get("bc_id") || "0"));
+
+  if (!bcId) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const { data: importRows } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .select("id, bc_ligne_id, lot_stock_id")
+    .eq("bc_ligne_id", bcId);
+
+  await releaseStockForImportEvenements((importRows ?? []) as ImportEvenementForCleanup[]);
+
+  const { error } = await supabaseServer.from("bons_commande_matiere_premiere").delete().eq("id", bcId);
+
+  if (error) {
+    throw new Error(error.message);
   }
 
   revalidateCommandeMpPages();

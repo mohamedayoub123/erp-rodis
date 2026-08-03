@@ -45,6 +45,37 @@ async function requireEditAccess() {
 function revalidateCommandeBcMpPages() {
   revalidatePath("/stock/matiere-premiere/bc");
   revalidatePath("/stock/matiere-premiere/commande");
+  revalidatePath("/stock/matiere-premiere/stock");
+  revalidatePath("/stock/matiere-premiere/alerte");
+  revalidatePath("/mouvements/matiere-premiere");
+  revalidatePath("/dashboard");
+}
+
+type ImportEvenementForCleanup = {
+  bc_ligne_id: number;
+  lot_stock_id: number | null;
+};
+
+// Une ligne de commande peut avoir ete receptionnee (Reception depuis le
+// detail d'un dossier Import), ce qui a credite une ligne de stock reelle -
+// a appeler avant de supprimer des lignes de commande, sinon ce stock reste
+// credite alors que la commande qui l'a genere n'existe plus.
+async function releaseStockForBcLignes(bcLigneIds: number[]) {
+  if (bcLigneIds.length === 0) return;
+
+  const { data: importRows } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .select("bc_ligne_id, lot_stock_id")
+    .in("bc_ligne_id", bcLigneIds);
+
+  const lotIds = ((importRows ?? []) as ImportEvenementForCleanup[])
+    .map((row) => row.lot_stock_id)
+    .filter((id): id is number => id !== null);
+
+  if (lotIds.length > 0) {
+    const { error } = await supabaseServer.from("lots_stock_matiere_premiere").delete().in("id", lotIds);
+    if (error) throw new Error(error.message);
+  }
 }
 
 // Un seul BC peut regrouper plusieurs articles (une ligne par article, tous
@@ -229,6 +260,8 @@ export async function deleteCommandeBcLigneAction(formData: FormData) {
 
   const code = (ligneRow as { code: string } | null)?.code ?? null;
 
+  await releaseStockForBcLignes([bcId]);
+
   const { error } = await supabaseServer
     .from("bons_commande_matiere_premiere")
     .delete()
@@ -250,4 +283,37 @@ export async function deleteCommandeBcLigneAction(formData: FormData) {
       redirect("/stock/matiere-premiere/bc");
     }
   }
+}
+
+// Supprime tout un BC (toutes les lignes/articles qui partagent le meme
+// code), avec le stock deja credite par une eventuelle reception.
+export async function deleteCommandeBcGroupAction(formData: FormData) {
+  await requireEditAccess();
+
+  const code = String(formData.get("code") || "").trim();
+
+  if (!code) {
+    throw new Error("Commande invalide.");
+  }
+
+  const { data: lignes, error: fetchError } = await supabaseServer
+    .from("bons_commande_matiere_premiere")
+    .select("id")
+    .eq("code", code);
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  const bcIds = ((lignes ?? []) as { id: number }[]).map((row) => row.id);
+
+  await releaseStockForBcLignes(bcIds);
+
+  const { error } = await supabaseServer.from("bons_commande_matiere_premiere").delete().eq("code", code);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateCommandeBcMpPages();
 }

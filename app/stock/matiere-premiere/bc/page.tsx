@@ -4,7 +4,9 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
+import { deleteCommandeBcGroupAction } from "./actions";
 import { computeStatutBc, statutBcBadgeClass } from "./constants";
 
 type CommandeBcRow = {
@@ -85,6 +87,7 @@ export default async function CommandeBcMpPage() {
   noStore();
   const currentUser = await getCurrentStockUser();
   const canWriteNouvelle = await canWritePageUser(currentUser, "commandeBcMpNouvelle");
+  const canEdit = await canWritePageUser(currentUser, "commandeBcMp");
 
   const { rows, error } = await fetchAllCommandesBc();
   const { rows: importRows } = await fetchAllImportEvenements();
@@ -181,6 +184,7 @@ export default async function CommandeBcMpPage() {
                     <th className="px-6 py-4 font-semibold">Doss. ERP</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
                     <th className="px-6 py-4 font-semibold">Date</th>
+                    {canEdit ? <th className="px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -218,6 +222,14 @@ export default async function CommandeBcMpPage() {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-slate-600">{formatDate(group.date_jour)}</td>
+                        {canEdit ? (
+                          <td className="px-6 py-4">
+                            <form action={deleteCommandeBcGroupAction}>
+                              <input type="hidden" name="code" value={group.code} />
+                              <DeleteIconButton label={`Supprimer ${group.code}`} />
+                            </form>
+                          </td>
+                        ) : null}
                       </tr>
                     );
                   })}

@@ -4,10 +4,11 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { encodeDossierId } from "./dossier-id";
-import { updateDossierMpStatutAction } from "./actions";
+import { deleteDossierImportsAction, updateDossierMpStatutAction } from "./actions";
 import { STATUT_DOSSIER_MP_OPTIONS, statutDossierMpBadgeClass } from "./constants";
 
 type ImportRow = {
@@ -162,6 +163,7 @@ export default async function CommandeMpPage() {
                     <th className="px-6 py-4 font-semibold">Date recente</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
                     <th className="px-6 py-4 font-semibold">Date prevue reception</th>
+                    {canEdit ? <th className="px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -238,6 +240,15 @@ export default async function CommandeMpPage() {
                             <span className="text-slate-600">{formatDate(group.datePrevueReception)}</span>
                           )}
                         </td>
+                        {canEdit ? (
+                          <td className="px-6 py-4">
+                            <form action={deleteDossierImportsAction}>
+                              <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
+                              <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
+                              <DeleteIconButton label="Supprimer ce dossier" />
+                            </form>
+                          </td>
+                        ) : null}
                       </tr>
                     );
                   })}

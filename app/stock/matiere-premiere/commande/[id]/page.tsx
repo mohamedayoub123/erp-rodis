@@ -4,10 +4,15 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { formatDate } from "@/lib/format-date";
 import { decodeDossierId } from "../dossier-id";
-import { createReceptionMpAction } from "../actions";
+import {
+  createReceptionMpAction,
+  deleteBcLigneFromDossierAction,
+  deleteImportEvenementAction,
+} from "../actions";
 import { statutBcBadgeClass, type StatutBc } from "../../bc/constants";
 
 type ImportRow = {
@@ -151,54 +156,68 @@ export default async function ImportMpDossierPage({
                           </td>
                           {canEdit ? (
                             <td className="px-4 py-3">
-                              {dejaReceptionne ? null : (
-                                <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
-                                  <summary className="cursor-pointer text-xs font-semibold text-slate-800">
-                                    Reception
-                                  </summary>
-                                  <form
-                                    action={createReceptionMpAction}
-                                    className="mt-2 grid w-64 gap-2"
-                                  >
-                                    <input type="hidden" name="bc_ligne_id" value={ligne.id} />
-                                    <input type="hidden" name="n_doss_4d_import" value={nDoss4d ?? ""} />
-                                    <input type="hidden" name="n_doss_erp_import" value={nDossErp ?? ""} />
-                                    <label className="grid gap-1 text-xs text-slate-500">
-                                      Numero de lot
-                                      <input
-                                        type="text"
-                                        name="numero_lot"
-                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                      />
-                                    </label>
-                                    <label className="grid gap-1 text-xs text-slate-500">
-                                      Date de fabrication
-                                      <DateJmaFormField name="date_fabrication" />
-                                    </label>
-                                    <label className="grid gap-1 text-xs text-slate-500">
-                                      Date d&apos;expiration
-                                      <DateJmaFormField name="date_expiration" />
-                                    </label>
-                                    <label className="grid gap-1 text-xs text-slate-500">
-                                      Quantite receptionnee
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        name="quantite_importee"
-                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                        required
-                                      />
-                                    </label>
-                                    <button
-                                      type="submit"
-                                      className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                              <div className="flex items-start gap-2">
+                                {dejaReceptionne ? null : (
+                                  <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                                    <summary className="cursor-pointer text-xs font-semibold text-slate-800">
+                                      Reception
+                                    </summary>
+                                    <form
+                                      action={createReceptionMpAction}
+                                      className="mt-2 grid w-64 gap-2"
                                     >
-                                      Enregistrer
-                                    </button>
-                                  </form>
-                                </details>
-                              )}
+                                      <input type="hidden" name="bc_ligne_id" value={ligne.id} />
+                                      <input type="hidden" name="n_doss_4d_import" value={nDoss4d ?? ""} />
+                                      <input type="hidden" name="n_doss_erp_import" value={nDossErp ?? ""} />
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Numero de lot
+                                        <input
+                                          type="text"
+                                          name="numero_lot"
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Fournisseur
+                                        <input
+                                          type="text"
+                                          name="fournisseur"
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Date de fabrication
+                                        <DateJmaFormField name="date_fabrication" />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Date d&apos;expiration
+                                        <DateJmaFormField name="date_expiration" />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Quantite receptionnee
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          name="quantite_importee"
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                          required
+                                        />
+                                      </label>
+                                      <button
+                                        type="submit"
+                                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                      >
+                                        Enregistrer
+                                      </button>
+                                    </form>
+                                  </details>
+                                )}
+                                <form action={deleteBcLigneFromDossierAction}>
+                                  <input type="hidden" name="bc_id" value={ligne.id} />
+                                  <DeleteIconButton label="Supprimer ligne" />
+                                </form>
+                              </div>
                             </td>
                           ) : null}
                         </tr>
@@ -223,7 +242,8 @@ export default async function ImportMpDossierPage({
                       <th className="px-4 py-3 font-semibold">Lot</th>
                       <th className="px-4 py-3 font-semibold">Date fabrication</th>
                       <th className="px-4 py-3 font-semibold">Date expiration</th>
-                      <th className="px-4 py-3 font-semibold">Date import</th>
+                      <th className="px-4 py-3 font-semibold">Date reception</th>
+                      {canEdit ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -243,6 +263,14 @@ export default async function ImportMpDossierPage({
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_fabrication)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_expiration)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_import)}</td>
+                          {canEdit ? (
+                            <td className="px-4 py-3">
+                              <form action={deleteImportEvenementAction}>
+                                <input type="hidden" name="import_id" value={row.id} />
+                                <DeleteIconButton label="Supprimer cet import" />
+                              </form>
+                            </td>
+                          ) : null}
                         </tr>
                       );
                     })}
