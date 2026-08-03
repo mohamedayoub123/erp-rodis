@@ -10,8 +10,13 @@ type PendingBcLigne = {
   quantite: number;
 };
 
+// Cle de correspondance article: recalculee ici depuis nom_article des deux
+// cotes (pas depuis la colonne article_normalise stockee, dont le format a
+// diverge selon l'origine des donnees - import initial en masse vs saisie
+// via ce formulaire) - sinon la resolution rate silencieusement pour la
+// majorite des articles et la ligne BC finit avec article_id null.
 function normalizeArticle(value: string) {
-  return value.replace(/ /g, "").trim().toUpperCase();
+  return value.replace(/\s+/g, "").trim().toUpperCase();
 }
 
 function parseOptionalText(formData: FormData, name: string) {
@@ -66,18 +71,15 @@ export async function createCommandeBcBatchAction(formData: FormData) {
     throw new Error("Aucun article a enregistrer.");
   }
 
-  const articleNames = lignes.map((ligne) => String(ligne.article || "").trim()).filter(Boolean);
-  const articleNormalises = articleNames.map(normalizeArticle);
-
   const { data: articleRows } = await supabaseServer
     .from("articles_matiere_premiere")
-    .select("id, nom_article, article_normalise")
-    .in("article_normalise", articleNormalises);
+    .select("id, nom_article");
 
   const articleByNormalise = new Map(
-    ((articleRows ?? []) as { id: number; nom_article: string; article_normalise: string }[]).map(
-      (row) => [row.article_normalise, row]
-    )
+    ((articleRows ?? []) as { id: number; nom_article: string }[]).map((row) => [
+      normalizeArticle(row.nom_article),
+      row,
+    ])
   );
 
   // Compte le nombre de BC deja crees (groupes distincts par code) pour

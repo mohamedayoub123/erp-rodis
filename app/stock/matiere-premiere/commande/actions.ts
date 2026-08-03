@@ -10,6 +10,15 @@ function parseOptionalText(formData: FormData, name: string) {
   return raw || null;
 }
 
+// Meme cle de correspondance que bc/actions.ts (recalculee depuis
+// nom_article, pas depuis la colonne article_normalise stockee dont le
+// format a diverge selon l'origine des donnees) - utilisee ici pour
+// re-resoudre a la volee les lignes de commande dont l'article_id est reste
+// null (ancien bug de correspondance sur la creation de commande).
+function normalizeArticle(value: string) {
+  return value.replace(/\s+/g, "").trim().toUpperCase();
+}
+
 async function requireEditAccess() {
   const currentUser = await getCurrentStockUser();
 
@@ -59,7 +68,7 @@ export async function createReceptionMpAction(formData: FormData) {
 
   const { data: ligneRow, error: ligneError } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id, article_id")
+    .select("id, article_id, article_label")
     .eq("id", bcLigneId)
     .maybeSingle();
 
@@ -67,7 +76,28 @@ export async function createReceptionMpAction(formData: FormData) {
     throw new Error("Ligne de commande introuvable.");
   }
 
-  const articleId = (ligneRow as { article_id: number | null }).article_id;
+  const ligne = ligneRow as { article_id: number | null; article_label: string | null };
+  let articleId = ligne.article_id;
+
+  // Certaines lignes de commande plus anciennes ont un article_id reste
+  // null (bug de correspondance corrige depuis sur la creation de
+  // commande) - on retente ici la resolution par nom avant d'abandonner,
+  // pour ne pas bloquer la reception d'une commande deja existante.
+  if (!articleId && ligne.article_label) {
+    const target = normalizeArticle(ligne.article_label);
+    const { data: allArticles } = await supabaseServer.from("articles_matiere_premiere").select("id, nom_article");
+    const found = ((allArticles ?? []) as { id: number; nom_article: string }[]).find(
+      (article) => normalizeArticle(article.nom_article) === target
+    );
+
+    if (found) {
+      articleId = found.id;
+      await supabaseServer
+        .from("bons_commande_matiere_premiere")
+        .update({ article_id: articleId })
+        .eq("id", bcLigneId);
+    }
+  }
 
   if (!articleId) {
     throw new Error(
