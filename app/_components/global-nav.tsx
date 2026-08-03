@@ -8,26 +8,69 @@ type NavItem = {
   label: string;
   pageKey?: string;
   adminOnly?: boolean;
+  // Prefixes utilises seulement pour determiner le badge "Page : X" affiche
+  // dans l'en-tete quand on est sur une sous-page qui n'a plus son propre
+  // onglet (ex: /articles/produit-fini reste sous "Gestion Stock PF"). Le
+  // plus long prefixe qui matche gagne, meme principe que PAGE_REGISTRY.
+  matchPrefixes?: string[];
 };
 
 const navItems: NavItem[] = [
   { href: "/", label: "Accueil" },
-  { href: "/articles", label: "Articles", pageKey: "articlesHub" },
-  { href: "/stock", label: "Stock", pageKey: "stock" },
-  { href: "/commandes", label: "Commandes", pageKey: "commandesListe" },
-  { href: "/tableau-commandes", label: "Tableau cmd", pageKey: "tableauCommandes" },
-  { href: "/stock-dormant", label: "Dormant", pageKey: "stockDormant" },
   {
-    href: "/stock-dormant-sans-commande",
-    label: "Dormant sans cmd",
-    pageKey: "stockDormantSansCommande",
+    href: "/gestion-stock-pf",
+    label: "Gestion Stock PF",
+    pageKey: "gestionStockPf",
+    matchPrefixes: [
+      "/gestion-stock-pf",
+      "/stock",
+      "/articles",
+      "/mouvements",
+      "/commandes",
+      "/tableau-commandes",
+      "/stock-dormant",
+      "/stock-dormant-sans-commande",
+      "/clients",
+      "/statistique",
+      "/statistique-livraison",
+      "/statistique-livraison-client",
+    ],
   },
-  { href: "/production", label: "Production", pageKey: "productionHub" },
-  { href: "/mouvements", label: "Mouvements", pageKey: "mouvementsHub" },
-  { href: "/statistique", label: "Statistique", pageKey: "statistiqueHub" },
-  { href: "/clients", label: "Client", pageKey: "clients" },
+  {
+    href: "/stock/matiere-premiere",
+    label: "Gestion Stock MP",
+    pageKey: "stockMatierePremiere",
+    matchPrefixes: [
+      "/stock/matiere-premiere",
+      "/mouvements/matiere-premiere",
+      "/articles/matiere-premiere",
+    ],
+  },
+  {
+    href: "/production",
+    label: "Production",
+    pageKey: "productionHub",
+    matchPrefixes: [
+      "/production",
+      "/programe-par-ligne",
+      "/historique-programme",
+      "/historique-programme-dispatcher",
+      "/ravitailleur-par-ligne",
+      "/code-par-article",
+    ],
+  },
   { href: "/admin", label: "Admin", adminOnly: true },
 ];
+
+function prefixMatchLength(prefixes: string[], pathname: string): number {
+  let best = -1;
+  for (const prefix of prefixes) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+      if (prefix.length > best) best = prefix.length;
+    }
+  }
+  return best;
+}
 
 export function GlobalNav({
   pageViewMap,
@@ -43,11 +86,17 @@ export function GlobalNav({
     return pageViewMap[item.pageKey] ?? false;
   });
   const currentItem =
-    visibleItems.find((item) =>
-      item.href === "/"
-        ? pathname === item.href
-        : pathname === item.href || pathname.startsWith(`${item.href}/`)
-    ) ?? visibleItems[0];
+    visibleItems.reduce<{ item: NavItem; length: number } | null>((bestMatch, item) => {
+      const length =
+        item.href === "/"
+          ? pathname === "/"
+            ? 1
+            : -1
+          : prefixMatchLength(item.matchPrefixes ?? [item.href], pathname);
+
+      if (length > (bestMatch?.length ?? -1)) return { item, length };
+      return bestMatch;
+    }, null)?.item ?? visibleItems[0];
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur">
       <div className="mx-auto flex w-full flex-col gap-4 px-4 py-4 lg:px-8">
@@ -80,10 +129,7 @@ export function GlobalNav({
 
         <nav className="flex flex-wrap gap-2">
           {visibleItems.map((item) => {
-            const isActive =
-              item.href === "/"
-                ? pathname === item.href
-                : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const isActive = item === currentItem;
 
             return (
               <Link
