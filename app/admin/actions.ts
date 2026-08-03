@@ -13,6 +13,7 @@ import {
   createStockUser,
   deleteStockUser,
   getCurrentStockUser,
+  getUserPermissions,
   isAdminUser,
   updateUserPermissions,
   type PagePermissions,
@@ -125,9 +126,30 @@ export async function updateUserPermissionsAction(formData: FormData) {
     redirect("/admin?user=perm-empty");
   }
 
+  // Le formulaire peut avoir ete affiche AVANT qu'une nouvelle page soit
+  // ajoutee au registre (deploiement en cours pendant que l'admin avait deja
+  // l'onglet ouvert) - dans ce cas la case correspondante n'existait tout
+  // simplement pas dans le formulaire soumis, ce qui est indistinguable
+  // d'une case decochee. "known_page_keys" liste les pages qui existaient
+  // reellement au moment de l'affichage, pour qu'on puisse garder l'ancienne
+  // valeur des pages absentes au lieu de les repasser silencieusement a
+  // false (bug signale : "les changements ne s'appliquent pas bien").
+  const knownPageKeys = new Set(
+    String(formData.get("known_page_keys") || "")
+      .split(",")
+      .map((key) => key.trim())
+      .filter(Boolean)
+  );
+  const currentPermissions = await getUserPermissions(username);
+
   const pages: PagePermissions = {};
 
   for (const page of PAGE_REGISTRY) {
+    if (!knownPageKeys.has(page.key)) {
+      pages[page.key] = currentPermissions.pages[page.key] ?? { view: false, write: false };
+      continue;
+    }
+
     pages[page.key] = {
       view: readPermissionFlag(formData, `page__${page.key}__view`),
       write: page.hasWrite === false ? false : readPermissionFlag(formData, `page__${page.key}__write`),

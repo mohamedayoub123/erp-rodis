@@ -357,6 +357,11 @@ export default async function AdminPage({
 
                     <form action={updateUserPermissionsAction} className="mt-4 space-y-3">
                       <input type="hidden" name="username" value={user.username} />
+                      <input
+                        type="hidden"
+                        name="known_page_keys"
+                        value={PAGE_REGISTRY.map((page) => page.key).join(",")}
+                      />
 
                       <div className="space-y-3">
                         {ADMIN_SECTION_ORDER.filter(
