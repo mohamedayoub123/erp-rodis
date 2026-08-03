@@ -30,7 +30,6 @@ type BcLigneRow = {
   id: number;
   code: string;
   article_label: string | null;
-  quantite: number | null;
   statut: string | null;
 };
 
@@ -53,7 +52,7 @@ async function fetchBcLignes(ligneIds: number[]) {
 
   const { data } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id, code, article_label, quantite, statut")
+    .select("id, code, article_label, statut")
     .in("id", ligneIds);
 
   return (data ?? []) as BcLigneRow[];
@@ -84,8 +83,16 @@ export default async function ImportMpDossierPage({
   // "Receptionnee" ne compte que les evenements issus d'une vraie Reception
   // (lot_stock_id renseigne, stock reellement credite) - un simple "Creer
   // import" depuis le BC (avant la Reception) ne compte pas comme recu.
+  // "A receptionner" = ce qui est deja arrive dans ce dossier (tous les
+  // evenements d'import, y compris les simples "Creer import") moins ce qui
+  // a deja ete reellement receptionne - PAS la quantite commandee au total,
+  // qui peut concerner d'autres dossiers pas encore arrives du tout.
+  const quantiteImporteeParLigne = new Map<number, number>();
   const quantiteReceptionneeParLigne = new Map<number, number>();
   for (const row of rows) {
+    const importeeCurrent = quantiteImporteeParLigne.get(row.bc_ligne_id) ?? 0;
+    quantiteImporteeParLigne.set(row.bc_ligne_id, importeeCurrent + Number(row.quantite_importee ?? 0));
+
     if (row.lot_stock_id === null) continue;
     const current = quantiteReceptionneeParLigne.get(row.bc_ligne_id) ?? 0;
     quantiteReceptionneeParLigne.set(row.bc_ligne_id, current + Number(row.quantite_importee ?? 0));
@@ -144,8 +151,8 @@ export default async function ImportMpDossierPage({
                       const statut = (ligne.statut === "Receptionne" ? "Receptionne" : "Stand") as StatutBc;
                       const quantiteReceptionnee = quantiteReceptionneeParLigne.get(ligne.id) ?? 0;
                       const dejaReceptionne = ligne.statut === "Receptionne";
-                      const quantiteCommandee = Number(ligne.quantite ?? 0);
-                      const quantiteAReceptionner = Math.max(0, quantiteCommandee - quantiteReceptionnee);
+                      const quantiteImportee = quantiteImporteeParLigne.get(ligne.id) ?? 0;
+                      const quantiteAReceptionner = Math.max(0, quantiteImportee - quantiteReceptionnee);
 
                       return (
                         <tr key={ligne.id} className="border-t border-slate-100 align-top">
@@ -154,9 +161,7 @@ export default async function ImportMpDossierPage({
                             {ligne.article_label || "-"}
                           </td>
                           <td className="px-4 py-3 text-slate-600">{quantiteReceptionnee}</td>
-                          <td className="px-4 py-3 font-semibold text-slate-900">
-                            {ligne.quantite === null ? "-" : quantiteAReceptionner}
-                          </td>
+                          <td className="px-4 py-3 font-semibold text-slate-900">{quantiteAReceptionner}</td>
                           <td className="px-4 py-3">
                             <span
                               className={`rounded-full px-3 py-1 text-xs font-semibold ${statutBcBadgeClass(
