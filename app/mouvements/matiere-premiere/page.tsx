@@ -16,10 +16,9 @@ export default async function MouvementsMatierePremierePage() {
   const currentStockUser = await getCurrentStockUser();
   const canEditStock = await canWritePageUser(currentStockUser, "mouvementsMatierePremiere");
   const sourceRows = await fetchWebMouvementMpSourceRows();
-  const groups: MouvementMpGroup[] = [
-    ...buildEntreeMpRows(sourceRows),
-    ...buildSortieMpRows(sourceRows),
-  ].sort((a, b) => {
+  const entreeGroups = buildEntreeMpRows(sourceRows);
+  const sortieGroups = buildSortieMpRows(sourceRows);
+  const groups: MouvementMpGroup[] = [...entreeGroups, ...sortieGroups].sort((a, b) => {
     const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
     const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
 
@@ -60,6 +59,17 @@ export default async function MouvementsMatierePremierePage() {
                 Sortie
               </Link>
             </div>
+          </div>
+        </section>
+
+        <section className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm">
+            Nombre de TE :
+            <span className="ml-2 font-bold text-emerald-900">{entreeGroups.length}</span>
+          </div>
+          <div className="rounded-2xl bg-sky-50 px-4 py-3 text-sm">
+            Nombre de TS :
+            <span className="ml-2 font-bold text-sky-900">{sortieGroups.length}</span>
           </div>
         </section>
 

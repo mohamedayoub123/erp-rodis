@@ -63,6 +63,7 @@ export default async function SortieMpDetailPage({
                   <th className="px-4 py-3 font-semibold">Client</th>
                   <th className="px-4 py-3 font-semibold">Doss. ERP</th>
                   <th className="px-4 py-3 font-semibold">Doss. 4D</th>
+                  <th className="px-4 py-3 font-semibold">Note</th>
                   <th className="px-4 py-3 font-semibold">Saisi par</th>
                   {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                 </tr>
@@ -77,6 +78,7 @@ export default async function SortieMpDetailPage({
                     <td className="px-4 py-3 text-slate-600">{ligne.client || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.n_doss_erp || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.n_doss_4d || "-"}</td>
+                    <td className="px-4 py-3 text-slate-600">{ligne.note || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.utilisateur || "-"}</td>
                     {canEditStock ? (
                       <td className="px-4 py-3">

@@ -4,19 +4,40 @@ import { EntreeMpClient } from "./entree-client";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 
+async function fetchAllArticlesForEntree() {
+  const rows: { id: number; nom_article: string; unite: string | null }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // .limit() demande - sans cette boucle, les articles au-dela du 1000e
+  // (tries par nom) etaient invisibles dans le formulaire.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("id, nom_article, unite")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { id: number; nom_article: string; unite: string | null }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 export default async function MouvementsMatierePremiereEntreePage() {
   const currentStockUser = await getCurrentStockUser();
   const canWriteMouvements = await canWritePageUser(currentStockUser, "mouvementsMatierePremiereEntree");
 
-  const { data: articlesData } = await supabaseServer
-    .from("articles_matiere_premiere")
-    .select("id, nom_article, unite")
-    .order("nom_article", { ascending: true })
-    .limit(10000);
+  const articlesData = await fetchAllArticlesForEntree();
 
-  const articles = (
-    (articlesData as { id: number; nom_article: string; unite: string | null }[] | null) ?? []
-  ).map((article) => ({
+  const articles = articlesData.map((article) => ({
     id: article.id,
     label: article.nom_article,
     unite: article.unite || "",

@@ -67,6 +67,7 @@ export default async function EntreeMpDetailPage({
                   <th className="px-4 py-3 font-semibold">Emplacement</th>
                   <th className="px-4 py-3 font-semibold">Doss. ERP</th>
                   <th className="px-4 py-3 font-semibold">Doss. 4D</th>
+                  <th className="px-4 py-3 font-semibold">Note</th>
                   <th className="px-4 py-3 font-semibold">Saisi par</th>
                   {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                 </tr>
@@ -85,6 +86,7 @@ export default async function EntreeMpDetailPage({
                     <td className="px-4 py-3 text-slate-600">{ligne.emplacement || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.n_doss_erp || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.n_doss_4d || "-"}</td>
+                    <td className="px-4 py-3 text-slate-600">{ligne.note || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.utilisateur || "-"}</td>
                     {canEditStock ? (
                       <td className="px-4 py-3">
@@ -179,6 +181,15 @@ export default async function EntreeMpDetailPage({
                                   type="text"
                                   name="n_doss_4d"
                                   defaultValue={ligne.n_doss_4d || ""}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Note
+                                <input
+                                  type="text"
+                                  name="note"
+                                  defaultValue={ligne.note || ""}
                                   className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                 />
                               </label>

@@ -4,11 +4,20 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import {
+  deleteLotFromEntreeMpDetailAction,
+  deleteLotFromSortieMpDetailAction,
   updateLotFromEntreeMpDetailAction,
   updateLotFromSortieMpDetailAction,
 } from "@/app/mouvements/matiere-premiere/actions";
+import {
+  buildEntreeMpRows,
+  buildSortieMpRows,
+  fetchWebMouvementMpSourceRows,
+} from "@/app/mouvements/matiere-premiere/shared";
+import { encodeDossierId } from "../commande/dossier-id";
 
 const PAGE_SIZE = 200;
 
@@ -28,6 +37,8 @@ type MouvementRow = {
   n_doss_erp: string | null;
   n_doss_4d: string | null;
   utilisateur: string | null;
+  note: string | null;
+  mouvement_groupe_id: number | null;
   articles_matiere_premiere: {
     nom_article: string;
     gamme: string | null;
@@ -51,7 +62,7 @@ async function fetchAllMouvements() {
     const { data, error } = await supabaseServer
       .from("lots_stock_matiere_premiere")
       .select(
-        "id, article_id, numero_lot, code_normalise, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, utilisateur, articles_matiere_premiere(nom_article, gamme, categorie)"
+        "id, article_id, numero_lot, code_normalise, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, utilisateur, note, mouvement_groupe_id, articles_matiere_premiere(nom_article, gamme, categorie)"
       )
       .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
@@ -122,18 +133,30 @@ export default async function StockMatierePremiereStockPage({
   const from = (currentPage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const [{ rows: rawRows, error }, { data: articleSuggestionsData }] = await Promise.all([
+  const [{ rows: rawRows, error }, { data: articleSuggestionsData }, webSourceRows] = await Promise.all([
     fetchAllMouvements(),
     supabaseServer
       .from("articles_matiere_premiere")
       .select("nom_article")
       .order("nom_article", { ascending: true })
       .limit(5000),
+    fetchWebMouvementMpSourceRows(),
   ]);
 
   const articleSuggestions = ((articleSuggestionsData as { nom_article: string }[] | null) ?? []).map(
     (article) => article.nom_article
   );
+
+  // Code TE/TS (meme numerotation que la page Mouvements MP) par
+  // mouvement_groupe_id, pour pouvoir renvoyer directement vers le
+  // mouvement d'origine depuis Stock MP.
+  const mouvementCodeByGroupe = new Map<number, { code: string; type: "entree" | "sortie" }>();
+  for (const group of buildEntreeMpRows(webSourceRows)) {
+    mouvementCodeByGroupe.set(group.groupe_id, { code: group.code, type: "entree" });
+  }
+  for (const group of buildSortieMpRows(webSourceRows)) {
+    mouvementCodeByGroupe.set(group.groupe_id, { code: group.code, type: "sortie" });
+  }
 
   // Meme calcul que /stock (PF) : chaque ligne du grand livre est affichee
   // separement en entree OU en sortie (jamais les deux sur la meme ligne),
@@ -385,6 +408,7 @@ export default async function StockMatierePremiereStockPage({
                     <th className="px-4 py-3 font-semibold">Date</th>
                     <th className="px-4 py-3 font-semibold">Article</th>
                     <th className="px-4 py-3 font-semibold">Type</th>
+                    <th className="px-4 py-3 font-semibold">TE/TS</th>
                     <th className="px-4 py-3 font-semibold">Categorie</th>
                     <th className="px-4 py-3 font-semibold">Gamme</th>
                     <th className="px-4 py-3 font-semibold">Lot</th>
@@ -398,6 +422,8 @@ export default async function StockMatierePremiereStockPage({
                     <th className="px-4 py-3 font-semibold">Fournisseur / Client</th>
                     <th className="px-4 py-3 font-semibold">Doss. ERP</th>
                     <th className="px-4 py-3 font-semibold">Doss. 4D</th>
+                    <th className="px-4 py-3 font-semibold">Import</th>
+                    <th className="px-4 py-3 font-semibold">Note</th>
                     <th className="px-4 py-3 font-semibold">Saisi par</th>
                     <th className="px-4 py-3 font-semibold">Action</th>
                   </tr>
@@ -411,6 +437,26 @@ export default async function StockMatierePremiereStockPage({
                       </td>
                       <td className="px-4 py-3 text-slate-600">
                         {row.mouvement_type === "entree" ? "Entree" : "Sortie"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {(() => {
+                          const mouvement = row.mouvement_groupe_id
+                            ? mouvementCodeByGroupe.get(row.mouvement_groupe_id)
+                            : null;
+                          if (!mouvement) return "-";
+                          return (
+                            <Link
+                              href={
+                                mouvement.type === "entree"
+                                  ? `/mouvements/matiere-premiere/entrees/${row.mouvement_groupe_id}`
+                                  : `/mouvements/matiere-premiere/sorties/${row.mouvement_groupe_id}`
+                              }
+                              className="font-semibold text-sky-700 underline"
+                            >
+                              {mouvement.code}
+                            </Link>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
                         {row.articles_matiere_premiere?.categorie || "-"}
@@ -435,113 +481,159 @@ export default async function StockMatierePremiereStockPage({
                       </td>
                       <td className="px-4 py-3 text-slate-600">{row.n_doss_erp || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.n_doss_4d || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {row.n_doss_4d || row.n_doss_erp ? (
+                          <Link
+                            href={`/stock/matiere-premiere/commande/${encodeDossierId(
+                              row.n_doss_4d,
+                              row.n_doss_erp
+                            )}`}
+                            className="font-semibold text-sky-700 underline"
+                          >
+                            {row.n_doss_4d || row.n_doss_erp}
+                          </Link>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{row.note || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.utilisateur || "-"}</td>
                       <td className="px-4 py-3">
                         {row.mouvement_type === "entree" && canEditEntree ? (
-                          <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
-                            <summary className="cursor-pointer text-xs font-semibold text-slate-800">
-                              Modifier
-                            </summary>
-                            <form
-                              action={updateLotFromEntreeMpDetailAction}
-                              className="mt-2 grid w-64 gap-2"
-                            >
-                              <input type="hidden" name="lot_id" value={row.id} />
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Quantite
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  name="quantite"
-                                  defaultValue={row.qte_entree}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                  required
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Lot
-                                <input
-                                  type="text"
-                                  name="numero_lot"
-                                  defaultValue={row.numero_lot || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Fabrication
-                                <input
-                                  type="date"
-                                  name="date_fabrication"
-                                  defaultValue={row.date_fabrication || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Expiration
-                                <input
-                                  type="date"
-                                  name="date_expiration"
-                                  defaultValue={row.date_expiration || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Fournisseur
-                                <input
-                                  type="text"
-                                  name="fournisseur"
-                                  defaultValue={row.fournisseur || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <button
-                                type="submit"
-                                className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                          <div className="flex items-start gap-2">
+                            <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                              <summary className="cursor-pointer text-xs font-semibold text-slate-800">
+                                Modifier
+                              </summary>
+                              <form
+                                action={updateLotFromEntreeMpDetailAction}
+                                className="mt-2 grid w-64 gap-2"
                               >
-                                Enregistrer
-                              </button>
+                                <input type="hidden" name="lot_id" value={row.id} />
+                                <label className="grid gap-1 text-xs text-slate-500">
+                                  Quantite
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    name="quantite"
+                                    defaultValue={row.qte_entree}
+                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                    required
+                                  />
+                                </label>
+                                <label className="grid gap-1 text-xs text-slate-500">
+                                  Lot
+                                  <input
+                                    type="text"
+                                    name="numero_lot"
+                                    defaultValue={row.numero_lot || ""}
+                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                  />
+                                </label>
+                                <label className="grid gap-1 text-xs text-slate-500">
+                                  Fabrication
+                                  <input
+                                    type="date"
+                                    name="date_fabrication"
+                                    defaultValue={row.date_fabrication || ""}
+                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                  />
+                                </label>
+                                <label className="grid gap-1 text-xs text-slate-500">
+                                  Expiration
+                                  <input
+                                    type="date"
+                                    name="date_expiration"
+                                    defaultValue={row.date_expiration || ""}
+                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                  />
+                                </label>
+                                <label className="grid gap-1 text-xs text-slate-500">
+                                  Fournisseur
+                                  <input
+                                    type="text"
+                                    name="fournisseur"
+                                    defaultValue={row.fournisseur || ""}
+                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                  />
+                                </label>
+                                <label className="grid gap-1 text-xs text-slate-500">
+                                  Note
+                                  <input
+                                    type="text"
+                                    name="note"
+                                    defaultValue={row.note || ""}
+                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                  />
+                                </label>
+                                <button
+                                  type="submit"
+                                  className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                >
+                                  Enregistrer
+                                </button>
+                              </form>
+                            </details>
+                            <form action={deleteLotFromEntreeMpDetailAction}>
+                              <input type="hidden" name="lot_id" value={row.id} />
+                              <DeleteIconButton label="Supprimer ligne" />
                             </form>
-                          </details>
+                          </div>
                         ) : row.mouvement_type === "sortie" && canEditSortie ? (
-                          <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
-                            <summary className="cursor-pointer text-xs font-semibold text-slate-800">
-                              Modifier
-                            </summary>
-                            <form
-                              action={updateLotFromSortieMpDetailAction}
-                              className="mt-2 grid w-56 gap-2"
-                            >
-                              <input type="hidden" name="lot_id" value={row.id} />
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Quantite
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  name="quantite"
-                                  defaultValue={row.qte_sortie}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                  required
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Client
-                                <input
-                                  type="text"
-                                  name="client"
-                                  defaultValue={row.client || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <button
-                                type="submit"
-                                className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                          <div className="flex items-start gap-2">
+                            <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                              <summary className="cursor-pointer text-xs font-semibold text-slate-800">
+                                Modifier
+                              </summary>
+                              <form
+                                action={updateLotFromSortieMpDetailAction}
+                                className="mt-2 grid w-56 gap-2"
                               >
-                                Enregistrer
-                              </button>
+                                <input type="hidden" name="lot_id" value={row.id} />
+                                <label className="grid gap-1 text-xs text-slate-500">
+                                  Quantite
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    name="quantite"
+                                    defaultValue={row.qte_sortie}
+                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                    required
+                                  />
+                                </label>
+                                <label className="grid gap-1 text-xs text-slate-500">
+                                  Client
+                                  <input
+                                    type="text"
+                                    name="client"
+                                    defaultValue={row.client || ""}
+                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                  />
+                                </label>
+                                <label className="grid gap-1 text-xs text-slate-500">
+                                  Note
+                                  <input
+                                    type="text"
+                                    name="note"
+                                    defaultValue={row.note || ""}
+                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                  />
+                                </label>
+                                <button
+                                  type="submit"
+                                  className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                >
+                                  Enregistrer
+                                </button>
+                              </form>
+                            </details>
+                            <form action={deleteLotFromSortieMpDetailAction}>
+                              <input type="hidden" name="lot_id" value={row.id} />
+                              <DeleteIconButton label="Supprimer ligne" />
                             </form>
-                          </details>
+                          </div>
                         ) : (
                           "-"
                         )}

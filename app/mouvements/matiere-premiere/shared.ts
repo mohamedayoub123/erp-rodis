@@ -25,6 +25,7 @@ export type MouvementMpSourceRow = {
   articles_matiere_premiere: { nom_article: string } | null;
 };
 
+
 export type MouvementMpLigne = {
   id: number;
   article_label: string;
@@ -42,6 +43,7 @@ export type MouvementMpLigne = {
   n_doss_4d: string | null;
   emplacement: string | null;
   utilisateur: string | null;
+  note: string | null;
 };
 
 export type MouvementMpGroup = {
@@ -172,6 +174,7 @@ function buildGroups(
         n_doss_4d: row.n_doss_4d,
         emplacement: row.emplacement,
         utilisateur: row.utilisateur,
+        note: row.note,
       })),
     };
   });

@@ -49,6 +49,7 @@ type PendingEntreeMpRow = {
   n_doss_erp?: string;
   n_doss_4d?: string;
   emplacement?: string;
+  note?: string;
 };
 
 type PendingSortieMpRow = {
@@ -57,6 +58,7 @@ type PendingSortieMpRow = {
   client?: string;
   n_doss_erp?: string;
   n_doss_4d?: string;
+  note?: string;
 };
 
 async function requireMouvementsMpEntreeWriteAccess() {
@@ -131,6 +133,7 @@ export async function createEntreeMpBatchAction(formData: FormData) {
       n_doss_erp: String(row.n_doss_erp || "").trim() || null,
       n_doss_4d: String(row.n_doss_4d || "").trim() || null,
       emplacement: String(row.emplacement || "").trim() || null,
+      note: String(row.note || "").trim() || null,
       utilisateur: currentUser,
       source_import: "web:entree-mp",
     };
@@ -197,6 +200,7 @@ export async function createSortieMpBatchAction(formData: FormData) {
       client: String(row.client || "").trim(),
       n_doss_erp: String(row.n_doss_erp || "").trim(),
       n_doss_4d: String(row.n_doss_4d || "").trim(),
+      note: String(row.note || "").trim(),
       utilisateur: currentUser || "",
     };
   });
@@ -307,6 +311,7 @@ export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
       emplacement: parseOptionalText(formData, "emplacement"),
       n_doss_erp: parseOptionalText(formData, "n_doss_erp"),
       n_doss_4d: parseOptionalText(formData, "n_doss_4d"),
+      note: parseOptionalText(formData, "note"),
     })
     .eq("id", lotId);
 
@@ -338,6 +343,7 @@ export async function updateLotFromSortieMpDetailAction(formData: FormData) {
       client: parseOptionalText(formData, "client"),
       n_doss_erp: parseOptionalText(formData, "n_doss_erp"),
       n_doss_4d: parseOptionalText(formData, "n_doss_4d"),
+      note: parseOptionalText(formData, "note"),
     })
     .eq("id", lotId);
 

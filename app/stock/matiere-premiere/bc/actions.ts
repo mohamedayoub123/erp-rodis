@@ -241,6 +241,7 @@ export async function updateCommandeBcGroupAction(formData: FormData) {
   }
 
   revalidateCommandeBcMpPages();
+  redirect("/stock/matiere-premiere/bc");
 }
 
 export async function deleteCommandeBcLigneAction(formData: FormData) {

@@ -31,6 +31,7 @@ type PendingEntreeMp = {
   n_doss_erp: string;
   n_doss_4d: string;
   emplacement: string;
+  note: string;
 };
 
 type PendingSortieMp = {
@@ -40,6 +41,7 @@ type PendingSortieMp = {
   client: string;
   n_doss_erp: string;
   n_doss_4d: string;
+  note: string;
 };
 
 function formatLotLabel(lot: LotMpOption) {
@@ -66,6 +68,7 @@ export function EntreePanelMp({
   const [nDossErp, setNDossErp] = useState("");
   const [nDoss4d, setNDoss4d] = useState("");
   const [emplacement, setEmplacement] = useState("");
+  const [note, setNote] = useState("");
   const [rows, setRows] = useState<PendingEntreeMp[]>([]);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -110,6 +113,7 @@ export function EntreePanelMp({
         n_doss_erp: nDossErp.trim(),
         n_doss_4d: nDoss4d.trim(),
         emplacement: emplacement.trim(),
+        note: note.trim(),
       },
     ]);
 
@@ -124,6 +128,7 @@ export function EntreePanelMp({
     setNDossErp("");
     setNDoss4d("");
     setEmplacement("");
+    setNote("");
   }
 
   function removeRow(index: number) {
@@ -143,6 +148,7 @@ export function EntreePanelMp({
       n_doss_erp: row.n_doss_erp,
       n_doss_4d: row.n_doss_4d,
       emplacement: row.emplacement,
+      note: row.note,
     }))
   );
 
@@ -294,6 +300,14 @@ export function EntreePanelMp({
           />
         </div>
 
+        <input
+          type="text"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Note"
+          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+        />
+
         <button
           type="button"
           onClick={addRow}
@@ -321,6 +335,7 @@ export function EntreePanelMp({
                   <th className="px-3 py-2 font-semibold">Lot</th>
                   <th className="px-3 py-2 font-semibold">Reception</th>
                   <th className="px-3 py-2 font-semibold">Fournisseur</th>
+                  <th className="px-3 py-2 font-semibold">Note</th>
                   <th className="px-3 py-2 font-semibold"></th>
                 </tr>
               </thead>
@@ -333,6 +348,7 @@ export function EntreePanelMp({
                     <td className="px-3 py-2 text-slate-700">{row.numero_lot}</td>
                     <td className="px-3 py-2 text-slate-700">{row.date_reception}</td>
                     <td className="px-3 py-2 text-slate-700">{row.fournisseur || "-"}</td>
+                    <td className="px-3 py-2 text-slate-700">{row.note || "-"}</td>
                     <td className="px-3 py-2">
                       <button
                         type="button"
@@ -395,6 +411,7 @@ export function SortiePanelMp({
   const [client, setClient] = useState("");
   const [nDossErp, setNDossErp] = useState("");
   const [nDoss4d, setNDoss4d] = useState("");
+  const [note, setNote] = useState("");
   const [rows, setRows] = useState<PendingSortieMp[]>([]);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -453,6 +470,7 @@ export function SortiePanelMp({
         client: client.trim(),
         n_doss_erp: nDossErp.trim(),
         n_doss_4d: nDoss4d.trim(),
+        note: note.trim(),
       },
     ]);
 
@@ -462,6 +480,7 @@ export function SortiePanelMp({
     setClient("");
     setNDossErp("");
     setNDoss4d("");
+    setNote("");
   }
 
   function removeRow(index: number) {
@@ -475,6 +494,7 @@ export function SortiePanelMp({
       client: row.client,
       n_doss_erp: row.n_doss_erp,
       n_doss_4d: row.n_doss_4d,
+      note: row.note,
     }))
   );
 
@@ -616,6 +636,14 @@ export function SortiePanelMp({
           />
         </div>
 
+        <input
+          type="text"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Note"
+          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+        />
+
         <button
           type="button"
           onClick={addRow}
@@ -642,6 +670,7 @@ export function SortiePanelMp({
                   {row.client ? `Client ${row.client}` : "Client -"}{" "}
                   {row.n_doss_erp ? `| ERP ${row.n_doss_erp}` : ""}{" "}
                   {row.n_doss_4d ? `| 4D ${row.n_doss_4d}` : ""}
+                  {row.note ? ` | Note ${row.note}` : ""}
                 </p>
                 <button
                   type="button"
