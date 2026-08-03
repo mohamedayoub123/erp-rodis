@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
@@ -7,6 +8,7 @@ import { formatDate } from "@/lib/format-date";
 const PAGE_SIZE = 200;
 
 type MouvementRow = {
+  id: number;
   article_id: number | null;
   numero_lot: string | null;
   code_normalise: string | null;
@@ -15,25 +17,22 @@ type MouvementRow = {
   date_jour: string | null;
   qte_entree: number;
   qte_sortie: number;
+  unite: string | null;
+  fournisseur: string | null;
+  client: string | null;
+  n_doss_erp: string | null;
+  n_doss_4d: string | null;
+  utilisateur: string | null;
   articles_matiere_premiere: {
     nom_article: string;
     gamme: string | null;
     categorie: string | null;
-    unite: string | null;
   } | null;
 };
 
-type LotRow = {
-  key: string;
-  article_id: number;
-  article_label: string;
-  gamme: string | null;
-  categorie: string | null;
-  unite: string | null;
-  numero_lot: string;
-  date_fabrication: string | null;
-  date_expiration: string | null;
-  date_dernier_mouvement: string | null;
+type DisplayRow = MouvementRow & {
+  display_key: string;
+  mouvement_type: "entree" | "sortie";
   stock_code: number;
   stock_article: number;
 };
@@ -47,8 +46,9 @@ async function fetchAllMouvements() {
     const { data, error } = await supabaseServer
       .from("lots_stock_matiere_premiere")
       .select(
-        "article_id, numero_lot, code_normalise, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, articles_matiere_premiere(nom_article, gamme, categorie, unite)"
+        "id, article_id, numero_lot, code_normalise, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, utilisateur, articles_matiere_premiere(nom_article, gamme, categorie)"
       )
+      .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
 
     if (error) {
@@ -65,70 +65,31 @@ async function fetchAllMouvements() {
   return { rows, error: null };
 }
 
-// Meme calcul que /stock (PF) : le stock restant d'un lot ("code") est la
-// somme de toutes ses lignes (qte_entree - qte_sortie), et le stock restant
-// d'un article est la somme de tous ses lots. lots_stock_matiere_premiere
-// est un grand livre append-only (chaque ligne est un mouvement TE/TS), pas
-// un instantane - donc jamais de valeur "stock actuel" stockee directement.
-function buildLotRows(mouvements: MouvementRow[]): LotRow[] {
-  const byCode = new Map<string, MouvementRow[]>();
+function buildCodeKey(articleId: number | null, numeroLot: string | null | undefined) {
+  return `${articleId ?? 0}::${String(numeroLot || "").trim().toUpperCase()}`;
+}
 
-  for (const row of mouvements) {
-    if (!row.article_id) continue;
-    const codeKey = String(row.code_normalise || row.numero_lot || "").trim().toUpperCase();
-    const key = `${row.article_id}::${codeKey}`;
-    const list = byCode.get(key) ?? [];
-    list.push(row);
-    byCode.set(key, list);
-  }
+function parseMonthValue(value: string) {
+  const month = Number(value || "0");
+  if (Number.isNaN(month) || month < 1 || month > 12) return 0;
+  return month;
+}
 
-  const stockByArticle = new Map<number, number>();
-  for (const row of mouvements) {
-    if (!row.article_id) continue;
-    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-    stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
-  }
-
-  const lots: LotRow[] = [];
-
-  for (const [key, rows] of byCode.entries()) {
-    const sorted = [...rows].sort((a, b) => {
-      const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
-      const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
-      return dateA - dateB;
-    });
-    const latest = sorted[sorted.length - 1];
-    const entreeRows = sorted.filter((row) => Number(row.qte_entree ?? 0) > 0);
-    const latestEntree = entreeRows[entreeRows.length - 1] ?? latest;
-
-    const stockCode = rows.reduce(
-      (sum, row) => sum + Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0),
-      0
-    );
-
-    lots.push({
-      key,
-      article_id: latest.article_id as number,
-      article_label: latest.articles_matiere_premiere?.nom_article || "-",
-      gamme: latest.articles_matiere_premiere?.gamme || null,
-      categorie: latest.articles_matiere_premiere?.categorie || null,
-      unite: latest.articles_matiere_premiere?.unite || null,
-      numero_lot: latest.numero_lot || latest.code_normalise || "",
-      date_fabrication: latestEntree.date_fabrication,
-      date_expiration: latestEntree.date_expiration,
-      date_dernier_mouvement: latest.date_jour,
-      stock_code: stockCode,
-      stock_article: stockByArticle.get(latest.article_id as number) ?? 0,
-    });
-  }
-
-  return lots.sort((a, b) => a.article_label.localeCompare(b.article_label, "fr", { sensitivity: "base" }));
+function parseYearValue(value: string) {
+  const year = Number(value || "0");
+  if (Number.isNaN(year) || year < 2000 || year > 2100) return 0;
+  return year;
 }
 
 type SearchParams = Promise<{
   page?: string;
   q?: string;
   code_q?: string;
+  date_from?: string;
+  date_to?: string;
+  month_from?: string;
+  month_to?: string;
+  year?: string;
   hide_zero?: string;
 }>;
 
@@ -141,29 +102,127 @@ export default async function StockMatierePremiereStockPage({
   const params = await searchParams;
   const q = (params.q || "").trim().toLowerCase();
   const codeQ = (params.code_q || "").trim().toLowerCase();
+  const dateFrom = (params.date_from || "").trim();
+  const dateTo = (params.date_to || "").trim();
+  const monthFrom = parseMonthValue((params.month_from || "").trim());
+  const monthTo = parseMonthValue((params.month_to || "").trim());
+  const selectedYear = parseYearValue((params.year || "").trim());
   const hideZeroStock = (params.hide_zero || "").trim() === "1";
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const from = (currentPage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const { rows: mouvements, error } = await fetchAllMouvements();
-  const allLots = buildLotRows(mouvements);
+  const [{ rows: rawRows, error }, { data: articleSuggestionsData }] = await Promise.all([
+    fetchAllMouvements(),
+    supabaseServer
+      .from("articles_matiere_premiere")
+      .select("nom_article")
+      .order("nom_article", { ascending: true })
+      .limit(5000),
+  ]);
 
-  const filteredLots = allLots.filter((lot) => {
-    if (hideZeroStock && lot.stock_code <= 0) return false;
-    if (q && !lot.article_label.toLowerCase().includes(q)) return false;
-    if (codeQ && !lot.numero_lot.toLowerCase().includes(codeQ)) return false;
+  const articleSuggestions = ((articleSuggestionsData as { nom_article: string }[] | null) ?? []).map(
+    (article) => article.nom_article
+  );
+
+  // Meme calcul que /stock (PF) : chaque ligne du grand livre est affichee
+  // separement en entree OU en sortie (jamais les deux sur la meme ligne),
+  // "stock code" = somme entree-sortie de tout le lot, "stock article" =
+  // solde cumulatif de l'article au fil des mouvements (ordre chronologique).
+  const displaySourceRows = rawRows.flatMap((row) => {
+    const rows: MouvementRow[] = [];
+    if (Number(row.qte_entree ?? 0) > 0) rows.push({ ...row, qte_sortie: 0 });
+    if (Number(row.qte_sortie ?? 0) > 0) rows.push({ ...row, qte_entree: 0 });
+    if (rows.length === 0) rows.push(row);
+    return rows;
+  });
+
+  const stockCodeTotals = new Map<string, number>();
+  for (const row of displaySourceRows) {
+    const key = buildCodeKey(row.article_id, row.numero_lot || row.code_normalise);
+    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
+    stockCodeTotals.set(key, Number(stockCodeTotals.get(key) ?? 0) + mouvement);
+  }
+
+  const runningStockByArticle = new Map<number, number>();
+  const rowsWithStock = [...displaySourceRows]
+    .sort((a, b) => {
+      const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
+      const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
+      if (dateA !== dateB) return dateA - dateB;
+      return a.id - b.id;
+    })
+    .map((row): DisplayRow => {
+      const previousArticle = row.article_id ? runningStockByArticle.get(row.article_id) ?? 0 : 0;
+      const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
+      const stockCode = Number(
+        stockCodeTotals.get(buildCodeKey(row.article_id, row.numero_lot || row.code_normalise)) ?? 0
+      );
+      const stockArticle = previousArticle + mouvement;
+
+      if (row.article_id) runningStockByArticle.set(row.article_id, stockArticle);
+
+      return {
+        ...row,
+        display_key: `${row.id}-${Number(row.qte_entree ?? 0) > 0 ? "entree" : "sortie"}`,
+        mouvement_type: Number(row.qte_entree ?? 0) > 0 ? "entree" : "sortie",
+        stock_code: stockCode,
+        stock_article: stockArticle,
+      };
+    })
+    .sort((a, b) => {
+      const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
+      const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
+      if (dateB !== dateA) return dateB - dateA;
+      return b.id - a.id;
+    });
+
+  const availableYears = [
+    ...new Set(
+      rowsWithStock
+        .map((row) => (row.date_jour ? new Date(row.date_jour).getFullYear() : 0))
+        .filter((year) => year > 0)
+    ),
+  ].sort((a, b) => b - a);
+
+  const filteredRows = rowsWithStock.filter((row) => {
+    if (hideZeroStock && row.stock_code <= 0) return false;
+    if (q && !(row.articles_matiere_premiere?.nom_article || "").toLowerCase().includes(q)) return false;
+    if (codeQ && !String(row.numero_lot || "").toLowerCase().includes(codeQ)) return false;
+
+    if (!row.date_jour) {
+      return !dateFrom && !dateTo && !monthFrom && !monthTo && !selectedYear;
+    }
+
+    const rowDate = new Date(row.date_jour);
+    const rowDateValue = rowDate.getTime();
+    const rowMonth = rowDate.getMonth() + 1;
+    const rowYear = rowDate.getFullYear();
+
+    if (dateFrom && rowDateValue < new Date(dateFrom).getTime()) return false;
+    if (dateTo && rowDateValue > new Date(dateTo).getTime()) return false;
+    if (selectedYear && rowYear !== selectedYear) return false;
+    if (monthFrom && rowMonth < monthFrom) return false;
+    if (monthTo && rowMonth > monthTo) return false;
+
     return true;
   });
 
-  const totalLots = filteredLots.length;
-  const totalPages = Math.max(1, Math.ceil(totalLots / PAGE_SIZE));
-  const pagedLots = filteredLots.slice(from, to + 1);
+  const totalRows = filteredRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+  const pagedRows = filteredRows.slice(from, to + 1);
+  const totalEntree = pagedRows.reduce((sum, row) => sum + Number(row.qte_entree ?? 0), 0);
+  const totalSortie = pagedRows.reduce((sum, row) => sum + Number(row.qte_sortie ?? 0), 0);
 
   function buildPageHref(page: number) {
     const search = new URLSearchParams();
     if (q) search.set("q", q);
     if (codeQ) search.set("code_q", codeQ);
+    if (dateFrom) search.set("date_from", dateFrom);
+    if (dateTo) search.set("date_to", dateTo);
+    if (monthFrom) search.set("month_from", String(monthFrom));
+    if (monthTo) search.set("month_to", String(monthTo));
+    if (selectedYear) search.set("year", String(selectedYear));
     if (hideZeroStock) search.set("hide_zero", "1");
     if (page > 1) search.set("page", String(page));
     const qs = search.toString();
@@ -183,8 +242,8 @@ export default async function StockMatierePremiereStockPage({
                 Stock Matiere Premiere
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Calcule a partir des mouvements TE/TS : un lot par ligne, stock restant par
-                code et par article.
+                Chaque mouvement TE/TS sur sa propre ligne (Entree ou Sortie), comme la
+                page Stock PF.
               </p>
             </div>
 
@@ -196,15 +255,21 @@ export default async function StockMatierePremiereStockPage({
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-3">
+          <form className="grid gap-3 lg:grid-cols-4 xl:grid-cols-5">
             <input
               type="text"
+              list="stock-mp-articles-list"
               name="q"
               defaultValue={q}
               placeholder="Ecrire article..."
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
               autoComplete="off"
             />
+            <datalist id="stock-mp-articles-list">
+              {articleSuggestions.map((articleName) => (
+                <option key={articleName} value={articleName} />
+              ))}
+            </datalist>
             <input
               type="text"
               name="code_q"
@@ -213,89 +278,187 @@ export default async function StockMatierePremiereStockPage({
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
               autoComplete="off"
             />
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" name="hide_zero" value="1" defaultChecked={hideZeroStock} />
-                Cacher stock a 0
-              </label>
-              <button
-                type="submit"
-                className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-              >
-                Filtrer
-              </button>
-            </div>
+            <input
+              type="date"
+              name="date_from"
+              defaultValue={dateFrom}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="date"
+              name="date_to"
+              defaultValue={dateTo}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <select
+              name="month_from"
+              defaultValue={monthFrom ? String(monthFrom) : ""}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              <option value="">Mois debut</option>
+              {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
+                <option key={`month-from-${month}`} value={month}>
+                  {month}
+                </option>
+              ))}
+            </select>
+            <select
+              name="month_to"
+              defaultValue={monthTo ? String(monthTo) : ""}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              <option value="">Mois fin</option>
+              {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
+                <option key={`month-to-${month}`} value={month}>
+                  {month}
+                </option>
+              ))}
+            </select>
+            <select
+              name="year"
+              defaultValue={selectedYear ? String(selectedYear) : ""}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              <option value="">Annee</option>
+              {availableYears.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                name="hide_zero"
+                value="1"
+                defaultChecked={hideZeroStock}
+                className="h-4 w-4"
+              />
+              Cacher stock a 0
+            </label>
+            <button
+              type="submit"
+              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Filtrer
+            </button>
+            <Link
+              href="/stock/matiere-premiere/stock"
+              className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+            >
+              Effacer
+            </Link>
           </form>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm">
+              Entree visible :
+              <span className="ml-2 font-bold text-emerald-900">{totalEntree}</span>
+            </div>
+            <div className="rounded-2xl bg-sky-50 px-4 py-3 text-sm">
+              Sortie visible :
+              <span className="ml-2 font-bold text-sky-900">{totalSortie}</span>
+            </div>
+          </div>
         </section>
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           {error ? (
             <div className="p-6 text-sm text-red-700">{error.message}</div>
-          ) : pagedLots.length === 0 ? (
-            <div className="p-6 text-sm text-slate-500">Aucun lot matiere premiere enregistre.</div>
+          ) : pagedRows.length === 0 ? (
+            <div className="p-6 text-sm text-slate-500">Aucun mouvement matiere premiere enregistre.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
+                    <th className="px-4 py-3 font-semibold">Date</th>
                     <th className="px-4 py-3 font-semibold">Article</th>
-                    <th className="px-4 py-3 font-semibold">Gamme</th>
+                    <th className="px-4 py-3 font-semibold">Type</th>
                     <th className="px-4 py-3 font-semibold">Categorie</th>
-                    <th className="px-4 py-3 font-semibold">Numero de lot</th>
+                    <th className="px-4 py-3 font-semibold">Gamme</th>
+                    <th className="px-4 py-3 font-semibold">Lot</th>
                     <th className="px-4 py-3 font-semibold">Unite</th>
-                    <th className="px-4 py-3 font-semibold">Date fabrication</th>
-                    <th className="px-4 py-3 font-semibold">Date expiration</th>
-                    <th className="px-4 py-3 font-semibold">Dernier mouvement</th>
-                    <th className="px-4 py-3 font-semibold">Stock restant (code)</th>
-                    <th className="px-4 py-3 font-semibold">Stock restant (article)</th>
+                    <th className="px-4 py-3 font-semibold">Date fab.</th>
+                    <th className="px-4 py-3 font-semibold">Date exp.</th>
+                    <th className="px-4 py-3 font-semibold">Entree</th>
+                    <th className="px-4 py-3 font-semibold">Sortie</th>
+                    <th className="px-4 py-3 font-semibold">Stock code</th>
+                    <th className="px-4 py-3 font-semibold">Stock article</th>
+                    <th className="px-4 py-3 font-semibold">Fournisseur / Client</th>
+                    <th className="px-4 py-3 font-semibold">Doss. ERP</th>
+                    <th className="px-4 py-3 font-semibold">Doss. 4D</th>
+                    <th className="px-4 py-3 font-semibold">Saisi par</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pagedLots.map((lot) => (
-                    <tr key={lot.key} className="border-t border-slate-100">
-                      <td className="px-4 py-3 font-medium text-slate-900">{lot.article_label}</td>
-                      <td className="px-4 py-3 text-slate-600">{lot.gamme || "-"}</td>
-                      <td className="px-4 py-3 text-slate-600">{lot.categorie || "-"}</td>
-                      <td className="px-4 py-3 text-slate-600">{lot.numero_lot || "-"}</td>
-                      <td className="px-4 py-3 text-slate-600">{lot.unite || "-"}</td>
-                      <td className="px-4 py-3 text-slate-600">{formatDate(lot.date_fabrication)}</td>
-                      <td className="px-4 py-3 text-slate-600">{formatDate(lot.date_expiration)}</td>
-                      <td className="px-4 py-3 text-slate-600">{formatDate(lot.date_dernier_mouvement)}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{lot.stock_code}</td>
-                      <td className="px-4 py-3 text-slate-700">{lot.stock_article}</td>
+                  {pagedRows.map((row) => (
+                    <tr key={row.display_key} className="border-t border-slate-100">
+                      <td className="px-4 py-3 text-xs text-slate-600">{formatDate(row.date_jour)}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900">
+                        {row.articles_matiere_premiere?.nom_article || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {row.mouvement_type === "entree" ? "Entree" : "Sortie"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {row.articles_matiere_premiere?.categorie || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {row.articles_matiere_premiere?.gamme || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{row.numero_lot || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{row.unite || "-"}</td>
+                      <td className="px-4 py-3 text-xs text-slate-600">{formatDate(row.date_fabrication)}</td>
+                      <td className="px-4 py-3 text-xs text-slate-600">{formatDate(row.date_expiration)}</td>
+                      <td className="px-4 py-3 font-semibold text-emerald-700">
+                        {row.mouvement_type === "entree" ? row.qte_entree : 0}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-sky-700">
+                        {row.mouvement_type === "sortie" ? row.qte_sortie : 0}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{row.stock_code}</td>
+                      <td className="px-4 py-3 font-semibold text-fuchsia-700">{row.stock_article}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {row.mouvement_type === "entree" ? row.fournisseur || "-" : row.client || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{row.n_doss_erp || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{row.n_doss_4d || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{row.utilisateur || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
-        </section>
 
-        {totalPages > 1 ? (
-          <section className="flex items-center justify-between rounded-[1.75rem] border border-black/5 bg-white px-5 py-4 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <p className="text-sm text-slate-600">
-              Lots {Math.min(from + 1, totalLots)} a {Math.min(to + 1, totalLots)} sur {totalLots}
-            </p>
-            <div className="flex gap-2">
-              {currentPage > 1 ? (
-                <a
-                  href={buildPageHref(currentPage - 1)}
-                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
-                >
-                  Precedent
-                </a>
-              ) : null}
-              {currentPage < totalPages ? (
-                <a
-                  href={buildPageHref(currentPage + 1)}
-                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
-                >
-                  Suivant
-                </a>
-              ) : null}
+          {!error && totalRows > 0 ? (
+            <div className="flex items-center justify-between border-t border-slate-100 px-4 py-4 text-sm">
+              <p className="text-slate-500">
+                Lignes {from + 1} a {Math.min(from + PAGE_SIZE, totalRows)} sur {totalRows}
+              </p>
+
+              <div className="flex gap-3">
+                {currentPage > 1 ? (
+                  <a
+                    href={buildPageHref(currentPage - 1)}
+                    className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+                  >
+                    Precedent
+                  </a>
+                ) : null}
+                {currentPage < totalPages ? (
+                  <a
+                    href={buildPageHref(currentPage + 1)}
+                    className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+                  >
+                    Suivant
+                  </a>
+                ) : null}
+              </div>
             </div>
-          </section>
-        ) : null}
+          ) : null}
+        </section>
       </div>
     </main>
   );

@@ -388,7 +388,8 @@ export function SortiePanelMp({
   onLotsUpdated: React.Dispatch<React.SetStateAction<LotMpOption[]>>;
 }) {
   const [isPending, startTransition] = useTransition();
-  const [selectedArticle, setSelectedArticle] = useState("");
+  const [articleInput, setArticleInput] = useState("");
+  const [showArticleDropdown, setShowArticleDropdown] = useState(false);
   const [selectedLotId, setSelectedLotId] = useState("");
   const [quantite, setQuantite] = useState("");
   const [client, setClient] = useState("");
@@ -398,13 +399,30 @@ export function SortiePanelMp({
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  // Choix par listes uniquement (pas de saisie libre) : Article d'abord,
-  // puis Lot restreint aux lots disponibles de cet article.
+  // Article : saisie libre avec suggestions (plus rapide qu'une liste
+  // deroulante pour un gros catalogue). Lot : liste stricte uniquement,
+  // restreinte aux lots disponibles de l'article choisi - pas de saisie
+  // libre possible ici pour eviter une erreur de numero de lot.
   const articleOptions = useMemo(() => {
     return [...new Set(lots.map((lot) => lot.articleLabel))].sort((a, b) =>
       a.localeCompare(b, "fr", { sensitivity: "base" })
     );
   }, [lots]);
+
+  const selectedArticle = useMemo(
+    () => (articleOptions.includes(articleInput) ? articleInput : ""),
+    [articleInput, articleOptions]
+  );
+
+  const filteredArticleOptions = useMemo(() => {
+    const words = articleInput.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return articleOptions.slice(0, 80);
+
+    return articleOptions.filter((label) => {
+      const lower = label.toLowerCase();
+      return words.every((word) => lower.includes(word));
+    });
+  }, [articleInput, articleOptions]);
 
   const lotOptions = useMemo(() => {
     if (!selectedArticle) return [];
@@ -438,7 +456,7 @@ export function SortiePanelMp({
       },
     ]);
 
-    setSelectedArticle("");
+    setArticleInput("");
     setSelectedLotId("");
     setQuantite("");
     setClient("");
@@ -507,23 +525,40 @@ export function SortiePanelMp({
 
       <div className="mt-4 grid gap-4">
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-2 text-sm font-semibold text-slate-900">
+          <label className="relative grid gap-2 text-sm font-semibold text-slate-900">
             <span>Article</span>
-            <select
-              value={selectedArticle}
+            <input
+              value={articleInput}
               onChange={(event) => {
-                setSelectedArticle(event.target.value);
+                setArticleInput(event.target.value);
                 setSelectedLotId("");
+                setShowArticleDropdown(true);
               }}
+              onFocus={() => setShowArticleDropdown(true)}
+              onBlur={() => setTimeout(() => setShowArticleDropdown(false), 150)}
+              placeholder="Ecris l'article puis choisis"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
-            >
-              <option value="">Choisis un article</option>
-              {articleOptions.map((label) => (
-                <option key={label} value={label}>
-                  {label}
-                </option>
-              ))}
-            </select>
+              autoComplete="off"
+            />
+            {showArticleDropdown && filteredArticleOptions.length > 0 ? (
+              <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
+                {filteredArticleOptions.map((label) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setArticleInput(label);
+                      setSelectedLotId("");
+                      setShowArticleDropdown(false);
+                    }}
+                    className="block w-full px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </label>
 
           <label className="grid gap-2 text-sm font-semibold text-slate-900">
