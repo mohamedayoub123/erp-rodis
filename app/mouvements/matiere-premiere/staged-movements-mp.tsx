@@ -388,8 +388,8 @@ export function SortiePanelMp({
   onLotsUpdated: React.Dispatch<React.SetStateAction<LotMpOption[]>>;
 }) {
   const [isPending, startTransition] = useTransition();
-  const [lotInput, setLotInput] = useState("");
-  const [showLotDropdown, setShowLotDropdown] = useState(false);
+  const [selectedArticle, setSelectedArticle] = useState("");
+  const [selectedLotId, setSelectedLotId] = useState("");
   const [quantite, setQuantite] = useState("");
   const [client, setClient] = useState("");
   const [nDossErp, setNDossErp] = useState("");
@@ -398,20 +398,23 @@ export function SortiePanelMp({
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
+  // Choix par listes uniquement (pas de saisie libre) : Article d'abord,
+  // puis Lot restreint aux lots disponibles de cet article.
+  const articleOptions = useMemo(() => {
+    return [...new Set(lots.map((lot) => lot.articleLabel))].sort((a, b) =>
+      a.localeCompare(b, "fr", { sensitivity: "base" })
+    );
+  }, [lots]);
+
+  const lotOptions = useMemo(() => {
+    if (!selectedArticle) return [];
+    return lots.filter((lot) => lot.articleLabel === selectedArticle);
+  }, [selectedArticle, lots]);
+
   const selectedLot = useMemo(
-    () => lots.find((lot) => formatLotLabel(lot) === lotInput) ?? null,
-    [lotInput, lots]
+    () => lots.find((lot) => String(lot.id) === selectedLotId) ?? null,
+    [selectedLotId, lots]
   );
-
-  const filteredLots = useMemo(() => {
-    const words = lotInput.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return lots.slice(0, 80);
-
-    return lots.filter((lot) => {
-      const label = formatLotLabel(lot).toLowerCase();
-      return words.every((word) => label.includes(word));
-    });
-  }, [lotInput, lots]);
 
   function addRow() {
     const qty = Number(quantite.replace(",", "."));
@@ -435,7 +438,8 @@ export function SortiePanelMp({
       },
     ]);
 
-    setLotInput("");
+    setSelectedArticle("");
+    setSelectedLotId("");
     setQuantite("");
     setClient("");
     setNDossErp("");
@@ -502,39 +506,46 @@ export function SortiePanelMp({
       <h2 className="text-2xl font-black text-sky-900">Sortie stock - Matiere Premiere</h2>
 
       <div className="mt-4 grid gap-4">
-        <label className="relative grid gap-2 text-sm font-semibold text-slate-900">
-          <span>Lot a sortir</span>
-          <input
-            value={lotInput}
-            onChange={(event) => {
-              setLotInput(event.target.value);
-              setShowLotDropdown(true);
-            }}
-            onFocus={() => setShowLotDropdown(true)}
-            onBlur={() => setTimeout(() => setShowLotDropdown(false), 150)}
-            placeholder="Ecris article ou lot puis choisis"
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
-            autoComplete="off"
-          />
-          {showLotDropdown && filteredLots.length > 0 ? (
-            <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-              {filteredLots.map((lot) => (
-                <button
-                  key={lot.id}
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    setLotInput(formatLotLabel(lot));
-                    setShowLotDropdown(false);
-                  }}
-                  className="block w-full px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
-                >
-                  {formatLotLabel(lot)}
-                </button>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="grid gap-2 text-sm font-semibold text-slate-900">
+            <span>Article</span>
+            <select
+              value={selectedArticle}
+              onChange={(event) => {
+                setSelectedArticle(event.target.value);
+                setSelectedLotId("");
+              }}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
+            >
+              <option value="">Choisis un article</option>
+              {articleOptions.map((label) => (
+                <option key={label} value={label}>
+                  {label}
+                </option>
               ))}
-            </div>
-          ) : null}
-        </label>
+            </select>
+          </label>
+
+          <label className="grid gap-2 text-sm font-semibold text-slate-900">
+            <span>Lot</span>
+            <select
+              value={selectedLotId}
+              onChange={(event) => setSelectedLotId(event.target.value)}
+              disabled={!selectedArticle}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none disabled:bg-slate-50 disabled:text-slate-400"
+            >
+              <option value="">
+                {selectedArticle ? "Choisis un lot" : "Choisis d'abord un article"}
+              </option>
+              {lotOptions.map((lot) => (
+                <option key={lot.id} value={lot.id}>
+                  {lot.numeroLot} - restant {lot.stock}
+                  {lot.unite ? ` ${lot.unite}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         <input
           type="number"
