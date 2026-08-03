@@ -132,6 +132,18 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/stock/matiere-premiere/statistique"],
     hasWrite: false,
   },
+  {
+    key: "commandeMp",
+    module: "Stock",
+    label: "Import MP (liste + modifier statut)",
+    pathPrefixes: ["/stock/matiere-premiere/commande"],
+  },
+  {
+    key: "commandeMpNouvelle",
+    module: "Stock",
+    label: "Nouvel import MP",
+    pathPrefixes: ["/stock/matiere-premiere/commande/nouvelle"],
+  },
 
   // Commandes
   {
@@ -518,6 +530,8 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockPerimeMp",
   "stockDormantMp",
   "statistiqueMp",
+  "commandeMp",
+  "commandeMpNouvelle",
   "articlesMatierePremiere",
   "articlesMatierePremiereNouvelle",
   "mouvementsMatierePremiere",

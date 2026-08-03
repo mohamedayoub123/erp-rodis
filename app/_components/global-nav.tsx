@@ -83,6 +83,7 @@ const navItems: NavItem[] = [
       { href: "/stock/matiere-premiere/dormant", label: "Stock Dormant", pageKey: "stockDormantMp" },
       { href: "/stock/matiere-premiere/statistique", label: "Statistique", pageKey: "statistiqueMp" },
       { href: "/stock/matiere-premiere/perime", label: "Stock Perime", pageKey: "stockPerimeMp" },
+      { href: "/stock/matiere-premiere/commande", label: "Import", pageKey: "commandeMp" },
     ],
   },
   {
