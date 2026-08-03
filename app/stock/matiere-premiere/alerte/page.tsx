@@ -151,7 +151,7 @@ export default async function StockAlerteMpPage() {
                     <th className="px-6 py-4 font-semibold">Categorie</th>
                     <th className="px-6 py-4 font-semibold">Quantite</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
-                    <th className="px-6 py-4 font-semibold">Stock min</th>
+                    <th className="px-6 py-4 font-semibold">Stock alert</th>
                   </tr>
                 </thead>
                 <tbody>
