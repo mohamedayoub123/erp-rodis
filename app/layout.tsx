@@ -15,6 +15,7 @@ import { GlobalFooter } from "./_components/global-footer";
 import { GlobalNav } from "./_components/global-nav";
 import { RouteAccessGate } from "./_components/route-access-gate";
 import { ServiceWorkerRegister } from "./_components/service-worker-register";
+import { ZoomControl } from "./_components/zoom-control";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -149,6 +150,7 @@ export default async function RootLayout({
                 Utilisateur : {currentUser}
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <ZoomControl />
                 <details className="group relative">
                   <summary className="list-none rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950">
                     Changer mot de passe
