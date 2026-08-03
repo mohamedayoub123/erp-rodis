@@ -22,7 +22,7 @@ export async function loginSiteAction(formData: FormData) {
   const password = String(formData.get("password") || "").trim();
   const cookieStore = await cookies();
 
-  const lockout = checkLoginLockout(username);
+  const lockout = await checkLoginLockout(username);
   if (lockout.locked) {
     const minutes = Math.max(1, Math.ceil(lockout.retryAfterSeconds / 60));
     cookieStore.set(
@@ -39,8 +39,8 @@ export async function loginSiteAction(formData: FormData) {
     redirect("/");
   }
 
-  if (!verifyStockPassword(username, password)) {
-    recordFailedLogin(username);
+  if (!(await verifyStockPassword(username, password))) {
+    await recordFailedLogin(username);
     cookieStore.set(LOGIN_ERROR_COOKIE, "Utilisateur ou mot de passe incorrect.", {
       httpOnly: true,
       sameSite: "lax",
@@ -51,7 +51,7 @@ export async function loginSiteAction(formData: FormData) {
     redirect("/");
   }
 
-  clearFailedLogins(username);
+  await clearFailedLogins(username);
   cookieStore.delete(LOGIN_ERROR_COOKIE);
   await createStockSession(username);
   redirect("/");
@@ -79,7 +79,7 @@ export async function changePasswordAction(formData: FormData) {
   const newPassword = String(formData.get("newPassword") || "").trim();
   const confirmPassword = String(formData.get("confirmPassword") || "").trim();
 
-  if (!verifyStockPassword(currentUser, oldPassword)) {
+  if (!(await verifyStockPassword(currentUser, oldPassword))) {
     cookieStore.set(PASSWORD_ERROR_COOKIE, "Ancien mot de passe incorrect.", {
       httpOnly: true,
       sameSite: "lax",
@@ -112,7 +112,7 @@ export async function changePasswordAction(formData: FormData) {
     redirect("/");
   }
 
-  updateStockPassword(currentUser, newPassword);
+  await updateStockPassword(currentUser, newPassword);
 
   cookieStore.set(PASSWORD_SUCCESS_COOKIE, "Mot de passe change avec succes.", {
     httpOnly: true,

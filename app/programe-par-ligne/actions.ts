@@ -289,7 +289,7 @@ async function generateAutoCodes(
 export async function saveProgrammeLigneBatchAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "programeParLigne")) {
+  if (!(await canWritePageUser(currentUser, "programeParLigne"))) {
     throw new Error("Cet utilisateur ne peut pas enregistrer de programme.");
   }
 
@@ -490,7 +490,7 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
 export async function deleteProgrammeLigneGroupAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "historiqueProgramme")) {
+  if (!(await canWritePageUser(currentUser, "historiqueProgramme"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer un programme.");
   }
 

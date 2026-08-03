@@ -78,7 +78,7 @@ export default async function RapportConditionnementPage({
   }
 
   const currentStockUser = await getCurrentStockUser();
-  const canWrite = canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
+  const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer

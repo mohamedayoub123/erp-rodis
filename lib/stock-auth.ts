@@ -1,14 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
+import { supabaseServer } from "./supabase-server";
 import { PAGE_REGISTRY, findPageForPath, type PageDefinition } from "./page-registry";
 
 const STOCK_AUTH_COOKIE = "stock_edit_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 const STOCK_AUTH_SECRET = process.env.STOCK_AUTH_SECRET;
-const USERS_FILE = join(process.cwd(), "storage", "stock-users.json");
-const LOGIN_ATTEMPTS_FILE = join(process.cwd(), "storage", "login-attempts.json");
 const ADMIN_USERS = new Set(["mayoub"]);
 const MAX_FAILED_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
@@ -25,9 +22,9 @@ export type StockPermissions = {
   manageUsers: boolean;
 };
 
-// Forme stockee cote disque : peut etre l'ancien format (module) ou le
+// Forme stockee cote base : peut etre l'ancien format (module) ou le
 // nouveau (pages) - normalizeUserRecord() migre l'un vers l'autre a la
-// lecture, sans jamais ecraser storage/stock-users.json a la main.
+// lecture, sans jamais ecraser la table stock_users a la main.
 type StoredPermissions = Partial<StockPermissions> & Record<string, unknown>;
 
 type StoredUserRecord =
@@ -127,18 +124,6 @@ function safeEqual(a: string, b: string) {
   return timingSafeEqual(left, right);
 }
 
-function ensureUsersFile() {
-  const folder = join(process.cwd(), "storage");
-
-  if (!existsSync(folder)) {
-    mkdirSync(folder, { recursive: true });
-  }
-
-  if (!existsSync(USERS_FILE)) {
-    writeFileSync(USERS_FILE, JSON.stringify(DEFAULT_STOCK_USERS, null, 2), "utf8");
-  }
-}
-
 // Pour une page donnee, retrouve sa valeur dans l'ancien systeme (module)
 // stockee sur disque - sert de valeur de depart la toute premiere fois
 // qu'un utilisateur existant est lu apres l'introduction des permissions
@@ -220,54 +205,72 @@ function normalizeUserRecord(username: string, record: StoredUserRecord): Normal
   };
 }
 
-function readUsers() {
-  ensureUsersFile();
+async function seedDefaultUsers() {
+  const rows = Object.entries(DEFAULT_STOCK_USERS).map(([username, passwordHash]) => ({
+    username,
+    password_hash: passwordHash,
+    permissions: {},
+  }));
 
-  try {
-    const raw = readFileSync(USERS_FILE, "utf8");
-    const parsed = JSON.parse(raw) as Record<string, StoredUserRecord>;
+  const { error } = await supabaseServer.from("stock_users").upsert(rows, { onConflict: "username" });
 
-    if (!parsed || typeof parsed !== "object") {
-      return Object.fromEntries(
-        Object.entries(DEFAULT_STOCK_USERS).map(([username, passwordHash]) => [
-          username,
-          normalizeUserRecord(username, passwordHash),
-        ])
-      ) as Record<string, NormalizedUserRecord>;
-    }
+  if (error) {
+    throw new Error(`stock_users seed failed: ${error.message}`);
+  }
+}
 
-    // Use the file as the sole source of truth: ensureUsersFile() already
-    // seeds it with DEFAULT_STOCK_USERS on first run. Re-merging the defaults
-    // here on every read would resurrect default users (mayob, david...)
-    // right after an admin deletes them.
-    return Object.fromEntries(
-      Object.entries(parsed).map(([username, record]) => [
-        username,
-        normalizeUserRecord(username, record),
-      ])
-    ) as Record<string, NormalizedUserRecord>;
-  } catch {
+async function readUsers(): Promise<Record<string, NormalizedUserRecord>> {
+  const { data, error } = await supabaseServer
+    .from("stock_users")
+    .select("username, password_hash, permissions");
+
+  if (error) {
+    throw new Error(`stock_users read failed: ${error.message}`);
+  }
+
+  if (!data || data.length === 0) {
+    await seedDefaultUsers();
+
     return Object.fromEntries(
       Object.entries(DEFAULT_STOCK_USERS).map(([username, passwordHash]) => [
         username,
         normalizeUserRecord(username, passwordHash),
       ])
-    ) as Record<string, NormalizedUserRecord>;
+    );
+  }
+
+  return Object.fromEntries(
+    data.map((row) => [
+      row.username,
+      normalizeUserRecord(row.username, {
+        passwordHash: row.password_hash,
+        permissions: (row.permissions as StoredPermissions) || {},
+      }),
+    ])
+  );
+}
+
+async function writeUsers(users: Record<string, NormalizedUserRecord>) {
+  const rows = Object.entries(users).map(([username, user]) => ({
+    username,
+    password_hash: user.passwordHash,
+    permissions: user.permissions,
+    updated_at: new Date().toISOString(),
+  }));
+
+  const { error } = await supabaseServer.from("stock_users").upsert(rows, { onConflict: "username" });
+
+  if (error) {
+    throw new Error(`stock_users write failed: ${error.message}`);
   }
 }
 
-function writeUsers(users: Record<string, NormalizedUserRecord>) {
-  ensureUsersFile();
-  const serializable = Object.fromEntries(
-    Object.entries(users).map(([username, user]) => [
-      username,
-      {
-        passwordHash: user.passwordHash,
-        permissions: user.permissions,
-      },
-    ])
-  );
-  writeFileSync(USERS_FILE, JSON.stringify(serializable, null, 2), "utf8");
+async function deleteUserRow(username: string) {
+  const { error } = await supabaseServer.from("stock_users").delete().eq("username", username);
+
+  if (error) {
+    throw new Error(`stock_users delete failed: ${error.message}`);
+  }
 }
 
 type LoginAttemptState = {
@@ -276,31 +279,58 @@ type LoginAttemptState = {
   lockedUntil?: number;
 };
 
-function readLoginAttempts(): Record<string, LoginAttemptState> {
-  try {
-    const raw = readFileSync(LOGIN_ATTEMPTS_FILE, "utf8");
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
+async function readLoginAttemptState(username: string): Promise<LoginAttemptState | null> {
+  const { data, error } = await supabaseServer
+    .from("stock_login_attempts")
+    .select("count, first_failure_at, locked_until")
+    .eq("username", username)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`stock_login_attempts read failed: ${error.message}`);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return {
+    count: data.count,
+    firstFailureAt: Number(data.first_failure_at),
+    lockedUntil: data.locked_until != null ? Number(data.locked_until) : undefined,
+  };
+}
+
+async function writeLoginAttemptState(username: string, state: LoginAttemptState) {
+  const { error } = await supabaseServer.from("stock_login_attempts").upsert(
+    {
+      username,
+      count: state.count,
+      first_failure_at: state.firstFailureAt,
+      locked_until: state.lockedUntil ?? null,
+    },
+    { onConflict: "username" }
+  );
+
+  if (error) {
+    throw new Error(`stock_login_attempts write failed: ${error.message}`);
   }
 }
 
-function writeLoginAttempts(attempts: Record<string, LoginAttemptState>) {
-  const folder = join(process.cwd(), "storage");
-  if (!existsSync(folder)) {
-    mkdirSync(folder, { recursive: true });
+async function clearLoginAttemptState(username: string) {
+  const { error } = await supabaseServer.from("stock_login_attempts").delete().eq("username", username);
+
+  if (error) {
+    throw new Error(`stock_login_attempts delete failed: ${error.message}`);
   }
-  writeFileSync(LOGIN_ATTEMPTS_FILE, JSON.stringify(attempts, null, 2), "utf8");
 }
 
 // Anti brute-force sur la connexion: bloque un utilisateur apres plusieurs
 // mots de passe faux d'affilee, pour un temps limite. Necessaire des que le
 // site est joignable depuis internet et pas seulement le reseau local.
-export function checkLoginLockout(username: string): { locked: boolean; retryAfterSeconds: number } {
+export async function checkLoginLockout(username: string): Promise<{ locked: boolean; retryAfterSeconds: number }> {
   const normalized = username.trim().toLowerCase();
-  const attempts = readLoginAttempts();
-  const state = attempts[normalized];
+  const state = await readLoginAttemptState(normalized);
 
   if (!state?.lockedUntil || state.lockedUntil <= Date.now()) {
     return { locked: false, retryAfterSeconds: 0 };
@@ -309,34 +339,27 @@ export function checkLoginLockout(username: string): { locked: boolean; retryAft
   return { locked: true, retryAfterSeconds: Math.ceil((state.lockedUntil - Date.now()) / 1000) };
 }
 
-export function recordFailedLogin(username: string) {
+export async function recordFailedLogin(username: string) {
   const normalized = username.trim().toLowerCase();
-  const attempts = readLoginAttempts();
+  const state = await readLoginAttemptState(normalized);
   const now = Date.now();
-  const state = attempts[normalized];
 
   if (!state || now - state.firstFailureAt > LOGIN_LOCKOUT_WINDOW_MS) {
-    attempts[normalized] = { count: 1, firstFailureAt: now };
-  } else {
-    const nextCount = state.count + 1;
-    attempts[normalized] = {
-      count: nextCount,
-      firstFailureAt: state.firstFailureAt,
-      lockedUntil: nextCount >= MAX_FAILED_LOGIN_ATTEMPTS ? now + LOGIN_LOCKOUT_WINDOW_MS : undefined,
-    };
+    await writeLoginAttemptState(normalized, { count: 1, firstFailureAt: now });
+    return;
   }
 
-  writeLoginAttempts(attempts);
+  const nextCount = state.count + 1;
+  await writeLoginAttemptState(normalized, {
+    count: nextCount,
+    firstFailureAt: state.firstFailureAt,
+    lockedUntil: nextCount >= MAX_FAILED_LOGIN_ATTEMPTS ? now + LOGIN_LOCKOUT_WINDOW_MS : undefined,
+  });
 }
 
-export function clearFailedLogins(username: string) {
+export async function clearFailedLogins(username: string) {
   const normalized = username.trim().toLowerCase();
-  const attempts = readLoginAttempts();
-
-  if (attempts[normalized]) {
-    delete attempts[normalized];
-    writeLoginAttempts(attempts);
-  }
+  await clearLoginAttemptState(normalized);
 }
 
 function signSession(username: string, expiresAt: string) {
@@ -345,56 +368,62 @@ function signSession(username: string, expiresAt: string) {
     .digest("hex");
 }
 
-export function isAllowedStockUser(username: string) {
-  return username.toLowerCase() in readUsers();
+export async function isAllowedStockUser(username: string) {
+  const users = await readUsers();
+  return username.toLowerCase() in users;
 }
 
 export function isAdminUser(username: string | null | undefined) {
   return !!username && ADMIN_USERS.has(username.trim().toLowerCase());
 }
 
-export function getUserPermissions(username: string | null | undefined): StockPermissions {
+export async function getUserPermissions(username: string | null | undefined): Promise<StockPermissions> {
   if (!username) {
     return getDefaultPermissions("");
   }
 
   const normalized = username.trim().toLowerCase();
-  const users = readUsers();
+  const users = await readUsers();
   return users[normalized]?.permissions || getDefaultPermissions(normalized);
 }
 
-export function canViewPageUser(username: string | null | undefined, pageKey: string) {
-  return getUserPermissions(username).pages[pageKey]?.view ?? false;
+export async function canViewPageUser(username: string | null | undefined, pageKey: string) {
+  const permissions = await getUserPermissions(username);
+  return permissions.pages[pageKey]?.view ?? false;
 }
 
-export function canWritePageUser(username: string | null | undefined, pageKey: string) {
-  return getUserPermissions(username).pages[pageKey]?.write ?? false;
+export async function canWritePageUser(username: string | null | undefined, pageKey: string) {
+  const permissions = await getUserPermissions(username);
+  return permissions.pages[pageKey]?.write ?? false;
 }
 
 // Remplace l'ancien canEditModuleUser(user, "Stock") - garde le meme nom
 // pour ne pas avoir a toucher chaque point d'appel de app/stock/actions.ts.
-export function canEditStockUser(username: string | null | undefined) {
+export async function canEditStockUser(username: string | null | undefined) {
   return canWritePageUser(username, "stock");
 }
 
 // Droits Commandes plus fins que le "editCommandes" generique : un
 // utilisateur peut avoir le droit de modifier sans avoir celui de
 // supprimer, ou celui de changer le statut.
-export function canDeleteCommandesUser(username: string | null | undefined) {
-  return getUserPermissions(username).deleteCommandes;
+export async function canDeleteCommandesUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.deleteCommandes;
 }
 
-export function canChangeStatusCommandesUser(username: string | null | undefined) {
-  return getUserPermissions(username).changeStatusCommandes;
+export async function canChangeStatusCommandesUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.changeStatusCommandes;
 }
 
-export function canViewPathForUser(username: string | null | undefined, pathname: string): boolean {
+export async function canViewPathForUser(username: string | null | undefined, pathname: string): Promise<boolean> {
   if (pathname === "/" || pathname.startsWith("/test-supabase")) {
     return true;
   }
 
   if (pathname.startsWith("/admin")) {
-    return getUserPermissions(username).manageUsers;
+    const permissions = await getUserPermissions(username);
+    return permissions.manageUsers;
   }
 
   const page = findPageForPath(pathname);
@@ -406,7 +435,7 @@ export function canViewPathForUser(username: string | null | undefined, pathname
   return canViewPageUser(username, page.key);
 }
 
-export function canWritePathForUser(username: string | null | undefined, pathname: string): boolean {
+export async function canWritePathForUser(username: string | null | undefined, pathname: string): Promise<boolean> {
   const page = findPageForPath(pathname);
   if (!page) return false;
   return canWritePageUser(username, page.key);
@@ -414,8 +443,8 @@ export function canWritePathForUser(username: string | null | undefined, pathnam
 
 // Carte {pageKey: peutVoir} pour tout le PAGE_REGISTRY - consommee par
 // GlobalNav (visibilite des liens) et RouteAccessGate (blocage d'acces).
-export function getPageViewMap(username: string | null | undefined): Record<string, boolean> {
-  const permissions = getUserPermissions(username);
+export async function getPageViewMap(username: string | null | undefined): Promise<Record<string, boolean>> {
+  const permissions = await getUserPermissions(username);
   const map: Record<string, boolean> = {};
 
   for (const page of PAGE_REGISTRY) {
@@ -425,9 +454,9 @@ export function getPageViewMap(username: string | null | undefined): Record<stri
   return map;
 }
 
-export function verifyStockPassword(username: string, password: string) {
+export async function verifyStockPassword(username: string, password: string) {
   const normalized = username.trim().toLowerCase();
-  const users = readUsers();
+  const users = await readUsers();
   const storedHash = users[normalized]?.passwordHash;
 
   if (!storedHash) {
@@ -438,28 +467,28 @@ export function verifyStockPassword(username: string, password: string) {
 
   if (valid && !storedHash.startsWith("scrypt$")) {
     users[normalized].passwordHash = hashPasswordScrypt(password);
-    writeUsers(users);
+    await writeUsers(users);
   }
 
   return valid;
 }
 
-export function updateStockPassword(username: string, nextPassword: string) {
+export async function updateStockPassword(username: string, nextPassword: string) {
   const normalized = username.trim().toLowerCase();
-  const users = readUsers();
+  const users = await readUsers();
 
   if (!users[normalized]) {
     return false;
   }
 
   users[normalized].passwordHash = hashPasswordScrypt(nextPassword);
-  writeUsers(users);
+  await writeUsers(users);
   return true;
 }
 
-export function createStockUser(username: string, password: string) {
+export async function createStockUser(username: string, password: string) {
   const normalized = username.trim().toLowerCase();
-  const users = readUsers();
+  const users = await readUsers();
 
   if (!normalized || users[normalized]) {
     return false;
@@ -469,29 +498,28 @@ export function createStockUser(username: string, password: string) {
     passwordHash: hashPasswordScrypt(password),
     permissions: getDefaultPermissions(normalized),
   };
-  writeUsers(users);
+  await writeUsers(users);
   return true;
 }
 
-export function deleteStockUser(username: string) {
+export async function deleteStockUser(username: string) {
   const normalized = username.trim().toLowerCase();
 
   if (!normalized || isAdminUser(normalized)) {
     return false;
   }
 
-  const users = readUsers();
+  const users = await readUsers();
 
   if (!users[normalized]) {
     return false;
   }
 
-  delete users[normalized];
-  writeUsers(users);
+  await deleteUserRow(normalized);
   return true;
 }
 
-export function updateUserPermissions(
+export async function updateUserPermissions(
   username: string,
   nextPermissions: {
     pages: PagePermissions;
@@ -501,7 +529,7 @@ export function updateUserPermissions(
   }
 ) {
   const normalized = username.trim().toLowerCase();
-  const users = readUsers();
+  const users = await readUsers();
 
   if (!users[normalized]) {
     return false;
@@ -509,7 +537,7 @@ export function updateUserPermissions(
 
   if (isAdminUser(normalized)) {
     users[normalized].permissions = getDefaultPermissions(normalized);
-    writeUsers(users);
+    await writeUsers(users);
     return true;
   }
 
@@ -524,12 +552,12 @@ export function updateUserPermissions(
     manageUsers: !!nextPermissions.manageUsers,
   };
 
-  writeUsers(users);
+  await writeUsers(users);
   return true;
 }
 
-export function listStockUsers() {
-  const users = readUsers();
+export async function listStockUsers() {
+  const users = await readUsers();
 
   return Object.keys(users)
     .sort((a, b) => a.localeCompare(b))
@@ -574,7 +602,7 @@ export async function getCurrentStockUser() {
     return null;
   }
 
-  if (!isAllowedStockUser(username)) {
+  if (!(await isAllowedStockUser(username))) {
     return null;
   }
 

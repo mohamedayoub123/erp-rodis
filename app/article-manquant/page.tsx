@@ -241,7 +241,7 @@ export default async function ArticleManquantPage({ searchParams }: { searchPara
   const params = await searchParams;
   const selectedFamille = String(params.famille || "").trim();
   const currentStockUser = await getCurrentStockUser();
-  const canEditDormant = canWritePageUser(currentStockUser, "articleManquant");
+  const canEditDormant = await canWritePageUser(currentStockUser, "articleManquant");
 
   const { data: familleRowsData, error: familleRowsError } = await supabaseServer
     .from("famille_besoins")

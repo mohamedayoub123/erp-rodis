@@ -53,7 +53,7 @@ export default async function CodeParArticlePage({
   noStore();
   const params = await searchParams;
   const currentUser = await getCurrentStockUser();
-  const canEdit = canWritePageUser(currentUser, "codeParArticle");
+  const canEdit = await canWritePageUser(currentUser, "codeParArticle");
   const allArticles = await fetchAllArticles();
 
   const article = (params.article || "").trim();

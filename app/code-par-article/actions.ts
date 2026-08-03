@@ -8,7 +8,7 @@ import { computeArticleFamilyKey } from "@/lib/article-code-family";
 export async function updateArticleCodesAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "codeParArticle")) {
+  if (!(await canWritePageUser(currentUser, "codeParArticle"))) {
     throw new Error("Cet utilisateur ne peut pas modifier les codes articles.");
   }
 

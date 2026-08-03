@@ -4,7 +4,7 @@ import { createArticleAction } from "../actions";
 
 export default async function NouvelArticlePage() {
   const currentStockUser = await getCurrentStockUser();
-  const canWriteArticles = canWritePageUser(currentStockUser, "articlesProduitFiniNouvelle");
+  const canWriteArticles = await canWritePageUser(currentStockUser, "articlesProduitFiniNouvelle");
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">

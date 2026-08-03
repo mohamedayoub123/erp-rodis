@@ -15,7 +15,7 @@ export async function loginStockEditAction(formData: FormData) {
   const username = String(formData.get("username") || "").trim().toLowerCase();
   const password = String(formData.get("password") || "").trim();
 
-  if (!verifyStockPassword(username, password)) {
+  if (!(await verifyStockPassword(username, password))) {
     throw new Error("Utilisateur ou mot de passe incorrect.");
   }
 
@@ -35,7 +35,7 @@ export async function updateLotStockAction(formData: FormData) {
     throw new Error("Connexion obligatoire pour modifier une ligne.");
   }
 
-  if (!canEditStockUser(currentUser)) {
+  if (!(await canEditStockUser(currentUser))) {
     throw new Error("Tu n'as pas le droit de modifier le stock.");
   }
 
@@ -96,7 +96,7 @@ export async function deleteLotStockAction(formData: FormData) {
     throw new Error("Connexion obligatoire pour supprimer une ligne.");
   }
 
-  if (!canEditStockUser(currentUser)) {
+  if (!(await canEditStockUser(currentUser))) {
     throw new Error("Tu n'as pas le droit de supprimer une ligne.");
   }
 

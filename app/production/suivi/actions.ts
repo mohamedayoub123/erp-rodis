@@ -13,7 +13,7 @@ function revalidateSuiviPages() {
 export async function markVracTermineAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviDashboard")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
     throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
   }
 
@@ -38,7 +38,7 @@ export async function markVracTermineAction(formData: FormData) {
 export async function unmarkVracTermineAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviDashboard")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
     throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
   }
 
@@ -66,7 +66,7 @@ export async function unmarkVracTermineAction(formData: FormData) {
 export async function markCartonTermineAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviDashboard")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
     throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
   }
 
@@ -91,7 +91,7 @@ export async function markCartonTermineAction(formData: FormData) {
 export async function markEmballageTermineAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviDashboard")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
     throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
   }
 
@@ -116,7 +116,7 @@ export async function markEmballageTermineAction(formData: FormData) {
 export async function addCartonEntryAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviDashboard")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
     throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
   }
 
@@ -146,7 +146,7 @@ export async function addCartonEntryAction(formData: FormData) {
 export async function addEmballageEntryAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviDashboard")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
     throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
   }
 
@@ -171,7 +171,7 @@ export async function addEmballageEntryAction(formData: FormData) {
 export async function deleteCartonEntryAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviDashboard")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
     throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
   }
 

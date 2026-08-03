@@ -6,7 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 
 export default async function NouvelleCommandePage() {
   const currentStockUser = await getCurrentStockUser();
-  const canWriteCommandes = canWritePageUser(currentStockUser, "commandesNouvelle");
+  const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesNouvelle");
 
   const [{ data: articlesData }, { data: clientsData }] = await Promise.all([
     supabaseServer

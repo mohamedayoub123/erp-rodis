@@ -18,7 +18,7 @@ export async function saveRavitailleurLignesAction(formData: FormData) {
     throw new Error("Il faut etre connecte pour enregistrer.");
   }
 
-  if (!canWritePageUser(currentUser, "ravitailleurParLigne")) {
+  if (!(await canWritePageUser(currentUser, "ravitailleurParLigne"))) {
     throw new Error("Cet utilisateur ne peut pas enregistrer.");
   }
 

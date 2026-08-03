@@ -91,8 +91,8 @@ export default async function ArticlesProduitFiniPage({
   noStore();
   const params = await searchParams;
   const currentStockUser = await getCurrentStockUser();
-  const canWriteArticles = canWritePageUser(currentStockUser, "articlesProduitFiniNouvelle");
-  const canEditArticles = canWritePageUser(currentStockUser, "articlesProduitFini");
+  const canWriteArticles = await canWritePageUser(currentStockUser, "articlesProduitFiniNouvelle");
+  const canEditArticles = await canWritePageUser(currentStockUser, "articlesProduitFini");
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const q = (params.q || "").trim();
   const type = (params.type || "").trim();

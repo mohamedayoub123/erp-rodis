@@ -5,7 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 
 export default async function EntreeMouvementPage() {
   const currentStockUser = await getCurrentStockUser();
-  const canWriteMouvements = canWritePageUser(currentStockUser, "mouvementsEntree");
+  const canWriteMouvements = await canWritePageUser(currentStockUser, "mouvementsEntree");
 
   const { data: articlesData } = await supabaseServer
     .from("articles")

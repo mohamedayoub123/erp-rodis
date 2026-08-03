@@ -25,8 +25,8 @@ export default async function ClientsPage({
   searchParams: SearchParams;
 }) {
   const currentStockUser = await getCurrentStockUser();
-  const canWriteClients = canWritePageUser(currentStockUser, "clients");
-  const canEditClients = canWritePageUser(currentStockUser, "clients");
+  const canWriteClients = await canWritePageUser(currentStockUser, "clients");
+  const canEditClients = await canWritePageUser(currentStockUser, "clients");
   const params = await searchParams;
   const q = (params.q || "").trim();
   const pays = (params.pays || "").trim();

@@ -42,7 +42,7 @@ export default async function RapportProductionPage({
   }
 
   const currentStockUser = await getCurrentStockUser();
-  const canWrite = canWritePageUser(currentStockUser, "productionSuiviProductionLegacyDetail");
+  const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionLegacyDetail");
 
   const { data } = await supabaseServer
     .from("programme_lignes")

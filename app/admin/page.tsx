@@ -59,7 +59,7 @@ export default async function AdminPage({
     );
   }
 
-  const stockUsers = listStockUsers();
+  const stockUsers = await listStockUsers();
 
   const modulesInOrder = [...new Set(PAGE_REGISTRY.map((page) => page.module))] as ModuleKey[];
   const pagesByModule = new Map<ModuleKey, typeof PAGE_REGISTRY>();

@@ -95,9 +95,9 @@ export default async function CommandesPage({
   searchParams: SearchParams;
 }) {
   const currentStockUser = await getCurrentStockUser();
-  const canWriteCommandes = canWritePageUser(currentStockUser, "commandesNouvelle");
-  const canDeleteCommandes = canDeleteCommandesUser(currentStockUser);
-  const canChangeStatusCommandes = canChangeStatusCommandesUser(currentStockUser);
+  const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesNouvelle");
+  const canDeleteCommandes = await canDeleteCommandesUser(currentStockUser);
+  const canChangeStatusCommandes = await canChangeStatusCommandesUser(currentStockUser);
   const params = await searchParams;
   const q = (params.q || "").trim();
   const statut = (params.statut || "").trim().toUpperCase();

@@ -27,7 +27,7 @@ type PendingSortieRow = {
 async function requireMouvementsEntreeWriteAccess() {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "mouvementsEntree")) {
+  if (!(await canWritePageUser(currentUser, "mouvementsEntree"))) {
     throw new Error("Cet utilisateur ne peut pas saisir des mouvements.");
   }
 }
@@ -35,7 +35,7 @@ async function requireMouvementsEntreeWriteAccess() {
 async function requireMouvementsSortieWriteAccess() {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "mouvementsSortie")) {
+  if (!(await canWritePageUser(currentUser, "mouvementsSortie"))) {
     throw new Error("Cet utilisateur ne peut pas saisir des mouvements.");
   }
 }
@@ -215,7 +215,7 @@ export async function createSortieStockBatchAction(formData: FormData) {
 export async function deleteMouvementGroupAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "mouvementsProduitFini")) {
+  if (!(await canWritePageUser(currentUser, "mouvementsProduitFini"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer un mouvement.");
   }
 
@@ -241,7 +241,7 @@ export async function deleteMouvementGroupAction(formData: FormData) {
 export async function deleteLotFromEntreeDetailAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "mouvementsEntreeDetail")) {
+  if (!(await canWritePageUser(currentUser, "mouvementsEntreeDetail"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer une ligne.");
   }
 
@@ -253,7 +253,7 @@ export async function deleteLotFromEntreeDetailAction(formData: FormData) {
 export async function deleteLotFromSortieDetailAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "mouvementsSortieDetail")) {
+  if (!(await canWritePageUser(currentUser, "mouvementsSortieDetail"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer une ligne.");
   }
 

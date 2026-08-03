@@ -116,10 +116,12 @@ export default async function StockPage({
 }) {
   const params = await searchParams;
   const currentStockUser = await getCurrentStockUser();
-  const canEditStock = canWritePageUser(currentStockUser, "stock");
-  const canWriteMouvements =
-    canWritePageUser(currentStockUser, "mouvementsEntree") ||
-    canWritePageUser(currentStockUser, "mouvementsSortie");
+  const canEditStock = await canWritePageUser(currentStockUser, "stock");
+  const [canWriteMouvementsEntree, canWriteMouvementsSortie] = await Promise.all([
+    canWritePageUser(currentStockUser, "mouvementsEntree"),
+    canWritePageUser(currentStockUser, "mouvementsSortie"),
+  ]);
+  const canWriteMouvements = canWriteMouvementsEntree || canWriteMouvementsSortie;
   const articleQ = (params.article_q || "").trim();
   const codeQ = (params.code_q || "").trim();
   const chambre = (params.chambre || "").trim();

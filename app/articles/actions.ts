@@ -14,7 +14,7 @@ function normalizeArticle(value: string) {
 async function requireArticlesWriteAccess() {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "articlesProduitFiniNouvelle")) {
+  if (!(await canWritePageUser(currentUser, "articlesProduitFiniNouvelle"))) {
     throw new Error("Cet utilisateur ne peut pas ajouter des articles.");
   }
 }
@@ -22,7 +22,7 @@ async function requireArticlesWriteAccess() {
 async function requireArticlesEditAccess() {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "articlesProduitFini")) {
+  if (!(await canWritePageUser(currentUser, "articlesProduitFini"))) {
     throw new Error("Cet utilisateur ne peut pas modifier les articles.");
   }
 }

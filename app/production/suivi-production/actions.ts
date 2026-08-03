@@ -51,7 +51,7 @@ export async function deleteSuiviProductionRowAction(targets: {
 }) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviProductionListe")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionListe"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer cette ligne.");
   }
 
@@ -93,7 +93,7 @@ export async function deleteSuiviProductionRowAction(targets: {
 export async function updateLigneZoneChaineAction(ligneId: number, zone: string, chaine: string) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviProductionConditionnement")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionConditionnement"))) {
     throw new Error("Cet utilisateur ne peut pas modifier cette ligne.");
   }
 
@@ -118,7 +118,7 @@ export async function updateLigneZoneChaineAction(ligneId: number, zone: string,
 export async function saveConditionnementRapportAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviProductionConditionnement")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionConditionnement"))) {
     throw new Error("Cet utilisateur ne peut pas enregistrer de rapport production.");
   }
 
@@ -179,7 +179,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
 export async function saveFabricationRapportAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviProductionFabrication")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionFabrication"))) {
     throw new Error("Cet utilisateur ne peut pas enregistrer de rapport production.");
   }
 
@@ -235,7 +235,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
 export async function saveEmballageRapportAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionSuiviProductionEmballage")) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionEmballage"))) {
     throw new Error("Cet utilisateur ne peut pas enregistrer de rapport production.");
   }
 

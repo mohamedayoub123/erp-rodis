@@ -102,8 +102,8 @@ const mainButtons = [
 
 export default async function HomePage() {
   const currentUser = await getCurrentStockUser();
-  const pageViewMap = getPageViewMap(currentUser);
-  const canManageUsers = getUserPermissions(currentUser).manageUsers;
+  const pageViewMap = await getPageViewMap(currentUser);
+  const canManageUsers = (await getUserPermissions(currentUser)).manageUsers;
   const visibleButtons = mainButtons.filter((button) => {
     if ("adminOnly" in button) return canManageUsers;
     const pageKey = "pageKey" in button ? button.pageKey : undefined;

@@ -413,8 +413,8 @@ export default async function CommandeDetailPage({
   const commandeId = Number(id);
 
   const currentStockUser = await getCurrentStockUser();
-  const canWriteCommandes = canWritePageUser(currentStockUser, "commandesDetail");
-  const canEditCommandes = canWritePageUser(currentStockUser, "commandesDetail");
+  const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
+  const canEditCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
 
   const [{ data: selectedCommandeData }, { data: fifoData }, { data: commandesData }] =
     await Promise.all([

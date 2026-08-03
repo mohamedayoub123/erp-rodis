@@ -60,8 +60,8 @@ export default async function RootLayout({
   const loginError = loginErrorRaw === "1" ? "Utilisateur ou mot de passe incorrect." : loginErrorRaw;
   const passwordError = cookieStore.get("erp_password_error")?.value || "";
   const passwordSuccess = cookieStore.get("erp_password_success")?.value || "";
-  const pageViewMap = getPageViewMap(currentUser);
-  const canManageUsers = getUserPermissions(currentUser).manageUsers;
+  const pageViewMap = await getPageViewMap(currentUser);
+  const canManageUsers = (await getUserPermissions(currentUser)).manageUsers;
 
   if (!currentUser) {
     return (

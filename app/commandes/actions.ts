@@ -36,7 +36,7 @@ function revalidateCommandeDependentPages(commandeId?: number) {
 async function requireCommandesWriteAccess() {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "commandesNouvelle")) {
+  if (!(await canWritePageUser(currentUser, "commandesNouvelle"))) {
     throw new Error("Cet utilisateur ne peut pas ajouter des commandes.");
   }
 }
@@ -44,7 +44,7 @@ async function requireCommandesWriteAccess() {
 async function requireCommandesEditAccess() {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "commandesDetail")) {
+  if (!(await canWritePageUser(currentUser, "commandesDetail"))) {
     throw new Error("Cet utilisateur ne peut pas modifier les commandes.");
   }
 }
@@ -52,7 +52,7 @@ async function requireCommandesEditAccess() {
 async function requireCommandesDeleteAccess() {
   const currentUser = await getCurrentStockUser();
 
-  if (!canDeleteCommandesUser(currentUser)) {
+  if (!(await canDeleteCommandesUser(currentUser))) {
     throw new Error("Cet utilisateur ne peut pas supprimer une commande.");
   }
 }
@@ -60,7 +60,7 @@ async function requireCommandesDeleteAccess() {
 async function requireCommandesChangeStatusAccess() {
   const currentUser = await getCurrentStockUser();
 
-  if (!canChangeStatusCommandesUser(currentUser)) {
+  if (!(await canChangeStatusCommandesUser(currentUser))) {
     throw new Error("Cet utilisateur ne peut pas changer le statut d'une commande.");
   }
 }

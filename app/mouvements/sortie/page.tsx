@@ -5,7 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 
 export default async function SortieMouvementPage() {
   const currentStockUser = await getCurrentStockUser();
-  const canWriteMouvements = canWritePageUser(currentStockUser, "mouvementsSortie");
+  const canWriteMouvements = await canWritePageUser(currentStockUser, "mouvementsSortie");
 
   const sourceRows = await fetchMouvementSourceRows();
   const lots = computeAvailableLots(sourceRows);

@@ -7,7 +7,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 export async function deleteProgrammeLigneRapportAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "productionRapportEcarts")) {
+  if (!(await canWritePageUser(currentUser, "productionRapportEcarts"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer cette ligne.");
   }
 

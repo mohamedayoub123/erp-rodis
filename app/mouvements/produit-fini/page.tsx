@@ -13,7 +13,7 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 export default async function MouvementsProduitFiniPage() {
   const currentStockUser = await getCurrentStockUser();
-  const canEditStock = canWritePageUser(currentStockUser, "mouvementsProduitFini");
+  const canEditStock = await canWritePageUser(currentStockUser, "mouvementsProduitFini");
   const sourceRows = await fetchWebMouvementSourceRows();
   const groups: MouvementGroup[] = [
     ...buildEntreeRows(sourceRows),

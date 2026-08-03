@@ -12,7 +12,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 export async function createEntreeProductionBatchAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "mouvementsEntreeProduction")) {
+  if (!(await canWritePageUser(currentUser, "mouvementsEntreeProduction"))) {
     throw new Error("Cet utilisateur ne peut pas saisir des mouvements.");
   }
 

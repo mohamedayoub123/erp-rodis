@@ -11,7 +11,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 export async function deleteStandFamilleBesoinsAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "articleManquant")) {
+  if (!(await canWritePageUser(currentUser, "articleManquant"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer ces lignes.");
   }
 

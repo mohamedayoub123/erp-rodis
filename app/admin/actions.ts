@@ -75,7 +75,7 @@ export async function createUserAction(formData: FormData) {
     redirect("/admin?user=confirm");
   }
 
-  const created = createStockUser(username, password);
+  const created = await createStockUser(username, password);
 
   if (!created) {
     redirect("/admin?user=exists");
@@ -102,7 +102,7 @@ export async function deleteUserAction(formData: FormData) {
     redirect("/admin?user=delete-empty");
   }
 
-  const deleted = deleteStockUser(username);
+  const deleted = await deleteStockUser(username);
 
   if (!deleted) {
     redirect("/admin?user=delete-error");
@@ -141,7 +141,7 @@ export async function updateUserPermissionsAction(formData: FormData) {
     manageUsers: readPermissionFlag(formData, "manageUsers"),
   };
 
-  const updated = updateUserPermissions(username, nextPermissions);
+  const updated = await updateUserPermissions(username, nextPermissions);
 
   if (!updated) {
     redirect("/admin?user=perm-error");

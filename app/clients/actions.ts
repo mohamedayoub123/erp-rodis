@@ -14,7 +14,7 @@ function normalizeClient(value: string) {
 async function requireClientsWriteAccess() {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "clients")) {
+  if (!(await canWritePageUser(currentUser, "clients"))) {
     throw new Error("Cet utilisateur ne peut pas ajouter des clients.");
   }
 }
@@ -22,7 +22,7 @@ async function requireClientsWriteAccess() {
 async function requireClientsEditAccess() {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "clients")) {
+  if (!(await canWritePageUser(currentUser, "clients"))) {
     throw new Error("Cet utilisateur ne peut pas modifier les clients.");
   }
 }

@@ -8,7 +8,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "ravitailleurParLigne")) {
+  if (!(await canWritePageUser(currentUser, "ravitailleurParLigne"))) {
     throw new Error("Cet utilisateur ne peut pas enregistrer.");
   }
 
@@ -95,7 +95,7 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
 export async function saveAllZonesDispatcherSnapshotAction() {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "ravitailleurParLigne")) {
+  if (!(await canWritePageUser(currentUser, "ravitailleurParLigne"))) {
     throw new Error("Cet utilisateur ne peut pas enregistrer.");
   }
 
@@ -168,7 +168,7 @@ export async function saveAllZonesDispatcherSnapshotAction() {
 export async function deleteAllDispatcherLignesAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "ravitailleurParLigne")) {
+  if (!(await canWritePageUser(currentUser, "ravitailleurParLigne"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer.");
   }
 
@@ -190,7 +190,7 @@ export async function deleteAllDispatcherLignesAction(formData: FormData) {
 export async function deleteProgrammeDispatcherHistoryGroupAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!canWritePageUser(currentUser, "historiqueProgrammeDispatcher")) {
+  if (!(await canWritePageUser(currentUser, "historiqueProgrammeDispatcher"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer.");
   }
 

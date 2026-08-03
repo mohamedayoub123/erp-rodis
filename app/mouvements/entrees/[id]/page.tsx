@@ -13,7 +13,7 @@ export default async function EntreeDetailPage({
   const { id } = await params;
   const groupeId = Number(id);
   const currentStockUser = await getCurrentStockUser();
-  const canEditStock = canWritePageUser(currentStockUser, "mouvementsEntreeDetail");
+  const canEditStock = await canWritePageUser(currentStockUser, "mouvementsEntreeDetail");
   const sourceRows = await fetchWebMouvementSourceRows();
   const group = buildEntreeRows(sourceRows).find((entree) => entree.groupe_id === groupeId);
 
