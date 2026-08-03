@@ -1,5 +1,6 @@
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { createCommandeMpAction, STATUT_OPTIONS } from "../actions";
+import { createCommandeMpAction } from "../actions";
+import { STATUT_OPTIONS } from "../constants";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 

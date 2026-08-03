@@ -5,7 +5,8 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
-import { STATUT_OPTIONS, updateCommandeMpAction } from "./actions";
+import { updateCommandeMpAction } from "./actions";
+import { STATUT_OPTIONS } from "./constants";
 
 type CommandeRow = {
   id: number;

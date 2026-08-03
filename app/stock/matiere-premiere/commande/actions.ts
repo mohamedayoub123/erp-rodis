@@ -3,14 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-
-export const STATUT_OPTIONS = [
-  "Commande",
-  "Commande approuvee",
-  "En cours de livraison",
-  "Arrive port",
-  "Arrive usine",
-] as const;
+import { STATUT_OPTIONS } from "./constants";
 
 function parseOptionalText(formData: FormData, name: string) {
   const raw = String(formData.get(name) || "").trim();
