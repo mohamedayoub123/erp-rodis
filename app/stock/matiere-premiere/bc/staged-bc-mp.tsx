@@ -68,7 +68,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
         setLignes([]);
         setNDoss4d("");
         setNDossErp("");
-        router.push("/stock/matiere-premiere/bc");
+        router.push(`/stock/matiere-premiere/bc/${result.code}`);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
       }

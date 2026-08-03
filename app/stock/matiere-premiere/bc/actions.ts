@@ -19,13 +19,6 @@ function parseOptionalText(formData: FormData, name: string) {
   return raw || null;
 }
 
-function parseOptionalNumber(formData: FormData, name: string) {
-  const raw = String(formData.get(name) || "").trim().replace(",", ".");
-  if (!raw) return 0;
-  const value = Number(raw);
-  return Number.isNaN(value) ? 0 : value;
-}
-
 async function requireWriteAccess() {
   const currentUser = await getCurrentStockUser();
 
@@ -46,12 +39,12 @@ async function requireEditAccess() {
 
 function revalidateCommandeBcMpPages() {
   revalidatePath("/stock/matiere-premiere/bc");
+  revalidatePath("/stock/matiere-premiere/commande");
 }
 
 // Un seul BC peut regrouper plusieurs articles (une ligne par article, tous
 // avec le meme code/doss/date) - meme principe que les groupes TE/TS/PD/MB
-// ailleurs dans l'appli. Le statut n'est plus saisi ici : il se calcule
-// depuis quantite/quantite_importee (toujours 0 a la creation).
+// ailleurs dans l'appli.
 export async function createCommandeBcBatchAction(formData: FormData) {
   await requireWriteAccess();
 
@@ -133,41 +126,56 @@ export async function createCommandeBcBatchAction(formData: FormData) {
   return { ok: true, code };
 }
 
-export async function updateCommandeBcLigneAction(formData: FormData) {
+// Enregistre un NOUVEL evenement d'import pour une ligne (pas d'ecrasement -
+// un article commande en une fois peut arriver en plusieurs fois, chacune
+// avec son propre dossier). Refuse si la quantite depasse ce qu'il reste a
+// importer.
+export async function createImportEvenementAction(formData: FormData) {
   await requireEditAccess();
 
-  const bcId = Number(String(formData.get("bc_id") || "0"));
+  const bcLigneId = Number(String(formData.get("bc_ligne_id") || "0"));
+  const quantiteRaw = String(formData.get("quantite_importee") || "").trim().replace(",", ".");
+  const quantiteImportee = quantiteRaw ? Number(quantiteRaw) : null;
 
-  if (!bcId) {
-    throw new Error("Ligne invalide.");
+  if (!bcLigneId || quantiteImportee === null || Number.isNaN(quantiteImportee) || quantiteImportee <= 0) {
+    throw new Error("Quantite importee invalide.");
   }
 
-  const articleName = String(formData.get("article") || "").trim();
-  const quantiteRaw = String(formData.get("quantite") || "").trim().replace(",", ".");
-  const quantite = quantiteRaw ? Number(quantiteRaw) : null;
-
-  if (!articleName || quantite === null || Number.isNaN(quantite) || quantite <= 0) {
-    throw new Error("Article ou quantite invalide.");
-  }
-
-  const articleNormalise = normalizeArticle(articleName);
-  const { data: articleRow } = await supabaseServer
-    .from("articles_matiere_premiere")
-    .select("id, nom_article")
-    .eq("article_normalise", articleNormalise)
+  const { data: ligneRow, error: ligneError } = await supabaseServer
+    .from("bons_commande_matiere_premiere")
+    .select("quantite")
+    .eq("id", bcLigneId)
     .maybeSingle();
 
-  const { error } = await supabaseServer
-    .from("bons_commande_matiere_premiere")
-    .update({
-      article_id: articleRow?.id ?? null,
-      article_label: articleRow?.nom_article ?? articleName,
-      quantite,
-      quantite_importee: parseOptionalNumber(formData, "quantite_importee"),
+  if (ligneError || !ligneRow) {
+    throw new Error("Ligne de commande introuvable.");
+  }
+
+  const { data: existingImports } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .select("quantite_importee")
+    .eq("bc_ligne_id", bcLigneId);
+
+  const dejaImporte = ((existingImports ?? []) as { quantite_importee: number }[]).reduce(
+    (sum, row) => sum + Number(row.quantite_importee ?? 0),
+    0
+  );
+
+  const quantiteCommandee = Number((ligneRow as { quantite: number }).quantite ?? 0);
+  const reste = quantiteCommandee - dejaImporte;
+
+  if (quantiteImportee > reste) {
+    throw new Error(`Quantite trop grande : il ne reste que ${reste} a importer.`);
+  }
+
+  const { error } = await supabaseServer.from("bons_commande_mp_imports").insert([
+    {
+      bc_ligne_id: bcLigneId,
+      quantite_importee: quantiteImportee,
       n_doss_4d_import: parseOptionalText(formData, "n_doss_4d_import"),
       n_doss_erp_import: parseOptionalText(formData, "n_doss_erp_import"),
-    })
-    .eq("id", bcId);
+    },
+  ]);
 
   if (error) {
     throw new Error(error.message);
@@ -176,8 +184,8 @@ export async function updateCommandeBcLigneAction(formData: FormData) {
   revalidateCommandeBcMpPages();
 }
 
-// Modifie le dossier de commande (pas le statut, calcule automatiquement)
-// pour TOUTES les lignes qui partagent le meme code.
+// Modifie le dossier de commande pour TOUTES les lignes qui partagent le
+// meme code.
 export async function updateCommandeBcGroupAction(formData: FormData) {
   await requireEditAccess();
 

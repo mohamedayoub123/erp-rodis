@@ -135,14 +135,9 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "commandeMp",
     module: "Stock",
-    label: "Import MP (liste + modifier statut)",
+    label: "Import MP (vue calculee)",
     pathPrefixes: ["/stock/matiere-premiere/commande"],
-  },
-  {
-    key: "commandeMpNouvelle",
-    module: "Stock",
-    label: "Nouvel import MP",
-    pathPrefixes: ["/stock/matiere-premiere/commande/nouvelle"],
+    hasWrite: false,
   },
   {
     key: "commandeBcMp",
@@ -543,7 +538,6 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockDormantMp",
   "statistiqueMp",
   "commandeMp",
-  "commandeMpNouvelle",
   "commandeBcMp",
   "commandeBcMpNouvelle",
   "articlesMatierePremiere",

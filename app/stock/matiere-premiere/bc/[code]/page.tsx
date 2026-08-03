@@ -7,9 +7,9 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import {
+  createImportEvenementAction,
   deleteCommandeBcLigneAction,
   updateCommandeBcGroupAction,
-  updateCommandeBcLigneAction,
 } from "../actions";
 import { computeStatutBc, statutBcBadgeClass } from "../constants";
 
@@ -18,26 +18,42 @@ type CommandeBcRow = {
   code: string;
   article_label: string | null;
   quantite: number | null;
-  quantite_importee: number | null;
   n_doss_4d: string | null;
   n_doss_erp: string | null;
+  date_jour: string | null;
+};
+
+type ImportEvenementRow = {
+  id: number;
+  bc_ligne_id: number;
+  quantite_importee: number;
   n_doss_4d_import: string | null;
   n_doss_erp_import: string | null;
-  date_jour: string | null;
+  date_import: string | null;
 };
 
 async function fetchGroup(code: string) {
   const { data, error } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select(
-      "id, code, article_label, quantite, quantite_importee, n_doss_4d, n_doss_erp, n_doss_4d_import, n_doss_erp_import, date_jour"
-    )
+    .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, date_jour")
     .eq("code", code)
     .order("id", { ascending: true });
 
   if (error) return { rows: [] as CommandeBcRow[], error };
 
   return { rows: (data ?? []) as CommandeBcRow[], error: null };
+}
+
+async function fetchImportsForLignes(ligneIds: number[]) {
+  if (ligneIds.length === 0) return [] as ImportEvenementRow[];
+
+  const { data } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .select("id, bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, date_import")
+    .in("bc_ligne_id", ligneIds)
+    .order("id", { ascending: true });
+
+  return (data ?? []) as ImportEvenementRow[];
 }
 
 export default async function CommandeBcMpDetailPage({
@@ -57,6 +73,13 @@ export default async function CommandeBcMpDetailPage({
   }
 
   const first = rows[0];
+  const imports = await fetchImportsForLignes(rows.map((row) => row.id));
+  const importsByLigne = new Map<number, ImportEvenementRow[]>();
+  for (const imp of imports) {
+    const list = importsByLigne.get(imp.bc_ligne_id) ?? [];
+    list.push(imp);
+    importsByLigne.set(imp.bc_ligne_id, list);
+  }
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -132,8 +155,7 @@ export default async function CommandeBcMpDetailPage({
                       <th className="px-4 py-3 font-semibold">Qte commandee</th>
                       <th className="px-4 py-3 font-semibold">Qte importee</th>
                       <th className="px-4 py-3 font-semibold">Reste a importer</th>
-                      <th className="px-4 py-3 font-semibold">Doss. import 4D</th>
-                      <th className="px-4 py-3 font-semibold">Doss. import ERP</th>
+                      <th className="px-4 py-3 font-semibold">Historique import</th>
                       <th className="px-4 py-3 font-semibold">Statut</th>
                       {canEdit ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                     </tr>
@@ -141,7 +163,11 @@ export default async function CommandeBcMpDetailPage({
                   <tbody>
                     {rows.map((row) => {
                       const quantite = Number(row.quantite ?? 0);
-                      const quantiteImportee = Number(row.quantite_importee ?? 0);
+                      const ligneImports = importsByLigne.get(row.id) ?? [];
+                      const quantiteImportee = ligneImports.reduce(
+                        (sum, imp) => sum + Number(imp.quantite_importee ?? 0),
+                        0
+                      );
                       const statut = computeStatutBc(quantite, quantiteImportee);
                       const reste = quantite - quantiteImportee;
 
@@ -153,8 +179,21 @@ export default async function CommandeBcMpDetailPage({
                           <td className="px-4 py-3 text-slate-900">{quantite}</td>
                           <td className="px-4 py-3 text-slate-600">{quantiteImportee}</td>
                           <td className="px-4 py-3 font-semibold text-slate-900">{reste}</td>
-                          <td className="px-4 py-3 text-slate-600">{row.n_doss_4d_import || "-"}</td>
-                          <td className="px-4 py-3 text-slate-600">{row.n_doss_erp_import || "-"}</td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {ligneImports.length === 0 ? (
+                              "-"
+                            ) : (
+                              <ul className="space-y-1">
+                                {ligneImports.map((imp) => (
+                                  <li key={imp.id} className="text-xs">
+                                    {imp.quantite_importee} - {imp.n_doss_4d_import || "-"} /{" "}
+                                    {imp.n_doss_erp_import || "-"} -{" "}
+                                    {formatDate(imp.date_import)}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             <span
                               className={`rounded-full px-3 py-1 text-xs font-semibold ${statutBcBadgeClass(
@@ -167,74 +206,53 @@ export default async function CommandeBcMpDetailPage({
                           {canEdit ? (
                             <td className="px-4 py-3">
                               <div className="flex items-start gap-2">
-                                <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
-                                  <summary className="cursor-pointer text-xs font-semibold text-slate-800">
-                                    Modifier
-                                  </summary>
-                                  <form
-                                    action={updateCommandeBcLigneAction}
-                                    className="mt-2 grid w-60 gap-2"
-                                  >
-                                    <input type="hidden" name="bc_id" value={row.id} />
-                                    <label className="grid gap-1 text-xs text-slate-500">
-                                      Article
-                                      <input
-                                        type="text"
-                                        name="article"
-                                        defaultValue={row.article_label || ""}
-                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                        required
-                                      />
-                                    </label>
-                                    <label className="grid gap-1 text-xs text-slate-500">
-                                      Qte commandee
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        name="quantite"
-                                        defaultValue={quantite}
-                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                        required
-                                      />
-                                    </label>
-                                    <label className="grid gap-1 text-xs text-slate-500">
-                                      Qte importee
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        name="quantite_importee"
-                                        defaultValue={quantiteImportee}
-                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                      />
-                                    </label>
-                                    <label className="grid gap-1 text-xs text-slate-500">
-                                      Doss. import 4D
-                                      <input
-                                        type="text"
-                                        name="n_doss_4d_import"
-                                        defaultValue={row.n_doss_4d_import || ""}
-                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                      />
-                                    </label>
-                                    <label className="grid gap-1 text-xs text-slate-500">
-                                      Doss. import ERP
-                                      <input
-                                        type="text"
-                                        name="n_doss_erp_import"
-                                        defaultValue={row.n_doss_erp_import || ""}
-                                        className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                      />
-                                    </label>
-                                    <button
-                                      type="submit"
-                                      className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                {reste > 0 ? (
+                                  <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                                    <summary className="cursor-pointer text-xs font-semibold text-slate-800">
+                                      Creer import
+                                    </summary>
+                                    <form
+                                      action={createImportEvenementAction}
+                                      className="mt-2 grid w-60 gap-2"
                                     >
-                                      Enregistrer
-                                    </button>
-                                  </form>
-                                </details>
+                                      <input type="hidden" name="bc_ligne_id" value={row.id} />
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Qte importee (reste {reste})
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          max={reste}
+                                          name="quantite_importee"
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                          required
+                                        />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Doss. import 4D
+                                        <input
+                                          type="text"
+                                          name="n_doss_4d_import"
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Doss. import ERP
+                                        <input
+                                          type="text"
+                                          name="n_doss_erp_import"
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
+                                      <button
+                                        type="submit"
+                                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                      >
+                                        Enregistrer
+                                      </button>
+                                    </form>
+                                  </details>
+                                ) : null}
 
                                 <form action={deleteCommandeBcLigneAction}>
                                   <input type="hidden" name="bc_id" value={row.id} />

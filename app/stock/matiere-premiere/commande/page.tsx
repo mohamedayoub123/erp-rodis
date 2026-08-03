@@ -1,37 +1,43 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
-import { updateCommandeMpAction } from "./actions";
-import { STATUT_OPTIONS } from "./constants";
+import { encodeDossierId } from "./dossier-id";
 
-type CommandeRow = {
+type ImportRow = {
   id: number;
-  n_doss_4d: string | null;
-  n_doss_erp: string | null;
-  date_commande: string | null;
-  fournisseur: string | null;
-  statut: string;
+  bc_ligne_id: number;
+  quantite_importee: number;
+  n_doss_4d_import: string | null;
+  n_doss_erp_import: string | null;
+  date_import: string | null;
 };
 
-async function fetchAllCommandes() {
-  const rows: CommandeRow[] = [];
+type DossierGroup = {
+  nDoss4d: string | null;
+  nDossErp: string | null;
+  nbArticles: number;
+  quantiteTotale: number;
+  dateRecente: string | null;
+};
+
+async function fetchAllImports() {
+  const rows: ImportRow[] = [];
   let from = 0;
   const pageSize = 1000;
 
   while (true) {
     const { data, error } = await supabaseServer
-      .from("commandes_matiere_premiere")
-      .select("id, n_doss_4d, n_doss_erp, date_commande, fournisseur, statut")
-      .order("date_commande", { ascending: false })
+      .from("bons_commande_mp_imports")
+      .select("id, bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, date_import")
+      .order("date_import", { ascending: false })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
 
-    const chunk = (data ?? []) as CommandeRow[];
+    const chunk = (data ?? []) as ImportRow[];
     rows.push(...chunk);
 
     if (chunk.length < pageSize) break;
@@ -41,30 +47,35 @@ async function fetchAllCommandes() {
   return { rows, error: null };
 }
 
-function statutBadgeClass(statut: string) {
-  switch (statut) {
-    case "Commande":
-      return "bg-slate-100 text-slate-800";
-    case "Commande approuvee":
-      return "bg-sky-100 text-sky-800";
-    case "En cours de livraison":
-      return "bg-amber-100 text-amber-800";
-    case "Arrive port":
-      return "bg-violet-100 text-violet-800";
-    case "Arrive usine":
-      return "bg-emerald-100 text-emerald-800";
-    default:
-      return "bg-slate-100 text-slate-800";
-  }
-}
-
 export default async function CommandeMpPage() {
   noStore();
-  const currentUser = await getCurrentStockUser();
-  const canWriteNouvelle = await canWritePageUser(currentUser, "commandeMpNouvelle");
-  const canEdit = await canWritePageUser(currentUser, "commandeMp");
 
-  const { rows: commandes, error } = await fetchAllCommandes();
+  const { rows, error } = await fetchAllImports();
+
+  const byDossier = new Map<string, ImportRow[]>();
+  for (const row of rows) {
+    const key = `${row.n_doss_4d_import ?? ""}|||${row.n_doss_erp_import ?? ""}`;
+    const list = byDossier.get(key) ?? [];
+    list.push(row);
+    byDossier.set(key, list);
+  }
+
+  const groups: DossierGroup[] = [...byDossier.values()]
+    .map((groupRows) => {
+      const first = groupRows[0];
+      return {
+        nDoss4d: first.n_doss_4d_import,
+        nDossErp: first.n_doss_erp_import,
+        nbArticles: groupRows.length,
+        quantiteTotale: groupRows.reduce((sum, row) => sum + Number(row.quantite_importee ?? 0), 0),
+        dateRecente: groupRows.reduce<string | null>((latest, row) => {
+          if (!row.date_import) return latest;
+          if (!latest || row.date_import > latest) return row.date_import;
+          return latest;
+        }, null),
+      };
+    })
+    .sort((a, b) => (b.dateRecente ?? "").localeCompare(a.dateRecente ?? ""));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -74,25 +85,16 @@ export default async function CommandeMpPage() {
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
               ERP Rodis
             </p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
-              Import MP
-            </h1>
+            <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Import MP</h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Suivi des commandes matiere premiere : dossier, fournisseur, statut de livraison.
+              Vue calculee : regroupe automatiquement les imports enregistres depuis les BC qui
+              partagent le meme dossier 4D / ERP.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-3">
             <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
             <RefreshButton />
-            {canWriteNouvelle ? (
-              <Link
-                href="/stock/matiere-premiere/commande/nouvelle"
-                className="rounded-full bg-sky-700 px-5 py-2 text-sm font-semibold text-white transition hover:bg-sky-600"
-              >
-                Ajouter import
-              </Link>
-            ) : null}
           </div>
         </div>
 
@@ -103,8 +105,8 @@ export default async function CommandeMpPage() {
                 {error.message}
               </p>
             </div>
-          ) : commandes.length === 0 ? (
-            <div className="px-6 py-8 text-sm text-slate-500">Aucune commande pour le moment.</div>
+          ) : groups.length === 0 ? (
+            <div className="px-6 py-8 text-sm text-slate-500">Aucun import pour le moment.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -112,103 +114,32 @@ export default async function CommandeMpPage() {
                   <tr>
                     <th className="px-6 py-4 font-semibold">Doss. 4D</th>
                     <th className="px-6 py-4 font-semibold">Doss. ERP</th>
-                    <th className="px-6 py-4 font-semibold">Date</th>
-                    <th className="px-6 py-4 font-semibold">Fournisseur</th>
-                    <th className="px-6 py-4 font-semibold">Statut</th>
-                    {canEdit ? <th className="px-6 py-4 font-semibold">Modifier</th> : null}
+                    <th className="px-6 py-4 font-semibold">Nb articles</th>
+                    <th className="px-6 py-4 font-semibold">Qte importee</th>
+                    <th className="px-6 py-4 font-semibold">Date recente</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {commandes.map((commande) => (
-                    <tr key={commande.id} className="border-t border-slate-100 align-top">
-                      <td className="px-6 py-4 text-slate-600">{commande.n_doss_4d || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{commande.n_doss_erp || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatDate(commande.date_commande)}</td>
-                      <td className="px-6 py-4 font-medium text-slate-900">
-                        {commande.fournisseur || "-"}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${statutBadgeClass(
-                            commande.statut
-                          )}`}
-                        >
-                          {commande.statut}
-                        </span>
-                      </td>
-                      {canEdit ? (
-                        <td className="px-6 py-4">
-                          <details className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                            <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-                              Modifier
-                            </summary>
+                  {groups.map((group) => {
+                    const dossierId = encodeDossierId(group.nDoss4d, group.nDossErp);
 
-                            <form action={updateCommandeMpAction} className="mt-4 grid w-64 gap-3">
-                              <input type="hidden" name="commande_id" value={commande.id} />
-                              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                                Doss. 4D
-                                <input
-                                  type="text"
-                                  name="n_doss_4d"
-                                  defaultValue={commande.n_doss_4d || ""}
-                                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                                Doss. ERP
-                                <input
-                                  type="text"
-                                  name="n_doss_erp"
-                                  defaultValue={commande.n_doss_erp || ""}
-                                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                                Date
-                                <input
-                                  type="date"
-                                  name="date_commande"
-                                  defaultValue={commande.date_commande || ""}
-                                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                                Fournisseur
-                                <input
-                                  type="text"
-                                  name="fournisseur"
-                                  defaultValue={commande.fournisseur || ""}
-                                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                                Statut
-                                <select
-                                  name="statut"
-                                  defaultValue={commande.statut}
-                                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none"
-                                >
-                                  {STATUT_OPTIONS.map((option) => (
-                                    <option key={option} value={option}>
-                                      {option}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <div>
-                                <button
-                                  type="submit"
-                                  className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                                >
-                                  Enregistrer
-                                </button>
-                              </div>
-                            </form>
-                          </details>
+                    return (
+                      <tr key={dossierId} className="border-t border-slate-100">
+                        <td className="px-6 py-4 font-semibold">
+                          <Link
+                            href={`/stock/matiere-premiere/commande/${dossierId}`}
+                            className="text-sky-700 underline"
+                          >
+                            {group.nDoss4d || "Sans dossier"}
+                          </Link>
                         </td>
-                      ) : null}
-                    </tr>
-                  ))}
+                        <td className="px-6 py-4 text-slate-600">{group.nDossErp || "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{group.nbArticles}</td>
+                        <td className="px-6 py-4 text-slate-900">{group.quantiteTotale}</td>
+                        <td className="px-6 py-4 text-slate-600">{formatDate(group.dateRecente)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

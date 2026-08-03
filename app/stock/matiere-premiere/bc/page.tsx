@@ -12,10 +12,14 @@ type CommandeBcRow = {
   code: string;
   article_label: string | null;
   quantite: number | null;
-  quantite_importee: number | null;
   n_doss_4d: string | null;
   n_doss_erp: string | null;
   date_jour: string | null;
+};
+
+type ImportEvenementRow = {
+  bc_ligne_id: number;
+  quantite_importee: number;
 };
 
 type BcGroup = {
@@ -36,7 +40,7 @@ async function fetchAllCommandesBc() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("bons_commande_matiere_premiere")
-      .select("id, code, article_label, quantite, quantite_importee, n_doss_4d, n_doss_erp, date_jour")
+      .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, date_jour")
       .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
 
@@ -52,12 +56,42 @@ async function fetchAllCommandesBc() {
   return { rows, error: null };
 }
 
+async function fetchAllImportEvenements() {
+  const rows: ImportEvenementRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .select("bc_ligne_id, quantite_importee")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as ImportEvenementRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
 export default async function CommandeBcMpPage() {
   noStore();
   const currentUser = await getCurrentStockUser();
   const canWriteNouvelle = await canWritePageUser(currentUser, "commandeBcMpNouvelle");
 
   const { rows, error } = await fetchAllCommandesBc();
+  const { rows: importRows } = await fetchAllImportEvenements();
+
+  const importeeParLigne = new Map<number, number>();
+  for (const imp of importRows) {
+    const current = importeeParLigne.get(imp.bc_ligne_id) ?? 0;
+    importeeParLigne.set(imp.bc_ligne_id, current + Number(imp.quantite_importee ?? 0));
+  }
 
   const byCode = new Map<string, CommandeBcRow[]>();
   for (const row of rows) {
@@ -77,7 +111,7 @@ export default async function CommandeBcMpPage() {
         nbArticles: groupRows.length,
         quantiteTotale: groupRows.reduce((sum, row) => sum + Number(row.quantite ?? 0), 0),
         quantiteImporteeTotale: groupRows.reduce(
-          (sum, row) => sum + Number(row.quantite_importee ?? 0),
+          (sum, row) => sum + (importeeParLigne.get(row.id) ?? 0),
           0
         ),
       };
