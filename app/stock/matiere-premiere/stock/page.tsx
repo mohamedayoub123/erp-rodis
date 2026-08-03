@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
 
-export default function MouvementsMatierePremierePage() {
+export default function StockMatierePremiereStockPage() {
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -12,33 +11,19 @@ export default function MouvementsMatierePremierePage() {
                 ERP Rodis
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
-                Mouvements Matiere Premiere
+                Stock Matiere Premiere
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                TE = entree, TS = sortie. En attente de configuration des formulaires.
+                En attente de configuration du suivi stock matiere premiere.
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
-              <Link
-                href="/mouvements/matiere-premiere/entree"
-                className="rounded-full bg-emerald-700 px-5 py-2 text-sm font-semibold text-white"
-              >
-                Entrer
-              </Link>
-              <Link
-                href="/mouvements/matiere-premiere/sortie"
-                className="rounded-full bg-sky-700 px-5 py-2 text-sm font-semibold text-white"
-              >
-                Sortie
-              </Link>
-            </div>
+            <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
           </div>
         </section>
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <div className="p-6 text-sm text-slate-500">Aucun mouvement enregistre.</div>
+          <div className="p-6 text-sm text-slate-500">Aucun stock matiere premiere enregistre.</div>
         </section>
       </div>
     </main>

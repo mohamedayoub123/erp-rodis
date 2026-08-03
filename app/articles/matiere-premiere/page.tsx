@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { BackButton } from "@/app/_components/back-button";
 
 export default function ArticlesMatierePremierePage() {
   return (
@@ -15,12 +15,7 @@ export default function ArticlesMatierePremierePage() {
               </h1>
             </div>
 
-            <Link
-              href="/articles"
-              className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700"
-            >
-              Retour articles
-            </Link>
+            <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
           </div>
         </section>
 

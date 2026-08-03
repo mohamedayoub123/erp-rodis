@@ -16,7 +16,7 @@ export default function MouvementsHubPage() {
               </h1>
             </div>
 
-            <BackButton href="/" label="Retour accueil" />
+            <BackButton href="/gestion-stock-pf" label="Retour gestion stock PF" />
           </div>
         </section>
 
@@ -31,19 +31,6 @@ export default function MouvementsHubPage() {
             <span className="text-lg font-bold text-slate-900">Mouvements Produit Fini</span>
             <span className="text-sm text-slate-600">
               Entrees/sorties de stock produit fini, codes TE/TS.
-            </span>
-          </Link>
-
-          <Link
-            href="/mouvements/matiere-premiere"
-            className="group flex flex-col gap-3 rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:-translate-y-1 hover:shadow-[0_22px_44px_rgba(15,23,42,0.12)]"
-          >
-            <span className="text-4xl" aria-hidden="true">
-              {"\u{1F9EA}"}
-            </span>
-            <span className="text-lg font-bold text-slate-900">Mouvements Matiere Premiere</span>
-            <span className="text-sm text-slate-600">
-              A venir.
             </span>
           </Link>
         </section>

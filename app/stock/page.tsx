@@ -4,6 +4,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteLotStockAction, updateLotStockAction } from "./actions";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { BackButton } from "@/app/_components/back-button";
 import { formatDate } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 
@@ -376,13 +377,8 @@ export default async function StockPage({
               </p>
             </div>
 
-            <div className="flex gap-3">
-              <Link
-                href="/"
-                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
-              >
-                Accueil
-              </Link>
+            <div className="flex items-center gap-3">
+              <BackButton href="/gestion-stock-pf" label="Retour gestion stock PF" />
               {canWriteMouvements ? (
                 <>
                   <Link
