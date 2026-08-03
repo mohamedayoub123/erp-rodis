@@ -3,37 +3,44 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 
-type AlerteRow = {
+type ArticleMpRow = {
   id: number;
   nom_article: string;
   categorie: string | null;
-  stock_actuel: number | null;
-  seuil_alerte: number | null;
-  conso_3_mois: number | null;
-  conso_12_mois: number | null;
-  cmd_bc: number | null;
-  cmd_import: number | null;
-  date_logistique: string | null;
-  observation: string | null;
+  unite: string | null;
+  min_stock: number | null;
+  max_stock: number | null;
 };
 
-async function fetchAllAlertes() {
-  const rows: AlerteRow[] = [];
+type MouvementRow = {
+  article_id: number | null;
+  qte_entree: number;
+  qte_sortie: number;
+};
+
+type AlerteRow = {
+  article_id: number;
+  nom_article: string;
+  categorie: string | null;
+  unite: string | null;
+  stock_actuel: number;
+  min_stock: number;
+};
+
+async function fetchAllArticlesMp() {
+  const rows: ArticleMpRow[] = [];
   let from = 0;
   const pageSize = 1000;
 
   while (true) {
     const { data, error } = await supabaseServer
-      .from("stock_alertes_matiere_premiere")
-      .select(
-        "id, nom_article, categorie, stock_actuel, seuil_alerte, conso_3_mois, conso_12_mois, cmd_bc, cmd_import, date_logistique, observation"
-      )
-      .order("nom_article", { ascending: true })
+      .from("articles_matiere_premiere")
+      .select("id, nom_article, categorie, unite, min_stock, max_stock")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
 
-    const chunk = (data ?? []) as AlerteRow[];
+    const chunk = (data ?? []) as ArticleMpRow[];
     rows.push(...chunk);
 
     if (chunk.length < pageSize) break;
@@ -43,14 +50,63 @@ async function fetchAllAlertes() {
   return { rows, error: null };
 }
 
-function formatNumber(value: number | null) {
-  if (value === null || value === undefined) return "-";
+async function fetchAllMouvements() {
+  const rows: MouvementRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .select("article_id, qte_entree, qte_sortie")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as MouvementRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
+function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
 export default async function StockAlerteMpPage() {
   noStore();
-  const { rows: alertes, error } = await fetchAllAlertes();
+
+  const [{ rows: articles, error: articlesError }, { rows: mouvements, error: mouvementsError }] =
+    await Promise.all([fetchAllArticlesMp(), fetchAllMouvements()]);
+
+  const error = articlesError || mouvementsError;
+
+  // Stock actuel = somme entree-sortie de tous les mouvements de l'article
+  // (meme calcul que la page Stock MP). Alerte des que ce stock descend a
+  // ou sous le seuil "Stock min" defini sur l'article.
+  const stockByArticle = new Map<number, number>();
+  for (const row of mouvements) {
+    if (!row.article_id) continue;
+    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
+    stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
+  }
+
+  const alertes: AlerteRow[] = articles
+    .filter((article) => article.min_stock !== null)
+    .map((article) => ({
+      article_id: article.id,
+      nom_article: article.nom_article,
+      categorie: article.categorie,
+      unite: article.unite,
+      stock_actuel: stockByArticle.get(article.id) ?? 0,
+      min_stock: article.min_stock as number,
+    }))
+    .filter((row) => row.stock_actuel <= row.min_stock)
+    .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#fffaf3_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -64,7 +120,8 @@ export default async function StockAlerteMpPage() {
               Stock Alert MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Articles matiere premiere sous le seuil d&apos;alerte (feuille Excel Alerte).
+              Articles dont le stock actuel (calcule depuis les mouvements TE/TS) est egal ou
+              inferieur au stock min defini sur l&apos;article.
             </p>
           </div>
 
@@ -82,7 +139,9 @@ export default async function StockAlerteMpPage() {
               </p>
             </div>
           ) : alertes.length === 0 ? (
-            <div className="px-6 py-8 text-sm text-slate-500">Aucune alerte pour le moment.</div>
+            <div className="px-6 py-8 text-sm text-slate-500">
+              Aucune alerte pour le moment : aucun article n&apos;est a ou sous son stock min.
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -90,29 +149,23 @@ export default async function StockAlerteMpPage() {
                   <tr>
                     <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Categorie</th>
-                    <th className="px-6 py-4 font-semibold">Stock actuel</th>
-                    <th className="px-6 py-4 font-semibold">Seuil alerte</th>
-                    <th className="px-6 py-4 font-semibold">Conso 3 mois</th>
-                    <th className="px-6 py-4 font-semibold">Conso 12 mois</th>
-                    <th className="px-6 py-4 font-semibold">Cmd BC</th>
-                    <th className="px-6 py-4 font-semibold">Cmd import</th>
-                    <th className="px-6 py-4 font-semibold">Date logistique</th>
-                    <th className="px-6 py-4 font-semibold">Observation</th>
+                    <th className="px-6 py-4 font-semibold">Quantite</th>
+                    <th className="px-6 py-4 font-semibold">Unite</th>
+                    <th className="px-6 py-4 font-semibold">Stock min</th>
                   </tr>
                 </thead>
                 <tbody>
                   {alertes.map((alerte) => (
-                    <tr key={alerte.id} className="border-t border-slate-100">
+                    <tr key={alerte.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{alerte.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{alerte.categorie || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(alerte.stock_actuel)}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(alerte.seuil_alerte)}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(alerte.conso_3_mois)}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(alerte.conso_12_mois)}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(alerte.cmd_bc)}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(alerte.cmd_import)}</td>
-                      <td className="px-6 py-4 text-slate-600">{alerte.date_logistique || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{alerte.observation || "-"}</td>
+                      <td className="px-6 py-4">
+                        <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
+                          {formatNumber(alerte.stock_actuel)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{alerte.unite || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(alerte.min_stock)}</td>
                     </tr>
                   ))}
                 </tbody>
