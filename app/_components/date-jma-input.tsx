@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 // Jour / Mois (nomme) / Annee separes - un champ date natif affiche
 // l'ordre jour/mois selon la langue du navigateur, ce qui a deja cause une
@@ -92,6 +92,13 @@ function DateJmaFields({
 
 // Variante controlee (value/onChange, comme un input normal) - pour un
 // champ pilote par un state du composant parent.
+//
+// Garde jour/mois/annee en etat local (au lieu de les deriver de `value` a
+// chaque rendu) : tant que les 3 ne sont pas remplis, combine() renvoie ""
+// donc `value` ne bouge jamais - un composant purement derive de `value`
+// perd alors ce qui vient d'etre tape des que l'utilisateur passe au champ
+// suivant. L'etat local garde la saisie partielle visible ; `value` n'est
+// remis a jour vers le parent qu'une fois les 3 champs remplis.
 export function DateJmaInput({
   value,
   onChange,
@@ -101,16 +108,38 @@ export function DateJmaInput({
   onChange: (value: string) => void;
   required?: boolean;
 }) {
-  const { day, month, year } = splitIso(value);
+  const [day, setDay] = useState(() => splitIso(value).day);
+  const [month, setMonth] = useState(() => splitIso(value).month);
+  const [year, setYear] = useState(() => splitIso(value).year);
+
+  // Resynchronise l'etat local si `value` change depuis l'exterieur (ex:
+  // remise a zero du formulaire apres "Valider entree").
+  const lastValueRef = useRef(value);
+  if (lastValueRef.current !== value) {
+    lastValueRef.current = value;
+    const next = splitIso(value);
+    if (next.day !== day) setDay(next.day);
+    if (next.month !== month) setMonth(next.month);
+    if (next.year !== year) setYear(next.year);
+  }
 
   return (
     <DateJmaFields
       day={day}
       month={month}
       year={year}
-      onDay={(next) => onChange(combine(next, month, year))}
-      onMonth={(next) => onChange(combine(day, next, year))}
-      onYear={(next) => onChange(combine(day, month, next))}
+      onDay={(next) => {
+        setDay(next);
+        onChange(combine(next, month, year));
+      }}
+      onMonth={(next) => {
+        setMonth(next);
+        onChange(combine(day, next, year));
+      }}
+      onYear={(next) => {
+        setYear(next);
+        onChange(combine(day, month, next));
+      }}
       required={required}
     />
   );
