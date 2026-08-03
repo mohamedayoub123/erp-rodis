@@ -522,6 +522,10 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "articlesMatierePremiere",
   "articlesMatierePremiereNouvelle",
   "mouvementsMatierePremiere",
+  "mouvementsMatierePremiereEntree",
+  "mouvementsMatierePremiereSortie",
+  "mouvementsMatierePremiereEntreeDetail",
+  "mouvementsMatierePremiereSortieDetail",
 ]);
 
 export function sectionForPage(page: PageDefinition): AdminSection {
