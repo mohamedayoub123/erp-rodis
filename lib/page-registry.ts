@@ -144,6 +144,18 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Nouvel import MP",
     pathPrefixes: ["/stock/matiere-premiere/commande/nouvelle"],
   },
+  {
+    key: "commandeBcMp",
+    module: "Stock",
+    label: "Commande MP - BC (liste + modifier)",
+    pathPrefixes: ["/stock/matiere-premiere/bc"],
+  },
+  {
+    key: "commandeBcMpNouvelle",
+    module: "Stock",
+    label: "Nouvelle commande MP - BC",
+    pathPrefixes: ["/stock/matiere-premiere/bc/nouvelle"],
+  },
 
   // Commandes
   {
@@ -532,6 +544,8 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "statistiqueMp",
   "commandeMp",
   "commandeMpNouvelle",
+  "commandeBcMp",
+  "commandeBcMpNouvelle",
   "articlesMatierePremiere",
   "articlesMatierePremiereNouvelle",
   "mouvementsMatierePremiere",

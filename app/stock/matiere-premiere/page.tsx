@@ -60,6 +60,13 @@ const TILES = [
     icon: "\u{1F4E5}",
     description: "Suivi des commandes matiere premiere.",
   },
+  {
+    label: "Commande",
+    href: "/stock/matiere-premiere/bc",
+    pageKey: "commandeBcMp",
+    icon: "\u{1F9FE}",
+    description: "Bons de commande (BC) : article, quantite, statut.",
+  },
 ] as const;
 
 export default async function StockMatierePremierePage() {
