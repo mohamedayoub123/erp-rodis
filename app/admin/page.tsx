@@ -90,6 +90,28 @@ export default async function AdminPage({
     modulesBySection.set(section, modules);
   }
 
+  // Modules qui apparaissent dans plusieurs sections (Stock/Articles/
+  // Mouvements ont chacun des pages PF et des pages MP) - sans suffixe, ces
+  // modules s'affichaient deux fois avec exactement le meme nom "Stock",
+  // "Articles" ou "Mouvements" sous deux titres differents, ce qui a fait
+  // cocher la mauvaise case a l'utilisateur (Stock MP au lieu de Stock PF).
+  const modulesInMultipleSections = new Set<ModuleKey>();
+  for (const modules of modulesBySection.values()) {
+    for (const moduleKey of modules) {
+      let sectionsForModule = 0;
+      for (const otherModules of modulesBySection.values()) {
+        if (otherModules.includes(moduleKey)) sectionsForModule += 1;
+      }
+      if (sectionsForModule > 1) modulesInMultipleSections.add(moduleKey);
+    }
+  }
+
+  function moduleLabelForSection(moduleKey: ModuleKey, section: AdminSection) {
+    if (!modulesInMultipleSections.has(moduleKey)) return MODULE_LABELS[moduleKey];
+    const suffix = section === "GestionStockMp" ? "Matiere Premiere" : "Produit Fini";
+    return `${MODULE_LABELS[moduleKey]} (${suffix})`;
+  }
+
   // Un module peut apparaitre dans plusieurs sections (ex: "Articles" a des
   // pages en Gestion Stock PF et d'autres en Gestion Stock MP) - on ne
   // montre, dans chaque section, que les pages qui appartiennent vraiment a
@@ -374,7 +396,7 @@ export default async function AdminPage({
                                         {!user.isAdmin ? (
                                           <ModuleViewToggle defaultChecked={moduleHasAnyView} />
                                         ) : null}
-                                        <span className="flex-1">{MODULE_LABELS[moduleKey]}</span>
+                                        <span className="flex-1">{moduleLabelForSection(moduleKey, section)}</span>
                                         <span
                                           aria-hidden="true"
                                           className="text-slate-400 transition-transform group-open:rotate-90"
