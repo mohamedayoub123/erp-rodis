@@ -431,6 +431,41 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   },
 ];
 
+// Regroupement affiche dans l'admin (Gestion Stock PF / Gestion Stock MP /
+// Production) - independant du ModuleKey ci-dessus, car les pages "matiere
+// premiere" partagent le meme module que leur equivalent produit fini
+// (ex: stockMatierePremiere est module "Stock" comme "stock") mais doivent
+// apparaitre sous Gestion Stock MP, pas Gestion Stock PF.
+export type AdminSection = "GestionStockPf" | "GestionStockMp" | "Production" | "Autre";
+
+export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
+  GestionStockPf: "Gestion Stock PF",
+  GestionStockMp: "Gestion Stock MP",
+  Production: "Production",
+  Autre: "Autre",
+};
+
+export const ADMIN_SECTION_ORDER: AdminSection[] = [
+  "GestionStockPf",
+  "GestionStockMp",
+  "Production",
+  "Autre",
+];
+
+const MATIERE_PREMIERE_PAGE_KEYS = new Set([
+  "stockMatierePremiere",
+  "articlesMatierePremiere",
+  "articlesMatierePremiereNouvelle",
+  "mouvementsMatierePremiere",
+]);
+
+export function sectionForPage(page: PageDefinition): AdminSection {
+  if (MATIERE_PREMIERE_PAGE_KEYS.has(page.key)) return "GestionStockMp";
+  if (page.module === "Production") return "Production";
+  if (page.module === "Planning" || page.module === "General") return "Autre";
+  return "GestionStockPf";
+}
+
 // Longueur du prefixe le plus specifique qui matche pathname parmi les
 // pathPrefixes de "page" - sert de tie-breaker pour le longest-match.
 function matchedPrefixLength(page: PageDefinition, pathname: string): number {

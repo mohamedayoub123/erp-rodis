@@ -85,6 +85,7 @@ export default async function ArticlesMatierePremierePage({
   const categorieOptions = [
     ...new Set(allArticles.map((article) => article.categorie).filter(Boolean)),
   ] as string[];
+  const articleOptions = [...new Set(allArticles.map((article) => article.nom_article))];
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -122,14 +123,22 @@ export default async function ArticlesMatierePremierePage({
             <input
               type="text"
               name="q"
+              list="article-mp-options"
+              autoComplete="off"
               defaultValue={q}
               placeholder="Rechercher un article..."
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
+            <datalist id="article-mp-options">
+              {articleOptions.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
             <input
               type="text"
               name="categorie"
               list="categorie-options"
+              autoComplete="off"
               defaultValue={categorie}
               placeholder="Categorie..."
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"

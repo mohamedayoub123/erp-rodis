@@ -7,7 +7,15 @@ import {
   isAdminUser,
   listStockUsers,
 } from "@/lib/stock-auth";
-import { MODULE_LABELS, PAGE_REGISTRY, type ModuleKey } from "@/lib/page-registry";
+import {
+  ADMIN_SECTION_LABELS,
+  ADMIN_SECTION_ORDER,
+  MODULE_LABELS,
+  PAGE_REGISTRY,
+  sectionForPage,
+  type AdminSection,
+  type ModuleKey,
+} from "@/lib/page-registry";
 import { getWorkbookSourceLabel, resolveWorkbookPath } from "@/lib/workbook-path";
 import { ModuleViewToggle } from "./module-view-toggle";
 import {
@@ -63,12 +71,31 @@ export default async function AdminPage({
 
   const stockUsers = await listStockUsers();
 
-  const modulesInOrder = [...new Set(PAGE_REGISTRY.map((page) => page.module))] as ModuleKey[];
   const pagesByModule = new Map<ModuleKey, typeof PAGE_REGISTRY>();
   for (const page of PAGE_REGISTRY) {
     const list = pagesByModule.get(page.module) ?? [];
     list.push(page);
     pagesByModule.set(page.module, list);
+  }
+
+  // Modules regroupes par section admin (Gestion Stock PF / Gestion Stock
+  // MP / Production / Autre) - une page "matiere premiere" peut faire
+  // basculer tout son module dans une section differente de celle des
+  // autres pages du meme module (ex: Articles a des pages en PF et en MP).
+  const modulesBySection = new Map<AdminSection, ModuleKey[]>();
+  for (const page of PAGE_REGISTRY) {
+    const section = sectionForPage(page);
+    const modules = modulesBySection.get(section) ?? [];
+    if (!modules.includes(page.module)) modules.push(page.module);
+    modulesBySection.set(section, modules);
+  }
+
+  // Un module peut apparaitre dans plusieurs sections (ex: "Articles" a des
+  // pages en Gestion Stock PF et d'autres en Gestion Stock MP) - on ne
+  // montre, dans chaque section, que les pages qui appartiennent vraiment a
+  // cette section, pas tout le module.
+  function pagesForModuleInSection(moduleKey: ModuleKey, section: AdminSection) {
+    return (pagesByModule.get(moduleKey) ?? []).filter((page) => sectionForPage(page) === section);
   }
 
   return (
@@ -309,23 +336,20 @@ export default async function AdminPage({
                     <form action={updateUserPermissionsAction} className="mt-4 space-y-3">
                       <input type="hidden" name="username" value={user.username} />
 
-                      <div className="space-y-2">
-                        {modulesInOrder.map((moduleKey) => {
-                          const pages = pagesByModule.get(moduleKey) ?? [];
-                          const moduleHasAnyView = pages.some(
-                            (page) => user.permissions.pages[page.key]?.view
-                          );
+                      <div className="space-y-3">
+                        {ADMIN_SECTION_ORDER.filter(
+                          (section) => (modulesBySection.get(section) ?? []).length > 0
+                        ).map((section) => {
+                          const modulesInSection = modulesBySection.get(section) ?? [];
 
                           return (
                             <details
-                              key={moduleKey}
-                              className="group rounded-2xl border border-slate-200 bg-white"
+                              key={section}
+                              open
+                              className="group rounded-2xl border border-slate-300 bg-slate-50"
                             >
-                              <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800">
-                                {!user.isAdmin ? (
-                                  <ModuleViewToggle defaultChecked={moduleHasAnyView} />
-                                ) : null}
-                                <span className="flex-1">{MODULE_LABELS[moduleKey]}</span>
+                              <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold uppercase tracking-wide text-slate-900">
+                                <span className="flex-1">{ADMIN_SECTION_LABELS[section]}</span>
                                 <span
                                   aria-hidden="true"
                                   className="text-slate-400 transition-transform group-open:rotate-90"
@@ -334,80 +358,109 @@ export default async function AdminPage({
                                 </span>
                               </summary>
 
-                              <div className="overflow-x-auto border-t border-slate-200">
-                                <table className="min-w-full text-sm">
-                                  <thead className="bg-slate-100 text-slate-700">
-                                    <tr>
-                                      <th className="px-4 py-2 text-left font-semibold">Page</th>
-                                      <th className="px-4 py-2 text-center font-semibold">Voir</th>
-                                      <th className="px-4 py-2 text-center font-semibold">Modifier</th>
-                                      {moduleKey === "Commandes" ? (
-                                        <>
-                                          <th className="px-4 py-2 text-center font-semibold">Supprimer</th>
-                                          <th className="px-4 py-2 text-center font-semibold">Changer statut</th>
-                                        </>
-                                      ) : null}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {pages.map((page) => (
-                                      <tr key={page.key} className="border-t border-slate-200">
-                                        <td className="px-4 py-2 font-medium text-slate-800">{page.label}</td>
-                                        <td className="px-4 py-2 text-center">
-                                          <input
-                                            type="checkbox"
-                                            name={`page__${page.key}__view`}
-                                            defaultChecked={user.permissions.pages[page.key]?.view ?? false}
-                                            disabled={user.isAdmin}
-                                            className="perm-checkbox h-4 w-4 rounded border-slate-300"
-                                          />
-                                        </td>
-                                        <td className="px-4 py-2 text-center">
-                                          {page.hasWrite === false ? (
-                                            "-"
-                                          ) : (
-                                            <input
-                                              type="checkbox"
-                                              name={`page__${page.key}__write`}
-                                              defaultChecked={user.permissions.pages[page.key]?.write ?? false}
-                                              disabled={user.isAdmin}
-                                              className="perm-checkbox h-4 w-4 rounded border-slate-300"
-                                            />
-                                          )}
-                                        </td>
-                                        {moduleKey === "Commandes" ? (
-                                          page.key === "commandesDetail" ? (
-                                            <>
-                                              <td className="px-4 py-2 text-center">
-                                                <input
-                                                  type="checkbox"
-                                                  name="deleteCommandes"
-                                                  defaultChecked={user.permissions.deleteCommandes}
-                                                  disabled={user.isAdmin}
-                                                  className="perm-checkbox h-4 w-4 rounded border-slate-300"
-                                                />
-                                              </td>
-                                              <td className="px-4 py-2 text-center">
-                                                <input
-                                                  type="checkbox"
-                                                  name="changeStatusCommandes"
-                                                  defaultChecked={user.permissions.changeStatusCommandes}
-                                                  disabled={user.isAdmin}
-                                                  className="perm-checkbox h-4 w-4 rounded border-slate-300"
-                                                />
-                                              </td>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <td className="px-4 py-2 text-center">-</td>
-                                              <td className="px-4 py-2 text-center">-</td>
-                                            </>
-                                          )
+                              <div className="space-y-2 border-t border-slate-200 p-3">
+                                {modulesInSection.map((moduleKey) => {
+                                  const pages = pagesForModuleInSection(moduleKey, section);
+                                  const moduleHasAnyView = pages.some(
+                                    (page) => user.permissions.pages[page.key]?.view
+                                  );
+
+                                  return (
+                                    <details
+                                      key={`${section}-${moduleKey}`}
+                                      className="group rounded-2xl border border-slate-200 bg-white"
+                                    >
+                                      <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800">
+                                        {!user.isAdmin ? (
+                                          <ModuleViewToggle defaultChecked={moduleHasAnyView} />
                                         ) : null}
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
+                                        <span className="flex-1">{MODULE_LABELS[moduleKey]}</span>
+                                        <span
+                                          aria-hidden="true"
+                                          className="text-slate-400 transition-transform group-open:rotate-90"
+                                        >
+                                          &#9656;
+                                        </span>
+                                      </summary>
+
+                                      <div className="overflow-x-auto border-t border-slate-200">
+                                        <table className="min-w-full text-sm">
+                                          <thead className="bg-slate-100 text-slate-700">
+                                            <tr>
+                                              <th className="px-4 py-2 text-left font-semibold">Page</th>
+                                              <th className="px-4 py-2 text-center font-semibold">Voir</th>
+                                              <th className="px-4 py-2 text-center font-semibold">Modifier</th>
+                                              {moduleKey === "Commandes" ? (
+                                                <>
+                                                  <th className="px-4 py-2 text-center font-semibold">Supprimer</th>
+                                                  <th className="px-4 py-2 text-center font-semibold">Changer statut</th>
+                                                </>
+                                              ) : null}
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {pages.map((page) => (
+                                              <tr key={page.key} className="border-t border-slate-200">
+                                                <td className="px-4 py-2 font-medium text-slate-800">{page.label}</td>
+                                                <td className="px-4 py-2 text-center">
+                                                  <input
+                                                    type="checkbox"
+                                                    name={`page__${page.key}__view`}
+                                                    defaultChecked={user.permissions.pages[page.key]?.view ?? false}
+                                                    disabled={user.isAdmin}
+                                                    className="perm-checkbox h-4 w-4 rounded border-slate-300"
+                                                  />
+                                                </td>
+                                                <td className="px-4 py-2 text-center">
+                                                  {page.hasWrite === false ? (
+                                                    "-"
+                                                  ) : (
+                                                    <input
+                                                      type="checkbox"
+                                                      name={`page__${page.key}__write`}
+                                                      defaultChecked={user.permissions.pages[page.key]?.write ?? false}
+                                                      disabled={user.isAdmin}
+                                                      className="perm-checkbox h-4 w-4 rounded border-slate-300"
+                                                    />
+                                                  )}
+                                                </td>
+                                                {moduleKey === "Commandes" ? (
+                                                  page.key === "commandesDetail" ? (
+                                                    <>
+                                                      <td className="px-4 py-2 text-center">
+                                                        <input
+                                                          type="checkbox"
+                                                          name="deleteCommandes"
+                                                          defaultChecked={user.permissions.deleteCommandes}
+                                                          disabled={user.isAdmin}
+                                                          className="perm-checkbox h-4 w-4 rounded border-slate-300"
+                                                        />
+                                                      </td>
+                                                      <td className="px-4 py-2 text-center">
+                                                        <input
+                                                          type="checkbox"
+                                                          name="changeStatusCommandes"
+                                                          defaultChecked={user.permissions.changeStatusCommandes}
+                                                          disabled={user.isAdmin}
+                                                          className="perm-checkbox h-4 w-4 rounded border-slate-300"
+                                                        />
+                                                      </td>
+                                                    </>
+                                                  ) : (
+                                                    <>
+                                                      <td className="px-4 py-2 text-center">-</td>
+                                                      <td className="px-4 py-2 text-center">-</td>
+                                                    </>
+                                                  )
+                                                ) : null}
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </details>
+                                  );
+                                })}
                               </div>
                             </details>
                           );
