@@ -1,0 +1,31 @@
+ERP RODIS WEB - DEMARRAGE RAPIDE
+================================
+
+1. Pour ouvrir le site local simplement :
+   double-clique sur :
+   demarrer-erp-web.bat
+
+2. Pour faire mise a jour Excel puis ouvrir le site :
+   double-clique sur :
+   maj-et-demarrer-erp-web.bat
+
+3. Adresse du site :
+   http://localhost:3000
+
+IMPORTANT
+---------
+- La fenetre noire doit rester ouverte pendant l'utilisation du site.
+- Si tu fermes la fenetre noire, le site s'arrete.
+- Pour rouvrir le site, relance un des fichiers .bat
+
+PAGES PRINCIPALES
+-----------------
+- Accueil : http://localhost:3000
+- Dashboard : http://localhost:3000/dashboard
+- Articles : http://localhost:3000/articles
+- Stock : http://localhost:3000/stock
+- Commandes : http://localhost:3000/commandes
+- FIFO : http://localhost:3000/fifo
+- Stock dormant : http://localhost:3000/stock-dormant
+- Mouvements : http://localhost:3000/mouvements
+- Admin : http://localhost:3000/admin

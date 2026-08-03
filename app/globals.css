@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+/* Bumps the base rem size so every Tailwind text-* (and spacing) utility
+   across the app scales up proportionally, without editing every page. */
+html {
+  font-size: 132%;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+/* A la impression, on cache la navigation/le pied de page et tout ce qui
+   est marque .no-print (boutons, formulaires) - seul le contenu utile de
+   la page s'imprime. */
+@media print {
+  header,
+  footer,
+  .no-print {
+    display: none !important;
+  }
+
+  /* La page commande a 2 boutons imprimer distincts : "Imprimer commande"
+     (tableau article/qt/disponible) et "Imprimer dispatch" (tableau FIFO).
+     Chacun ne doit imprimer QUE son propre tableau, pas les deux, ni les
+     sections annexes (articles manquants, modifier la commande). */
+  html[data-print-mode="commande"] .print-section-dispatch,
+  html[data-print-mode="commande"] .print-section-hide-both,
+  html[data-print-mode="dispatch"] .print-section-commande,
+  html[data-print-mode="dispatch"] .print-section-hide-both {
+    display: none !important;
+  }
+
+  /* Ravitailleur - Toutes les zones : chaque zone a son propre bouton
+     imprimer (data-print-mode = code de la zone, ex "B1Z1"). On cache
+     toutes les zones sauf celle demandee, pour n'imprimer qu'un seul
+     tableau a la fois meme si les 6 sont affiches ensemble a l'ecran. */
+  html[data-print-mode] [data-print-zone] {
+    display: none !important;
+  }
+
+  html[data-print-mode="B1Z1"] [data-print-zone="B1Z1"],
+  html[data-print-mode="B1Z2"] [data-print-zone="B1Z2"],
+  html[data-print-mode="B4Z1"] [data-print-zone="B4Z1"],
+  html[data-print-mode="B4Z2"] [data-print-zone="B4Z2"],
+  html[data-print-mode="B4Z3"] [data-print-zone="B4Z3"],
+  html[data-print-mode="D"] [data-print-zone="D"] {
+    display: block !important;
+  }
+
+  /* Les tableaux larges (defiler horizontalement a l'ecran) doivent tenir
+     sur une seule page verticale a l'impression : on laisse le tableau
+     reprendre sa largeur naturelle au lieu d'etre coupe par le conteneur
+     "overflow-x-auto", et on reduit fortement la taille pour que tout
+     rentre en portrait. */
+  @page {
+    size: portrait;
+    margin: 10mm;
+  }
+
+  html[data-print-mode] .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  /* Le tableau "Resultat FIFO" utilise table-fixed + colgroup en % pour que
+     l'entete et chaque ligne (qui est en fait sa PROPRE table imbriquee,
+     necessaire pour que chaque ligne soit un <form> independant) gardent
+     des largeurs de colonnes identiques. "table-layout: auto" casse cet
+     alignement car chaque table imbriquee recalcule alors ses largeurs
+     selon son propre contenu, ce qui les desaligne les unes des autres. */
+  /* Le Dispatcher Ravitailleur a 13 colonnes (bien plus que commande/
+     dispatch) - une taille encore plus petite lui est necessaire pour
+     tenir en portrait (choisir "Paysage" dans la boite d'impression aide
+     aussi, mais n'est pas obligatoire avec cette taille reduite). */
+  html[data-print-mode="B1Z1"] table,
+  html[data-print-mode="B1Z2"] table,
+  html[data-print-mode="B4Z1"] table,
+  html[data-print-mode="B4Z2"] table,
+  html[data-print-mode="B4Z3"] table,
+  html[data-print-mode="D"] table {
+    font-size: 6px !important;
+  }
+
+  html[data-print-mode="B1Z1"] table th,
+  html[data-print-mode="B1Z1"] table td,
+  html[data-print-mode="B1Z2"] table th,
+  html[data-print-mode="B1Z2"] table td,
+  html[data-print-mode="B4Z1"] table th,
+  html[data-print-mode="B4Z1"] table td,
+  html[data-print-mode="B4Z2"] table th,
+  html[data-print-mode="B4Z2"] table td,
+  html[data-print-mode="B4Z3"] table th,
+  html[data-print-mode="B4Z3"] table td,
+  html[data-print-mode="D"] table th,
+  html[data-print-mode="D"] table td {
+    padding: 1px 2px !important;
+  }
+
+  html[data-print-mode] table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    font-size: 8px !important;
+  }
+
+  html[data-print-mode] table th,
+  html[data-print-mode] table td {
+    padding: 2px 4px !important;
+    text-align: left !important;
+  }
+
+  /* Les <input>/<select>/<button> n'heritent pas de font-size par defaut
+     dans les navigateurs (contrairement au texte normal) - sans ce
+     correctif ils restent a leur taille normale a l'impression, ce qui
+     rend les cases enormes et coupe le texte qu'elles contiennent. */
+  html[data-print-mode] table input,
+  html[data-print-mode] table select,
+  html[data-print-mode] table button {
+    font: inherit !important;
+    font-size: 8px !important;
+    width: auto !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    padding: 1px 2px !important;
+    border: none !important;
+    background: transparent !important;
+    text-align: left !important;
+  }
+
+  /* "min-h-screen" force le conteneur a occuper toute la hauteur de l'ecran
+     (100vh) - a l'impression ca pousse le tableau sur une 2eme page meme
+     quand le contenu tient largement sur la 1ere. */
+  html[data-print-mode] main {
+    min-height: 0 !important;
+  }
+}
