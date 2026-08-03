@@ -40,6 +40,7 @@ type RapportInfo = {
   vrac_fabrique: number | null;
   qt_vrac_recupere: number | null;
   code_vrac_recupere: string | null;
+  utilisateur_fabrication: string | null;
 };
 
 export default async function RapportFabricationPage({
@@ -67,7 +68,7 @@ export default async function RapportFabricationPage({
     supabaseServer
       .from("production_rapports")
       .select(
-        "machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere"
+        "machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, utilisateur_fabrication"
       )
       .eq("programme_ligne_id", ligneIdNumber)
       .maybeSingle(),
@@ -97,6 +98,11 @@ export default async function RapportFabricationPage({
                 {vracLabelFromName(ligne.produit) || "-"}
                 {ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
               </p>
+              {rapport?.utilisateur_fabrication ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Derniere saisie par {rapport.utilisateur_fabrication}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-3">

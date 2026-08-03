@@ -99,6 +99,7 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
       code_pays: codePays || null,
       source_import: "web:entree-production",
       note: null,
+      utilisateur: currentUser,
     };
   });
 

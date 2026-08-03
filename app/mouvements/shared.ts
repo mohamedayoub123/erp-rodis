@@ -15,6 +15,7 @@ export type MouvementSourceRow = {
   note: string | null;
   source_import: string | null;
   mouvement_groupe_id: number | null;
+  utilisateur: string | null;
   articles: { nom_article: string } | null;
 };
 
@@ -29,6 +30,7 @@ export type MouvementLigne = {
   code_pays: string | null;
   date_fabrication: string | null;
   note: string | null;
+  utilisateur: string | null;
 };
 
 export type MouvementGroup = {
@@ -41,7 +43,7 @@ export type MouvementGroup = {
 };
 
 const SOURCE_COLUMNS =
-  "id, article_id, numero_lot, code_normalise, date_fabrication, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, source_import, mouvement_groupe_id, articles(nom_article)";
+  "id, article_id, numero_lot, code_normalise, date_fabrication, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, source_import, mouvement_groupe_id, utilisateur, articles(nom_article)";
 
 export async function fetchMouvementSourceRows() {
   // PostgREST plafonne chaque requete a son max-rows interne (~1000) peu
@@ -194,6 +196,7 @@ function buildGroups(
         code_pays: row.code_pays,
         date_fabrication: row.date_fabrication,
         note: row.note,
+        utilisateur: row.utilisateur,
       })),
     };
   });

@@ -55,6 +55,7 @@ export default async function EntreeDetailPage({
                   <th className="px-4 py-3 font-semibold">Quantite</th>
                   <th className="px-4 py-3 font-semibold">Chambre</th>
                   <th className="px-4 py-3 font-semibold">Pays</th>
+                  <th className="px-4 py-3 font-semibold">Saisi par</th>
                   {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                 </tr>
               </thead>
@@ -67,6 +68,7 @@ export default async function EntreeDetailPage({
                     <td className="px-4 py-3 text-slate-900">{ligne.quantite}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.chambre || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.code_pays || "-"}</td>
+                    <td className="px-4 py-3 text-slate-600">{ligne.utilisateur || "-"}</td>
                     {canEditStock ? (
                       <td className="px-4 py-3">
                         <form action={deleteLotFromEntreeDetailAction}>

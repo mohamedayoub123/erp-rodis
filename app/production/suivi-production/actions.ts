@@ -158,6 +158,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     temps_arret_batch: parseOptionalText(formData, "temps_arret_batch"),
     date_fabrication_conditionnement: parseOptionalText(formData, "date_fabrication_conditionnement"),
     date_peremption: parseOptionalText(formData, "date_peremption"),
+    utilisateur_conditionnement: currentUser,
   });
 
   // Alimente le journal carton (meme principe que le Dashboard) pour que
@@ -214,6 +215,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     vrac_fabrique: vracFabrique,
     qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
     code_vrac_recupere: parseOptionalText(formData, "code_vrac_recupere"),
+    utilisateur_fabrication: currentUser,
   });
 
   // Alimente le journal vrac (meme principe que le Dashboard) pour que le
@@ -253,6 +255,7 @@ export async function saveEmballageRapportAction(formData: FormData) {
     emballage_scotcheuse: parseOptionalText(formData, "emballage_scotcheuse"),
     emballage_temps_demarrer: parseOptionalText(formData, "emballage_temps_demarrer"),
     emballage_temps_arret: parseOptionalText(formData, "emballage_temps_arret"),
+    utilisateur_emballage: currentUser,
   });
 
   // Alimente le journal emballage (meme principe que carton/vrac) pour que

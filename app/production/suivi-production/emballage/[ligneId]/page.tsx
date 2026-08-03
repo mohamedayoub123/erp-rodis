@@ -22,6 +22,7 @@ type RapportInfo = {
   emballage_scotcheuse: string | null;
   emballage_temps_demarrer: string | null;
   emballage_temps_arret: string | null;
+  utilisateur_emballage: string | null;
 };
 
 export default async function RapportEmballagePage({
@@ -49,7 +50,7 @@ export default async function RapportEmballagePage({
     supabaseServer
       .from("production_rapports")
       .select(
-        "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret"
+        "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, utilisateur_emballage"
       )
       .eq("programme_ligne_id", ligneIdNumber)
       .maybeSingle(),
@@ -78,6 +79,11 @@ export default async function RapportEmballagePage({
                 {formatDate(ligne.date_jour)} - {ligne.produit || "-"}
                 {ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
               </p>
+              {rapport?.utilisateur_emballage ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Derniere saisie par {rapport.utilisateur_emballage}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-3">

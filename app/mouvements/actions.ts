@@ -30,6 +30,8 @@ async function requireMouvementsEntreeWriteAccess() {
   if (!(await canWritePageUser(currentUser, "mouvementsEntree"))) {
     throw new Error("Cet utilisateur ne peut pas saisir des mouvements.");
   }
+
+  return currentUser;
 }
 
 async function requireMouvementsSortieWriteAccess() {
@@ -38,6 +40,8 @@ async function requireMouvementsSortieWriteAccess() {
   if (!(await canWritePageUser(currentUser, "mouvementsSortie"))) {
     throw new Error("Cet utilisateur ne peut pas saisir des mouvements.");
   }
+
+  return currentUser;
 }
 
 function revalidateMovementPages() {
@@ -86,7 +90,7 @@ export async function createSortieStockAction(formData: FormData) {
 }
 
 export async function createEntreeStockBatchAction(formData: FormData) {
-  await requireMouvementsEntreeWriteAccess();
+  const currentUser = await requireMouvementsEntreeWriteAccess();
 
   const rawPayload = String(formData.get("payload") || "").trim();
 
@@ -131,6 +135,7 @@ export async function createEntreeStockBatchAction(formData: FormData) {
       code_pays: codePays || null,
       source_import: "web:entree",
       note: note || null,
+      utilisateur: currentUser,
     };
   });
 
@@ -158,7 +163,7 @@ export async function createEntreeStockBatchAction(formData: FormData) {
 }
 
 export async function createSortieStockBatchAction(formData: FormData) {
-  await requireMouvementsSortieWriteAccess();
+  const currentUser = await requireMouvementsSortieWriteAccess();
 
   const rawPayload = String(formData.get("payload") || "").trim();
 
@@ -193,6 +198,7 @@ export async function createSortieStockBatchAction(formData: FormData) {
       livre_pour: String(row.livre_pour || "").trim(),
       numero_bl: String(row.numero_bl || "").trim(),
       preparateur: String(row.preparateur || "").trim(),
+      utilisateur: currentUser || "",
     };
   });
 

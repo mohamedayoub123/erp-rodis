@@ -60,6 +60,7 @@ export default async function SortieDetailPage({
                   <th className="px-4 py-3 font-semibold">Livre pour</th>
                   <th className="px-4 py-3 font-semibold">BL</th>
                   <th className="px-4 py-3 font-semibold">Preparateur</th>
+                  <th className="px-4 py-3 font-semibold">Saisi par</th>
                   {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                 </tr>
               </thead>
@@ -74,6 +75,7 @@ export default async function SortieDetailPage({
                       <td className="px-4 py-3 text-slate-600">{meta.livre_pour || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{meta.numero_bl || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{meta.preparateur || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{ligne.utilisateur || "-"}</td>
                       {canEditStock ? (
                         <td className="px-4 py-3">
                           <form action={deleteLotFromSortieDetailAction}>

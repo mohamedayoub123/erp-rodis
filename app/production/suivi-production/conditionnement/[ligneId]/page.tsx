@@ -63,6 +63,7 @@ type RapportInfo = {
   temps_arret_batch: string | null;
   date_fabrication_conditionnement: string | null;
   date_peremption: string | null;
+  utilisateur_conditionnement: string | null;
 };
 
 export default async function RapportConditionnementPage({
@@ -90,7 +91,7 @@ export default async function RapportConditionnementPage({
     supabaseServer
       .from("production_rapports")
       .select(
-        "chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption"
+        "chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, utilisateur_conditionnement"
       )
       .eq("programme_ligne_id", ligneIdNumber)
       .maybeSingle(),
@@ -134,6 +135,11 @@ export default async function RapportConditionnementPage({
                   {ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
                 </span>
               </div>
+              {rapport?.utilisateur_conditionnement ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Derniere saisie par {rapport.utilisateur_conditionnement}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-3">
