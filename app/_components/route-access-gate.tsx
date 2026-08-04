@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { findPageForPath } from "@/lib/page-registry";
+import { isSectionVisible } from "@/lib/nav-sections";
 
 export function RouteAccessGate({
   children,
@@ -24,7 +25,13 @@ export function RouteAccessGate({
     allowed = canManageUsers;
   } else {
     const page = findPageForPath(pathname);
-    allowed = page ? pageViewMap[page.key] ?? false : true;
+    // Meme regle que la nav/l'accueil : un hub (ex: gestionStockPf) reste
+    // accessible si l'utilisateur voit le hub LUI-MEME ou au moins une page
+    // a l'interieur - sinon un acces donne uniquement sur une sous-page
+    // (ex: Articles Produit Fini) bloquait completement le hub avec "Cette
+    // page n'est pas visible", alors que la page hub elle-meme filtre deja
+    // ses propres tuiles selon ce que l'utilisateur peut voir.
+    allowed = page ? isSectionVisible(page.key, pageViewMap) : true;
   }
 
   if (allowed) {
