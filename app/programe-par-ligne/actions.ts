@@ -391,45 +391,109 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
   const articleIds = [...new Set(filledRows.map((row) => row.article_id as number))];
   const articleInfoById = await fetchArticleInfoMap(articleIds);
 
-  const draftRows = buildDispatcherDraftRows(filledRows, articleInfoById);
-  const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(draftRows, articleInfoById);
+  // Remplace le contenu courant de chaque (zone, chaine) presente dans ce
+  // Save - meme les chaines laissees vides (sans produit) sont effacees du
+  // Dispatcher, pas seulement remplacees quand elles ont un produit. Ca
+  // evite qu'une ancienne ligne reste affichee alors qu'elle n'est plus
+  // remplie sur cette chaine.
+  const affectedZoneChaineMap = new Map<string, { zone: string; chaine: string }>();
+  for (const row of rows) {
+    affectedZoneChaineMap.set(`${row.zone}::${row.chaine}`, { zone: row.zone, chaine: row.chaine });
+  }
+  const affectedZoneChaine = [...affectedZoneChaineMap.values()];
 
-  for (const [articleId, updates] of codeUpdatesByArticleId.entries()) {
-    const { error: codeUpdateError } = await supabaseServer
-      .from("articles")
-      .update(updates)
-      .eq("id", articleId);
+  // Deux "Save" lances a quelques millisecondes d'ecart sur la meme famille
+  // (gamme+forme) peuvent tous les deux lire le meme dernier code connu
+  // avant que l'un des deux n'ait ecrit le sien, et generer le meme code de
+  // lot - programme_dispatcher_lignes.code est unique en base (voir
+  // add_programme_dispatcher_code_unique.sql) pour transformer cette
+  // collision silencieuse en erreur detectable, qu'on rattrape ici en
+  // recalculant un code frais (l'autre Save est deja commite a ce stade,
+  // donc generateAutoCodes le voit et repart apres) plutot que de faire
+  // echouer tout l'enregistrement.
+  const MAX_CODE_ATTEMPTS = 3;
+  let codesBySourceIndex = new Map<number, string[]>();
+  let dispatcherSucceeded = false;
 
-    if (codeUpdateError) {
-      throw new Error(codeUpdateError.message);
+  for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
+    const draftRows = buildDispatcherDraftRows(filledRows, articleInfoById);
+    const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(draftRows, articleInfoById);
+
+    for (const [articleId, updates] of codeUpdatesByArticleId.entries()) {
+      const { error: codeUpdateError } = await supabaseServer
+        .from("articles")
+        .update(updates)
+        .eq("id", articleId);
+
+      if (codeUpdateError) {
+        throw new Error(codeUpdateError.message);
+      }
+    }
+
+    const dispatcherPayload = draftRows.map((row, index) => ({
+      zone: row.zone,
+      article_id: row.articleId,
+      chaine: row.chaine,
+      produit: row.produit || null,
+      code: codesByRowIndex.get(index) || null,
+      date_jour: dateJour,
+      qt_carton: row.qtCarton,
+      qt_vrac: row.qtVrac,
+    }));
+
+    codesBySourceIndex = new Map<number, string[]>();
+    draftRows.forEach((row, index) => {
+      const code = codesByRowIndex.get(index);
+      if (!code) return;
+      const list = codesBySourceIndex.get(row.sourceIndex) ?? [];
+      list.push(code);
+      codesBySourceIndex.set(row.sourceIndex, list);
+    });
+
+    // Une requete .eq()/.eq() parametree par paire, plutot qu'un seul .or()
+    // construit en interpolant zone/chaine (valeurs saisies cote client)
+    // dans une chaine de filtre PostgREST brute - une valeur contenant une
+    // virgule ou une parenthese pouvait sinon elargir le filtre et faire
+    // supprimer des lignes en dehors des (zone, chaine) vraiment concernees
+    // par ce Save.
+    for (const { zone, chaine } of affectedZoneChaine) {
+      const { error: clearDispatcherError } = await supabaseServer
+        .from("programme_dispatcher_lignes")
+        .delete()
+        .eq("zone", zone)
+        .eq("chaine", chaine);
+
+      if (clearDispatcherError) {
+        throw new Error(clearDispatcherError.message);
+      }
+    }
+
+    const { error: dispatcherError } = await supabaseServer
+      .from("programme_dispatcher_lignes")
+      .insert(dispatcherPayload);
+
+    if (!dispatcherError) {
+      dispatcherSucceeded = true;
+      break;
+    }
+
+    // 23505 = violation de contrainte unique - deux Save concurrents ont
+    // genere le meme code, on relance avec un code recalcule. Toute autre
+    // erreur est remontee immediatement.
+    if (dispatcherError.code !== "23505" || attempt === MAX_CODE_ATTEMPTS) {
+      throw new Error(dispatcherError.message);
     }
   }
 
-  const dispatcherPayload = draftRows.map((row, index) => ({
-    zone: row.zone,
-    article_id: row.articleId,
-    chaine: row.chaine,
-    produit: row.produit || null,
-    code: codesByRowIndex.get(index) || null,
-    date_jour: dateJour,
-    qt_carton: row.qtCarton,
-    qt_vrac: row.qtVrac,
-  }));
+  if (!dispatcherSucceeded) {
+    throw new Error("Impossible de generer un code de lot unique apres plusieurs tentatives - reessaie.");
+  }
 
   // Le numero de lot affiche sur "Programme par ligne"/Dashboard est
   // automatique : ce sont les memes codes que ceux generes pour le
   // Dispatcher (voir generateAutoCodes), reunis quand une ligne a ete
   // decoupee en plusieurs lots (join ", "), puis reecrits sur la ligne
   // programme_lignes d'origine juste apres son insertion.
-  const codesBySourceIndex = new Map<number, string[]>();
-  draftRows.forEach((row, index) => {
-    const code = codesByRowIndex.get(index);
-    if (!code) return;
-    const list = codesBySourceIndex.get(row.sourceIndex) ?? [];
-    list.push(code);
-    codesBySourceIndex.set(row.sourceIndex, list);
-  });
-
   for (const [sourceIndex, codes] of codesBySourceIndex.entries()) {
     const ligneId = insertedIds[sourceIndex];
     if (!ligneId) continue;
@@ -442,42 +506,6 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
     if (numeroLotError) {
       throw new Error(numeroLotError.message);
     }
-  }
-
-  // Remplace le contenu courant de chaque (zone, chaine) presente dans ce
-  // Save - meme les chaines laissees vides (sans produit) sont effacees du
-  // Dispatcher, pas seulement remplacees quand elles ont un produit. Ca
-  // evite qu'une ancienne ligne reste affichee alors qu'elle n'est plus
-  // remplie sur cette chaine.
-  const affectedZoneChaineMap = new Map<string, { zone: string; chaine: string }>();
-  for (const row of rows) {
-    affectedZoneChaineMap.set(`${row.zone}::${row.chaine}`, { zone: row.zone, chaine: row.chaine });
-  }
-  const affectedZoneChaine = [...affectedZoneChaineMap.values()];
-
-  // Une requete .eq()/.eq() parametree par paire, plutot qu'un seul .or()
-  // construit en interpolant zone/chaine (valeurs saisies cote client) dans
-  // une chaine de filtre PostgREST brute - une valeur contenant une virgule
-  // ou une parenthese pouvait sinon elargir le filtre et faire supprimer des
-  // lignes en dehors des (zone, chaine) vraiment concernees par ce Save.
-  for (const { zone, chaine } of affectedZoneChaine) {
-    const { error: clearDispatcherError } = await supabaseServer
-      .from("programme_dispatcher_lignes")
-      .delete()
-      .eq("zone", zone)
-      .eq("chaine", chaine);
-
-    if (clearDispatcherError) {
-      throw new Error(clearDispatcherError.message);
-    }
-  }
-
-  const { error: dispatcherError } = await supabaseServer
-    .from("programme_dispatcher_lignes")
-    .insert(dispatcherPayload);
-
-  if (dispatcherError) {
-    throw new Error(dispatcherError.message);
   }
 
   revalidatePath("/programe-par-ligne");

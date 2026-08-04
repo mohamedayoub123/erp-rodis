@@ -47,29 +47,6 @@ async function fetchAllArticlesMp() {
   return rows;
 }
 
-async function fetchAllBcCodes() {
-  const rows: { code: string }[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("bons_commande_matiere_premiere")
-      .select("code")
-      .range(from, from + pageSize - 1);
-
-    if (error) break;
-
-    const chunk = (data as { code: string }[] | null) ?? [];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
-}
-
 async function requireWriteAccess() {
   const currentUser = await getCurrentStockUser();
 
@@ -167,13 +144,6 @@ export async function createCommandeBcBatchAction(formData: FormData) {
     ])
   );
 
-  // Compte le nombre de BC deja crees (groupes distincts par code) pour
-  // generer le prochain code (BC1, BC2...).
-  const existingCodes = await fetchAllBcCodes();
-
-  const distinctCodes = new Set(existingCodes.map((row) => row.code));
-  const code = `BC${distinctCodes.size + 1}`;
-
   const nDoss4d = parseOptionalText(formData, "n_doss_4d");
   const nDossErp = parseOptionalText(formData, "n_doss_erp");
 
@@ -186,7 +156,6 @@ export async function createCommandeBcBatchAction(formData: FormData) {
       const articleRow = articleByNormalise.get(normalizeArticle(articleName));
 
       return {
-        code,
         article_id: articleRow?.id ?? null,
         article_label: articleRow?.nom_article ?? articleName,
         quantite,
@@ -200,11 +169,20 @@ export async function createCommandeBcBatchAction(formData: FormData) {
     throw new Error("Aucun article valide a enregistrer.");
   }
 
-  const { error } = await supabaseServer.from("bons_commande_matiere_premiere").insert(rowsToInsert);
+  // Le calcul du prochain code BC (BC1, BC2...) et l'insertion se font
+  // ensemble, dans une seule transaction verrouillee cote base - sinon deux
+  // creations lancees a quelques millisecondes d'ecart peuvent toutes les
+  // deux compter le meme nombre de BC existants et recevoir le meme code
+  // (voir stock_bc_mp_create_batch).
+  const { data, error } = await supabaseServer.rpc("stock_bc_mp_create_batch", {
+    p_lignes: rowsToInsert,
+  });
 
   if (error) {
     throw new Error(error.message);
   }
+
+  const code = (data as { code: string }).code;
 
   revalidateCommandeBcMpPages();
 
