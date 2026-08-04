@@ -33,39 +33,17 @@ async function fetchAllArticlesForSortie() {
 
 // Solde par article+lot (somme qte_entree - qte_sortie), pour que la Sortie
 // normale propose seulement les lots qui existent reellement en stock, au
-// lieu d'une saisie libre qui peut viser un lot inexistant.
+// lieu d'une saisie libre qui peut viser un lot inexistant. Calcule en base
+// (RPC stock_mp_lot_balances) plutot qu'en rapatriant toute la table
+// lots_stock_matiere_premiere (dizaines de milliers de lignes) pour agreger
+// cote Node - cette derniere approche rendait la page tres lente (~12s).
 async function fetchLotBalancesForSortie() {
-  type Row = { article_id: number | null; numero_lot: string | null; qte_entree: number; qte_sortie: number };
-  const rows: Row[] = [];
-  let from = 0;
-  const pageSize = 1000;
+  type Row = { article_id: number; numero_lot: string; stock: number };
+  const { data, error } = await supabaseServer.rpc("stock_mp_lot_balances");
 
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select("article_id, numero_lot, qte_entree, qte_sortie")
-      .range(from, from + pageSize - 1);
+  if (error) return [];
 
-    if (error) break;
-
-    const chunk = (data as Row[] | null) ?? [];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  const balances = new Map<string, { article_id: number; numero_lot: string; stock: number }>();
-
-  for (const row of rows) {
-    if (!row.article_id || !row.numero_lot) continue;
-    const key = `${row.article_id}::${row.numero_lot.trim().toUpperCase()}`;
-    const current = balances.get(key) ?? { article_id: row.article_id, numero_lot: row.numero_lot.trim(), stock: 0 };
-    current.stock += Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-    balances.set(key, current);
-  }
-
-  return [...balances.values()].filter((balance) => balance.stock > 0);
+  return (data as Row[] | null) ?? [];
 }
 
 export default async function MouvementsMatierePremiereSortiePage() {
