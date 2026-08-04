@@ -25,6 +25,12 @@ type ImportEvenementRow = {
   quantite_importee: number;
 };
 
+type ImportDossierRow = {
+  bc_ligne_id: number;
+  n_doss_4d_import: string | null;
+  n_doss_erp_import: string | null;
+};
+
 type BcGroup = {
   code: string;
   n_doss_4d: string | null;
@@ -34,6 +40,8 @@ type BcGroup = {
   quantiteTotale: number;
   quantiteImporteeTotale: number;
   statutLigne: string | null;
+  dossImport4d: string;
+  dossImportErp: string;
 };
 
 async function fetchAllCommandesBc() {
@@ -88,6 +96,32 @@ async function fetchAllImportEvenements() {
   return { rows, error: null };
 }
 
+// Pas de filtre sur lot_stock_id ici (contrairement a fetchAllImportEvenements)
+// - la colonne "Doss import" est juste informative, elle doit refleter le
+// dossier de TOUS les evenements (Creer import ET Reception) lies au BC.
+async function fetchAllImportDossiers() {
+  const rows: ImportDossierRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .select("bc_ligne_id, n_doss_4d_import, n_doss_erp_import")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as ImportDossierRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
 export default async function CommandeBcMpPage() {
   noStore();
   const currentUser = await getCurrentStockUser();
@@ -96,11 +130,35 @@ export default async function CommandeBcMpPage() {
 
   const { rows, error } = await fetchAllCommandesBc();
   const { rows: importRows } = await fetchAllImportEvenements();
+  const { rows: dossierRows } = await fetchAllImportDossiers();
 
   const importeeParLigne = new Map<number, number>();
   for (const imp of importRows) {
     const current = importeeParLigne.get(imp.bc_ligne_id) ?? 0;
     importeeParLigne.set(imp.bc_ligne_id, current + Number(imp.quantite_importee ?? 0));
+  }
+
+  const codeParLigne = new Map<number, string>();
+  for (const row of rows) {
+    codeParLigne.set(row.id, row.code);
+  }
+
+  const doss4dParCode = new Map<string, Set<string>>();
+  const dossErpParCode = new Map<string, Set<string>>();
+  for (const dossier of dossierRows) {
+    const code = codeParLigne.get(dossier.bc_ligne_id);
+    if (!code) continue;
+
+    if (dossier.n_doss_4d_import) {
+      const set = doss4dParCode.get(code) ?? new Set<string>();
+      set.add(dossier.n_doss_4d_import);
+      doss4dParCode.set(code, set);
+    }
+    if (dossier.n_doss_erp_import) {
+      const set = dossErpParCode.get(code) ?? new Set<string>();
+      set.add(dossier.n_doss_erp_import);
+      dossErpParCode.set(code, set);
+    }
   }
 
   const byCode = new Map<string, CommandeBcRow[]>();
@@ -128,6 +186,8 @@ export default async function CommandeBcMpPage() {
         // une a ete marquee "Receptionne" a la main, le badge du groupe
         // affiche ce statut en priorite (coherent avec le detail par ligne).
         statutLigne: groupRows.some((row) => row.statut === "Receptionne") ? "Receptionne" : null,
+        dossImport4d: [...(doss4dParCode.get(code) ?? [])].join(", "),
+        dossImportErp: [...(dossErpParCode.get(code) ?? [])].join(", "),
       };
     })
     .sort((a, b) => {
@@ -185,8 +245,10 @@ export default async function CommandeBcMpPage() {
                     <th className="px-6 py-4 font-semibold">Qte commandee</th>
                     <th className="px-6 py-4 font-semibold">Qte importee</th>
                     <th className="px-6 py-4 font-semibold">Reste a importer</th>
-                    <th className="px-6 py-4 font-semibold">Doss. 4D</th>
-                    <th className="px-6 py-4 font-semibold">Doss. ERP</th>
+                    <th className="px-6 py-4 font-semibold">Dossier BC 4D</th>
+                    <th className="px-6 py-4 font-semibold">Dossier BC ERP</th>
+                    <th className="px-6 py-4 font-semibold">Doss import 4D</th>
+                    <th className="px-6 py-4 font-semibold">Doss import ERP</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
                     <th className="px-6 py-4 font-semibold">Date</th>
                     {canEdit ? <th className="px-6 py-4 font-semibold">Action</th> : null}
@@ -217,6 +279,8 @@ export default async function CommandeBcMpPage() {
                         <td className="px-6 py-4 font-semibold text-slate-900">{reste}</td>
                         <td className="px-6 py-4 text-slate-600">{group.n_doss_4d || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{group.n_doss_erp || "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{group.dossImport4d || "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{group.dossImportErp || "-"}</td>
                         <td className="px-6 py-4">
                           <span
                             className={`rounded-full px-3 py-1 text-xs font-semibold ${statutBcBadgeClass(

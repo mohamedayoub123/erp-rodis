@@ -123,7 +123,7 @@ export default async function CommandeBcMpDetailPage({
                 <form action={updateCommandeBcGroupAction} className="grid gap-4 md:grid-cols-3">
                   <input type="hidden" name="code" value={code} />
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Doss. 4D
+                    Dossier BC 4D
                     <input
                       type="text"
                       name="n_doss_4d"
@@ -132,7 +132,7 @@ export default async function CommandeBcMpDetailPage({
                     />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Doss. ERP
+                    Dossier BC ERP
                     <input
                       type="text"
                       name="n_doss_erp"
@@ -235,7 +235,7 @@ export default async function CommandeBcMpDetailPage({
                                         />
                                       </label>
                                       <label className="grid gap-1 text-xs text-slate-500">
-                                        Doss. import 4D
+                                        Doss import 4D
                                         <input
                                           type="text"
                                           name="n_doss_4d_import"
@@ -243,7 +243,7 @@ export default async function CommandeBcMpDetailPage({
                                         />
                                       </label>
                                       <label className="grid gap-1 text-xs text-slate-500">
-                                        Doss. import ERP
+                                        Doss import ERP
                                         <input
                                           type="text"
                                           name="n_doss_erp_import"

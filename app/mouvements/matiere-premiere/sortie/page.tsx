@@ -1,5 +1,5 @@
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { computeAvailableMpLots, fetchWebMouvementMpSourceRows } from "../shared";
+import { computeAvailableMpLots, fetchMpSourceRowsForLots } from "../shared";
 import { SortieMpClient } from "./sortie-client";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -8,7 +8,7 @@ export default async function MouvementsMatierePremiereSortiePage() {
   const currentStockUser = await getCurrentStockUser();
   const canWriteMouvements = await canWritePageUser(currentStockUser, "mouvementsMatierePremiereSortie");
 
-  const sourceRows = await fetchWebMouvementMpSourceRows();
+  const sourceRows = await fetchMpSourceRowsForLots();
   const lots = computeAvailableMpLots(sourceRows);
 
   return (
