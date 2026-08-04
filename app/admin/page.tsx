@@ -417,11 +417,9 @@ export default async function AdminPage({
                                               <th className="px-4 py-2 text-left font-semibold">Page</th>
                                               <th className="px-4 py-2 text-center font-semibold">Voir</th>
                                               <th className="px-4 py-2 text-center font-semibold">Modifier</th>
+                                              <th className="px-4 py-2 text-center font-semibold">Supprimer</th>
                                               {moduleKey === "Commandes" ? (
-                                                <>
-                                                  <th className="px-4 py-2 text-center font-semibold">Supprimer</th>
-                                                  <th className="px-4 py-2 text-center font-semibold">Changer statut</th>
-                                                </>
+                                                <th className="px-4 py-2 text-center font-semibold">Changer statut</th>
                                               ) : null}
                                             </tr>
                                           </thead>
@@ -451,34 +449,45 @@ export default async function AdminPage({
                                                     />
                                                   )}
                                                 </td>
-                                                {moduleKey === "Commandes" ? (
-                                                  page.key === "commandesDetail" ? (
-                                                    <>
-                                                      <td className="px-4 py-2 text-center">
-                                                        <input
-                                                          type="checkbox"
-                                                          name="deleteCommandes"
-                                                          defaultChecked={user.permissions.deleteCommandes}
-                                                          disabled={user.isAdmin}
-                                                          className="perm-checkbox h-4 w-4 rounded border-slate-300"
-                                                        />
-                                                      </td>
-                                                      <td className="px-4 py-2 text-center">
-                                                        <input
-                                                          type="checkbox"
-                                                          name="changeStatusCommandes"
-                                                          defaultChecked={user.permissions.changeStatusCommandes}
-                                                          disabled={user.isAdmin}
-                                                          className="perm-checkbox h-4 w-4 rounded border-slate-300"
-                                                        />
-                                                      </td>
-                                                    </>
+                                                <td className="px-4 py-2 text-center">
+                                                  {moduleKey === "Commandes" ? (
+                                                    page.key === "commandesDetail" ? (
+                                                      <input
+                                                        type="checkbox"
+                                                        name="deleteCommandes"
+                                                        defaultChecked={user.permissions.deleteCommandes}
+                                                        disabled={user.isAdmin}
+                                                        className="perm-checkbox h-4 w-4 rounded border-slate-300"
+                                                      />
+                                                    ) : (
+                                                      "-"
+                                                    )
+                                                  ) : page.hasWrite === false ? (
+                                                    "-"
                                                   ) : (
-                                                    <>
-                                                      <td className="px-4 py-2 text-center">-</td>
-                                                      <td className="px-4 py-2 text-center">-</td>
-                                                    </>
-                                                  )
+                                                    <input
+                                                      type="checkbox"
+                                                      name={`page__${page.key}__delete`}
+                                                      defaultChecked={user.permissions.pages[page.key]?.delete ?? false}
+                                                      disabled={user.isAdmin}
+                                                      className="perm-checkbox h-4 w-4 rounded border-slate-300"
+                                                    />
+                                                  )}
+                                                </td>
+                                                {moduleKey === "Commandes" ? (
+                                                  <td className="px-4 py-2 text-center">
+                                                    {page.key === "commandesDetail" ? (
+                                                      <input
+                                                        type="checkbox"
+                                                        name="changeStatusCommandes"
+                                                        defaultChecked={user.permissions.changeStatusCommandes}
+                                                        disabled={user.isAdmin}
+                                                        className="perm-checkbox h-4 w-4 rounded border-slate-300"
+                                                      />
+                                                    ) : (
+                                                      "-"
+                                                    )}
+                                                  </td>
                                                 ) : null}
                                               </tr>
                                             ))}

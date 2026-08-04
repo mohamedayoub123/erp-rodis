@@ -146,13 +146,14 @@ export async function updateUserPermissionsAction(formData: FormData) {
 
   for (const page of PAGE_REGISTRY) {
     if (!knownPageKeys.has(page.key)) {
-      pages[page.key] = currentPermissions.pages[page.key] ?? { view: false, write: false };
+      pages[page.key] = currentPermissions.pages[page.key] ?? { view: false, write: false, delete: false };
       continue;
     }
 
     pages[page.key] = {
       view: readPermissionFlag(formData, `page__${page.key}__view`),
       write: page.hasWrite === false ? false : readPermissionFlag(formData, `page__${page.key}__write`),
+      delete: page.hasWrite === false ? false : readPermissionFlag(formData, `page__${page.key}__delete`),
     };
   }
 

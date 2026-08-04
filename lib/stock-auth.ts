@@ -10,7 +10,7 @@ const ADMIN_USERS = new Set(["mayoub"]);
 const MAX_FAILED_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
 
-export type PagePermissions = Record<string, { view: boolean; write: boolean }>;
+export type PagePermissions = Record<string, { view: boolean; write: boolean; delete: boolean }>;
 
 export type StockPermissions = {
   pages: PagePermissions;
@@ -89,13 +89,18 @@ function defaultPagePermissions(isAdmin: boolean): PagePermissions {
 
   for (const page of PAGE_REGISTRY) {
     if (isAdmin) {
-      pages[page.key] = { view: true, write: page.hasWrite === false ? false : true };
+      pages[page.key] = {
+        view: true,
+        write: page.hasWrite === false ? false : true,
+        delete: page.hasWrite === false ? false : true,
+      };
       continue;
     }
 
     pages[page.key] = {
       view: page.defaultView ?? true,
       write: page.hasWrite === false ? false : page.defaultWrite ?? false,
+      delete: page.hasWrite === false ? false : page.defaultWrite ?? false,
     };
   }
 
@@ -179,7 +184,18 @@ function normalizeUserRecord(username: string, record: StoredUserRecord): Normal
           ? stored.write
           : legacyPageValue(page, source, "write") ?? defaults.pages[page.key].write;
 
-    pages[page.key] = { view, write };
+    // "Supprimer" n'existait pas comme droit distinct avant - tant qu'un
+    // admin n'a pas explicitement decoche la case, on herite de "write" pour
+    // ne retirer aucune capacite de suppression qu'un utilisateur avait deja
+    // (meme principe que known_page_keys pour les nouvelles pages).
+    const del =
+      page.hasWrite === false
+        ? false
+        : typeof stored?.delete === "boolean"
+          ? stored.delete
+          : write;
+
+    pages[page.key] = { view, write, delete: del };
   }
 
   const legacyEditCommandes = typeof source.editCommandes === "boolean" ? source.editCommandes : undefined;
@@ -395,6 +411,11 @@ export async function canViewPageUser(username: string | null | undefined, pageK
 export async function canWritePageUser(username: string | null | undefined, pageKey: string) {
   const permissions = await getUserPermissions(username);
   return permissions.pages[pageKey]?.write ?? false;
+}
+
+export async function canDeletePageUser(username: string | null | undefined, pageKey: string) {
+  const permissions = await getUserPermissions(username);
+  return permissions.pages[pageKey]?.delete ?? false;
 }
 
 // Remplace l'ancien canEditModuleUser(user, "Stock") - garde le meme nom
