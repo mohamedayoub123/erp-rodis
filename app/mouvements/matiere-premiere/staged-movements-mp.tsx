@@ -663,19 +663,22 @@ export function SortiePanelMp({
         ) : (
           <div className="mt-3 space-y-3">
             {rows.map((row, index) => (
-              <div key={`${row.lot_id}-${index}`} className="rounded-xl bg-white px-4 py-3 text-sm">
-                <p className="font-semibold text-slate-900">{row.lot_label}</p>
-                <p className="text-slate-600">Qt sortie {row.quantite}</p>
-                <p className="text-slate-500">
-                  {row.client ? `Client ${row.client}` : "Client -"}{" "}
-                  {row.n_doss_erp ? `| ERP ${row.n_doss_erp}` : ""}{" "}
-                  {row.n_doss_4d ? `| 4D ${row.n_doss_4d}` : ""}
+              <div
+                key={`${row.lot_id}-${index}`}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-sm"
+              >
+                <p className="text-slate-700">
+                  <span className="font-semibold text-slate-900">{row.lot_label}</span>
+                  {` — Qt sortie ${row.quantite}`}
+                  {row.client ? ` | Client ${row.client}` : ""}
+                  {row.n_doss_erp ? ` | ERP ${row.n_doss_erp}` : ""}
+                  {row.n_doss_4d ? ` | 4D ${row.n_doss_4d}` : ""}
                   {row.note ? ` | Note ${row.note}` : ""}
                 </p>
                 <button
                   type="button"
                   onClick={() => removeRow(index)}
-                  className="mt-2 rounded-full bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-900"
+                  className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-900"
                 >
                   Supprimer
                 </button>
