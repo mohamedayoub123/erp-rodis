@@ -6,6 +6,35 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { computeArticleFamilyKey, extractTrailingNumber, incrementCode } from "@/lib/article-code-family";
 
+// Un Save avec beaucoup de chaines/zones (meme vides) pouvait declencher des
+// dizaines de requetes vraiment simultanees (Promise.all sans limite) - trop
+// pour le pool de connexions (PgBouncer) qui en rejetait certaines, faisant
+// planter le rendu alors que l'insert programme_lignes (visible dans
+// l'historique) avait deja reussi. Limite le nombre de requetes en vol a la
+// fois, garde le gain de vitesse (plusieurs vagues au lieu d'une par ligne)
+// sans saturer le pool.
+async function mapWithConcurrencyLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => PromiseLike<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await fn(items[currentIndex]);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  return results;
+}
+
 type PendingProgrammeRow = {
   zone: string;
   chaine: string;
@@ -503,13 +532,12 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
     const draftRows = buildDispatcherDraftRows(filledRows, articleInfoById);
     const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(draftRows, articleInfoById);
 
-    // En parallele plutot qu'un aller-retour DB par article touche - un Save
-    // avec beaucoup de lignes/familles rendait cette etape tres lente (voire
-    // faisait planter le rendu) en serie.
-    const codeUpdateResults = await Promise.all(
-      [...codeUpdatesByArticleId.entries()].map(([articleId, updates]) =>
-        supabaseServer.from("articles").update(updates).eq("id", articleId)
-      )
+    // Par vagues de 5 max plutot qu'un aller-retour DB par article touche en
+    // serie (lent) ou tous en meme temps (peut saturer le pool, voir plus haut).
+    const codeUpdateResults = await mapWithConcurrencyLimit(
+      [...codeUpdatesByArticleId.entries()],
+      5,
+      ([articleId, updates]) => supabaseServer.from("articles").update(updates).eq("id", articleId)
     );
 
     const failedCodeUpdate = codeUpdateResults.find((result) => result.error);
@@ -543,10 +571,8 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
     // virgule ou une parenthese pouvait sinon elargir le filtre et faire
     // supprimer des lignes en dehors des (zone, chaine) vraiment concernees
     // par ce Save.
-    const clearResults = await Promise.all(
-      affectedZoneChaine.map(({ zone, chaine }) =>
-        supabaseServer.from("programme_dispatcher_lignes").delete().eq("zone", zone).eq("chaine", chaine)
-      )
+    const clearResults = await mapWithConcurrencyLimit(affectedZoneChaine, 5, ({ zone, chaine }) =>
+      supabaseServer.from("programme_dispatcher_lignes").delete().eq("zone", zone).eq("chaine", chaine)
     );
 
     const failedClear = clearResults.find((result) => result.error);
@@ -580,18 +606,17 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
   // Dispatcher (voir generateAutoCodes), reunis quand une ligne a ete
   // decoupee en plusieurs lots (join ", "), puis reecrits sur la ligne
   // programme_lignes d'origine juste apres son insertion.
-  // En parallele - un Save avec beaucoup de lignes remplies faisait
+  // Par vagues de 5 - un Save avec beaucoup de lignes remplies faisait
   // autant d'allers-retours DB sequentiels ici, la principale source de
-  // lenteur (et de plantage) sur les gros Save.
-  const numeroLotResults = await Promise.all(
-    [...codesBySourceIndex.entries()]
-      .filter(([sourceIndex]) => insertedIds[sourceIndex])
-      .map(([sourceIndex, codes]) =>
-        supabaseServer
-          .from("programme_lignes")
-          .update({ numero_lot: [...new Set(codes)].join(", ") })
-          .eq("id", insertedIds[sourceIndex])
-      )
+  // lenteur sur les gros Save.
+  const numeroLotResults = await mapWithConcurrencyLimit(
+    [...codesBySourceIndex.entries()].filter(([sourceIndex]) => insertedIds[sourceIndex]),
+    5,
+    ([sourceIndex, codes]) =>
+      supabaseServer
+        .from("programme_lignes")
+        .update({ numero_lot: [...new Set(codes)].join(", ") })
+        .eq("id", insertedIds[sourceIndex])
   );
 
   const failedNumeroLot = numeroLotResults.find((result) => result.error);
