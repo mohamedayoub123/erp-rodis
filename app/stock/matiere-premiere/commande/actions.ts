@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { STATUT_DOSSIER_MP_OPTIONS } from "./constants";
 
 function parseOptionalText(formData: FormData, name: string) {
@@ -24,6 +24,16 @@ async function requireEditAccess() {
 
   if (!(await canWritePageUser(currentUser, "commandeMp"))) {
     throw new Error("Cet utilisateur ne peut pas modifier les imports.");
+  }
+
+  return currentUser;
+}
+
+async function requireDeleteAccess() {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canDeletePageUser(currentUser, "commandeMp"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer les imports.");
   }
 
   return currentUser;
@@ -237,7 +247,7 @@ async function releaseStockForImportEvenements(rows: ImportEvenementForCleanup[]
 // imports") - si c'etait une Reception, retire aussi le stock credite et
 // remet la ligne de commande a "Stand".
 export async function deleteImportEvenementAction(formData: FormData) {
-  await requireEditAccess();
+  await requireDeleteAccess();
 
   const importId = Number(String(formData.get("import_id") || "0"));
 
@@ -270,7 +280,7 @@ export async function deleteImportEvenementAction(formData: FormData) {
 // meme doss. 4D/ERP), le stock credite par ses receptions, et son suivi de
 // statut - pour effacer un dossier cree par erreur.
 export async function deleteDossierImportsAction(formData: FormData) {
-  await requireEditAccess();
+  await requireDeleteAccess();
 
   const nDoss4d = parseOptionalText(formData, "n_doss_4d");
   const nDossErp = parseOptionalText(formData, "n_doss_erp");
@@ -313,7 +323,7 @@ export async function deleteDossierImportsAction(formData: FormData) {
 // eventuelle reception avant de supprimer la ligne (dont la suppression
 // cascade sur ses evenements d'import cote base).
 export async function deleteBcLigneFromDossierAction(formData: FormData) {
-  await requireEditAccess();
+  await requireDeleteAccess();
 
   const bcId = Number(String(formData.get("bc_id") || "0"));
 

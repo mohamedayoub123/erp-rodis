@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -117,9 +117,11 @@ export default async function StockMatierePremiereStockPage({
   noStore();
   const params = await searchParams;
   const currentStockUser = await getCurrentStockUser();
-  const [canEditEntree, canEditSortie] = await Promise.all([
+  const [canEditEntree, canEditSortie, canDeleteEntree, canDeleteSortie] = await Promise.all([
     canWritePageUser(currentStockUser, "mouvementsMatierePremiereEntreeDetail"),
     canWritePageUser(currentStockUser, "mouvementsMatierePremiereSortieDetail"),
+    canDeletePageUser(currentStockUser, "mouvementsMatierePremiereEntreeDetail"),
+    canDeletePageUser(currentStockUser, "mouvementsMatierePremiereSortieDetail"),
   ]);
   const q = (params.q || "").trim().toLowerCase();
   const codeQ = (params.code_q || "").trim().toLowerCase();
@@ -499,8 +501,9 @@ export default async function StockMatierePremiereStockPage({
                       <td className="px-4 py-3 text-slate-600">{row.note || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.utilisateur || "-"}</td>
                       <td className="px-4 py-3">
-                        {row.mouvement_type === "entree" && canEditEntree ? (
+                        {row.mouvement_type === "entree" && (canEditEntree || canDeleteEntree) ? (
                           <div className="flex items-start gap-2">
+                            {canEditEntree ? (
                             <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
                               <summary className="cursor-pointer text-xs font-semibold text-slate-800">
                                 Modifier
@@ -575,13 +578,17 @@ export default async function StockMatierePremiereStockPage({
                                 </button>
                               </form>
                             </details>
+                            ) : null}
+                            {canDeleteEntree ? (
                             <form action={deleteLotFromEntreeMpDetailAction}>
                               <input type="hidden" name="lot_id" value={row.id} />
                               <DeleteIconButton label="Supprimer ligne" />
                             </form>
+                            ) : null}
                           </div>
-                        ) : row.mouvement_type === "sortie" && canEditSortie ? (
+                        ) : row.mouvement_type === "sortie" && (canEditSortie || canDeleteSortie) ? (
                           <div className="flex items-start gap-2">
+                            {canEditSortie ? (
                             <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
                               <summary className="cursor-pointer text-xs font-semibold text-slate-800">
                                 Modifier
@@ -629,10 +636,13 @@ export default async function StockMatierePremiereStockPage({
                                 </button>
                               </form>
                             </details>
+                            ) : null}
+                            {canDeleteSortie ? (
                             <form action={deleteLotFromSortieMpDetailAction}>
                               <input type="hidden" name="lot_id" value={row.id} />
                               <DeleteIconButton label="Supprimer ligne" />
                             </form>
+                            ) : null}
                           </div>
                         ) : (
                           "-"

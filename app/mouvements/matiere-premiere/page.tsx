@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteMouvementMpGroupAction } from "./actions";
 import {
   buildEntreeMpRows,
@@ -15,7 +15,7 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 export default async function MouvementsMatierePremierePage() {
   const currentStockUser = await getCurrentStockUser();
-  const canEditStock = await canWritePageUser(currentStockUser, "mouvementsMatierePremiere");
+  const canDeleteStock = await canDeletePageUser(currentStockUser, "mouvementsMatierePremiere");
   const sourceRows = await fetchWebMouvementMpSourceRows();
   const entreeGroups = buildEntreeMpRows(sourceRows);
   const sortieGroups = buildSortieMpRows(sourceRows);
@@ -89,7 +89,7 @@ export default async function MouvementsMatierePremierePage() {
                     <th className="px-4 py-3 font-semibold">Source</th>
                     <th className="px-4 py-3 font-semibold">Doss. 4D</th>
                     <th className="px-4 py-3 font-semibold">Doss. ERP</th>
-                    {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
+                    {canDeleteStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -118,7 +118,7 @@ export default async function MouvementsMatierePremierePage() {
                       </td>
                       <td className="px-4 py-3 text-slate-600">{first?.n_doss_4d || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{first?.n_doss_erp || "-"}</td>
-                      {canEditStock ? (
+                      {canDeleteStock ? (
                         <td className="px-4 py-3">
                           <form action={deleteMouvementMpGroupAction}>
                             <input type="hidden" name="groupe_id" value={group.groupe_id} />

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 type PendingBcLigne = {
   article: string;
@@ -37,6 +37,16 @@ async function requireEditAccess() {
 
   if (!(await canWritePageUser(currentUser, "commandeBcMp"))) {
     throw new Error("Cet utilisateur ne peut pas modifier les commandes.");
+  }
+
+  return currentUser;
+}
+
+async function requireDeleteAccess() {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canDeletePageUser(currentUser, "commandeBcMp"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer les commandes.");
   }
 
   return currentUser;
@@ -249,7 +259,7 @@ export async function updateCommandeBcGroupAction(formData: FormData) {
 }
 
 export async function deleteCommandeBcLigneAction(formData: FormData) {
-  await requireEditAccess();
+  await requireDeleteAccess();
 
   const bcId = Number(String(formData.get("bc_id") || "0"));
 
@@ -293,7 +303,7 @@ export async function deleteCommandeBcLigneAction(formData: FormData) {
 // Supprime tout un BC (toutes les lignes/articles qui partagent le meme
 // code), avec le stock deja credite par une eventuelle reception.
 export async function deleteCommandeBcGroupAction(formData: FormData) {
-  await requireEditAccess();
+  await requireDeleteAccess();
 
   const code = String(formData.get("code") || "").trim();
 

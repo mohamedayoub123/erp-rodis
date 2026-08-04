@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -68,6 +68,7 @@ export default async function ImportMpDossierPage({
   const { nDoss4d, nDossErp } = decodeDossierId(id);
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "commandeMp");
+  const canDelete = await canDeletePageUser(currentUser, "commandeMp");
 
   const { rows, error } = await fetchImportsForDossier(nDoss4d, nDossErp);
 
@@ -156,7 +157,7 @@ export default async function ImportMpDossierPage({
                       <th className="px-4 py-3 font-semibold">Article</th>
                       <th className="px-4 py-3 font-semibold">Qte a receptionner</th>
                       <th className="px-4 py-3 font-semibold">Statut</th>
-                      {canEdit ? <th className="px-4 py-3 font-semibold">Action</th> : null}
+                      {canEdit || canDelete ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -183,10 +184,10 @@ export default async function ImportMpDossierPage({
                               {dejaReceptionne ? "Receptionne" : "En attente"}
                             </span>
                           </td>
-                          {canEdit ? (
+                          {canEdit || canDelete ? (
                             <td className="px-4 py-3">
                               <div className="flex items-start gap-2">
-                                {dejaReceptionne ? null : (
+                                {canEdit && !dejaReceptionne && (
                                   <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
                                     <summary className="cursor-pointer text-xs font-semibold text-slate-800">
                                       Reception
@@ -243,10 +244,12 @@ export default async function ImportMpDossierPage({
                                     </form>
                                   </details>
                                 )}
-                                <form action={deleteBcLigneFromDossierAction}>
-                                  <input type="hidden" name="bc_id" value={ligne.id} />
-                                  <DeleteIconButton label="Supprimer ligne" />
-                                </form>
+                                {canDelete ? (
+                                  <form action={deleteBcLigneFromDossierAction}>
+                                    <input type="hidden" name="bc_id" value={ligne.id} />
+                                    <DeleteIconButton label="Supprimer ligne" />
+                                  </form>
+                                ) : null}
                               </div>
                             </td>
                           ) : null}
@@ -278,7 +281,7 @@ export default async function ImportMpDossierPage({
                       <th className="px-4 py-3 font-semibold">Date fabrication</th>
                       <th className="px-4 py-3 font-semibold">Date expiration</th>
                       <th className="px-4 py-3 font-semibold">Date reception</th>
-                      {canEdit ? <th className="px-4 py-3 font-semibold">Action</th> : null}
+                      {canDelete ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -298,7 +301,7 @@ export default async function ImportMpDossierPage({
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_fabrication)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_expiration)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_import)}</td>
-                          {canEdit ? (
+                          {canDelete ? (
                             <td className="px-4 py-3">
                               <form action={deleteImportEvenementAction}>
                                 <input type="hidden" name="import_id" value={row.id} />

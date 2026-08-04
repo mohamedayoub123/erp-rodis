@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 // Supprime une ligne de detail puis, si c'etait la derniere ligne de son
 // mouvement (groupe), renvoie vers la liste au lieu de laisser la page
@@ -240,7 +240,7 @@ export async function createSortieMpBatchAction(formData: FormData) {
 export async function deleteMouvementMpGroupAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "mouvementsMatierePremiere"))) {
+  if (!(await canDeletePageUser(currentUser, "mouvementsMatierePremiere"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer un mouvement.");
   }
 
@@ -262,7 +262,7 @@ export async function deleteMouvementMpGroupAction(formData: FormData) {
 export async function deleteLotFromEntreeMpDetailAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "mouvementsMatierePremiereEntreeDetail"))) {
+  if (!(await canDeletePageUser(currentUser, "mouvementsMatierePremiereEntreeDetail"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer une ligne.");
   }
 
@@ -278,7 +278,7 @@ export async function deleteLotFromEntreeMpDetailAction(formData: FormData) {
 export async function deleteLotFromSortieMpDetailAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "mouvementsMatierePremiereSortieDetail"))) {
+  if (!(await canDeletePageUser(currentUser, "mouvementsMatierePremiereSortieDetail"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer une ligne.");
   }
 

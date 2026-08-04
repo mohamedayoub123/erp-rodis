@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   deleteLotFromEntreeMpDetailAction,
   updateLotFromEntreeMpDetailAction,
@@ -23,6 +23,7 @@ export default async function EntreeMpDetailPage({
   const groupeId = Number(id);
   const currentStockUser = await getCurrentStockUser();
   const canEditStock = await canWritePageUser(currentStockUser, "mouvementsMatierePremiereEntreeDetail");
+  const canDeleteStock = await canDeletePageUser(currentStockUser, "mouvementsMatierePremiereEntreeDetail");
   const sourceRows = await fetchWebMouvementMpSourceRows();
   const group = buildEntreeMpRows(sourceRows).find((entree) => entree.groupe_id === groupeId);
 
@@ -71,7 +72,7 @@ export default async function EntreeMpDetailPage({
                   <th className="px-4 py-3 font-semibold">Note</th>
                   <th className="px-4 py-3 font-semibold">Source</th>
                   <th className="px-4 py-3 font-semibold">Saisi par</th>
-                  {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
+                  {canEditStock || canDeleteStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -91,9 +92,10 @@ export default async function EntreeMpDetailPage({
                     <td className="px-4 py-3 text-slate-600">{ligne.note || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{mouvementMpSourceLabel(ligne.source_import)}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.utilisateur || "-"}</td>
-                    {canEditStock ? (
+                    {canEditStock || canDeleteStock ? (
                       <td className="px-4 py-3">
                         <div className="flex items-start gap-2">
+                          {canEditStock ? (
                           <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
                             <summary className="cursor-pointer text-xs font-semibold text-slate-800">
                               Modifier
@@ -204,11 +206,14 @@ export default async function EntreeMpDetailPage({
                               </button>
                             </form>
                           </details>
+                          ) : null}
 
+                          {canDeleteStock ? (
                           <form action={deleteLotFromEntreeMpDetailAction}>
                             <input type="hidden" name="lot_id" value={ligne.id} />
                             <DeleteIconButton label="Supprimer ligne" />
                           </form>
+                          ) : null}
                         </div>
                       </td>
                     ) : null}

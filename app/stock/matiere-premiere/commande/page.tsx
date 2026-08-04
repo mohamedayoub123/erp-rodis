@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -81,6 +81,7 @@ export default async function CommandeMpPage() {
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "commandeMp");
+  const canDelete = await canDeletePageUser(currentUser, "commandeMp");
 
   const [{ rows, error }, { rows: statutRows }] = await Promise.all([
     fetchAllImports(),
@@ -170,7 +171,7 @@ export default async function CommandeMpPage() {
                     <th className="px-6 py-4 font-semibold">Date recente</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
                     <th className="px-6 py-4 font-semibold">Date prevue reception</th>
-                    {canEdit ? <th className="px-6 py-4 font-semibold">Action</th> : null}
+                    {canEdit || canDelete ? <th className="px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -247,7 +248,7 @@ export default async function CommandeMpPage() {
                             <span className="text-slate-600">{formatDate(group.datePrevueReception)}</span>
                           )}
                         </td>
-                        {canEdit ? (
+                        {canDelete ? (
                           <td className="px-6 py-4">
                             <form action={deleteDossierImportsAction}>
                               <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
