@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { createEntreeMpBatchAction, createSortieMpBatchAction } from "./actions";
 import { DateJmaInput } from "@/app/_components/date-jma-input";
 import { formatDate } from "@/lib/format-date";
+import { useComboboxNav } from "@/app/_components/use-combobox-nav";
 
 export type ArticleMpOption = {
   id: number;
@@ -16,6 +17,12 @@ export type LotMpOption = {
   articleLabel: string;
   numeroLot: string;
   unite: string;
+  stock: number;
+};
+
+export type LotBalanceMpOption = {
+  article_id: number;
+  numero_lot: string;
   stock: number;
 };
 
@@ -88,6 +95,14 @@ export function EntreePanelMp({
       return words.every((word) => label.includes(word));
     });
   }, [articleInput, articles]);
+
+  function selectArticle(article: ArticleMpOption) {
+    setArticleInput(article.label);
+    if (!unite) setUnite(article.unite || "");
+    setShowArticleDropdown(false);
+  }
+
+  const articleNav = useComboboxNav(filteredArticles, selectArticle);
 
   function addRow() {
     const qty = Number(quantite.replace(",", "."));
@@ -200,26 +215,26 @@ export function EntreePanelMp({
             onChange={(event) => {
               setArticleInput(event.target.value);
               setShowArticleDropdown(true);
+              articleNav.setHighlightedIndex(0);
             }}
+            onKeyDown={articleNav.handleKeyDown}
             onFocus={() => setShowArticleDropdown(true)}
             onBlur={() => setTimeout(() => setShowArticleDropdown(false), 150)}
-            placeholder="Ecris l'article puis choisis"
+            placeholder="Ecris l'article puis choisis (fleches + Entree)"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
             autoComplete="off"
           />
           {showArticleDropdown && filteredArticles.length > 0 ? (
             <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-              {filteredArticles.map((article) => (
+              {filteredArticles.map((article, index) => (
                 <button
                   key={article.id}
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    setArticleInput(article.label);
-                    if (!unite) setUnite(article.unite || "");
-                    setShowArticleDropdown(false);
-                  }}
-                  className="block w-full px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
+                  onClick={() => selectArticle(article)}
+                  className={`block w-full px-4 py-2 text-left text-sm text-slate-800 ${
+                    index === articleNav.highlightedIndex ? "bg-slate-100" : "hover:bg-slate-100"
+                  }`}
                 >
                   {article.label}
                 </button>
@@ -415,13 +430,16 @@ export function EntreePanelMp({
 export function SortiePanelMp({
   articles,
   mode,
+  lots = [],
 }: {
   articles: ArticleMpOption[];
   mode: "normal" | "admin";
+  lots?: LotBalanceMpOption[];
 }) {
   const [isPending, startTransition] = useTransition();
   const [articleInput, setArticleInput] = useState("");
   const [showArticleDropdown, setShowArticleDropdown] = useState(false);
+  const [showLotDropdown, setShowLotDropdown] = useState(false);
   const [numeroLot, setNumeroLot] = useState("");
   const [dateSortie, setDateSortie] = useState("");
   const [quantite, setQuantite] = useState("");
@@ -452,6 +470,40 @@ export function SortiePanelMp({
       return words.every((word) => label.includes(word));
     });
   }, [articleInput, articles]);
+
+  function selectArticle(article: ArticleMpOption) {
+    setArticleInput(article.label);
+    setShowArticleDropdown(false);
+    // Change d'article invalide le lot choisi pour le precedent.
+    setNumeroLot("");
+  }
+
+  const articleNav = useComboboxNav(filteredArticles, selectArticle);
+
+  // En mode normal, le lot se choisit dans les lots existants de l'article
+  // (pas de saisie libre) - en mode admin, "lots" reste vide et le champ
+  // texte libre plus bas prend le relais.
+  const lotsForArticle = useMemo(() => {
+    if (!selectedArticle) return [];
+    return lots.filter((lot) => lot.article_id === selectedArticle.id);
+  }, [lots, selectedArticle]);
+
+  const filteredLots = useMemo(() => {
+    const words = numeroLot.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return lotsForArticle;
+
+    return lotsForArticle.filter((lot) => {
+      const label = lot.numero_lot.toLowerCase();
+      return words.every((word) => label.includes(word));
+    });
+  }, [numeroLot, lotsForArticle]);
+
+  function selectLot(lot: LotBalanceMpOption) {
+    setNumeroLot(lot.numero_lot);
+    setShowLotDropdown(false);
+  }
+
+  const lotNav = useComboboxNav(filteredLots, selectLot);
 
   function addRow() {
     const qty = Number(quantite.replace(",", "."));
@@ -557,25 +609,26 @@ export function SortiePanelMp({
               onChange={(event) => {
                 setArticleInput(event.target.value);
                 setShowArticleDropdown(true);
+                articleNav.setHighlightedIndex(0);
               }}
+              onKeyDown={articleNav.handleKeyDown}
               onFocus={() => setShowArticleDropdown(true)}
               onBlur={() => setTimeout(() => setShowArticleDropdown(false), 150)}
-              placeholder="Ecris l'article puis choisis"
+              placeholder="Ecris l'article puis choisis (fleches + Entree)"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
               autoComplete="off"
             />
             {showArticleDropdown && filteredArticles.length > 0 ? (
               <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-                {filteredArticles.map((article) => (
+                {filteredArticles.map((article, index) => (
                   <button
                     key={article.id}
                     type="button"
                     onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      setArticleInput(article.label);
-                      setShowArticleDropdown(false);
-                    }}
-                    className="block w-full px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
+                    onClick={() => selectArticle(article)}
+                    className={`block w-full px-4 py-2 text-left text-sm text-slate-800 ${
+                      index === articleNav.highlightedIndex ? "bg-slate-100" : "hover:bg-slate-100"
+                    }`}
                   >
                     {article.label}
                   </button>
@@ -584,16 +637,63 @@ export function SortiePanelMp({
             ) : null}
           </label>
 
-          <label className="grid gap-2 text-sm font-semibold text-slate-900">
-            <span>Numero de lot</span>
-            <input
-              type="text"
-              value={numeroLot}
-              onChange={(event) => setNumeroLot(event.target.value)}
-              placeholder="Numero de lot"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
-            />
-          </label>
+          {mode === "normal" ? (
+            <label className="relative grid gap-2 text-sm font-semibold text-slate-900">
+              <span>Numero de lot</span>
+              <input
+                value={numeroLot}
+                onChange={(event) => {
+                  setNumeroLot(event.target.value);
+                  setShowLotDropdown(true);
+                  lotNav.setHighlightedIndex(0);
+                }}
+                onKeyDown={lotNav.handleKeyDown}
+                onFocus={() => setShowLotDropdown(true)}
+                onBlur={() => setTimeout(() => setShowLotDropdown(false), 150)}
+                placeholder={
+                  selectedArticle ? "Choisis un lot existant (fleches + Entree)" : "Choisis d'abord l'article"
+                }
+                disabled={!selectedArticle}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                autoComplete="off"
+              />
+              {showLotDropdown && selectedArticle ? (
+                filteredLots.length > 0 ? (
+                  <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
+                    {filteredLots.map((lot, index) => (
+                      <button
+                        key={lot.numero_lot}
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectLot(lot)}
+                        className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm text-slate-800 ${
+                          index === lotNav.highlightedIndex ? "bg-slate-100" : "hover:bg-slate-100"
+                        }`}
+                      >
+                        <span>{lot.numero_lot}</span>
+                        <span className="text-xs text-slate-500">stock {lot.stock}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="absolute left-0 top-full z-50 mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
+                    Aucun lot en stock pour cet article.
+                  </div>
+                )
+              ) : null}
+            </label>
+          ) : (
+            <label className="grid gap-2 text-sm font-semibold text-slate-900">
+              <span>Numero de lot</span>
+              <input
+                type="text"
+                value={numeroLot}
+                onChange={(event) => setNumeroLot(event.target.value)}
+                placeholder="Numero de lot"
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
+              />
+            </label>
+          )}
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">

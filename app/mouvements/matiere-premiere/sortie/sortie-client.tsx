@@ -1,12 +1,14 @@
 "use client";
 
-import { SortiePanelMp, type ArticleMpOption } from "../staged-movements-mp";
+import { SortiePanelMp, type ArticleMpOption, type LotBalanceMpOption } from "../staged-movements-mp";
 
 export function SortieMpClient({
   articles,
+  lots,
   canWrite,
 }: {
   articles: ArticleMpOption[];
+  lots: LotBalanceMpOption[];
   canWrite: boolean;
 }) {
   if (!canWrite) {
@@ -20,5 +22,5 @@ export function SortieMpClient({
     );
   }
 
-  return <SortiePanelMp articles={articles} mode="normal" />;
+  return <SortiePanelMp articles={articles} mode="normal" lots={lots} />;
 }
