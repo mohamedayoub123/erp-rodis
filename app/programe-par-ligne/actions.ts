@@ -419,30 +419,18 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
   // seulement retourne ici pour le message de confirmation. Le vrai code
   // affiche dans l'historique est recalcule a la lecture a partir du rang
   // du groupe (meme principe que TE1/TS1 dans Mouvements).
-  // On compte les groupe_id DISTINCTS (pas le nombre de lignes) pour
-  // numeroter les lots dans l'ordre.
-  const existingGroupIds = new Set<number>();
-  let fromIndex = 0;
-  const pageSize = 1000;
+  // On compte les groupe_id DISTINCTS (pas le nombre de lignes) via RPC -
+  // rapatrier toute la table (6000+ lignes et ca grossit) juste pour
+  // compter rendait le Save tres lent, voire le faisait planter.
+  const { data: nextNumberData, error: nextNumberError } = await supabaseServer.rpc(
+    "programme_lignes_next_group_number"
+  );
 
-  while (true) {
-    const { data: groupRows, error: groupFetchError } = await supabaseServer
-      .from("programme_lignes")
-      .select("groupe_id")
-      .range(fromIndex, fromIndex + pageSize - 1);
-
-    if (groupFetchError) {
-      throw new Error(groupFetchError.message);
-    }
-
-    const chunk = (groupRows as { groupe_id: number }[] | null) ?? [];
-    chunk.forEach((row) => existingGroupIds.add(row.groupe_id));
-
-    if (chunk.length < pageSize) break;
-    fromIndex += pageSize;
+  if (nextNumberError) {
+    throw new Error(nextNumberError.message);
   }
 
-  const nextNumber = existingGroupIds.size + 1;
+  const nextNumber = Number(nextNumberData) || 1;
   const generatedCode = `MB${nextNumber}`;
 
   // "Programme par ligne" garde une ligne = une saisie, avec le vrac total
@@ -515,15 +503,18 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
     const draftRows = buildDispatcherDraftRows(filledRows, articleInfoById);
     const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(draftRows, articleInfoById);
 
-    for (const [articleId, updates] of codeUpdatesByArticleId.entries()) {
-      const { error: codeUpdateError } = await supabaseServer
-        .from("articles")
-        .update(updates)
-        .eq("id", articleId);
+    // En parallele plutot qu'un aller-retour DB par article touche - un Save
+    // avec beaucoup de lignes/familles rendait cette etape tres lente (voire
+    // faisait planter le rendu) en serie.
+    const codeUpdateResults = await Promise.all(
+      [...codeUpdatesByArticleId.entries()].map(([articleId, updates]) =>
+        supabaseServer.from("articles").update(updates).eq("id", articleId)
+      )
+    );
 
-      if (codeUpdateError) {
-        throw new Error(codeUpdateError.message);
-      }
+    const failedCodeUpdate = codeUpdateResults.find((result) => result.error);
+    if (failedCodeUpdate?.error) {
+      throw new Error(failedCodeUpdate.error.message);
     }
 
     const dispatcherPayload = draftRows.map((row, index) => ({
@@ -552,16 +543,15 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
     // virgule ou une parenthese pouvait sinon elargir le filtre et faire
     // supprimer des lignes en dehors des (zone, chaine) vraiment concernees
     // par ce Save.
-    for (const { zone, chaine } of affectedZoneChaine) {
-      const { error: clearDispatcherError } = await supabaseServer
-        .from("programme_dispatcher_lignes")
-        .delete()
-        .eq("zone", zone)
-        .eq("chaine", chaine);
+    const clearResults = await Promise.all(
+      affectedZoneChaine.map(({ zone, chaine }) =>
+        supabaseServer.from("programme_dispatcher_lignes").delete().eq("zone", zone).eq("chaine", chaine)
+      )
+    );
 
-      if (clearDispatcherError) {
-        throw new Error(clearDispatcherError.message);
-      }
+    const failedClear = clearResults.find((result) => result.error);
+    if (failedClear?.error) {
+      throw new Error(failedClear.error.message);
     }
 
     const { error: dispatcherError } = await supabaseServer
@@ -590,18 +580,23 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
   // Dispatcher (voir generateAutoCodes), reunis quand une ligne a ete
   // decoupee en plusieurs lots (join ", "), puis reecrits sur la ligne
   // programme_lignes d'origine juste apres son insertion.
-  for (const [sourceIndex, codes] of codesBySourceIndex.entries()) {
-    const ligneId = insertedIds[sourceIndex];
-    if (!ligneId) continue;
+  // En parallele - un Save avec beaucoup de lignes remplies faisait
+  // autant d'allers-retours DB sequentiels ici, la principale source de
+  // lenteur (et de plantage) sur les gros Save.
+  const numeroLotResults = await Promise.all(
+    [...codesBySourceIndex.entries()]
+      .filter(([sourceIndex]) => insertedIds[sourceIndex])
+      .map(([sourceIndex, codes]) =>
+        supabaseServer
+          .from("programme_lignes")
+          .update({ numero_lot: [...new Set(codes)].join(", ") })
+          .eq("id", insertedIds[sourceIndex])
+      )
+  );
 
-    const { error: numeroLotError } = await supabaseServer
-      .from("programme_lignes")
-      .update({ numero_lot: [...new Set(codes)].join(", ") })
-      .eq("id", ligneId);
-
-    if (numeroLotError) {
-      throw new Error(numeroLotError.message);
-    }
+  const failedNumeroLot = numeroLotResults.find((result) => result.error);
+  if (failedNumeroLot?.error) {
+    throw new Error(failedNumeroLot.error.message);
   }
 
   revalidatePath("/programe-par-ligne");
