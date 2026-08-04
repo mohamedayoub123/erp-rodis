@@ -81,11 +81,15 @@ export default async function MouvementsProduitFiniPage() {
                     <th className="px-4 py-3 font-semibold">Date</th>
                     <th className="px-4 py-3 font-semibold">Nb articles</th>
                     <th className="px-4 py-3 font-semibold">Quantite totale</th>
+                    <th className="px-4 py-3 font-semibold">Saisi par</th>
                     {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
                 <tbody>
-                  {groups.map((group) => (
+                  {groups.map((group) => {
+                    const first = group.lignes[0];
+
+                    return (
                     <tr key={`${group.mouvement_type}-${group.groupe_id}`} className="border-t border-slate-100">
                       <td className="px-4 py-3 font-semibold">
                         <Link
@@ -102,6 +106,7 @@ export default async function MouvementsProduitFiniPage() {
                       <td className="px-4 py-3 text-slate-600">{formatMouvementDate(group.date_jour)}</td>
                       <td className="px-4 py-3 text-slate-600">{group.lignes.length}</td>
                       <td className="px-4 py-3 text-slate-900">{group.quantite_totale}</td>
+                      <td className="px-4 py-3 text-slate-600">{first?.utilisateur || "-"}</td>
                       {canEditStock ? (
                         <td className="px-4 py-3">
                           <form action={deleteMouvementGroupAction}>
@@ -111,7 +116,8 @@ export default async function MouvementsProduitFiniPage() {
                         </td>
                       ) : null}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
