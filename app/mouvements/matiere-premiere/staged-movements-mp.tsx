@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { createEntreeMpBatchAction, createSortieMpBatchAction } from "./actions";
 import { DateJmaInput } from "@/app/_components/date-jma-input";
+import { formatDate } from "@/lib/format-date";
 
 export type ArticleMpOption = {
   id: number;
@@ -363,7 +364,7 @@ export function EntreePanelMp({
                     <td className="px-3 py-2 text-slate-700">{row.quantite}</td>
                     <td className="px-3 py-2 text-slate-700">{row.unite || "-"}</td>
                     <td className="px-3 py-2 text-slate-700">{row.numero_lot}</td>
-                    <td className="px-3 py-2 text-slate-700">{row.date_reception}</td>
+                    <td className="px-3 py-2 text-slate-700">{formatDate(row.date_reception)}</td>
                     <td className="px-3 py-2 text-slate-700">{row.fournisseur || "-"}</td>
                     <td className="px-3 py-2 text-slate-700">{row.note || "-"}</td>
                     <td className="px-3 py-2">
@@ -712,7 +713,7 @@ export function SortiePanelMp({
               >
                 <p className="text-slate-700">
                   <span className="font-semibold text-slate-900">{row.lot_label}</span>
-                  {` — Qt sortie ${row.quantite} | Date ${row.date_sortie}`}
+                  {` — Qt sortie ${row.quantite} | Date ${formatDate(row.date_sortie)}`}
                   {row.client ? ` | Client ${row.client}` : ""}
                   {row.n_doss_erp ? ` | ERP ${row.n_doss_erp}` : ""}
                   {row.n_doss_4d ? ` | 4D ${row.n_doss_4d}` : ""}
