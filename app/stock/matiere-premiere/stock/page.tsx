@@ -53,29 +53,47 @@ type DisplayRow = MouvementRow & {
   stock_article: number;
 };
 
+const MOUVEMENTS_MP_COLUMNS =
+  "id, article_id, numero_lot, code_normalise, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, utilisateur, note, mouvement_groupe_id, articles_matiere_premiere(nom_article, gamme, categorie)";
+
+// La table complete (~40 000 lignes avec l'historique Excel) etait
+// rapatriee via une boucle .range() SEQUENTIELLE (une requete attend la
+// precedente) - jusqu'a 40 allers-retours reseau l'un apres l'autre avant
+// meme de commencer a filtrer, la vraie cause de lenteur de cette page.
+// Un premier compte (head:true, pas de donnees) donne le nombre de pages a
+// lire, puis toutes les pages sont demandees EN PARALLELE via Promise.all -
+// meme volume de donnees, meme resultat, juste sans attendre chaque page
+// l'une apres l'autre.
 async function fetchAllMouvements() {
-  const rows: MouvementRow[] = [];
-  let from = 0;
   const pageSize = 1000;
 
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select(
-        "id, article_id, numero_lot, code_normalise, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, utilisateur, note, mouvement_groupe_id, articles_matiere_premiere(nom_article, gamme, categorie)"
-      )
-      .order("id", { ascending: false })
-      .range(from, from + pageSize - 1);
+  const { count, error: countError } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .select("id", { count: "exact", head: true });
 
-    if (error) {
-      return { rows, error };
+  if (countError) {
+    return { rows: [] as MouvementRow[], error: countError };
+  }
+
+  const pageCount = Math.max(1, Math.ceil((count ?? 0) / pageSize));
+
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, index) => {
+      const from = index * pageSize;
+      return supabaseServer
+        .from("lots_stock_matiere_premiere")
+        .select(MOUVEMENTS_MP_COLUMNS)
+        .order("id", { ascending: false })
+        .range(from, from + pageSize - 1);
+    })
+  );
+
+  const rows: MouvementRow[] = [];
+  for (const page of pages) {
+    if (page.error) {
+      return { rows, error: page.error };
     }
-
-    const chunk = (data as unknown as MouvementRow[] | null) ?? [];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
+    rows.push(...((page.data as unknown as MouvementRow[] | null) ?? []));
   }
 
   return { rows, error: null };
@@ -179,12 +197,18 @@ export default async function StockMatierePremiereStockPage({
     stockCodeTotals.set(key, Number(stockCodeTotals.get(key) ?? 0) + mouvement);
   }
 
+  // date_jour est une colonne Postgres "date" (pas "timestamp"), toujours
+  // servie par PostgREST au format ISO "AAAA-MM-JJ" sans heure - une simple
+  // comparaison de chaines trie exactement comme new Date(...).getTime(),
+  // mais sans l'allocation d'un objet Date par comparaison. Sur ~40 000
+  // lignes tirees deux fois (les deux .sort() ci-dessous), c'etait devenu le
+  // vrai goulot d'etranglement de cette page une fois le reseau parallelise.
   const runningStockByArticle = new Map<number, number>();
   const rowsWithStock = [...displaySourceRows]
     .sort((a, b) => {
-      const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
-      const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
-      if (dateA !== dateB) return dateA - dateB;
+      const dateA = a.date_jour || "";
+      const dateB = b.date_jour || "";
+      if (dateA !== dateB) return dateA < dateB ? -1 : 1;
       return a.id - b.id;
     })
     .map((row): DisplayRow => {
@@ -206,16 +230,16 @@ export default async function StockMatierePremiereStockPage({
       };
     })
     .sort((a, b) => {
-      const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
-      const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
-      if (dateB !== dateA) return dateB - dateA;
+      const dateA = a.date_jour || "";
+      const dateB = b.date_jour || "";
+      if (dateB !== dateA) return dateB < dateA ? -1 : 1;
       return b.id - a.id;
     });
 
   const availableYears = [
     ...new Set(
       rowsWithStock
-        .map((row) => (row.date_jour ? new Date(row.date_jour).getFullYear() : 0))
+        .map((row) => (row.date_jour ? Number(row.date_jour.slice(0, 4)) : 0))
         .filter((year) => year > 0)
     ),
   ].sort((a, b) => b - a);
@@ -229,13 +253,15 @@ export default async function StockMatierePremiereStockPage({
       return !dateFrom && !dateTo && !monthFrom && !monthTo && !selectedYear;
     }
 
-    const rowDate = new Date(row.date_jour);
-    const rowDateValue = rowDate.getTime();
-    const rowMonth = rowDate.getMonth() + 1;
-    const rowYear = rowDate.getFullYear();
+    // row.date_jour, dateFrom et dateTo sont tous au format ISO "AAAA-MM-JJ"
+    // (colonne Postgres "date" / <input type="date">) - comparaison de
+    // chaines directe, meme resultat qu'avec new Date(...).getTime() mais
+    // sans creer un objet Date par ligne filtree.
+    const rowMonth = Number(row.date_jour.slice(5, 7));
+    const rowYear = Number(row.date_jour.slice(0, 4));
 
-    if (dateFrom && rowDateValue < new Date(dateFrom).getTime()) return false;
-    if (dateTo && rowDateValue > new Date(dateTo).getTime()) return false;
+    if (dateFrom && row.date_jour < dateFrom) return false;
+    if (dateTo && row.date_jour > dateTo) return false;
     if (selectedYear && rowYear !== selectedYear) return false;
     if (monthFrom && rowMonth < monthFrom) return false;
     if (monthTo && rowMonth > monthTo) return false;

@@ -77,28 +77,42 @@ export function mouvementMpSourceLabel(sourceImport: string | null) {
 }
 
 // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le .range()
-// demande - meme boucle de pagination que app/mouvements/shared.ts (PF).
+// demande. Les pages sont lues EN PARALLELE (Promise.all) plutot qu'une a
+// la fois - meme volume de donnees, mais sans attendre chaque aller-retour
+// reseau l'un apres l'autre (cette fonction est appelee par la plupart des
+// pages Mouvements/Stock MP, un aller simple ici ralentissait tout le
+// module).
 export async function fetchWebMouvementMpSourceRows() {
-  const rows: MouvementMpSourceRow[] = [];
-  let from = 0;
   const pageSize = 1000;
 
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select(SOURCE_COLUMNS)
-      .in("source_import", WEB_SOURCES)
-      .range(from, from + pageSize - 1);
+  const { count, error: countError } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .select("id", { count: "exact", head: true })
+    .in("source_import", WEB_SOURCES);
 
-    if (error) {
-      throw new Error(error.message);
+  if (countError) {
+    throw new Error(countError.message);
+  }
+
+  const pageCount = Math.max(1, Math.ceil((count ?? 0) / pageSize));
+
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, index) => {
+      const from = index * pageSize;
+      return supabaseServer
+        .from("lots_stock_matiere_premiere")
+        .select(SOURCE_COLUMNS)
+        .in("source_import", WEB_SOURCES)
+        .range(from, from + pageSize - 1);
+    })
+  );
+
+  const rows: MouvementMpSourceRow[] = [];
+  for (const page of pages) {
+    if (page.error) {
+      throw new Error(page.error.message);
     }
-
-    const chunk = (data as unknown as MouvementMpSourceRow[] | null) ?? [];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
+    rows.push(...((page.data as unknown as MouvementMpSourceRow[] | null) ?? []));
   }
 
   return rows;
