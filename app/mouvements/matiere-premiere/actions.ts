@@ -61,6 +61,7 @@ type PendingSortieMpRow = {
   n_doss_erp?: string;
   n_doss_4d?: string;
   note?: string;
+  admin?: boolean;
 };
 
 async function requireMouvementsMpEntreeWriteAccess() {
@@ -224,6 +225,7 @@ export async function createSortieMpBatchAction(formData: FormData) {
       n_doss_4d: String(row.n_doss_4d || "").trim(),
       note: String(row.note || "").trim(),
       utilisateur: currentUser || "",
+      admin: Boolean(row.admin),
     };
   });
 

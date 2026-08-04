@@ -45,6 +45,7 @@ type PendingSortieMp = {
   n_doss_erp: string;
   n_doss_4d: string;
   note: string;
+  admin: boolean;
 };
 
 export function EntreePanelMp({
@@ -413,6 +414,7 @@ export function EntreePanelMp({
 
 export function SortiePanelMp({ articles }: { articles: ArticleMpOption[] }) {
   const [isPending, startTransition] = useTransition();
+  const [mode, setMode] = useState<"normal" | "admin">("normal");
   const [articleInput, setArticleInput] = useState("");
   const [showArticleDropdown, setShowArticleDropdown] = useState(false);
   const [numeroLot, setNumeroLot] = useState("");
@@ -427,9 +429,10 @@ export function SortiePanelMp({ articles }: { articles: ArticleMpOption[] }) {
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  // Article et numero de lot en saisie libre (comme Entree) - le stock peut
-  // partir en negatif, donc pas besoin qu'un lot existe deja pour sortir un
-  // article ; c'est ecrit ici, pas choisi dans une liste de lots existants.
+  // Article et numero de lot en saisie libre (comme Entree). Deux modes :
+  // "normal" (comme avant) bloque cote serveur si l'article/lot n'existe pas
+  // ou si le stock disponible est insuffisant ; "admin" force la sortie sans
+  // aucune verification, stock qui peut devenir negatif, lot ecrit librement.
   const selectedArticle = useMemo(
     () => articles.find((article) => article.label === articleInput) ?? null,
     [articleInput, articles]
@@ -467,6 +470,7 @@ export function SortiePanelMp({ articles }: { articles: ArticleMpOption[] }) {
         n_doss_erp: nDossErp.trim(),
         n_doss_4d: nDoss4d.trim(),
         note: note.trim(),
+        admin: mode === "admin",
       },
     ]);
 
@@ -499,6 +503,7 @@ export function SortiePanelMp({ articles }: { articles: ArticleMpOption[] }) {
       n_doss_erp: row.n_doss_erp,
       n_doss_4d: row.n_doss_4d,
       note: row.note,
+      admin: row.admin,
     }))
   );
 
@@ -523,8 +528,41 @@ export function SortiePanelMp({ articles }: { articles: ArticleMpOption[] }) {
   }
 
   return (
-    <section className="rounded-[2rem] border border-sky-200 bg-white p-5 shadow-[0_18px_40px_rgba(14,165,233,0.08)]">
-      <h2 className="text-2xl font-black text-sky-900">Sortie stock - Matiere Premiere</h2>
+    <section
+      className={`rounded-[2rem] border bg-white p-5 shadow-[0_18px_40px_rgba(14,165,233,0.08)] ${
+        mode === "admin" ? "border-red-300" : "border-sky-200"
+      }`}
+    >
+      <h2 className={`text-2xl font-black ${mode === "admin" ? "text-red-900" : "text-sky-900"}`}>
+        Sortie stock - Matiere Premiere
+      </h2>
+
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setMode("normal")}
+          className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+            mode === "normal" ? "bg-sky-700 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          Sortie normale
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("admin")}
+          className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+            mode === "admin" ? "bg-red-700 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          Sortie admin
+        </button>
+      </div>
+
+      <p className={`mt-2 text-xs font-medium ${mode === "admin" ? "text-red-700" : "text-sky-800/70"}`}>
+        {mode === "admin"
+          ? "Aucune verification de stock - la sortie est forcee meme si l'article/lot n'existe pas ou si le stock devient negatif."
+          : "Bloquee si l'article/lot n'existe pas dans le stock ou si le stock disponible est insuffisant."}
+      </p>
 
       <div className="mt-4 grid gap-4">
         <div className="grid gap-4 md:grid-cols-2">
@@ -635,7 +673,9 @@ export function SortiePanelMp({ articles }: { articles: ArticleMpOption[] }) {
         <button
           type="button"
           onClick={addRow}
-          className="rounded-full bg-sky-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-600"
+          className={`rounded-full px-5 py-3 text-sm font-semibold text-white transition ${
+            mode === "admin" ? "bg-red-700 hover:bg-red-600" : "bg-sky-700 hover:bg-sky-600"
+          }`}
         >
           Valider sortie
         </button>
@@ -656,6 +696,11 @@ export function SortiePanelMp({ articles }: { articles: ArticleMpOption[] }) {
                 className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-sm"
               >
                 <p className="text-slate-700">
+                  {row.admin ? (
+                    <span className="mr-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
+                      ADMIN
+                    </span>
+                  ) : null}
                   <span className="font-semibold text-slate-900">
                     {row.article_label} | {row.numero_lot}
                   </span>
