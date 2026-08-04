@@ -70,6 +70,7 @@ export function EntreePanelMp({
   const [nDoss4d, setNDoss4d] = useState("");
   const [emplacement, setEmplacement] = useState("");
   const [note, setNote] = useState("");
+  const [memeDossier, setMemeDossier] = useState(false);
   const [rows, setRows] = useState<PendingEntreeMp[]>([]);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -125,11 +126,16 @@ export function EntreePanelMp({
     setNumeroLot("");
     setDateFabrication("");
     setDateExpiration("");
-    setFournisseur("");
-    setNDossErp("");
-    setNDoss4d("");
     setEmplacement("");
     setNote("");
+
+    // "Meme dossier" : garde fournisseur/doss ERP/doss 4D remplis pour ne
+    // pas les retaper a chaque article ajoute au meme lot de validation.
+    if (!memeDossier) {
+      setFournisseur("");
+      setNDossErp("");
+      setNDoss4d("");
+    }
   }
 
   function removeRow(index: number) {
@@ -301,6 +307,16 @@ export function EntreePanelMp({
           />
         </div>
 
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <input
+            type="checkbox"
+            checked={memeDossier}
+            onChange={(event) => setMemeDossier(event.target.checked)}
+            className="h-4 w-4 rounded border-slate-300"
+          />
+          Meme dossier (fournisseur, doss. ERP, doss. 4D gardes pour les prochains ajouts)
+        </label>
+
         <input
           type="text"
           value={note}
@@ -414,6 +430,7 @@ export function SortiePanelMp({
   const [nDossErp, setNDossErp] = useState("");
   const [nDoss4d, setNDoss4d] = useState("");
   const [note, setNote] = useState("");
+  const [memeDossier, setMemeDossier] = useState(false);
   const [rows, setRows] = useState<PendingSortieMp[]>([]);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -481,10 +498,15 @@ export function SortiePanelMp({
     setSelectedLotId("");
     setDateSortie("");
     setQuantite("");
-    setClient("");
-    setNDossErp("");
-    setNDoss4d("");
     setNote("");
+
+    // "Meme dossier" : garde client/doss ERP/doss 4D remplis pour ne pas
+    // les retaper a chaque article ajoute au meme lot de validation.
+    if (!memeDossier) {
+      setClient("");
+      setNDossErp("");
+      setNDoss4d("");
+    }
   }
 
   function removeRow(index: number) {
@@ -646,6 +668,16 @@ export function SortiePanelMp({
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
         </div>
+
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <input
+            type="checkbox"
+            checked={memeDossier}
+            onChange={(event) => setMemeDossier(event.target.checked)}
+            className="h-4 w-4 rounded border-slate-300"
+          />
+          Meme dossier (client, doss. ERP, doss. 4D gardes pour les prochains ajouts)
+        </label>
 
         <input
           type="text"

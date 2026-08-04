@@ -21,6 +21,8 @@ export const MOIS_OPTIONS = [
   { value: "12", label: "Decembre" },
 ];
 
+export const ANNEE_OPTIONS = ["2024", "2025", "2026", "2027", "2028", "2029", "2030"];
+
 function splitIso(value: string) {
   const [year = "", month = "", day = ""] = (value || "").slice(0, 10).split("-");
   return { year, month, day };
@@ -76,16 +78,19 @@ function DateJmaFields({
           </option>
         ))}
       </select>
-      <input
-        type="number"
-        min="2000"
-        max="2100"
-        placeholder="AAAA"
+      <select
         value={year}
         onChange={(event) => onYear(event.target.value)}
         required={required}
         className={`w-24 ${fieldClass}`}
-      />
+      >
+        <option value="">AAAA</option>
+        {ANNEE_OPTIONS.map((anneeValue) => (
+          <option key={anneeValue} value={anneeValue}>
+            {anneeValue}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
