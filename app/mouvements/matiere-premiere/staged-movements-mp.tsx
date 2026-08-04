@@ -365,7 +365,12 @@ export function EntreePanelMp({
                   <th className="px-3 py-2 font-semibold">Unite</th>
                   <th className="px-3 py-2 font-semibold">Lot</th>
                   <th className="px-3 py-2 font-semibold">Reception</th>
+                  <th className="px-3 py-2 font-semibold">Fabrication</th>
+                  <th className="px-3 py-2 font-semibold">Expiration</th>
                   <th className="px-3 py-2 font-semibold">Fournisseur</th>
+                  <th className="px-3 py-2 font-semibold">Emplacement</th>
+                  <th className="px-3 py-2 font-semibold">Doss. ERP</th>
+                  <th className="px-3 py-2 font-semibold">Doss. 4D</th>
                   <th className="px-3 py-2 font-semibold">Note</th>
                   <th className="px-3 py-2 font-semibold"></th>
                 </tr>
@@ -378,7 +383,12 @@ export function EntreePanelMp({
                     <td className="px-3 py-2 text-slate-700">{row.unite || "-"}</td>
                     <td className="px-3 py-2 text-slate-700">{row.numero_lot}</td>
                     <td className="px-3 py-2 text-slate-700">{formatDate(row.date_reception)}</td>
+                    <td className="px-3 py-2 text-slate-700">{formatDate(row.date_fabrication)}</td>
+                    <td className="px-3 py-2 text-slate-700">{formatDate(row.date_expiration)}</td>
                     <td className="px-3 py-2 text-slate-700">{row.fournisseur || "-"}</td>
+                    <td className="px-3 py-2 text-slate-700">{row.emplacement || "-"}</td>
+                    <td className="px-3 py-2 text-slate-700">{row.n_doss_erp || "-"}</td>
+                    <td className="px-3 py-2 text-slate-700">{row.n_doss_4d || "-"}</td>
                     <td className="px-3 py-2 text-slate-700">{row.note || "-"}</td>
                     <td className="px-3 py-2">
                       <button
@@ -773,36 +783,55 @@ export function SortiePanelMp({
         {rows.length === 0 ? (
           <p className="mt-3 text-sm text-sky-900/70">Aucune sortie validee pour le moment.</p>
         ) : (
-          <div className="mt-3 space-y-3">
-            {rows.map((row, index) => (
-              <div
-                key={`${row.article_id}-${row.numero_lot}-${index}`}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-sm"
-              >
-                <p className="text-slate-700">
-                  {row.admin ? (
-                    <span className="mr-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
-                      ADMIN
-                    </span>
-                  ) : null}
-                  <span className="font-semibold text-slate-900">
-                    {row.article_label} | {row.numero_lot}
-                  </span>
-                  {` — Qt sortie ${row.quantite} | Date ${formatDate(row.date_sortie)}`}
-                  {row.client ? ` | Client ${row.client}` : ""}
-                  {row.n_doss_erp ? ` | ERP ${row.n_doss_erp}` : ""}
-                  {row.n_doss_4d ? ` | 4D ${row.n_doss_4d}` : ""}
-                  {row.note ? ` | Note ${row.note}` : ""}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => removeRow(index)}
-                  className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-900"
-                >
-                  Supprimer
-                </button>
-              </div>
-            ))}
+          <div className="mt-3 overflow-x-auto rounded-xl bg-white">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-sky-900/70">
+                <tr>
+                  {mode === "admin" ? <th className="px-3 py-2 font-semibold"></th> : null}
+                  <th className="px-3 py-2 font-semibold">Article</th>
+                  <th className="px-3 py-2 font-semibold">Lot</th>
+                  <th className="px-3 py-2 font-semibold">Qt sortie</th>
+                  <th className="px-3 py-2 font-semibold">Date</th>
+                  <th className="px-3 py-2 font-semibold">Client</th>
+                  <th className="px-3 py-2 font-semibold">Doss. ERP</th>
+                  <th className="px-3 py-2 font-semibold">Doss. 4D</th>
+                  <th className="px-3 py-2 font-semibold">Note</th>
+                  <th className="px-3 py-2 font-semibold"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => (
+                  <tr key={`${row.article_id}-${row.numero_lot}-${index}`} className="border-t border-slate-100">
+                    {mode === "admin" ? (
+                      <td className="px-3 py-2">
+                        {row.admin ? (
+                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
+                            ADMIN
+                          </span>
+                        ) : null}
+                      </td>
+                    ) : null}
+                    <td className="px-3 py-2 font-semibold text-slate-900">{row.article_label}</td>
+                    <td className="px-3 py-2 text-slate-700">{row.numero_lot}</td>
+                    <td className="px-3 py-2 text-slate-700">{row.quantite}</td>
+                    <td className="px-3 py-2 text-slate-700">{formatDate(row.date_sortie)}</td>
+                    <td className="px-3 py-2 text-slate-700">{row.client || "-"}</td>
+                    <td className="px-3 py-2 text-slate-700">{row.n_doss_erp || "-"}</td>
+                    <td className="px-3 py-2 text-slate-700">{row.n_doss_4d || "-"}</td>
+                    <td className="px-3 py-2 text-slate-700">{row.note || "-"}</td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => removeRow(index)}
+                        className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-900"
+                      >
+                        Supprimer
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
