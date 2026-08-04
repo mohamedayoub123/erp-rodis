@@ -146,7 +146,13 @@ export function GlobalNav({
   const visibleItems = navItems.filter((item) => {
     if (item.adminOnly) return canManageUsers;
     if (!item.pageKey) return true;
-    return pageViewMap[item.pageKey] ?? false;
+    // L'onglet reste visible si l'utilisateur voit la page hub ELLE-MEME
+    // OU au moins une des pages internes de la section - sinon un acces
+    // donne uniquement sur une sous-page (ex: Articles Produit Fini) sans
+    // avoir aussi coche le hub (ex: Accueil Gestion Stock PF) rend tout
+    // l'onglet invisible, alors que l'utilisateur y a bien acces.
+    if (pageViewMap[item.pageKey]) return true;
+    return (item.subLinks ?? []).some((link) => link.pageKey && pageViewMap[link.pageKey]);
   });
   const currentItem =
     visibleItems.reduce<{ item: NavItem; length: number } | null>((bestMatch, item) => {
