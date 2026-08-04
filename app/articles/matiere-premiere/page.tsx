@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { updateArticleMpAction } from "./actions";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { deleteArticleMpAction, updateArticleMpAction } from "./actions";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 const PAGE_SIZE = 100;
 
@@ -60,6 +61,7 @@ export default async function ArticlesMatierePremierePage({
   const currentStockUser = await getCurrentStockUser();
   const canWriteArticles = await canWritePageUser(currentStockUser, "articlesMatierePremiereNouvelle");
   const canEditArticles = await canWritePageUser(currentStockUser, "articlesMatierePremiere");
+  const canDeleteArticles = await canDeletePageUser(currentStockUser, "articlesMatierePremiere");
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const q = (params.q || "").trim();
   const categorie = (params.categorie || "").trim();
@@ -180,7 +182,9 @@ export default async function ArticlesMatierePremierePage({
                       <th className="px-6 py-4 font-semibold">Gamme</th>
                       <th className="px-6 py-4 font-semibold">Stock min</th>
                       <th className="px-6 py-4 font-semibold">Stock max</th>
-                      {canEditArticles ? <th className="px-6 py-4 font-semibold">Modifier</th> : null}
+                      {canEditArticles || canDeleteArticles ? (
+                        <th className="px-6 py-4 font-semibold">Modifier</th>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -192,13 +196,14 @@ export default async function ArticlesMatierePremierePage({
                         <td className="px-6 py-4 text-slate-600">{article.gamme || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.min_stock ?? "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.max_stock ?? "-"}</td>
-                        {canEditArticles ? (
+                        {canEditArticles || canDeleteArticles ? (
                           <td className="px-6 py-4">
                             <details className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                               <summary className="cursor-pointer text-sm font-semibold text-slate-800">
                                 Modifier
                               </summary>
 
+                              {canEditArticles ? (
                               <form action={updateArticleMpAction} className="mt-4 grid gap-3">
                                 <input type="hidden" name="article_id" value={article.id} />
                                 <input
@@ -257,6 +262,14 @@ export default async function ArticlesMatierePremierePage({
                                   </button>
                                 </div>
                               </form>
+                              ) : null}
+
+                              {canDeleteArticles ? (
+                                <form action={deleteArticleMpAction} className="mt-3">
+                                  <input type="hidden" name="article_id" value={article.id} />
+                                  <DeleteIconButton label="Supprimer article" />
+                                </form>
+                              ) : null}
                             </details>
                           </td>
                         ) : null}
