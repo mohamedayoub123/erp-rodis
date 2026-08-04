@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCurrentStockUser, getPageViewMap, getUserPermissions } from "@/lib/stock-auth";
+import { isSectionVisible } from "@/lib/nav-sections";
 
 const mainButtons = [
   {
@@ -52,7 +53,7 @@ export default async function HomePage() {
     if ("adminOnly" in button) return canManageUsers;
     const pageKey = "pageKey" in button ? button.pageKey : undefined;
     if (!pageKey) return true;
-    return pageViewMap[pageKey] ?? false;
+    return isSectionVisible(pageKey, pageViewMap);
   });
 
   return (

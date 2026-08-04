@@ -2,128 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-type SubLink = { href: string; label: string; pageKey?: string };
-
-type NavItem = {
-  href: string;
-  label: string;
-  pageKey?: string;
-  adminOnly?: boolean;
-  // Prefixes utilises seulement pour determiner le badge "Page : X" affiche
-  // dans l'en-tete quand on est sur une sous-page qui n'a plus son propre
-  // onglet (ex: /articles/produit-fini reste sous "Gestion Stock PF"). Le
-  // plus long prefixe qui matche gagne, meme principe que PAGE_REGISTRY.
-  matchPrefixes?: string[];
-  // Affiches sur une 2e ligne sous la barre principale quand cet onglet est
-  // actif - raccourci direct vers les pages internes de la section, sans
-  // repasser par la page hub (meme role que les cases affichees sur cette
-  // page hub, mais accessibles depuis n'importe quelle sous-page).
-  subLinks?: SubLink[];
-};
-
-const navItems: NavItem[] = [
-  { href: "/", label: "Accueil" },
-  {
-    href: "/gestion-stock-pf",
-    label: "Gestion Stock PF",
-    pageKey: "gestionStockPf",
-    matchPrefixes: [
-      "/gestion-stock-pf",
-      "/stock",
-      "/articles",
-      "/mouvements",
-      "/commandes",
-      "/tableau-commandes",
-      "/stock-dormant",
-      "/stock-dormant-sans-commande",
-      "/clients",
-      "/statistique",
-      "/statistique-livraison",
-      "/statistique-livraison-client",
-    ],
-    subLinks: [
-      { href: "/stock", label: "Stock", pageKey: "stock" },
-      { href: "/articles", label: "Articles", pageKey: "articlesHub" },
-      { href: "/mouvements", label: "Mouvements", pageKey: "mouvementsHub" },
-      { href: "/commandes", label: "Commandes", pageKey: "commandesListe" },
-      { href: "/tableau-commandes", label: "Tableau cmd", pageKey: "tableauCommandes" },
-      { href: "/stock-dormant", label: "Dormant", pageKey: "stockDormant" },
-      {
-        href: "/stock-dormant-sans-commande",
-        label: "Dormant sans cmd",
-        pageKey: "stockDormantSansCommande",
-      },
-      { href: "/clients", label: "Client", pageKey: "clients" },
-      { href: "/statistique", label: "Statistique", pageKey: "statistiqueHub" },
-    ],
-  },
-  {
-    href: "/stock/matiere-premiere",
-    label: "Gestion Stock MP",
-    pageKey: "stockMatierePremiere",
-    matchPrefixes: [
-      "/stock/matiere-premiere",
-      "/mouvements/matiere-premiere",
-      "/articles/matiere-premiere",
-    ],
-    subLinks: [
-      { href: "/stock/matiere-premiere/stock", label: "Stock", pageKey: "stockMatierePremiere" },
-      {
-        href: "/articles/matiere-premiere",
-        label: "Articles",
-        pageKey: "articlesMatierePremiere",
-      },
-      {
-        href: "/mouvements/matiere-premiere",
-        label: "Mouvements",
-        pageKey: "mouvementsMatierePremiere",
-      },
-      { href: "/stock/matiere-premiere/alerte", label: "Stock Alert", pageKey: "stockAlerteMp" },
-      { href: "/stock/matiere-premiere/dormant", label: "Stock Dormant", pageKey: "stockDormantMp" },
-      { href: "/stock/matiere-premiere/statistique", label: "Statistique", pageKey: "statistiqueMp" },
-      { href: "/stock/matiere-premiere/perime", label: "Stock Perime", pageKey: "stockPerimeMp" },
-      { href: "/stock/matiere-premiere/commande", label: "Import", pageKey: "commandeMp" },
-      { href: "/stock/matiere-premiere/bc", label: "Commande", pageKey: "commandeBcMp" },
-    ],
-  },
-  {
-    href: "/production",
-    label: "Production",
-    pageKey: "productionHub",
-    matchPrefixes: [
-      "/production",
-      "/programe-par-ligne",
-      "/historique-programme",
-      "/historique-programme-dispatcher",
-      "/ravitailleur-par-ligne",
-      "/code-par-article",
-    ],
-    subLinks: [
-      { href: "/production/suivi", label: "Planning Production", pageKey: "productionSuiviHub" },
-      {
-        href: "/production/suivi-production",
-        label: "Suivi Production",
-        pageKey: "productionSuiviProductionListe",
-      },
-      { href: "/programe-par-ligne", label: "Programme par ligne", pageKey: "programeParLigne" },
-      { href: "/historique-programme", label: "Historique programme", pageKey: "historiqueProgramme" },
-      {
-        href: "/ravitailleur-par-ligne",
-        label: "Ravitailleur par ligne",
-        pageKey: "ravitailleurParLigne",
-      },
-      {
-        href: "/historique-programme-dispatcher",
-        label: "Historique Programme Dispatcher",
-        pageKey: "historiqueProgrammeDispatcher",
-      },
-      { href: "/code-par-article", label: "Code par article", pageKey: "codeParArticle" },
-      { href: "/production/rapport", label: "Rapport", pageKey: "productionRapportHub" },
-    ],
-  },
-  { href: "/admin", label: "Admin", adminOnly: true },
-];
+import { isSectionVisible, navItems, type NavItem } from "@/lib/nav-sections";
 
 function prefixMatchLength(prefixes: string[], pathname: string): number {
   let best = -1;
@@ -146,13 +25,7 @@ export function GlobalNav({
   const visibleItems = navItems.filter((item) => {
     if (item.adminOnly) return canManageUsers;
     if (!item.pageKey) return true;
-    // L'onglet reste visible si l'utilisateur voit la page hub ELLE-MEME
-    // OU au moins une des pages internes de la section - sinon un acces
-    // donne uniquement sur une sous-page (ex: Articles Produit Fini) sans
-    // avoir aussi coche le hub (ex: Accueil Gestion Stock PF) rend tout
-    // l'onglet invisible, alors que l'utilisateur y a bien acces.
-    if (pageViewMap[item.pageKey]) return true;
-    return (item.subLinks ?? []).some((link) => link.pageKey && pageViewMap[link.pageKey]);
+    return isSectionVisible(item.pageKey, pageViewMap);
   });
   const currentItem =
     visibleItems.reduce<{ item: NavItem; length: number } | null>((bestMatch, item) => {
