@@ -301,6 +301,19 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     legacyWrite: "writeMouvements",
   },
   {
+    key: "mouvementsMatierePremiereSortieAdmin",
+    module: "Mouvements",
+    label: "Sortie Admin Matiere Premiere (stock force, sans verification)",
+    pathPrefixes: ["/mouvements/matiere-premiere/sortie-admin"],
+    // Droit distinct, sans heritage de l'ancien "writeMouvements" - a
+    // accorder explicitement, meme a un utilisateur qui a deja la sortie
+    // normale, car cette page force la sortie sans verification de stock.
+    legacyView: "__no_legacy_sortie_admin_mp__",
+    legacyWrite: "__no_legacy_sortie_admin_mp__",
+    defaultView: false,
+    defaultWrite: false,
+  },
+  {
     key: "mouvementsMatierePremiereEntreeDetail",
     module: "Mouvements",
     label: "Detail entree MP (TE) - modifier/supprimer",
@@ -544,6 +557,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "mouvementsMatierePremiere",
   "mouvementsMatierePremiereEntree",
   "mouvementsMatierePremiereSortie",
+  "mouvementsMatierePremiereSortieAdmin",
   "mouvementsMatierePremiereEntreeDetail",
   "mouvementsMatierePremiereSortieDetail",
 ]);

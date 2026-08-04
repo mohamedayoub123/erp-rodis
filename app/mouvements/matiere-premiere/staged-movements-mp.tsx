@@ -412,9 +412,14 @@ export function EntreePanelMp({
   );
 }
 
-export function SortiePanelMp({ articles }: { articles: ArticleMpOption[] }) {
+export function SortiePanelMp({
+  articles,
+  mode,
+}: {
+  articles: ArticleMpOption[];
+  mode: "normal" | "admin";
+}) {
   const [isPending, startTransition] = useTransition();
-  const [mode, setMode] = useState<"normal" | "admin">("normal");
   const [articleInput, setArticleInput] = useState("");
   const [showArticleDropdown, setShowArticleDropdown] = useState(false);
   const [numeroLot, setNumeroLot] = useState("");
@@ -534,29 +539,8 @@ export function SortiePanelMp({ articles }: { articles: ArticleMpOption[] }) {
       }`}
     >
       <h2 className={`text-2xl font-black ${mode === "admin" ? "text-red-900" : "text-sky-900"}`}>
-        Sortie stock - Matiere Premiere
+        {mode === "admin" ? "Sortie Admin - Matiere Premiere" : "Sortie stock - Matiere Premiere"}
       </h2>
-
-      <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          onClick={() => setMode("normal")}
-          className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-            mode === "normal" ? "bg-sky-700 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-          }`}
-        >
-          Sortie normale
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode("admin")}
-          className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-            mode === "admin" ? "bg-red-700 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-          }`}
-        >
-          Sortie admin
-        </button>
-      </div>
 
       <p className={`mt-2 text-xs font-medium ${mode === "admin" ? "text-red-700" : "text-sky-800/70"}`}>
         {mode === "admin"

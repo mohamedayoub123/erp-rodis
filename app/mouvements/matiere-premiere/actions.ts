@@ -84,6 +84,16 @@ async function requireMouvementsMpSortieWriteAccess() {
   return currentUser;
 }
 
+async function requireMouvementsMpSortieAdminWriteAccess() {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "mouvementsMatierePremiereSortieAdmin"))) {
+    throw new Error("Cet utilisateur n'a pas l'autorisation Sortie Admin (stock force).");
+  }
+
+  return currentUser;
+}
+
 function revalidateMouvementsMpPages() {
   revalidatePath("/stock/matiere-premiere/stock");
   revalidatePath("/mouvements/matiere-premiere");
@@ -184,8 +194,6 @@ export async function createEntreeMpBatchAction(formData: FormData) {
 }
 
 export async function createSortieMpBatchAction(formData: FormData) {
-  const currentUser = await requireMouvementsMpSortieWriteAccess();
-
   const rawPayload = String(formData.get("payload") || "").trim();
 
   if (!rawPayload) {
@@ -203,6 +211,14 @@ export async function createSortieMpBatchAction(formData: FormData) {
   if (!Array.isArray(rows) || rows.length === 0) {
     throw new Error("Aucune sortie a approuver.");
   }
+
+  // L'autorisation "Sortie Admin" est distincte et separee de la sortie
+  // normale - un lot avec au moins une ligne admin exige le droit admin,
+  // meme si l'utilisateur a par ailleurs le droit de sortie normale.
+  const hasAdminRows = rows.some((row) => Boolean(row.admin));
+  const currentUser = hasAdminRows
+    ? await requireMouvementsMpSortieAdminWriteAccess()
+    : await requireMouvementsMpSortieWriteAccess();
 
   const lignes = rows.map((row) => {
     const articleId = Number(row.article_id);

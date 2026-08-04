@@ -59,6 +59,12 @@ export default async function MouvementsMatierePremierePage() {
               >
                 Sortie
               </Link>
+              <Link
+                href="/mouvements/matiere-premiere/sortie-admin"
+                className="rounded-full bg-red-700 px-5 py-2 text-sm font-semibold text-white"
+              >
+                Sortie admin
+              </Link>
             </div>
           </div>
         </section>
