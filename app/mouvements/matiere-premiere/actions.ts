@@ -53,7 +53,8 @@ type PendingEntreeMpRow = {
 };
 
 type PendingSortieMpRow = {
-  lot_id: number;
+  article_id: number;
+  numero_lot: string;
   date_sortie: string;
   quantite: number;
   client?: string;
@@ -203,16 +204,19 @@ export async function createSortieMpBatchAction(formData: FormData) {
   }
 
   const lignes = rows.map((row) => {
-    const lotId = Number(row.lot_id);
+    const articleId = Number(row.article_id);
+    const numeroLot = String(row.numero_lot || "").trim();
     const quantite = Number(row.quantite);
     const dateSortie = String(row.date_sortie || "").trim();
 
-    if (!lotId || !quantite || quantite <= 0 || !dateSortie) {
+    if (!articleId || !numeroLot || !quantite || quantite <= 0 || !dateSortie) {
       throw new Error("Une sortie est incomplete ou invalide.");
     }
 
     return {
-      lot_stock_id: lotId,
+      article_id: articleId,
+      numero_lot: numeroLot,
+      code_normalise: numeroLot.toUpperCase(),
       date_sortie: dateSortie,
       quantite,
       client: String(row.client || "").trim(),

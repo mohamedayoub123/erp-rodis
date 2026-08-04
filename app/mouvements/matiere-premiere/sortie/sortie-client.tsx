@@ -1,17 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { SortiePanelMp, type LotMpOption } from "../staged-movements-mp";
+import { SortiePanelMp, type ArticleMpOption } from "../staged-movements-mp";
 
 export function SortieMpClient({
-  lots,
+  articles,
   canWrite,
 }: {
-  lots: LotMpOption[];
+  articles: ArticleMpOption[];
   canWrite: boolean;
 }) {
-  const [lotsState, setLotsState] = useState<LotMpOption[]>(lots);
-
   if (!canWrite) {
     return (
       <div className="rounded-[2rem] border border-slate-200 bg-white p-8 text-center shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -23,5 +20,5 @@ export function SortieMpClient({
     );
   }
 
-  return <SortiePanelMp lots={lotsState} onLotsUpdated={setLotsState} />;
+  return <SortiePanelMp articles={articles} />;
 }

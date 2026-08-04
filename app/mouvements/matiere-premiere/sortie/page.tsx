@@ -1,15 +1,47 @@
+import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { computeAvailableMpLots, fetchMpSourceRowsForLots } from "../shared";
 import { SortieMpClient } from "./sortie-client";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+
+async function fetchAllArticlesForSortie() {
+  const rows: { id: number; nom_article: string; unite: string | null }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // .limit() demande - sans cette boucle, les articles au-dela du 1000e
+  // (tries par nom) etaient invisibles dans le formulaire.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("id, nom_article, unite")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { id: number; nom_article: string; unite: string | null }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
 
 export default async function MouvementsMatierePremiereSortiePage() {
   const currentStockUser = await getCurrentStockUser();
   const canWriteMouvements = await canWritePageUser(currentStockUser, "mouvementsMatierePremiereSortie");
 
-  const sourceRows = await fetchMpSourceRowsForLots();
-  const lots = computeAvailableMpLots(sourceRows);
+  const articlesData = await fetchAllArticlesForSortie();
+
+  const articles = articlesData.map((article) => ({
+    id: article.id,
+    label: article.nom_article,
+    unite: article.unite || "",
+  }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -32,7 +64,7 @@ export default async function MouvementsMatierePremiereSortiePage() {
           </div>
         </section>
 
-        <SortieMpClient lots={lots} canWrite={canWriteMouvements} />
+        <SortieMpClient articles={articles} canWrite={canWriteMouvements} />
       </div>
     </main>
   );
