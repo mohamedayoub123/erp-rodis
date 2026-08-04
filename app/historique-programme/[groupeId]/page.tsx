@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { deleteProgrammeLigneGroupAction } from "../../programe-par-ligne/actions";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { deleteProgrammeLigneGroupAction, relaunchProgrammeLigneGroupAction } from "../../programe-par-ligne/actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -39,6 +39,7 @@ export default async function HistoriqueProgrammeDetailPage({
   const groupeIdNumber = Number(groupeId);
   const currentUser = await getCurrentStockUser();
   const canDelete = await canDeletePageUser(currentUser, "historiqueProgramme");
+  const canRelaunch = await canWritePageUser(currentUser, "programeParLigne");
 
   if (!groupeIdNumber) {
     notFound();
@@ -115,6 +116,17 @@ export default async function HistoriqueProgrammeDetailPage({
             <div className="flex flex-wrap items-center gap-3">
               <BackButton href="/historique-programme" label="Retour historique" />
               <RefreshButton />
+              {canRelaunch ? (
+                <form action={relaunchProgrammeLigneGroupAction}>
+                  <input type="hidden" name="groupe_id" value={groupeIdNumber} />
+                  <button
+                    type="submit"
+                    className="rounded-full bg-emerald-700 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                  >
+                    Relancer au Ravitailleur
+                  </button>
+                </form>
+              ) : null}
               {canDelete ? (
                 <form action={deleteProgrammeLigneGroupAction}>
                   <input type="hidden" name="groupe_id" value={groupeIdNumber} />

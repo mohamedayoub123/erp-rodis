@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { deleteProgrammeLigneGroupAction } from "../programe-par-ligne/actions";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { deleteProgrammeLigneGroupAction, relaunchProgrammeLigneGroupAction } from "../programe-par-ligne/actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -59,6 +59,7 @@ export default async function HistoriqueProgrammePage({
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const currentUser = await getCurrentStockUser();
   const canDelete = await canDeletePageUser(currentUser, "historiqueProgramme");
+  const canRelaunch = await canWritePageUser(currentUser, "programeParLigne");
 
   const allLignes = await fetchAllProgrammeLignes();
 
@@ -142,12 +143,25 @@ export default async function HistoriqueProgrammePage({
                     {group.count > 1 ? "s" : ""}
                   </span>
                 </Link>
-                {canDelete ? (
-                  <form action={deleteProgrammeLigneGroupAction}>
-                    <input type="hidden" name="groupe_id" value={group.groupeId} />
-                    <DeleteIconButton />
-                  </form>
-                ) : null}
+                <div className="flex items-center gap-2">
+                  {canRelaunch ? (
+                    <form action={relaunchProgrammeLigneGroupAction}>
+                      <input type="hidden" name="groupe_id" value={group.groupeId} />
+                      <button
+                        type="submit"
+                        className="rounded-full bg-emerald-700 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-600"
+                      >
+                        Relancer
+                      </button>
+                    </form>
+                  ) : null}
+                  {canDelete ? (
+                    <form action={deleteProgrammeLigneGroupAction}>
+                      <input type="hidden" name="groupe_id" value={group.groupeId} />
+                      <DeleteIconButton />
+                    </form>
+                  ) : null}
+                </div>
               </div>
             ))
           )}

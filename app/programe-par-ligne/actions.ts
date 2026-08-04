@@ -411,38 +411,15 @@ async function generateAutoCodes(
   return { codesByRowIndex, codeUpdatesByArticleId };
 }
 
-export async function saveProgrammeLigneBatchAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
-
-  if (!(await canWritePageUser(currentUser, "programeParLigne"))) {
-    throw new Error("Cet utilisateur ne peut pas enregistrer de programme.");
-  }
-
-  const rawPayload = String(formData.get("payload") || "").trim();
-  const dateJour = String(formData.get("date_jour") || "").trim();
-
-  if (!rawPayload) {
-    throw new Error("Aucune ligne remplie a enregistrer.");
-  }
-
-  if (!dateJour) {
-    throw new Error("Choisis la date du programme avant d'enregistrer.");
-  }
-
-  let rows: PendingProgrammeRow[] = [];
-
-  try {
-    rows = JSON.parse(rawPayload) as PendingProgrammeRow[];
-  } catch {
-    throw new Error("Le contenu du programme est invalide.");
-  }
-
-  const filledRows = rows.filter((row) => row.article_id);
-
-  if (filledRows.length === 0) {
-    throw new Error("Choisis au moins un produit avant d'enregistrer.");
-  }
-
+// Corps commun a saveProgrammeLigneBatchAction (saisie depuis la grille) et
+// relaunchProgrammeLigneGroupAction (rejoue un groupe de l'historique) - les
+// deux finissent par creer un nouveau groupe programme_lignes + peupler le
+// Dispatcher de la meme facon, seule la provenance des lignes differe.
+async function performProgrammeLigneSave(
+  filledRows: PendingProgrammeRow[],
+  affectedZoneChaine: { zone: string; chaine: string }[],
+  dateJour: string
+): Promise<{ ok: true; code: string; groupe_id: number }> {
   // Le code MB1/MB2/MB3... n'est pas stocke dans la colonne "programe" (qui
   // reste un champ libre tape par l'utilisateur, independant) - il est
   // seulement retourne ici pour le message de confirmation. Le vrai code
@@ -503,17 +480,6 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
   // son propre code genere (voir generateAutoCodes).
   const articleIds = [...new Set(filledRows.map((row) => row.article_id as number))];
   const articleInfoById = await fetchArticleInfoMap(articleIds);
-
-  // Remplace le contenu courant de chaque (zone, chaine) presente dans ce
-  // Save - meme les chaines laissees vides (sans produit) sont effacees du
-  // Dispatcher, pas seulement remplacees quand elles ont un produit. Ca
-  // evite qu'une ancienne ligne reste affichee alors qu'elle n'est plus
-  // remplie sur cette chaine.
-  const affectedZoneChaineMap = new Map<string, { zone: string; chaine: string }>();
-  for (const row of rows) {
-    affectedZoneChaineMap.set(`${row.zone}::${row.chaine}`, { zone: row.zone, chaine: row.chaine });
-  }
-  const affectedZoneChaine = [...affectedZoneChaineMap.values()];
 
   // Deux "Save" lances a quelques millisecondes d'ecart sur la meme famille
   // (gamme+forme) peuvent tous les deux lire le meme dernier code connu
@@ -633,6 +599,120 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
   revalidatePath("/production/suivi/calendrier");
 
   return { ok: true, code: generatedCode, groupe_id: groupeId };
+}
+
+export async function saveProgrammeLigneBatchAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "programeParLigne"))) {
+    throw new Error("Cet utilisateur ne peut pas enregistrer de programme.");
+  }
+
+  const rawPayload = String(formData.get("payload") || "").trim();
+  const dateJour = String(formData.get("date_jour") || "").trim();
+
+  if (!rawPayload) {
+    throw new Error("Aucune ligne remplie a enregistrer.");
+  }
+
+  if (!dateJour) {
+    throw new Error("Choisis la date du programme avant d'enregistrer.");
+  }
+
+  let rows: PendingProgrammeRow[] = [];
+
+  try {
+    rows = JSON.parse(rawPayload) as PendingProgrammeRow[];
+  } catch {
+    throw new Error("Le contenu du programme est invalide.");
+  }
+
+  const filledRows = rows.filter((row) => row.article_id);
+
+  if (filledRows.length === 0) {
+    throw new Error("Choisis au moins un produit avant d'enregistrer.");
+  }
+
+  // Remplace le contenu courant de chaque (zone, chaine) presente dans ce
+  // Save - meme les chaines laissees vides (sans produit) sont effacees du
+  // Dispatcher, pas seulement remplacees quand elles ont un produit. Ca
+  // evite qu'une ancienne ligne reste affichee alors qu'elle n'est plus
+  // remplie sur cette chaine.
+  const affectedZoneChaineMap = new Map<string, { zone: string; chaine: string }>();
+  for (const row of rows) {
+    affectedZoneChaineMap.set(`${row.zone}::${row.chaine}`, { zone: row.zone, chaine: row.chaine });
+  }
+  const affectedZoneChaine = [...affectedZoneChaineMap.values()];
+
+  return performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour);
+}
+
+// Rejoue un groupe deja enregistre (voir Historique programme) comme un
+// nouveau Save, avec la date du jour - evite de retaper le meme programme a
+// la main pour le relancer au Dispatcher/Ravitailleur.
+export async function relaunchProgrammeLigneGroupAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "programeParLigne"))) {
+    throw new Error("Cet utilisateur ne peut pas enregistrer de programme.");
+  }
+
+  const sourceGroupeId = Number(String(formData.get("groupe_id") || "0"));
+
+  if (!sourceGroupeId) {
+    throw new Error("Programme source invalide.");
+  }
+
+  const { data: sourceData, error: sourceError } = await supabaseServer
+    .from("programme_lignes")
+    .select("zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe")
+    .eq("groupe_id", sourceGroupeId);
+
+  if (sourceError) {
+    throw new Error(sourceError.message);
+  }
+
+  const sourceLignes = (sourceData ?? []) as {
+    zone: string;
+    chaine: string;
+    article_id: number | null;
+    produit: string | null;
+    type_article: string | null;
+    qt_carton: number | null;
+    vrac_a_fabriquer: number | null;
+    plateforme: string | null;
+    programe: string | null;
+  }[];
+
+  const filledRows: PendingProgrammeRow[] = sourceLignes
+    .filter((ligne) => ligne.article_id)
+    .map((ligne) => ({
+      zone: ligne.zone,
+      chaine: ligne.chaine,
+      article_id: ligne.article_id,
+      produit: ligne.produit || "",
+      type_article: ligne.type_article || "",
+      qt_carton: ligne.qt_carton,
+      vrac_a_fabriquer: ligne.vrac_a_fabriquer,
+      plateforme: ligne.plateforme || "",
+      programe: ligne.programe || "",
+    }));
+
+  if (filledRows.length === 0) {
+    throw new Error("Programme source introuvable ou vide.");
+  }
+
+  const affectedZoneChaineMap = new Map<string, { zone: string; chaine: string }>();
+  for (const row of filledRows) {
+    affectedZoneChaineMap.set(`${row.zone}::${row.chaine}`, { zone: row.zone, chaine: row.chaine });
+  }
+  const affectedZoneChaine = [...affectedZoneChaineMap.values()];
+
+  const dateJour = new Date().toISOString().slice(0, 10);
+
+  await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour);
+
+  redirect("/ravitailleur-par-ligne");
 }
 
 export async function deleteProgrammeLigneGroupAction(formData: FormData) {
