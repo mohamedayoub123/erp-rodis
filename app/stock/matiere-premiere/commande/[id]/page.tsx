@@ -81,17 +81,23 @@ export default async function ImportMpDossierPage({
   // "Receptionnee" ne compte que les evenements issus d'une vraie Reception
   // (lot_stock_id renseigne, stock reellement credite) - un simple "Creer
   // import" depuis le BC (avant la Reception) ne compte pas comme recu.
-  // "A receptionner" = ce qui est deja arrive dans ce dossier (tous les
-  // evenements d'import, y compris les simples "Creer import") moins ce qui
-  // a deja ete reellement receptionne - PAS la quantite commandee au total,
+  // "Importee" = uniquement les evenements "Creer import" (lot_stock_id
+  // null) - la ligne qu'une Reception cree dans cette meme table (pour
+  // l'historique) ne doit PAS s'ajouter au total arrive, sinon receptionner
+  // fait gonfler artificiellement "a receptionner" au lieu de le faire
+  // redescendre a 0.
+  // "A receptionner" = ce qui est deja arrive dans ce dossier moins ce qui a
+  // deja ete reellement receptionne - PAS la quantite commandee au total,
   // qui peut concerner d'autres dossiers pas encore arrives du tout.
   const quantiteImporteeParLigne = new Map<number, number>();
   const quantiteReceptionneeParLigne = new Map<number, number>();
   for (const row of rows) {
-    const importeeCurrent = quantiteImporteeParLigne.get(row.bc_ligne_id) ?? 0;
-    quantiteImporteeParLigne.set(row.bc_ligne_id, importeeCurrent + Number(row.quantite_importee ?? 0));
+    if (row.lot_stock_id === null) {
+      const importeeCurrent = quantiteImporteeParLigne.get(row.bc_ligne_id) ?? 0;
+      quantiteImporteeParLigne.set(row.bc_ligne_id, importeeCurrent + Number(row.quantite_importee ?? 0));
+      continue;
+    }
 
-    if (row.lot_stock_id === null) continue;
     const current = quantiteReceptionneeParLigne.get(row.bc_ligne_id) ?? 0;
     quantiteReceptionneeParLigne.set(row.bc_ligne_id, current + Number(row.quantite_importee ?? 0));
   }

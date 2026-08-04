@@ -18,6 +18,7 @@ type ImportRow = {
   n_doss_4d_import: string | null;
   n_doss_erp_import: string | null;
   date_import: string | null;
+  lot_stock_id: number | null;
 };
 
 type DossierStatutRow = {
@@ -49,7 +50,7 @@ async function fetchAllImports() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("bons_commande_mp_imports")
-      .select("id, bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, date_import")
+      .select("id, bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, date_import, lot_stock_id")
       .order("date_import", { ascending: false })
       .range(from, from + pageSize - 1);
 
@@ -105,11 +106,17 @@ export default async function CommandeMpPage() {
     .map(([key, groupRows]) => {
       const first = groupRows[0];
       const statutInfo = statutByDossier.get(key);
+      // Une Reception cree sa propre ligne dans bons_commande_mp_imports
+      // (pour l'historique), avec le meme dossier - il ne faut pas la
+      // recompter dans "Qte importee"/"Nb articles" en plus du "Creer
+      // import" qui l'a fait arriver, sinon les totaux doublent des qu'on
+      // receptionne (ex: 50 importes + 50 receptionnes affichait 100).
+      const arrivalRows = groupRows.filter((row) => row.lot_stock_id === null);
       return {
         nDoss4d: first.n_doss_4d_import,
         nDossErp: first.n_doss_erp_import,
-        nbArticles: groupRows.length,
-        quantiteTotale: groupRows.reduce((sum, row) => sum + Number(row.quantite_importee ?? 0), 0),
+        nbArticles: new Set(arrivalRows.map((row) => row.bc_ligne_id)).size,
+        quantiteTotale: arrivalRows.reduce((sum, row) => sum + Number(row.quantite_importee ?? 0), 0),
         dateRecente: groupRows.reduce<string | null>((latest, row) => {
           if (!row.date_import) return latest;
           if (!latest || row.date_import > latest) return row.date_import;
