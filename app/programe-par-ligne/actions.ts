@@ -6,35 +6,6 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { computeArticleFamilyKey, extractTrailingNumber, incrementCode } from "@/lib/article-code-family";
 
-// Un Save avec beaucoup de chaines/zones (meme vides) pouvait declencher des
-// dizaines de requetes vraiment simultanees (Promise.all sans limite) - trop
-// pour le pool de connexions (PgBouncer) qui en rejetait certaines, faisant
-// planter le rendu alors que l'insert programme_lignes (visible dans
-// l'historique) avait deja reussi. Limite le nombre de requetes en vol a la
-// fois, garde le gain de vitesse (plusieurs vagues au lieu d'une par ligne)
-// sans saturer le pool.
-async function mapWithConcurrencyLimit<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => PromiseLike<R>
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < items.length) {
-      const currentIndex = nextIndex;
-      nextIndex += 1;
-      results[currentIndex] = await fn(items[currentIndex]);
-    }
-  }
-
-  const workerCount = Math.min(limit, items.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-
-  return results;
-}
-
 type PendingProgrammeRow = {
   zone: string;
   chaine: string;
@@ -498,17 +469,21 @@ async function performProgrammeLigneSave(
     const draftRows = buildDispatcherDraftRows(filledRows, articleInfoById);
     const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(draftRows, articleInfoById);
 
-    // Par vagues de 5 max plutot qu'un aller-retour DB par article touche en
-    // serie (lent) ou tous en meme temps (peut saturer le pool, voir plus haut).
-    const codeUpdateResults = await mapWithConcurrencyLimit(
-      [...codeUpdatesByArticleId.entries()],
-      5,
-      ([articleId, updates]) => supabaseServer.from("articles").update(updates).eq("id", articleId)
-    );
+    // Une seule requete RPC (boucle cote base) plutot qu'un aller-retour
+    // reseau par article touche - sur un gros Save/relance, meme par vagues
+    // limitees, ca ajoutait assez d'allers-retours sequentiels pour risquer
+    // de depasser le temps limite de la fonction serverless.
+    if (codeUpdatesByArticleId.size > 0) {
+      const { error: codeUpdateError } = await supabaseServer.rpc("articles_bulk_update_codes", {
+        p_updates: [...codeUpdatesByArticleId.entries()].map(([articleId, updates]) => ({
+          id: articleId,
+          ...updates,
+        })),
+      });
 
-    const failedCodeUpdate = codeUpdateResults.find((result) => result.error);
-    if (failedCodeUpdate?.error) {
-      throw new Error(failedCodeUpdate.error.message);
+      if (codeUpdateError) {
+        throw new Error(codeUpdateError.message);
+      }
     }
 
     const dispatcherPayload = draftRows.map((row, index) => ({
@@ -531,19 +506,17 @@ async function performProgrammeLigneSave(
       codesBySourceIndex.set(row.sourceIndex, list);
     });
 
-    // Une requete .eq()/.eq() parametree par paire, plutot qu'un seul .or()
-    // construit en interpolant zone/chaine (valeurs saisies cote client)
-    // dans une chaine de filtre PostgREST brute - une valeur contenant une
-    // virgule ou une parenthese pouvait sinon elargir le filtre et faire
-    // supprimer des lignes en dehors des (zone, chaine) vraiment concernees
-    // par ce Save.
-    const clearResults = await mapWithConcurrencyLimit(affectedZoneChaine, 5, ({ zone, chaine }) =>
-      supabaseServer.from("programme_dispatcher_lignes").delete().eq("zone", zone).eq("chaine", chaine)
-    );
+    // Une seule requete RPC (boucle cote base, valeurs passees en parametre
+    // jsonb - jamais interpolees dans une chaine de filtre) plutot qu'un
+    // aller-retour reseau par (zone, chaine) touchee.
+    if (affectedZoneChaine.length > 0) {
+      const { error: clearError } = await supabaseServer.rpc("programme_dispatcher_clear_zones", {
+        p_pairs: affectedZoneChaine,
+      });
 
-    const failedClear = clearResults.find((result) => result.error);
-    if (failedClear?.error) {
-      throw new Error(failedClear.error.message);
+      if (clearError) {
+        throw new Error(clearError.message);
+      }
     }
 
     const { error: dispatcherError } = await supabaseServer
@@ -572,22 +545,25 @@ async function performProgrammeLigneSave(
   // Dispatcher (voir generateAutoCodes), reunis quand une ligne a ete
   // decoupee en plusieurs lots (join ", "), puis reecrits sur la ligne
   // programme_lignes d'origine juste apres son insertion.
-  // Par vagues de 5 - un Save avec beaucoup de lignes remplies faisait
-  // autant d'allers-retours DB sequentiels ici, la principale source de
-  // lenteur sur les gros Save.
-  const numeroLotResults = await mapWithConcurrencyLimit(
-    [...codesBySourceIndex.entries()].filter(([sourceIndex]) => insertedIds[sourceIndex]),
-    5,
-    ([sourceIndex, codes]) =>
-      supabaseServer
-        .from("programme_lignes")
-        .update({ numero_lot: [...new Set(codes)].join(", ") })
-        .eq("id", insertedIds[sourceIndex])
-  );
+  // Une seule requete RPC - un Save/relance avec beaucoup de lignes remplies
+  // faisait autant d'allers-retours DB sequentiels ici, la principale source
+  // de lenteur (et de depassement du temps limite serverless) sur les gros
+  // Save.
+  const numeroLotUpdates = [...codesBySourceIndex.entries()]
+    .filter(([sourceIndex]) => insertedIds[sourceIndex])
+    .map(([sourceIndex, codes]) => ({
+      id: insertedIds[sourceIndex],
+      numero_lot: [...new Set(codes)].join(", "),
+    }));
 
-  const failedNumeroLot = numeroLotResults.find((result) => result.error);
-  if (failedNumeroLot?.error) {
-    throw new Error(failedNumeroLot.error.message);
+  if (numeroLotUpdates.length > 0) {
+    const { error: numeroLotError } = await supabaseServer.rpc("programme_lignes_bulk_update_numero_lot", {
+      p_updates: numeroLotUpdates,
+    });
+
+    if (numeroLotError) {
+      throw new Error(numeroLotError.message);
+    }
   }
 
   revalidatePath("/programe-par-ligne");
