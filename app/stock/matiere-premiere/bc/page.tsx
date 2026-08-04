@@ -66,9 +66,14 @@ async function fetchAllImportEvenements() {
   const pageSize = 1000;
 
   while (true) {
+    // Exclut les evenements issus d'une Reception (lot_stock_id renseigne) -
+    // "Creer import" et "Reception" sont deux suivis distincts depuis que la
+    // Reception credite le stock reel ; melanger les deux ici faussait "Qte
+    // importee"/"Reste a importer" du BC (double comptage).
     const { data, error } = await supabaseServer
       .from("bons_commande_mp_imports")
       .select("bc_ligne_id, quantite_importee")
+      .is("lot_stock_id", null)
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };

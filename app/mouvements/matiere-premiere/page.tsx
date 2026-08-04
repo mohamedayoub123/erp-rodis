@@ -6,6 +6,7 @@ import {
   buildSortieMpRows,
   fetchWebMouvementMpSourceRows,
   formatMouvementMpDate,
+  mouvementMpSourceLabel,
   type MouvementMpGroup,
 } from "./shared";
 import { BackButton } from "@/app/_components/back-button";
@@ -85,11 +86,17 @@ export default async function MouvementsMatierePremierePage() {
                     <th className="px-4 py-3 font-semibold">Date</th>
                     <th className="px-4 py-3 font-semibold">Nb articles</th>
                     <th className="px-4 py-3 font-semibold">Quantite totale</th>
+                    <th className="px-4 py-3 font-semibold">Source</th>
+                    <th className="px-4 py-3 font-semibold">Doss. 4D</th>
+                    <th className="px-4 py-3 font-semibold">Doss. ERP</th>
                     {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
                 <tbody>
-                  {groups.map((group) => (
+                  {groups.map((group) => {
+                    const first = group.lignes[0];
+
+                    return (
                     <tr key={`${group.mouvement_type}-${group.groupe_id}`} className="border-t border-slate-100">
                       <td className="px-4 py-3 font-semibold">
                         <Link
@@ -106,6 +113,11 @@ export default async function MouvementsMatierePremierePage() {
                       <td className="px-4 py-3 text-slate-600">{formatMouvementMpDate(group.date_jour)}</td>
                       <td className="px-4 py-3 text-slate-600">{group.lignes.length}</td>
                       <td className="px-4 py-3 text-slate-900">{group.quantite_totale}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {group.mouvement_type === "entree" ? mouvementMpSourceLabel(first?.source_import ?? null) : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{first?.n_doss_4d || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{first?.n_doss_erp || "-"}</td>
                       {canEditStock ? (
                         <td className="px-4 py-3">
                           <form action={deleteMouvementMpGroupAction}>
@@ -115,7 +127,8 @@ export default async function MouvementsMatierePremierePage() {
                         </td>
                       ) : null}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -48,10 +48,15 @@ async function fetchGroup(code: string) {
 async function fetchImportsForLignes(ligneIds: number[]) {
   if (ligneIds.length === 0) return [] as ImportEvenementRow[];
 
+  // Exclut les evenements issus d'une Reception (lot_stock_id renseigne) -
+  // "Creer import" et "Reception" sont deux suivis distincts depuis que la
+  // Reception credite le stock reel ; melanger les deux ici faussait "Qte
+  // importee"/"Reste a importer" du BC (double comptage).
   const { data } = await supabaseServer
     .from("bons_commande_mp_imports")
     .select("id, bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, date_import")
     .in("bc_ligne_id", ligneIds)
+    .is("lot_stock_id", null)
     .order("id", { ascending: true });
 
   return (data ?? []) as ImportEvenementRow[];

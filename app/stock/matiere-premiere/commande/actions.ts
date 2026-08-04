@@ -156,7 +156,10 @@ export async function createReceptionMpAction(formData: FormData) {
         n_doss_erp: nDossErpImport,
         n_doss_4d: nDoss4dImport,
         utilisateur: currentUser,
-        source_import: "web:entree-mp",
+        // Tag distinct de l'entree manuelle ("web:entree-mp") pour pouvoir
+        // afficher la provenance (Manuel / Import) sur Mouvements MP - reste
+        // compte comme une entree TE (voir ENTREE_SOURCES dans shared.ts).
+        source_import: "web:reception-mp",
       },
     ])
     .select("id")

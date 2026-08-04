@@ -184,10 +184,14 @@ export async function createImportEvenementAction(formData: FormData) {
     throw new Error("Ligne de commande introuvable.");
   }
 
+  // Exclut les evenements issus d'une Reception (lot_stock_id renseigne) -
+  // sinon une Reception qui a deja consomme le "reste" empecherait a tort
+  // de creer un import classique ensuite (les deux suivis sont distincts).
   const { data: existingImports } = await supabaseServer
     .from("bons_commande_mp_imports")
     .select("quantite_importee")
-    .eq("bc_ligne_id", bcLigneId);
+    .eq("bc_ligne_id", bcLigneId)
+    .is("lot_stock_id", null);
 
   const dejaImporte = ((existingImports ?? []) as { quantite_importee: number }[]).reduce(
     (sum, row) => sum + Number(row.quantite_importee ?? 0),

@@ -148,7 +148,6 @@ export default async function ImportMpDossierPage({
                     <tr>
                       <th className="px-4 py-3 font-semibold">BC</th>
                       <th className="px-4 py-3 font-semibold">Article</th>
-                      <th className="px-4 py-3 font-semibold">Qte receptionnee</th>
                       <th className="px-4 py-3 font-semibold">Qte a receptionner</th>
                       <th className="px-4 py-3 font-semibold">Statut</th>
                       {canEdit ? <th className="px-4 py-3 font-semibold">Action</th> : null}
@@ -168,7 +167,6 @@ export default async function ImportMpDossierPage({
                           <td className="px-4 py-3 font-medium text-slate-900">
                             {ligne.article_label || "-"}
                           </td>
-                          <td className="px-4 py-3 text-slate-600">{quantiteReceptionnee}</td>
                           <td className="px-4 py-3 font-semibold text-slate-900">{quantiteAReceptionner}</td>
                           <td className="px-4 py-3">
                             <span

@@ -44,6 +44,7 @@ export type MouvementMpLigne = {
   emplacement: string | null;
   utilisateur: string | null;
   note: string | null;
+  source_import: string | null;
 };
 
 export type MouvementMpGroup = {
@@ -59,8 +60,20 @@ const SOURCE_COLUMNS =
   "id, article_id, numero_lot, code_normalise, date_reception, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, emplacement, utilisateur, note, source_import, mouvement_groupe_id, articles_matiere_premiere(nom_article)";
 
 const ENTREE_SOURCE = "web:entree-mp";
+const RECEPTION_SOURCE = "web:reception-mp";
 const SORTIE_SOURCE = "web:sortie-mp";
-const WEB_SOURCES = [ENTREE_SOURCE, SORTIE_SOURCE];
+const ENTREE_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE];
+const WEB_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE, SORTIE_SOURCE];
+
+// Libelle affichable de la provenance d'une ligne - "TE manuel" saisi
+// directement depuis Entrer stock, ou "TE import" venu d'une Reception
+// depuis le detail d'un dossier Import.
+export function mouvementMpSourceLabel(sourceImport: string | null) {
+  if (sourceImport === RECEPTION_SOURCE) return "Import";
+  if (sourceImport === ENTREE_SOURCE) return "Manuel";
+  if (sourceImport === SORTIE_SOURCE) return "Manuel";
+  return "-";
+}
 
 // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le .range()
 // demande - meme boucle de pagination que app/mouvements/shared.ts (PF).
@@ -108,11 +121,11 @@ function buildGroups(
   rows: MouvementMpSourceRow[],
   mouvementType: "entree" | "sortie",
   codePrefix: string,
-  allowedSource: string
+  allowedSources: string[]
 ): MouvementMpGroup[] {
   const filtered = rows.filter(
     (row) =>
-      row.source_import === allowedSource &&
+      allowedSources.includes(row.source_import ?? "") &&
       (mouvementType === "entree" ? Number(row.qte_entree ?? 0) > 0 : Number(row.qte_sortie ?? 0) > 0)
   );
 
@@ -175,6 +188,7 @@ function buildGroups(
         emplacement: row.emplacement,
         utilisateur: row.utilisateur,
         note: row.note,
+        source_import: row.source_import,
       })),
     };
   });
@@ -183,11 +197,11 @@ function buildGroups(
 // Le numero 1 correspond toujours au mouvement le plus ancien, meme
 // convention que app/mouvements/shared.ts (PF).
 export function buildEntreeMpRows(rows: MouvementMpSourceRow[]): MouvementMpGroup[] {
-  return buildGroups(rows, "entree", "TE", ENTREE_SOURCE);
+  return buildGroups(rows, "entree", "TE", ENTREE_SOURCES);
 }
 
 export function buildSortieMpRows(rows: MouvementMpSourceRow[]): MouvementMpGroup[] {
-  return buildGroups(rows, "sortie", "TS", SORTIE_SOURCE);
+  return buildGroups(rows, "sortie", "TS", [SORTIE_SOURCE]);
 }
 
 export type AvailableMpLotOption = {
