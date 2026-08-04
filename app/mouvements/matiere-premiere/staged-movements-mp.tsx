@@ -36,19 +36,17 @@ type PendingEntreeMp = {
 };
 
 type PendingSortieMp = {
-  lot_id: number;
-  lot_label: string;
+  article_id: number;
+  article_label: string;
+  numero_lot: string;
   date_sortie: string;
   quantite: number;
   client: string;
   n_doss_erp: string;
   n_doss_4d: string;
   note: string;
+  admin: boolean;
 };
-
-function formatLotLabel(lot: LotMpOption) {
-  return `${lot.articleLabel} | ${lot.numeroLot} | restant ${lot.stock}${lot.unite ? ` ${lot.unite}` : ""}`;
-}
 
 export function EntreePanelMp({
   articles,
@@ -415,16 +413,16 @@ export function EntreePanelMp({
 }
 
 export function SortiePanelMp({
-  lots,
-  onLotsUpdated,
+  articles,
+  mode,
 }: {
-  lots: LotMpOption[];
-  onLotsUpdated: React.Dispatch<React.SetStateAction<LotMpOption[]>>;
+  articles: ArticleMpOption[];
+  mode: "normal" | "admin";
 }) {
   const [isPending, startTransition] = useTransition();
   const [articleInput, setArticleInput] = useState("");
   const [showArticleDropdown, setShowArticleDropdown] = useState(false);
-  const [selectedLotId, setSelectedLotId] = useState("");
+  const [numeroLot, setNumeroLot] = useState("");
   const [dateSortie, setDateSortie] = useState("");
   const [quantite, setQuantite] = useState("");
   const [client, setClient] = useState("");
@@ -436,45 +434,29 @@ export function SortiePanelMp({
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  // Article : saisie libre avec suggestions (plus rapide qu'une liste
-  // deroulante pour un gros catalogue). Lot : liste stricte uniquement,
-  // restreinte aux lots disponibles de l'article choisi - pas de saisie
-  // libre possible ici pour eviter une erreur de numero de lot.
-  const articleOptions = useMemo(() => {
-    return [...new Set(lots.map((lot) => lot.articleLabel))].sort((a, b) =>
-      a.localeCompare(b, "fr", { sensitivity: "base" })
-    );
-  }, [lots]);
-
+  // Article et numero de lot en saisie libre (comme Entree). Deux modes :
+  // "normal" (comme avant) bloque cote serveur si l'article/lot n'existe pas
+  // ou si le stock disponible est insuffisant ; "admin" force la sortie sans
+  // aucune verification, stock qui peut devenir negatif, lot ecrit librement.
   const selectedArticle = useMemo(
-    () => (articleOptions.includes(articleInput) ? articleInput : ""),
-    [articleInput, articleOptions]
+    () => articles.find((article) => article.label === articleInput) ?? null,
+    [articleInput, articles]
   );
 
-  const filteredArticleOptions = useMemo(() => {
+  const filteredArticles = useMemo(() => {
     const words = articleInput.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return articleOptions.slice(0, 80);
+    if (words.length === 0) return articles.slice(0, 80);
 
-    return articleOptions.filter((label) => {
-      const lower = label.toLowerCase();
-      return words.every((word) => lower.includes(word));
+    return articles.filter((article) => {
+      const label = article.label.toLowerCase();
+      return words.every((word) => label.includes(word));
     });
-  }, [articleInput, articleOptions]);
-
-  const lotOptions = useMemo(() => {
-    if (!selectedArticle) return [];
-    return lots.filter((lot) => lot.articleLabel === selectedArticle);
-  }, [selectedArticle, lots]);
-
-  const selectedLot = useMemo(
-    () => lots.find((lot) => String(lot.id) === selectedLotId) ?? null,
-    [selectedLotId, lots]
-  );
+  }, [articleInput, articles]);
 
   function addRow() {
     const qty = Number(quantite.replace(",", "."));
 
-    if (!selectedLot || !dateSortie || !qty || qty <= 0) {
+    if (!selectedArticle || !numeroLot.trim() || !dateSortie || !qty || qty <= 0) {
       return;
     }
 
@@ -484,19 +466,21 @@ export function SortiePanelMp({
     setRows((current) => [
       ...current,
       {
-        lot_id: selectedLot.id,
-        lot_label: formatLotLabel(selectedLot),
+        article_id: selectedArticle.id,
+        article_label: selectedArticle.label,
+        numero_lot: numeroLot.trim(),
         date_sortie: dateSortie,
         quantite: qty,
         client: client.trim(),
         n_doss_erp: nDossErp.trim(),
         n_doss_4d: nDoss4d.trim(),
         note: note.trim(),
+        admin: mode === "admin",
       },
     ]);
 
     setArticleInput("");
-    setSelectedLotId("");
+    setNumeroLot("");
     setDateSortie("");
     setQuantite("");
     setNote("");
@@ -516,13 +500,15 @@ export function SortiePanelMp({
 
   const payload = JSON.stringify(
     rows.map((row) => ({
-      lot_id: row.lot_id,
+      article_id: row.article_id,
+      numero_lot: row.numero_lot,
       date_sortie: row.date_sortie,
       quantite: row.quantite,
       client: row.client,
       n_doss_erp: row.n_doss_erp,
       n_doss_4d: row.n_doss_4d,
       note: row.note,
+      admin: row.admin,
     }))
   );
 
@@ -538,27 +524,6 @@ export function SortiePanelMp({
     startTransition(async () => {
       try {
         await createSortieMpBatchAction(formData);
-        onLotsUpdated((currentLots) => {
-          const qtyByLot = new Map<number, number>();
-
-          for (const row of rows) {
-            qtyByLot.set(row.lot_id, (qtyByLot.get(row.lot_id) ?? 0) + row.quantite);
-          }
-
-          return currentLots
-            .map((lot) => {
-              const qty = qtyByLot.get(lot.id) ?? 0;
-              if (!qty) {
-                return lot;
-              }
-
-              return {
-                ...lot,
-                stock: Math.max(0, Number(lot.stock) - qty),
-              };
-            })
-            .filter((lot) => lot.stock > 0);
-        });
         setRows([]);
         setMessage("Sortie enregistree dans le stock matiere premiere.");
       } catch (error) {
@@ -568,8 +533,20 @@ export function SortiePanelMp({
   }
 
   return (
-    <section className="rounded-[2rem] border border-sky-200 bg-white p-5 shadow-[0_18px_40px_rgba(14,165,233,0.08)]">
-      <h2 className="text-2xl font-black text-sky-900">Sortie stock - Matiere Premiere</h2>
+    <section
+      className={`rounded-[2rem] border bg-white p-5 shadow-[0_18px_40px_rgba(14,165,233,0.08)] ${
+        mode === "admin" ? "border-red-300" : "border-sky-200"
+      }`}
+    >
+      <h2 className={`text-2xl font-black ${mode === "admin" ? "text-red-900" : "text-sky-900"}`}>
+        {mode === "admin" ? "Sortie Admin - Matiere Premiere" : "Sortie stock - Matiere Premiere"}
+      </h2>
+
+      <p className={`mt-2 text-xs font-medium ${mode === "admin" ? "text-red-700" : "text-sky-800/70"}`}>
+        {mode === "admin"
+          ? "Aucune verification de stock - la sortie est forcee meme si l'article/lot n'existe pas ou si le stock devient negatif."
+          : "Bloquee si l'article/lot n'existe pas dans le stock ou si le stock disponible est insuffisant."}
+      </p>
 
       <div className="mt-4 grid gap-4">
         <div className="grid gap-4 md:grid-cols-2">
@@ -579,7 +556,6 @@ export function SortiePanelMp({
               value={articleInput}
               onChange={(event) => {
                 setArticleInput(event.target.value);
-                setSelectedLotId("");
                 setShowArticleDropdown(true);
               }}
               onFocus={() => setShowArticleDropdown(true)}
@@ -588,21 +564,20 @@ export function SortiePanelMp({
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
               autoComplete="off"
             />
-            {showArticleDropdown && filteredArticleOptions.length > 0 ? (
+            {showArticleDropdown && filteredArticles.length > 0 ? (
               <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-                {filteredArticleOptions.map((label) => (
+                {filteredArticles.map((article) => (
                   <button
-                    key={label}
+                    key={article.id}
                     type="button"
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => {
-                      setArticleInput(label);
-                      setSelectedLotId("");
+                      setArticleInput(article.label);
                       setShowArticleDropdown(false);
                     }}
                     className="block w-full px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
                   >
-                    {label}
+                    {article.label}
                   </button>
                 ))}
               </div>
@@ -610,23 +585,14 @@ export function SortiePanelMp({
           </label>
 
           <label className="grid gap-2 text-sm font-semibold text-slate-900">
-            <span>Lot</span>
-            <select
-              value={selectedLotId}
-              onChange={(event) => setSelectedLotId(event.target.value)}
-              disabled={!selectedArticle}
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none disabled:bg-slate-50 disabled:text-slate-400"
-            >
-              <option value="">
-                {selectedArticle ? "Choisis un lot" : "Choisis d'abord un article"}
-              </option>
-              {lotOptions.map((lot) => (
-                <option key={lot.id} value={lot.id}>
-                  {lot.numeroLot} - restant {lot.stock}
-                  {lot.unite ? ` ${lot.unite}` : ""}
-                </option>
-              ))}
-            </select>
+            <span>Numero de lot</span>
+            <input
+              type="text"
+              value={numeroLot}
+              onChange={(event) => setNumeroLot(event.target.value)}
+              placeholder="Numero de lot"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
+            />
           </label>
         </div>
 
@@ -691,7 +657,9 @@ export function SortiePanelMp({
         <button
           type="button"
           onClick={addRow}
-          className="rounded-full bg-sky-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-600"
+          className={`rounded-full px-5 py-3 text-sm font-semibold text-white transition ${
+            mode === "admin" ? "bg-red-700 hover:bg-red-600" : "bg-sky-700 hover:bg-sky-600"
+          }`}
         >
           Valider sortie
         </button>
@@ -708,11 +676,18 @@ export function SortiePanelMp({
           <div className="mt-3 space-y-3">
             {rows.map((row, index) => (
               <div
-                key={`${row.lot_id}-${index}`}
+                key={`${row.article_id}-${row.numero_lot}-${index}`}
                 className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-sm"
               >
                 <p className="text-slate-700">
-                  <span className="font-semibold text-slate-900">{row.lot_label}</span>
+                  {row.admin ? (
+                    <span className="mr-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
+                      ADMIN
+                    </span>
+                  ) : null}
+                  <span className="font-semibold text-slate-900">
+                    {row.article_label} | {row.numero_lot}
+                  </span>
                   {` — Qt sortie ${row.quantite} | Date ${formatDate(row.date_sortie)}`}
                   {row.client ? ` | Client ${row.client}` : ""}
                   {row.n_doss_erp ? ` | ERP ${row.n_doss_erp}` : ""}

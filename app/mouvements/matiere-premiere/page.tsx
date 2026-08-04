@@ -59,6 +59,12 @@ export default async function MouvementsMatierePremierePage() {
               >
                 Sortie
               </Link>
+              <Link
+                href="/mouvements/matiere-premiere/sortie-admin"
+                className="rounded-full bg-red-700 px-5 py-2 text-sm font-semibold text-white"
+              >
+                Sortie admin
+              </Link>
             </div>
           </div>
         </section>
@@ -89,6 +95,7 @@ export default async function MouvementsMatierePremierePage() {
                     <th className="px-4 py-3 font-semibold">Source</th>
                     <th className="px-4 py-3 font-semibold">Doss. 4D</th>
                     <th className="px-4 py-3 font-semibold">Doss. ERP</th>
+                    <th className="px-4 py-3 font-semibold">Saisi par</th>
                     {canDeleteStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
@@ -118,6 +125,7 @@ export default async function MouvementsMatierePremierePage() {
                       </td>
                       <td className="px-4 py-3 text-slate-600">{first?.n_doss_4d || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{first?.n_doss_erp || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{first?.utilisateur || "-"}</td>
                       {canDeleteStock ? (
                         <td className="px-4 py-3">
                           <form action={deleteMouvementMpGroupAction}>

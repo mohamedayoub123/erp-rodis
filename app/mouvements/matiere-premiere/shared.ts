@@ -63,14 +63,8 @@ const SOURCE_COLUMNS =
 const ENTREE_SOURCE = "web:entree-mp";
 const RECEPTION_SOURCE = "web:reception-mp";
 const SORTIE_SOURCE = "web:sortie-mp";
-// Grand livre historique importe depuis Excel (feuille "Mouvements") -
-// exclu de WEB_SOURCES pour ne pas noyer les pages Mouvements MP (~39 500
-// lignes, non paginees) sous l'historique, mais inclus dans LOT_SOURCES pour
-// que ce stock reste selectionnable en Sortie.
-const HISTORIQUE_SOURCE = "excel:historique-mp";
 const ENTREE_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE];
 const WEB_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE, SORTIE_SOURCE];
-const LOT_SOURCES = [...WEB_SOURCES, HISTORIQUE_SOURCE];
 
 // Libelle affichable de la provenance d'une ligne - "TE manuel" saisi
 // directement depuis Entrer stock, ou "TE import" venu d'une Reception
@@ -94,36 +88,6 @@ export async function fetchWebMouvementMpSourceRows() {
       .from("lots_stock_matiere_premiere")
       .select(SOURCE_COLUMNS)
       .in("source_import", WEB_SOURCES)
-      .range(from, from + pageSize - 1);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    const chunk = (data as unknown as MouvementMpSourceRow[] | null) ?? [];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
-}
-
-// Meme requete que fetchWebMouvementMpSourceRows mais incluant aussi
-// l'historique importe depuis Excel - a utiliser uniquement pour calculer le
-// stock disponible en Sortie (computeAvailableMpLots), jamais pour les pages
-// de liste Mouvements MP (voir HISTORIQUE_SOURCE plus haut).
-export async function fetchMpSourceRowsForLots() {
-  const rows: MouvementMpSourceRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select(SOURCE_COLUMNS)
-      .in("source_import", LOT_SOURCES)
       .range(from, from + pageSize - 1);
 
     if (error) {
@@ -240,52 +204,6 @@ export function buildEntreeMpRows(rows: MouvementMpSourceRow[]): MouvementMpGrou
 
 export function buildSortieMpRows(rows: MouvementMpSourceRow[]): MouvementMpGroup[] {
   return buildGroups(rows, "sortie", "TS", [SORTIE_SOURCE]);
-}
-
-export type AvailableMpLotOption = {
-  id: number;
-  articleLabel: string;
-  numeroLot: string;
-  unite: string;
-  stock: number;
-};
-
-// Le stock restant d'un lot est un agregat sur toutes les lignes qui
-// partagent le meme article_id + code_normalise/numero_lot (grand livre
-// append-only), pas la valeur d'une seule ligne.
-export function computeAvailableMpLots(rows: MouvementMpSourceRow[]): AvailableMpLotOption[] {
-  const byKey = new Map<string, MouvementMpSourceRow[]>();
-
-  for (const row of rows) {
-    if (!row.article_id) continue;
-    const key = `${row.article_id}::${String(row.code_normalise || row.numero_lot || "").trim().toUpperCase()}`;
-    const list = byKey.get(key) ?? [];
-    list.push(row);
-    byKey.set(key, list);
-  }
-
-  const result: AvailableMpLotOption[] = [];
-
-  for (const list of byKey.values()) {
-    const remaining = list.reduce(
-      (sum, row) => sum + Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0),
-      0
-    );
-
-    if (remaining <= 0) continue;
-
-    const representative = sortChrono(list)[list.length - 1];
-
-    result.push({
-      id: representative.id,
-      articleLabel: representative.articles_matiere_premiere?.nom_article || "-",
-      numeroLot: representative.numero_lot || representative.code_normalise || "",
-      unite: representative.unite || "",
-      stock: remaining,
-    });
-  }
-
-  return result;
 }
 
 export function formatMouvementMpDate(value: string | null) {

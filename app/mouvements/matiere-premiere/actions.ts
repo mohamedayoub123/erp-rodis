@@ -53,13 +53,15 @@ type PendingEntreeMpRow = {
 };
 
 type PendingSortieMpRow = {
-  lot_id: number;
+  article_id: number;
+  numero_lot: string;
   date_sortie: string;
   quantite: number;
   client?: string;
   n_doss_erp?: string;
   n_doss_4d?: string;
   note?: string;
+  admin?: boolean;
 };
 
 async function requireMouvementsMpEntreeWriteAccess() {
@@ -77,6 +79,16 @@ async function requireMouvementsMpSortieWriteAccess() {
 
   if (!(await canWritePageUser(currentUser, "mouvementsMatierePremiereSortie"))) {
     throw new Error("Cet utilisateur ne peut pas saisir des mouvements matiere premiere.");
+  }
+
+  return currentUser;
+}
+
+async function requireMouvementsMpSortieAdminWriteAccess() {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "mouvementsMatierePremiereSortieAdmin"))) {
+    throw new Error("Cet utilisateur n'a pas l'autorisation Sortie Admin (stock force).");
   }
 
   return currentUser;
@@ -182,8 +194,6 @@ export async function createEntreeMpBatchAction(formData: FormData) {
 }
 
 export async function createSortieMpBatchAction(formData: FormData) {
-  const currentUser = await requireMouvementsMpSortieWriteAccess();
-
   const rawPayload = String(formData.get("payload") || "").trim();
 
   if (!rawPayload) {
@@ -202,17 +212,28 @@ export async function createSortieMpBatchAction(formData: FormData) {
     throw new Error("Aucune sortie a approuver.");
   }
 
+  // L'autorisation "Sortie Admin" est distincte et separee de la sortie
+  // normale - un lot avec au moins une ligne admin exige le droit admin,
+  // meme si l'utilisateur a par ailleurs le droit de sortie normale.
+  const hasAdminRows = rows.some((row) => Boolean(row.admin));
+  const currentUser = hasAdminRows
+    ? await requireMouvementsMpSortieAdminWriteAccess()
+    : await requireMouvementsMpSortieWriteAccess();
+
   const lignes = rows.map((row) => {
-    const lotId = Number(row.lot_id);
+    const articleId = Number(row.article_id);
+    const numeroLot = String(row.numero_lot || "").trim();
     const quantite = Number(row.quantite);
     const dateSortie = String(row.date_sortie || "").trim();
 
-    if (!lotId || !quantite || quantite <= 0 || !dateSortie) {
+    if (!articleId || !numeroLot || !quantite || quantite <= 0 || !dateSortie) {
       throw new Error("Une sortie est incomplete ou invalide.");
     }
 
     return {
-      lot_stock_id: lotId,
+      article_id: articleId,
+      numero_lot: numeroLot,
+      code_normalise: numeroLot.toUpperCase(),
       date_sortie: dateSortie,
       quantite,
       client: String(row.client || "").trim(),
@@ -220,6 +241,7 @@ export async function createSortieMpBatchAction(formData: FormData) {
       n_doss_4d: String(row.n_doss_4d || "").trim(),
       note: String(row.note || "").trim(),
       utilisateur: currentUser || "",
+      admin: Boolean(row.admin),
     };
   });
 
