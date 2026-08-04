@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteProgrammeDispatcherHistoryGroupAction } from "../../ravitailleur-par-ligne/dispatcher-actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -33,6 +34,8 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
 }) {
   const { groupeId } = await params;
   const groupeIdNumber = Number(groupeId);
+  const currentUser = await getCurrentStockUser();
+  const canDelete = await canDeletePageUser(currentUser, "historiqueProgrammeDispatcher");
 
   if (!groupeIdNumber) {
     notFound();
@@ -103,10 +106,12 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
             <div className="flex flex-wrap items-center gap-3">
               <BackButton href="/historique-programme-dispatcher" label="Retour historique" />
               <RefreshButton />
-              <form action={deleteProgrammeDispatcherHistoryGroupAction}>
-                <input type="hidden" name="groupe_id" value={groupeIdNumber} />
-                <DeleteIconButton />
-              </form>
+              {canDelete ? (
+                <form action={deleteProgrammeDispatcherHistoryGroupAction}>
+                  <input type="hidden" name="groupe_id" value={groupeIdNumber} />
+                  <DeleteIconButton />
+                </form>
+              ) : null}
             </div>
           </div>
         </section>

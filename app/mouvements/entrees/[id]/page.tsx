@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteLotFromEntreeDetailAction } from "@/app/mouvements/actions";
 import { buildEntreeRows, fetchWebMouvementSourceRows, formatMouvementDate } from "../../shared";
 import { BackButton } from "@/app/_components/back-button";
@@ -14,7 +14,7 @@ export default async function EntreeDetailPage({
   const { id } = await params;
   const groupeId = Number(id);
   const currentStockUser = await getCurrentStockUser();
-  const canEditStock = await canWritePageUser(currentStockUser, "mouvementsEntreeDetail");
+  const canEditStock = await canDeletePageUser(currentStockUser, "mouvementsEntreeDetail");
   const sourceRows = await fetchWebMouvementSourceRows();
   const group = buildEntreeRows(sourceRows).find((entree) => entree.groupe_id === groupeId);
 

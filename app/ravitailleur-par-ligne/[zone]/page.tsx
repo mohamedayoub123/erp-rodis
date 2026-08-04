@@ -3,6 +3,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { deleteAllDispatcherLignesAction } from "../dispatcher-actions";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "../../production/suivi/data";
@@ -121,6 +122,8 @@ export default async function RavitailleurParLigneZonePage({
   noStore();
   const { zone } = await params;
   const zoneUpper = decodeURIComponent(zone).toUpperCase();
+  const currentUser = await getCurrentStockUser();
+  const canDelete = await canDeletePageUser(currentUser, "ravitailleurParLigne");
 
   if (!VALID_ZONES.includes(zoneUpper)) {
     notFound();
@@ -148,10 +151,12 @@ export default async function RavitailleurParLigneZonePage({
               <BackButton href="/ravitailleur-par-ligne" />
               <RefreshButton />
               <ZonePrintButton zone={zoneUpper} iconOnly />
-              <form action={deleteAllDispatcherLignesAction}>
-                <input type="hidden" name="zone" value={zoneUpper} />
-                <DeleteIconButton label="Supprimer tout" />
-              </form>
+              {canDelete ? (
+                <form action={deleteAllDispatcherLignesAction}>
+                  <input type="hidden" name="zone" value={zoneUpper} />
+                  <DeleteIconButton label="Supprimer tout" />
+                </form>
+              ) : null}
             </div>
           </div>
         </section>

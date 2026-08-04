@@ -1,7 +1,7 @@
 ﻿import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteStandFamilleBesoinsAction } from "./actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -242,7 +242,7 @@ export default async function ArticleManquantPage({ searchParams }: { searchPara
   const params = await searchParams;
   const selectedFamille = String(params.famille || "").trim();
   const currentStockUser = await getCurrentStockUser();
-  const canEditDormant = await canWritePageUser(currentStockUser, "articleManquant");
+  const canEditDormant = await canDeletePageUser(currentStockUser, "articleManquant");
 
   const { data: familleRowsData, error: familleRowsError } = await supabaseServer
     .from("famille_besoins")

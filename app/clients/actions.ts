@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
+  canDeletePageUser,
   canWritePageUser,
   getCurrentStockUser,
 } from "@/lib/stock-auth";
@@ -24,6 +25,14 @@ async function requireClientsEditAccess() {
 
   if (!(await canWritePageUser(currentUser, "clients"))) {
     throw new Error("Cet utilisateur ne peut pas modifier les clients.");
+  }
+}
+
+async function requireClientsDeleteAccess() {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canDeletePageUser(currentUser, "clients"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer les clients.");
   }
 }
 
@@ -113,7 +122,7 @@ export async function updateClientAction(formData: FormData) {
 }
 
 export async function deleteClientAction(formData: FormData) {
-  await requireClientsEditAccess();
+  await requireClientsDeleteAccess();
 
   const clientId = Number(String(formData.get("client_id") || "0"));
 

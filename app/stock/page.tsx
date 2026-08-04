@@ -1,6 +1,6 @@
 ﻿import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteLotStockAction, updateLotStockAction } from "./actions";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -119,6 +119,7 @@ export default async function StockPage({
   const params = await searchParams;
   const currentStockUser = await getCurrentStockUser();
   const canEditStock = await canWritePageUser(currentStockUser, "stock");
+  const canDeleteStock = await canDeletePageUser(currentStockUser, "stock");
   const [canWriteMouvementsEntree, canWriteMouvementsSortie] = await Promise.all([
     canWritePageUser(currentStockUser, "mouvementsEntree"),
     canWritePageUser(currentStockUser, "mouvementsSortie"),
@@ -578,7 +579,7 @@ export default async function StockPage({
                     <th className="px-4 py-3 font-semibold">Client</th>
                     <th className="px-4 py-3 font-semibold">Numero BL</th>
                     <th className="px-4 py-3 font-semibold">Preparateur</th>
-                    {canEditStock ? <th className="px-4 py-3 font-semibold">Modifier</th> : null}
+                    {canEditStock || canDeleteStock ? <th className="px-4 py-3 font-semibold">Modifier</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -606,12 +607,13 @@ export default async function StockPage({
                       <td className="px-4 py-3 text-slate-600">{row.livre_pour || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.numero_bl || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.preparateur || "-"}</td>
-                      {canEditStock ? (
+                      {canEditStock || canDeleteStock ? (
                         <td className="px-4 py-3">
                           <details className="min-w-[20rem] rounded-2xl border border-slate-200 bg-slate-50 p-3">
                             <summary className="cursor-pointer text-sm font-semibold text-slate-800">
                               Modifier
                             </summary>
+                            {canEditStock ? (
                             <form action={updateLotStockAction} className="mt-4 grid gap-3">
                               <input type="hidden" name="lot_id" value={row.id} />
                               <input
@@ -676,10 +678,13 @@ export default async function StockPage({
                                 Enregistrer
                               </button>
                             </form>
+                            ) : null}
+                            {canDeleteStock ? (
                             <form action={deleteLotStockAction} className="mt-3">
                               <input type="hidden" name="lot_id" value={row.id} />
                               <DeleteIconButton label="Supprimer ligne" />
                             </form>
+                            ) : null}
                           </details>
                         </td>
                       ) : null}

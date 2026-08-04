@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { computeArticleFamilyKey, extractTrailingNumber, incrementCode } from "@/lib/article-code-family";
 
 type PendingProgrammeRow = {
@@ -490,7 +490,7 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
 export async function deleteProgrammeLigneGroupAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "historiqueProgramme"))) {
+  if (!(await canDeletePageUser(currentUser, "historiqueProgramme"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer un programme.");
   }
 

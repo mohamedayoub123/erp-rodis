@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { createClientAction, deleteClientAction, updateClientAction } from "./actions";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -28,6 +28,7 @@ export default async function ClientsPage({
   const currentStockUser = await getCurrentStockUser();
   const canWriteClients = await canWritePageUser(currentStockUser, "clients");
   const canEditClients = await canWritePageUser(currentStockUser, "clients");
+  const canDeleteClients = await canDeletePageUser(currentStockUser, "clients");
   const params = await searchParams;
   const q = (params.q || "").trim();
   const pays = (params.pays || "").trim();
@@ -164,7 +165,9 @@ export default async function ClientsPage({
                     <th className="px-6 py-4 font-semibold">Nom du client</th>
                     <th className="px-6 py-4 font-semibold">Pays</th>
                     <th className="px-6 py-4 font-semibold">Transport par defaut</th>
-                    {canEditClients ? <th className="px-6 py-4 font-semibold">Actions</th> : null}
+                    {canEditClients || canDeleteClients ? (
+                      <th className="px-6 py-4 font-semibold">Actions</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -173,13 +176,14 @@ export default async function ClientsPage({
                       <td className="px-6 py-4 font-medium text-slate-900">{client.nom_client}</td>
                       <td className="px-6 py-4 text-slate-600">{client.pays || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{client.mode_transport || "-"}</td>
-                      {canEditClients ? (
+                      {canEditClients || canDeleteClients ? (
                         <td className="px-6 py-4">
                           <details className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                             <summary className="cursor-pointer text-sm font-semibold text-slate-800">
                               Modifier
                             </summary>
 
+                            {canEditClients ? (
                             <form action={updateClientAction} className="mt-4 grid gap-3">
                               <input type="hidden" name="client_id" value={client.id} />
                               <input
@@ -217,11 +221,14 @@ export default async function ClientsPage({
                                 </button>
                               </div>
                             </form>
+                            ) : null}
 
+                            {canDeleteClients ? (
                             <form action={deleteClientAction} className="mt-2">
                               <input type="hidden" name="client_id" value={client.id} />
                               <DeleteIconButton />
                             </form>
+                            ) : null}
                           </details>
                         </td>
                       ) : null}

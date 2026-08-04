@@ -2,12 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 export async function deleteProgrammeLigneRapportAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "productionRapportEcarts"))) {
+  if (!(await canDeletePageUser(currentUser, "productionRapportEcarts"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer cette ligne.");
   }
 

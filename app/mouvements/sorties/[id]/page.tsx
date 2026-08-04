@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteLotFromSortieDetailAction } from "@/app/mouvements/actions";
 import {
   buildSortieRows,
@@ -19,7 +19,7 @@ export default async function SortieDetailPage({
   const { id } = await params;
   const groupeId = Number(id);
   const currentStockUser = await getCurrentStockUser();
-  const canEditStock = await canWritePageUser(currentStockUser, "mouvementsSortieDetail");
+  const canEditStock = await canDeletePageUser(currentStockUser, "mouvementsSortieDetail");
   const sourceRows = await fetchWebMouvementSourceRows();
   const group = buildSortieRows(sourceRows).find((sortie) => sortie.groupe_id === groupeId);
 

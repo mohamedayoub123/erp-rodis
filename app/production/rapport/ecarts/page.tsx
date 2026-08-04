@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   buildPdLabelByCode,
   fetchAllCartonEntries,
@@ -53,6 +54,8 @@ export default async function RapportEcartsPage({
 }) {
   noStore();
   const params = await searchParams;
+  const currentUser = await getCurrentStockUser();
+  const canDelete = await canDeletePageUser(currentUser, "productionRapportEcarts");
   const codeFilter = (params.code || "").trim().toLowerCase();
   const pdFilter = (params.pd || "").trim().toLowerCase();
   const hasFilters = Boolean(codeFilter || pdFilter);
@@ -236,7 +239,7 @@ export default async function RapportEcartsPage({
                     <th className="px-4 py-3 font-semibold">Ecart carton</th>
                     <th className="px-4 py-3 font-semibold">Carton emballe</th>
                     <th className="px-4 py-3 font-semibold">Ecart emballage/conditionnement</th>
-                    <th className="px-4 py-3 font-semibold">Action</th>
+                    {canDelete ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -257,12 +260,14 @@ export default async function RapportEcartsPage({
                       <DiffCell value={row.cartonDiff} whole />
                       <td className="px-4 py-3 text-slate-600">{Math.round(row.cartonEmballe)}</td>
                       <DiffCell value={row.conditionnementEmballageDiff} whole />
-                      <td className="px-4 py-3">
-                        <form action={deleteProgrammeLigneRapportAction}>
-                          <input type="hidden" name="ligne_id" value={row.id} />
-                          <DeleteIconButton label="Supprimer cette ligne" />
-                        </form>
-                      </td>
+                      {canDelete ? (
+                        <td className="px-4 py-3">
+                          <form action={deleteProgrammeLigneRapportAction}>
+                            <input type="hidden" name="ligne_id" value={row.id} />
+                            <DeleteIconButton label="Supprimer cette ligne" />
+                          </form>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>

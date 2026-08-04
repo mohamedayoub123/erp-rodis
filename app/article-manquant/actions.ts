@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 // Supprime pour de vrai les lignes famille_besoins liees a une commande en
 // statut Stand (base proforma + suffixes -2/-3 pour les camions freres), a
@@ -11,7 +11,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 export async function deleteStandFamilleBesoinsAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "articleManquant"))) {
+  if (!(await canDeletePageUser(currentUser, "articleManquant"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer ces lignes.");
   }
 

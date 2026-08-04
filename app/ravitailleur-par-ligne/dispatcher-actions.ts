@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
@@ -168,7 +168,7 @@ export async function saveAllZonesDispatcherSnapshotAction() {
 export async function deleteAllDispatcherLignesAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "ravitailleurParLigne"))) {
+  if (!(await canDeletePageUser(currentUser, "ravitailleurParLigne"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer.");
   }
 
@@ -190,7 +190,7 @@ export async function deleteAllDispatcherLignesAction(formData: FormData) {
 export async function deleteProgrammeDispatcherHistoryGroupAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "historiqueProgrammeDispatcher"))) {
+  if (!(await canDeletePageUser(currentUser, "historiqueProgrammeDispatcher"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer.");
   }
 

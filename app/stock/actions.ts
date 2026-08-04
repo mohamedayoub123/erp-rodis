@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
+  canDeletePageUser,
   canEditStockUser,
   clearStockSession,
   createStockSession,
@@ -96,7 +97,7 @@ export async function deleteLotStockAction(formData: FormData) {
     throw new Error("Connexion obligatoire pour supprimer une ligne.");
   }
 
-  if (!(await canEditStockUser(currentUser))) {
+  if (!(await canDeletePageUser(currentUser, "stock"))) {
     throw new Error("Tu n'as pas le droit de supprimer une ligne.");
   }
 

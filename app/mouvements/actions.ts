@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteLotStockCore } from "@/lib/lot-stock-delete";
 
 type PendingEntreeRow = {
@@ -221,7 +221,7 @@ export async function createSortieStockBatchAction(formData: FormData) {
 export async function deleteMouvementGroupAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "mouvementsProduitFini"))) {
+  if (!(await canDeletePageUser(currentUser, "mouvementsProduitFini"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer un mouvement.");
   }
 
@@ -247,7 +247,7 @@ export async function deleteMouvementGroupAction(formData: FormData) {
 export async function deleteLotFromEntreeDetailAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "mouvementsEntreeDetail"))) {
+  if (!(await canDeletePageUser(currentUser, "mouvementsEntreeDetail"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer une ligne.");
   }
 
@@ -259,7 +259,7 @@ export async function deleteLotFromEntreeDetailAction(formData: FormData) {
 export async function deleteLotFromSortieDetailAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "mouvementsSortieDetail"))) {
+  if (!(await canDeletePageUser(currentUser, "mouvementsSortieDetail"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer une ligne.");
   }
 

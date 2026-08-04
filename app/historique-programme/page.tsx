@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteProgrammeLigneGroupAction } from "../programe-par-ligne/actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -56,6 +57,8 @@ export default async function HistoriqueProgrammePage({
 }) {
   const params = await searchParams;
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
+  const currentUser = await getCurrentStockUser();
+  const canDelete = await canDeletePageUser(currentUser, "historiqueProgramme");
 
   const allLignes = await fetchAllProgrammeLignes();
 
@@ -139,10 +142,12 @@ export default async function HistoriqueProgrammePage({
                     {group.count > 1 ? "s" : ""}
                   </span>
                 </Link>
-                <form action={deleteProgrammeLigneGroupAction}>
-                  <input type="hidden" name="groupe_id" value={group.groupeId} />
-                  <DeleteIconButton />
-                </form>
+                {canDelete ? (
+                  <form action={deleteProgrammeLigneGroupAction}>
+                    <input type="hidden" name="groupe_id" value={group.groupeId} />
+                    <DeleteIconButton />
+                  </form>
+                ) : null}
               </div>
             ))
           )}

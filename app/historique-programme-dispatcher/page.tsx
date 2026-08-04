@@ -4,6 +4,7 @@ import { deleteProgrammeDispatcherHistoryGroupAction } from "../ravitailleur-par
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 type HistoryRow = {
   id: number;
@@ -56,6 +57,8 @@ export default async function HistoriqueProgrammeDispatcherPage({
   searchParams: SearchParams;
 }) {
   const params = await searchParams;
+  const currentUser = await getCurrentStockUser();
+  const canDelete = await canDeletePageUser(currentUser, "historiqueProgrammeDispatcher");
   const codeFilter = (params.code || "").trim().toLowerCase();
   const produitFilter = (params.produit || "").trim().toLowerCase();
   const pdFilter = (params.pd || "").trim().toLowerCase();
@@ -189,10 +192,12 @@ export default async function HistoriqueProgrammeDispatcherPage({
                     {group.count > 1 ? "s" : ""}
                   </span>
                 </Link>
-                <form action={deleteProgrammeDispatcherHistoryGroupAction}>
-                  <input type="hidden" name="groupe_id" value={group.groupeId} />
-                  <DeleteIconButton />
-                </form>
+                {canDelete ? (
+                  <form action={deleteProgrammeDispatcherHistoryGroupAction}>
+                    <input type="hidden" name="groupe_id" value={group.groupeId} />
+                    <DeleteIconButton />
+                  </form>
+                ) : null}
               </div>
             ))
           )}

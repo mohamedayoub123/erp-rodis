@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteMouvementGroupAction } from "../actions";
 import {
   buildEntreeRows,
@@ -14,7 +14,7 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 export default async function MouvementsProduitFiniPage() {
   const currentStockUser = await getCurrentStockUser();
-  const canEditStock = await canWritePageUser(currentStockUser, "mouvementsProduitFini");
+  const canEditStock = await canDeletePageUser(currentStockUser, "mouvementsProduitFini");
   const sourceRows = await fetchWebMouvementSourceRows();
   const groups: MouvementGroup[] = [
     ...buildEntreeRows(sourceRows),
