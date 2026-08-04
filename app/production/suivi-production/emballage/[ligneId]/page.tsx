@@ -7,6 +7,14 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
 import { saveEmballageRapportAction } from "../../actions";
 
+const ARRET_CAUSES = [
+  { field: "emballage_arret_changement_bobine", label: "ARRET CHANGEMENT BOBINE" },
+  { field: "emballage_arret_technique", label: "ARRET TECHNIQUE" },
+  { field: "emballage_arret_reglage", label: "ARRET REGLAGE" },
+  { field: "emballage_arret_coupure", label: "ARRET COUPURE" },
+  { field: "emballage_arret_autre", label: "AUTRE ARRET" },
+] as const;
+
 type LigneInfo = {
   id: number;
   zone: string;
@@ -22,6 +30,11 @@ type RapportInfo = {
   emballage_scotcheuse: string | null;
   emballage_temps_demarrer: string | null;
   emballage_temps_arret: string | null;
+  emballage_arret_changement_bobine: number | null;
+  emballage_arret_technique: number | null;
+  emballage_arret_reglage: number | null;
+  emballage_arret_coupure: number | null;
+  emballage_arret_autre: number | null;
   utilisateur_emballage: string | null;
 };
 
@@ -50,7 +63,7 @@ export default async function RapportEmballagePage({
     supabaseServer
       .from("production_rapports")
       .select(
-        "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, utilisateur_emballage"
+        "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, utilisateur_emballage"
       )
       .eq("programme_ligne_id", ligneIdNumber)
       .maybeSingle(),
@@ -156,6 +169,29 @@ export default async function RapportEmballagePage({
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
+                </div>
+              </div>
+
+              <div>
+                <h2 className="mb-1 text-lg font-bold text-slate-900">Arret</h2>
+                <p className="mb-3 text-xs text-slate-500">
+                  Temps d&apos;arret (en minutes) pour chaque cause concernee.
+                </p>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {ARRET_CAUSES.map((cause) => (
+                    <label key={cause.field} className="grid gap-1 text-xs font-semibold text-slate-500">
+                      {cause.label}
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        name={cause.field}
+                        defaultValue={rapport?.[cause.field] ?? ""}
+                        placeholder="minutes"
+                        className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                      />
+                    </label>
+                  ))}
                 </div>
               </div>
 

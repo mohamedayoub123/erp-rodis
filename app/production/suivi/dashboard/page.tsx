@@ -135,7 +135,11 @@ export default async function PlanningDashboardPage({
       };
     })
     .filter((ligne) => {
-      if (codeFilter && !(ligne.numero_lot || "").toLowerCase().includes(codeFilter)) return false;
+      // Le filtre "Code" est applique plus loin, sur le code affiche apres
+      // eclatement (splitLigneIntoDisplayRows) - pas ici sur numero_lot brut,
+      // qui peut contenir plusieurs codes combines ("AA1265, AA1266, AA1267")
+      // pour un meme programme. Filtrer ici ferait ressortir les 3 lots des
+      // qu'un seul matche, au lieu du seul lot demande.
       if (produitFilter && !(ligne.produit || "").toLowerCase().includes(produitFilter)) return false;
       if (pdFilter && !ligne.pdLabel.toLowerCase().includes(pdFilter)) return false;
       return true;
@@ -159,7 +163,8 @@ export default async function PlanningDashboardPage({
       !ligne.programme_termine &&
       !ligne.emballage_termine &&
       ligne.emballagePrevu > 0 &&
-      ligne.emballageRestant > 0
+      ligne.emballageRestant > 0 &&
+      (!codeFilter || (ligne.numero_lot || "").toLowerCase().includes(codeFilter))
   );
 
   const totalVracPrevu = vracLignes.reduce((sum, ligne) => sum + ligne.vracPrevu, 0);
@@ -173,12 +178,12 @@ export default async function PlanningDashboardPage({
   // apparait sur sa propre ligne, avec son propre code et sa propre
   // quantite prevue (voir splitLigneIntoDisplayRows). Les totaux ci-dessus
   // restent bases sur les lignes combinees, pas sur cette version divisee.
-  const vracDisplayRows = vracLignes.flatMap((ligne) =>
-    splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_vrac", ligne.vracProduit)
-  );
-  const cartonDisplayRows = cartonLignes.flatMap((ligne) =>
-    splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_carton", ligne.cartonProduit)
-  );
+  const vracDisplayRows = vracLignes
+    .flatMap((ligne) => splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_vrac", ligne.vracProduit))
+    .filter((row) => !codeFilter || row.displayCode.toLowerCase().includes(codeFilter));
+  const cartonDisplayRows = cartonLignes
+    .flatMap((ligne) => splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_carton", ligne.cartonProduit))
+    .filter((row) => !codeFilter || row.displayCode.toLowerCase().includes(codeFilter));
   const totalEmballageProduit = emballageLignes.reduce((sum, ligne) => sum + ligne.emballageProduit, 0);
 
   return (

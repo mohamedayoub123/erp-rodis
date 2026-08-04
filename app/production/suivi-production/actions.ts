@@ -255,6 +255,11 @@ export async function saveEmballageRapportAction(formData: FormData) {
     emballage_scotcheuse: parseOptionalText(formData, "emballage_scotcheuse"),
     emballage_temps_demarrer: parseOptionalText(formData, "emballage_temps_demarrer"),
     emballage_temps_arret: parseOptionalText(formData, "emballage_temps_arret"),
+    emballage_arret_changement_bobine: parseOptionalNumber(formData, "emballage_arret_changement_bobine"),
+    emballage_arret_technique: parseOptionalNumber(formData, "emballage_arret_technique"),
+    emballage_arret_reglage: parseOptionalNumber(formData, "emballage_arret_reglage"),
+    emballage_arret_coupure: parseOptionalNumber(formData, "emballage_arret_coupure"),
+    emballage_arret_autre: parseOptionalNumber(formData, "emballage_arret_autre"),
     utilisateur_emballage: currentUser,
   });
 
