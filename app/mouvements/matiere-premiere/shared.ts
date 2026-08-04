@@ -62,8 +62,14 @@ const SOURCE_COLUMNS =
 const ENTREE_SOURCE = "web:entree-mp";
 const RECEPTION_SOURCE = "web:reception-mp";
 const SORTIE_SOURCE = "web:sortie-mp";
+// Grand livre historique importe depuis Excel (feuille "Mouvements") -
+// exclu de WEB_SOURCES pour ne pas noyer les pages Mouvements MP (~39 500
+// lignes, non paginees) sous l'historique, mais inclus dans LOT_SOURCES pour
+// que ce stock reste selectionnable en Sortie.
+const HISTORIQUE_SOURCE = "excel:historique-mp";
 const ENTREE_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE];
 const WEB_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE, SORTIE_SOURCE];
+const LOT_SOURCES = [...WEB_SOURCES, HISTORIQUE_SOURCE];
 
 // Libelle affichable de la provenance d'une ligne - "TE manuel" saisi
 // directement depuis Entrer stock, ou "TE import" venu d'une Reception
@@ -87,6 +93,36 @@ export async function fetchWebMouvementMpSourceRows() {
       .from("lots_stock_matiere_premiere")
       .select(SOURCE_COLUMNS)
       .in("source_import", WEB_SOURCES)
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const chunk = (data as unknown as MouvementMpSourceRow[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+// Meme requete que fetchWebMouvementMpSourceRows mais incluant aussi
+// l'historique importe depuis Excel - a utiliser uniquement pour calculer le
+// stock disponible en Sortie (computeAvailableMpLots), jamais pour les pages
+// de liste Mouvements MP (voir HISTORIQUE_SOURCE plus haut).
+export async function fetchMpSourceRowsForLots() {
+  const rows: MouvementMpSourceRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .select(SOURCE_COLUMNS)
+      .in("source_import", LOT_SOURCES)
       .range(from, from + pageSize - 1);
 
     if (error) {
