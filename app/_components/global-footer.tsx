@@ -1,6 +1,4 @@
-﻿"use client";
-
-import Link from "next/link";
+﻿import Link from "next/link";
 
 const workflowLinks = [
   { href: "/operations", label: "Centre d'actions" },

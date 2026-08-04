@@ -455,17 +455,21 @@ export async function saveProgrammeLigneBatchAction(formData: FormData) {
   }
   const affectedZoneChaine = [...affectedZoneChaineMap.values()];
 
-  const orFilter = affectedZoneChaine
-    .map(({ zone, chaine }) => `and(zone.eq.${zone},chaine.eq.${chaine})`)
-    .join(",");
+  // Une requete .eq()/.eq() parametree par paire, plutot qu'un seul .or()
+  // construit en interpolant zone/chaine (valeurs saisies cote client) dans
+  // une chaine de filtre PostgREST brute - une valeur contenant une virgule
+  // ou une parenthese pouvait sinon elargir le filtre et faire supprimer des
+  // lignes en dehors des (zone, chaine) vraiment concernees par ce Save.
+  for (const { zone, chaine } of affectedZoneChaine) {
+    const { error: clearDispatcherError } = await supabaseServer
+      .from("programme_dispatcher_lignes")
+      .delete()
+      .eq("zone", zone)
+      .eq("chaine", chaine);
 
-  const { error: clearDispatcherError } = await supabaseServer
-    .from("programme_dispatcher_lignes")
-    .delete()
-    .or(orFilter);
-
-  if (clearDispatcherError) {
-    throw new Error(clearDispatcherError.message);
+    if (clearDispatcherError) {
+      throw new Error(clearDispatcherError.message);
+    }
   }
 
   const { error: dispatcherError } = await supabaseServer

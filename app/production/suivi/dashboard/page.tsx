@@ -174,10 +174,10 @@ export default async function PlanningDashboardPage({
   // quantite prevue (voir splitLigneIntoDisplayRows). Les totaux ci-dessus
   // restent bases sur les lignes combinees, pas sur cette version divisee.
   const vracDisplayRows = vracLignes.flatMap((ligne) =>
-    splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_vrac")
+    splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_vrac", ligne.vracProduit)
   );
   const cartonDisplayRows = cartonLignes.flatMap((ligne) =>
-    splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_carton")
+    splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_carton", ligne.cartonProduit)
   );
   const totalEmballageProduit = emballageLignes.reduce((sum, ligne) => sum + ligne.emballageProduit, 0);
 
@@ -298,7 +298,7 @@ export default async function PlanningDashboardPage({
                             : row.pdLabel}
                         </td>
                         <td className="px-4 py-3">
-                          <RestantBadge restant={row.vracRestant} />
+                          <RestantBadge restant={row.displayRestant ?? row.vracRestant} />
                         </td>
                         <td className="px-4 py-3">
                           <Link
@@ -368,7 +368,7 @@ export default async function PlanningDashboardPage({
                           {Math.round(row.displayQuantite ?? row.cartonPrevu)}
                         </td>
                         <td className="px-4 py-3">
-                          <RestantBadge restant={row.cartonRestant} />
+                          <RestantBadge restant={row.displayRestant ?? row.cartonRestant} />
                         </td>
                         <td className="px-4 py-3">
                           <Link

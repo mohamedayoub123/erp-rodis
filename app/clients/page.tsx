@@ -33,22 +33,42 @@ export default async function ClientsPage({
   const q = (params.q || "").trim();
   const pays = (params.pays || "").trim();
 
-  let clientsQuery = supabaseServer
-    .from("clients")
-    .select("id, nom_client, pays, mode_transport")
-    .order("nom_client", { ascending: true });
+  const clients: ClientRow[] = [];
+  let error: { message: string } | null = null;
+  let from = 0;
+  const pageSize = 1000;
 
-  if (q) {
-    clientsQuery = clientsQuery.ilike("nom_client", `%${q}%`);
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // nombre demande - sans cette boucle, les clients au-dela du 1000e
+  // (tries par nom) etaient invisibles sur cette page.
+  while (true) {
+    let clientsQuery = supabaseServer
+      .from("clients")
+      .select("id, nom_client, pays, mode_transport")
+      .order("nom_client", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (q) {
+      clientsQuery = clientsQuery.ilike("nom_client", `%${q}%`);
+    }
+
+    if (pays) {
+      clientsQuery = clientsQuery.ilike("pays", `%${pays}%`);
+    }
+
+    const { data, error: pageError } = await clientsQuery;
+
+    if (pageError) {
+      error = pageError;
+      break;
+    }
+
+    const chunk = (data as ClientRow[] | null) ?? [];
+    clients.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
   }
-
-  if (pays) {
-    clientsQuery = clientsQuery.ilike("pays", `%${pays}%`);
-  }
-
-  const { data, error } = await clientsQuery;
-
-  const clients = (data as ClientRow[] | null) ?? [];
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#eef6ff_0%,#f8fbff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">

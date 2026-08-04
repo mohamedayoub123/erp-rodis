@@ -405,6 +405,32 @@ async function getClosestClarifiantDates(articleIds: number[]) {
   return byArticle;
 }
 
+async function fetchAllClientNamesForCommandeDetail() {
+  const rows: { client: string | null }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // nombre demande - sans cette boucle, les clients au-dela du 1000e
+  // etaient invisibles dans le datalist du formulaire d'edition.
+  while (true) {
+    const { data, error } = await supabaseServer.from("commandes").select("client").range(
+      from,
+      from + pageSize - 1
+    );
+
+    if (error) break;
+
+    const chunk = (data as { client: string | null }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 export default async function CommandeDetailPage({
   params,
 }: {
@@ -417,7 +443,7 @@ export default async function CommandeDetailPage({
   const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
   const canEditCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
 
-  const [{ data: selectedCommandeData }, { data: fifoData }, { data: commandesData }] =
+  const [{ data: selectedCommandeData }, { data: fifoData }, commandesData] =
     await Promise.all([
       supabaseServer
         .from("commandes")
@@ -434,7 +460,7 @@ export default async function CommandeDetailPage({
         .eq("commande_id", commandeId)
         .order("ordre_ligne", { ascending: true })
         .order("id", { ascending: true }),
-      supabaseServer.from("commandes").select("client"),
+      fetchAllClientNamesForCommandeDetail(),
     ]);
 
   const selectedCommande = (selectedCommandeData as CommandeDetailRow | null) ?? null;
@@ -484,7 +510,7 @@ export default async function CommandeDetailPage({
 
   const clientOptions = [
     ...new Set(
-      ((commandesData as { client: string | null }[] | null) ?? [])
+      commandesData
         .map((row) => (row.client || "").trim())
         .filter(Boolean)
     ),

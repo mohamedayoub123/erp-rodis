@@ -1473,6 +1473,33 @@ function renderGenericFamilyTemplate(
   );
 }
 
+async function fetchAllArticlesForMissingReport() {
+  const rows: { id: number; nom_article: string | null; gamme: string | null }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // nombre demande - sans cette boucle, les articles au-dela du 1000e
+  // etaient absents du rapport "Article manquant".
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article, gamme")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk =
+      (data as { id: number; nom_article: string | null; gamme: string | null }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 export default async function TableauCommandesPage({
   searchParams,
 }: {
@@ -1536,8 +1563,8 @@ export default async function TableauCommandesPage({
 
     // Self-contained: does not need famille_besoins / planning data at all,
     // so this view skips the queries the per-gamme tabs below need.
-    const [{ data: missingArticlesRaw }, { data: missingCommandesRaw }] = await Promise.all([
-      supabaseServer.from("articles").select("id, nom_article, gamme"),
+    const [missingArticlesRaw, { data: missingCommandesRaw }] = await Promise.all([
+      fetchAllArticlesForMissingReport(),
       supabaseServer
         .from("commandes")
         .select(

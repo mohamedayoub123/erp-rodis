@@ -24,6 +24,52 @@ function parseOptionalText(formData: FormData, name: string) {
   return raw || null;
 }
 
+async function fetchAllArticlesMp() {
+  const rows: { id: number; nom_article: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("id, nom_article")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { id: number; nom_article: string }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+async function fetchAllBcCodes() {
+  const rows: { code: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("bons_commande_matiere_premiere")
+      .select("code")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { code: string }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 async function requireWriteAccess() {
   const currentUser = await getCurrentStockUser();
 
@@ -112,12 +158,10 @@ export async function createCommandeBcBatchAction(formData: FormData) {
     throw new Error("Aucun article a enregistrer.");
   }
 
-  const { data: articleRows } = await supabaseServer
-    .from("articles_matiere_premiere")
-    .select("id, nom_article");
+  const articleRows = await fetchAllArticlesMp();
 
   const articleByNormalise = new Map(
-    ((articleRows ?? []) as { id: number; nom_article: string }[]).map((row) => [
+    articleRows.map((row) => [
       normalizeArticle(row.nom_article),
       row,
     ])
@@ -125,11 +169,9 @@ export async function createCommandeBcBatchAction(formData: FormData) {
 
   // Compte le nombre de BC deja crees (groupes distincts par code) pour
   // generer le prochain code (BC1, BC2...).
-  const { data: existingCodes } = await supabaseServer
-    .from("bons_commande_matiere_premiere")
-    .select("code");
+  const existingCodes = await fetchAllBcCodes();
 
-  const distinctCodes = new Set(((existingCodes ?? []) as { code: string }[]).map((row) => row.code));
+  const distinctCodes = new Set(existingCodes.map((row) => row.code));
   const code = `BC${distinctCodes.size + 1}`;
 
   const nDoss4d = parseOptionalText(formData, "n_doss_4d");

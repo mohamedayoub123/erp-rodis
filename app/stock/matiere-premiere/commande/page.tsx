@@ -67,13 +67,26 @@ async function fetchAllImports() {
 }
 
 async function fetchAllDossierStatuts() {
-  const { data, error } = await supabaseServer
-    .from("dossiers_import_mp_statut")
-    .select("n_doss_4d, n_doss_erp, statut, date_prevue_reception");
+  const rows: DossierStatutRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
 
-  if (error) return { rows: [] as DossierStatutRow[], error };
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("dossiers_import_mp_statut")
+      .select("n_doss_4d, n_doss_erp, statut, date_prevue_reception")
+      .range(from, from + pageSize - 1);
 
-  return { rows: (data ?? []) as DossierStatutRow[], error: null };
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as DossierStatutRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
 }
 
 export default async function CommandeMpPage() {

@@ -5,32 +5,74 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 
+async function fetchAllArticlesForNouvelleCommande() {
+  const rows: { id: number; nom_article: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // .limit() demande - sans cette boucle, les articles au-dela du 1000e
+  // (tries par nom) etaient invisibles dans le formulaire.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { id: number; nom_article: string }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+async function fetchAllClientsForNouvelleCommande() {
+  const rows: { nom_client: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // Meme plafond PostgREST a ~1000 lignes - sans cette boucle, les clients
+  // au-dela du 1000e (tries par nom) etaient invisibles dans le datalist.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("clients")
+      .select("nom_client")
+      .order("nom_client", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { nom_client: string }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 export default async function NouvelleCommandePage() {
   const currentStockUser = await getCurrentStockUser();
   const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesNouvelle");
 
-  const [{ data: articlesData }, { data: clientsData }] = await Promise.all([
-    supabaseServer
-      .from("articles")
-      .select("id, nom_article")
-      .order("nom_article", { ascending: true })
-      .limit(10000),
-    supabaseServer
-      .from("clients")
-      .select("nom_client")
-      .order("nom_client", { ascending: true })
-      .limit(10000),
+  const [articlesData, clientsData] = await Promise.all([
+    fetchAllArticlesForNouvelleCommande(),
+    fetchAllClientsForNouvelleCommande(),
   ]);
 
-  const articleOptions =
-    ((articlesData as { id: number; nom_article: string }[] | null) ?? []).map((article) => ({
-      value: String(article.id),
-      label: article.nom_article,
-    }));
+  const articleOptions = articlesData.map((article) => ({
+    value: String(article.id),
+    label: article.nom_article,
+  }));
 
-  const clientOptions = ((clientsData as { nom_client: string }[] | null) ?? []).map(
-    (client) => client.nom_client
-  );
+  const clientOptions = clientsData.map((client) => client.nom_client);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#eef6ff_0%,#f8fbff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">

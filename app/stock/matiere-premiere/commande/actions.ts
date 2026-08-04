@@ -10,6 +10,29 @@ function parseOptionalText(formData: FormData, name: string) {
   return raw || null;
 }
 
+async function fetchAllArticlesMp() {
+  const rows: { id: number; nom_article: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("id, nom_article")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { id: number; nom_article: string }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 // Meme cle de correspondance que bc/actions.ts (recalculee depuis
 // nom_article, pas depuis la colonne article_normalise stockee dont le
 // format a diverge selon l'origine des donnees) - utilisee ici pour
@@ -95,8 +118,8 @@ export async function createReceptionMpAction(formData: FormData) {
   // pour ne pas bloquer la reception d'une commande deja existante.
   if (!articleId && ligne.article_label) {
     const target = normalizeArticle(ligne.article_label);
-    const { data: allArticles } = await supabaseServer.from("articles_matiere_premiere").select("id, nom_article");
-    const found = ((allArticles ?? []) as { id: number; nom_article: string }[]).find(
+    const allArticles = await fetchAllArticlesMp();
+    const found = allArticles.find(
       (article) => normalizeArticle(article.nom_article) === target
     );
 

@@ -4,22 +4,43 @@ import { EntreeClient } from "./entree-client";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 
+async function fetchAllArticlesForEntree() {
+  const rows: { id: number; nom_article: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // .limit() demande - sans cette boucle, les articles au-dela du 1000e
+  // (tries par nom) etaient invisibles dans le formulaire.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { id: number; nom_article: string }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 export default async function EntreeMouvementPage() {
   const currentStockUser = await getCurrentStockUser();
   const canWriteMouvements = await canWritePageUser(currentStockUser, "mouvementsEntree");
 
-  const { data: articlesData } = await supabaseServer
-    .from("articles")
-    .select("id, nom_article")
-    .order("nom_article", { ascending: true })
-    .limit(10000);
+  const articlesData = await fetchAllArticlesForEntree();
 
-  const articles = ((articlesData as { id: number; nom_article: string }[] | null) ?? []).map(
-    (article) => ({
-      id: article.id,
-      label: article.nom_article,
-    })
-  );
+  const articles = articlesData.map((article) => ({
+    id: article.id,
+    label: article.nom_article,
+  }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">

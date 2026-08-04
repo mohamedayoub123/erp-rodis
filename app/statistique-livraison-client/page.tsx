@@ -37,6 +37,33 @@ function daysBetween(fromValue: string, toValue: string) {
   return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);
 }
 
+async function fetchAllCommandesForStatistiqueLivraisonClient() {
+  const rows: CommandeRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // nombre demande - sans cette boucle, les commandes au-dela de la
+  // 1000e (triees par client) etaient invisibles dans les stats.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("commandes")
+      .select("id, client, statut, commentaire, created_at")
+      .order("client", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) return { data: rows, error };
+
+    const chunk = (data as CommandeRow[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { data: rows, error: null };
+}
+
 export default async function StatistiqueLivraisonClientPage({
   searchParams,
 }: {
@@ -46,10 +73,7 @@ export default async function StatistiqueLivraisonClientPage({
   const clientQuery = (params.client || "").trim();
   const moisQuery = (params.mois || "").trim();
 
-  const { data, error } = await supabaseServer
-    .from("commandes")
-    .select("id, client, statut, commentaire, created_at")
-    .order("client", { ascending: true });
+  const { data, error } = await fetchAllCommandesForStatistiqueLivraisonClient();
 
   const allCommandes = (data as CommandeRow[] | null) ?? [];
 

@@ -5,6 +5,32 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { computeArticleFamilyKey } from "@/lib/article-code-family";
 
+async function fetchAllArticlesForFamilyLookup() {
+  const rows: { id: number; nom_article: string; gamme: string | null }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // nombre demande - sans cette boucle, les articles "cousins" au-dela du
+  // 1000e n'etaient pas mis a jour avec le reste de leur famille.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article, gamme")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { id: number; nom_article: string; gamme: string | null }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 export async function updateArticleCodesAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
@@ -50,11 +76,9 @@ export async function updateArticleCodesAction(formData: FormData) {
   if (currentArticle) {
     const familyKey = computeArticleFamilyKey(currentArticle.nom_article, currentArticle.gamme);
 
-    const { data: allArticles } = await supabaseServer
-      .from("articles")
-      .select("id, nom_article, gamme");
+    const allArticles = await fetchAllArticlesForFamilyLookup();
 
-    const familyArticleIds = ((allArticles as { id: number; nom_article: string; gamme: string | null }[] | null) ?? [])
+    const familyArticleIds = allArticles
       .filter((row) => row.id !== articleId && computeArticleFamilyKey(row.nom_article, row.gamme) === familyKey)
       .map((row) => row.id);
 

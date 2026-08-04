@@ -47,11 +47,35 @@ function daysBetween(fromValue: string, toValue: string) {
   return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);
 }
 
+async function fetchAllCommandesForStatistiqueLivraison() {
+  const rows: CommandeRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // nombre demande - sans cette boucle, les commandes au-dela de la
+  // 1000e (triees par date de creation) etaient invisibles dans les stats.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("commandes")
+      .select("id, numero_proforma, client, statut, commentaire, created_at")
+      .order("created_at", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) return { data: rows, error };
+
+    const chunk = (data as CommandeRow[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { data: rows, error: null };
+}
+
 export default async function StatistiqueLivraisonPage() {
-  const { data, error } = await supabaseServer
-    .from("commandes")
-    .select("id, numero_proforma, client, statut, commentaire, created_at")
-    .order("created_at", { ascending: true });
+  const { data, error } = await fetchAllCommandesForStatistiqueLivraison();
 
   const commandes = (data as CommandeRow[] | null) ?? [];
 

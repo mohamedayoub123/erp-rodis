@@ -281,24 +281,40 @@ function parseLines(raw: string): ParsedLine[] {
 }
 
 async function getReservedByArticle(excludeCommandeId?: number) {
-  let query = supabaseServer
-    .from("fifo_resultats")
-    .select("article_id, quantite_chargee, commandes!inner(statut)")
-    .neq("commandes.statut", "LIVREE");
+  const rows: ReservedArticleRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
 
-  if (excludeCommandeId) {
-    query = query.neq("commande_id", excludeCommandeId);
-  }
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // nombre demande - sans cette boucle, le stock reserve au-dela de la
+  // 1000e ligne etait ignore, ce qui pouvait entrainer une survente.
+  while (true) {
+    let query = supabaseServer
+      .from("fifo_resultats")
+      .select("article_id, quantite_chargee, commandes!inner(statut)")
+      .neq("commandes.statut", "LIVREE")
+      .range(from, from + pageSize - 1);
 
-  const { data, error } = await query;
+    if (excludeCommandeId) {
+      query = query.neq("commande_id", excludeCommandeId);
+    }
 
-  if (error) {
-    throw new Error(error.message);
+    const { data, error } = await query;
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const chunk = (data as ReservedArticleRow[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
   }
 
   const reservedMap = new Map<number, number>();
 
-  for (const row of (data as ReservedArticleRow[] | null) ?? []) {
+  for (const row of rows) {
     reservedMap.set(
       row.article_id,
       (reservedMap.get(row.article_id) ?? 0) + Number(row.quantite_chargee ?? 0)
@@ -672,6 +688,32 @@ function getRuleLimitedAvailability(
   return Math.max(0, Number(availability.stock_total ?? 0));
 }
 
+async function fetchAllArticlesForCreateManualCommande() {
+  const rows: { id: number; nom_article: string; article_normalise: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // nombre demande - sans cette boucle, les articles au-dela du 1000e
+  // etaient introuvables lors de la creation manuelle d'une commande.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article, article_normalise")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { data: rows, error };
+
+    const chunk = (data ?? []) as { id: number; nom_article: string; article_normalise: string }[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { data: rows, error: null };
+}
+
 export async function createManualCommandeAction(formData: FormData) {
   await requireCommandesWriteAccess();
   const numeroProforma = String(formData.get("numero_proforma") || "").trim();
@@ -695,9 +737,7 @@ export async function createManualCommandeAction(formData: FormData) {
   // stay "en cours" under the same proforma.
   const lignes = parseLines(rawLines);
 
-  const { data: articlesData, error: articlesError } = await supabaseServer
-    .from("articles")
-    .select("id, nom_article, article_normalise");
+  const { data: articlesData, error: articlesError } = await fetchAllArticlesForCreateManualCommande();
 
   if (articlesError) {
     throw new Error(articlesError.message);
@@ -800,6 +840,32 @@ export async function createManualCommandeAction(formData: FormData) {
   redirect("/commandes");
 }
 
+async function fetchAllArticlesForUpdateManualCommande() {
+  const rows: { id: number; article_normalise: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // nombre demande - sans cette boucle, les articles au-dela du 1000e
+  // etaient introuvables lors de la modification d'une commande.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, article_normalise")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { data: rows, error };
+
+    const chunk = (data ?? []) as { id: number; article_normalise: string }[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { data: rows, error: null };
+}
+
 export async function updateManualCommandeAction(formData: FormData) {
   await requireCommandesEditAccess();
   const commandeId = Number(String(formData.get("commande_id") || "0"));
@@ -816,9 +882,7 @@ export async function updateManualCommandeAction(formData: FormData) {
 
   const lignes = parseLines(rawLines);
 
-  const { data: articlesData, error: articlesError } = await supabaseServer
-    .from("articles")
-    .select("id, article_normalise");
+  const { data: articlesData, error: articlesError } = await fetchAllArticlesForUpdateManualCommande();
 
   if (articlesError) {
     throw new Error(articlesError.message);
@@ -919,6 +983,34 @@ export async function updateManualCommandeAction(formData: FormData) {
   revalidateCommandeDependentPages(commandeId);
 }
 
+async function fetchAllReservedLotsExcludingCommande(commandeId: number) {
+  const rows: { lot_stock_id: number | null; quantite_chargee: number }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
+  // nombre demande - sans cette boucle, les lots reserves au-dela de la
+  // 1000e ligne etaient ignores lors du calcul FIFO.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("fifo_resultats")
+      .select("lot_stock_id, quantite_chargee")
+      .neq("commande_id", commandeId)
+      .range(from, from + pageSize - 1);
+
+    if (error) return { data: rows, error };
+
+    const chunk =
+      (data as { lot_stock_id: number | null; quantite_chargee: number }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { data: rows, error: null };
+}
+
 export async function calculateFifoForCommandeAction(formData: FormData) {
   await requireCommandesEditAccess();
   const commandeId = Number(String(formData.get("commande_id") || "0"));
@@ -949,10 +1041,7 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
   const articleIds = [...new Set(lignes.map((line) => line.article_id))];
   const [{ articleAvailabilityMap, latestLots }, reservedResponse] = await Promise.all([
     buildStockSnapshot(articleIds),
-    supabaseServer
-      .from("fifo_resultats")
-      .select("lot_stock_id, quantite_chargee")
-      .neq("commande_id", commandeId),
+    fetchAllReservedLotsExcludingCommande(commandeId),
   ]);
 
   const lotsData = latestLots.filter((row) => Number(row.stock_restant ?? 0) > 0);

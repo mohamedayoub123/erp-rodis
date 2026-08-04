@@ -170,20 +170,34 @@ async function fetchDormantSansCommandeRows(): Promise<{
   // "consomme" virtuellement les lots les plus anciens en premier (comme
   // le ferait un vrai FIFO), pour que le stock reellement libre soit ce qui
   // reste apres avoir servi toutes les commandes pas encore livrees.
-  const { data: demandData, error: demandError } = await supabaseServer
-    .from("commande_lignes")
-    .select("article_id, quantite_demandee, commandes!inner(statut)")
-    .neq("commandes.statut", "LIVREE");
+  const demandRows: { article_id: number | null; quantite_demandee: number | null }[] = [];
+  let demandFrom = 0;
 
-  if (demandError) {
-    return { rows: [], error: demandError };
+  // Meme plafond PostgREST a ~1000 lignes - sans cette boucle, la demande
+  // au-dela de la 1000e ligne etait ignoree, ce qui pouvait faire croire
+  // qu'un article dormant est libre alors qu'il est encore commande.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("commande_lignes")
+      .select("article_id, quantite_demandee, commandes!inner(statut)")
+      .neq("commandes.statut", "LIVREE")
+      .range(demandFrom, demandFrom + pageSize - 1);
+
+    if (error) {
+      return { rows: [], error };
+    }
+
+    const chunk =
+      (data as { article_id: number | null; quantite_demandee: number | null }[] | null) ?? [];
+    demandRows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    demandFrom += pageSize;
   }
 
   const demandByArticle = new Map<number, number>();
 
-  for (const row of (demandData as
-    | { article_id: number | null; quantite_demandee: number | null }[]
-    | null) ?? []) {
+  for (const row of demandRows) {
     if (!row.article_id) continue;
 
     demandByArticle.set(

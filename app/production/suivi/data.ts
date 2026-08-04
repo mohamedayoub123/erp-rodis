@@ -255,9 +255,13 @@ export function buildDispatcherBatchesByKey(
 // codes joints dans numero_lot ("MB5, MB6, MB7") avec le total combine -
 // cette fonction la retourne telle quelle si elle n'a qu'un seul lot, sinon
 // la divise en une ligne d'affichage par lot (son propre code + sa propre
-// quantite prevue, retrouvee dans programme_dispatcher_lignes), en gardant
-// la meme progression (deja produit/restant) sur chaque ligne puisque cette
-// progression n'est suivie qu'au niveau de la ligne combinee, pas par lot.
+// quantite prevue, retrouvee dans programme_dispatcher_lignes). Le "deja
+// produit" n'est suivi qu'au niveau de la ligne combinee (pas par lot) -
+// produitTotal est donc reparti en cascade sur les lots dans leur ordre
+// d'apparition (le lot 1 se remplit avant le lot 2, etc., comme sur la
+// vraie chaine de production), pour que "Restant" par ligne d'affichage
+// reste coherent avec la quantite prevue affichee sur cette meme ligne au
+// lieu de reprendre le restant combine des 3 lots.
 export function splitLigneIntoDisplayRows<
   T extends {
     id: number;
@@ -270,15 +274,16 @@ export function splitLigneIntoDisplayRows<
 >(
   ligne: T,
   dispatcherBatchesByKey: Map<string, ProgrammeDispatcherLigneRow[]>,
-  quantityField: "qt_vrac" | "qt_carton"
-): (T & { displayCode: string; displayQuantite: number | null })[] {
+  quantityField: "qt_vrac" | "qt_carton",
+  produitTotal: number
+): (T & { displayCode: string; displayQuantite: number | null; displayRestant: number | null })[] {
   const codes = (ligne.numero_lot || "")
     .split(",")
     .map((code) => code.trim())
     .filter(Boolean);
 
   if (codes.length <= 1) {
-    return [{ ...ligne, displayCode: ligne.numero_lot || "-", displayQuantite: null }];
+    return [{ ...ligne, displayCode: ligne.numero_lot || "-", displayQuantite: null, displayRestant: null }];
   }
 
   const key = dispatcherKey(ligne.zone, ligne.chaine, ligne.article_id, ligne.date_jour);
@@ -293,14 +298,23 @@ export function splitLigneIntoDisplayRows<
   // la ligne (edition manuelle, donnee ancienne...), on revient a l'affichage
   // combine plutot que d'afficher une repartition fausse ou incomplete.
   if (rows.length !== codes.length) {
-    return [{ ...ligne, displayCode: ligne.numero_lot || "-", displayQuantite: null }];
+    return [{ ...ligne, displayCode: ligne.numero_lot || "-", displayQuantite: null, displayRestant: null }];
   }
 
-  return rows.map((batch) => ({
-    ...ligne,
-    displayCode: batch.code || "-",
-    displayQuantite: batch[quantityField],
-  }));
+  let remainingProduit = produitTotal;
+
+  return rows.map((batch) => {
+    const batchQuantite = Number(batch[quantityField] ?? 0);
+    const consumed = Math.min(batchQuantite, Math.max(0, remainingProduit));
+    remainingProduit -= consumed;
+
+    return {
+      ...ligne,
+      displayCode: batch.code || "-",
+      displayQuantite: batch[quantityField],
+      displayRestant: batchQuantite - consumed,
+    };
+  });
 }
 
 export function groupCartonEntriesByLigne(

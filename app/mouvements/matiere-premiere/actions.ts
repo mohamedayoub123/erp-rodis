@@ -303,6 +303,72 @@ function parseOptionalText(formData: FormData, name: string) {
   return raw || null;
 }
 
+// Contrairement a la creation (stock_mp_record_sortie_batch verrouille et
+// verifie le solde disponible avant d'inserer), ces deux actions de
+// modification ecrivaient qte_entree/qte_sortie directement sans aucun
+// controle - baisser une entree deja consommee ailleurs, ou augmenter une
+// sortie au-dela du disponible, pouvait rendre le solde du lot negatif.
+// Meilleur effort seulement (pas de verrou entre la lecture et l'ecriture,
+// contrairement a la RPC de creation) - suffisant pour bloquer l'erreur de
+// saisie ordinaire, pas concu pour resister a deux modifications strictement
+// simultanees sur le meme lot.
+async function assertLotBalanceStaysNonNegative(
+  lotId: number,
+  nextQteEntree: number,
+  nextQteSortie: number
+) {
+  const { data: currentRow, error: currentRowError } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .select("article_id, numero_lot, code_normalise, qte_entree, qte_sortie")
+    .eq("id", lotId)
+    .maybeSingle();
+
+  if (currentRowError) {
+    throw new Error(currentRowError.message);
+  }
+
+  if (!currentRow) {
+    throw new Error("Ligne stock matiere premiere invalide.");
+  }
+
+  const row = currentRow as {
+    article_id: number | null;
+    numero_lot: string | null;
+    code_normalise: string | null;
+    qte_entree: number;
+    qte_sortie: number;
+  };
+
+  const codeKey = (row.code_normalise || row.numero_lot || "").trim().toUpperCase();
+
+  if (!row.article_id || !codeKey) {
+    return;
+  }
+
+  const { data: groupRows, error: groupError } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .select("qte_entree, qte_sortie, numero_lot, code_normalise")
+    .eq("article_id", row.article_id);
+
+  if (groupError) {
+    throw new Error(groupError.message);
+  }
+
+  const currentBalance = ((groupRows ?? []) as { qte_entree: number; qte_sortie: number; numero_lot: string | null; code_normalise: string | null }[])
+    .filter((line) => (line.code_normalise || line.numero_lot || "").trim().toUpperCase() === codeKey)
+    .reduce((sum, line) => sum + Number(line.qte_entree ?? 0) - Number(line.qte_sortie ?? 0), 0);
+
+  const oldRowNet = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
+  const newRowNet = nextQteEntree - nextQteSortie;
+  const nextBalance = currentBalance - oldRowNet + newRowNet;
+
+  if (nextBalance < 0) {
+    throw new Error(
+      `Cette modification rendrait le stock du lot negatif (solde actuel disponible ailleurs sur ce lot : ${currentBalance - oldRowNet}).`
+    );
+  }
+}
+
 export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
@@ -312,16 +378,26 @@ export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
 
   const lotId = Number(String(formData.get("lot_id") || "0"));
   const quantite = parseOptionalNumber(formData, "quantite");
+  const numeroLot = parseOptionalText(formData, "numero_lot");
 
   if (!lotId || quantite === null || quantite <= 0) {
     throw new Error("Ligne stock matiere premiere invalide.");
   }
 
+  await assertLotBalanceStaysNonNegative(lotId, quantite, 0);
+
   const { error } = await supabaseServer
     .from("lots_stock_matiere_premiere")
     .update({
       qte_entree: quantite,
-      numero_lot: parseOptionalText(formData, "numero_lot"),
+      numero_lot: numeroLot,
+      // code_normalise doit suivre numero_lot (meme convention qu'a la
+      // creation, voir createEntreeMpBatchAction) - sans ca, corriger une
+      // faute de frappe sur le numero de lot desynchronise cette ligne du
+      // reste du meme lot physique pour le regroupement par code (Stock MP)
+      // et le calcul de solde disponible en Sortie, qui restent sur
+      // l'ancien code_normalise.
+      code_normalise: numeroLot ? numeroLot.toUpperCase() : null,
       date_reception: parseOptionalText(formData, "date_reception"),
       date_fabrication: parseOptionalText(formData, "date_fabrication"),
       date_expiration: parseOptionalText(formData, "date_expiration"),
@@ -359,6 +435,8 @@ export async function updateLotFromSortieMpDetailAction(formData: FormData) {
   if (!dateSortie) {
     throw new Error("Date de sortie invalide.");
   }
+
+  await assertLotBalanceStaysNonNegative(lotId, 0, quantite);
 
   const { error } = await supabaseServer
     .from("lots_stock_matiere_premiere")
