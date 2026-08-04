@@ -5,6 +5,7 @@ export type ProgrammeLigneRow = {
   groupe_id: number;
   zone: string;
   chaine: string;
+  article_id: number | null;
   produit: string | null;
   qt_carton: number | null;
   vrac_a_fabriquer: number | null;
@@ -66,7 +67,7 @@ export async function fetchAllProgrammeLignes(options?: {
     let query = supabaseServer
       .from("programme_lignes")
       .select(
-        "id, groupe_id, zone, chaine, produit, qt_carton, vrac_a_fabriquer, plateforme, date_jour, created_at, vrac_termine, vrac_termine_date, carton_termine, carton_termine_date, emballage_termine, emballage_termine_date, numero_lot, programme_termine, programme_termine_date"
+        "id, groupe_id, zone, chaine, article_id, produit, qt_carton, vrac_a_fabriquer, plateforme, date_jour, created_at, vrac_termine, vrac_termine_date, carton_termine, carton_termine_date, emballage_termine, emballage_termine_date, numero_lot, programme_termine, programme_termine_date"
       );
 
     if (options?.activeOnly) {
@@ -192,6 +193,114 @@ export async function fetchAllEmballageEntries(ligneIds?: number[]): Promise<Emb
   }
 
   return rows;
+}
+
+export type ProgrammeDispatcherLigneRow = {
+  zone: string;
+  chaine: string;
+  article_id: number | null;
+  code: string | null;
+  date_jour: string;
+  qt_vrac: number | null;
+  qt_carton: number | null;
+};
+
+// Quand "Programme par ligne" decoupe une ligne en plusieurs lots (voir
+// splitVracIntoBatches cote programe-par-ligne/actions.ts), chaque lot recoit
+// son propre code et sa propre quantite ici (contrairement a la ligne
+// programme_lignes d'origine, qui garde le total combine avec les codes
+// joints dans numero_lot) - c'est la seule source qui permet de retrouver la
+// quantite propre a chaque lot pour l'affichage divise du Dashboard.
+export async function fetchAllProgrammeDispatcherLignes(): Promise<ProgrammeDispatcherLigneRow[]> {
+  const rows: ProgrammeDispatcherLigneRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("programme_dispatcher_lignes")
+      .select("zone, chaine, article_id, code, date_jour, qt_vrac, qt_carton")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as ProgrammeDispatcherLigneRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+export function dispatcherKey(zone: string, chaine: string, articleId: number | null, dateJour: string) {
+  return `${zone}::${chaine}::${articleId ?? ""}::${dateJour}`;
+}
+
+export function buildDispatcherBatchesByKey(
+  dispatcherLignes: ProgrammeDispatcherLigneRow[]
+): Map<string, ProgrammeDispatcherLigneRow[]> {
+  const map = new Map<string, ProgrammeDispatcherLigneRow[]>();
+  for (const row of dispatcherLignes) {
+    const key = dispatcherKey(row.zone, row.chaine, row.article_id, row.date_jour);
+    const list = map.get(key) ?? [];
+    list.push(row);
+    map.set(key, list);
+  }
+  return map;
+}
+
+// Une ligne "Programme par ligne" decoupee en plusieurs lots stocke ses
+// codes joints dans numero_lot ("MB5, MB6, MB7") avec le total combine -
+// cette fonction la retourne telle quelle si elle n'a qu'un seul lot, sinon
+// la divise en une ligne d'affichage par lot (son propre code + sa propre
+// quantite prevue, retrouvee dans programme_dispatcher_lignes), en gardant
+// la meme progression (deja produit/restant) sur chaque ligne puisque cette
+// progression n'est suivie qu'au niveau de la ligne combinee, pas par lot.
+export function splitLigneIntoDisplayRows<
+  T extends {
+    id: number;
+    zone: string;
+    chaine: string;
+    article_id: number | null;
+    date_jour: string;
+    numero_lot: string | null;
+  },
+>(
+  ligne: T,
+  dispatcherBatchesByKey: Map<string, ProgrammeDispatcherLigneRow[]>,
+  quantityField: "qt_vrac" | "qt_carton"
+): (T & { displayCode: string; displayQuantite: number | null })[] {
+  const codes = (ligne.numero_lot || "")
+    .split(",")
+    .map((code) => code.trim())
+    .filter(Boolean);
+
+  if (codes.length <= 1) {
+    return [{ ...ligne, displayCode: ligne.numero_lot || "-", displayQuantite: null }];
+  }
+
+  const key = dispatcherKey(ligne.zone, ligne.chaine, ligne.article_id, ligne.date_jour);
+  const batches = dispatcherBatchesByKey.get(key) ?? [];
+  const batchByCode = new Map(batches.map((batch) => [batch.code, batch]));
+
+  const rows = codes
+    .map((code) => batchByCode.get(code))
+    .filter((batch): batch is ProgrammeDispatcherLigneRow => Boolean(batch));
+
+  // Si les lots du Dispatcher ne correspondent plus exactement aux codes de
+  // la ligne (edition manuelle, donnee ancienne...), on revient a l'affichage
+  // combine plutot que d'afficher une repartition fausse ou incomplete.
+  if (rows.length !== codes.length) {
+    return [{ ...ligne, displayCode: ligne.numero_lot || "-", displayQuantite: null }];
+  }
+
+  return rows.map((batch) => ({
+    ...ligne,
+    displayCode: batch.code || "-",
+    displayQuantite: batch[quantityField],
+  }));
 }
 
 export function groupCartonEntriesByLigne(

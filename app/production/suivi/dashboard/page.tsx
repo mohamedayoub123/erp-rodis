@@ -6,14 +6,17 @@ import { AutoRefresh } from "@/app/_components/auto-refresh";
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { markCartonTermineAction, markEmballageTermineAction, markVracTermineAction } from "../actions";
 import {
+  buildDispatcherBatchesByKey,
   buildPdLabelByCode,
   fetchAllCartonEntries,
   fetchAllEmballageEntries,
+  fetchAllProgrammeDispatcherLignes,
   fetchAllProgrammeLignes,
   fetchAllVracEntries,
   formatDate,
   groupCartonEntriesByLigne,
   pdLabelsForNumeroLot,
+  splitLigneIntoDisplayRows,
 } from "../data";
 
 function RestantBadge({ restant }: { restant: number }) {
@@ -71,10 +74,13 @@ export default async function PlanningDashboardPage({
   const produitFilter = (params.produit || "").trim().toLowerCase();
   const pdFilter = (params.pd || "").trim().toLowerCase();
 
-  const [{ rows: allLignes }, pdLabelByCode] = await Promise.all([
+  const [{ rows: allLignes }, pdLabelByCode, dispatcherLignes] = await Promise.all([
     fetchAllProgrammeLignes({ activeOnly: true }),
     buildPdLabelByCode(),
+    fetchAllProgrammeDispatcherLignes(),
   ]);
+
+  const dispatcherBatchesByKey = buildDispatcherBatchesByKey(dispatcherLignes);
 
   const activeLigneIds = allLignes.map((ligne) => ligne.id);
 
@@ -161,6 +167,18 @@ export default async function PlanningDashboardPage({
   const totalCartonPrevu = cartonLignes.reduce((sum, ligne) => sum + ligne.cartonPrevu, 0);
   const totalCartonProduit = cartonLignes.reduce((sum, ligne) => sum + ligne.cartonProduit, 0);
   const totalEmballagePrevu = emballageLignes.reduce((sum, ligne) => sum + ligne.emballagePrevu, 0);
+
+  // Une ligne decoupee en plusieurs lots (numero_lot = "MB5, MB6, MB7") ne
+  // doit pas s'afficher regroupee sous un seul code/quantite - chaque lot
+  // apparait sur sa propre ligne, avec son propre code et sa propre
+  // quantite prevue (voir splitLigneIntoDisplayRows). Les totaux ci-dessus
+  // restent bases sur les lignes combinees, pas sur cette version divisee.
+  const vracDisplayRows = vracLignes.flatMap((ligne) =>
+    splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_vrac")
+  );
+  const cartonDisplayRows = cartonLignes.flatMap((ligne) =>
+    splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_carton")
+  );
   const totalEmballageProduit = emballageLignes.reduce((sum, ligne) => sum + ligne.emballageProduit, 0);
 
   return (
@@ -252,7 +270,7 @@ export default async function PlanningDashboardPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {vracLignes.length === 0 ? (
+                  {vracDisplayRows.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-4 py-6 text-center text-sm text-slate-500">
                         {hasFilters
@@ -261,31 +279,37 @@ export default async function PlanningDashboardPage({
                       </td>
                     </tr>
                   ) : (
-                    vracLignes.map((ligne) => (
-                      <tr key={ligne.id} className="border-t border-slate-100">
-                        <td className="px-4 py-3 text-slate-600">{formatDate(ligne.date_jour)}</td>
+                    vracDisplayRows.map((row) => (
+                      <tr key={`${row.id}-${row.displayCode}`} className="border-t border-slate-100">
+                        <td className="px-4 py-3 text-slate-600">{formatDate(row.date_jour)}</td>
                         <td className="px-4 py-3 font-medium text-slate-900">
-                          {ligne.zone} / {ligne.chaine}
+                          {row.zone} / {row.chaine}
                         </td>
-                        <td className="px-4 py-3 text-slate-900">{Math.round(ligne.vracPrevu)}</td>
+                        <td className="px-4 py-3 text-slate-900">
+                          {Math.round(row.displayQuantite ?? row.vracPrevu)}
+                        </td>
                         <td className="px-4 py-3 text-slate-600">
-                          {vracLabelFromName(ligne.produit) || "-"}
+                          {vracLabelFromName(row.produit) || "-"}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">{ligne.numero_lot || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{ligne.pdLabel}</td>
+                        <td className="px-4 py-3 text-slate-700">{row.displayCode}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {row.displayQuantite !== null
+                            ? pdLabelsForNumeroLot(row.displayCode, pdLabelByCode)
+                            : row.pdLabel}
+                        </td>
                         <td className="px-4 py-3">
-                          <RestantBadge restant={ligne.vracRestant} />
+                          <RestantBadge restant={row.vracRestant} />
                         </td>
                         <td className="px-4 py-3">
                           <Link
-                            href={`/production/suivi-production/fabrication/${ligne.id}`}
+                            href={`/production/suivi-production/fabrication/${row.id}`}
                             className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
                           >
                             Ouvrir
                           </Link>
                         </td>
                         <td className="px-4 py-3">
-                          <FinProgrammeButton ligneId={ligne.id} action={markVracTermineAction} />
+                          <FinProgrammeButton ligneId={row.id} action={markVracTermineAction} />
                         </td>
                       </tr>
                     ))
@@ -318,7 +342,7 @@ export default async function PlanningDashboardPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {cartonLignes.length === 0 ? (
+                  {cartonDisplayRows.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-4 py-6 text-center text-sm text-slate-500">
                         {hasFilters
@@ -327,29 +351,35 @@ export default async function PlanningDashboardPage({
                       </td>
                     </tr>
                   ) : (
-                    cartonLignes.map((ligne) => (
-                      <tr key={ligne.id} className="border-t border-slate-100">
-                        <td className="px-4 py-3 text-slate-600">{formatDate(ligne.date_jour)}</td>
+                    cartonDisplayRows.map((row) => (
+                      <tr key={`${row.id}-${row.displayCode}`} className="border-t border-slate-100">
+                        <td className="px-4 py-3 text-slate-600">{formatDate(row.date_jour)}</td>
                         <td className="px-4 py-3 font-medium text-slate-900">
-                          {ligne.zone} / {ligne.chaine}
+                          {row.zone} / {row.chaine}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">{ligne.produit || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{ligne.numero_lot || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{ligne.pdLabel}</td>
-                        <td className="px-4 py-3 text-slate-900">{Math.round(ligne.cartonPrevu)}</td>
+                        <td className="px-4 py-3 text-slate-600">{row.produit || "-"}</td>
+                        <td className="px-4 py-3 text-slate-700">{row.displayCode}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {row.displayQuantite !== null
+                            ? pdLabelsForNumeroLot(row.displayCode, pdLabelByCode)
+                            : row.pdLabel}
+                        </td>
+                        <td className="px-4 py-3 text-slate-900">
+                          {Math.round(row.displayQuantite ?? row.cartonPrevu)}
+                        </td>
                         <td className="px-4 py-3">
-                          <RestantBadge restant={ligne.cartonRestant} />
+                          <RestantBadge restant={row.cartonRestant} />
                         </td>
                         <td className="px-4 py-3">
                           <Link
-                            href={`/production/suivi-production/conditionnement/${ligne.id}`}
+                            href={`/production/suivi-production/conditionnement/${row.id}`}
                             className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
                           >
                             Ouvrir
                           </Link>
                         </td>
                         <td className="px-4 py-3">
-                          <FinProgrammeButton ligneId={ligne.id} action={markCartonTermineAction} />
+                          <FinProgrammeButton ligneId={row.id} action={markCartonTermineAction} />
                         </td>
                       </tr>
                     ))
