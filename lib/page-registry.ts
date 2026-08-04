@@ -560,7 +560,16 @@ export function sectionForPage(page: PageDefinition): AdminSection {
 function matchedPrefixLength(page: PageDefinition, pathname: string): number {
   let best = -1;
   for (const prefix of page.pathPrefixes) {
-    const matches = pathname === prefix || pathname.startsWith(`${prefix}/`);
+    // Un prefixe qui se termine deja par "/" (ex: commandesDetail,
+    // "/commandes/" pour matcher tout /commandes/<id> dynamique) doit
+    // matcher directement via startsWith - sinon on testerait
+    // pathname.startsWith("/commandes//") avec un double slash, qui ne
+    // matche jamais aucune vraie URL et laisse la page detail totalement
+    // injoignable (son propre "/commandes/" gagne aussi en longueur sur le
+    // "/commandes" de la liste, donc reste bien le plus specifique).
+    const matches = prefix.endsWith("/")
+      ? pathname.startsWith(prefix)
+      : pathname === prefix || pathname.startsWith(`${prefix}/`);
     if (matches && prefix.length > best) {
       best = prefix.length;
     }

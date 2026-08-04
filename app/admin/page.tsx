@@ -4,6 +4,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import {
   getCurrentStockUser,
+  getUserPermissions,
   isAdminUser,
   listStockUsers,
 } from "@/lib/stock-auth";
@@ -48,8 +49,15 @@ export default async function AdminPage({
   const workbookSource = getWorkbookSourceLabel();
   const importStatus = readImportStatus();
   const currentUser = await getCurrentStockUser();
+  // "Gerer utilisateurs" doit donner acces a cette page comme mayoub -
+  // avant ce garde-fou, la page ne verifiait que isAdminUser (mayoub
+  // uniquement), donc cocher "Gerer utilisateurs" pour quelqu'un d'autre ne
+  // le laissait jamais entrer sur /admin (voir aussi actions.ts, meme
+  // correction sur les 3 actions de gestion des comptes).
+  const isAdmin = isAdminUser(currentUser);
+  const canManageUsers = isAdmin || (await getUserPermissions(currentUser)).manageUsers;
 
-  if (!isAdminUser(currentUser)) {
+  if (!canManageUsers) {
     return (
       <main className="min-h-screen bg-[linear-gradient(180deg,#f2f7ff_0%,#fbfdff_50%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
         <div className="mx-auto w-full max-w-3xl">

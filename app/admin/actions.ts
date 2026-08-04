@@ -21,6 +21,17 @@ import {
 import { PAGE_REGISTRY } from "@/lib/page-registry";
 import { resolveWorkbookPath, saveUploadedWorkbook } from "@/lib/workbook-path";
 
+// "Gerer utilisateurs" (case cochee par mayoub sur un autre compte) doit
+// donner acces aux memes actions que mayoub sur la gestion des comptes -
+// avant ce garde-fou, la case n'avait aucun effet reel : la page /admin et
+// ces trois actions ne verifiaient que isAdminUser (mayoub uniquement),
+// donc cocher "Gerer utilisateurs" pour quelqu'un d'autre ne changeait rien.
+async function canManageUsers(username: string | null | undefined) {
+  if (isAdminUser(username)) return true;
+  const permissions = await getUserPermissions(username);
+  return permissions.manageUsers;
+}
+
 function revalidateAdminImports() {
   revalidatePath("/");
   revalidatePath("/admin");
@@ -56,7 +67,7 @@ function buildUploadErrorRedirect(message: string) {
 export async function createUserAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!isAdminUser(currentUser)) {
+  if (!(await canManageUsers(currentUser))) {
     redirect("/?user=forbidden");
   }
 
@@ -93,7 +104,7 @@ function readPermissionFlag(formData: FormData, key: string) {
 export async function deleteUserAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!isAdminUser(currentUser)) {
+  if (!(await canManageUsers(currentUser))) {
     redirect("/?user=forbidden");
   }
 
@@ -116,7 +127,7 @@ export async function deleteUserAction(formData: FormData) {
 export async function updateUserPermissionsAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!isAdminUser(currentUser)) {
+  if (!(await canManageUsers(currentUser))) {
     redirect("/?user=forbidden");
   }
 
@@ -183,6 +194,10 @@ export async function updateUserPermissionsAction(formData: FormData) {
 }
 
 export async function refreshArticlesAction() {
+  if (!isAdminUser(await getCurrentStockUser())) {
+    throw new Error("Cet utilisateur ne peut pas lancer une mise a jour.");
+  }
+
   const result = refreshArticlesImport(resolveWorkbookPath());
   revalidatePath("/");
   revalidatePath("/articles/produit-fini");
@@ -193,6 +208,10 @@ export async function refreshArticlesAction() {
 }
 
 export async function refreshStockAction() {
+  if (!isAdminUser(await getCurrentStockUser())) {
+    throw new Error("Cet utilisateur ne peut pas lancer une mise a jour.");
+  }
+
   const result = refreshLotsImport(resolveWorkbookPath());
   revalidatePath("/");
   revalidatePath("/stock");
@@ -204,6 +223,10 @@ export async function refreshStockAction() {
 }
 
 export async function refreshAllExcelAction() {
+  if (!isAdminUser(await getCurrentStockUser())) {
+    throw new Error("Cet utilisateur ne peut pas lancer une mise a jour.");
+  }
+
   const workbookPath = resolveWorkbookPath();
 
   refreshArticlesImport(workbookPath);
@@ -215,12 +238,20 @@ export async function refreshAllExcelAction() {
 }
 
 export async function refreshCommandesListAction() {
+  if (!isAdminUser(await getCurrentStockUser())) {
+    throw new Error("Cet utilisateur ne peut pas lancer une mise a jour.");
+  }
+
   const result = refreshCommandesListImport();
   revalidateAdminImports();
   return result;
 }
 
 export async function uploadWorkbookAction(formData: FormData) {
+  if (!isAdminUser(await getCurrentStockUser())) {
+    redirect("/?user=forbidden");
+  }
+
   const fileValue = formData.get("workbook");
   const fileError = validateWorkbookFile(fileValue);
   if (fileError) redirect(`/admin?upload=${fileError}`);
@@ -248,6 +279,10 @@ export async function uploadWorkbookAction(formData: FormData) {
 }
 
 export async function uploadDataWorkbookAction(formData: FormData) {
+  if (!isAdminUser(await getCurrentStockUser())) {
+    redirect("/?user=forbidden");
+  }
+
   const fileValue = formData.get("workbook");
   const fileError = validateWorkbookFile(fileValue);
   if (fileError) redirect(`/admin?upload=data-${fileError}`);
@@ -269,6 +304,10 @@ export async function uploadDataWorkbookAction(formData: FormData) {
 }
 
 export async function uploadEntrerWorkbookAction(formData: FormData) {
+  if (!isAdminUser(await getCurrentStockUser())) {
+    redirect("/?user=forbidden");
+  }
+
   const fileValue = formData.get("workbook");
   const fileError = validateWorkbookFile(fileValue);
   if (fileError) redirect(`/admin?upload=entrer-${fileError}`);
@@ -295,6 +334,10 @@ export async function uploadEntrerWorkbookAction(formData: FormData) {
 }
 
 export async function uploadCommandeWorkbookAction(formData: FormData) {
+  if (!isAdminUser(await getCurrentStockUser())) {
+    redirect("/?user=forbidden");
+  }
+
   const fileValue = formData.get("workbook");
   const fileError = validateWorkbookFile(fileValue);
   if (fileError) redirect(`/admin?upload=commande-${fileError}`);
@@ -313,6 +356,10 @@ export async function uploadCommandeWorkbookAction(formData: FormData) {
 }
 
 export async function uploadClientsWorkbookAction(formData: FormData) {
+  if (!isAdminUser(await getCurrentStockUser())) {
+    redirect("/?user=forbidden");
+  }
+
   const fileValue = formData.get("workbook");
   const fileError = validateWorkbookFile(fileValue);
   if (fileError) redirect(`/admin?upload=clients-${fileError}`);

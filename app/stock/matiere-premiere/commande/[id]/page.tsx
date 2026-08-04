@@ -162,11 +162,20 @@ export default async function ImportMpDossierPage({
                   </thead>
                   <tbody>
                     {bcLignes.map((ligne) => {
-                      const statut = (ligne.statut === "Receptionne" ? "Receptionne" : "Stand") as StatutBc;
                       const quantiteReceptionnee = quantiteReceptionneeParLigne.get(ligne.id) ?? 0;
-                      const dejaReceptionne = ligne.statut === "Receptionne";
                       const quantiteImportee = quantiteImporteeParLigne.get(ligne.id) ?? 0;
                       const quantiteAReceptionner = Math.max(0, quantiteImportee - quantiteReceptionnee);
+                      // ligne.statut vient de bons_commande_matiere_premiere - une seule
+                      // valeur par ligne BC, pas par dossier. Un article qui arrive en
+                      // plusieurs dossiers (chacun avec sa propre reception, voir
+                      // bc/actions.ts) passe ce statut a "Receptionne" des le premier
+                      // dossier receptionne - ne pas s'en servir pour bloquer le bouton
+                      // Reception des autres dossiers, sinon leur part n'est plus jamais
+                      // receptionnable. "dejaReceptionne" doit refleter CE dossier
+                      // uniquement, via quantiteAReceptionner qui est deja calcule a
+                      // partir des seuls evenements de ce dossier.
+                      const dejaReceptionne = quantiteAReceptionner <= 0;
+                      const statut = (dejaReceptionne ? "Receptionne" : "Stand") as StatutBc;
 
                       return (
                         <tr key={ligne.id} className="border-t border-slate-100 align-top">

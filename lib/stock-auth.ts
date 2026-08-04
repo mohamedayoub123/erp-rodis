@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { supabaseServer } from "./supabase-server";
 import { PAGE_REGISTRY, findPageForPath, type PageDefinition } from "./page-registry";
@@ -235,7 +236,13 @@ async function seedDefaultUsers() {
   }
 }
 
-async function readUsers(): Promise<Record<string, NormalizedUserRecord>> {
+// Chaque verification de permission (canViewPageUser, canWritePageUser,
+// getCurrentStockUser...) appelle readUsers() independamment - sans cache,
+// une seule page en appelait 6 a 8 fois d'affilee, chacune relisant toute la
+// table stock_users. React.cache() dedoublonne ces appels au sein d'une
+// meme requete serveur (jamais entre deux requetes/connexions differentes,
+// donc aucun risque de permissions perimees affichees a un utilisateur).
+const readUsers = cache(async (): Promise<Record<string, NormalizedUserRecord>> => {
   const { data, error } = await supabaseServer
     .from("stock_users")
     .select("username, password_hash, permissions");
@@ -264,7 +271,7 @@ async function readUsers(): Promise<Record<string, NormalizedUserRecord>> {
       }),
     ])
   );
-}
+});
 
 async function writeUsers(users: Record<string, NormalizedUserRecord>) {
   const rows = Object.entries(users).map(([username, user]) => ({
