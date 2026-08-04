@@ -163,8 +163,7 @@ export default async function PlanningDashboardPage({
       !ligne.programme_termine &&
       !ligne.emballage_termine &&
       ligne.emballagePrevu > 0 &&
-      ligne.emballageRestant > 0 &&
-      (!codeFilter || (ligne.numero_lot || "").toLowerCase().includes(codeFilter))
+      ligne.emballageRestant > 0
   );
 
   const totalVracPrevu = vracLignes.reduce((sum, ligne) => sum + ligne.vracPrevu, 0);
@@ -185,6 +184,25 @@ export default async function PlanningDashboardPage({
     .flatMap((ligne) => splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_carton", ligne.cartonProduit))
     .filter((row) => !codeFilter || row.displayCode.toLowerCase().includes(codeFilter));
   const totalEmballageProduit = emballageLignes.reduce((sum, ligne) => sum + ligne.emballageProduit, 0);
+
+  // L'emballage n'a pas de quantite prevue par lot (contrairement au
+  // vrac/carton, pas de programme_dispatcher_lignes pour ce stade) - le
+  // "Reste" reste celui de la ligne combinee, partage sur chaque code
+  // eclate, mais chaque code obtient bien sa propre ligne d'affichage.
+  const emballageDisplayRows = emballageLignes
+    .flatMap((ligne) => {
+      const codes = (ligne.numero_lot || "")
+        .split(",")
+        .map((code) => code.trim())
+        .filter(Boolean);
+
+      if (codes.length <= 1) {
+        return [{ ...ligne, displayCode: ligne.numero_lot || "-" }];
+      }
+
+      return codes.map((code) => ({ ...ligne, displayCode: code }));
+    })
+    .filter((row) => !codeFilter || row.displayCode.toLowerCase().includes(codeFilter));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -414,31 +432,33 @@ export default async function PlanningDashboardPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {emballageLignes.length === 0 ? (
+                  {emballageDisplayRows.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500">
-                        Rien a emballer pour le moment.
+                        {hasFilters
+                          ? "Aucun resultat pour ce filtre."
+                          : "Rien a emballer pour le moment."}
                       </td>
                     </tr>
                   ) : (
-                    emballageLignes.map((ligne) => (
-                      <tr key={ligne.id} className="border-t border-slate-100">
-                        <td className="px-4 py-3 text-slate-600">{formatDate(ligne.date_jour)}</td>
-                        <td className="px-4 py-3 text-slate-600">{ligne.produit || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{ligne.numero_lot || "-"}</td>
+                    emballageDisplayRows.map((row) => (
+                      <tr key={`${row.id}-${row.displayCode}`} className="border-t border-slate-100">
+                        <td className="px-4 py-3 text-slate-600">{formatDate(row.date_jour)}</td>
+                        <td className="px-4 py-3 text-slate-600">{row.produit || "-"}</td>
+                        <td className="px-4 py-3 text-slate-700">{row.displayCode}</td>
                         <td className="px-4 py-3">
-                          <RestantBadge restant={ligne.emballageRestant} />
+                          <RestantBadge restant={row.emballageRestant} />
                         </td>
                         <td className="px-4 py-3">
                           <Link
-                            href={`/production/suivi-production/emballage/${ligne.id}`}
+                            href={`/production/suivi-production/emballage/${row.id}`}
                             className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
                           >
                             Ouvrir
                           </Link>
                         </td>
                         <td className="px-4 py-3">
-                          <FinProgrammeButton ligneId={ligne.id} action={markEmballageTermineAction} />
+                          <FinProgrammeButton ligneId={row.id} action={markEmballageTermineAction} />
                         </td>
                       </tr>
                     ))
