@@ -1,8 +1,18 @@
 import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { getCurrentStockUser, getPageViewMap } from "@/lib/stock-auth";
 
-export default function SuiviProductionPage() {
+const TILES = [
+  { label: "Dashboard", href: "/production/suivi/dashboard", pageKey: "productionSuiviDashboard" },
+  { label: "Calendrier", href: "/production/suivi/calendrier", pageKey: "productionSuiviCalendrier" },
+] as const;
+
+export default async function SuiviProductionPage() {
+  const currentUser = await getCurrentStockUser();
+  const pageViewMap = await getPageViewMap(currentUser);
+  const visibleTiles = TILES.filter((tile) => pageViewMap[tile.pageKey] ?? false);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full max-w-3xl space-y-6">
@@ -25,18 +35,15 @@ export default function SuiviProductionPage() {
         </section>
 
         <section className="flex flex-wrap gap-3">
-          <Link
-            href="/production/suivi/dashboard"
-            className="flex-1 rounded-[1.75rem] border border-black/5 bg-white p-6 text-center text-lg font-bold text-slate-900 shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:border-sky-300"
-          >
-            Dashboard
-          </Link>
-          <Link
-            href="/production/suivi/calendrier"
-            className="flex-1 rounded-[1.75rem] border border-black/5 bg-white p-6 text-center text-lg font-bold text-slate-900 shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:border-sky-300"
-          >
-            Calendrier
-          </Link>
+          {visibleTiles.map((tile) => (
+            <Link
+              key={tile.href}
+              href={tile.href}
+              className="flex-1 rounded-[1.75rem] border border-black/5 bg-white p-6 text-center text-lg font-bold text-slate-900 shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:border-sky-300"
+            >
+              {tile.label}
+            </Link>
+          ))}
         </section>
       </div>
     </main>
