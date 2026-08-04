@@ -31,11 +31,51 @@ async function fetchAllArticlesForSortie() {
   return rows;
 }
 
+// Solde par article+lot (somme qte_entree - qte_sortie), pour que la Sortie
+// normale propose seulement les lots qui existent reellement en stock, au
+// lieu d'une saisie libre qui peut viser un lot inexistant.
+async function fetchLotBalancesForSortie() {
+  type Row = { article_id: number | null; numero_lot: string | null; qte_entree: number; qte_sortie: number };
+  const rows: Row[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .select("article_id, numero_lot, qte_entree, qte_sortie")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as Row[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const balances = new Map<string, { article_id: number; numero_lot: string; stock: number }>();
+
+  for (const row of rows) {
+    if (!row.article_id || !row.numero_lot) continue;
+    const key = `${row.article_id}::${row.numero_lot.trim().toUpperCase()}`;
+    const current = balances.get(key) ?? { article_id: row.article_id, numero_lot: row.numero_lot.trim(), stock: 0 };
+    current.stock += Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
+    balances.set(key, current);
+  }
+
+  return [...balances.values()].filter((balance) => balance.stock > 0);
+}
+
 export default async function MouvementsMatierePremiereSortiePage() {
   const currentStockUser = await getCurrentStockUser();
   const canWriteMouvements = await canWritePageUser(currentStockUser, "mouvementsMatierePremiereSortie");
 
-  const articlesData = await fetchAllArticlesForSortie();
+  const [articlesData, lots] = await Promise.all([
+    fetchAllArticlesForSortie(),
+    fetchLotBalancesForSortie(),
+  ]);
 
   const articles = articlesData.map((article) => ({
     id: article.id,
@@ -64,7 +104,7 @@ export default async function MouvementsMatierePremiereSortiePage() {
           </div>
         </section>
 
-        <SortieMpClient articles={articles} canWrite={canWriteMouvements} />
+        <SortieMpClient articles={articles} lots={lots} canWrite={canWriteMouvements} />
       </div>
     </main>
   );

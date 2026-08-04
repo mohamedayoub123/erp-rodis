@@ -6,6 +6,7 @@ import {
   createSortieStockBatchAction,
 } from "./actions";
 import { DateJmaInput } from "@/app/_components/date-jma-input";
+import { useComboboxNav } from "@/app/_components/use-combobox-nav";
 
 export type ArticleOption = {
   id: number;
@@ -85,6 +86,13 @@ export function EntreePanel({
       return words.every((word) => label.includes(word));
     });
   }, [articleInput, articles]);
+
+  function selectArticle(article: ArticleOption) {
+    setArticleInput(article.label);
+    setShowArticleDropdown(false);
+  }
+
+  const articleNav = useComboboxNav(filteredArticles, selectArticle);
 
   function addRow() {
     const qty = Number(quantite.replace(",", "."));
@@ -178,25 +186,26 @@ export function EntreePanel({
             onChange={(event) => {
               setArticleInput(event.target.value);
               setShowArticleDropdown(true);
+              articleNav.setHighlightedIndex(0);
             }}
+            onKeyDown={articleNav.handleKeyDown}
             onFocus={() => setShowArticleDropdown(true)}
             onBlur={() => setTimeout(() => setShowArticleDropdown(false), 150)}
-            placeholder="Ecris l'article puis choisis"
+            placeholder="Ecris l'article puis choisis (fleches + Entree)"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
             autoComplete="off"
           />
           {showArticleDropdown && filteredArticles.length > 0 ? (
             <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-              {filteredArticles.map((article) => (
+              {filteredArticles.map((article, index) => (
                 <button
                   key={article.id}
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    setArticleInput(article.label);
-                    setShowArticleDropdown(false);
-                  }}
-                  className="block w-full px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
+                  onClick={() => selectArticle(article)}
+                  className={`block w-full px-4 py-2 text-left text-sm text-slate-800 ${
+                    index === articleNav.highlightedIndex ? "bg-slate-100" : "hover:bg-slate-100"
+                  }`}
                 >
                   {article.label}
                 </button>
@@ -372,6 +381,13 @@ export function SortiePanel({
     });
   }, [lotInput, lots]);
 
+  function selectLot(lot: LotOption) {
+    setLotInput(formatLotLabel(lot));
+    setShowLotDropdown(false);
+  }
+
+  const lotNav = useComboboxNav(filteredLots, selectLot);
+
   function addRow() {
     const qty = Number(quantite.replace(",", "."));
 
@@ -471,25 +487,26 @@ export function SortiePanel({
             onChange={(event) => {
               setLotInput(event.target.value);
               setShowLotDropdown(true);
+              lotNav.setHighlightedIndex(0);
             }}
+            onKeyDown={lotNav.handleKeyDown}
             onFocus={() => setShowLotDropdown(true)}
             onBlur={() => setTimeout(() => setShowLotDropdown(false), 150)}
-            placeholder="Ecris article, lot ou chambre puis choisis"
+            placeholder="Ecris article, lot ou chambre puis choisis (fleches + Entree)"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
             autoComplete="off"
           />
           {showLotDropdown && filteredLots.length > 0 ? (
             <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-              {filteredLots.map((lot) => (
+              {filteredLots.map((lot, index) => (
                 <button
                   key={lot.id}
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    setLotInput(formatLotLabel(lot));
-                    setShowLotDropdown(false);
-                  }}
-                  className="block w-full px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
+                  onClick={() => selectLot(lot)}
+                  className={`block w-full px-4 py-2 text-left text-sm text-slate-800 ${
+                    index === lotNav.highlightedIndex ? "bg-slate-100" : "hover:bg-slate-100"
+                  }`}
                 >
                   {formatLotLabel(lot)}
                 </button>
