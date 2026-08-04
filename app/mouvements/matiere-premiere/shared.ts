@@ -34,6 +34,7 @@ export type MouvementMpLigne = {
   qte_entree: number;
   qte_sortie: number;
   unite: string | null;
+  date_jour: string | null;
   date_reception: string | null;
   date_fabrication: string | null;
   date_expiration: string | null;
@@ -178,6 +179,7 @@ function buildGroups(
         qte_entree: Number(row.qte_entree ?? 0),
         qte_sortie: Number(row.qte_sortie ?? 0),
         unite: row.unite,
+        date_jour: row.date_jour,
         date_reception: row.date_reception,
         date_fabrication: row.date_fabrication,
         date_expiration: row.date_expiration,

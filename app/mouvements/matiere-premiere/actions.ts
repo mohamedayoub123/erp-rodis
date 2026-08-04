@@ -54,6 +54,7 @@ type PendingEntreeMpRow = {
 
 type PendingSortieMpRow = {
   lot_id: number;
+  date_sortie: string;
   quantite: number;
   client?: string;
   n_doss_erp?: string;
@@ -189,13 +190,15 @@ export async function createSortieMpBatchAction(formData: FormData) {
   const lignes = rows.map((row) => {
     const lotId = Number(row.lot_id);
     const quantite = Number(row.quantite);
+    const dateSortie = String(row.date_sortie || "").trim();
 
-    if (!lotId || !quantite || quantite <= 0) {
+    if (!lotId || !quantite || quantite <= 0 || !dateSortie) {
       throw new Error("Une sortie est incomplete ou invalide.");
     }
 
     return {
       lot_stock_id: lotId,
+      date_sortie: dateSortie,
       quantite,
       client: String(row.client || "").trim(),
       n_doss_erp: String(row.n_doss_erp || "").trim(),
@@ -336,10 +339,17 @@ export async function updateLotFromSortieMpDetailAction(formData: FormData) {
     throw new Error("Ligne stock matiere premiere invalide.");
   }
 
+  const dateSortie = parseOptionalText(formData, "date_sortie");
+
+  if (!dateSortie) {
+    throw new Error("Date de sortie invalide.");
+  }
+
   const { error } = await supabaseServer
     .from("lots_stock_matiere_premiere")
     .update({
       qte_sortie: quantite,
+      date_jour: dateSortie,
       client: parseOptionalText(formData, "client"),
       n_doss_erp: parseOptionalText(formData, "n_doss_erp"),
       n_doss_4d: parseOptionalText(formData, "n_doss_4d"),

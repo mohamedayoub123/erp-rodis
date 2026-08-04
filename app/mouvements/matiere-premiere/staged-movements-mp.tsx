@@ -37,6 +37,7 @@ type PendingEntreeMp = {
 type PendingSortieMp = {
   lot_id: number;
   lot_label: string;
+  date_sortie: string;
   quantite: number;
   client: string;
   n_doss_erp: string;
@@ -407,6 +408,7 @@ export function SortiePanelMp({
   const [articleInput, setArticleInput] = useState("");
   const [showArticleDropdown, setShowArticleDropdown] = useState(false);
   const [selectedLotId, setSelectedLotId] = useState("");
+  const [dateSortie, setDateSortie] = useState("");
   const [quantite, setQuantite] = useState("");
   const [client, setClient] = useState("");
   const [nDossErp, setNDossErp] = useState("");
@@ -454,7 +456,7 @@ export function SortiePanelMp({
   function addRow() {
     const qty = Number(quantite.replace(",", "."));
 
-    if (!selectedLot || !qty || qty <= 0) {
+    if (!selectedLot || !dateSortie || !qty || qty <= 0) {
       return;
     }
 
@@ -466,6 +468,7 @@ export function SortiePanelMp({
       {
         lot_id: selectedLot.id,
         lot_label: formatLotLabel(selectedLot),
+        date_sortie: dateSortie,
         quantite: qty,
         client: client.trim(),
         n_doss_erp: nDossErp.trim(),
@@ -476,6 +479,7 @@ export function SortiePanelMp({
 
     setArticleInput("");
     setSelectedLotId("");
+    setDateSortie("");
     setQuantite("");
     setClient("");
     setNDossErp("");
@@ -490,6 +494,7 @@ export function SortiePanelMp({
   const payload = JSON.stringify(
     rows.map((row) => ({
       lot_id: row.lot_id,
+      date_sortie: row.date_sortie,
       quantite: row.quantite,
       client: row.client,
       n_doss_erp: row.n_doss_erp,
@@ -602,15 +607,21 @@ export function SortiePanelMp({
           </label>
         </div>
 
-        <input
-          type="number"
-          min="0.01"
-          step="0.01"
-          value={quantite}
-          onChange={(event) => setQuantite(event.target.value)}
-          placeholder="Quantite sortie"
-          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-        />
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="grid gap-2 text-sm font-semibold text-slate-900">
+            <span>Date de sortie</span>
+            <DateJmaInput value={dateSortie} onChange={setDateSortie} />
+          </label>
+          <input
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={quantite}
+            onChange={(event) => setQuantite(event.target.value)}
+            placeholder="Quantite sortie"
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none self-end"
+          />
+        </div>
 
         <div className="grid gap-4 md:grid-cols-3">
           <input
@@ -665,7 +676,9 @@ export function SortiePanelMp({
             {rows.map((row, index) => (
               <div key={`${row.lot_id}-${index}`} className="rounded-xl bg-white px-4 py-3 text-sm">
                 <p className="font-semibold text-slate-900">{row.lot_label}</p>
-                <p className="text-slate-600">Qt sortie {row.quantite}</p>
+                <p className="text-slate-600">
+                  Qt sortie {row.quantite} - Date {row.date_sortie}
+                </p>
                 <p className="text-slate-500">
                   {row.client ? `Client ${row.client}` : "Client -"}{" "}
                   {row.n_doss_erp ? `| ERP ${row.n_doss_erp}` : ""}{" "}

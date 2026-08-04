@@ -60,6 +60,7 @@ export default async function SortieMpDetailPage({
                   <th className="px-4 py-3 font-semibold">Lot</th>
                   <th className="px-4 py-3 font-semibold">Quantite</th>
                   <th className="px-4 py-3 font-semibold">Unite</th>
+                  <th className="px-4 py-3 font-semibold">Date sortie</th>
                   <th className="px-4 py-3 font-semibold">Client</th>
                   <th className="px-4 py-3 font-semibold">Doss. ERP</th>
                   <th className="px-4 py-3 font-semibold">Doss. 4D</th>
@@ -75,6 +76,7 @@ export default async function SortieMpDetailPage({
                     <td className="px-4 py-3 text-slate-600">{ligne.numero_lot || "-"}</td>
                     <td className="px-4 py-3 text-slate-900">{ligne.quantite}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.unite || "-"}</td>
+                    <td className="px-4 py-3 text-slate-600">{formatMouvementMpDate(ligne.date_jour)}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.client || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.n_doss_erp || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.n_doss_4d || "-"}</td>
@@ -100,6 +102,16 @@ export default async function SortieMpDetailPage({
                                   min="0"
                                   name="quantite"
                                   defaultValue={ligne.quantite}
+                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                  required
+                                />
+                              </label>
+                              <label className="grid gap-1 text-xs text-slate-500">
+                                Date sortie
+                                <input
+                                  type="date"
+                                  name="date_sortie"
+                                  defaultValue={ligne.date_jour || ""}
                                   className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                   required
                                 />
