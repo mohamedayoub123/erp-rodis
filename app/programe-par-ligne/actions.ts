@@ -33,6 +33,13 @@ type ArticleFullInfo = {
 // Une ligne dispatcher = un lot physique reel (apres decoupage du vrac
 // selon le max autorise) - "Programme par ligne" garde le vrac total tel
 // quel, seul "Programme Dispatcher" voit les lots decoupes.
+// batchKey identifie le lot LOGIQUE dont vient cette ligne : quand le meme
+// article est reparti sur plusieurs chaines et que leur besoin combine
+// depasse le max, un lot logique peut etre partage entre 2 chaines (ex:
+// chaine 1 = 4500, chaine 2 = 4500, max = 3000 -> 3 lots de 3000, le 2eme
+// lot etant compose de 1500 pris sur chaine 1 + 1500 pris sur chaine 2).
+// Les lignes qui partagent le meme batchKey recoivent alors le MEME code
+// genere (voir generateAutoCodes), au lieu d'un code par ligne physique.
 type DispatcherDraftRow = {
   zone: string;
   chaine: string;
@@ -42,6 +49,7 @@ type DispatcherDraftRow = {
   qtCarton: number | null;
   plateforme: string;
   sourceIndex: number;
+  batchKey: string;
 };
 
 function computeQtCarton(
@@ -89,42 +97,111 @@ async function fetchArticleInfoMap(articleIds: number[]): Promise<Map<number, Ar
   return map;
 }
 
-// Decoupe chaque ligne remplie en lots dispatcher (voir splitVracIntoBatches)
-// selon max_vrac_auto (Plateforme A) ou vrac_max_manuel (Plateforme M) de
-// l'article. Sans max connu, ou vrac <= max, une seule ligne dispatcher est
-// creee (le vrac total tel quel).
+// Decoupe le vrac en lots dispatcher (voir splitVracIntoBatches) selon
+// max_vrac_auto (Plateforme A) ou vrac_max_manuel (Plateforme M) de
+// l'article - mais sur le TOTAL COMBINE de toutes les chaines qui font le
+// meme article (+ plateforme) dans ce Save, pas ligne par ligne. Sans ca,
+// 2 chaines a 4500 chacune (max 3000) donnaient 4 codes (3000+1500 sur
+// chacune) au lieu des 3 lots reels de 3000 - le decoupage partage
+// reproduit fidelement les lots physiques, quitte a ce qu'un lot soit
+// materiellement reparti sur 2 chaines et partage donc un seul code.
 function buildDispatcherDraftRows(
   filledRows: PendingProgrammeRow[],
   articleInfoById: Map<number, ArticleFullInfo>
 ): DispatcherDraftRow[] {
   const draftRows: DispatcherDraftRow[] = [];
 
+  const groups = new Map<string, { row: PendingProgrammeRow; sourceIndex: number }[]>();
+  const groupOrder: string[] = [];
+
   filledRows.forEach((row, sourceIndex) => {
-    const articleId = row.article_id as number;
-    const info = articleInfoById.get(articleId);
-    const totalVrac = row.vrac_a_fabriquer;
-
-    const max =
-      row.plateforme === "A" ? info?.max_vrac_auto : row.plateforme === "M" ? info?.vrac_max_manuel : null;
-
-    const batches =
-      info && max && max > 0 && totalVrac && totalVrac > max
-        ? splitVracIntoBatches(totalVrac, max)
-        : [totalVrac ?? null];
-
-    for (const batchVrac of batches) {
-      draftRows.push({
-        zone: row.zone,
-        chaine: row.chaine,
-        articleId,
-        produit: row.produit,
-        qtVrac: batchVrac,
-        qtCarton: batchVrac !== null ? computeQtCarton(batchVrac, info?.contenance ?? null, info?.piece_par_carton ?? null) : null,
-        plateforme: row.plateforme,
-        sourceIndex,
-      });
+    const key = `${row.article_id}::${row.plateforme}`;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+      groupOrder.push(key);
     }
+    groups.get(key)!.push({ row, sourceIndex });
   });
+
+  function pushIndependentPiece(
+    entry: { row: PendingProgrammeRow; sourceIndex: number },
+    articleId: number,
+    info: ArticleFullInfo | undefined,
+    groupKey: string
+  ) {
+    const vrac = entry.row.vrac_a_fabriquer;
+    draftRows.push({
+      zone: entry.row.zone,
+      chaine: entry.row.chaine,
+      articleId,
+      produit: entry.row.produit,
+      qtVrac: vrac,
+      qtCarton: vrac !== null ? computeQtCarton(vrac, info?.contenance ?? null, info?.piece_par_carton ?? null) : null,
+      plateforme: entry.row.plateforme,
+      sourceIndex: entry.sourceIndex,
+      batchKey: `${groupKey}::row::${entry.sourceIndex}`,
+    });
+  }
+
+  for (const groupKey of groupOrder) {
+    const entries = groups.get(groupKey)!;
+    const articleId = entries[0].row.article_id as number;
+    const info = articleInfoById.get(articleId);
+    const max =
+      entries[0].row.plateforme === "A"
+        ? info?.max_vrac_auto
+        : entries[0].row.plateforme === "M"
+          ? info?.vrac_max_manuel
+          : null;
+
+    const totalVrac = entries.reduce((sum, entry) => sum + (entry.row.vrac_a_fabriquer ?? 0), 0);
+    const hasMax = Boolean(info && max && max > 0);
+
+    // Pas de max connu, ou le total combine tient dans un seul lot max :
+    // chaque chaine garde son propre lot independant, comme avant - pas de
+    // partage de code entre chaines quand ce n'est pas necessaire.
+    if (!hasMax || totalVrac <= (max as number)) {
+      entries.forEach((entry) => pushIndependentPiece(entry, articleId, info, groupKey));
+      continue;
+    }
+
+    const sharedBatches = splitVracIntoBatches(totalVrac, max as number);
+    let batchIndex = 0;
+    let remainingInBatch = sharedBatches[0] ?? 0;
+
+    for (const entry of entries) {
+      let remainingForRow = entry.row.vrac_a_fabriquer ?? 0;
+
+      if (remainingForRow <= 0) {
+        pushIndependentPiece(entry, articleId, info, groupKey);
+        continue;
+      }
+
+      while (remainingForRow > 0) {
+        if (remainingInBatch <= 0) {
+          batchIndex += 1;
+          remainingInBatch = sharedBatches[batchIndex] ?? remainingForRow;
+        }
+
+        const piece = Math.min(remainingForRow, remainingInBatch);
+
+        draftRows.push({
+          zone: entry.row.zone,
+          chaine: entry.row.chaine,
+          articleId,
+          produit: entry.row.produit,
+          qtVrac: piece,
+          qtCarton: computeQtCarton(piece, info?.contenance ?? null, info?.piece_par_carton ?? null),
+          plateforme: entry.row.plateforme,
+          sourceIndex: entry.sourceIndex,
+          batchKey: `${groupKey}::batch::${batchIndex}`,
+        });
+
+        remainingForRow -= piece;
+        remainingInBatch -= piece;
+      }
+    }
+  }
 
   return draftRows;
 }
@@ -198,17 +275,27 @@ async function generateAutoCodes(
     ["M", "code_manu"],
     ["A", "code_auto"],
   ] as const) {
-    const relevantIndexes = draftRows
-      .map((row, index) => ({ row, index }))
-      .filter(({ row }) => row.plateforme === plateformeValue && articleInfoById.has(row.articleId));
+    // Un code se genere UNE fois par batchKey unique (lot logique), pas une
+    // fois par ligne dispatcher physique - quand un lot est reparti sur
+    // plusieurs chaines (voir buildDispatcherDraftRows), toutes ses lignes
+    // partagent alors le meme code au lieu d'en recevoir chacune un.
+    const seenBatchKeys = new Set<string>();
+    const relevantBatches: { batchKey: string; articleId: number }[] = [];
 
-    if (relevantIndexes.length === 0) continue;
+    draftRows.forEach((row) => {
+      if (row.plateforme !== plateformeValue || !articleInfoById.has(row.articleId)) return;
+      if (seenBatchKeys.has(row.batchKey)) return;
+      seenBatchKeys.add(row.batchKey);
+      relevantBatches.push({ batchKey: row.batchKey, articleId: row.articleId });
+    });
+
+    if (relevantBatches.length === 0) continue;
 
     // Regroupe par gamme + forme (Lait/Creme/DSR/...) - un seul compteur
     // partage par famille.
-    const groups = new Map<string, { row: DispatcherDraftRow; index: number }[]>();
-    for (const entry of relevantIndexes) {
-      const groupKey = familyKeyById.get(entry.row.articleId) ?? "::";
+    const groups = new Map<string, { batchKey: string; articleId: number }[]>();
+    for (const entry of relevantBatches) {
+      const groupKey = familyKeyById.get(entry.articleId) ?? "::";
       const list = groups.get(groupKey) ?? [];
       list.push(entry);
       groups.set(groupKey, list);
@@ -240,19 +327,20 @@ async function generateAutoCodes(
       // Repartition en tourniquet : un groupe de lots par article
       // (contenance), dans l'ordre d'apparition, puis on prend un lot par
       // article a tour de role jusqu'a ce que tout soit servi.
-      const bucketsByArticle = new Map<number, { row: DispatcherDraftRow; index: number }[]>();
+      const bucketsByArticle = new Map<number, { batchKey: string }[]>();
       const bucketOrder: number[] = [];
       for (const entry of groupEntries) {
-        const articleId = entry.row.articleId;
+        const articleId = entry.articleId;
         if (!bucketsByArticle.has(articleId)) {
           bucketsByArticle.set(articleId, []);
           bucketOrder.push(articleId);
         }
-        bucketsByArticle.get(articleId)!.push(entry);
+        bucketsByArticle.get(articleId)!.push({ batchKey: entry.batchKey });
       }
 
       let currentCode = seedCode;
       let remaining = groupEntries.length;
+      const codeByBatchKey = new Map<string, string>();
 
       while (remaining > 0) {
         for (const articleId of bucketOrder) {
@@ -267,10 +355,18 @@ async function generateAutoCodes(
 
           currentCode = nextCode;
           const entry = bucket.shift()!;
-          codesByRowIndex.set(entry.index, currentCode);
+          codeByBatchKey.set(entry.batchKey, currentCode);
           remaining -= 1;
         }
       }
+
+      // Propage le code de chaque lot logique a TOUTES les lignes
+      // dispatcher physiques qui partagent ce batchKey (lot reparti sur
+      // plusieurs chaines).
+      draftRows.forEach((row, index) => {
+        const code = codeByBatchKey.get(row.batchKey);
+        if (code) codesByRowIndex.set(index, code);
+      });
 
       // Le dernier code genere est remis sur TOUTES les contenances de la
       // famille (gamme+type), meme celles pas utilisees dans ce Save - pas
