@@ -143,27 +143,42 @@ export async function createEntreeMpBatchAction(formData: FormData) {
   const { data, error } = await supabaseServer
     .from("lots_stock_matiere_premiere")
     .insert(payload)
-    .select("id");
+    .select("id, n_doss_erp, n_doss_4d");
 
   if (error) {
     throw new Error(error.message);
   }
 
-  const insertedIds = ((data as { id: number }[] | null) ?? []).map((row) => row.id);
-  const groupeId = Math.min(...insertedIds);
+  // Un seul TE par dossier (Doss ERP + Doss 4D) au sein de ce meme lot
+  // d'approbation - pas globalement dans le temps : si des lignes validees
+  // ensemble ont des dossiers differents, elles forment plusieurs TE
+  // distincts plutot qu'un seul TE melangeant plusieurs dossiers.
+  const insertedRows = (data ?? []) as { id: number; n_doss_erp: string | null; n_doss_4d: string | null }[];
+  const idsByDossier = new Map<string, number[]>();
+  for (const row of insertedRows) {
+    const key = `${row.n_doss_erp ?? ""}|||${row.n_doss_4d ?? ""}`;
+    const list = idsByDossier.get(key) ?? [];
+    list.push(row.id);
+    idsByDossier.set(key, list);
+  }
 
-  const { error: groupError } = await supabaseServer
-    .from("lots_stock_matiere_premiere")
-    .update({ mouvement_groupe_id: groupeId })
-    .in("id", insertedIds);
+  const groupeIds: number[] = [];
+  for (const ids of idsByDossier.values()) {
+    const groupeId = Math.min(...ids);
+    groupeIds.push(groupeId);
+    const { error: groupError } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .update({ mouvement_groupe_id: groupeId })
+      .in("id", ids);
 
-  if (groupError) {
-    throw new Error(groupError.message);
+    if (groupError) {
+      throw new Error(groupError.message);
+    }
   }
 
   revalidateMouvementsMpPages();
 
-  return { ok: true, groupe_id: groupeId };
+  return { ok: true, groupe_ids: groupeIds };
 }
 
 export async function createSortieMpBatchAction(formData: FormData) {
