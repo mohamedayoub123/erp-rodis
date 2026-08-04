@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { formatDate } from "@/lib/format-date";
 import { encodeDossierId } from "../commande/dossier-id";
 
 type ArticleMpRow = {
@@ -37,23 +38,35 @@ type BcLigneRow = {
   code: string;
   n_doss_4d: string | null;
   n_doss_erp: string | null;
+  quantite: number | null;
 };
 
 type ImportEvenementRow = {
   bc_ligne_id: number;
   n_doss_4d_import: string | null;
   n_doss_erp_import: string | null;
+  quantite_importee: number;
+  lot_stock_id: number | null;
+};
+
+type DossierStatutRow = {
+  n_doss_4d: string | null;
+  n_doss_erp: string | null;
+  date_prevue_reception: string | null;
 };
 
 type BcRef = {
   code: string;
   nDoss4d: string | null;
   nDossErp: string | null;
+  quantite: number;
 };
 
 type DossierRef = {
   nDoss4d: string | null;
   nDossErp: string | null;
+  qteImportee: number;
+  datePrevueReception: string | null;
 };
 
 async function fetchAllArticlesMp() {
@@ -110,7 +123,7 @@ async function fetchAllBcLignes() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("bons_commande_matiere_premiere")
-      .select("id, article_id, code, n_doss_4d, n_doss_erp")
+      .select("id, article_id, code, n_doss_4d, n_doss_erp, quantite")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -133,7 +146,7 @@ async function fetchAllImportEvenements() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("bons_commande_mp_imports")
-      .select("bc_ligne_id, n_doss_4d_import, n_doss_erp_import")
+      .select("bc_ligne_id, n_doss_4d_import, n_doss_erp_import, quantite_importee, lot_stock_id")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -148,8 +161,18 @@ async function fetchAllImportEvenements() {
   return { rows, error: null };
 }
 
-function dossierRefKey(ref: DossierRef) {
-  return `${ref.nDoss4d ?? ""}|||${ref.nDossErp ?? ""}`;
+async function fetchAllDossierStatuts() {
+  const { data, error } = await supabaseServer
+    .from("dossiers_import_mp_statut")
+    .select("n_doss_4d, n_doss_erp, date_prevue_reception");
+
+  if (error) return { rows: [] as DossierStatutRow[], error };
+
+  return { rows: (data ?? []) as DossierStatutRow[], error: null };
+}
+
+function dossierKey(nDoss4d: string | null, nDossErp: string | null) {
+  return `${nDoss4d ?? ""}|||${nDossErp ?? ""}`;
 }
 
 function formatNumber(value: number) {
@@ -178,14 +201,20 @@ export default async function StockAlerteMpPage({
     { rows: mouvements, error: mouvementsError },
     { rows: bcLignes, error: bcError },
     { rows: importEvenements, error: importError },
+    { rows: dossierStatuts, error: statutError },
   ] = await Promise.all([
     fetchAllArticlesMp(),
     fetchAllMouvements(),
     fetchAllBcLignes(),
     fetchAllImportEvenements(),
+    fetchAllDossierStatuts(),
   ]);
 
-  const error = articlesError || mouvementsError || bcError || importError;
+  const error = articlesError || mouvementsError || bcError || importError || statutError;
+
+  const datePrevueByDossier = new Map(
+    dossierStatuts.map((row) => [dossierKey(row.n_doss_4d, row.n_doss_erp), row.date_prevue_reception])
+  );
 
   // Stock actuel = somme entree-sortie de tous les mouvements de l'article
   // (meme calcul que la page Stock MP). Alerte des que ce stock descend a
@@ -207,17 +236,33 @@ export default async function StockAlerteMpPage({
     if (!ligne.article_id) continue;
     articleByLigneId.set(ligne.id, ligne.article_id);
     const list = bcRefsByArticle.get(ligne.article_id) ?? [];
-    list.push({ code: ligne.code, nDoss4d: ligne.n_doss_4d, nDossErp: ligne.n_doss_erp });
+    list.push({
+      code: ligne.code,
+      nDoss4d: ligne.n_doss_4d,
+      nDossErp: ligne.n_doss_erp,
+      quantite: Number(ligne.quantite ?? 0),
+    });
     bcRefsByArticle.set(ligne.article_id, list);
   }
 
+  // "Qte importee" par dossier ne compte que les evenements "Creer import"
+  // (lot_stock_id null) - une Reception ecrit sa propre ligne dans la meme
+  // table pour l'historique, qu'il ne faut pas recompter en plus (meme
+  // regle que la page Import, voir commande/[id]/page.tsx).
   const importRefsByArticle = new Map<number, Map<string, DossierRef>>();
   for (const evenement of importEvenements) {
+    if (evenement.lot_stock_id !== null) continue;
     const articleId = articleByLigneId.get(evenement.bc_ligne_id);
     if (!articleId) continue;
-    const ref: DossierRef = { nDoss4d: evenement.n_doss_4d_import, nDossErp: evenement.n_doss_erp_import };
+    const key = dossierKey(evenement.n_doss_4d_import, evenement.n_doss_erp_import);
     const map = importRefsByArticle.get(articleId) ?? new Map<string, DossierRef>();
-    map.set(dossierRefKey(ref), ref);
+    const existing = map.get(key);
+    map.set(key, {
+      nDoss4d: evenement.n_doss_4d_import,
+      nDossErp: evenement.n_doss_erp_import,
+      qteImportee: (existing?.qteImportee ?? 0) + Number(evenement.quantite_importee ?? 0),
+      datePrevueReception: datePrevueByDossier.get(key) ?? null,
+    });
     importRefsByArticle.set(articleId, map);
   }
 
@@ -353,7 +398,8 @@ export default async function StockAlerteMpPage({
                                 >
                                   {ref.code}
                                 </Link>{" "}
-                                - 4D: {ref.nDoss4d || "-"} / ERP: {ref.nDossErp || "-"}
+                                - Qte commandee: {formatNumber(ref.quantite)} - 4D: {ref.nDoss4d || "-"} / ERP:{" "}
+                                {ref.nDossErp || "-"}
                               </li>
                             ))}
                           </ul>
@@ -365,7 +411,10 @@ export default async function StockAlerteMpPage({
                         ) : (
                           <ul className="space-y-1">
                             {alerte.importRefs.map((ref, index) => (
-                              <li key={`${dossierRefKey(ref)}-${index}`} className="text-xs">
+                              <li
+                                key={`${dossierKey(ref.nDoss4d, ref.nDossErp)}-${index}`}
+                                className="text-xs"
+                              >
                                 <Link
                                   href={`/stock/matiere-premiere/commande/${encodeDossierId(
                                     ref.nDoss4d,
@@ -374,7 +423,9 @@ export default async function StockAlerteMpPage({
                                   className="font-semibold text-sky-700 underline"
                                 >
                                   4D: {ref.nDoss4d || "-"} / ERP: {ref.nDossErp || "-"}
-                                </Link>
+                                </Link>{" "}
+                                - Qte importee: {formatNumber(ref.qteImportee)} - Arrivee prevue:{" "}
+                                {ref.datePrevueReception ? formatDate(ref.datePrevueReception) : "-"}
                               </li>
                             ))}
                           </ul>
