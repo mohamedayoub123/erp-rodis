@@ -165,10 +165,11 @@ function uniqueDatesFrom(rows: DispatcherRow[]) {
 // programme source a ete supprime depuis (Historique programme) n'a plus de
 // code PL resolvable (plCodeByGroupeId) - il n'est plus compte non plus,
 // sinon "Nb PL" annoncerait un programme qui n'existe plus dans l'historique.
-function countDistinctProgrammesPl(rows: DispatcherRow[], plCodeByGroupeId: Map<number, string>) {
-  return new Set(
+function listDistinctPlCodes(rows: DispatcherRow[], plCodeByGroupeId: Map<number, string>) {
+  const groupeIds = new Set(
     rows.map((row) => row.groupe_id).filter((id): id is number => id !== null && plCodeByGroupeId.has(id))
-  ).size;
+  );
+  return [...groupeIds].map((id) => plCodeByGroupeId.get(id)!).sort();
 }
 
 export default async function RavitailleurParLigneZonePage({
@@ -193,7 +194,7 @@ export default async function RavitailleurParLigneZonePage({
   const dates = uniqueDatesFrom(dataRows);
   const programmeLignesForPl = await fetchAllProgrammeLignesForPlCode();
   const plCodeByGroupeId = computePlCodesByGroupeId(programmeLignesForPl);
-  const nbProgrammesPl = countDistinctProgrammesPl(dataRows, plCodeByGroupeId);
+  const plCodes = listDistinctPlCodes(dataRows, plCodeByGroupeId);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -213,7 +214,7 @@ export default async function RavitailleurParLigneZonePage({
                     Date{dates.length > 1 ? "s" : ""} : {dates.map((date) => formatDate(date)).join(", ")}
                   </span>
                 ) : null}
-                {nbProgrammesPl > 0 ? <span>Nb PL : {nbProgrammesPl}</span> : null}
+                {plCodes.length > 0 ? <span>PL : {plCodes.join(", ")}</span> : null}
                 {programmesByChaine.map(([chaine, count]) => (
                   <span key={chaine}>
                     {chaine} : {count} programme{count > 1 ? "s" : ""}
