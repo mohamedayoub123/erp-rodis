@@ -1,7 +1,19 @@
 "use client";
 
+import { useEffect } from "react";
+
 export function SimplePrintButton({ label = "Imprimer" }: { label?: string }) {
+  useEffect(() => {
+    function clearPrintMode() {
+      document.documentElement.removeAttribute("data-print-mode");
+    }
+
+    window.addEventListener("afterprint", clearPrintMode);
+    return () => window.removeEventListener("afterprint", clearPrintMode);
+  }, []);
+
   function handlePrint() {
+    document.documentElement.setAttribute("data-print-mode", "simple");
     window.print();
   }
 
