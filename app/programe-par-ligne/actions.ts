@@ -391,16 +391,22 @@ async function performProgrammeLigneSave(
   affectedZoneChaine: { zone: string; chaine: string }[],
   dateJour: string
 ): Promise<{ ok: true; code: string; groupe_id: number }> {
-  // Le code MB1/MB2/MB3... n'est pas stocke dans la colonne "programe" (qui
-  // reste un champ libre tape par l'utilisateur, independant) - il est
-  // seulement retourne ici pour le message de confirmation. Le vrai code
-  // affiche dans l'historique est recalcule a la lecture a partir du rang
-  // du groupe (meme principe que TE1/TS1 dans Mouvements).
-  // On compte les groupe_id DISTINCTS (pas le nombre de lignes) via RPC -
-  // rapatrier toute la table (6000+ lignes et ca grossit) juste pour
-  // compter rendait le Save tres lent, voire le faisait planter.
+  // Le code PL1.2026, PL2.2026... n'est pas stocke dans la colonne
+  // "programe" (qui reste un champ libre tape par l'utilisateur,
+  // independant) - il est seulement retourne ici pour le message de
+  // confirmation. Le vrai code affiche dans l'historique est recalcule a la
+  // lecture a partir du rang du groupe PARMI CEUX DE LA MEME ANNEE (meme
+  // principe que TE1/TS1 dans Mouvements, mais remis a 1 a chaque nouvelle
+  // annee de date_jour).
+  // On compte les groupe_id DISTINCTS de cette annee (pas le nombre de
+  // lignes, pas toute la table) via RPC - rapatrier toute la table
+  // (6000+ lignes et ca grossit) juste pour compter rendait le Save tres
+  // lent, voire le faisait planter.
+  const anneeJour = Number(dateJour.slice(0, 4));
+
   const { data: nextNumberData, error: nextNumberError } = await supabaseServer.rpc(
-    "programme_lignes_next_group_number"
+    "programme_lignes_next_group_number_for_year",
+    { p_year: anneeJour }
   );
 
   if (nextNumberError) {
@@ -408,7 +414,7 @@ async function performProgrammeLigneSave(
   }
 
   const nextNumber = Number(nextNumberData) || 1;
-  const generatedCode = `MB${nextNumber}`;
+  const generatedCode = `PL${nextNumber}.${anneeJour}`;
 
   // "Programme par ligne" garde une ligne = une saisie, avec le vrac total
   // tel quel (pas de decoupage ici) et le "Programme" tape a la main.

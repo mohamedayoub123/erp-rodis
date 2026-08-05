@@ -60,41 +60,50 @@ export default async function HistoriqueProgrammeDetailPage({
     notFound();
   }
 
-  // Le code MB1/MB2/MB3... n'est pas stocke en base - il depend du rang de
-  // ce groupe parmi tous les groupes (le plus ancien = MB1), meme principe
-  // que TE1/TS1 dans Mouvements. La colonne "Programme" reste un champ
-  // libre tape par l'utilisateur, independant de ce code.
-  const allGroupRows: { groupe_id: number; created_at: string }[] = [];
+  // Le code PL1.2026, PL2.2026... n'est pas stocke en base - il depend du
+  // rang de ce groupe PARMI CEUX DE LA MEME ANNEE (le plus ancien de
+  // l'annee = PL1.<annee>), remis a 1 a chaque nouvelle annee de date_jour -
+  // meme principe que TE1/TS1 dans Mouvements. La colonne "Programme" reste
+  // un champ libre tape par l'utilisateur, independant de ce code.
+  const allGroupRows: { groupe_id: number; created_at: string; date_jour: string }[] = [];
   let fromIndex = 0;
   const pageSize = 1000;
 
   while (true) {
     const { data: groupRows } = await supabaseServer
       .from("programme_lignes")
-      .select("groupe_id, created_at")
+      .select("groupe_id, created_at, date_jour")
       .range(fromIndex, fromIndex + pageSize - 1);
 
-    const chunk = (groupRows as { groupe_id: number; created_at: string }[] | null) ?? [];
+    const chunk = (groupRows as { groupe_id: number; created_at: string; date_jour: string }[] | null) ?? [];
     allGroupRows.push(...chunk);
 
     if (chunk.length < pageSize) break;
     fromIndex += pageSize;
   }
 
-  const earliestByGroup = new Map<number, string>();
+  const earliestByGroup = new Map<number, { createdAt: string; dateJourForYear: string }>();
   for (const row of allGroupRows) {
     const current = earliestByGroup.get(row.groupe_id);
-    if (!current || new Date(row.created_at).getTime() < new Date(current).getTime()) {
-      earliestByGroup.set(row.groupe_id, row.created_at);
+    if (!current || new Date(row.created_at).getTime() < new Date(current.createdAt).getTime()) {
+      earliestByGroup.set(row.groupe_id, { createdAt: row.created_at, dateJourForYear: row.date_jour });
     }
   }
 
   const orderedGroupIds = [...earliestByGroup.entries()]
-    .sort((a, b) => new Date(a[1]).getTime() - new Date(b[1]).getTime())
-    .map(([groupeId]) => groupeId);
+    .sort((a, b) => new Date(a[1].createdAt).getTime() - new Date(b[1].createdAt).getTime())
+    .map(([groupeId, info]) => ({ groupeId, annee: new Date(info.dateJourForYear).getFullYear() }));
 
-  const rank = orderedGroupIds.indexOf(groupeIdNumber);
-  const code = rank >= 0 ? `MB${rank + 1}` : `MB-${groupeIdNumber}`;
+  const rankByYear = new Map<number, number>();
+  let code = `PL-${groupeIdNumber}`;
+  for (const entry of orderedGroupIds) {
+    const rank = (rankByYear.get(entry.annee) ?? 0) + 1;
+    rankByYear.set(entry.annee, rank);
+    if (entry.groupeId === groupeIdNumber) {
+      code = `PL${rank}.${entry.annee}`;
+    }
+  }
+
   const dateJour = lignes[0]?.date_jour;
 
   return (
