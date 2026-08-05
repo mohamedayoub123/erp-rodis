@@ -177,13 +177,22 @@ function buildDispatcherDraftRows(
         continue;
       }
 
-      while (remainingForRow > 0) {
-        if (remainingInBatch <= 0) {
+      // Tolerance anti virgule-flottante : sans elle, un residu du style
+      // 0.0000000002 (apres plusieurs soustractions sur des nombres non
+      // entiers) peut laisser remainingForRow/remainingInBatch legerement
+      // au-dessus de 0 au lieu d'exactement 0, ce qui cree un lot fantome
+      // supplementaire (donc un code en trop) pour une quantite quasi
+      // nulle - exactement le symptome signale (une chaine pile a la max
+      // recevait 2 codes au lieu d'1).
+      const EPSILON = 1e-6;
+
+      while (remainingForRow > EPSILON) {
+        if (remainingInBatch <= EPSILON) {
           batchIndex += 1;
           remainingInBatch = sharedBatches[batchIndex] ?? remainingForRow;
         }
 
-        const piece = Math.min(remainingForRow, remainingInBatch);
+        const piece = Math.round(Math.min(remainingForRow, remainingInBatch) * 100) / 100;
 
         draftRows.push({
           zone: entry.row.zone,
