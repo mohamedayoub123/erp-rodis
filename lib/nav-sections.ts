@@ -111,6 +111,7 @@ export const navItems: NavItem[] = [
       },
       { href: "/code-par-article", label: "Code par article", pageKey: "codeParArticle" },
       { href: "/production/rapport", label: "Rapport", pageKey: "productionRapportHub" },
+      { href: "/production/machines", label: "Machines", pageKey: "machines" },
     ],
   },
   { href: "/admin", label: "Admin", adminOnly: true },

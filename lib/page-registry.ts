@@ -432,6 +432,12 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "machines",
+    module: "Production",
+    label: "Machines",
+    pathPrefixes: ["/production/machines"],
+  },
+  {
     key: "productionRapportEcarts",
     module: "Production",
     label: "Rapport Ecarts Production - supprimer",
