@@ -59,3 +59,56 @@ export async function deleteMachineAction(formData: FormData) {
 
   revalidatePath("/production/machines");
 }
+
+export async function addMachineProduitAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "machines"))) {
+    throw new Error("Cet utilisateur ne peut pas ajouter de produit.");
+  }
+
+  const machineId = Number(String(formData.get("machine_id") || "0"));
+  const articleId = Number(String(formData.get("article_id") || "0"));
+
+  if (!machineId || !articleId) {
+    throw new Error("Choisis un produit avant d'ajouter.");
+  }
+
+  const { error } = await supabaseServer.from("machine_produits").upsert(
+    {
+      machine_id: machineId,
+      article_id: articleId,
+      temps_minutes: toNumberOrNull(formData.get("temps_minutes")),
+    },
+    { onConflict: "machine_id,article_id" }
+  );
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath(`/production/machines/${machineId}`);
+}
+
+export async function deleteMachineProduitAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canDeletePageUser(currentUser, "machines"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer de produit.");
+  }
+
+  const id = Number(String(formData.get("id") || "0"));
+  const machineId = Number(String(formData.get("machine_id") || "0"));
+
+  if (!id) {
+    throw new Error("Produit introuvable.");
+  }
+
+  const { error } = await supabaseServer.from("machine_produits").delete().eq("id", id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath(`/production/machines/${machineId}`);
+}

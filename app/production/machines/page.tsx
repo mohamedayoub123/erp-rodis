@@ -1,23 +1,12 @@
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
-import { createMachineAction, deleteMachineAction } from "./actions";
-
-const ZONE_OPTIONS = [
-  "B1Z1",
-  "B1Z2",
-  "B4Z1",
-  "B4Z2",
-  "B4Z3",
-  "D",
-  "Automatique",
-  "Semi auto",
-  "Manuel",
-];
-const TYPE_OPTIONS = ["Fabrication", "Conditionnement", "Emballage"];
+import { deleteMachineAction } from "./actions";
+import { AddMachineForm } from "./add-machine-form";
 
 type MachineRow = {
   id: number;
@@ -80,86 +69,7 @@ export default async function MachinesPage() {
             <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-sky-700 marker:content-none">
               + Ajouter machine
             </summary>
-            <form
-              action={createMachineAction}
-              className="grid gap-3 border-t border-slate-100 p-5 sm:grid-cols-2 lg:grid-cols-3"
-            >
-              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                Nom
-                <input
-                  type="text"
-                  name="nom"
-                  required
-                  placeholder="Nom de la machine"
-                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                />
-              </label>
-              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                Zone
-                <select
-                  name="zone"
-                  defaultValue=""
-                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                >
-                  <option value="">-</option>
-                  {ZONE_OPTIONS.map((zone) => (
-                    <option key={zone} value={zone}>
-                      {zone}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                Type
-                <select
-                  name="type"
-                  defaultValue=""
-                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                >
-                  <option value="">-</option>
-                  {TYPE_OPTIONS.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                Capacite
-                <input
-                  type="number"
-                  name="capacite"
-                  placeholder="Ex: 3000"
-                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                />
-              </label>
-              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                Min
-                <input
-                  type="number"
-                  name="capacite_min"
-                  placeholder="Ex: 500"
-                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                />
-              </label>
-              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                Max
-                <input
-                  type="number"
-                  name="capacite_max"
-                  placeholder="Ex: 3000"
-                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                />
-              </label>
-              <div className="sm:col-span-2 lg:col-span-3">
-                <button
-                  type="submit"
-                  className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white"
-                >
-                  Ajouter
-                </button>
-              </div>
-            </form>
+            <AddMachineForm />
           </details>
         ) : null}
 
@@ -189,7 +99,14 @@ export default async function MachinesPage() {
                 <tbody>
                   {rows.map((machine) => (
                     <tr key={machine.id} className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-semibold text-slate-900">{machine.nom}</td>
+                      <td className="px-6 py-4 font-semibold text-slate-900">
+                        <Link
+                          href={`/production/machines/${machine.id}`}
+                          className="text-sky-700 underline"
+                        >
+                          {machine.nom}
+                        </Link>
+                      </td>
                       <td className="px-6 py-4 text-slate-600">{machine.zone || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{machine.type || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNombre(machine.capacite)}</td>
