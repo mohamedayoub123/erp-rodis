@@ -49,7 +49,7 @@ function formatDate(value: string) {
 
 const PAGE_SIZE = 200;
 
-type SearchParams = Promise<{ page?: string; code?: string; date?: string }>;
+type SearchParams = Promise<{ page?: string; code?: string; date?: string; cree_par?: string }>;
 
 export default async function HistoriqueProgrammePage({
   searchParams,
@@ -60,7 +60,8 @@ export default async function HistoriqueProgrammePage({
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const codeFilter = (params.code || "").trim().toLowerCase();
   const dateFilter = (params.date || "").trim();
-  const hasFilters = Boolean(codeFilter || dateFilter);
+  const creeParFilter = (params.cree_par || "").trim().toLowerCase();
+  const hasFilters = Boolean(codeFilter || dateFilter || creeParFilter);
   const currentUser = await getCurrentStockUser();
   const canDelete = await canDeletePageUser(currentUser, "historiqueProgramme");
   const canRelaunch = await canWritePageUser(currentUser, "programeParLigne");
@@ -110,6 +111,7 @@ export default async function HistoriqueProgrammePage({
   const filteredGroups = groups.filter((group) => {
     if (codeFilter && !group.code.toLowerCase().includes(codeFilter)) return false;
     if (dateFilter && group.dateJour !== dateFilter) return false;
+    if (creeParFilter && !(group.creePar || "").toLowerCase().includes(creeParFilter)) return false;
     return true;
   });
 
@@ -143,7 +145,7 @@ export default async function HistoriqueProgrammePage({
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto_auto]">
             <input
               type="text"
               name="code"
@@ -155,6 +157,13 @@ export default async function HistoriqueProgrammePage({
               type="date"
               name="date"
               defaultValue={params.date || ""}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="text"
+              name="cree_par"
+              defaultValue={params.cree_par || ""}
+              placeholder="Cree par"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
@@ -240,7 +249,7 @@ export default async function HistoriqueProgrammePage({
 
             <div className="flex gap-3">
               <Link
-                href={`/historique-programme?page=${Math.max(1, currentPage - 1)}&code=${encodeURIComponent(params.code || "")}&date=${encodeURIComponent(params.date || "")}`}
+                href={`/historique-programme?page=${Math.max(1, currentPage - 1)}&code=${encodeURIComponent(params.code || "")}&date=${encodeURIComponent(params.date || "")}&cree_par=${encodeURIComponent(params.cree_par || "")}`}
                 className={`rounded-full px-4 py-2 font-semibold ${
                   currentPage === 1
                     ? "pointer-events-none bg-slate-100 text-slate-400"
@@ -250,7 +259,7 @@ export default async function HistoriqueProgrammePage({
                 Precedent
               </Link>
               <Link
-                href={`/historique-programme?page=${Math.min(totalPages, currentPage + 1)}&code=${encodeURIComponent(params.code || "")}&date=${encodeURIComponent(params.date || "")}`}
+                href={`/historique-programme?page=${Math.min(totalPages, currentPage + 1)}&code=${encodeURIComponent(params.code || "")}&date=${encodeURIComponent(params.date || "")}&cree_par=${encodeURIComponent(params.cree_par || "")}`}
                 className={`rounded-full px-4 py-2 font-semibold ${
                   currentPage >= totalPages
                     ? "pointer-events-none bg-slate-100 text-slate-400"
