@@ -6,7 +6,17 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { createMachineAction, deleteMachineAction } from "./actions";
 
-const ZONE_OPTIONS = ["B1Z1", "B1Z2", "B4Z1", "B4Z2", "B4Z3", "D"];
+const ZONE_OPTIONS = [
+  "B1Z1",
+  "B1Z2",
+  "B4Z1",
+  "B4Z2",
+  "B4Z3",
+  "D",
+  "Automatique",
+  "Semi auto",
+  "Manuel",
+];
 const TYPE_OPTIONS = ["Fabrication", "Conditionnement", "Emballage"];
 
 type MachineRow = {
