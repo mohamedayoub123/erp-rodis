@@ -219,14 +219,25 @@ function buildDispatcherDraftRows(
 
     const minVal = min && min > 0 ? min : 0;
 
-    // Le min_vrac n'est pas configure sur cette famille : on garde le
-    // decoupage historique (remplissage glouton de chaque lot jusqu'au max,
-    // en partageant entre chaines si besoin - ex: 4500 + 4500 avec un max
-    // de 3000 -> 3 lots de 3000, le lot du milieu partage 1500/1500).
+    // Le min_vrac n'est pas configure sur cette famille : chaque chaine
+    // recupere D'ABORD ses propres lots pleins (taille exactement max), qui
+    // restent TOUJOURS independants (jamais partages) - seul le reliquat
+    // (< max) de chaque chaine, s'il y en a un, part dans un pot commun
+    // (2eme passe) pour eventuellement se combiner avec le reliquat d'une
+    // autre chaine et former un lot complet.
+    // Sans cette 1ere passe, l'ancien decoupage (remplissage glouton en
+    // enchainant les chaines dans leur ordre d'arrivee) pouvait a tort
+    // fragmenter/partager des lots deja pleins pour une seule chaine selon
+    // cet ordre (ex: 1000 + 1000 + 300 avec un max de 1000 donnait parfois
+    // 300+700 / 300+700 au lieu de 1000 / 1000 / 300 attendu, uniquement
+    // parce que la chaine de 300 arrivait avant une des 2 de 1000).
+    // Le partage entre chaines (ex: 4500 + 4500 avec un max de 3000 -> 3
+    // lots de 3000, le 3eme compose de 1500 + 1500) reste possible mais
+    // seulement pour les reliquats reels, jamais pour un lot qu'une seule
+    // chaine remplit deja entierement.
     if (minVal <= 0) {
-      const sharedBatches = splitVracIntoBatches(totalVrac, maxVal);
       let batchIndex = 0;
-      let remainingInBatch = sharedBatches[0] ?? 0;
+      const leftovers: { entry: (typeof entries)[number]; amount: number }[] = [];
 
       for (const entry of entries) {
         const articleId = entry.row.article_id as number;
@@ -238,37 +249,75 @@ function buildDispatcherDraftRows(
           continue;
         }
 
-        // Tolerance anti virgule-flottante : sans elle, un residu du style
-        // 0.0000000002 (apres plusieurs soustractions sur des nombres non
-        // entiers) peut laisser remainingForRow/remainingInBatch legerement
-        // au-dessus de 0 au lieu d'exactement 0, ce qui cree un lot fantome
-        // supplementaire (donc un code en trop) pour une quantite quasi
-        // nulle - exactement le symptome signale (une chaine pile a la max
-        // recevait 2 codes au lieu d'1).
-        while (remainingForRow > EPSILON) {
-          if (remainingInBatch <= EPSILON) {
-            batchIndex += 1;
-            remainingInBatch = sharedBatches[batchIndex] ?? remainingForRow;
-          }
-
-          const piece = Math.round(Math.min(remainingForRow, remainingInBatch) * 100) / 100;
-
+        // Division entiere (pas une boucle "while > max") : sans elle, un
+        // montant tombant EXACTEMENT sur max (ex: 1000 avec un max de 1000)
+        // echoue le test ">" et finit a tort dans le pot commun des
+        // reliquats plus bas, ce qui reintroduit la dependance a l'ordre
+        // des chaines qu'on cherche justement a eliminer ici.
+        const wholeLots = Math.floor((remainingForRow + EPSILON) / maxVal);
+        for (let i = 0; i < wholeLots; i++) {
+          batchIndex += 1;
           draftRows.push({
             zone: entry.row.zone,
             chaine: entry.row.chaine,
             articleId,
             produit: entry.row.produit,
-            qtVrac: piece,
-            qtCarton: computeQtCarton(piece, info?.contenance ?? null, info?.piece_par_carton ?? null),
+            qtVrac: maxVal,
+            qtCarton: computeQtCarton(maxVal, info?.contenance ?? null, info?.piece_par_carton ?? null),
             plateforme: entry.row.plateforme,
             sourceIndex: entry.sourceIndex,
             batchKey: `${groupKey}::batch::${batchIndex}`,
           });
+        }
+        remainingForRow = Math.round((remainingForRow - wholeLots * maxVal) * 100) / 100;
 
-          remainingForRow -= piece;
-          remainingInBatch -= piece;
+        if (remainingForRow > EPSILON) {
+          leftovers.push({ entry, amount: remainingForRow });
         }
       }
+
+      const totalLeftover = leftovers.reduce((sum, item) => sum + item.amount, 0);
+
+      if (totalLeftover > EPSILON) {
+        const sharedBatches = splitVracIntoBatches(totalLeftover, maxVal);
+        let sharedBatchIndex = 0;
+        let remainingInBatch = sharedBatches[0] ?? 0;
+
+        for (const item of leftovers) {
+          const articleId = item.entry.row.article_id as number;
+          const info = articleInfoById.get(articleId);
+          let remainingForRow = item.amount;
+
+          // Tolerance anti virgule-flottante : sans elle, un residu du
+          // style 0.0000000002 peut laisser remainingForRow/remainingInBatch
+          // legerement au-dessus de 0 au lieu d'exactement 0, ce qui cree
+          // un lot fantome supplementaire pour une quantite quasi nulle.
+          while (remainingForRow > EPSILON) {
+            if (remainingInBatch <= EPSILON) {
+              sharedBatchIndex += 1;
+              remainingInBatch = sharedBatches[sharedBatchIndex] ?? remainingForRow;
+            }
+
+            const piece = Math.round(Math.min(remainingForRow, remainingInBatch) * 100) / 100;
+
+            draftRows.push({
+              zone: item.entry.row.zone,
+              chaine: item.entry.row.chaine,
+              articleId,
+              produit: item.entry.row.produit,
+              qtVrac: piece,
+              qtCarton: computeQtCarton(piece, info?.contenance ?? null, info?.piece_par_carton ?? null),
+              plateforme: item.entry.row.plateforme,
+              sourceIndex: item.entry.sourceIndex,
+              batchKey: `${groupKey}::leftover::${sharedBatchIndex}`,
+            });
+
+            remainingForRow -= piece;
+            remainingInBatch -= piece;
+          }
+        }
+      }
+
       continue;
     }
 
