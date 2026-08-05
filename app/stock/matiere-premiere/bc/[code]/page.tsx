@@ -159,6 +159,7 @@ export default async function CommandeBcMpDetailPage({
                   <thead className="bg-slate-50 text-slate-500">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Article</th>
+                      <th className="px-4 py-3 font-semibold">Dossier 4D</th>
                       <th className="px-4 py-3 font-semibold">Qte commandee</th>
                       <th className="px-4 py-3 font-semibold">Qte importee</th>
                       <th className="px-4 py-3 font-semibold">Reste a importer</th>
@@ -183,6 +184,7 @@ export default async function CommandeBcMpDetailPage({
                           <td className="px-4 py-3 font-medium text-slate-900">
                             {row.article_label || "-"}
                           </td>
+                          <td className="px-4 py-3 text-slate-600">{row.n_doss_4d || "-"}</td>
                           <td className="px-4 py-3 text-slate-900">{quantite}</td>
                           <td className="px-4 py-3 text-slate-600">{quantiteImportee}</td>
                           <td className="px-4 py-3 font-semibold text-slate-900">{reste}</td>
