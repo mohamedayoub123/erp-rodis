@@ -186,6 +186,36 @@ function listDistinctPlCodes(rows: DispatcherRow[], plCodeByGroupeId: Map<number
   return [...groupeIds].map((id) => plCodeByGroupeId.get(id)!).sort();
 }
 
+// Remarque (voir Programme par ligne) : un champ libre pour tout le
+// programme, pas par ligne - recuperee ici scopee aux groupe_id
+// effectivement affiches sur cette page (pas toute la table, contrairement
+// a fetchAllProgrammeLignesForPlCode qui a besoin de tout pour le rang).
+async function fetchRemarqueByGroupeId(groupeIds: number[]): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  if (groupeIds.length === 0) return map;
+
+  const { data } = await supabaseServer
+    .from("programme_lignes")
+    .select("groupe_id, remarque")
+    .in("groupe_id", groupeIds)
+    .not("remarque", "is", null);
+
+  for (const row of (data as { groupe_id: number; remarque: string }[] | null) ?? []) {
+    if (row.remarque && !map.has(row.groupe_id)) {
+      map.set(row.groupe_id, row.remarque);
+    }
+  }
+
+  return map;
+}
+
+function listDistinctRemarques(rows: DispatcherRow[], remarqueByGroupeId: Map<number, string>) {
+  const groupeIds = new Set(
+    rows.map((row) => row.groupe_id).filter((id): id is number => id !== null && remarqueByGroupeId.has(id))
+  );
+  return [...new Set([...groupeIds].map((id) => remarqueByGroupeId.get(id)!))];
+}
+
 export default async function RavitailleurToutesZonesPage() {
   noStore();
 
@@ -199,6 +229,11 @@ export default async function RavitailleurToutesZonesPage() {
   const programmeLignesForPl = await fetchAllProgrammeLignesForPlCode();
   const plCodeByGroupeId = computePlCodesByGroupeId(programmeLignesForPl);
   const plCodes = listDistinctPlCodes(dataRows, plCodeByGroupeId);
+  const groupeIdsInView = [
+    ...new Set(dataRows.map((row) => row.groupe_id).filter((id): id is number => id !== null)),
+  ];
+  const remarqueByGroupeId = await fetchRemarqueByGroupeId(groupeIdsInView);
+  const remarques = listDistinctRemarques(dataRows, remarqueByGroupeId);
   const rowsByZone = new Map<string, DispatcherRow[]>();
   for (const zone of VALID_ZONES) rowsByZone.set(zone, []);
   for (const row of dataRows) {
@@ -225,6 +260,7 @@ export default async function RavitailleurToutesZonesPage() {
                   </span>
                 ) : null}
                 {plCodes.length > 0 ? <span>PL : {plCodes.join(", ")}</span> : null}
+                {remarques.length > 0 ? <span>Remarque : {remarques.join(", ")}</span> : null}
                 {programmesByChaine.map(([chaine, count]) => (
                   <span key={chaine}>
                     {chaine} : {count} programme{count > 1 ? "s" : ""}

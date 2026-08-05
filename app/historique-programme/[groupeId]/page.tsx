@@ -127,8 +127,10 @@ export default async function HistoriqueProgrammeDetailPage({
               <p className="mt-2 text-sm text-slate-600">
                 {formatDate(dateJour)} - {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
                 {lignes[0]?.cree_par ? ` - Cree par ${lignes[0].cree_par}` : ""}
-                {lignes[0]?.remarque ? ` - ${lignes[0].remarque}` : ""}
               </p>
+              {lignes[0]?.remarque ? (
+                <p className="mt-2 text-base font-semibold text-sky-700">{lignes[0].remarque}</p>
+              ) : null}
             </div>
 
             <div className="no-print flex flex-wrap items-center gap-3">

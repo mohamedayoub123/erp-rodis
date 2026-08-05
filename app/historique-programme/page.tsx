@@ -205,11 +205,15 @@ export default async function HistoriqueProgrammePage({
                   className="flex flex-1 flex-wrap items-center justify-between gap-3"
                 >
                   <span className="text-lg font-bold text-slate-900">{group.code}</span>
+                  {group.remarque ? (
+                    <span className="text-center text-base font-semibold text-sky-700">
+                      {group.remarque}
+                    </span>
+                  ) : null}
                   <span className="text-sm text-slate-500">
                     {formatDate(group.dateJour)} - {group.count} ligne
                     {group.count > 1 ? "s" : ""}
                     {group.creePar ? ` - Cree par ${group.creePar}` : ""}
-                    {group.remarque ? ` - ${group.remarque}` : ""}
                   </span>
                 </Link>
                 <div className="flex items-center gap-2">
