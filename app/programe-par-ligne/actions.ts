@@ -484,6 +484,14 @@ async function performProgrammeLigneSave(
     throw new Error(groupError.message);
   }
 
+  // Tout ce qui suit (Dispatcher + numero_lot) peut echouer (collision de
+  // code, bug de repartition...) - si ca arrive, les lignes programme_lignes
+  // deja inserees ci-dessus sont effacees avant de faire remonter l'erreur,
+  // pour qu'un Save rate ne laisse jamais un programme "fantome" visible sur
+  // Suivi Production/Dashboard alors que son Dispatcher/Ravitailleur n'a
+  // jamais ete cree.
+  try {
+
   // Copie vers "Programme Dispatcher <ZONE>" : ici seulement, le vrac est
   // decoupe en lots (voir buildDispatcherDraftRows) et chaque lot recoit
   // son propre code genere (voir generateAutoCodes).
@@ -525,7 +533,7 @@ async function performProgrammeLigneSave(
       }
     }
 
-    const dispatcherPayload = draftRows.map((row, index) => ({
+    const rawDispatcherPayload = draftRows.map((row, index) => ({
       zone: row.zone,
       article_id: row.articleId,
       chaine: row.chaine,
@@ -536,6 +544,69 @@ async function performProgrammeLigneSave(
       qt_vrac: row.qtVrac,
       groupe_id: groupeId,
     }));
+
+    // Plusieurs contenances DIFFERENTES de la meme famille peuvent tomber
+    // sur la MEME chaine (ex: 3 contenances d'un pommade programmees l'une
+    // apres l'autre sur "CHAINE 10A") - si leur vrac combine doit etre
+    // reparti sur plusieurs lots (voir buildDispatcherDraftRows), 2 pieces
+    // venant de 2 contenances differentes peuvent atterrir dans le MEME lot
+    // partage tout en etant sur la MEME chaine (pas 2 chaines differentes,
+    // le cas normalement prevu pour le partage de code) - ca cree alors 2
+    // lignes Dispatcher avec exactement le meme (code, zone, chaine), rejete
+    // par la contrainte unique. On les fusionne en une seule ligne (vrac et
+    // carton additionnes - chacun deja calcule avec la contenance de sa
+    // propre piece avant fusion, donc le total reste exact) plutot que de
+    // les laisser en doublon.
+    const dispatcherPayload: typeof rawDispatcherPayload = [];
+    const mergedIndexByKey = new Map<string, number>();
+    for (const row of rawDispatcherPayload) {
+      if (!row.code) {
+        dispatcherPayload.push(row);
+        continue;
+      }
+      const key = `${row.code}::${row.zone}::${row.chaine}`;
+      const existingIndex = mergedIndexByKey.get(key);
+      if (existingIndex === undefined) {
+        mergedIndexByKey.set(key, dispatcherPayload.length);
+        dispatcherPayload.push(row);
+        continue;
+      }
+      const existing = dispatcherPayload[existingIndex];
+      dispatcherPayload[existingIndex] = {
+        ...existing,
+        produit:
+          existing.produit && row.produit && existing.produit !== row.produit
+            ? `${existing.produit} + ${row.produit}`
+            : existing.produit || row.produit,
+        qt_carton: (existing.qt_carton ?? 0) + (row.qt_carton ?? 0),
+        qt_vrac: (existing.qt_vrac ?? 0) + (row.qt_vrac ?? 0),
+      };
+    }
+
+    // Detecte un doublon (code, zone, chaine) A L'INTERIEUR de ce meme Save
+    // (pas contre des lignes deja en base) qui aurait survecu a la fusion
+    // ci-dessus (cas non prevu) - un vrai conflit de ce genre est
+    // deterministe (le meme code se regenere identique a chaque tentative),
+    // donc retenter le Save ne resoudra jamais rien : on le signale
+    // immediatement avec le detail exact plutot que d'epuiser les 6
+    // tentatives pour rien.
+    const seenCodeZoneChaine = new Map<string, string[]>();
+    for (const row of dispatcherPayload) {
+      if (!row.code) continue;
+      const key = `${row.code}::${row.zone}::${row.chaine}`;
+      const list = seenCodeZoneChaine.get(key) ?? [];
+      list.push(row.produit || "?");
+      seenCodeZoneChaine.set(key, list);
+    }
+    const internalDuplicates = [...seenCodeZoneChaine.entries()].filter(([, produits]) => produits.length > 1);
+    if (internalDuplicates.length > 0) {
+      const detail = internalDuplicates
+        .map(([key, produits]) => `${key} (${produits.join(" + ")})`)
+        .join(" ; ");
+      throw new Error(
+        `Ce programme genere 2 fois le meme code sur la meme chaine avant meme d'enregistrer (bug de repartition, pas une collision entre 2 utilisateurs) : ${detail}`
+      );
+    }
 
     codesBySourceIndex = new Map<number, string[]>();
     detailBySourceIndex = new Map<number, { code: string; qt_vrac: number | null; qt_carton: number | null }[]>();
@@ -635,6 +706,11 @@ async function performProgrammeLigneSave(
     if (numeroLotError) {
       throw new Error(numeroLotError.message);
     }
+  }
+
+  } catch (error) {
+    await supabaseServer.from("programme_lignes").delete().in("id", insertedIds);
+    throw error;
   }
 
   revalidatePath("/programe-par-ligne");
