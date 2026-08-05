@@ -501,6 +501,7 @@ async function performProgrammeLigneSave(
       date_jour: dateJour,
       qt_carton: row.qtCarton,
       qt_vrac: row.qtVrac,
+      groupe_id: groupeId,
     }));
 
     codesBySourceIndex = new Map<number, string[]>();

@@ -54,6 +54,7 @@ type DispatcherRow = {
   code: string | null;
   qt_carton: number | null;
   qt_vrac: number | null;
+  groupe_id: number | null;
 };
 
 type ArticleProductionInfo = {
@@ -76,7 +77,7 @@ async function fetchAllDispatcherRows(): Promise<DispatcherRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("programme_dispatcher_lignes")
-      .select("id, zone, article_id, date_jour, chaine, produit, code, qt_carton, qt_vrac")
+      .select("id, zone, article_id, date_jour, chaine, produit, code, qt_carton, qt_vrac, groupe_id")
       .order("created_at", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -139,6 +140,14 @@ function uniqueDatesFrom(rows: DispatcherRow[]) {
   return [...new Set(rows.map((row) => row.date_jour).filter((date): date is string => !!date))].sort();
 }
 
+// Nb de programmes "Programme par ligne" (PL<n>.<annee>) distincts derriere
+// les lignes actuellement affichees - repose sur groupe_id, rempli
+// seulement depuis l'ajout de cette colonne : les lignes plus anciennes
+// (groupe_id NULL) ne sont pas comptees.
+function countDistinctProgrammesPl(rows: DispatcherRow[]) {
+  return new Set(rows.map((row) => row.groupe_id).filter((id): id is number => id !== null)).size;
+}
+
 export default async function RavitailleurToutesZonesPage() {
   noStore();
 
@@ -147,6 +156,7 @@ export default async function RavitailleurToutesZonesPage() {
   const articlesInfo = await fetchArticlesInfo(articleIds);
   const programmesByChaine = countProgrammesByChaine(dataRows);
   const dates = uniqueDatesFrom(dataRows);
+  const nbProgrammesPl = countDistinctProgrammesPl(dataRows);
   const rowsByZone = new Map<string, DispatcherRow[]>();
   for (const zone of VALID_ZONES) rowsByZone.set(zone, []);
   for (const row of dataRows) {
@@ -172,6 +182,7 @@ export default async function RavitailleurToutesZonesPage() {
                     Date{dates.length > 1 ? "s" : ""} : {dates.map((date) => formatDate(date)).join(", ")}
                   </span>
                 ) : null}
+                {nbProgrammesPl > 0 ? <span>Nb PL : {nbProgrammesPl}</span> : null}
                 {programmesByChaine.map(([chaine, count]) => (
                   <span key={chaine}>
                     {chaine} : {count} programme{count > 1 ? "s" : ""}
