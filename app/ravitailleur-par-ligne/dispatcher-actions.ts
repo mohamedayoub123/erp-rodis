@@ -34,13 +34,17 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
   }
 
   // groupe_id ici identifie le programme SOURCE (programme_lignes), pas le
-  // groupe PD - retire du payload avant insertion dans l'historique (qui a
-  // son propre groupe_id, attribue plus bas), garde de cote pour confirmer
-  // les lignes source correspondantes (voir plus bas).
+  // groupe PD - renomme en source_groupe_id avant insertion dans
+  // l'historique (qui a son propre groupe_id, attribue plus bas). Garde
+  // aussi de cote pour confirmer les lignes source correspondantes (voir
+  // plus bas) : source_groupe_id permet a deleteProgrammeDispatcherHistoryGroupAction
+  // de retrouver TOUTES les lignes du programme meme celles sans code
+  // (article sans code_manu/code_auto configure, donc invisibles au
+  // matching par code sur numero_lot).
   const sourceGroupeIds = [
     ...new Set(rows.map((row) => row.groupe_id).filter((id): id is number => id !== null)),
   ];
-  const historyRows = rows.map(({ groupe_id, ...rest }) => rest);
+  const historyRows = rows.map(({ groupe_id, ...rest }) => ({ ...rest, source_groupe_id: groupe_id }));
 
   // Le code PD1/PD2/PD3... est recalcule a la lecture selon le rang du
   // groupe (meme principe que MB1/MB2 et TE1/TS1) - on compte les
@@ -139,13 +143,17 @@ export async function saveAllZonesDispatcherSnapshotAction() {
   }
 
   // groupe_id ici identifie le programme SOURCE (programme_lignes), pas le
-  // groupe PD - retire du payload avant insertion dans l'historique (qui a
-  // son propre groupe_id, attribue plus bas), garde de cote pour confirmer
-  // les lignes source correspondantes (voir plus bas).
+  // groupe PD - renomme en source_groupe_id avant insertion dans
+  // l'historique (qui a son propre groupe_id, attribue plus bas). Garde
+  // aussi de cote pour confirmer les lignes source correspondantes (voir
+  // plus bas) : source_groupe_id permet a deleteProgrammeDispatcherHistoryGroupAction
+  // de retrouver TOUTES les lignes du programme meme celles sans code
+  // (article sans code_manu/code_auto configure, donc invisibles au
+  // matching par code sur numero_lot).
   const sourceGroupeIds = [
     ...new Set(rows.map((row) => row.groupe_id).filter((id): id is number => id !== null)),
   ];
-  const historyRows = rows.map(({ groupe_id, ...rest }) => rest);
+  const historyRows = rows.map(({ groupe_id, ...rest }) => ({ ...rest, source_groupe_id: groupe_id }));
 
   const existingGroupIds = new Set<number>();
   let fromIndex = 0;
@@ -252,17 +260,17 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
 
   const { data: codeRows, error: codeFetchError } = await supabaseServer
     .from("programme_dispatcher_history")
-    .select("code")
+    .select("code, source_groupe_id")
     .eq("groupe_id", groupeId);
 
   if (codeFetchError) {
     throw new Error(codeFetchError.message);
   }
 
-  const deletedCodes = new Set(
-    ((codeRows as { code: string | null }[] | null) ?? [])
-      .map((row) => row.code)
-      .filter((code): code is string => Boolean(code))
+  const historyLignes = (codeRows as { code: string | null; source_groupe_id: number | null }[] | null) ?? [];
+  const deletedCodes = new Set(historyLignes.map((row) => row.code).filter((code): code is string => Boolean(code)));
+  const sourceGroupeIds = new Set(
+    historyLignes.map((row) => row.source_groupe_id).filter((id): id is number => id !== null)
   );
 
   const { error } = await supabaseServer
@@ -275,30 +283,37 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
   }
 
   // Pas de lien direct (FK) entre l'historique PD et les lignes de
-  // programme - on retrouve les lignes concernees via leurs codes presents
-  // dans "numero_lot" (liste separee par virgules) et on les marque comme
-  // terminees pour qu'elles disparaissent du Dashboard.
-  if (deletedCodes.size > 0) {
-    const matchingIds: number[] = [];
+  // programme - 2 facons complementaires de retrouver les lignes source a
+  // marquer terminees : par code (via numero_lot, ligne par ligne) et par
+  // source_groupe_id (le programme entier). Le matching par groupe_id est
+  // indispensable pour les lignes dont l'article n'a pas de code_manu/
+  // code_auto configure (numero_lot reste NULL, invisibles au matching par
+  // code) - sans lui elles resteraient indefiniment visibles sur le
+  // Dashboard meme apres suppression de leur PD.
+  if (deletedCodes.size > 0 || sourceGroupeIds.size > 0) {
+    const matchingIds = new Set<number>();
     let from = 0;
     const pageSize = 1000;
 
     while (true) {
       const { data: ligneRows, error: ligneFetchError } = await supabaseServer
         .from("programme_lignes")
-        .select("id, numero_lot")
-        .not("numero_lot", "is", null)
+        .select("id, numero_lot, groupe_id")
         .range(from, from + pageSize - 1);
 
       if (ligneFetchError) {
         throw new Error(ligneFetchError.message);
       }
 
-      const chunk = (ligneRows as { id: number; numero_lot: string | null }[] | null) ?? [];
+      const chunk = (ligneRows as { id: number; numero_lot: string | null; groupe_id: number }[] | null) ?? [];
       for (const row of chunk) {
+        if (sourceGroupeIds.has(row.groupe_id)) {
+          matchingIds.add(row.id);
+          continue;
+        }
         const codes = (row.numero_lot || "").split(",").map((code) => code.trim()).filter(Boolean);
         if (codes.some((code) => deletedCodes.has(code))) {
-          matchingIds.push(row.id);
+          matchingIds.add(row.id);
         }
       }
 
@@ -306,11 +321,11 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
       from += pageSize;
     }
 
-    if (matchingIds.length > 0) {
+    if (matchingIds.size > 0) {
       const { error: updateError } = await supabaseServer
         .from("programme_lignes")
         .update({ programme_termine: true, programme_termine_date: new Date().toISOString() })
-        .in("id", matchingIds);
+        .in("id", [...matchingIds]);
 
       if (updateError) {
         throw new Error(updateError.message);
