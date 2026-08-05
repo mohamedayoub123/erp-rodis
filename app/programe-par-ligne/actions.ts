@@ -419,7 +419,8 @@ async function generateAutoCodes(
 async function performProgrammeLigneSave(
   filledRows: PendingProgrammeRow[],
   affectedZoneChaine: { zone: string; chaine: string }[],
-  dateJour: string
+  dateJour: string,
+  creePar: string | null
 ): Promise<{ ok: true; code: string; groupe_id: number }> {
   // Le code PL1.2026, PL2.2026... n'est pas stocke dans la colonne
   // "programe" (qui reste un champ libre tape par l'utilisateur,
@@ -459,6 +460,7 @@ async function performProgrammeLigneSave(
     plateforme: row.plateforme || null,
     programe: row.programe.trim() || null,
     date_jour: dateJour,
+    cree_par: creePar,
   }));
 
   const { data, error } = await supabaseServer
@@ -677,7 +679,7 @@ export async function saveProgrammeLigneBatchAction(
     }
     const affectedZoneChaine = [...affectedZoneChaineMap.values()];
 
-    return await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour);
+    return await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser);
   } catch (error) {
     return {
       ok: false,
@@ -749,7 +751,7 @@ export async function relaunchProgrammeLigneGroupAction(formData: FormData) {
 
   const dateJour = new Date().toISOString().slice(0, 10);
 
-  await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour);
+  await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser);
 
   redirect("/ravitailleur-par-ligne");
 }

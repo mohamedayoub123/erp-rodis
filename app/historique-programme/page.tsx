@@ -12,6 +12,7 @@ type ProgrammeLigneRow = {
   date_jour: string;
   created_at: string;
   programe: string | null;
+  cree_par: string | null;
 };
 
 async function fetchAllProgrammeLignes(): Promise<ProgrammeLigneRow[]> {
@@ -22,7 +23,7 @@ async function fetchAllProgrammeLignes(): Promise<ProgrammeLigneRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("programme_lignes")
-      .select("id, groupe_id, date_jour, created_at, programe")
+      .select("id, groupe_id, date_jour, created_at, programe, cree_par")
       .order("created_at", { ascending: false })
       .range(from, from + pageSize - 1);
 
@@ -88,6 +89,7 @@ export default async function HistoriqueProgrammePage({
       dateJour: lignes[0]?.date_jour,
       createdAt: lignes[0]?.created_at,
       count: lignes.length,
+      creePar: lignes[0]?.cree_par ?? null,
     }))
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
@@ -195,6 +197,7 @@ export default async function HistoriqueProgrammePage({
                   <span className="text-sm text-slate-500">
                     {formatDate(group.dateJour)} - {group.count} ligne
                     {group.count > 1 ? "s" : ""}
+                    {group.creePar ? ` - Cree par ${group.creePar}` : ""}
                   </span>
                 </Link>
                 <div className="flex items-center gap-2">
