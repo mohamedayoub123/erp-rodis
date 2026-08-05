@@ -6,6 +6,7 @@ import { deleteProgrammeLigneGroupAction, relaunchProgrammeLigneGroupAction } fr
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SimplePrintButton } from "@/app/_components/simple-print-button";
 
 type ProgrammeLigneRow = {
   id: number;
@@ -123,9 +124,10 @@ export default async function HistoriqueProgrammeDetailPage({
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="no-print flex flex-wrap items-center gap-3">
               <BackButton href="/historique-programme" label="Retour historique" />
               <RefreshButton />
+              <SimplePrintButton />
               {canRelaunch ? (
                 <Link
                   href={`/programe-par-ligne?groupe_id=${groupeIdNumber}`}

@@ -24,6 +24,26 @@ const COLUMNS = [
   "DISPENSEUR",
 ];
 
+// PRODUIT (nom d'article, souvent long) a besoin de bien plus de place que
+// les colonnes booleennes/numeriques etroites - sans ca, le tableau force
+// en table-layout: fixed a l'impression repartit les 13 colonnes a peu pres
+// egalement, et le nom de produit passe sur 3-4 lignes au lieu d'1-2.
+const COLUMN_WIDTHS = [
+  "6%",
+  "7%",
+  "17%",
+  "8%",
+  "7%",
+  "7%",
+  "7%",
+  "7%",
+  "6%",
+  "6%",
+  "6%",
+  "6%",
+  "7%",
+];
+
 type DispatcherRow = {
   id: number;
   zone: string;
@@ -156,6 +176,11 @@ export default async function RavitailleurToutesZonesPage() {
 
               <div className="overflow-x-auto">
                 <table className="min-w-full border-collapse text-left text-sm">
+                  <colgroup>
+                    {COLUMN_WIDTHS.map((width, index) => (
+                      <col key={COLUMNS[index]} style={{ width }} />
+                    ))}
+                  </colgroup>
                   <thead>
                     <tr>
                       <th
