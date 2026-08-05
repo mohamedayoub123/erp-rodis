@@ -274,18 +274,21 @@ async function fetchAllArticleCodeRows(): Promise<AllArticleCodeRow[]> {
 
 async function generateAutoCodes(
   draftRows: DispatcherDraftRow[],
-  articleInfoById: Map<number, ArticleFullInfo>
+  articleInfoById: Map<number, ArticleFullInfo>,
+  allArticles: AllArticleCodeRow[]
 ): Promise<{ codesByRowIndex: Map<number, string>; codeUpdatesByArticleId: Map<number, { code_manu?: string; code_auto?: string }> }> {
   const codesByRowIndex = new Map<number, string>();
   const codeUpdatesByArticleId = new Map<number, { code_manu?: string; code_auto?: string }>();
 
-  // Un seul fetch de toute la table pour regrouper par gamme+forme. La
-  // colonne type_article est une categorie de formulation (clarifiant,
-  // hydratant...), pas la forme du produit - deux articles de forme
-  // differente (Creme vs Lait) peuvent partager le meme type_article. La
-  // forme (Lait/Creme/DSR/...) vient donc TOUJOURS du nom de l'article,
-  // jamais de type_article - seule la gamme peut venir de la colonne DB.
-  const allArticles = await fetchAllArticleCodeRows();
+  // allArticles est fourni par l'appelant (pre-fetch en parallele du reste
+  // au 1er essai, refetch frais a chaque retry - voir performProgrammeLigneSave)
+  // plutot que fetche ici a chaque appel, pour paralleliser ce qui peut
+  // l'etre au lieu d'enchainer les allers-retours reseau. La colonne
+  // type_article est une categorie de formulation (clarifiant, hydratant...),
+  // pas la forme du produit - deux articles de forme differente (Creme vs
+  // Lait) peuvent partager le meme type_article. La forme (Lait/Creme/
+  // DSR/...) vient donc TOUJOURS du nom de l'article, jamais de type_article
+  // - seule la gamme peut venir de la colonne DB.
   const familyKeyById = new Map<number, string>();
   const membersByFamilyKey = new Map<string, AllArticleCodeRow[]>();
 
@@ -429,23 +432,8 @@ async function performProgrammeLigneSave(
   // lecture a partir du rang du groupe PARMI CEUX DE LA MEME ANNEE (meme
   // principe que TE1/TS1 dans Mouvements, mais remis a 1 a chaque nouvelle
   // annee de date_jour).
-  // On compte les groupe_id DISTINCTS de cette annee (pas le nombre de
-  // lignes, pas toute la table) via RPC - rapatrier toute la table
-  // (6000+ lignes et ca grossit) juste pour compter rendait le Save tres
-  // lent, voire le faisait planter.
   const anneeJour = Number(dateJour.slice(0, 4));
-
-  const { data: nextNumberData, error: nextNumberError } = await supabaseServer.rpc(
-    "programme_lignes_next_group_number_for_year",
-    { p_year: anneeJour }
-  );
-
-  if (nextNumberError) {
-    throw new Error(nextNumberError.message);
-  }
-
-  const nextNumber = Number(nextNumberData) || 1;
-  const generatedCode = `PL${nextNumber}.${anneeJour}`;
+  const articleIds = [...new Set(filledRows.map((row) => row.article_id as number))];
 
   // "Programme par ligne" garde une ligne = une saisie, avec le vrac total
   // tel quel (pas de decoupage ici) et le "Programme" tape a la main.
@@ -470,16 +458,33 @@ async function performProgrammeLigneSave(
     confirme_production: false,
   }));
 
-  const { data, error } = await supabaseServer
-    .from("programme_lignes")
-    .insert(payload)
-    .select("id");
+  // 4 requetes totalement independantes (aucune n'a besoin du resultat des
+  // autres) lancees en parallele plutot qu'enchainees - c'etait la
+  // principale source de lenteur du Save (chaque aller-retour reseau
+  // s'additionnait au precedent au lieu de se chevaucher). On compte les
+  // groupe_id DISTINCTS de cette annee (pas le nombre de lignes, pas toute
+  // la table) via RPC - rapatrier toute la table (6000+ lignes et ca
+  // grossit) juste pour compter rendait le Save tres lent, voire le
+  // faisait planter.
+  const [nextNumberResult, articleInfoById, allArticleCodeRows, insertResult] = await Promise.all([
+    supabaseServer.rpc("programme_lignes_next_group_number_for_year", { p_year: anneeJour }),
+    fetchArticleInfoMap(articleIds),
+    fetchAllArticleCodeRows(),
+    supabaseServer.from("programme_lignes").insert(payload).select("id"),
+  ]);
 
-  if (error) {
-    throw new Error(error.message);
+  if (nextNumberResult.error) {
+    throw new Error(nextNumberResult.error.message);
   }
 
-  const insertedIds = ((data as { id: number }[] | null) ?? []).map((row) => row.id);
+  const nextNumber = Number(nextNumberResult.data) || 1;
+  const generatedCode = `PL${nextNumber}.${anneeJour}`;
+
+  if (insertResult.error) {
+    throw new Error(insertResult.error.message);
+  }
+
+  const insertedIds = ((insertResult.data as { id: number }[] | null) ?? []).map((row) => row.id);
   const groupeId = Math.min(...insertedIds);
 
   const { error: groupError } = await supabaseServer
@@ -501,9 +506,9 @@ async function performProgrammeLigneSave(
 
   // Copie vers "Programme Dispatcher <ZONE>" : ici seulement, le vrac est
   // decoupe en lots (voir buildDispatcherDraftRows) et chaque lot recoit
-  // son propre code genere (voir generateAutoCodes).
-  const articleIds = [...new Set(filledRows.map((row) => row.article_id as number))];
-  const articleInfoById = await fetchArticleInfoMap(articleIds);
+  // son propre code genere (voir generateAutoCodes). articleInfoById et
+  // allArticleCodeRows viennent deja du Promise.all plus haut (1er essai) -
+  // seuls les retries en refetchent une version fraiche (voir plus bas).
 
   // Deux "Save" lances a quelques millisecondes d'ecart sur la meme famille
   // (gamme+forme) peuvent tous les deux lire le meme dernier code connu
@@ -521,24 +526,12 @@ async function performProgrammeLigneSave(
 
   for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
     const draftRows = buildDispatcherDraftRows(filledRows, articleInfoById);
-    const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(draftRows, articleInfoById);
-
-    // Une seule requete RPC (boucle cote base) plutot qu'un aller-retour
-    // reseau par article touche - sur un gros Save/relance, meme par vagues
-    // limitees, ca ajoutait assez d'allers-retours sequentiels pour risquer
-    // de depasser le temps limite de la fonction serverless.
-    if (codeUpdatesByArticleId.size > 0) {
-      const { error: codeUpdateError } = await supabaseServer.rpc("articles_bulk_update_codes", {
-        p_updates: [...codeUpdatesByArticleId.entries()].map(([articleId, updates]) => ({
-          id: articleId,
-          ...updates,
-        })),
-      });
-
-      if (codeUpdateError) {
-        throw new Error(codeUpdateError.message);
-      }
-    }
+    const articleCodeRowsForAttempt = attempt === 1 ? allArticleCodeRows : await fetchAllArticleCodeRows();
+    const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(
+      draftRows,
+      articleInfoById,
+      articleCodeRowsForAttempt
+    );
 
     const rawDispatcherPayload = draftRows.map((row, index) => ({
       zone: row.zone,
@@ -629,16 +622,30 @@ async function performProgrammeLigneSave(
       detailBySourceIndex.set(row.sourceIndex, detailList);
     });
 
-    // Une seule requete RPC (boucle cote base, valeurs passees en parametre
-    // jsonb - jamais interpolees dans une chaine de filtre) plutot qu'un
-    // aller-retour reseau par (zone, chaine) touchee.
+    // 2 RPC totalement independantes (maj des codes articles, nettoyage des
+    // zones dispatcher) lancees en parallele plutot qu'enchainees - aucune
+    // n'a besoin du resultat de l'autre, ni du resultat de l'insert qui
+    // suit (les valeurs passees a l'insert dispatcher viennent deja de
+    // codesByRowIndex, calcule en memoire plus haut).
+    const parallelWrites: PromiseLike<{ error: { message: string } | null }>[] = [];
+    if (codeUpdatesByArticleId.size > 0) {
+      parallelWrites.push(
+        supabaseServer.rpc("articles_bulk_update_codes", {
+          p_updates: [...codeUpdatesByArticleId.entries()].map(([articleId, updates]) => ({
+            id: articleId,
+            ...updates,
+          })),
+        })
+      );
+    }
     if (affectedZoneChaine.length > 0) {
-      const { error: clearError } = await supabaseServer.rpc("programme_dispatcher_clear_zones", {
-        p_pairs: affectedZoneChaine,
-      });
-
-      if (clearError) {
-        throw new Error(clearError.message);
+      parallelWrites.push(
+        supabaseServer.rpc("programme_dispatcher_clear_zones", { p_pairs: affectedZoneChaine })
+      );
+    }
+    for (const { error: parallelWriteError } of await Promise.all(parallelWrites)) {
+      if (parallelWriteError) {
+        throw new Error(parallelWriteError.message);
       }
     }
 
