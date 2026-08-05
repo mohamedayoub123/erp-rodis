@@ -391,16 +391,22 @@ async function performProgrammeLigneSave(
   affectedZoneChaine: { zone: string; chaine: string }[],
   dateJour: string
 ): Promise<{ ok: true; code: string; groupe_id: number }> {
-  // Le code MB1/MB2/MB3... n'est pas stocke dans la colonne "programe" (qui
-  // reste un champ libre tape par l'utilisateur, independant) - il est
-  // seulement retourne ici pour le message de confirmation. Le vrai code
-  // affiche dans l'historique est recalcule a la lecture a partir du rang
-  // du groupe (meme principe que TE1/TS1 dans Mouvements).
-  // On compte les groupe_id DISTINCTS (pas le nombre de lignes) via RPC -
-  // rapatrier toute la table (6000+ lignes et ca grossit) juste pour
-  // compter rendait le Save tres lent, voire le faisait planter.
+  // Le code PL1.2026, PL2.2026... n'est pas stocke dans la colonne
+  // "programe" (qui reste un champ libre tape par l'utilisateur,
+  // independant) - il est seulement retourne ici pour le message de
+  // confirmation. Le vrai code affiche dans l'historique est recalcule a la
+  // lecture a partir du rang du groupe PARMI CEUX DE LA MEME ANNEE (meme
+  // principe que TE1/TS1 dans Mouvements, mais remis a 1 a chaque nouvelle
+  // annee de date_jour).
+  // On compte les groupe_id DISTINCTS de cette annee (pas le nombre de
+  // lignes, pas toute la table) via RPC - rapatrier toute la table
+  // (6000+ lignes et ca grossit) juste pour compter rendait le Save tres
+  // lent, voire le faisait planter.
+  const anneeJour = Number(dateJour.slice(0, 4));
+
   const { data: nextNumberData, error: nextNumberError } = await supabaseServer.rpc(
-    "programme_lignes_next_group_number"
+    "programme_lignes_next_group_number_for_year",
+    { p_year: anneeJour }
   );
 
   if (nextNumberError) {
@@ -408,7 +414,7 @@ async function performProgrammeLigneSave(
   }
 
   const nextNumber = Number(nextNumberData) || 1;
-  const generatedCode = `MB${nextNumber}`;
+  const generatedCode = `PL${nextNumber}.${anneeJour}`;
 
   // "Programme par ligne" garde une ligne = une saisie, avec le vrac total
   // tel quel (pas de decoupage ici) et le "Programme" tape a la main.
@@ -461,7 +467,7 @@ async function performProgrammeLigneSave(
   // recalculant un code frais (l'autre Save est deja commite a ce stade,
   // donc generateAutoCodes le voit et repart apres) plutot que de faire
   // echouer tout l'enregistrement.
-  const MAX_CODE_ATTEMPTS = 3;
+  const MAX_CODE_ATTEMPTS = 6;
   let codesBySourceIndex = new Map<number, string[]>();
   let dispatcherSucceeded = false;
 
@@ -530,10 +536,21 @@ async function performProgrammeLigneSave(
 
     // 23505 = violation de contrainte unique - deux Save concurrents ont
     // genere le meme code, on relance avec un code recalcule. Toute autre
-    // erreur est remontee immediatement.
-    if (dispatcherError.code !== "23505" || attempt === MAX_CODE_ATTEMPTS) {
+    // erreur est remontee immediatement (message brut, pas la peine de le
+    // deguiser). Un petit delai aleatoire avant de retenter desynchronise
+    // deux Save qui se suivent de tres pres (sans lui, ils peuvent se
+    // reproduire la meme collision a chaque tentative).
+    if (dispatcherError.code !== "23505") {
       throw new Error(dispatcherError.message);
     }
+
+    if (attempt === MAX_CODE_ATTEMPTS) {
+      throw new Error(
+        "Un autre enregistrement s'est produit exactement au meme moment et a genere le meme code de lot. Reessaie le Save."
+      );
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 350));
   }
 
   if (!dispatcherSucceeded) {
@@ -577,50 +594,65 @@ async function performProgrammeLigneSave(
   return { ok: true, code: generatedCode, groupe_id: groupeId };
 }
 
-export async function saveProgrammeLigneBatchAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
-
-  if (!(await canWritePageUser(currentUser, "programeParLigne"))) {
-    throw new Error("Cet utilisateur ne peut pas enregistrer de programme.");
-  }
-
-  const rawPayload = String(formData.get("payload") || "").trim();
-  const dateJour = String(formData.get("date_jour") || "").trim();
-
-  if (!rawPayload) {
-    throw new Error("Aucune ligne remplie a enregistrer.");
-  }
-
-  if (!dateJour) {
-    throw new Error("Choisis la date du programme avant d'enregistrer.");
-  }
-
-  let rows: PendingProgrammeRow[] = [];
-
+// Next.js remplace tout throw non attrape venant d'une Server Action par un
+// message generique en production ("An error occurred in the Server
+// Components render...", sans le vrai message) - pour que l'utilisateur (et
+// nous, en cas de rapport de bug) voit la vraie raison de l'echec, cette
+// action attrape tout elle-meme et renvoie l'erreur comme donnee normale
+// (ok:false + message) plutot que de la laisser remonter comme exception.
+export async function saveProgrammeLigneBatchAction(
+  formData: FormData
+): Promise<{ ok: true; code: string; groupe_id: number } | { ok: false; message: string }> {
   try {
-    rows = JSON.parse(rawPayload) as PendingProgrammeRow[];
-  } catch {
-    throw new Error("Le contenu du programme est invalide.");
+    const currentUser = await getCurrentStockUser();
+
+    if (!(await canWritePageUser(currentUser, "programeParLigne"))) {
+      return { ok: false, message: "Cet utilisateur ne peut pas enregistrer de programme." };
+    }
+
+    const rawPayload = String(formData.get("payload") || "").trim();
+    const dateJour = String(formData.get("date_jour") || "").trim();
+
+    if (!rawPayload) {
+      return { ok: false, message: "Aucune ligne remplie a enregistrer." };
+    }
+
+    if (!dateJour) {
+      return { ok: false, message: "Choisis la date du programme avant d'enregistrer." };
+    }
+
+    let rows: PendingProgrammeRow[] = [];
+
+    try {
+      rows = JSON.parse(rawPayload) as PendingProgrammeRow[];
+    } catch {
+      return { ok: false, message: "Le contenu du programme est invalide." };
+    }
+
+    const filledRows = rows.filter((row) => row.article_id);
+
+    if (filledRows.length === 0) {
+      return { ok: false, message: "Choisis au moins un produit avant d'enregistrer." };
+    }
+
+    // Remplace le contenu courant de chaque (zone, chaine) presente dans ce
+    // Save - meme les chaines laissees vides (sans produit) sont effacees du
+    // Dispatcher, pas seulement remplacees quand elles ont un produit. Ca
+    // evite qu'une ancienne ligne reste affichee alors qu'elle n'est plus
+    // remplie sur cette chaine.
+    const affectedZoneChaineMap = new Map<string, { zone: string; chaine: string }>();
+    for (const row of rows) {
+      affectedZoneChaineMap.set(`${row.zone}::${row.chaine}`, { zone: row.zone, chaine: row.chaine });
+    }
+    const affectedZoneChaine = [...affectedZoneChaineMap.values()];
+
+    return await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Erreur inconnue pendant l'enregistrement.",
+    };
   }
-
-  const filledRows = rows.filter((row) => row.article_id);
-
-  if (filledRows.length === 0) {
-    throw new Error("Choisis au moins un produit avant d'enregistrer.");
-  }
-
-  // Remplace le contenu courant de chaque (zone, chaine) presente dans ce
-  // Save - meme les chaines laissees vides (sans produit) sont effacees du
-  // Dispatcher, pas seulement remplacees quand elles ont un produit. Ca
-  // evite qu'une ancienne ligne reste affichee alors qu'elle n'est plus
-  // remplie sur cette chaine.
-  const affectedZoneChaineMap = new Map<string, { zone: string; chaine: string }>();
-  for (const row of rows) {
-    affectedZoneChaineMap.set(`${row.zone}::${row.chaine}`, { zone: row.zone, chaine: row.chaine });
-  }
-  const affectedZoneChaine = [...affectedZoneChaineMap.values()];
-
-  return performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour);
 }
 
 // Rejoue un groupe deja enregistre (voir Historique programme) comme un

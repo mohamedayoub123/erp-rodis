@@ -23,6 +23,18 @@ export type LigneRow = {
   chaine: string;
 };
 
+export type PrefillLigne = {
+  zone: string;
+  chaine: string;
+  article_id: number | null;
+  produit: string | null;
+  type_article: string | null;
+  qt_carton: number | null;
+  vrac_a_fabriquer: number | null;
+  plateforme: string | null;
+  programe: string | null;
+};
+
 export type ArticleOption = {
   id: number;
   label: string;
@@ -47,12 +59,14 @@ type RowState = {
 
 function ProduitCell({
   articles,
+  initialLabel,
   onSelect,
 }: {
   articles: ArticleOption[];
+  initialLabel?: string;
   onSelect: (article: ArticleOption | null) => void;
 }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(initialLabel || "");
   const [showDropdown, setShowDropdown] = useState(false);
 
   const filtered = useMemo(() => {
@@ -104,8 +118,14 @@ function ProduitCell({
   );
 }
 
-function PlateformeCell({ onChange }: { onChange: (value: string) => void }) {
-  const [selected, setSelected] = useState<"M" | "A" | null>(null);
+function PlateformeCell({
+  initialValue,
+  onChange,
+}: {
+  initialValue?: "M" | "A" | null;
+  onChange: (value: string) => void;
+}) {
+  const [selected, setSelected] = useState<"M" | "A" | null>(initialValue ?? null);
 
   return (
     <div className="flex gap-2">
@@ -133,8 +153,14 @@ function PlateformeCell({ onChange }: { onChange: (value: string) => void }) {
 
 // Champ libre, independant du code MB1/MB2/MB3 auto-genere au Save - ce
 // que l'utilisateur ecrit ici est sauvegarde tel quel, jamais remplace.
-function ProgrameCell({ onChange }: { onChange: (value: string) => void }) {
-  const [value, setValue] = useState("");
+function ProgrameCell({
+  initialValue,
+  onChange,
+}: {
+  initialValue?: string;
+  onChange: (value: string) => void;
+}) {
+  const [value, setValue] = useState(initialValue || "");
 
   return (
     <input
@@ -165,13 +191,17 @@ function computeQtCarton(vrac: number, article: ArticleOption | null) {
 
 function LigneRowCells({
   articles,
+  initialArticle,
+  initialVracInput,
   onUpdate,
 }: {
   articles: ArticleOption[];
+  initialArticle?: ArticleOption | null;
+  initialVracInput?: string;
   onUpdate: (partial: Partial<RowState>) => void;
 }) {
-  const [selectedArticle, setSelectedArticle] = useState<ArticleOption | null>(null);
-  const [vracInput, setVracInput] = useState("");
+  const [selectedArticle, setSelectedArticle] = useState<ArticleOption | null>(initialArticle ?? null);
+  const [vracInput, setVracInput] = useState(initialVracInput || "");
 
   const vracNumber = Number(vracInput.replace(",", "."));
   const qtCarton = computeQtCarton(vracNumber, selectedArticle);
@@ -199,7 +229,7 @@ function LigneRowCells({
     <>
       <td className="px-4 py-3 text-slate-700">{selectedArticle?.type || "-"}</td>
       <td className="px-4 py-3">
-        <ProduitCell articles={articles} onSelect={handleSelectArticle} />
+        <ProduitCell articles={articles} initialLabel={selectedArticle?.label} onSelect={handleSelectArticle} />
       </td>
       <td className="px-4 py-3 text-slate-700">
         {qtCarton !== null ? Math.round(qtCarton).toLocaleString("fr-FR") : "-"}
@@ -221,9 +251,11 @@ function LigneRowCells({
 export function ProgrammeLigneTable({
   zoneGroups,
   articles,
+  prefillLignes = [],
 }: {
   zoneGroups: LigneRow[][];
   articles: ArticleOption[];
+  prefillLignes?: PrefillLigne[];
 }) {
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
@@ -245,11 +277,46 @@ export function ProgrammeLigneTable({
   // page) - la table est prete pour un nouveau programme.
   const [resetKey, setResetKey] = useState(0);
 
+  // Associe chaque ligne prefilie (venant d'un programme de l'historique) a
+  // sa position dans la grille actuelle (zone+chaine), dans l'ordre - permet
+  // a plusieurs articles historiques sur la meme chaine de se repartir sur
+  // plusieurs sous-lignes (comme le bouton "+"). Une zone/chaine qui n'existe
+  // plus dans ZONE_GROUPS est simplement ignoree (pas de crash).
+  const prefillByKey = useMemo(() => {
+    const map = new Map<string, PrefillLigne>();
+    const countByGroupKey: Record<string, number> = {};
+
+    if (prefillLignes.length === 0) return { map, countByGroupKey };
+
+    const positionByZoneChaine = new Map<string, { groupIndex: number; rowIndex: number }>();
+    zoneGroups.forEach((group, groupIndex) => {
+      group.forEach((row, rowIndex) => {
+        positionByZoneChaine.set(`${row.zone}::${row.chaine}`, { groupIndex, rowIndex });
+      });
+    });
+
+    for (const ligne of prefillLignes) {
+      const position = positionByZoneChaine.get(`${ligne.zone}::${ligne.chaine}`);
+      if (!position) continue;
+
+      const groupKey = `${position.groupIndex}-${position.rowIndex}`;
+      const subIndex = countByGroupKey[groupKey] ?? 0;
+      countByGroupKey[groupKey] = subIndex + 1;
+      map.set(`${groupKey}-${subIndex}`, ligne);
+    }
+
+    return { map, countByGroupKey };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const rowsRef = useRef<Record<string, RowState>>({});
-  // Nb de lignes affichees pour une meme chaine (1 par defaut) - le bouton
+  // Nb de lignes affichees pour une meme chaine (1 par defaut, ou plus si un
+  // programme prefilie a plusieurs articles sur la meme chaine) - le bouton
   // "+" permet d'ajouter un 2eme (ou 3eme...) article sur la meme chaine,
   // "Annuler" retire la derniere ligne ajoutee.
-  const [subRowCounts, setSubRowCounts] = useState<Record<string, number>>({});
+  const [subRowCounts, setSubRowCounts] = useState<Record<string, number>>(
+    () => prefillByKey.countByGroupKey
+  );
 
   function getSubRowCount(groupKey: string) {
     return subRowCounts[groupKey] ?? 1;
@@ -257,17 +324,30 @@ export function ProgrammeLigneTable({
 
   function ensureRow(key: string, zone: string, chaine: string) {
     if (!rowsRef.current[key]) {
-      rowsRef.current[key] = {
-        zone,
-        chaine,
-        articleId: null,
-        produit: "",
-        typeArticle: "",
-        qtCarton: null,
-        vracAFabriquer: null,
-        plateforme: "",
-        programe: "",
-      };
+      const prefill = prefillByKey.map.get(key);
+      rowsRef.current[key] = prefill
+        ? {
+            zone,
+            chaine,
+            articleId: prefill.article_id,
+            produit: prefill.produit || "",
+            typeArticle: prefill.type_article || "",
+            qtCarton: prefill.qt_carton,
+            vracAFabriquer: prefill.vrac_a_fabriquer,
+            plateforme: prefill.plateforme || "",
+            programe: prefill.programe || "",
+          }
+        : {
+            zone,
+            chaine,
+            articleId: null,
+            produit: "",
+            typeArticle: "",
+            qtCarton: null,
+            vracAFabriquer: null,
+            plateforme: "",
+            programe: "",
+          };
     }
   }
 
@@ -315,6 +395,12 @@ export function ProgrammeLigneTable({
     startTransition(async () => {
       try {
         const result = await saveProgrammeLigneBatchAction(formData);
+
+        if (!result.ok) {
+          setErrorMessage(result.message);
+          return;
+        }
+
         setMessage(`Enregistre sous le code ${result.code}.`);
         rowsRef.current = {};
         setSubRowCounts({});
@@ -409,6 +495,10 @@ export function ProgrammeLigneTable({
                   const key = `${groupKey}-${subIndex}`;
                   ensureRow(key, row.zone, row.chaine);
                   const isLast = subIndex === subRowCount - 1;
+                  const prefill = prefillByKey.map.get(key);
+                  const prefillArticle = prefill?.article_id
+                    ? articles.find((article) => article.id === prefill.article_id) ?? null
+                    : null;
 
                   return (
                     <tr key={key} className="border-t border-slate-100 align-top">
@@ -420,13 +510,23 @@ export function ProgrammeLigneTable({
                       </td>
                       <LigneRowCells
                         articles={articles}
+                        initialArticle={prefillArticle}
+                        initialVracInput={
+                          prefill?.vrac_a_fabriquer != null ? String(prefill.vrac_a_fabriquer) : undefined
+                        }
                         onUpdate={(partial) => updateRow(key, partial)}
                       />
                       <td className="px-4 py-3">
-                        <PlateformeCell onChange={(value) => updateRow(key, { plateforme: value })} />
+                        <PlateformeCell
+                          initialValue={prefill?.plateforme as "M" | "A" | null | undefined}
+                          onChange={(value) => updateRow(key, { plateforme: value })}
+                        />
                       </td>
                       <td className="px-4 py-3">
-                        <ProgrameCell onChange={(value) => updateRow(key, { programe: value })} />
+                        <ProgrameCell
+                          initialValue={prefill?.programe || undefined}
+                          onChange={(value) => updateRow(key, { programe: value })}
+                        />
                       </td>
                       <td className="px-4 py-3">
                         {isLast ? (

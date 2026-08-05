@@ -48,7 +48,7 @@ function formatDate(value: string) {
 
 const PAGE_SIZE = 200;
 
-type SearchParams = Promise<{ page?: string }>;
+type SearchParams = Promise<{ page?: string; code?: string; date?: string }>;
 
 export default async function HistoriqueProgrammePage({
   searchParams,
@@ -57,6 +57,9 @@ export default async function HistoriqueProgrammePage({
 }) {
   const params = await searchParams;
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
+  const codeFilter = (params.code || "").trim().toLowerCase();
+  const dateFilter = (params.date || "").trim();
+  const hasFilters = Boolean(codeFilter || dateFilter);
   const currentUser = await getCurrentStockUser();
   const canDelete = await canDeletePageUser(currentUser, "historiqueProgramme");
   const canRelaunch = await canWritePageUser(currentUser, "programeParLigne");
@@ -73,10 +76,12 @@ export default async function HistoriqueProgrammePage({
     }
   }
 
-  // Le code MB1/MB2/MB3... n'est pas stocke en base - il est recalcule ici
-  // selon le rang du groupe (le plus ancien = MB1), meme principe que
-  // TE1/TS1 dans Mouvements. La colonne "programe" reste un champ libre
-  // tape par l'utilisateur, independant de ce code.
+  // Le code PL1.2026, PL2.2026... n'est pas stocke en base - il est
+  // recalcule ici selon le rang du groupe PARMI CEUX DE LA MEME ANNEE (le
+  // plus ancien de l'annee = PL1.<annee>), remis a 1 a chaque nouvelle
+  // annee de date_jour - meme principe que TE1/TS1 dans Mouvements. La
+  // colonne "programe" reste un champ libre tape par l'utilisateur,
+  // independant de ce code.
   const groupsByAge = [...groupsMap.entries()]
     .map(([groupeId, lignes]) => ({
       groupeId,
@@ -86,17 +91,30 @@ export default async function HistoriqueProgrammePage({
     }))
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
+  const rankByYear = new Map<number, number>();
   const groups = groupsByAge
-    .map((group, index) => ({ ...group, code: `MB${index + 1}` }))
+    .map((group) => {
+      const annee = new Date(group.dateJour).getFullYear();
+      const rank = (rankByYear.get(annee) ?? 0) + 1;
+      rankByYear.set(annee, rank);
+      return { ...group, annee, code: `PL${rank}.${annee}` };
+    })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  // Le code MBn est calcule sur TOUS les groupes (rang par age), mais on
-  // n'affiche/ne rend qu'une page a la fois - avec des milliers de groupes,
-  // tout rendre d'un coup fait exploser le temps de rendu et la memoire.
-  const totalGroups = groups.length;
+  // Le code PLn.annee est calcule sur TOUS les groupes (rang par age dans
+  // leur annee), mais on n'affiche/ne rend qu'une page a la fois - avec des
+  // milliers de groupes, tout rendre d'un coup fait exploser le temps de
+  // rendu et la memoire.
+  const filteredGroups = groups.filter((group) => {
+    if (codeFilter && !group.code.toLowerCase().includes(codeFilter)) return false;
+    if (dateFilter && group.dateJour !== dateFilter) return false;
+    return true;
+  });
+
+  const totalGroups = filteredGroups.length;
   const totalPages = Math.max(1, Math.ceil(totalGroups / PAGE_SIZE));
   const from = (currentPage - 1) * PAGE_SIZE;
-  const pagedGroups = groups.slice(from, from + PAGE_SIZE);
+  const pagedGroups = filteredGroups.slice(from, from + PAGE_SIZE);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -122,10 +140,46 @@ export default async function HistoriqueProgrammePage({
           </div>
         </section>
 
+        <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]">
+            <input
+              type="text"
+              name="code"
+              defaultValue={params.code || ""}
+              placeholder="Code PL (ex: PL1.2026)"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="date"
+              name="date"
+              defaultValue={params.date || ""}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <button
+              type="submit"
+              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Filtrer
+            </button>
+            {hasFilters ? (
+              <Link
+                href="/historique-programme"
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+              >
+                Effacer
+              </Link>
+            ) : null}
+          </form>
+        </section>
+
         <section className="space-y-3">
           {groups.length === 0 ? (
             <div className="rounded-[1.75rem] border border-black/5 bg-white p-8 text-center text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
               Aucun programme enregistre pour le moment.
+            </div>
+          ) : filteredGroups.length === 0 ? (
+            <div className="rounded-[1.75rem] border border-black/5 bg-white p-8 text-center text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+              Aucun resultat pour ce filtre.
             </div>
           ) : (
             pagedGroups.map((group) => (
@@ -144,6 +198,14 @@ export default async function HistoriqueProgrammePage({
                   </span>
                 </Link>
                 <div className="flex items-center gap-2">
+                  {canRelaunch ? (
+                    <Link
+                      href={`/programe-par-ligne?groupe_id=${group.groupeId}`}
+                      className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400"
+                    >
+                      Charger
+                    </Link>
+                  ) : null}
                   {canRelaunch ? (
                     <form action={relaunchProgrammeLigneGroupAction}>
                       <input type="hidden" name="groupe_id" value={group.groupeId} />
@@ -175,7 +237,7 @@ export default async function HistoriqueProgrammePage({
 
             <div className="flex gap-3">
               <Link
-                href={`/historique-programme?page=${Math.max(1, currentPage - 1)}`}
+                href={`/historique-programme?page=${Math.max(1, currentPage - 1)}&code=${encodeURIComponent(params.code || "")}&date=${encodeURIComponent(params.date || "")}`}
                 className={`rounded-full px-4 py-2 font-semibold ${
                   currentPage === 1
                     ? "pointer-events-none bg-slate-100 text-slate-400"
@@ -185,7 +247,7 @@ export default async function HistoriqueProgrammePage({
                 Precedent
               </Link>
               <Link
-                href={`/historique-programme?page=${Math.min(totalPages, currentPage + 1)}`}
+                href={`/historique-programme?page=${Math.min(totalPages, currentPage + 1)}&code=${encodeURIComponent(params.code || "")}&date=${encodeURIComponent(params.date || "")}`}
                 className={`rounded-full px-4 py-2 font-semibold ${
                   currentPage >= totalPages
                     ? "pointer-events-none bg-slate-100 text-slate-400"

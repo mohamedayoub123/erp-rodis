@@ -5,6 +5,7 @@ import { deleteProgrammeDispatcherHistoryGroupAction } from "../../ravitailleur-
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SimplePrintButton } from "@/app/_components/simple-print-button";
 
 type HistoryRow = {
   id: number;
@@ -103,9 +104,10 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="no-print flex flex-wrap items-center gap-3">
               <BackButton href="/historique-programme-dispatcher" label="Retour historique" />
               <RefreshButton />
+              <SimplePrintButton />
               {canDelete ? (
                 <form action={deleteProgrammeDispatcherHistoryGroupAction}>
                   <input type="hidden" name="groupe_id" value={groupeIdNumber} />

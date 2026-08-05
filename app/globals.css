@@ -34,6 +34,18 @@ body {
     display: none !important;
   }
 
+  /* Regle generale (pas limitee aux tableaux data-print-mode) : sans ca,
+     une ligne de tableau peut se retrouver coupee entre 2 pages a
+     l'impression - le haut du texte sur une page, le bas sur la suivante. */
+  table tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  table thead {
+    display: table-header-group;
+  }
+
   /* La page commande a 2 boutons imprimer distincts : "Imprimer commande"
      (tableau article/qt/disponible) et "Imprimer dispatch" (tableau FIFO).
      Chacun ne doit imprimer QUE son propre tableau, pas les deux, ni les
@@ -121,6 +133,7 @@ body {
     padding: 2px 4px !important;
     text-align: left !important;
   }
+
 
   /* Les <input>/<select>/<button> n'heritent pas de font-size par defaut
      dans les navigateurs (contrairement au texte normal) - sans ce
