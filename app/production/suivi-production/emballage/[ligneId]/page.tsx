@@ -6,6 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
 import { saveEmballageRapportAction } from "../../actions";
+import { DateJmaFormField } from "@/app/_components/date-jma-input";
 
 const ARRET_CAUSES = [
   { field: "emballage_arret_changement_bobine", label: "ARRET CHANGEMENT BOBINE" },
@@ -35,6 +36,7 @@ type RapportInfo = {
   emballage_arret_reglage: number | null;
   emballage_arret_coupure: number | null;
   emballage_arret_autre: number | null;
+  date_emballage: string | null;
   utilisateur_emballage: string | null;
 };
 
@@ -63,7 +65,7 @@ export default async function RapportEmballagePage({
     supabaseServer
       .from("production_rapports")
       .select(
-        "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, utilisateur_emballage"
+        "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, date_emballage, utilisateur_emballage"
       )
       .eq("programme_ligne_id", ligneIdNumber)
       .maybeSingle(),
@@ -114,6 +116,18 @@ export default async function RapportEmballagePage({
           ) : (
             <form action={saveEmballageRapportAction} className="grid gap-6">
               <input type="hidden" name="ligne_id" value={ligne.id} />
+
+              <div>
+                <h2 className="mb-1 text-lg font-bold text-slate-900">Date</h2>
+                <p className="mb-3 text-xs text-slate-500">
+                  Cette date remplace la date automatique dans Suivi Production (colonne Date
+                  emballage).
+                </p>
+                <label className="grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
+                  Date emballage
+                  <DateJmaFormField name="date_emballage" defaultValue={rapport?.date_emballage} />
+                </label>
+              </div>
 
               <div>
                 <h2 className="mb-3 text-lg font-bold text-slate-900">Equipe</h2>

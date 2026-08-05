@@ -129,6 +129,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   }
 
   const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
+  const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
   await upsertRapport(ligneId, {
     chef_zone: parseOptionalText(formData, "chef_zone"),
@@ -156,7 +157,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     arret_autre: parseOptionalNumber(formData, "arret_autre"),
     temps_demarage_lot: parseOptionalText(formData, "temps_demarage_lot"),
     temps_arret_batch: parseOptionalText(formData, "temps_arret_batch"),
-    date_fabrication_conditionnement: parseOptionalText(formData, "date_fabrication_conditionnement"),
+    date_fabrication_conditionnement: dateFabricationConditionnement,
     date_peremption: parseOptionalText(formData, "date_peremption"),
     utilisateur_conditionnement: currentUser,
     date_saisie_conditionnement: new Date().toISOString(),
@@ -164,9 +165,16 @@ export async function saveConditionnementRapportAction(formData: FormData) {
 
   // Alimente le journal carton (meme principe que le Dashboard) pour que
   // le "reste" par rapport a la quantite prevue se recalcule tout seul.
+  // date_jour vient de la date saisie sur le rapport (Date fabrication) au
+  // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
+  // qui alimente la colonne "Date conditionnement" de Suivi Production.
   if (qtFabriquer && qtFabriquer > 0) {
     const { error: cartonError } = await supabaseServer.from("production_carton_entries").insert([
-      { programme_ligne_id: ligneId, quantite: qtFabriquer },
+      {
+        programme_ligne_id: ligneId,
+        quantite: qtFabriquer,
+        ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
+      },
     ]);
 
     if (cartonError) {
@@ -192,6 +200,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
   }
 
   const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
+  const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
   await upsertRapport(ligneId, {
     machine: parseOptionalText(formData, "machine"),
@@ -216,15 +225,43 @@ export async function saveFabricationRapportAction(formData: FormData) {
     vrac_fabrique: vracFabrique,
     qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
     code_vrac_recupere: parseOptionalText(formData, "code_vrac_recupere"),
+    fabrication_arret_absence_air: parseOptionalNumber(formData, "fabrication_arret_absence_air"),
+    fabrication_arret_absence_vapeur: parseOptionalNumber(formData, "fabrication_arret_absence_vapeur"),
+    fabrication_arret_attente_aspiration_aqueuse: parseOptionalNumber(
+      formData,
+      "fabrication_arret_attente_aspiration_aqueuse"
+    ),
+    fabrication_arret_attente_cuves_mobiles: parseOptionalNumber(
+      formData,
+      "fabrication_arret_attente_cuves_mobiles"
+    ),
+    fabrication_arret_attente_eau_osmosee: parseOptionalNumber(formData, "fabrication_arret_attente_eau_osmosee"),
+    fabrication_arret_coupure_electrique: parseOptionalNumber(formData, "fabrication_arret_coupure_electrique"),
+    fabrication_arret_maintenance_plateforme: parseOptionalNumber(
+      formData,
+      "fabrication_arret_maintenance_plateforme"
+    ),
+    fabrication_arret_manque_cuves_mobiles: parseOptionalNumber(formData, "fabrication_arret_manque_cuves_mobiles"),
+    fabrication_arret_probleme_pompe: parseOptionalNumber(formData, "fabrication_arret_probleme_pompe"),
+    fabrication_arret_probleme_ph: parseOptionalNumber(formData, "fabrication_arret_probleme_ph"),
+    fabrication_arret_probleme_technique: parseOptionalNumber(formData, "fabrication_arret_probleme_technique"),
+    date_fabrication_conditionnement: dateFabricationConditionnement,
     utilisateur_fabrication: currentUser,
     date_saisie_fabrication: new Date().toISOString(),
   });
 
   // Alimente le journal vrac (meme principe que le Dashboard) pour que le
   // "reste" par rapport a la quantite prevue se recalcule tout seul.
+  // date_jour vient de la date saisie sur le rapport (Date fabrication) au
+  // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
+  // qui alimente la colonne "Date fabrication" de Suivi Production.
   if (vracFabrique && vracFabrique > 0) {
     const { error: vracError } = await supabaseServer.from("production_vrac_entries").insert([
-      { programme_ligne_id: ligneId, quantite: vracFabrique },
+      {
+        programme_ligne_id: ligneId,
+        quantite: vracFabrique,
+        ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
+      },
     ]);
 
     if (vracError) {
@@ -250,6 +287,7 @@ export async function saveEmballageRapportAction(formData: FormData) {
   }
 
   const quantite = parseOptionalNumber(formData, "quantite");
+  const dateEmballage = parseOptionalText(formData, "date_emballage");
 
   await upsertRapport(ligneId, {
     emballage_machine: parseOptionalText(formData, "emballage_machine"),
@@ -262,16 +300,24 @@ export async function saveEmballageRapportAction(formData: FormData) {
     emballage_arret_reglage: parseOptionalNumber(formData, "emballage_arret_reglage"),
     emballage_arret_coupure: parseOptionalNumber(formData, "emballage_arret_coupure"),
     emballage_arret_autre: parseOptionalNumber(formData, "emballage_arret_autre"),
+    date_emballage: dateEmballage,
     utilisateur_emballage: currentUser,
     date_saisie_emballage: new Date().toISOString(),
   });
 
   // Alimente le journal emballage (meme principe que carton/vrac) pour que
   // le "reste" par rapport a ce qui a deja ete conditionne se recalcule
-  // tout seul.
+  // tout seul. date_jour vient de la date saisie sur le rapport (Date
+  // emballage) au lieu de la date automatique (aujourd'hui, valeur par
+  // defaut) - c'est ce qui alimente la colonne "Date emballage" de Suivi
+  // Production.
   if (quantite && quantite > 0) {
     const { error: emballageError } = await supabaseServer.from("production_emballage_entries").insert([
-      { programme_ligne_id: ligneId, quantite },
+      {
+        programme_ligne_id: ligneId,
+        quantite,
+        ...(dateEmballage ? { date_jour: dateEmballage } : {}),
+      },
     ]);
 
     if (emballageError) {

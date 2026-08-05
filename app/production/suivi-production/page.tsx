@@ -74,6 +74,48 @@ const ARRET_LABELS: { field: ArretField; label: string }[] = [
   { field: "arret_autre", label: "Autre arret" },
 ];
 
+type FabricationArretField =
+  | "fabrication_arret_absence_air"
+  | "fabrication_arret_absence_vapeur"
+  | "fabrication_arret_attente_aspiration_aqueuse"
+  | "fabrication_arret_attente_cuves_mobiles"
+  | "fabrication_arret_attente_eau_osmosee"
+  | "fabrication_arret_coupure_electrique"
+  | "fabrication_arret_maintenance_plateforme"
+  | "fabrication_arret_manque_cuves_mobiles"
+  | "fabrication_arret_probleme_pompe"
+  | "fabrication_arret_probleme_ph"
+  | "fabrication_arret_probleme_technique";
+
+const FABRICATION_ARRET_LABELS: { field: FabricationArretField; label: string }[] = [
+  { field: "fabrication_arret_absence_air", label: "Absence d'air" },
+  { field: "fabrication_arret_absence_vapeur", label: "Absence de vapeur" },
+  { field: "fabrication_arret_attente_aspiration_aqueuse", label: "Attente aspiration aqueuse vers trimix" },
+  { field: "fabrication_arret_attente_cuves_mobiles", label: "Attente de cuves mobiles" },
+  { field: "fabrication_arret_attente_eau_osmosee", label: "Attente eau osmosee" },
+  { field: "fabrication_arret_coupure_electrique", label: "Coupure electrique" },
+  { field: "fabrication_arret_maintenance_plateforme", label: "Maintenance sur la plateforme" },
+  { field: "fabrication_arret_manque_cuves_mobiles", label: "Manque de cuves mobiles" },
+  { field: "fabrication_arret_probleme_pompe", label: "Probleme de la pompe" },
+  { field: "fabrication_arret_probleme_ph", label: "Probleme de PH" },
+  { field: "fabrication_arret_probleme_technique", label: "Probleme technique" },
+];
+
+type EmballageArretField =
+  | "emballage_arret_changement_bobine"
+  | "emballage_arret_technique"
+  | "emballage_arret_reglage"
+  | "emballage_arret_coupure"
+  | "emballage_arret_autre";
+
+const EMBALLAGE_ARRET_LABELS: { field: EmballageArretField; label: string }[] = [
+  { field: "emballage_arret_changement_bobine", label: "Arret changement bobine" },
+  { field: "emballage_arret_technique", label: "Arret technique (emb.)" },
+  { field: "emballage_arret_reglage", label: "Arret reglage" },
+  { field: "emballage_arret_coupure", label: "Arret coupure" },
+  { field: "emballage_arret_autre", label: "Autre arret (emb.)" },
+];
+
 type LigneRow = {
   id: number;
   zone: string;
@@ -144,6 +186,22 @@ type RapportRow = {
   emballage_scotcheuse: string | null;
   emballage_temps_demarrer: string | null;
   emballage_temps_arret: string | null;
+  emballage_arret_changement_bobine: number | null;
+  emballage_arret_technique: number | null;
+  emballage_arret_reglage: number | null;
+  emballage_arret_coupure: number | null;
+  emballage_arret_autre: number | null;
+  fabrication_arret_absence_air: number | null;
+  fabrication_arret_absence_vapeur: number | null;
+  fabrication_arret_attente_aspiration_aqueuse: number | null;
+  fabrication_arret_attente_cuves_mobiles: number | null;
+  fabrication_arret_attente_eau_osmosee: number | null;
+  fabrication_arret_coupure_electrique: number | null;
+  fabrication_arret_maintenance_plateforme: number | null;
+  fabrication_arret_manque_cuves_mobiles: number | null;
+  fabrication_arret_probleme_pompe: number | null;
+  fabrication_arret_probleme_ph: number | null;
+  fabrication_arret_probleme_technique: number | null;
   utilisateur_fabrication: string | null;
   date_saisie_fabrication: string | null;
   utilisateur_conditionnement: string | null;
@@ -199,7 +257,7 @@ async function fetchAllRows<T>(
 }
 
 const RAPPORT_COLUMNS =
-  "id, programme_ligne_id, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
+  "id, programme_ligne_id, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
 
 function groupEntriesByLigne(entries: EntryRow[]): Map<number, EntryRow[]> {
   const map = new Map<number, EntryRow[]>();
@@ -482,13 +540,13 @@ export default async function SuiviProductionListPage({
                     <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
                       Programme (PL)
                     </th>
-                    <th colSpan={25} className="border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
+                    <th colSpan={36} className="border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
                       Fabrication
                     </th>
                     <th colSpan={32} className="border-b border-slate-200 bg-sky-50 px-6 py-2 text-center font-bold text-sky-800">
                       Conditionnement
                     </th>
-                    <th colSpan={9} className="border-b border-slate-200 bg-emerald-50 px-6 py-2 text-center font-bold text-emerald-800">
+                    <th colSpan={14} className="border-b border-slate-200 bg-emerald-50 px-6 py-2 text-center font-bold text-emerald-800">
                       Emballage
                     </th>
                     <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
@@ -520,6 +578,11 @@ export default async function SuiviProductionListPage({
                     <th className="px-6 py-3 font-semibold">Vrac fabrique</th>
                     <th className="px-6 py-3 font-semibold">Qt vrac recupere</th>
                     <th className="px-6 py-3 font-semibold">Code vrac recupere</th>
+                    {FABRICATION_ARRET_LABELS.map(({ field, label }) => (
+                      <th key={field} className="px-6 py-3 font-semibold">
+                        {label}
+                      </th>
+                    ))}
                     <th className="px-6 py-3 font-semibold">Saisi par (fabrication)</th>
                     <th className="px-6 py-3 font-semibold">Date saisie (fabrication)</th>
 
@@ -559,6 +622,11 @@ export default async function SuiviProductionListPage({
                     <th className="px-6 py-3 font-semibold">Scotcheuse</th>
                     <th className="px-6 py-3 font-semibold">Demarage emballage</th>
                     <th className="px-6 py-3 font-semibold">Arret emballage</th>
+                    {EMBALLAGE_ARRET_LABELS.map(({ field, label }) => (
+                      <th key={field} className="px-6 py-3 font-semibold">
+                        {label}
+                      </th>
+                    ))}
                     <th className="px-6 py-3 font-semibold">Quantite emballage</th>
                     <th className="px-6 py-3 font-semibold">Saisi par (emballage)</th>
                     <th className="px-6 py-3 font-semibold">Date saisie (emballage)</th>
@@ -617,6 +685,18 @@ export default async function SuiviProductionListPage({
                         </td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.qt_vrac_recupere ?? "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.code_vrac_recupere || "-" : "-"}</td>
+                        {FABRICATION_ARRET_LABELS.map(({ field }) => (
+                          <td
+                            key={field}
+                            className={`px-6 py-4 ${
+                              showFab && Number(r?.[field] ?? 0) > 0
+                                ? "font-semibold text-red-700"
+                                : "text-slate-400"
+                            }`}
+                          >
+                            {showFab ? r?.[field] ?? "-" : "-"}
+                          </td>
+                        ))}
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.utilisateur_fabrication || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">
                           {showFab ? formatDateTime(r?.date_saisie_fabrication ?? null) : "-"}
@@ -687,6 +767,18 @@ export default async function SuiviProductionListPage({
                           {showEmb ? r?.emballage_temps_demarrer || "-" : "-"}
                         </td>
                         <td className="px-6 py-4 text-slate-600">{showEmb ? r?.emballage_temps_arret || "-" : "-"}</td>
+                        {EMBALLAGE_ARRET_LABELS.map(({ field }) => (
+                          <td
+                            key={field}
+                            className={`px-6 py-4 ${
+                              showEmb && Number(r?.[field] ?? 0) > 0
+                                ? "font-semibold text-red-700"
+                                : "text-slate-400"
+                            }`}
+                          >
+                            {showEmb ? r?.[field] ?? "-" : "-"}
+                          </td>
+                        ))}
                         <td className="px-6 py-4 font-semibold text-slate-900">
                           {row.emballage ? row.emballage.quantite : "-"}
                         </td>
