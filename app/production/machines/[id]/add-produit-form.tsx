@@ -95,6 +95,12 @@ export function AddProduitForm({
             placeholder="Max"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
+          <input
+            type="number"
+            name="temps_minutes"
+            placeholder="Temps (minutes)"
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+          />
         </>
       ) : null}
 

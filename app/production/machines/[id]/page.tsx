@@ -138,6 +138,7 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
                       <>
                         <th className="px-6 py-4 font-semibold">Min</th>
                         <th className="px-6 py-4 font-semibold">Max</th>
+                        <th className="px-6 py-4 font-semibold">Temps (minutes)</th>
                       </>
                     ) : (
                       <>
@@ -158,6 +159,7 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
                         <>
                           <td className="px-6 py-4 text-slate-600">{formatNombre(produit.capacite_min)}</td>
                           <td className="px-6 py-4 text-slate-600">{formatNombre(produit.capacite_max)}</td>
+                          <td className="px-6 py-4 text-slate-600">{formatNombre(produit.temps_minutes)}</td>
                         </>
                       ) : (
                         <>
