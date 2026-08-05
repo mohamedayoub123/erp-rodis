@@ -18,6 +18,7 @@ type HistoryRow = {
   qt_vrac: number | null;
   date_jour: string;
   created_at: string;
+  cree_par: string | null;
 };
 
 function formatDate(value: string) {
@@ -44,7 +45,7 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
 
   const { data } = await supabaseServer
     .from("programme_dispatcher_history")
-    .select("id, groupe_id, zone, chaine, produit, code, qt_carton, qt_vrac, date_jour, created_at")
+    .select("id, groupe_id, zone, chaine, produit, code, qt_carton, qt_vrac, date_jour, created_at, cree_par")
     .eq("groupe_id", groupeIdNumber)
     .order("id", { ascending: true });
 
@@ -101,6 +102,7 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">{code}</h1>
               <p className="mt-2 text-sm text-slate-600">
                 {formatDate(dateJour)} - {rows.length} ligne{rows.length > 1 ? "s" : ""}
+                {rows[0]?.cree_par ? ` - Cree par ${rows[0].cree_par}` : ""}
               </p>
             </div>
 
