@@ -647,7 +647,8 @@ async function performProgrammeLigneSave(
   filledRows: PendingProgrammeRow[],
   affectedZoneChaine: { zone: string; chaine: string }[],
   dateJour: string,
-  creePar: string | null
+  creePar: string | null,
+  remarque: string | null
 ): Promise<{ ok: true; code: string; groupe_id: number }> {
   // Le code PL1.2026, PL2.2026... n'est pas stocke dans la colonne
   // "programe" (qui reste un champ libre tape par l'utilisateur,
@@ -673,6 +674,7 @@ async function performProgrammeLigneSave(
     programe: row.programe.trim() || null,
     date_jour: dateJour,
     cree_par: creePar,
+    remarque: remarque || null,
     // Un programme fraichement saisi n'est pas encore confirme pour le
     // suivi de production (Dashboard/Calendrier) - il ne le devient qu'une
     // fois valide via le bouton "Save" de Ravitailleur par ligne (voir
@@ -985,6 +987,7 @@ export async function saveProgrammeLigneBatchAction(
 
     const rawPayload = String(formData.get("payload") || "").trim();
     const dateJour = String(formData.get("date_jour") || "").trim();
+    const remarque = String(formData.get("remarque") || "").trim() || null;
 
     if (!rawPayload) {
       return { ok: false, message: "Aucune ligne remplie a enregistrer." };
@@ -1019,7 +1022,7 @@ export async function saveProgrammeLigneBatchAction(
     }
     const affectedZoneChaine = [...affectedZoneChaineMap.values()];
 
-    return await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser);
+    return await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser, remarque);
   } catch (error) {
     return {
       ok: false,
@@ -1091,7 +1094,7 @@ export async function relaunchProgrammeLigneGroupAction(formData: FormData) {
 
   const dateJour = new Date().toISOString().slice(0, 10);
 
-  await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser);
+  await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser, null);
 
   redirect("/ravitailleur-par-ligne");
 }

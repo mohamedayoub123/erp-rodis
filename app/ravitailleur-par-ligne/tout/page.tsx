@@ -81,6 +81,19 @@ async function fetchAllDispatcherRows(): Promise<DispatcherRow[]> {
     from += pageSize;
   }
 
+  // Trie par date puis par chaine (tri numerique-aware : "5" avant "10A")
+  // au lieu de l'ordre d'insertion brut - le decoupage en lots (voir
+  // buildDispatcherDraftRows) peut inserer les lignes d'une chaine avant
+  // celles d'une autre dans un ordre qui ne correspond plus a l'ordre des
+  // chaines (ex: un lot "reliquat combine" est toujours insere apres tous
+  // les lots pleins, meme s'il appartient a une chaine plus petite), ce qui
+  // affichait a tort une chaine avant une autre plus petite.
+  rows.sort((a, b) => {
+    const dateCompare = (a.date_jour || "").localeCompare(b.date_jour || "");
+    if (dateCompare !== 0) return dateCompare;
+    return (a.chaine || "").localeCompare(b.chaine || "", "fr", { numeric: true });
+  });
+
   return rows;
 }
 
