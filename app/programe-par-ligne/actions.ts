@@ -367,6 +367,12 @@ async function generateAutoCodes(
       let currentCode = seedCode;
       let remaining = groupEntries.length;
       const codeByBatchKey = new Map<string, string>();
+      // Dernier code assigne a CHAQUE article individuellement (pas un seul
+      // code partage pour toute la famille) - une contenance/variante qui
+      // recoit plusieurs lots dans ce Save garde le code de son DERNIER lot,
+      // les autres contenances de la famille non touchees ici ne sont pas
+      // modifiees du tout.
+      const lastCodeByArticleId = new Map<number, string>();
 
       while (remaining > 0) {
         for (const articleId of bucketOrder) {
@@ -382,6 +388,7 @@ async function generateAutoCodes(
           currentCode = nextCode;
           const entry = bucket.shift()!;
           codeByBatchKey.set(entry.batchKey, currentCode);
+          lastCodeByArticleId.set(articleId, currentCode);
           remaining -= 1;
         }
       }
@@ -394,13 +401,17 @@ async function generateAutoCodes(
         if (code) codesByRowIndex.set(index, code);
       });
 
-      // Le dernier code genere est remis sur TOUTES les contenances de la
-      // famille (gamme+type), meme celles pas utilisees dans ce Save - pas
-      // seulement celles touchees ici - pour que "Code par article" reste
-      // toujours le meme code partout dans la famille.
-      for (const articleId of familyArticleIds) {
+      // "Code par article" (code_manu/code_auto) ne recoit que le code du
+      // DERNIER lot de CHAQUE contenance/variante touchee ici - jamais le
+      // meme code force sur toute la famille (2 gel douche de gammes/types
+      // differents, ex: Clarifiant et Exfoliant, ne doivent pas afficher le
+      // meme code juste parce qu'ils partagent la famille - seul un vrai lot
+      // partage entre eux, via codeByBatchKey ci-dessus, leur donne le meme
+      // code). familyArticleIds sert uniquement a trouver le seed plus haut,
+      // pas a decider qui recoit une mise a jour ici.
+      for (const [articleId, code] of lastCodeByArticleId.entries()) {
         const existingUpdate = codeUpdatesByArticleId.get(articleId) ?? {};
-        codeUpdatesByArticleId.set(articleId, { ...existingUpdate, [field]: currentCode });
+        codeUpdatesByArticleId.set(articleId, { ...existingUpdate, [field]: code });
       }
     }
   }
