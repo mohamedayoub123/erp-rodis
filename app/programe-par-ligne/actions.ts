@@ -28,6 +28,7 @@ type ArticleFullInfo = {
   piece_par_carton: number | null;
   max_vrac_auto: number | null;
   vrac_max_manuel: number | null;
+  min_vrac: number | null;
 };
 
 // Une ligne dispatcher = un lot physique reel (apres decoupage du vrac
@@ -89,7 +90,7 @@ async function fetchArticleInfoMap(articleIds: number[]): Promise<Map<number, Ar
   const { data } = await supabaseServer
     .from("articles")
     .select(
-      "id, gamme, type_article, code_manu, code_auto, contenance, piece_par_carton, max_vrac_auto, vrac_max_manuel"
+      "id, gamme, type_article, code_manu, code_auto, contenance, piece_par_carton, max_vrac_auto, vrac_max_manuel, min_vrac"
     )
     .in("id", articleIds);
 
@@ -151,6 +152,8 @@ function buildDispatcherDraftRows(
     });
   }
 
+  const EPSILON = 1e-6;
+
   for (const groupKey of groupOrder) {
     const entries = groups.get(groupKey)!;
     const plateforme = entries[0].row.plateforme;
@@ -159,30 +162,127 @@ function buildDispatcherDraftRows(
     // capacite de fabrication du vrac, pas une propriete de l'emballage) -
     // si la config differe malgre tout entre contenances/variantes, on
     // prend le premier max exploitable rencontre dans l'ordre des lignes.
+    // Le min (min_vrac, taille minimale viable d'un lot) est cherche de la
+    // meme facon - contrairement au max, il n'est pas separe par
+    // plateforme.
     let max: number | null | undefined = null;
+    let min: number | null | undefined = null;
     for (const entry of entries) {
       const info = entry.row.article_id ? articleInfoById.get(entry.row.article_id) : undefined;
-      const candidate = plateforme === "A" ? info?.max_vrac_auto : plateforme === "M" ? info?.vrac_max_manuel : null;
-      if (candidate && candidate > 0) {
-        max = candidate;
-        break;
+      if (max === null) {
+        const candidate = plateforme === "A" ? info?.max_vrac_auto : plateforme === "M" ? info?.vrac_max_manuel : null;
+        if (candidate && candidate > 0) max = candidate;
+      }
+      if (min === null && info?.min_vrac && info.min_vrac > 0) {
+        min = info.min_vrac;
       }
     }
 
     const totalVrac = entries.reduce((sum, entry) => sum + (entry.row.vrac_a_fabriquer ?? 0), 0);
     const hasMax = Boolean(max && max > 0);
 
-    // Pas de max connu, ou le total combine tient dans un seul lot max :
-    // chaque chaine garde son propre lot independant, comme avant - pas de
-    // partage de code entre chaines quand ce n'est pas necessaire.
-    if (!hasMax || totalVrac <= (max as number)) {
+    // Pas de max connu : chaque chaine garde son propre lot independant.
+    if (!hasMax) {
       entries.forEach((entry) => pushIndependentPiece(entry, groupKey));
       continue;
     }
 
-    const sharedBatches = splitVracIntoBatches(totalVrac, max as number);
+    const maxVal = max as number;
+
+    // Le total combine (toutes contenances/chaines de la famille) tient
+    // dans un seul lot max : un seul code partage pour tout le monde, meme
+    // si chaque chaine prise individuellement aurait suffi pour son propre
+    // lot (ex: 1500 + 1500 avec un max de 3000 -> 1 seul code, pas 2).
+    if (totalVrac <= maxVal) {
+      let batchIndex = 0;
+      for (const entry of entries) {
+        const vrac = entry.row.vrac_a_fabriquer;
+        if (!vrac || vrac <= 0) {
+          pushIndependentPiece(entry, groupKey);
+          continue;
+        }
+        const info = articleInfoById.get(entry.row.article_id as number);
+        draftRows.push({
+          zone: entry.row.zone,
+          chaine: entry.row.chaine,
+          articleId: entry.row.article_id as number,
+          produit: entry.row.produit,
+          qtVrac: vrac,
+          qtCarton: computeQtCarton(vrac, info?.contenance ?? null, info?.piece_par_carton ?? null),
+          plateforme: entry.row.plateforme,
+          sourceIndex: entry.sourceIndex,
+          batchKey: `${groupKey}::batch::${batchIndex}`,
+        });
+      }
+      continue;
+    }
+
+    const minVal = min && min > 0 ? min : 0;
+
+    // Le min_vrac n'est pas configure sur cette famille : on garde le
+    // decoupage historique (remplissage glouton de chaque lot jusqu'au max,
+    // en partageant entre chaines si besoin - ex: 4500 + 4500 avec un max
+    // de 3000 -> 3 lots de 3000, le lot du milieu partage 1500/1500).
+    if (minVal <= 0) {
+      const sharedBatches = splitVracIntoBatches(totalVrac, maxVal);
+      let batchIndex = 0;
+      let remainingInBatch = sharedBatches[0] ?? 0;
+
+      for (const entry of entries) {
+        const articleId = entry.row.article_id as number;
+        const info = articleInfoById.get(articleId);
+        let remainingForRow = entry.row.vrac_a_fabriquer ?? 0;
+
+        if (remainingForRow <= 0) {
+          pushIndependentPiece(entry, groupKey);
+          continue;
+        }
+
+        // Tolerance anti virgule-flottante : sans elle, un residu du style
+        // 0.0000000002 (apres plusieurs soustractions sur des nombres non
+        // entiers) peut laisser remainingForRow/remainingInBatch legerement
+        // au-dessus de 0 au lieu d'exactement 0, ce qui cree un lot fantome
+        // supplementaire (donc un code en trop) pour une quantite quasi
+        // nulle - exactement le symptome signale (une chaine pile a la max
+        // recevait 2 codes au lieu d'1).
+        while (remainingForRow > EPSILON) {
+          if (remainingInBatch <= EPSILON) {
+            batchIndex += 1;
+            remainingInBatch = sharedBatches[batchIndex] ?? remainingForRow;
+          }
+
+          const piece = Math.round(Math.min(remainingForRow, remainingInBatch) * 100) / 100;
+
+          draftRows.push({
+            zone: entry.row.zone,
+            chaine: entry.row.chaine,
+            articleId,
+            produit: entry.row.produit,
+            qtVrac: piece,
+            qtCarton: computeQtCarton(piece, info?.contenance ?? null, info?.piece_par_carton ?? null),
+            plateforme: entry.row.plateforme,
+            sourceIndex: entry.sourceIndex,
+            batchKey: `${groupKey}::batch::${batchIndex}`,
+          });
+
+          remainingForRow -= piece;
+          remainingInBatch -= piece;
+        }
+      }
+      continue;
+    }
+
+    // min_vrac configure : chaque chaine garde d'abord son propre lot
+    // (jusqu'au max), SAUF quand son montant seul est en dessous du min -
+    // dans ce cas ce reliquat est complete avec la chaine suivante jusqu'a
+    // atteindre exactement le min (pas le max), et le lot est alors ferme.
+    // Ex (max 3000, min 1500) : 2000 + 2000 -> 2 codes independants (chacun
+    // deja au dessus du min, pas de partage) ; 1000 + 2500 -> le 1000 (en
+    // dessous du min) emprunte 500 au 2500 pour former un 1er lot de 1500
+    // partage, le reliquat de 2000 forme un 2eme lot independant.
     let batchIndex = 0;
-    let remainingInBatch = sharedBatches[0] ?? 0;
+    let openLotTotal: number | null = null;
+    let openLotBatchIndex = -1;
 
     for (const entry of entries) {
       const articleId = entry.row.article_id as number;
@@ -194,37 +294,49 @@ function buildDispatcherDraftRows(
         continue;
       }
 
-      // Tolerance anti virgule-flottante : sans elle, un residu du style
-      // 0.0000000002 (apres plusieurs soustractions sur des nombres non
-      // entiers) peut laisser remainingForRow/remainingInBatch legerement
-      // au-dessus de 0 au lieu d'exactement 0, ce qui cree un lot fantome
-      // supplementaire (donc un code en trop) pour une quantite quasi
-      // nulle - exactement le symptome signale (une chaine pile a la max
-      // recevait 2 codes au lieu d'1).
-      const EPSILON = 1e-6;
-
       while (remainingForRow > EPSILON) {
-        if (remainingInBatch <= EPSILON) {
-          batchIndex += 1;
-          remainingInBatch = sharedBatches[batchIndex] ?? remainingForRow;
+        if (openLotTotal !== null && openLotTotal < minVal - EPSILON) {
+          const take = Math.round(Math.min(remainingForRow, minVal - openLotTotal) * 100) / 100;
+
+          draftRows.push({
+            zone: entry.row.zone,
+            chaine: entry.row.chaine,
+            articleId,
+            produit: entry.row.produit,
+            qtVrac: take,
+            qtCarton: computeQtCarton(take, info?.contenance ?? null, info?.piece_par_carton ?? null),
+            plateforme: entry.row.plateforme,
+            sourceIndex: entry.sourceIndex,
+            batchKey: `${groupKey}::batch::${openLotBatchIndex}`,
+          });
+
+          openLotTotal += take;
+          remainingForRow -= take;
+          if (openLotTotal >= minVal - EPSILON) openLotTotal = null;
+          continue;
         }
 
-        const piece = Math.round(Math.min(remainingForRow, remainingInBatch) * 100) / 100;
+        const take = Math.round(Math.min(remainingForRow, maxVal) * 100) / 100;
+        const viableAlone = take >= minVal - EPSILON;
 
+        batchIndex += 1;
         draftRows.push({
           zone: entry.row.zone,
           chaine: entry.row.chaine,
           articleId,
           produit: entry.row.produit,
-          qtVrac: piece,
-          qtCarton: computeQtCarton(piece, info?.contenance ?? null, info?.piece_par_carton ?? null),
+          qtVrac: take,
+          qtCarton: computeQtCarton(take, info?.contenance ?? null, info?.piece_par_carton ?? null),
           plateforme: entry.row.plateforme,
           sourceIndex: entry.sourceIndex,
           batchKey: `${groupKey}::batch::${batchIndex}`,
         });
+        remainingForRow -= take;
 
-        remainingForRow -= piece;
-        remainingInBatch -= piece;
+        if (!viableAlone) {
+          openLotTotal = take;
+          openLotBatchIndex = batchIndex;
+        }
       }
     }
   }
