@@ -648,7 +648,13 @@ async function performProgrammeLigneSave(
   affectedZoneChaine: { zone: string; chaine: string }[],
   dateJour: string,
   creePar: string | null,
-  remarque: string | null
+  remarque: string | null,
+  // "Dispatch" (true) fait tout : enregistre programme_lignes ET peuple
+  // Programme Dispatcher/Ravitailleur (comportement historique du Save).
+  // "Save" (false) enregistre seulement programme_lignes (visible dans
+  // Historique programme) sans toucher au Dispatcher - pour poser un
+  // programme sans encore l'engager en fabrication.
+  withDispatch: boolean
 ): Promise<{ ok: true; code: string; groupe_id: number }> {
   // Le code PL1.2026, PL2.2026... n'est pas stocke dans la colonne
   // "programe" (qui reste un champ libre tape par l'utilisateur,
@@ -720,6 +726,12 @@ async function performProgrammeLigneSave(
 
   if (groupError) {
     throw new Error(groupError.message);
+  }
+
+  if (!withDispatch) {
+    revalidatePath("/programe-par-ligne");
+    revalidatePath("/historique-programme");
+    return { ok: true, code: generatedCode, groupe_id: groupeId };
   }
 
   // Tout ce qui suit (Dispatcher + numero_lot) peut echouer (collision de
@@ -988,6 +1000,7 @@ export async function saveProgrammeLigneBatchAction(
     const rawPayload = String(formData.get("payload") || "").trim();
     const dateJour = String(formData.get("date_jour") || "").trim();
     const remarque = String(formData.get("remarque") || "").trim() || null;
+    const withDispatch = String(formData.get("with_dispatch") || "") === "1";
 
     if (!rawPayload) {
       return { ok: false, message: "Aucune ligne remplie a enregistrer." };
@@ -1022,7 +1035,14 @@ export async function saveProgrammeLigneBatchAction(
     }
     const affectedZoneChaine = [...affectedZoneChaineMap.values()];
 
-    return await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser, remarque);
+    return await performProgrammeLigneSave(
+      filledRows,
+      affectedZoneChaine,
+      dateJour,
+      currentUser,
+      remarque,
+      withDispatch
+    );
   } catch (error) {
     return {
       ok: false,
@@ -1094,7 +1114,7 @@ export async function relaunchProgrammeLigneGroupAction(formData: FormData) {
 
   const dateJour = new Date().toISOString().slice(0, 10);
 
-  await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser, null);
+  await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser, null, true);
 
   redirect("/ravitailleur-par-ligne");
 }

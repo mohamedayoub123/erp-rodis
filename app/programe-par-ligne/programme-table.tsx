@@ -373,7 +373,11 @@ export function ProgrammeLigneTable({
     }));
   }
 
-  function handleSave() {
+  // "Dispatch" fait tout comme avant (Historique + Programme Dispatcher/
+  // Ravitailleur). "Save" enregistre seulement dans l'Historique, sans
+  // toucher au Dispatcher - pour poser un programme sans encore l'engager
+  // en fabrication.
+  function handleSave(withDispatch: boolean) {
     setMessage("");
     setErrorMessage("");
 
@@ -398,6 +402,7 @@ export function ProgrammeLigneTable({
     formData.set("payload", JSON.stringify(payload));
     formData.set("date_jour", dateJour);
     formData.set("remarque", remarque);
+    formData.set("with_dispatch", withDispatch ? "1" : "0");
 
     startTransition(async () => {
       try {
@@ -412,7 +417,7 @@ export function ProgrammeLigneTable({
         rowsRef.current = {};
         setSubRowCounts({});
         setResetKey((current) => current + 1);
-        router.push("/ravitailleur-par-ligne");
+        router.push(withDispatch ? "/ravitailleur-par-ligne" : "/historique-programme");
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
       }
@@ -483,11 +488,19 @@ export function ProgrammeLigneTable({
         </label>
         <button
           type="button"
-          onClick={handleSave}
+          onClick={() => handleSave(false)}
+          disabled={isPending}
+          className="rounded-full border border-slate-200 px-6 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:opacity-60"
+        >
+          {isPending ? "Enregistrement..." : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleSave(true)}
           disabled={isPending}
           className="rounded-full bg-sky-700 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:opacity-60"
         >
-          {isPending ? "Enregistrement..." : "Save"}
+          {isPending ? "Enregistrement..." : "Dispatch"}
         </button>
         {errorMessage ? <p className="w-full text-sm font-semibold text-red-700">{errorMessage}</p> : null}
         {message ? <p className="w-full text-sm font-semibold text-emerald-700">{message}</p> : null}
@@ -593,14 +606,24 @@ export function ProgrammeLigneTable({
           {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
           {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}
         </div>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isPending}
-          className="rounded-full bg-sky-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:opacity-60"
-        >
-          {isPending ? "Enregistrement..." : "Save"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => handleSave(false)}
+            disabled={isPending}
+            className="rounded-full border border-slate-200 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:opacity-60"
+          >
+            {isPending ? "Enregistrement..." : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSave(true)}
+            disabled={isPending}
+            className="rounded-full bg-sky-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:opacity-60"
+          >
+            {isPending ? "Enregistrement..." : "Dispatch"}
+          </button>
+        </div>
       </div>
     </div>
   );
