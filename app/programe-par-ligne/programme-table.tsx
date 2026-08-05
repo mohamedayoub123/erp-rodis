@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { saveProgrammeLigneBatchAction } from "./actions";
 
 const MOIS_OPTIONS = [
@@ -257,6 +258,7 @@ export function ProgrammeLigneTable({
   articles: ArticleOption[];
   prefillLignes?: PrefillLigne[];
 }) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -405,6 +407,7 @@ export function ProgrammeLigneTable({
         rowsRef.current = {};
         setSubRowCounts({});
         setResetKey((current) => current + 1);
+        router.push("/ravitailleur-par-ligne");
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
       }
