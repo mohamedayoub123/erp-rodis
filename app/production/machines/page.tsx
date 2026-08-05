@@ -13,24 +13,16 @@ type MachineRow = {
   nom: string;
   zone: string | null;
   type: string | null;
-  capacite: number | null;
-  capacite_min: number | null;
-  capacite_max: number | null;
 };
 
 async function fetchAllMachines(): Promise<{ rows: MachineRow[]; error: { message: string } | null }> {
   const { data, error } = await supabaseServer
     .from("machines")
-    .select("id, nom, zone, type, capacite, capacite_min, capacite_max")
+    .select("id, nom, zone, type")
     .order("nom", { ascending: true });
 
   if (error) return { rows: [], error };
   return { rows: (data ?? []) as MachineRow[], error: null };
-}
-
-function formatNombre(value: number | null) {
-  if (value === null) return "-";
-  return value.toLocaleString("fr-FR");
 }
 
 export default async function MachinesPage() {
@@ -53,7 +45,8 @@ export default async function MachinesPage() {
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Machines</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Liste des machines de production, avec leur zone, leur type et leurs capacites.
+                Liste des machines de production. Ouvre une machine pour lui associer ses produits,
+                avec la capacite, le min/max et le temps par produit.
               </p>
             </div>
 
@@ -90,9 +83,6 @@ export default async function MachinesPage() {
                     <th className="px-6 py-4 font-semibold">Nom</th>
                     <th className="px-6 py-4 font-semibold">Zone</th>
                     <th className="px-6 py-4 font-semibold">Type</th>
-                    <th className="px-6 py-4 font-semibold">Capacite</th>
-                    <th className="px-6 py-4 font-semibold">Min</th>
-                    <th className="px-6 py-4 font-semibold">Max</th>
                     {canDelete ? <th className="px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
@@ -109,9 +99,6 @@ export default async function MachinesPage() {
                       </td>
                       <td className="px-6 py-4 text-slate-600">{machine.zone || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{machine.type || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNombre(machine.capacite)}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNombre(machine.capacite_min)}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNombre(machine.capacite_max)}</td>
                       {canDelete ? (
                         <td className="px-6 py-4">
                           <form action={deleteMachineAction}>

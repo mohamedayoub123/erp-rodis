@@ -7,9 +7,11 @@ type ArticleOption = { id: number; label: string };
 
 export function AddProduitForm({
   machineId,
+  machineType,
   articles,
 }: {
   machineId: number;
+  machineType: string | null;
   articles: ArticleOption[];
 }) {
   const [value, setValue] = useState("");
@@ -26,15 +28,24 @@ export function AddProduitForm({
     });
   }, [value, articles]);
 
+  // Fabrication raisonne en min/max de vrac par lot (comme min_vrac/
+  // max_vrac_auto sur les articles) - pas de capacite/temps piece par piece.
+  // Emballage et Conditionnement raisonnent en cadence (capacite, en
+  // piece/min pour Conditionnement) et temps par produit - pas de min/max
+  // de lot, non pertinent pour une cadence.
+  const isFabrication = machineType === "Fabrication";
+  const showCapaciteTemps = machineType === "Conditionnement" || machineType === "Emballage";
+  const capaciteLabel = machineType === "Conditionnement" ? "Capacite (piece/min)" : "Capacite";
+
   return (
     <form
       action={addMachineProduitAction}
-      className="grid gap-3 border-t border-slate-100 p-5 sm:grid-cols-[1fr_auto_auto]"
+      className="grid gap-3 border-t border-slate-100 p-5 sm:grid-cols-2 lg:grid-cols-3"
     >
       <input type="hidden" name="machine_id" value={machineId} />
       <input type="hidden" name="article_id" value={selected?.id ?? ""} />
 
-      <div className="relative">
+      <div className="relative sm:col-span-2 lg:col-span-1">
         <input
           type="text"
           value={value}
@@ -70,20 +81,49 @@ export function AddProduitForm({
         ) : null}
       </div>
 
-      <input
-        type="number"
-        name="temps_minutes"
-        placeholder="Temps (minutes)"
-        className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-      />
+      {isFabrication ? (
+        <>
+          <input
+            type="number"
+            name="capacite_min"
+            placeholder="Min"
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+          />
+          <input
+            type="number"
+            name="capacite_max"
+            placeholder="Max"
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+          />
+        </>
+      ) : null}
 
-      <button
-        type="submit"
-        disabled={!selected}
-        className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white disabled:opacity-40"
-      >
-        Ajouter
-      </button>
+      {showCapaciteTemps ? (
+        <>
+          <input
+            type="number"
+            name="capacite"
+            placeholder={capaciteLabel}
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+          />
+          <input
+            type="number"
+            name="temps_minutes"
+            placeholder="Temps (minutes)"
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+          />
+        </>
+      ) : null}
+
+      <div className="sm:col-span-2 lg:col-span-3">
+        <button
+          type="submit"
+          disabled={!selected}
+          className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white disabled:opacity-40"
+        >
+          Ajouter
+        </button>
+      </div>
     </form>
   );
 }

@@ -13,15 +13,15 @@ type MachineRow = {
   nom: string;
   zone: string | null;
   type: string | null;
-  capacite: number | null;
-  capacite_min: number | null;
-  capacite_max: number | null;
 };
 
 type MachineProduitRow = {
   id: number;
   article_id: number;
   temps_minutes: number | null;
+  capacite: number | null;
+  capacite_min: number | null;
+  capacite_max: number | null;
 };
 
 async function fetchAllArticleOptions(): Promise<{ id: number; label: string }[]> {
@@ -67,14 +67,10 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
   const canDelete = await canDeletePageUser(currentUser, "machines");
 
   const [{ data: machineData }, { data: produitsData }, articles] = await Promise.all([
-    supabaseServer
-      .from("machines")
-      .select("id, nom, zone, type, capacite, capacite_min, capacite_max")
-      .eq("id", machineId)
-      .maybeSingle(),
+    supabaseServer.from("machines").select("id, nom, zone, type").eq("id", machineId).maybeSingle(),
     supabaseServer
       .from("machine_produits")
-      .select("id, article_id, temps_minutes")
+      .select("id, article_id, temps_minutes, capacite, capacite_min, capacite_max")
       .eq("machine_id", machineId),
     fetchAllArticleOptions(),
   ]);
@@ -89,6 +85,7 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
   const articleLabelById = new Map(articles.map((article) => [article.id, article.label]));
   const usedArticleIds = new Set(produits.map((produit) => produit.article_id));
   const availableArticles = articles.filter((article) => !usedArticleIds.has(article.id));
+  const isFabrication = machine.type === "Fabrication";
 
   const produitsSorted = [...produits].sort((a, b) => {
     const labelA = articleLabelById.get(a.article_id) || "";
@@ -109,9 +106,6 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
               <p className="mt-2 text-sm text-slate-600">
                 {machine.zone ? `Zone : ${machine.zone}` : "Zone : -"}
                 {machine.type ? ` - Type : ${machine.type}` : ""}
-                {machine.capacite !== null ? ` - Capacite : ${formatNombre(machine.capacite)}` : ""}
-                {machine.capacite_min !== null ? ` - Min : ${formatNombre(machine.capacite_min)}` : ""}
-                {machine.capacite_max !== null ? ` - Max : ${formatNombre(machine.capacite_max)}` : ""}
               </p>
             </div>
 
@@ -125,7 +119,7 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
         {canEdit ? (
           <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <p className="px-5 pt-4 text-sm font-semibold text-sky-700">Ajouter un produit</p>
-            <AddProduitForm machineId={machine.id} articles={availableArticles} />
+            <AddProduitForm machineId={machine.id} machineType={machine.type} articles={availableArticles} />
           </section>
         ) : null}
 
@@ -140,7 +134,17 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Produit</th>
-                    <th className="px-6 py-4 font-semibold">Temps (minutes)</th>
+                    {isFabrication ? (
+                      <>
+                        <th className="px-6 py-4 font-semibold">Min</th>
+                        <th className="px-6 py-4 font-semibold">Max</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="px-6 py-4 font-semibold">Capacite</th>
+                        <th className="px-6 py-4 font-semibold">Temps (minutes)</th>
+                      </>
+                    )}
                     {canDelete ? <th className="px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
@@ -150,7 +154,17 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
                       <td className="px-6 py-4 font-semibold text-slate-900">
                         {articleLabelById.get(produit.article_id) || "-"}
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{formatNombre(produit.temps_minutes)}</td>
+                      {isFabrication ? (
+                        <>
+                          <td className="px-6 py-4 text-slate-600">{formatNombre(produit.capacite_min)}</td>
+                          <td className="px-6 py-4 text-slate-600">{formatNombre(produit.capacite_max)}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-6 py-4 text-slate-600">{formatNombre(produit.capacite)}</td>
+                          <td className="px-6 py-4 text-slate-600">{formatNombre(produit.temps_minutes)}</td>
+                        </>
+                      )}
                       {canDelete ? (
                         <td className="px-6 py-4">
                           <form action={deleteMachineProduitAction}>

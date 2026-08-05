@@ -27,9 +27,6 @@ export async function createMachineAction(formData: FormData) {
     nom,
     zone: String(formData.get("zone") || "").trim() || null,
     type: String(formData.get("type") || "").trim() || null,
-    capacite: toNumberOrNull(formData.get("capacite")),
-    capacite_min: toNumberOrNull(formData.get("capacite_min")),
-    capacite_max: toNumberOrNull(formData.get("capacite_max")),
   });
 
   if (error) {
@@ -79,6 +76,9 @@ export async function addMachineProduitAction(formData: FormData) {
       machine_id: machineId,
       article_id: articleId,
       temps_minutes: toNumberOrNull(formData.get("temps_minutes")),
+      capacite: toNumberOrNull(formData.get("capacite")),
+      capacite_min: toNumberOrNull(formData.get("capacite_min")),
+      capacite_max: toNumberOrNull(formData.get("capacite_max")),
     },
     { onConflict: "machine_id,article_id" }
   );
