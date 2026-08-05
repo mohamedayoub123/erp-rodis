@@ -461,7 +461,7 @@ async function performProgrammeLigneSave(
   // recalculant un code frais (l'autre Save est deja commite a ce stade,
   // donc generateAutoCodes le voit et repart apres) plutot que de faire
   // echouer tout l'enregistrement.
-  const MAX_CODE_ATTEMPTS = 3;
+  const MAX_CODE_ATTEMPTS = 6;
   let codesBySourceIndex = new Map<number, string[]>();
   let dispatcherSucceeded = false;
 
@@ -530,10 +530,21 @@ async function performProgrammeLigneSave(
 
     // 23505 = violation de contrainte unique - deux Save concurrents ont
     // genere le meme code, on relance avec un code recalcule. Toute autre
-    // erreur est remontee immediatement.
-    if (dispatcherError.code !== "23505" || attempt === MAX_CODE_ATTEMPTS) {
+    // erreur est remontee immediatement (message brut, pas la peine de le
+    // deguiser). Un petit delai aleatoire avant de retenter desynchronise
+    // deux Save qui se suivent de tres pres (sans lui, ils peuvent se
+    // reproduire la meme collision a chaque tentative).
+    if (dispatcherError.code !== "23505") {
       throw new Error(dispatcherError.message);
     }
+
+    if (attempt === MAX_CODE_ATTEMPTS) {
+      throw new Error(
+        "Un autre enregistrement s'est produit exactement au meme moment et a genere le meme code de lot. Reessaie le Save."
+      );
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 350));
   }
 
   if (!dispatcherSucceeded) {
