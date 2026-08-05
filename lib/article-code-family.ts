@@ -51,7 +51,18 @@ export function detectArticleFamilyFromName(name: string | null | undefined): st
   if (normalized.startsWith("GEL DOUCHE ")) return "GEL DOUCHE";
   if (normalized.startsWith("TUBE ")) return "TUBE";
 
-  return normalized.split(" ")[0] || "";
+  // Aucune categorie de forme reconnue (ex: "Pommade", "Baume"...) : le nom
+  // complet sert de cle (moins la contenance/taille en toute fin de nom,
+  // ex: "125ML"/"50"), pas seulement le 1er mot - sinon 2 produits
+  // totalement differents qui commencent par le meme mot (ex: "POMMADE
+  // MENTHOLATA 125ML" et "POMMADE WHITE CAT 125ML", meme gamme "Menthole")
+  // se retrouvaient regroupes dans la meme famille et partageaient a tort
+  // le meme code/lot.
+  const withoutTrailingSize = normalized
+    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ML|CL|L|GRS|GR|G|KG)?$/, "")
+    .trim();
+
+  return withoutTrailingSize || normalized;
 }
 
 export function detectArticleGammeFromName(name: string | null | undefined): string {
