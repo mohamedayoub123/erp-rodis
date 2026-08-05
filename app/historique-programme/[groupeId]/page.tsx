@@ -22,6 +22,7 @@ type ProgrammeLigneRow = {
   date_jour: string;
   created_at: string;
   numero_lot: string | null;
+  cree_par: string | null;
 };
 
 function formatDate(value: string) {
@@ -50,7 +51,7 @@ export default async function HistoriqueProgrammeDetailPage({
   const { data } = await supabaseServer
     .from("programme_lignes")
     .select(
-      "id, groupe_id, zone, chaine, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe, date_jour, created_at, numero_lot"
+      "id, groupe_id, zone, chaine, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe, date_jour, created_at, numero_lot, cree_par"
     )
     .eq("groupe_id", groupeIdNumber)
     .order("id", { ascending: true });
@@ -121,6 +122,7 @@ export default async function HistoriqueProgrammeDetailPage({
               </h1>
               <p className="mt-2 text-sm text-slate-600">
                 {formatDate(dateJour)} - {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
+                {lignes[0]?.cree_par ? ` - Cree par ${lignes[0].cree_par}` : ""}
               </p>
             </div>
 

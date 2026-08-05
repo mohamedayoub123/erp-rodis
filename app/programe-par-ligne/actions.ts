@@ -33,11 +33,14 @@ type ArticleFullInfo = {
 // Une ligne dispatcher = un lot physique reel (apres decoupage du vrac
 // selon le max autorise) - "Programme par ligne" garde le vrac total tel
 // quel, seul "Programme Dispatcher" voit les lots decoupes.
-// batchKey identifie le lot LOGIQUE dont vient cette ligne : quand le meme
-// article est reparti sur plusieurs chaines et que leur besoin combine
-// depasse le max, un lot logique peut etre partage entre 2 chaines (ex:
-// chaine 1 = 4500, chaine 2 = 4500, max = 3000 -> 3 lots de 3000, le 2eme
-// lot etant compose de 1500 pris sur chaine 1 + 1500 pris sur chaine 2).
+// batchKey identifie le lot LOGIQUE dont vient cette ligne : quand la meme
+// FAMILLE (gamme+forme - ex: toutes les contenances/variantes de "Gel
+// Douche Dermatone", clarifiant et exfoliant confondus) est repartie sur
+// plusieurs chaines et que leur besoin combine depasse le max, un lot
+// logique peut etre partage entre 2 chaines/contenances (ex: chaine 1 =
+// 4500, chaine 2 = 4500, max = 3000 -> 3 lots de 3000, le 2eme lot etant
+// compose de 1500 pris sur chaine 1 + 1500 pris sur chaine 2, meme si les 2
+// chaines ne font pas exactement le meme article_id).
 // Les lignes qui partagent le meme batchKey recoivent alors le MEME code
 // genere (voir generateAutoCodes), au lieu d'un code par ligne physique.
 type DispatcherDraftRow = {
@@ -114,8 +117,16 @@ function buildDispatcherDraftRows(
   const groups = new Map<string, { row: PendingProgrammeRow; sourceIndex: number }[]>();
   const groupOrder: string[] = [];
 
+  // Regroupe par FAMILLE (gamme+forme, ex: "DERMATONE::GEL DOUCHE") et non
+  // par article_id exact : sans ca, 2 contenances differentes (300ml/500ml)
+  // ou 2 variantes (clarifiant/exfoliant) du meme produit ne partageaient
+  // jamais leur lot ni leur code, meme quand elles sont physiquement
+  // fabriquees a partir du meme vrac et devraient donc se partager le meme
+  // max de fabrication.
   filledRows.forEach((row, sourceIndex) => {
-    const key = `${row.article_id}::${row.plateforme}`;
+    const info = row.article_id ? articleInfoById.get(row.article_id) : undefined;
+    const familyKey = computeArticleFamilyKey(row.produit, info?.gamme ?? null);
+    const key = `${familyKey}::${row.plateforme}`;
     if (!groups.has(key)) {
       groups.set(key, []);
       groupOrder.push(key);
@@ -123,12 +134,9 @@ function buildDispatcherDraftRows(
     groups.get(key)!.push({ row, sourceIndex });
   });
 
-  function pushIndependentPiece(
-    entry: { row: PendingProgrammeRow; sourceIndex: number },
-    articleId: number,
-    info: ArticleFullInfo | undefined,
-    groupKey: string
-  ) {
+  function pushIndependentPiece(entry: { row: PendingProgrammeRow; sourceIndex: number }, groupKey: string) {
+    const articleId = entry.row.article_id as number;
+    const info = articleInfoById.get(articleId);
     const vrac = entry.row.vrac_a_fabriquer;
     draftRows.push({
       zone: entry.row.zone,
@@ -145,23 +153,30 @@ function buildDispatcherDraftRows(
 
   for (const groupKey of groupOrder) {
     const entries = groups.get(groupKey)!;
-    const articleId = entries[0].row.article_id as number;
-    const info = articleInfoById.get(articleId);
-    const max =
-      entries[0].row.plateforme === "A"
-        ? info?.max_vrac_auto
-        : entries[0].row.plateforme === "M"
-          ? info?.vrac_max_manuel
-          : null;
+    const plateforme = entries[0].row.plateforme;
+
+    // Le max est cense etre le meme pour toute la famille (c'est une
+    // capacite de fabrication du vrac, pas une propriete de l'emballage) -
+    // si la config differe malgre tout entre contenances/variantes, on
+    // prend le premier max exploitable rencontre dans l'ordre des lignes.
+    let max: number | null | undefined = null;
+    for (const entry of entries) {
+      const info = entry.row.article_id ? articleInfoById.get(entry.row.article_id) : undefined;
+      const candidate = plateforme === "A" ? info?.max_vrac_auto : plateforme === "M" ? info?.vrac_max_manuel : null;
+      if (candidate && candidate > 0) {
+        max = candidate;
+        break;
+      }
+    }
 
     const totalVrac = entries.reduce((sum, entry) => sum + (entry.row.vrac_a_fabriquer ?? 0), 0);
-    const hasMax = Boolean(info && max && max > 0);
+    const hasMax = Boolean(max && max > 0);
 
     // Pas de max connu, ou le total combine tient dans un seul lot max :
     // chaque chaine garde son propre lot independant, comme avant - pas de
     // partage de code entre chaines quand ce n'est pas necessaire.
     if (!hasMax || totalVrac <= (max as number)) {
-      entries.forEach((entry) => pushIndependentPiece(entry, articleId, info, groupKey));
+      entries.forEach((entry) => pushIndependentPiece(entry, groupKey));
       continue;
     }
 
@@ -170,10 +185,12 @@ function buildDispatcherDraftRows(
     let remainingInBatch = sharedBatches[0] ?? 0;
 
     for (const entry of entries) {
+      const articleId = entry.row.article_id as number;
+      const info = articleInfoById.get(articleId);
       let remainingForRow = entry.row.vrac_a_fabriquer ?? 0;
 
       if (remainingForRow <= 0) {
-        pushIndependentPiece(entry, articleId, info, groupKey);
+        pushIndependentPiece(entry, groupKey);
         continue;
       }
 
@@ -378,9 +395,13 @@ async function generateAutoCodes(
       });
 
       // Le dernier code genere est remis sur TOUTES les contenances de la
-      // famille (gamme+type), meme celles pas utilisees dans ce Save - pas
-      // seulement celles touchees ici - pour que "Code par article" reste
-      // toujours le meme code partout dans la famille.
+      // famille (gamme+forme+variante - ex: toutes les contenances de "Gel
+      // Douche White Secret Clarifiant"), meme celles pas utilisees dans ce
+      // Save - pas seulement celles touchees ici - pour que "Code par
+      // article" reste toujours le meme code partout dans la famille. La
+      // variante (Clarifiant/Exfoliant/...) fait partie de la famille (voir
+      // detectArticleVariantFromName) : elle n'est donc PAS melangee avec
+      // une autre variante de la meme gamme, qui garde son propre compteur.
       for (const articleId of familyArticleIds) {
         const existingUpdate = codeUpdatesByArticleId.get(articleId) ?? {};
         codeUpdatesByArticleId.set(articleId, { ...existingUpdate, [field]: currentCode });
@@ -398,7 +419,8 @@ async function generateAutoCodes(
 async function performProgrammeLigneSave(
   filledRows: PendingProgrammeRow[],
   affectedZoneChaine: { zone: string; chaine: string }[],
-  dateJour: string
+  dateJour: string,
+  creePar: string | null
 ): Promise<{ ok: true; code: string; groupe_id: number }> {
   // Le code PL1.2026, PL2.2026... n'est pas stocke dans la colonne
   // "programe" (qui reste un champ libre tape par l'utilisateur,
@@ -438,6 +460,7 @@ async function performProgrammeLigneSave(
     plateforme: row.plateforme || null,
     programe: row.programe.trim() || null,
     date_jour: dateJour,
+    cree_par: creePar,
   }));
 
   const { data, error } = await supabaseServer
@@ -461,6 +484,14 @@ async function performProgrammeLigneSave(
     throw new Error(groupError.message);
   }
 
+  // Tout ce qui suit (Dispatcher + numero_lot) peut echouer (collision de
+  // code, bug de repartition...) - si ca arrive, les lignes programme_lignes
+  // deja inserees ci-dessus sont effacees avant de faire remonter l'erreur,
+  // pour qu'un Save rate ne laisse jamais un programme "fantome" visible sur
+  // Suivi Production/Dashboard alors que son Dispatcher/Ravitailleur n'a
+  // jamais ete cree.
+  try {
+
   // Copie vers "Programme Dispatcher <ZONE>" : ici seulement, le vrac est
   // decoupe en lots (voir buildDispatcherDraftRows) et chaque lot recoit
   // son propre code genere (voir generateAutoCodes).
@@ -478,6 +509,7 @@ async function performProgrammeLigneSave(
   // echouer tout l'enregistrement.
   const MAX_CODE_ATTEMPTS = 6;
   let codesBySourceIndex = new Map<number, string[]>();
+  let detailBySourceIndex = new Map<number, { code: string; qt_vrac: number | null; qt_carton: number | null }[]>();
   let dispatcherSucceeded = false;
 
   for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
@@ -501,7 +533,7 @@ async function performProgrammeLigneSave(
       }
     }
 
-    const dispatcherPayload = draftRows.map((row, index) => ({
+    const rawDispatcherPayload = draftRows.map((row, index) => ({
       zone: row.zone,
       article_id: row.articleId,
       chaine: row.chaine,
@@ -513,13 +545,81 @@ async function performProgrammeLigneSave(
       groupe_id: groupeId,
     }));
 
+    // Plusieurs contenances DIFFERENTES de la meme famille peuvent tomber
+    // sur la MEME chaine (ex: 3 contenances d'un pommade programmees l'une
+    // apres l'autre sur "CHAINE 10A") - si leur vrac combine doit etre
+    // reparti sur plusieurs lots (voir buildDispatcherDraftRows), 2 pieces
+    // venant de 2 contenances differentes peuvent atterrir dans le MEME lot
+    // partage tout en etant sur la MEME chaine (pas 2 chaines differentes,
+    // le cas normalement prevu pour le partage de code) - ca cree alors 2
+    // lignes Dispatcher avec exactement le meme (code, zone, chaine), rejete
+    // par la contrainte unique. On les fusionne en une seule ligne (vrac et
+    // carton additionnes - chacun deja calcule avec la contenance de sa
+    // propre piece avant fusion, donc le total reste exact) plutot que de
+    // les laisser en doublon.
+    const dispatcherPayload: typeof rawDispatcherPayload = [];
+    const mergedIndexByKey = new Map<string, number>();
+    for (const row of rawDispatcherPayload) {
+      if (!row.code) {
+        dispatcherPayload.push(row);
+        continue;
+      }
+      const key = `${row.code}::${row.zone}::${row.chaine}`;
+      const existingIndex = mergedIndexByKey.get(key);
+      if (existingIndex === undefined) {
+        mergedIndexByKey.set(key, dispatcherPayload.length);
+        dispatcherPayload.push(row);
+        continue;
+      }
+      const existing = dispatcherPayload[existingIndex];
+      dispatcherPayload[existingIndex] = {
+        ...existing,
+        produit:
+          existing.produit && row.produit && existing.produit !== row.produit
+            ? `${existing.produit} + ${row.produit}`
+            : existing.produit || row.produit,
+        qt_carton: (existing.qt_carton ?? 0) + (row.qt_carton ?? 0),
+        qt_vrac: (existing.qt_vrac ?? 0) + (row.qt_vrac ?? 0),
+      };
+    }
+
+    // Detecte un doublon (code, zone, chaine) A L'INTERIEUR de ce meme Save
+    // (pas contre des lignes deja en base) qui aurait survecu a la fusion
+    // ci-dessus (cas non prevu) - un vrai conflit de ce genre est
+    // deterministe (le meme code se regenere identique a chaque tentative),
+    // donc retenter le Save ne resoudra jamais rien : on le signale
+    // immediatement avec le detail exact plutot que d'epuiser les 6
+    // tentatives pour rien.
+    const seenCodeZoneChaine = new Map<string, string[]>();
+    for (const row of dispatcherPayload) {
+      if (!row.code) continue;
+      const key = `${row.code}::${row.zone}::${row.chaine}`;
+      const list = seenCodeZoneChaine.get(key) ?? [];
+      list.push(row.produit || "?");
+      seenCodeZoneChaine.set(key, list);
+    }
+    const internalDuplicates = [...seenCodeZoneChaine.entries()].filter(([, produits]) => produits.length > 1);
+    if (internalDuplicates.length > 0) {
+      const detail = internalDuplicates
+        .map(([key, produits]) => `${key} (${produits.join(" + ")})`)
+        .join(" ; ");
+      throw new Error(
+        `Ce programme genere 2 fois le meme code sur la meme chaine avant meme d'enregistrer (bug de repartition, pas une collision entre 2 utilisateurs) : ${detail}`
+      );
+    }
+
     codesBySourceIndex = new Map<number, string[]>();
+    detailBySourceIndex = new Map<number, { code: string; qt_vrac: number | null; qt_carton: number | null }[]>();
     draftRows.forEach((row, index) => {
       const code = codesByRowIndex.get(index);
       if (!code) return;
       const list = codesBySourceIndex.get(row.sourceIndex) ?? [];
       list.push(code);
       codesBySourceIndex.set(row.sourceIndex, list);
+
+      const detailList = detailBySourceIndex.get(row.sourceIndex) ?? [];
+      detailList.push({ code, qt_vrac: row.qtVrac, qt_carton: row.qtCarton });
+      detailBySourceIndex.set(row.sourceIndex, detailList);
     });
 
     // Une seule requete RPC (boucle cote base, valeurs passees en parametre
@@ -555,8 +655,15 @@ async function performProgrammeLigneSave(
     }
 
     if (attempt === MAX_CODE_ATTEMPTS) {
+      // Le message generique suppose une vraie collision entre 2 Save
+      // concurrents, mais un 23505 peut aussi venir d'une AUTRE contrainte
+      // unique (ex: mauvaise hypothese, sequence desynchronisee...) - le
+      // detail brut de Postgres est donc toujours inclus pour pouvoir
+      // diagnostiquer la vraie cause si ca se reproduit de facon repetee
+      // (une vraie collision concurrente ne devrait quasiment jamais
+      // survivre a 6 tentatives avec delai aleatoire).
       throw new Error(
-        "Un autre enregistrement s'est produit exactement au meme moment et a genere le meme code de lot. Reessaie le Save."
+        `Un autre enregistrement s'est produit exactement au meme moment et a genere le meme code de lot (ou une autre erreur similaire). Reessaie le Save. Detail technique : ${dispatcherError.message}`
       );
     }
 
@@ -572,6 +679,13 @@ async function performProgrammeLigneSave(
   // Dispatcher (voir generateAutoCodes), reunis quand une ligne a ete
   // decoupee en plusieurs lots (join ", "), puis reecrits sur la ligne
   // programme_lignes d'origine juste apres son insertion.
+  // numero_lot_detail fige la repartition qt_vrac/qt_carton par code au
+  // moment du Save - contrairement a une lecture live du Dispatcher (qui
+  // est un instantane de la production EN COURS et se fait ecraser des
+  // qu'un Save ulterieur touche la meme zone/chaine), cette colonne ne
+  // change plus jamais et permet donc au Dashboard de toujours reconstituer
+  // le detail par code, meme longtemps apres que le Dispatcher soit passe
+  // a autre chose.
   // Une seule requete RPC - un Save/relance avec beaucoup de lignes remplies
   // faisait autant d'allers-retours DB sequentiels ici, la principale source
   // de lenteur (et de depassement du temps limite serverless) sur les gros
@@ -581,6 +695,7 @@ async function performProgrammeLigneSave(
     .map(([sourceIndex, codes]) => ({
       id: insertedIds[sourceIndex],
       numero_lot: [...new Set(codes)].join(", "),
+      numero_lot_detail: detailBySourceIndex.get(sourceIndex) ?? [],
     }));
 
   if (numeroLotUpdates.length > 0) {
@@ -591,6 +706,11 @@ async function performProgrammeLigneSave(
     if (numeroLotError) {
       throw new Error(numeroLotError.message);
     }
+  }
+
+  } catch (error) {
+    await supabaseServer.from("programme_lignes").delete().in("id", insertedIds);
+    throw error;
   }
 
   revalidatePath("/programe-par-ligne");
@@ -656,7 +776,7 @@ export async function saveProgrammeLigneBatchAction(
     }
     const affectedZoneChaine = [...affectedZoneChaineMap.values()];
 
-    return await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour);
+    return await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser);
   } catch (error) {
     return {
       ok: false,
@@ -728,7 +848,7 @@ export async function relaunchProgrammeLigneGroupAction(formData: FormData) {
 
   const dateJour = new Date().toISOString().slice(0, 10);
 
-  await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour);
+  await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser);
 
   redirect("/ravitailleur-par-ligne");
 }

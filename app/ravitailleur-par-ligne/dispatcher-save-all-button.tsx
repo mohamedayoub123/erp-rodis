@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { saveAllZonesDispatcherSnapshotAction } from "./dispatcher-actions";
 
 export function DispatcherSaveAllButton() {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -16,6 +18,7 @@ export function DispatcherSaveAllButton() {
       try {
         const result = await saveAllZonesDispatcherSnapshotAction();
         setMessage(`Enregistre sous le code ${result.code}.`);
+        router.push("/production/suivi/dashboard");
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
       }
