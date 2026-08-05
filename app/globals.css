@@ -24,6 +24,13 @@ body {
   font-family: var(--font-geist-sans), sans-serif;
 }
 
+/* Inverse de .no-print : cache a l'ecran, visible seulement a l'impression
+   (ex: la valeur texte d'un champ normalement editable, dont le champ de
+   saisie lui-meme est marque .no-print). */
+.print-only {
+  display: none;
+}
+
 /* A la impression, on cache la navigation/le pied de page et tout ce qui
    est marque .no-print (boutons, formulaires) - seul le contenu utile de
    la page s'imprime. */
@@ -32,6 +39,10 @@ body {
   footer,
   .no-print {
     display: none !important;
+  }
+
+  .print-only {
+    display: revert !important;
   }
 
   /* "html { font-size: 132% }" (juste en dessous) sert a grossir l'affichage

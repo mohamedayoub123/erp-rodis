@@ -223,6 +223,100 @@ export async function saveAllZonesDispatcherSnapshotAction() {
   return { ok: true, code: generatedCode, groupe_id: groupeId };
 }
 
+// Modification manuelle d'une ligne Dispatcher (code + qt vrac) avant le
+// grand "Save" de zone - appelee directement depuis un composant client
+// (pas liee a un <form>), donc en arguments simples plutot qu'en FormData.
+// qt_carton est recalcule a partir du nouveau qt_vrac (contenance/piece par
+// carton de l'article), jamais saisi directement.
+export async function updateDispatcherLigneAction(id: number, code: string, qtVracRaw: string) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "ravitailleurParLigne"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier.");
+  }
+
+  if (!id) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const trimmedCode = code.trim();
+  const qtVracClean = qtVracRaw.trim().replace(",", ".");
+  const qtVrac = qtVracClean ? Number(qtVracClean) : null;
+
+  if (qtVracClean && Number.isNaN(qtVrac)) {
+    throw new Error("Quantite vrac invalide.");
+  }
+
+  const { data: rowData, error: rowError } = await supabaseServer
+    .from("programme_dispatcher_lignes")
+    .select("id, zone, article_id, groupe_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (rowError || !rowData) {
+    throw new Error("Ligne introuvable.");
+  }
+
+  const row = rowData as { id: number; zone: string; article_id: number | null; groupe_id: number | null };
+
+  let qtCarton: number | null = null;
+  if (row.article_id && qtVrac && qtVrac > 0) {
+    const { data: articleData } = await supabaseServer
+      .from("articles")
+      .select("contenance, piece_par_carton")
+      .eq("id", row.article_id)
+      .maybeSingle();
+
+    const article = articleData as { contenance: number | null; piece_par_carton: number | null } | null;
+
+    if (article?.contenance && article.piece_par_carton) {
+      qtCarton = qtVrac / article.contenance / article.piece_par_carton;
+    }
+  }
+
+  const { error: updateError } = await supabaseServer
+    .from("programme_dispatcher_lignes")
+    .update({ code: trimmedCode || null, qt_vrac: qtVrac, qt_carton: qtCarton })
+    .eq("id", id);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  // Propage le code corrige a la main sur l'article correspondant (Code
+  // Article) pour que le prochain code auto-genere reparte de cette valeur
+  // au lieu de l'ancienne - le Dispatcher ne garde pas la plateforme (M/A)
+  // utilisee, elle est retrouvee via le programme source
+  // (programme_lignes, meme groupe_id + article_id).
+  if (trimmedCode && row.article_id && row.groupe_id) {
+    const { data: sourceLigne } = await supabaseServer
+      .from("programme_lignes")
+      .select("plateforme")
+      .eq("groupe_id", row.groupe_id)
+      .eq("article_id", row.article_id)
+      .limit(1)
+      .maybeSingle();
+
+    const plateforme = (sourceLigne as { plateforme: string | null } | null)?.plateforme;
+
+    if (plateforme === "M" || plateforme === "A") {
+      const field = plateforme === "M" ? "code_manu" : "code_auto";
+      const { error: articleUpdateError } = await supabaseServer
+        .from("articles")
+        .update({ [field]: trimmedCode })
+        .eq("id", row.article_id);
+
+      if (articleUpdateError) {
+        throw new Error(articleUpdateError.message);
+      }
+    }
+  }
+
+  revalidatePath(`/ravitailleur-par-ligne/${row.zone}`);
+  revalidatePath("/ravitailleur-par-ligne/tout");
+  revalidatePath("/articles/produit-fini");
+}
+
 export async function deleteAllDispatcherLignesAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 

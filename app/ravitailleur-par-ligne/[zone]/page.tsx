@@ -3,12 +3,13 @@ import { BackButton } from "@/app/_components/back-button";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { deleteAllDispatcherLignesAction } from "../dispatcher-actions";
-import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "../../production/suivi/data";
 import { ZonePrintButton } from "../zone-print-button";
 import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
+import { DispatcherRowEditor } from "../dispatcher-row-editor";
 
 const VALID_ZONES = ["B1Z1", "B1Z2", "B4Z1", "B4Z2", "B4Z3", "D"];
 
@@ -165,6 +166,7 @@ export default async function RavitailleurParLigneZonePage({
   const zoneUpper = decodeURIComponent(zone).toUpperCase();
   const currentUser = await getCurrentStockUser();
   const canDelete = await canDeletePageUser(currentUser, "ravitailleurParLigne");
+  const canEdit = await canWritePageUser(currentUser, "ravitailleurParLigne");
 
   if (!VALID_ZONES.includes(zoneUpper)) {
     notFound();
@@ -285,13 +287,13 @@ export default async function RavitailleurParLigneZonePage({
                       </td>
                       <td className="border border-slate-300 bg-white px-3 py-3">{row.chaine || ""}</td>
                       <td className="border border-slate-300 bg-white px-3 py-3">{row.produit || ""}</td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">{row.code || ""}</td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {row.qt_carton !== null ? Math.round(row.qt_carton).toLocaleString("fr-FR") : ""}
-                      </td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {row.qt_vrac !== null ? row.qt_vrac.toLocaleString("fr-FR") : ""}
-                      </td>
+                      <DispatcherRowEditor
+                        id={row.id}
+                        initialCode={row.code || ""}
+                        initialQtCarton={row.qt_carton}
+                        initialQtVrac={row.qt_vrac}
+                        canEdit={canEdit}
+                      />
                       {showFlaconPot ? (
                         <td className="border border-slate-300 bg-white px-3 py-3">
                           {article?.besoin_pot_flacon ? formatCell(pieces) : ""}

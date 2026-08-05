@@ -6,6 +6,8 @@ import { ZonePrintButton } from "../zone-print-button";
 import { DispatcherSaveAllButton } from "../dispatcher-save-all-button";
 import { formatDate } from "../../production/suivi/data";
 import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { DispatcherRowEditor } from "../dispatcher-row-editor";
 
 const VALID_ZONES = ["B1Z1", "B1Z2", "B4Z1", "B4Z2", "B4Z3", "D"];
 
@@ -174,6 +176,8 @@ function listDistinctPlCodes(rows: DispatcherRow[], plCodeByGroupeId: Map<number
 export default async function RavitailleurToutesZonesPage() {
   noStore();
 
+  const currentUser = await getCurrentStockUser();
+  const canEdit = await canWritePageUser(currentUser, "ravitailleurParLigne");
   const dataRows = await fetchAllDispatcherRows();
   const articleIds = [...new Set(dataRows.map((row) => row.article_id).filter((id): id is number => !!id))];
   const articlesInfo = await fetchArticlesInfo(articleIds);
@@ -318,13 +322,13 @@ export default async function RavitailleurToutesZonesPage() {
                             </td>
                             <td className="border border-slate-300 bg-white px-3 py-3">{row.chaine || ""}</td>
                             <td className="border border-slate-300 bg-white px-3 py-3">{row.produit || ""}</td>
-                            <td className="border border-slate-300 bg-white px-3 py-3">{row.code || ""}</td>
-                            <td className="border border-slate-300 bg-white px-3 py-3">
-                              {row.qt_carton !== null ? Math.round(row.qt_carton).toLocaleString("fr-FR") : ""}
-                            </td>
-                            <td className="border border-slate-300 bg-white px-3 py-3">
-                              {row.qt_vrac !== null ? row.qt_vrac.toLocaleString("fr-FR") : ""}
-                            </td>
+                            <DispatcherRowEditor
+                              id={row.id}
+                              initialCode={row.code || ""}
+                              initialQtCarton={row.qt_carton}
+                              initialQtVrac={row.qt_vrac}
+                              canEdit={canEdit}
+                            />
                             {showFlaconPot ? (
                               <td className="border border-slate-300 bg-white px-3 py-3">
                                 {article?.besoin_pot_flacon ? formatCell(pieces) : ""}
