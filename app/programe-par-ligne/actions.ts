@@ -639,120 +639,40 @@ async function generateAutoCodes(
   return { codesByRowIndex, codeUpdatesByArticleId };
 }
 
-// Corps commun a saveProgrammeLigneBatchAction (saisie depuis la grille) et
-// relaunchProgrammeLigneGroupAction (rejoue un groupe de l'historique) - les
-// deux finissent par creer un nouveau groupe programme_lignes + peupler le
-// Dispatcher de la meme facon, seule la provenance des lignes differe.
-async function performProgrammeLigneSave(
+// Enregistre un nouveau groupe programme_lignes (saisie depuis la grille de
+// "Programme par ligne"), puis le dispatche via assignDispatcherCodesAndInsert
+// si withDispatch. Pour dispatcher un groupe DEJA enregistre plus tard (voir
+// Historique programme, bouton "Dispatch"), voir
+// dispatchExistingProgrammeLigneGroupAction, qui appelle directement
+// assignDispatcherCodesAndInsert sans passer par ici (pas de nouveau groupe
+// a creer).
+// Repartit filledRows en lots Dispatcher (voir buildDispatcherDraftRows),
+// genere leurs codes (voir generateAutoCodes), les insere dans
+// programme_dispatcher_lignes, et reecrit numero_lot/numero_lot_detail sur
+// les lignes programme_lignes correspondantes (rowIds, indexe comme
+// filledRows). Partage entre un Save+Dispatch immediat
+// (performProgrammeLigneSave) et un Dispatch differe d'un groupe deja
+// enregistre (dispatchExistingProgrammeLigneGroupAction) - la gestion
+// d'erreur (faut-il annuler programme_lignes ?) reste a la charge de
+// l'appelant, differente dans les 2 cas.
+async function assignDispatcherCodesAndInsert(
   filledRows: PendingProgrammeRow[],
-  affectedZoneChaine: { zone: string; chaine: string }[],
   dateJour: string,
-  creePar: string | null,
-  remarque: string | null,
-  // "Dispatch" (true) fait tout : enregistre programme_lignes ET peuple
-  // Programme Dispatcher/Ravitailleur (comportement historique du Save).
-  // "Save" (false) enregistre seulement programme_lignes (visible dans
-  // Historique programme) sans toucher au Dispatcher - pour poser un
-  // programme sans encore l'engager en fabrication.
-  withDispatch: boolean
-): Promise<{ ok: true; code: string; groupe_id: number }> {
-  // Le code PL1.2026, PL2.2026... n'est pas stocke dans la colonne
-  // "programe" (qui reste un champ libre tape par l'utilisateur,
-  // independant) - il est seulement retourne ici pour le message de
-  // confirmation. Le vrai code affiche dans l'historique est recalcule a la
-  // lecture a partir du rang du groupe PARMI CEUX DE LA MEME ANNEE (meme
-  // principe que TE1/TS1 dans Mouvements, mais remis a 1 a chaque nouvelle
-  // annee de date_jour).
-  const anneeJour = Number(dateJour.slice(0, 4));
+  groupeId: number,
+  affectedZoneChaine: { zone: string; chaine: string }[],
+  rowIds: number[]
+): Promise<void> {
   const articleIds = [...new Set(filledRows.map((row) => row.article_id as number))];
-
-  // "Programme par ligne" garde une ligne = une saisie, avec le vrac total
-  // tel quel (pas de decoupage ici) et le "Programme" tape a la main.
-  const payload = filledRows.map((row) => ({
-    zone: row.zone,
-    chaine: row.chaine,
-    article_id: row.article_id,
-    produit: row.produit || null,
-    type_article: row.type_article || null,
-    qt_carton: row.qt_carton,
-    vrac_a_fabriquer: row.vrac_a_fabriquer,
-    plateforme: row.plateforme || null,
-    programe: row.programe.trim() || null,
-    date_jour: dateJour,
-    cree_par: creePar,
-    remarque: remarque || null,
-    // Un programme fraichement saisi n'est pas encore confirme pour le
-    // suivi de production (Dashboard/Calendrier) - il ne le devient qu'une
-    // fois valide via le bouton "Save" de Ravitailleur par ligne (voir
-    // saveProgrammeDispatcherSnapshotAction / saveAllZonesDispatcherSnapshotAction),
-    // qui bascule cette colonne a true. En attendant, seul Ravitailleur par
-    // ligne (Programme Dispatcher) le montre.
-    confirme_production: false,
-  }));
-
-  // 4 requetes totalement independantes (aucune n'a besoin du resultat des
-  // autres) lancees en parallele plutot qu'enchainees - c'etait la
-  // principale source de lenteur du Save (chaque aller-retour reseau
-  // s'additionnait au precedent au lieu de se chevaucher). On compte les
-  // groupe_id DISTINCTS de cette annee (pas le nombre de lignes, pas toute
-  // la table) via RPC - rapatrier toute la table (6000+ lignes et ca
-  // grossit) juste pour compter rendait le Save tres lent, voire le
-  // faisait planter.
-  const [nextNumberResult, articleInfoById, allArticleCodeRows, insertResult] = await Promise.all([
-    supabaseServer.rpc("programme_lignes_next_group_number_for_year", { p_year: anneeJour }),
+  const [articleInfoById, allArticleCodeRows] = await Promise.all([
     fetchArticleInfoMap(articleIds),
     fetchAllArticleCodeRows(),
-    supabaseServer.from("programme_lignes").insert(payload).select("id"),
   ]);
 
-  if (nextNumberResult.error) {
-    throw new Error(nextNumberResult.error.message);
-  }
-
-  const nextNumber = Number(nextNumberResult.data) || 1;
-  const generatedCode = `PL${nextNumber}.${anneeJour}`;
-
-  if (insertResult.error) {
-    throw new Error(insertResult.error.message);
-  }
-
-  const insertedIds = ((insertResult.data as { id: number }[] | null) ?? []).map((row) => row.id);
-  const groupeId = Math.min(...insertedIds);
-
-  const { error: groupError } = await supabaseServer
-    .from("programme_lignes")
-    .update({ groupe_id: groupeId })
-    .in("id", insertedIds);
-
-  if (groupError) {
-    throw new Error(groupError.message);
-  }
-
-  if (!withDispatch) {
-    revalidatePath("/programe-par-ligne");
-    revalidatePath("/historique-programme");
-    return { ok: true, code: generatedCode, groupe_id: groupeId };
-  }
-
-  // Tout ce qui suit (Dispatcher + numero_lot) peut echouer (collision de
-  // code, bug de repartition...) - si ca arrive, les lignes programme_lignes
-  // deja inserees ci-dessus sont effacees avant de faire remonter l'erreur,
-  // pour qu'un Save rate ne laisse jamais un programme "fantome" visible sur
-  // Suivi Production/Dashboard alors que son Dispatcher/Ravitailleur n'a
-  // jamais ete cree.
-  try {
-
-  // Copie vers "Programme Dispatcher <ZONE>" : ici seulement, le vrac est
-  // decoupe en lots (voir buildDispatcherDraftRows) et chaque lot recoit
-  // son propre code genere (voir generateAutoCodes). articleInfoById et
-  // allArticleCodeRows viennent deja du Promise.all plus haut (1er essai) -
-  // seuls les retries en refetchent une version fraiche (voir plus bas).
-
-  // Deux "Save" lances a quelques millisecondes d'ecart sur la meme famille
-  // (gamme+forme) peuvent tous les deux lire le meme dernier code connu
-  // avant que l'un des deux n'ait ecrit le sien, et generer le meme code de
-  // lot - programme_dispatcher_lignes.code est unique en base (voir
-  // add_programme_dispatcher_code_unique.sql) pour transformer cette
+  // Deux "Save"/"Dispatch" lances a quelques millisecondes d'ecart sur la
+  // meme famille (gamme+forme) peuvent tous les deux lire le meme dernier
+  // code connu avant que l'un des deux n'ait ecrit le sien, et generer le
+  // meme code de lot - programme_dispatcher_lignes.code est unique en base
+  // (voir add_programme_dispatcher_code_unique.sql) pour transformer cette
   // collision silencieuse en erreur detectable, qu'on rattrape ici en
   // recalculant un code frais (l'autre Save est deja commite a ce stade,
   // donc generateAutoCodes le voit et repart apres) plutot que de faire
@@ -824,15 +744,12 @@ async function performProgrammeLigneSave(
     }
 
     // Detecte un doublon (code, zone, chaine, article_id) A L'INTERIEUR de ce
-    // meme Save (pas contre des lignes deja en base) qui aurait survecu a la
-    // fusion ci-dessus (cas non prevu) - un vrai conflit de ce genre est
-    // deterministe (le meme code se regenere identique a chaque tentative),
-    // donc retenter le Save ne resoudra jamais rien : on le signale
+    // meme Save/Dispatch (pas contre des lignes deja en base) qui aurait
+    // survecu a la fusion ci-dessus (cas non prevu) - un vrai conflit de ce
+    // genre est deterministe (le meme code se regenere identique a chaque
+    // tentative), donc retenter ne resoudra jamais rien : on le signale
     // immediatement avec le detail exact plutot que d'epuiser les 6
-    // tentatives pour rien. Sans article_id dans la cle, 2 contenances
-    // differentes partageant legitimement (code, zone, chaine) - le cas
-    // normal desormais, voir la fusion ci-dessus - remonteraient ici a tort
-    // comme "doublon".
+    // tentatives pour rien.
     const seenCodeZoneChaine = new Map<string, string[]>();
     for (const row of dispatcherPayload) {
       if (!row.code) continue;
@@ -901,26 +818,26 @@ async function performProgrammeLigneSave(
       break;
     }
 
-    // 23505 = violation de contrainte unique - deux Save concurrents ont
-    // genere le meme code, on relance avec un code recalcule. Toute autre
-    // erreur est remontee immediatement (message brut, pas la peine de le
-    // deguiser). Un petit delai aleatoire avant de retenter desynchronise
-    // deux Save qui se suivent de tres pres (sans lui, ils peuvent se
-    // reproduire la meme collision a chaque tentative).
+    // 23505 = violation de contrainte unique - deux Save/Dispatch concurrents
+    // ont genere le meme code, on relance avec un code recalcule. Toute
+    // autre erreur est remontee immediatement (message brut, pas la peine
+    // de le deguiser). Un petit delai aleatoire avant de retenter
+    // desynchronise 2 tentatives qui se suivent de tres pres (sans lui,
+    // elles peuvent se reproduire la meme collision a chaque tentative).
     if (dispatcherError.code !== "23505") {
       throw new Error(dispatcherError.message);
     }
 
     if (attempt === MAX_CODE_ATTEMPTS) {
-      // Le message generique suppose une vraie collision entre 2 Save
-      // concurrents, mais un 23505 peut aussi venir d'une AUTRE contrainte
+      // Le message generique suppose une vraie collision entre 2 tentatives
+      // concurrentes, mais un 23505 peut aussi venir d'une AUTRE contrainte
       // unique (ex: mauvaise hypothese, sequence desynchronisee...) - le
       // detail brut de Postgres est donc toujours inclus pour pouvoir
       // diagnostiquer la vraie cause si ca se reproduit de facon repetee
       // (une vraie collision concurrente ne devrait quasiment jamais
       // survivre a 6 tentatives avec delai aleatoire).
       throw new Error(
-        `Un autre enregistrement s'est produit exactement au meme moment et a genere le meme code de lot (ou une autre erreur similaire). Reessaie le Save. Detail technique : ${dispatcherError.message}`
+        `Un autre enregistrement s'est produit exactement au meme moment et a genere le meme code de lot (ou une autre erreur similaire). Reessaie. Detail technique : ${dispatcherError.message}`
       );
     }
 
@@ -937,20 +854,20 @@ async function performProgrammeLigneSave(
   // decoupee en plusieurs lots (join ", "), puis reecrits sur la ligne
   // programme_lignes d'origine juste apres son insertion.
   // numero_lot_detail fige la repartition qt_vrac/qt_carton par code au
-  // moment du Save - contrairement a une lecture live du Dispatcher (qui
-  // est un instantane de la production EN COURS et se fait ecraser des
-  // qu'un Save ulterieur touche la meme zone/chaine), cette colonne ne
-  // change plus jamais et permet donc au Dashboard de toujours reconstituer
-  // le detail par code, meme longtemps apres que le Dispatcher soit passe
-  // a autre chose.
+  // moment du Save/Dispatch - contrairement a une lecture live du
+  // Dispatcher (qui est un instantane de la production EN COURS et se fait
+  // ecraser des qu'un Save/Dispatch ulterieur touche la meme zone/chaine),
+  // cette colonne ne change plus jamais et permet donc au Dashboard de
+  // toujours reconstituer le detail par code, meme longtemps apres que le
+  // Dispatcher soit passe a autre chose.
   // Une seule requete RPC - un Save/relance avec beaucoup de lignes remplies
   // faisait autant d'allers-retours DB sequentiels ici, la principale source
   // de lenteur (et de depassement du temps limite serverless) sur les gros
   // Save.
   const numeroLotUpdates = [...codesBySourceIndex.entries()]
-    .filter(([sourceIndex]) => insertedIds[sourceIndex])
+    .filter(([sourceIndex]) => rowIds[sourceIndex])
     .map(([sourceIndex, codes]) => ({
-      id: insertedIds[sourceIndex],
+      id: rowIds[sourceIndex],
       numero_lot: [...new Set(codes)].join(", "),
       numero_lot_detail: detailBySourceIndex.get(sourceIndex) ?? [],
     }));
@@ -964,7 +881,105 @@ async function performProgrammeLigneSave(
       throw new Error(numeroLotError.message);
     }
   }
+}
 
+async function performProgrammeLigneSave(
+  filledRows: PendingProgrammeRow[],
+  affectedZoneChaine: { zone: string; chaine: string }[],
+  dateJour: string,
+  creePar: string | null,
+  remarque: string | null,
+  // "Dispatch" (true) fait tout : enregistre programme_lignes ET peuple
+  // Programme Dispatcher/Ravitailleur (comportement historique du Save).
+  // "Save" (false) enregistre seulement programme_lignes (visible dans
+  // Historique programme) sans toucher au Dispatcher - pour poser un
+  // programme sans encore l'engager en fabrication.
+  withDispatch: boolean
+): Promise<{ ok: true; code: string; groupe_id: number }> {
+  // Le code PL1.2026, PL2.2026... n'est pas stocke dans la colonne
+  // "programe" (qui reste un champ libre tape par l'utilisateur,
+  // independant) - il est seulement retourne ici pour le message de
+  // confirmation. Le vrai code affiche dans l'historique est recalcule a la
+  // lecture a partir du rang du groupe PARMI CEUX DE LA MEME ANNEE (meme
+  // principe que TE1/TS1 dans Mouvements, mais remis a 1 a chaque nouvelle
+  // annee de date_jour).
+  const anneeJour = Number(dateJour.slice(0, 4));
+
+  // "Programme par ligne" garde une ligne = une saisie, avec le vrac total
+  // tel quel (pas de decoupage ici) et le "Programme" tape a la main.
+  const payload = filledRows.map((row) => ({
+    zone: row.zone,
+    chaine: row.chaine,
+    article_id: row.article_id,
+    produit: row.produit || null,
+    type_article: row.type_article || null,
+    qt_carton: row.qt_carton,
+    vrac_a_fabriquer: row.vrac_a_fabriquer,
+    plateforme: row.plateforme || null,
+    programe: row.programe.trim() || null,
+    date_jour: dateJour,
+    cree_par: creePar,
+    remarque: remarque || null,
+    // Un programme fraichement saisi n'est pas encore confirme pour le
+    // suivi de production (Dashboard/Calendrier) - il ne le devient qu'une
+    // fois valide via le bouton "Save" de Ravitailleur par ligne (voir
+    // saveProgrammeDispatcherSnapshotAction / saveAllZonesDispatcherSnapshotAction),
+    // qui bascule cette colonne a true. En attendant, seul Ravitailleur par
+    // ligne (Programme Dispatcher) le montre.
+    confirme_production: false,
+  }));
+
+  // 2 requetes totalement independantes (aucune n'a besoin du resultat de
+  // l'autre) lancees en parallele plutot qu'enchainees - c'etait la
+  // principale source de lenteur du Save (chaque aller-retour reseau
+  // s'additionnait au precedent au lieu de se chevaucher). On compte les
+  // groupe_id DISTINCTS de cette annee (pas le nombre de lignes, pas toute
+  // la table) via RPC - rapatrier toute la table (6000+ lignes et ca
+  // grossit) juste pour compter rendait le Save tres lent, voire le
+  // faisait planter.
+  const [nextNumberResult, insertResult] = await Promise.all([
+    supabaseServer.rpc("programme_lignes_next_group_number_for_year", { p_year: anneeJour }),
+    supabaseServer.from("programme_lignes").insert(payload).select("id"),
+  ]);
+
+  if (nextNumberResult.error) {
+    throw new Error(nextNumberResult.error.message);
+  }
+
+  const nextNumber = Number(nextNumberResult.data) || 1;
+  const generatedCode = `PL${nextNumber}.${anneeJour}`;
+
+  if (insertResult.error) {
+    throw new Error(insertResult.error.message);
+  }
+
+  const insertedIds = ((insertResult.data as { id: number }[] | null) ?? []).map((row) => row.id);
+  const groupeId = Math.min(...insertedIds);
+
+  const { error: groupError } = await supabaseServer
+    .from("programme_lignes")
+    .update({ groupe_id: groupeId })
+    .in("id", insertedIds);
+
+  if (groupError) {
+    throw new Error(groupError.message);
+  }
+
+  if (!withDispatch) {
+    revalidatePath("/programe-par-ligne");
+    revalidatePath("/historique-programme");
+    return { ok: true, code: generatedCode, groupe_id: groupeId };
+  }
+
+  // Le Dispatcher (copie vers "Programme Dispatcher <ZONE>", codes,
+  // numero_lot - voir assignDispatcherCodesAndInsert) peut echouer
+  // (collision de code, bug de repartition...) - si ca arrive, les lignes
+  // programme_lignes deja inserees ci-dessus sont effacees avant de faire
+  // remonter l'erreur, pour qu'un Save rate ne laisse jamais un programme
+  // "fantome" visible sur Suivi Production/Dashboard alors que son
+  // Dispatcher/Ravitailleur n'a jamais ete cree.
+  try {
+    await assignDispatcherCodesAndInsert(filledRows, dateJour, groupeId, affectedZoneChaine, insertedIds);
   } catch (error) {
     await supabaseServer.from("programme_lignes").delete().in("id", insertedIds);
     throw error;
@@ -1051,32 +1066,39 @@ export async function saveProgrammeLigneBatchAction(
   }
 }
 
-// Rejoue un groupe deja enregistre (voir Historique programme) comme un
-// nouveau Save, avec la date du jour - evite de retaper le meme programme a
-// la main pour le relancer au Dispatcher/Ravitailleur.
-export async function relaunchProgrammeLigneGroupAction(formData: FormData) {
+// Dispatche un groupe DEJA enregistre (voir Historique programme, bouton
+// "Dispatch") vers Programme Dispatcher/Ravitailleur, sans creer de nouveau
+// groupe ni dupliquer ses lignes programme_lignes (contrairement a l'ancien
+// "Relancer", qui rejouait tout un nouveau Save) - utile pour un programme
+// d'abord pose via Save (sans Dispatch) puis engage en fabrication plus
+// tard, depuis sa propre page d'historique.
+export async function dispatchExistingProgrammeLigneGroupAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
   if (!(await canWritePageUser(currentUser, "programeParLigne"))) {
-    throw new Error("Cet utilisateur ne peut pas enregistrer de programme.");
+    throw new Error("Cet utilisateur ne peut pas dispatcher de programme.");
   }
 
-  const sourceGroupeId = Number(String(formData.get("groupe_id") || "0"));
+  const groupeId = Number(String(formData.get("groupe_id") || "0"));
 
-  if (!sourceGroupeId) {
-    throw new Error("Programme source invalide.");
+  if (!groupeId) {
+    throw new Error("Programme invalide.");
   }
 
-  const { data: sourceData, error: sourceError } = await supabaseServer
+  const { data, error } = await supabaseServer
     .from("programme_lignes")
-    .select("zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe")
-    .eq("groupe_id", sourceGroupeId);
+    .select(
+      "id, zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, date_jour"
+    )
+    .eq("groupe_id", groupeId)
+    .order("id", { ascending: true });
 
-  if (sourceError) {
-    throw new Error(sourceError.message);
+  if (error) {
+    throw new Error(error.message);
   }
 
-  const sourceLignes = (sourceData ?? []) as {
+  const lignes = (data ?? []) as {
+    id: number;
     zone: string;
     chaine: string;
     article_id: number | null;
@@ -1085,36 +1107,54 @@ export async function relaunchProgrammeLigneGroupAction(formData: FormData) {
     qt_carton: number | null;
     vrac_a_fabriquer: number | null;
     plateforme: string | null;
-    programe: string | null;
+    date_jour: string;
   }[];
 
-  const filledRows: PendingProgrammeRow[] = sourceLignes
-    .filter((ligne) => ligne.article_id)
-    .map((ligne) => ({
-      zone: ligne.zone,
-      chaine: ligne.chaine,
-      article_id: ligne.article_id,
-      produit: ligne.produit || "",
-      type_article: ligne.type_article || "",
-      qt_carton: ligne.qt_carton,
-      vrac_a_fabriquer: ligne.vrac_a_fabriquer,
-      plateforme: ligne.plateforme || "",
-      programe: ligne.programe || "",
-    }));
-
-  if (filledRows.length === 0) {
-    throw new Error("Programme source introuvable ou vide.");
+  if (lignes.length === 0) {
+    throw new Error("Programme introuvable.");
   }
 
+  const remplies = lignes.filter((ligne) => ligne.article_id);
+
+  const filledRows: PendingProgrammeRow[] = remplies.map((ligne) => ({
+    zone: ligne.zone,
+    chaine: ligne.chaine,
+    article_id: ligne.article_id,
+    produit: ligne.produit || "",
+    type_article: ligne.type_article || "",
+    qt_carton: ligne.qt_carton,
+    vrac_a_fabriquer: ligne.vrac_a_fabriquer,
+    plateforme: ligne.plateforme || "",
+    programe: "",
+  }));
+
+  if (filledRows.length === 0) {
+    throw new Error("Aucune ligne avec un article a dispatcher.");
+  }
+
+  const rowIds = remplies.map((ligne) => ligne.id);
+  const dateJour = lignes[0].date_jour;
+
   const affectedZoneChaineMap = new Map<string, { zone: string; chaine: string }>();
-  for (const row of filledRows) {
-    affectedZoneChaineMap.set(`${row.zone}::${row.chaine}`, { zone: row.zone, chaine: row.chaine });
+  for (const ligne of lignes) {
+    affectedZoneChaineMap.set(`${ligne.zone}::${ligne.chaine}`, { zone: ligne.zone, chaine: ligne.chaine });
   }
   const affectedZoneChaine = [...affectedZoneChaineMap.values()];
 
-  const dateJour = new Date().toISOString().slice(0, 10);
+  // Contrairement a performProgrammeLigneSave, aucune suppression en cas
+  // d'echec : ces lignes programme_lignes existaient deja avant cet appel
+  // (pas creees par lui), les effacer sur un echec de Dispatch perdrait un
+  // programme deja valide pour rien.
+  await assignDispatcherCodesAndInsert(filledRows, dateJour, groupeId, affectedZoneChaine, rowIds);
 
-  await performProgrammeLigneSave(filledRows, affectedZoneChaine, dateJour, currentUser, null, true);
+  revalidatePath("/historique-programme");
+  revalidatePath(`/historique-programme/${groupeId}`);
+  revalidatePath("/ravitailleur-par-ligne");
+  revalidatePath("/code-par-article");
+  revalidatePath("/articles/produit-fini");
+  revalidatePath("/production/suivi");
+  revalidatePath("/production/suivi/dashboard");
+  revalidatePath("/production/suivi/calendrier");
 
   redirect("/ravitailleur-par-ligne");
 }

@@ -417,7 +417,12 @@ export function ProgrammeLigneTable({
         rowsRef.current = {};
         setSubRowCounts({});
         setResetKey((current) => current + 1);
-        router.push(withDispatch ? "/ravitailleur-par-ligne" : "/historique-programme");
+        // Save reste sur cette page (grille reinitialisee, prete pour un
+        // nouveau programme) - seul Dispatch redirige vers Ravitailleur, la
+        // ou le programme vient d'etre reparti en lots.
+        if (withDispatch) {
+          router.push("/ravitailleur-par-ligne");
+        }
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
       }
