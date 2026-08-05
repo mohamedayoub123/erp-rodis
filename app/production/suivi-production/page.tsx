@@ -399,7 +399,7 @@ function buildDisplayRows(
 
 const PAGE_SIZE = 200;
 
-type SearchParams = Promise<{ code?: string; produit?: string; page?: string }>;
+type SearchParams = Promise<{ code?: string; produit?: string; date?: string; page?: string }>;
 
 export default async function SuiviProductionListPage({
   searchParams,
@@ -410,7 +410,8 @@ export default async function SuiviProductionListPage({
   const params = await searchParams;
   const codeFilter = (params.code || "").trim().toLowerCase();
   const produitFilter = (params.produit || "").trim().toLowerCase();
-  const hasFilters = Boolean(codeFilter || produitFilter);
+  const dateFilter = (params.date || "").trim();
+  const hasFilters = Boolean(codeFilter || produitFilter || dateFilter);
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
 
   const [lignesResult, rapportsResult, vracResult, cartonResult, emballageResult] = await Promise.all([
@@ -448,6 +449,20 @@ export default async function SuiviProductionListPage({
     if (produitFilter && !(row.ligne.produit || "").toLowerCase().includes(produitFilter)) {
       return false;
     }
+    // Une ligne a plusieurs dates possibles (date du programme, date de
+    // chaque etape faite) - le filtre matche si l'une d'elles correspond,
+    // pas seulement la date du programme, sinon une ligne dont seule
+    // l'etape (fabrication/conditionnement/emballage) a ete faite au jour
+    // recherche resterait invisible.
+    if (
+      dateFilter &&
+      row.ligne.date_jour !== dateFilter &&
+      row.fabrication?.date !== dateFilter &&
+      row.conditionnement?.date !== dateFilter &&
+      row.emballage?.date !== dateFilter
+    ) {
+      return false;
+    }
     return true;
   });
 
@@ -463,6 +478,7 @@ export default async function SuiviProductionListPage({
     qs.set("page", String(page));
     if (params.code) qs.set("code", params.code);
     if (params.produit) qs.set("produit", params.produit);
+    if (params.date) qs.set("date", params.date);
     return `/production/suivi-production?${qs.toString()}`;
   };
 
@@ -493,7 +509,7 @@ export default async function SuiviProductionListPage({
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto_auto]">
             <input
               type="text"
               name="code"
@@ -506,6 +522,12 @@ export default async function SuiviProductionListPage({
               name="produit"
               defaultValue={params.produit || ""}
               placeholder="Produit"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="date"
+              name="date"
+              defaultValue={params.date || ""}
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
