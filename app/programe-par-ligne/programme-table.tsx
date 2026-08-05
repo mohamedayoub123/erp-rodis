@@ -315,6 +315,12 @@ export function ProgrammeLigneTable({
     startTransition(async () => {
       try {
         const result = await saveProgrammeLigneBatchAction(formData);
+
+        if (!result.ok) {
+          setErrorMessage(result.message);
+          return;
+        }
+
         setMessage(`Enregistre sous le code ${result.code}.`);
         rowsRef.current = {};
         setSubRowCounts({});
