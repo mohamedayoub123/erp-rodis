@@ -32,6 +32,8 @@ export function normalizeFamilyValue(value: string | null | undefined): string {
 // "Gel Douche White Secret 500ml Clarifiant") - seul un marqueur Exfoliant
 // explicite bascule dans l'autre variante, separee.
 const EXFOLIANT_TOKENS = new Set(["EXFOLIANT", "EXFOLIANTE", "EXFO", "EXF"]);
+const CLARIFIANT_TOKENS = new Set(["CLARIFIANT", "CLARIFIANTE"]);
+const SIZE_TOKEN_PATTERN = /^\d+(?:[.,]\d+)?(?:ML|CL|L|GRS|GR|G|KG)?$/;
 
 export function detectArticleVariantFromName(name: string | null | undefined): string {
   const words = normalizeFamilyValue(name).split(" ");
@@ -39,30 +41,43 @@ export function detectArticleVariantFromName(name: string | null | undefined): s
   return "CLARIFIANT";
 }
 
+// Le nom complet sert de cle (moins la contenance/taille et le marqueur de
+// variante Clarifiant/Exfoliant en fin de nom), jamais juste le 1er mot ou
+// une categorie de forme (Lait/Creme/Gel douche...) - sinon 2 produits
+// totalement differents qui partagent juste le meme 1er mot ou la meme
+// categorie (ex: "POMMADE MENTHOLATA 125ML" et "POMMADE WHITE CAT 125ML",
+// meme gamme "Menthole") se retrouvent regroupes dans la meme famille et
+// partagent a tort le meme code/lot. Ca reste compatible avec le partage
+// voulu entre contenances d'un MEME produit : "Gel Douche White Secret 1L"
+// et "Gel Douche White Secret 500ml Clarifiant" ont le meme nom une fois la
+// contenance ET le marqueur de variante retires (le marqueur est deja gere
+// separement par detectArticleVariantFromName ci-dessus, le laisser ici
+// romprait le regroupement des lors qu'un seul des 2 noms le precise
+// explicitement) - seule la contenance doit differer pour partager la
+// famille, pas le reste du nom.
 export function detectArticleFamilyFromName(name: string | null | undefined): string {
-  const normalized = normalizeFamilyValue(name);
+  const words = normalizeFamilyValue(name).split(" ");
 
-  if (normalized.startsWith("LAIT ")) return "LAIT";
-  if (normalized.startsWith("CREME ")) return "CREME";
-  if (normalized.startsWith("DSR ")) return "DSR";
-  if (normalized.startsWith("HUILE ")) return "HUILE";
-  if (normalized.startsWith("SERUM ")) return "SERUM";
-  if (normalized.startsWith("SAVON ")) return "SAVON";
-  if (normalized.startsWith("GEL DOUCHE ")) return "GEL DOUCHE";
-  if (normalized.startsWith("TUBE ")) return "TUBE";
+  // "S-H" est deja gere separement par isShVariant (bascule toute la gamme,
+  // pas seulement la forme) - le retirer ici aussi evite qu'il reste coince
+  // devant la contenance et empeche par erreur 2 contenances S-H du meme
+  // produit de partager leur famille (ex: "... 500ML S-H" et "... 300ML
+  // S-H" doivent quand meme matcher une fois taille+S-H retires).
+  while (words.length > 1) {
+    const lastWord = words[words.length - 1];
+    if (
+      SIZE_TOKEN_PATTERN.test(lastWord) ||
+      EXFOLIANT_TOKENS.has(lastWord) ||
+      CLARIFIANT_TOKENS.has(lastWord) ||
+      lastWord === "S-H"
+    ) {
+      words.pop();
+      continue;
+    }
+    break;
+  }
 
-  // Aucune categorie de forme reconnue (ex: "Pommade", "Baume"...) : le nom
-  // complet sert de cle (moins la contenance/taille en toute fin de nom,
-  // ex: "125ML"/"50"), pas seulement le 1er mot - sinon 2 produits
-  // totalement differents qui commencent par le meme mot (ex: "POMMADE
-  // MENTHOLATA 125ML" et "POMMADE WHITE CAT 125ML", meme gamme "Menthole")
-  // se retrouvaient regroupes dans la meme famille et partageaient a tort
-  // le meme code/lot.
-  const withoutTrailingSize = normalized
-    .replace(/\s+\d+(?:[.,]\d+)?\s*(?:ML|CL|L|GRS|GR|G|KG)?$/, "")
-    .trim();
-
-  return withoutTrailingSize || normalized;
+  return words.join(" ");
 }
 
 export function detectArticleGammeFromName(name: string | null | undefined): string {
