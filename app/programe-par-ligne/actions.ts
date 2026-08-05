@@ -321,21 +321,33 @@ function buildDispatcherDraftRows(
       continue;
     }
 
-    // min_vrac configure : chaque chaine garde d'abord son propre lot
-    // (jusqu'au max), SAUF quand son montant seul est en dessous du min -
-    // dans ce cas ce reliquat est complete avec la chaine suivante jusqu'a
-    // atteindre exactement le min (pas le max), et le lot est alors ferme.
-    // Ex (max 3000, min 1500) : 2000 + 2000 -> 2 codes independants (chacun
-    // deja au dessus du min, pas de partage) ; 1000 + 2500 -> le 1000 (en
-    // dessous du min) emprunte 500 au 2500 pour former un 1er lot de 1500
-    // partage, le reliquat de 2000 forme un 2eme lot independant.
-    let batchIndex = 0;
-    let openLotTotal: number | null = null;
-    let openLotBatchIndex = -1;
+    // min_vrac configure : les chaines/contenances de la famille sont
+    // combinees DANS L'ORDRE pour remplir chaque lot au plus proche du max,
+    // sans jamais fractionner une chaine entre 2 lots sauf necessite (soit
+    // parce qu'elle depasse le max a elle seule, soit pour completer le
+    // dernier lot jusqu'au minimum viable). Une chaine qui tient deja seule
+    // dans le lot en cours y reste entiere ; des qu'elle ne rentre plus, le
+    // lot en cours est ferme TEL QUEL (jamais fractionne pour le completer)
+    // et une chaine suivante en ouvre un nouveau - ce qui fait que 2 chaines
+    // dont la somme depasse le max gardent chacune leur propre lot (jamais
+    // de partage inutile), tandis que 2 petites chaines dont la somme rentre
+    // dans un seul lot max le partagent (1 seul code au lieu de 2, plutot
+    // que de gaspiller la moitie du lot chacune).
+    // Ex (max 3000, min 1500) : 2000 + 2000 -> aucune des deux ne rentre
+    // avec l'autre sous le max, chacune garde donc son propre lot (2 codes
+    // independants, deja au dessus du min) ; 1000 + 2500 -> memes raisons,
+    // chacune garde son propre lot, mais le 1000 est alors en dessous du
+    // min - la passe suivante lui emprunte 500 au lot voisin (2500) pour
+    // former un 1er lot de 1500 partage, le reliquat de 2000 restant un
+    // 2eme lot independant. Ex (max 1000, min 10) : 500 + 500 -> la 2eme
+    // chaine tient exactement dans le lot ouvert par la 1ere (500+500=1000)
+    // -> 1 seul code partage pour les deux.
+    type LotContribution = { entry: (typeof entries)[number]; amount: number };
+    type Lot = { contributions: LotContribution[]; total: number };
+    const lots: Lot[] = [];
+    let openLot: Lot | null = null;
 
     for (const entry of entries) {
-      const articleId = entry.row.article_id as number;
-      const info = articleInfoById.get(articleId);
       let remainingForRow = entry.row.vrac_a_fabriquer ?? 0;
 
       if (remainingForRow <= 0) {
@@ -344,50 +356,83 @@ function buildDispatcherDraftRows(
       }
 
       while (remainingForRow > EPSILON) {
-        if (openLotTotal !== null && openLotTotal < minVal - EPSILON) {
-          const take = Math.round(Math.min(remainingForRow, minVal - openLotTotal) * 100) / 100;
+        if (!openLot) {
+          openLot = { contributions: [], total: 0 };
+          lots.push(openLot);
+        }
 
-          draftRows.push({
-            zone: entry.row.zone,
-            chaine: entry.row.chaine,
-            articleId,
-            produit: entry.row.produit,
-            qtVrac: take,
-            qtCarton: computeQtCarton(take, info?.contenance ?? null, info?.piece_par_carton ?? null),
-            plateforme: entry.row.plateforme,
-            sourceIndex: entry.sourceIndex,
-            batchKey: `${groupKey}::batch::${openLotBatchIndex}`,
-          });
+        const spaceLeft = Math.round((maxVal - openLot.total) * 100) / 100;
 
-          openLotTotal += take;
-          remainingForRow -= take;
-          if (openLotTotal >= minVal - EPSILON) openLotTotal = null;
+        if (remainingForRow <= spaceLeft + EPSILON) {
+          // Toute la chaine tient dans le lot ouvert : gardee entiere.
+          openLot.contributions.push({ entry, amount: remainingForRow });
+          openLot.total = Math.round((openLot.total + remainingForRow) * 100) / 100;
+          remainingForRow = 0;
+          if (openLot.total >= maxVal - EPSILON) openLot = null;
           continue;
         }
 
-        const take = Math.round(Math.min(remainingForRow, maxVal) * 100) / 100;
-        const viableAlone = take >= minVal - EPSILON;
-
-        batchIndex += 1;
-        draftRows.push({
-          zone: entry.row.zone,
-          chaine: entry.row.chaine,
-          articleId,
-          produit: entry.row.produit,
-          qtVrac: take,
-          qtCarton: computeQtCarton(take, info?.contenance ?? null, info?.piece_par_carton ?? null),
-          plateforme: entry.row.plateforme,
-          sourceIndex: entry.sourceIndex,
-          batchKey: `${groupKey}::batch::${batchIndex}`,
-        });
-        remainingForRow -= take;
-
-        if (!viableAlone) {
-          openLotTotal = take;
-          openLotBatchIndex = batchIndex;
+        if (openLot.total > EPSILON) {
+          // Ne rentre pas dans le lot deja entame : ferme tel quel (jamais
+          // fractionne pour le completer), une nouvelle chaine ouvrira le
+          // lot suivant.
+          openLot = null;
+          continue;
         }
+
+        // Le lot ouvert est vide et la chaine depasse quand meme le max a
+        // elle seule : elle doit etre fractionnee en lots pleins.
+        openLot.contributions.push({ entry, amount: maxVal });
+        openLot.total = maxVal;
+        remainingForRow = Math.round((remainingForRow - maxVal) * 100) / 100;
+        openLot = null;
       }
     }
+
+    // Un lot peut rester en dessous du minimum viable - lui emprunter le
+    // manque au lot voisin (suivant, sinon precedent) plutot que de le
+    // laisser trop petit pour etre une vraie ligne de fabrication.
+    for (let i = 0; i < lots.length; i++) {
+      const lot = lots[i];
+      if (lot.total >= minVal - EPSILON) continue;
+
+      const neighborIndex = i + 1 < lots.length ? i + 1 : i - 1;
+      if (neighborIndex < 0) continue;
+      const neighbor = lots[neighborIndex];
+
+      const shortfall = Math.round((minVal - lot.total) * 100) / 100;
+      let toBorrow = Math.min(shortfall, Math.round((neighbor.total - EPSILON) * 100) / 100);
+      if (toBorrow <= EPSILON) continue;
+
+      for (let c = neighbor.contributions.length - 1; c >= 0 && toBorrow > EPSILON; c--) {
+        const contribution = neighbor.contributions[c];
+        const take = Math.round(Math.min(contribution.amount, toBorrow) * 100) / 100;
+        contribution.amount = Math.round((contribution.amount - take) * 100) / 100;
+        lot.contributions.push({ entry: contribution.entry, amount: take });
+        toBorrow = Math.round((toBorrow - take) * 100) / 100;
+      }
+      neighbor.contributions = neighbor.contributions.filter((c) => c.amount > EPSILON);
+      neighbor.total = neighbor.contributions.reduce((sum, c) => sum + c.amount, 0);
+      lot.total = lot.contributions.reduce((sum, c) => sum + c.amount, 0);
+    }
+
+    lots.forEach((lot, lotIndex) => {
+      for (const contribution of lot.contributions) {
+        const articleId = contribution.entry.row.article_id as number;
+        const info = articleInfoById.get(articleId);
+        draftRows.push({
+          zone: contribution.entry.row.zone,
+          chaine: contribution.entry.row.chaine,
+          articleId,
+          produit: contribution.entry.row.produit,
+          qtVrac: contribution.amount,
+          qtCarton: computeQtCarton(contribution.amount, info?.contenance ?? null, info?.piece_par_carton ?? null),
+          plateforme: contribution.entry.row.plateforme,
+          sourceIndex: contribution.entry.sourceIndex,
+          batchKey: `${groupKey}::batch::${lotIndex}`,
+        });
+      }
+    });
   }
 
   return draftRows;
@@ -708,16 +753,18 @@ async function performProgrammeLigneSave(
 
     // Plusieurs contenances DIFFERENTES de la meme famille peuvent tomber
     // sur la MEME chaine (ex: 3 contenances d'un pommade programmees l'une
-    // apres l'autre sur "CHAINE 10A") - si leur vrac combine doit etre
-    // reparti sur plusieurs lots (voir buildDispatcherDraftRows), 2 pieces
-    // venant de 2 contenances differentes peuvent atterrir dans le MEME lot
-    // partage tout en etant sur la MEME chaine (pas 2 chaines differentes,
-    // le cas normalement prevu pour le partage de code) - ca cree alors 2
-    // lignes Dispatcher avec exactement le meme (code, zone, chaine), rejete
-    // par la contrainte unique. On les fusionne en une seule ligne (vrac et
-    // carton additionnes - chacun deja calcule avec la contenance de sa
-    // propre piece avant fusion, donc le total reste exact) plutot que de
-    // les laisser en doublon.
+    // apres l'autre sur "CHAINE 10A") et partager le meme code (voir
+    // buildDispatcherDraftRows) - la cle de fusion inclut donc article_id
+    // (voir add_programme_dispatcher_code_unique_include_article.sql) : 2
+    // contenances differentes restent 2 lignes Dispatcher separees, chacune
+    // avec son propre "produit" et sa propre Qt Carton (2 contenances
+    // differentes n'ont pas le meme nombre de pieces par carton, un total
+    // fusionne serait inexploitable pour l'emballage). Seul un vrai doublon
+    // (meme code, zone, chaine ET article_id - la meme piece physique
+    // decoupee 2 fois dans le meme lot, cas non prevu de la repartition) est
+    // fusionne ici (vrac et carton additionnes, chacun deja calcule avec la
+    // contenance de sa propre piece avant fusion, donc le total reste exact)
+    // plutot que d'etre laisse en doublon.
     const dispatcherPayload: typeof rawDispatcherPayload = [];
     const mergedIndexByKey = new Map<string, number>();
     for (const row of rawDispatcherPayload) {
@@ -725,7 +772,7 @@ async function performProgrammeLigneSave(
         dispatcherPayload.push(row);
         continue;
       }
-      const key = `${row.code}::${row.zone}::${row.chaine}`;
+      const key = `${row.code}::${row.zone}::${row.chaine}::${row.article_id}`;
       const existingIndex = mergedIndexByKey.get(key);
       if (existingIndex === undefined) {
         mergedIndexByKey.set(key, dispatcherPayload.length);
@@ -744,17 +791,20 @@ async function performProgrammeLigneSave(
       };
     }
 
-    // Detecte un doublon (code, zone, chaine) A L'INTERIEUR de ce meme Save
-    // (pas contre des lignes deja en base) qui aurait survecu a la fusion
-    // ci-dessus (cas non prevu) - un vrai conflit de ce genre est
+    // Detecte un doublon (code, zone, chaine, article_id) A L'INTERIEUR de ce
+    // meme Save (pas contre des lignes deja en base) qui aurait survecu a la
+    // fusion ci-dessus (cas non prevu) - un vrai conflit de ce genre est
     // deterministe (le meme code se regenere identique a chaque tentative),
     // donc retenter le Save ne resoudra jamais rien : on le signale
     // immediatement avec le detail exact plutot que d'epuiser les 6
-    // tentatives pour rien.
+    // tentatives pour rien. Sans article_id dans la cle, 2 contenances
+    // differentes partageant legitimement (code, zone, chaine) - le cas
+    // normal desormais, voir la fusion ci-dessus - remonteraient ici a tort
+    // comme "doublon".
     const seenCodeZoneChaine = new Map<string, string[]>();
     for (const row of dispatcherPayload) {
       if (!row.code) continue;
-      const key = `${row.code}::${row.zone}::${row.chaine}`;
+      const key = `${row.code}::${row.zone}::${row.chaine}::${row.article_id}`;
       const list = seenCodeZoneChaine.get(key) ?? [];
       list.push(row.produit || "?");
       seenCodeZoneChaine.set(key, list);
