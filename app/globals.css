@@ -34,6 +34,14 @@ body {
     display: none !important;
   }
 
+  /* "html { font-size: 132% }" (juste en dessous) sert a grossir l'affichage
+     ecran - a l'impression ca rend TOUT enorme (titres, tableaux). On
+     revient a une taille normale pour l'impression, quelle que soit la
+     page. */
+  html {
+    font-size: 100% !important;
+  }
+
   /* Regle generale (pas limitee aux tableaux data-print-mode) : sans ca,
      une ligne de tableau peut se retrouver coupee entre 2 pages a
      l'impression - le haut du texte sur une page, le bas sur la suivante. */
@@ -44,6 +52,37 @@ body {
 
   table thead {
     display: table-header-group;
+  }
+
+  /* Mode "impression simple" (SimplePrintButton - Historique programme,
+     Historique Programme Dispatcher...) : une seule page compacte plutot
+     que le titre seul sur la 1ere page et le tableau pousse sur la 2eme -
+     "min-h-screen" et les cartes/espacements penses pour l'ecran forcent
+     sinon une hauteur de page complete avant que le tableau commence. */
+  html[data-print-mode="simple"] main {
+    min-height: 0 !important;
+    padding: 0 !important;
+    background: none !important;
+  }
+
+  html[data-print-mode="simple"] .space-y-6 > * + * {
+    margin-top: 8px !important;
+  }
+
+  html[data-print-mode="simple"] section {
+    padding: 6px !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  html[data-print-mode="simple"] table {
+    font-size: 10px !important;
+  }
+
+  html[data-print-mode="simple"] table th,
+  html[data-print-mode="simple"] table td {
+    padding: 3px 5px !important;
   }
 
   /* La page commande a 2 boutons imprimer distincts : "Imprimer commande"
@@ -72,6 +111,17 @@ body {
   html[data-print-mode="B4Z3"] [data-print-zone="B4Z3"],
   html[data-print-mode="D"] [data-print-zone="D"] {
     display: block !important;
+  }
+
+  /* "overflow-hidden" + coins arrondis (pense pour l'ecran) coupaient le
+     haut du tableau a l'impression : l'entete de zone (repetee sur chaque
+     page via table-header-group) se redessine parfois hors de la zone de
+     clip de ce conteneur, ce qui rognait le debut du titre (ex: "B1Z1"
+     affiche coupe en "Z1"). Inutile a l'impression de toute facon. */
+  html[data-print-mode] [data-print-zone] {
+    overflow: visible !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
   }
 
   /* Les tableaux larges (defiler horizontalement a l'ecran) doivent tenir
