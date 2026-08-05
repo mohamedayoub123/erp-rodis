@@ -472,6 +472,7 @@ export default async function AdminPage({
                                   return (
                                     <details
                                       key={`${section}-${moduleKey}`}
+                                      open
                                       className="group rounded-2xl border border-slate-200 bg-white"
                                     >
                                       <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800">
