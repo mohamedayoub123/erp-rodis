@@ -25,7 +25,7 @@ export default async function CalendrierJourPage({
   }
 
   const [{ rows: lignes }, pdLabelByCode] = await Promise.all([
-    fetchAllProgrammeLignes({ activeOnly: true }),
+    fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true }),
     buildPdLabelByCode(),
   ]);
   const dayLignes = lignes.filter(

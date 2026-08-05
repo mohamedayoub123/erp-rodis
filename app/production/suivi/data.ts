@@ -53,9 +53,15 @@ export type EmballageEntryRow = {
 // par Rapport Ecarts en vue par defaut (sans recherche) pour eviter de
 // rapatrier des annees d'historique a chaque chargement ; une recherche
 // explicite (code/PD) repasse sans cette borne pour retrouver du vieux.
+// confirmedOnly: n'affiche que les programmes valides via le Save de
+// Ravitailleur par ligne (confirme_production=true) - un programme juste
+// saisi depuis "Programme par ligne" reste visible/ajustable sur
+// Ravitailleur mais ne doit pas encore apparaitre sur le Dashboard/
+// Calendrier tant qu'il n'a pas ete confirme.
 export async function fetchAllProgrammeLignes(options?: {
   activeOnly?: boolean;
   sinceDate?: string;
+  confirmedOnly?: boolean;
 }): Promise<{
   rows: ProgrammeLigneRow[];
   error: string | null;
@@ -73,6 +79,10 @@ export async function fetchAllProgrammeLignes(options?: {
 
     if (options?.activeOnly) {
       query = query.or("programme_termine.eq.false,programme_termine.is.null");
+    }
+
+    if (options?.confirmedOnly) {
+      query = query.eq("confirme_production", true);
     }
 
     if (options?.sinceDate) {

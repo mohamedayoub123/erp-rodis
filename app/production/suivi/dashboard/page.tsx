@@ -73,7 +73,7 @@ export default async function PlanningDashboardPage({
   const pdFilter = (params.pd || "").trim().toLowerCase();
 
   const [{ rows: allLignes }, pdLabelByCode] = await Promise.all([
-    fetchAllProgrammeLignes({ activeOnly: true }),
+    fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true }),
     buildPdLabelByCode(),
   ]);
 

@@ -20,7 +20,7 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
 
   const { data: currentRows, error: fetchError } = await supabaseServer
     .from("programme_dispatcher_lignes")
-    .select("zone, article_id, date_jour, chaine, produit, code, qt_carton, qt_vrac")
+    .select("zone, article_id, date_jour, chaine, produit, code, qt_carton, qt_vrac, groupe_id")
     .eq("zone", zone);
 
   if (fetchError) {
@@ -32,6 +32,15 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
   if (rows.length === 0) {
     throw new Error("Rien a enregistrer pour cette zone.");
   }
+
+  // groupe_id ici identifie le programme SOURCE (programme_lignes), pas le
+  // groupe PD - retire du payload avant insertion dans l'historique (qui a
+  // son propre groupe_id, attribue plus bas), garde de cote pour confirmer
+  // les lignes source correspondantes (voir plus bas).
+  const sourceGroupeIds = [
+    ...new Set(rows.map((row) => row.groupe_id).filter((id): id is number => id !== null)),
+  ];
+  const historyRows = rows.map(({ groupe_id, ...rest }) => rest);
 
   // Le code PD1/PD2/PD3... est recalcule a la lecture selon le rang du
   // groupe (meme principe que MB1/MB2 et TE1/TS1) - on compte les
@@ -63,7 +72,7 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
 
   const { data: inserted, error: insertError } = await supabaseServer
     .from("programme_dispatcher_history")
-    .insert(rows)
+    .insert(historyRows)
     .select("id");
 
   if (insertError) {
@@ -82,8 +91,24 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
     throw new Error(groupUpdateError.message);
   }
 
+  // Ce Save confirme officiellement les programmes source pour le suivi de
+  // production - ils deviennent visibles sur le Dashboard/Calendrier
+  // seulement a partir de maintenant (voir confirme_production).
+  if (sourceGroupeIds.length > 0) {
+    const { error: confirmError } = await supabaseServer
+      .from("programme_lignes")
+      .update({ confirme_production: true })
+      .in("groupe_id", sourceGroupeIds);
+
+    if (confirmError) {
+      throw new Error(confirmError.message);
+    }
+  }
+
   revalidatePath(`/ravitailleur-par-ligne/${zone}`);
   revalidatePath("/historique-programme-dispatcher");
+  revalidatePath("/production/suivi/dashboard");
+  revalidatePath("/production/suivi/calendrier");
 
   return { ok: true, code: generatedCode, groupe_id: groupeId };
 }
@@ -101,7 +126,7 @@ export async function saveAllZonesDispatcherSnapshotAction() {
 
   const { data: currentRows, error: fetchError } = await supabaseServer
     .from("programme_dispatcher_lignes")
-    .select("zone, article_id, date_jour, chaine, produit, code, qt_carton, qt_vrac");
+    .select("zone, article_id, date_jour, chaine, produit, code, qt_carton, qt_vrac, groupe_id");
 
   if (fetchError) {
     throw new Error(fetchError.message);
@@ -112,6 +137,15 @@ export async function saveAllZonesDispatcherSnapshotAction() {
   if (rows.length === 0) {
     throw new Error("Rien a enregistrer.");
   }
+
+  // groupe_id ici identifie le programme SOURCE (programme_lignes), pas le
+  // groupe PD - retire du payload avant insertion dans l'historique (qui a
+  // son propre groupe_id, attribue plus bas), garde de cote pour confirmer
+  // les lignes source correspondantes (voir plus bas).
+  const sourceGroupeIds = [
+    ...new Set(rows.map((row) => row.groupe_id).filter((id): id is number => id !== null)),
+  ];
+  const historyRows = rows.map(({ groupe_id, ...rest }) => rest);
 
   const existingGroupIds = new Set<number>();
   let fromIndex = 0;
@@ -140,7 +174,7 @@ export async function saveAllZonesDispatcherSnapshotAction() {
 
   const { data: inserted, error: insertError } = await supabaseServer
     .from("programme_dispatcher_history")
-    .insert(rows)
+    .insert(historyRows)
     .select("id");
 
   if (insertError) {
@@ -159,8 +193,24 @@ export async function saveAllZonesDispatcherSnapshotAction() {
     throw new Error(groupUpdateError.message);
   }
 
+  // Ce Save confirme officiellement les programmes source pour le suivi de
+  // production - ils deviennent visibles sur le Dashboard/Calendrier
+  // seulement a partir de maintenant (voir confirme_production).
+  if (sourceGroupeIds.length > 0) {
+    const { error: confirmError } = await supabaseServer
+      .from("programme_lignes")
+      .update({ confirme_production: true })
+      .in("groupe_id", sourceGroupeIds);
+
+    if (confirmError) {
+      throw new Error(confirmError.message);
+    }
+  }
+
   revalidatePath("/ravitailleur-par-ligne/tout");
   revalidatePath("/historique-programme-dispatcher");
+  revalidatePath("/production/suivi/dashboard");
+  revalidatePath("/production/suivi/calendrier");
 
   return { ok: true, code: generatedCode, groupe_id: groupeId };
 }

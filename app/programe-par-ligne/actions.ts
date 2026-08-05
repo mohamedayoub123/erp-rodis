@@ -461,6 +461,13 @@ async function performProgrammeLigneSave(
     programe: row.programe.trim() || null,
     date_jour: dateJour,
     cree_par: creePar,
+    // Un programme fraichement saisi n'est pas encore confirme pour le
+    // suivi de production (Dashboard/Calendrier) - il ne le devient qu'une
+    // fois valide via le bouton "Save" de Ravitailleur par ligne (voir
+    // saveProgrammeDispatcherSnapshotAction / saveAllZonesDispatcherSnapshotAction),
+    // qui bascule cette colonne a true. En attendant, seul Ravitailleur par
+    // ligne (Programme Dispatcher) le montre.
+    confirme_production: false,
   }));
 
   const { data, error } = await supabaseServer
