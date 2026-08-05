@@ -22,6 +22,7 @@ import { ModuleViewToggle } from "./module-view-toggle";
 import {
   createUserAction,
   deleteUserAction,
+  forceLogoutUserAction,
   updateUserPermissionsAction,
   uploadClientsWorkbookAction,
   uploadCommandeWorkbookAction,
@@ -29,6 +30,16 @@ import {
   uploadEntrerWorkbookAction,
   uploadWorkbookAction,
 } from "./actions";
+
+function formatConnectedSince(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${day}-${month} a ${hours}h${minutes}`;
+}
 
 type SearchParams = Promise<{
   upload?: string;
@@ -304,6 +315,64 @@ export default async function AdminPage({
                 Impossible de mettre a jour les permissions.
               </p>
             ) : null}
+            {userState === "logout-ok" ? (
+              <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                Utilisateur deconnecte. Il peut se reconnecter ailleurs.
+              </p>
+            ) : null}
+            {userState === "logout-error" ? (
+              <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                Impossible de deconnecter cet utilisateur.
+              </p>
+            ) : null}
+
+            <details className="mt-5 group rounded-2xl border border-slate-200 bg-slate-50">
+              <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900">
+                <span className="flex-1">Qui est connecte</span>
+                <span
+                  aria-hidden="true"
+                  className="text-slate-400 transition-transform group-open:rotate-90"
+                >
+                  &#9656;
+                </span>
+              </summary>
+
+              <div className="space-y-2 border-t border-slate-200 p-3">
+                {stockUsers.map((user) => (
+                  <div
+                    key={`session-${user.username}`}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        aria-hidden="true"
+                        className={`h-2.5 w-2.5 rounded-full ${user.connected ? "bg-emerald-500" : "bg-slate-300"}`}
+                      />
+                      <span className="text-sm font-semibold text-slate-900">{user.username}</span>
+                      {user.connected ? (
+                        <span className="text-xs text-slate-500">
+                          Connecte depuis {formatConnectedSince(user.connectedSince)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-500">Deconnecte</span>
+                      )}
+                    </div>
+
+                    {user.connected ? (
+                      <form action={forceLogoutUserAction}>
+                        <input type="hidden" name="username" value={user.username} />
+                        <button
+                          type="submit"
+                          className="rounded-full bg-slate-950 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                        >
+                          Deconnecter
+                        </button>
+                      </form>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </details>
 
             <form action={createUserAction} className="mt-5 grid gap-4 md:grid-cols-3">
               <input

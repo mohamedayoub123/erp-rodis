@@ -38,6 +38,8 @@ type StoredUserRecord =
 type NormalizedUserRecord = {
   passwordHash: string;
   permissions: StockPermissions;
+  activeSessionToken: string | null;
+  sessionStartedAt: string | null;
 };
 
 const DEFAULT_STOCK_USERS: Record<string, string> = {
@@ -150,7 +152,10 @@ function legacyPageValue(
   return typeof value === "boolean" ? value : undefined;
 }
 
-function normalizeUserRecord(username: string, record: StoredUserRecord): NormalizedUserRecord {
+function normalizeUserRecord(
+  username: string,
+  record: StoredUserRecord
+): Omit<NormalizedUserRecord, "activeSessionToken" | "sessionStartedAt"> {
   if (typeof record === "string") {
     return {
       passwordHash: record,
@@ -245,7 +250,7 @@ async function seedDefaultUsers() {
 const readUsers = cache(async (): Promise<Record<string, NormalizedUserRecord>> => {
   const { data, error } = await supabaseServer
     .from("stock_users")
-    .select("username, password_hash, permissions");
+    .select("username, password_hash, permissions, active_session_token, session_started_at");
 
   if (error) {
     throw new Error(`stock_users read failed: ${error.message}`);
@@ -257,7 +262,7 @@ const readUsers = cache(async (): Promise<Record<string, NormalizedUserRecord>> 
     return Object.fromEntries(
       Object.entries(DEFAULT_STOCK_USERS).map(([username, passwordHash]) => [
         username,
-        normalizeUserRecord(username, passwordHash),
+        { ...normalizeUserRecord(username, passwordHash), activeSessionToken: null, sessionStartedAt: null },
       ])
     );
   }
@@ -265,10 +270,14 @@ const readUsers = cache(async (): Promise<Record<string, NormalizedUserRecord>> 
   return Object.fromEntries(
     data.map((row) => [
       row.username,
-      normalizeUserRecord(row.username, {
-        passwordHash: row.password_hash,
-        permissions: (row.permissions as StoredPermissions) || {},
-      }),
+      {
+        ...normalizeUserRecord(row.username, {
+          passwordHash: row.password_hash,
+          permissions: (row.permissions as StoredPermissions) || {},
+        }),
+        activeSessionToken: (row as { active_session_token: string | null }).active_session_token,
+        sessionStartedAt: (row as { session_started_at: string | null }).session_started_at,
+      },
     ])
   );
 });
@@ -385,9 +394,9 @@ export async function clearFailedLogins(username: string) {
   await clearLoginAttemptState(normalized);
 }
 
-function signSession(username: string, expiresAt: string) {
+function signSession(username: string, expiresAt: string, sessionToken: string) {
   return createHmac("sha256", STOCK_AUTH_SECRET as string)
-    .update(`${username}.${expiresAt}`)
+    .update(`${username}.${expiresAt}.${sessionToken}`)
     .digest("hex");
 }
 
@@ -398,6 +407,49 @@ export async function isAllowedStockUser(username: string) {
 
 export function isAdminUser(username: string | null | undefined) {
   return !!username && ADMIN_USERS.has(username.trim().toLowerCase());
+}
+
+// Une session "active" a un jeton et n'a pas depasse la duree du cookie
+// (12h) - au-dela, une session laissee ouverte (navigateur ferme sans
+// Deconnexion) se libere toute seule, sans intervention de l'admin.
+function sessionIsActive(activeSessionToken: string | null, sessionStartedAt: string | null) {
+  if (!activeSessionToken || !sessionStartedAt) return false;
+  const startedMs = new Date(sessionStartedAt).getTime();
+  if (Number.isNaN(startedMs)) return false;
+  return startedMs + SESSION_TTL_SECONDS * 1000 > Date.now();
+}
+
+// Un seul login actif a la fois par compte (mayoub inclus) - evite que 2
+// personnes (ou 2 postes) utilisent le meme compte en meme temps et
+// ecrasent le travail l'une de l'autre (ex: Programme par ligne). Si mayoub
+// se retrouve bloque sur un poste, Admin > "Qui est connecte" permet de se
+// deconnecter soi-meme depuis l'autre poste encore connecte ; sinon la
+// session se libere seule au bout de 12h (SESSION_TTL_SECONDS).
+export async function checkConcurrentSession(
+  username: string
+): Promise<{ blocked: boolean; since: string | null }> {
+  const normalized = username.trim().toLowerCase();
+  const users = await readUsers();
+  const user = users[normalized];
+  if (!user) return { blocked: false, since: null };
+
+  if (sessionIsActive(user.activeSessionToken, user.sessionStartedAt)) {
+    return { blocked: true, since: user.sessionStartedAt };
+  }
+
+  return { blocked: false, since: null };
+}
+
+export async function forceLogoutStockUser(username: string) {
+  const normalized = username.trim().toLowerCase();
+  const { error } = await supabaseServer
+    .from("stock_users")
+    .update({ active_session_token: null, session_started_at: null })
+    .eq("username", normalized);
+
+  if (error) {
+    throw new Error(`stock_users force logout failed: ${error.message}`);
+  }
 }
 
 export async function getUserPermissions(username: string | null | undefined): Promise<StockPermissions> {
@@ -525,6 +577,8 @@ export async function createStockUser(username: string, password: string) {
   users[normalized] = {
     passwordHash: hashPasswordScrypt(password),
     permissions: getDefaultPermissions(normalized),
+    activeSessionToken: null,
+    sessionStartedAt: null,
   };
   await writeUsers(users);
   return true;
@@ -593,6 +647,8 @@ export async function listStockUsers() {
       username,
       isAdmin: isAdminUser(username),
       permissions: users[username].permissions,
+      connected: sessionIsActive(users[username].activeSessionToken, users[username].sessionStartedAt),
+      connectedSince: users[username].sessionStartedAt,
     }));
 }
 
@@ -600,9 +656,19 @@ export async function createStockSession(username: string) {
   const normalized = username.trim().toLowerCase();
   const cookieStore = await cookies();
   const expiresAt = String(Date.now() + SESSION_TTL_SECONDS * 1000);
-  const signature = signSession(normalized, expiresAt);
+  const token = randomBytes(16).toString("hex");
+  const signature = signSession(normalized, expiresAt, token);
 
-  cookieStore.set(STOCK_AUTH_COOKIE, `${normalized}.${expiresAt}.${signature}`, {
+  const { error } = await supabaseServer
+    .from("stock_users")
+    .update({ active_session_token: token, session_started_at: new Date().toISOString() })
+    .eq("username", normalized);
+
+  if (error) {
+    throw new Error(`stock_users session write failed: ${error.message}`);
+  }
+
+  cookieStore.set(STOCK_AUTH_COOKIE, `${normalized}.${expiresAt}.${token}.${signature}`, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -611,9 +677,13 @@ export async function createStockSession(username: string) {
   });
 }
 
-export async function clearStockSession() {
+export async function clearStockSession(username?: string | null) {
   const cookieStore = await cookies();
   cookieStore.delete(STOCK_AUTH_COOKIE);
+
+  if (username) {
+    await forceLogoutStockUser(username);
+  }
 }
 
 export async function getCurrentStockUser() {
@@ -624,9 +694,9 @@ export async function getCurrentStockUser() {
     return null;
   }
 
-  const [username, expiresAt, signature] = raw.split(".");
+  const [username, expiresAt, token, signature] = raw.split(".");
 
-  if (!username || !expiresAt || !signature) {
+  if (!username || !expiresAt || !token || !signature) {
     return null;
   }
 
@@ -634,11 +704,20 @@ export async function getCurrentStockUser() {
     return null;
   }
 
-  if (!safeEqual(signature, signSession(username, expiresAt))) {
+  if (!safeEqual(signature, signSession(username, expiresAt, token))) {
     return null;
   }
 
   if (Number(expiresAt) < Date.now()) {
+    return null;
+  }
+
+  // Le jeton du cookie doit correspondre exactement a celui stocke en base
+  // (mayoub inclus) - sinon un login plus recent ailleurs (ou une
+  // deconnexion forcee depuis Admin) a deja invalide cette session.
+  const users = await readUsers();
+  const user = users[username];
+  if (!user || user.activeSessionToken !== token) {
     return null;
   }
 

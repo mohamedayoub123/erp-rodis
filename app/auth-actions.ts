@@ -3,6 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import {
+  checkConcurrentSession,
   checkLoginLockout,
   clearFailedLogins,
   clearStockSession,
@@ -12,6 +13,14 @@ import {
   updateStockPassword,
   verifyStockPassword,
 } from "@/lib/stock-auth";
+
+function formatSessionStart(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return ` (connecte depuis ${hours}h${minutes})`;
+}
 
 const LOGIN_ERROR_COOKIE = "erp_login_error";
 const PASSWORD_ERROR_COOKIE = "erp_password_error";
@@ -51,6 +60,22 @@ export async function loginSiteAction(formData: FormData) {
     redirect("/");
   }
 
+  const concurrentSession = await checkConcurrentSession(username);
+  if (concurrentSession.blocked) {
+    cookieStore.set(
+      LOGIN_ERROR_COOKIE,
+      `Cet utilisateur est deja connecte sur un autre ordinateur${formatSessionStart(concurrentSession.since)}. Deconnecte-le depuis l'autre poste, ou demande a un admin de le deconnecter dans Admin.`,
+      {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+        maxAge: 10,
+      }
+    );
+    redirect("/");
+  }
+
   await clearFailedLogins(username);
   cookieStore.delete(LOGIN_ERROR_COOKIE);
   await createStockSession(username);
@@ -60,7 +85,8 @@ export async function loginSiteAction(formData: FormData) {
 export async function logoutSiteAction() {
   const cookieStore = await cookies();
   cookieStore.delete(LOGIN_ERROR_COOKIE);
-  await clearStockSession();
+  const currentUser = await getCurrentStockUser();
+  await clearStockSession(currentUser);
   redirect("/");
 }
 

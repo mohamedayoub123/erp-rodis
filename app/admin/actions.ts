@@ -12,6 +12,7 @@ import {
 import {
   createStockUser,
   deleteStockUser,
+  forceLogoutStockUser,
   getCurrentStockUser,
   getUserPermissions,
   isAdminUser,
@@ -122,6 +123,25 @@ export async function deleteUserAction(formData: FormData) {
 
   revalidatePath("/admin");
   redirect("/admin?user=delete-ok");
+}
+
+export async function forceLogoutUserAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canManageUsers(currentUser))) {
+    redirect("/?user=forbidden");
+  }
+
+  const username = String(formData.get("username") || "").trim().toLowerCase();
+
+  if (!username) {
+    redirect("/admin?user=logout-error");
+  }
+
+  await forceLogoutStockUser(username);
+
+  revalidatePath("/admin");
+  redirect("/admin?user=logout-ok");
 }
 
 export async function updateUserPermissionsAction(formData: FormData) {
