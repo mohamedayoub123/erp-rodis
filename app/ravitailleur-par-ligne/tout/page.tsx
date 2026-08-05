@@ -106,12 +106,27 @@ function formatCell(value: number | null) {
   return Math.round(value).toLocaleString("fr-FR");
 }
 
+function countProgrammesByChaine(rows: DispatcherRow[]) {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const key = row.chaine || "-";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], "fr", { numeric: true }));
+}
+
+function uniqueDatesFrom(rows: DispatcherRow[]) {
+  return [...new Set(rows.map((row) => row.date_jour).filter((date): date is string => !!date))].sort();
+}
+
 export default async function RavitailleurToutesZonesPage() {
   noStore();
 
   const dataRows = await fetchAllDispatcherRows();
   const articleIds = [...new Set(dataRows.map((row) => row.article_id).filter((id): id is number => !!id))];
   const articlesInfo = await fetchArticlesInfo(articleIds);
+  const programmesByChaine = countProgrammesByChaine(dataRows);
+  const dates = uniqueDatesFrom(dataRows);
   const rowsByZone = new Map<string, DispatcherRow[]>();
   for (const zone of VALID_ZONES) rowsByZone.set(zone, []);
   for (const row of dataRows) {
@@ -131,6 +146,18 @@ export default async function RavitailleurToutesZonesPage() {
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
                 Ravitailleur - Toutes les zones
               </h1>
+              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm font-semibold text-slate-600">
+                {dates.length > 0 ? (
+                  <span>
+                    Date{dates.length > 1 ? "s" : ""} : {dates.map((date) => formatDate(date)).join(", ")}
+                  </span>
+                ) : null}
+                {programmesByChaine.map(([chaine, count]) => (
+                  <span key={chaine}>
+                    {chaine} : {count} programme{count > 1 ? "s" : ""}
+                  </span>
+                ))}
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
