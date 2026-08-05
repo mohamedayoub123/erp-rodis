@@ -38,6 +38,22 @@ function computePlCodesByGroupeId(
   return codeByGroupeId;
 }
 
+// Une ligne peut avoir plusieurs codes combines dans numero_lot ("AA4140V,
+// AA4141V, AA4142V") quand son vrac a ete reparti sur plusieurs lots - le
+// filtre Code matche deja seulement contre le code demande, mais affichait
+// quand meme TOUS les codes combines de la ligne. N'affiche desormais que
+// le(s) code(s) qui correspondent reellement au filtre tape, pas les
+// autres codes de la meme ligne.
+function displayCodeForFilter(numeroLot: string | null, codeFilter: string): string {
+  if (!numeroLot) return "-";
+  if (!codeFilter) return numeroLot;
+
+  const codes = numeroLot.split(",").map((code) => code.trim()).filter(Boolean);
+  const matching = codes.filter((code) => code.toLowerCase().includes(codeFilter));
+
+  return matching.length > 0 ? matching.join(", ") : numeroLot;
+}
+
 function formatDateTime(value: string | null) {
   if (!value) return "-";
   const date = new Date(value);
@@ -643,7 +659,7 @@ export default async function SuiviProductionListPage({
                       <tr key={row.key} className="border-t border-slate-100 align-top">
                         <td className="px-6 py-4 text-slate-600">{row.ligne.produit || "-"}</td>
                         <td className="px-6 py-4 font-medium text-slate-900">
-                          {row.ligne.numero_lot || "-"}
+                          {displayCodeForFilter(row.ligne.numero_lot, codeFilter)}
                         </td>
                         <td className="px-6 py-4 text-slate-600">{row.ligne.vrac_a_fabriquer ?? "-"}</td>
                         <td className="px-6 py-4 text-slate-600">
