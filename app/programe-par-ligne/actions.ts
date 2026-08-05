@@ -33,11 +33,14 @@ type ArticleFullInfo = {
 // Une ligne dispatcher = un lot physique reel (apres decoupage du vrac
 // selon le max autorise) - "Programme par ligne" garde le vrac total tel
 // quel, seul "Programme Dispatcher" voit les lots decoupes.
-// batchKey identifie le lot LOGIQUE dont vient cette ligne : quand le meme
-// article est reparti sur plusieurs chaines et que leur besoin combine
-// depasse le max, un lot logique peut etre partage entre 2 chaines (ex:
-// chaine 1 = 4500, chaine 2 = 4500, max = 3000 -> 3 lots de 3000, le 2eme
-// lot etant compose de 1500 pris sur chaine 1 + 1500 pris sur chaine 2).
+// batchKey identifie le lot LOGIQUE dont vient cette ligne : quand la meme
+// FAMILLE (gamme+forme - ex: toutes les contenances/variantes de "Gel
+// Douche Dermatone", clarifiant et exfoliant confondus) est repartie sur
+// plusieurs chaines et que leur besoin combine depasse le max, un lot
+// logique peut etre partage entre 2 chaines/contenances (ex: chaine 1 =
+// 4500, chaine 2 = 4500, max = 3000 -> 3 lots de 3000, le 2eme lot etant
+// compose de 1500 pris sur chaine 1 + 1500 pris sur chaine 2, meme si les 2
+// chaines ne font pas exactement le meme article_id).
 // Les lignes qui partagent le meme batchKey recoivent alors le MEME code
 // genere (voir generateAutoCodes), au lieu d'un code par ligne physique.
 type DispatcherDraftRow = {
@@ -114,8 +117,16 @@ function buildDispatcherDraftRows(
   const groups = new Map<string, { row: PendingProgrammeRow; sourceIndex: number }[]>();
   const groupOrder: string[] = [];
 
+  // Regroupe par FAMILLE (gamme+forme, ex: "DERMATONE::GEL DOUCHE") et non
+  // par article_id exact : sans ca, 2 contenances differentes (300ml/500ml)
+  // ou 2 variantes (clarifiant/exfoliant) du meme produit ne partageaient
+  // jamais leur lot ni leur code, meme quand elles sont physiquement
+  // fabriquees a partir du meme vrac et devraient donc se partager le meme
+  // max de fabrication.
   filledRows.forEach((row, sourceIndex) => {
-    const key = `${row.article_id}::${row.plateforme}`;
+    const info = row.article_id ? articleInfoById.get(row.article_id) : undefined;
+    const familyKey = computeArticleFamilyKey(row.produit, info?.gamme ?? null);
+    const key = `${familyKey}::${row.plateforme}`;
     if (!groups.has(key)) {
       groups.set(key, []);
       groupOrder.push(key);
@@ -123,12 +134,9 @@ function buildDispatcherDraftRows(
     groups.get(key)!.push({ row, sourceIndex });
   });
 
-  function pushIndependentPiece(
-    entry: { row: PendingProgrammeRow; sourceIndex: number },
-    articleId: number,
-    info: ArticleFullInfo | undefined,
-    groupKey: string
-  ) {
+  function pushIndependentPiece(entry: { row: PendingProgrammeRow; sourceIndex: number }, groupKey: string) {
+    const articleId = entry.row.article_id as number;
+    const info = articleInfoById.get(articleId);
     const vrac = entry.row.vrac_a_fabriquer;
     draftRows.push({
       zone: entry.row.zone,
@@ -145,23 +153,30 @@ function buildDispatcherDraftRows(
 
   for (const groupKey of groupOrder) {
     const entries = groups.get(groupKey)!;
-    const articleId = entries[0].row.article_id as number;
-    const info = articleInfoById.get(articleId);
-    const max =
-      entries[0].row.plateforme === "A"
-        ? info?.max_vrac_auto
-        : entries[0].row.plateforme === "M"
-          ? info?.vrac_max_manuel
-          : null;
+    const plateforme = entries[0].row.plateforme;
+
+    // Le max est cense etre le meme pour toute la famille (c'est une
+    // capacite de fabrication du vrac, pas une propriete de l'emballage) -
+    // si la config differe malgre tout entre contenances/variantes, on
+    // prend le premier max exploitable rencontre dans l'ordre des lignes.
+    let max: number | null | undefined = null;
+    for (const entry of entries) {
+      const info = entry.row.article_id ? articleInfoById.get(entry.row.article_id) : undefined;
+      const candidate = plateforme === "A" ? info?.max_vrac_auto : plateforme === "M" ? info?.vrac_max_manuel : null;
+      if (candidate && candidate > 0) {
+        max = candidate;
+        break;
+      }
+    }
 
     const totalVrac = entries.reduce((sum, entry) => sum + (entry.row.vrac_a_fabriquer ?? 0), 0);
-    const hasMax = Boolean(info && max && max > 0);
+    const hasMax = Boolean(max && max > 0);
 
     // Pas de max connu, ou le total combine tient dans un seul lot max :
     // chaque chaine garde son propre lot independant, comme avant - pas de
     // partage de code entre chaines quand ce n'est pas necessaire.
     if (!hasMax || totalVrac <= (max as number)) {
-      entries.forEach((entry) => pushIndependentPiece(entry, articleId, info, groupKey));
+      entries.forEach((entry) => pushIndependentPiece(entry, groupKey));
       continue;
     }
 
@@ -170,10 +185,12 @@ function buildDispatcherDraftRows(
     let remainingInBatch = sharedBatches[0] ?? 0;
 
     for (const entry of entries) {
+      const articleId = entry.row.article_id as number;
+      const info = articleInfoById.get(articleId);
       let remainingForRow = entry.row.vrac_a_fabriquer ?? 0;
 
       if (remainingForRow <= 0) {
-        pushIndependentPiece(entry, articleId, info, groupKey);
+        pushIndependentPiece(entry, groupKey);
         continue;
       }
 
