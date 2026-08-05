@@ -9,6 +9,7 @@ import { formatDate } from "@/lib/format-date";
 import {
   createImportEvenementAction,
   deleteCommandeBcLigneAction,
+  markCommandeBcLigneTermineAction,
   updateCommandeBcGroupAction,
 } from "../actions";
 import { computeStatutBc, statutBcBadgeClass } from "../constants";
@@ -261,6 +262,18 @@ export default async function CommandeBcMpDetailPage({
                                       </button>
                                     </form>
                                   </details>
+                                ) : null}
+
+                                {canEdit && statut !== "Termine" ? (
+                                  <form action={markCommandeBcLigneTermineAction}>
+                                    <input type="hidden" name="bc_id" value={row.id} />
+                                    <button
+                                      type="submit"
+                                      className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100"
+                                    >
+                                      Termine
+                                    </button>
+                                  </form>
                                 ) : null}
 
                                 {canDelete ? (

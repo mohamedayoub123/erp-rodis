@@ -205,9 +205,10 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
           0
         ),
         // Un BC groupe peut avoir plusieurs lignes/articles - si au moins
-        // une a ete marquee "Receptionne" a la main, le badge du groupe
-        // affiche ce statut en priorite (coherent avec le detail par ligne).
-        statutLigne: groupRows.some((row) => row.statut === "Receptionne") ? "Receptionne" : null,
+        // une a ete forcee "Termine" a la main (bouton, independant du cote
+        // Import), le badge du groupe affiche ce statut en priorite
+        // (coherent avec le detail par ligne).
+        statutLigne: groupRows.some((row) => row.statut === "Termine") ? "Termine" : null,
         dossImport4d: [...(doss4dParCode.get(code) ?? [])].join(", "),
         dossImportErp: [...(dossErpParCode.get(code) ?? [])].join(", "),
       };

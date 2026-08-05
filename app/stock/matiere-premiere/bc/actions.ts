@@ -278,6 +278,32 @@ export async function updateCommandeBcGroupAction(formData: FormData) {
   redirect("/stock/matiere-premiere/bc");
 }
 
+// Force le statut d'une ligne BC a "Termine" a la main, meme s'il reste une
+// quantite a importer - independant du statut "Receptionne" pose par le
+// cote Import (voir computeStatutBc : ce dernier n'influence plus le statut
+// affiche ici, le statut de Commande MP ne depend plus que de la quantite
+// importee ou de ce bouton).
+export async function markCommandeBcLigneTermineAction(formData: FormData) {
+  await requireEditAccess();
+
+  const bcId = Number(String(formData.get("bc_id") || "0"));
+
+  if (!bcId) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("bons_commande_matiere_premiere")
+    .update({ statut: "Termine" })
+    .eq("id", bcId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateCommandeBcMpPages();
+}
+
 export async function deleteCommandeBcLigneAction(formData: FormData) {
   await requireDeleteAccess();
 
