@@ -122,8 +122,15 @@ async function fetchAllImportDossiers() {
   return { rows, error: null };
 }
 
-export default async function CommandeBcMpPage() {
+type SearchParams = Promise<{ doss_4d?: string; doss_erp?: string; produit?: string }>;
+
+export default async function CommandeBcMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
+  const params = await searchParams;
+  const doss4dFilter = (params.doss_4d || "").trim().toLowerCase();
+  const dossErpFilter = (params.doss_erp || "").trim().toLowerCase();
+  const produitFilter = (params.produit || "").trim().toLowerCase();
+  const hasFilters = Boolean(doss4dFilter || dossErpFilter || produitFilter);
   const currentUser = await getCurrentStockUser();
   const canWriteNouvelle = await canWritePageUser(currentUser, "commandeBcMpNouvelle");
   const canDelete = await canDeletePageUser(currentUser, "commandeBcMp");
@@ -169,6 +176,21 @@ export default async function CommandeBcMpPage() {
   }
 
   const groups: BcGroup[] = [...byCode.entries()]
+    .filter(([, groupRows]) => {
+      const first = groupRows[0];
+      if (doss4dFilter && !(first.n_doss_4d || "").toLowerCase().includes(doss4dFilter)) return false;
+      if (dossErpFilter && !(first.n_doss_erp || "").toLowerCase().includes(dossErpFilter)) return false;
+      // Le produit se filtre sur les lignes/articles A L'INTERIEUR du BC
+      // (article_label, pas un champ du groupe) - des qu'UNE ligne du
+      // groupe matche, tout le groupe (vue exterieure) reste affiche.
+      if (
+        produitFilter &&
+        !groupRows.some((row) => (row.article_label || "").toLowerCase().includes(produitFilter))
+      ) {
+        return false;
+      }
+      return true;
+    })
     .map(([code, groupRows]) => {
       const first = groupRows[0];
       return {
@@ -226,6 +248,46 @@ export default async function CommandeBcMpPage() {
           </div>
         </div>
 
+        <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto_auto]">
+            <input
+              type="text"
+              name="doss_4d"
+              defaultValue={params.doss_4d || ""}
+              placeholder="N Dossier 4D"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="text"
+              name="doss_erp"
+              defaultValue={params.doss_erp || ""}
+              placeholder="N Dossier ERP"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="text"
+              name="produit"
+              defaultValue={params.produit || ""}
+              placeholder="Produit"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <button
+              type="submit"
+              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Filtrer
+            </button>
+            {hasFilters ? (
+              <Link
+                href="/stock/matiere-premiere/bc"
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+              >
+                Effacer
+              </Link>
+            ) : null}
+          </form>
+        </section>
+
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           {error ? (
             <div className="px-6 py-8">
@@ -234,7 +296,9 @@ export default async function CommandeBcMpPage() {
               </p>
             </div>
           ) : groups.length === 0 ? (
-            <div className="px-6 py-8 text-sm text-slate-500">Aucune commande pour le moment.</div>
+            <div className="px-6 py-8 text-sm text-slate-500">
+              {hasFilters ? "Aucun resultat pour ce filtre." : "Aucune commande pour le moment."}
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
