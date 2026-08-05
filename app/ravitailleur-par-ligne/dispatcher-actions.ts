@@ -27,7 +27,7 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
     throw new Error(fetchError.message);
   }
 
-  const rows = currentRows ?? [];
+  const rows = (currentRows ?? []).map((row) => ({ ...row, cree_par: currentUser }));
 
   if (rows.length === 0) {
     throw new Error("Rien a enregistrer pour cette zone.");
@@ -107,7 +107,7 @@ export async function saveAllZonesDispatcherSnapshotAction() {
     throw new Error(fetchError.message);
   }
 
-  const rows = currentRows ?? [];
+  const rows = (currentRows ?? []).map((row) => ({ ...row, cree_par: currentUser }));
 
   if (rows.length === 0) {
     throw new Error("Rien a enregistrer.");

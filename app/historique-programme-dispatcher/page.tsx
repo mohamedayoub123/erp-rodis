@@ -15,6 +15,7 @@ type HistoryRow = {
   code: string | null;
   date_jour: string;
   created_at: string;
+  cree_par: string | null;
 };
 
 async function fetchAllHistoryRows(): Promise<HistoryRow[]> {
@@ -25,7 +26,7 @@ async function fetchAllHistoryRows(): Promise<HistoryRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("programme_dispatcher_history")
-      .select("id, groupe_id, zone, chaine, produit, code, date_jour, created_at")
+      .select("id, groupe_id, zone, chaine, produit, code, date_jour, created_at, cree_par")
       .order("created_at", { ascending: false })
       .range(from, from + pageSize - 1);
 
@@ -49,7 +50,7 @@ function formatDate(value: string) {
   return `${day}-${month}-${year}`;
 }
 
-type SearchParams = Promise<{ code?: string; produit?: string; pd?: string }>;
+type SearchParams = Promise<{ code?: string; produit?: string; pd?: string; cree_par?: string }>;
 
 export default async function HistoriqueProgrammeDispatcherPage({
   searchParams,
@@ -62,6 +63,7 @@ export default async function HistoriqueProgrammeDispatcherPage({
   const codeFilter = (params.code || "").trim().toLowerCase();
   const produitFilter = (params.produit || "").trim().toLowerCase();
   const pdFilter = (params.pd || "").trim().toLowerCase();
+  const creeParFilter = (params.cree_par || "").trim().toLowerCase();
 
   const allRows = await fetchAllHistoryRows();
 
@@ -83,6 +85,7 @@ export default async function HistoriqueProgrammeDispatcherPage({
       dateJour: rows[0]?.date_jour,
       createdAt: rows[0]?.created_at,
       count: rows.length,
+      creePar: rows[0]?.cree_par ?? null,
       rows,
     }))
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -101,11 +104,12 @@ export default async function HistoriqueProgrammeDispatcherPage({
       ) {
         return false;
       }
+      if (creeParFilter && !(group.creePar || "").toLowerCase().includes(creeParFilter)) return false;
       return true;
     })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const hasFilters = Boolean(codeFilter || produitFilter || pdFilter);
+  const hasFilters = Boolean(codeFilter || produitFilter || pdFilter || creeParFilter);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -132,7 +136,7 @@ export default async function HistoriqueProgrammeDispatcherPage({
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto_auto]">
             <input
               type="text"
               name="pd"
@@ -152,6 +156,13 @@ export default async function HistoriqueProgrammeDispatcherPage({
               name="produit"
               defaultValue={params.produit || ""}
               placeholder="Produit"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="text"
+              name="cree_par"
+              defaultValue={params.cree_par || ""}
+              placeholder="Cree par"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
@@ -190,6 +201,7 @@ export default async function HistoriqueProgrammeDispatcherPage({
                   <span className="text-sm text-slate-500">
                     {formatDate(group.dateJour)} - {group.count} ligne
                     {group.count > 1 ? "s" : ""}
+                    {group.creePar ? ` - Cree par ${group.creePar}` : ""}
                   </span>
                 </Link>
                 {canDelete ? (
