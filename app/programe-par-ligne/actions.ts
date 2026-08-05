@@ -321,31 +321,39 @@ function buildDispatcherDraftRows(
       continue;
     }
 
-    // min_vrac configure : les chaines/contenances de la famille sont
-    // combinees DANS L'ORDRE pour remplir chaque lot au plus proche du max,
-    // sans jamais fractionner une chaine entre 2 lots sauf necessite (soit
-    // parce qu'elle depasse le max a elle seule, soit pour completer le
-    // dernier lot jusqu'au minimum viable). Une chaine qui tient deja seule
-    // dans le lot en cours y reste entiere ; des qu'elle ne rentre plus, le
-    // lot en cours est ferme TEL QUEL (jamais fractionne pour le completer)
-    // et une chaine suivante en ouvre un nouveau - ce qui fait que 2 chaines
-    // dont la somme depasse le max gardent chacune leur propre lot (jamais
-    // de partage inutile), tandis que 2 petites chaines dont la somme rentre
-    // dans un seul lot max le partagent (1 seul code au lieu de 2, plutot
-    // que de gaspiller la moitie du lot chacune).
-    // Ex (max 3000, min 1500) : 2000 + 2000 -> aucune des deux ne rentre
-    // avec l'autre sous le max, chacune garde donc son propre lot (2 codes
-    // independants, deja au dessus du min) ; 1000 + 2500 -> memes raisons,
-    // chacune garde son propre lot, mais le 1000 est alors en dessous du
-    // min - la passe suivante lui emprunte 500 au lot voisin (2500) pour
-    // former un 1er lot de 1500 partage, le reliquat de 2000 restant un
-    // 2eme lot independant. Ex (max 1000, min 10) : 500 + 500 -> la 2eme
-    // chaine tient exactement dans le lot ouvert par la 1ere (500+500=1000)
-    // -> 1 seul code partage pour les deux.
+    // min_vrac configure : meme principe de base que ci-dessus (chaque
+    // chaine recupere D'ABORD ses propres lots pleins, toujours
+    // independants ; seul le reliquat de chaque chaine part dans un pot
+    // commun), MAIS avec un decoupage du pot commun different : au lieu de
+    // remplir bêtement au plus proche du max (ce qui peut fractionner un
+    // reliquat entre 2 chaines sans raison), les reliquats sont combines
+    // DANS L'ORDRE sans jamais fractionner une chaine entre 2 lots sauf
+    // necessite (pour completer le dernier lot jusqu'au minimum viable).
+    // Un reliquat qui tient deja seul dans le lot en cours y reste entier ;
+    // des qu'il ne rentre plus, le lot en cours est ferme TEL QUEL (jamais
+    // fractionne pour le completer) et le reliquat suivant en ouvre un
+    // nouveau - ce qui fait que 2 reliquats dont la somme depasse le max
+    // gardent chacun leur propre lot (jamais de partage inutile), tandis que
+    // 2 petits reliquats dont la somme rentre dans un seul lot max le
+    // partagent (1 seul code au lieu de 2, plutot que de gaspiller la moitie
+    // du lot chacun).
+    // Ex (max 3000, min 1500) : 2000 + 2000 -> aucun reliquat (chaque chaine
+    // tient deja sous le max), donc 2 lots independants directement, deja
+    // au dessus du min ; 1000 + 2500 -> memes raisons, chacune garde son
+    // propre lot, mais le 1000 est alors en dessous du min - la passe
+    // suivante lui emprunte 500 au lot voisin (2500) pour former un 1er lot
+    // de 1500 partage, le reliquat de 2000 restant un 2eme lot independant ;
+    // 4500 + 4500 -> chaque chaine prend d'abord 1 lot plein de 3000
+    // (independant), puis leurs reliquats de 1500 chacun se combinent en 1
+    // seul lot partage de 3000 (pas 2 lots independants de 1500). Ex (max
+    // 1000, min 10) : 500 + 500 -> aucun reliquat non plus (chaque chaine
+    // tient sous le max), mais le 2eme reliquat (implicite, chaque chaine
+    // entiere devient son propre "reliquat" ici) tient exactement dans le
+    // lot ouvert par le 1er (500+500=1000) -> 1 seul code partage.
     type LotContribution = { entry: (typeof entries)[number]; amount: number };
     type Lot = { contributions: LotContribution[]; total: number };
     const lots: Lot[] = [];
-    let openLot: Lot | null = null;
+    const leftovers: { entry: (typeof entries)[number]; amount: number }[] = [];
 
     for (const entry of entries) {
       let remainingForRow = entry.row.vrac_a_fabriquer ?? 0;
@@ -354,6 +362,24 @@ function buildDispatcherDraftRows(
         pushIndependentPiece(entry, groupKey);
         continue;
       }
+
+      // Division entiere (voir la branche minVal<=0 ci-dessus pour le
+      // detail de ce choix face a une boucle "while > max").
+      const wholeLots = Math.floor((remainingForRow + EPSILON) / maxVal);
+      for (let i = 0; i < wholeLots; i++) {
+        lots.push({ contributions: [{ entry, amount: maxVal }], total: maxVal });
+      }
+      remainingForRow = Math.round((remainingForRow - wholeLots * maxVal) * 100) / 100;
+
+      if (remainingForRow > EPSILON) {
+        leftovers.push({ entry, amount: remainingForRow });
+      }
+    }
+
+    let openLot: Lot | null = null;
+
+    for (const item of leftovers) {
+      let remainingForRow = item.amount;
 
       while (remainingForRow > EPSILON) {
         if (!openLot) {
@@ -364,27 +390,19 @@ function buildDispatcherDraftRows(
         const spaceLeft = Math.round((maxVal - openLot.total) * 100) / 100;
 
         if (remainingForRow <= spaceLeft + EPSILON) {
-          // Toute la chaine tient dans le lot ouvert : gardee entiere.
-          openLot.contributions.push({ entry, amount: remainingForRow });
+          // Tout le reliquat tient dans le lot ouvert : garde entier.
+          openLot.contributions.push({ entry: item.entry, amount: remainingForRow });
           openLot.total = Math.round((openLot.total + remainingForRow) * 100) / 100;
           remainingForRow = 0;
           if (openLot.total >= maxVal - EPSILON) openLot = null;
           continue;
         }
 
-        if (openLot.total > EPSILON) {
-          // Ne rentre pas dans le lot deja entame : ferme tel quel (jamais
-          // fractionne pour le completer), une nouvelle chaine ouvrira le
-          // lot suivant.
-          openLot = null;
-          continue;
-        }
-
-        // Le lot ouvert est vide et la chaine depasse quand meme le max a
-        // elle seule : elle doit etre fractionnee en lots pleins.
-        openLot.contributions.push({ entry, amount: maxVal });
-        openLot.total = maxVal;
-        remainingForRow = Math.round((remainingForRow - maxVal) * 100) / 100;
+        // Ne rentre pas dans le lot deja entame : ferme tel quel (jamais
+        // fractionne pour le completer), le reliquat suivant ouvrira le lot
+        // suivant. Impossible ici qu'un reliquat depasse le max a lui seul
+        // (deja extrait en lots pleins ci-dessus), donc pas besoin du cas
+        // "lot vide mais ne rentre pas quand meme".
         openLot = null;
       }
     }
