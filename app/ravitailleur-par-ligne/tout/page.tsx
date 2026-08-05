@@ -11,7 +11,6 @@ const VALID_ZONES = ["B1Z1", "B1Z2", "B4Z1", "B4Z2", "B4Z3", "D"];
 
 const COLUMNS = [
   "DATE",
-  "PL",
   "CHAINE",
   "PRODUIT",
   "CODE",
@@ -32,9 +31,8 @@ const COLUMNS = [
 // egalement, et le nom de produit passe sur 3-4 lignes au lieu d'1-2.
 const COLUMN_WIDTHS = [
   "6%",
-  "6%",
   "7%",
-  "15%",
+  "17%",
   "8%",
   "7%",
   "7%",
@@ -297,9 +295,6 @@ export default async function RavitailleurToutesZonesPage() {
                           <tr key={row.id}>
                             <td className="border border-slate-300 bg-white px-3 py-3">
                               {row.date_jour ? formatDate(row.date_jour) : ""}
-                            </td>
-                            <td className="border border-slate-300 bg-white px-3 py-3">
-                              {row.groupe_id !== null ? plCodeByGroupeId.get(row.groupe_id) ?? "" : ""}
                             </td>
                             <td className="border border-slate-300 bg-white px-3 py-3">{row.chaine || ""}</td>
                             <td className="border border-slate-300 bg-white px-3 py-3">{row.produit || ""}</td>
