@@ -584,8 +584,15 @@ async function performProgrammeLigneSave(
     }
 
     if (attempt === MAX_CODE_ATTEMPTS) {
+      // Le message generique suppose une vraie collision entre 2 Save
+      // concurrents, mais un 23505 peut aussi venir d'une AUTRE contrainte
+      // unique (ex: mauvaise hypothese, sequence desynchronisee...) - le
+      // detail brut de Postgres est donc toujours inclus pour pouvoir
+      // diagnostiquer la vraie cause si ca se reproduit de facon repetee
+      // (une vraie collision concurrente ne devrait quasiment jamais
+      // survivre a 6 tentatives avec delai aleatoire).
       throw new Error(
-        "Un autre enregistrement s'est produit exactement au meme moment et a genere le meme code de lot. Reessaie le Save."
+        `Un autre enregistrement s'est produit exactement au meme moment et a genere le meme code de lot (ou une autre erreur similaire). Reessaie le Save. Detail technique : ${dispatcherError.message}`
       );
     }
 
