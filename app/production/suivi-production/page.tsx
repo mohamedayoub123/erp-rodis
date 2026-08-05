@@ -38,22 +38,6 @@ function computePlCodesByGroupeId(
   return codeByGroupeId;
 }
 
-// Une ligne peut avoir plusieurs codes combines dans numero_lot ("AA4140V,
-// AA4141V, AA4142V") quand son vrac a ete reparti sur plusieurs lots - le
-// filtre Code matche deja seulement contre le code demande, mais affichait
-// quand meme TOUS les codes combines de la ligne. N'affiche desormais que
-// le(s) code(s) qui correspondent reellement au filtre tape, pas les
-// autres codes de la meme ligne.
-function displayCodeForFilter(numeroLot: string | null, codeFilter: string): string {
-  if (!numeroLot) return "-";
-  if (!codeFilter) return numeroLot;
-
-  const codes = numeroLot.split(",").map((code) => code.trim()).filter(Boolean);
-  const matching = codes.filter((code) => code.toLowerCase().includes(codeFilter));
-
-  return matching.length > 0 ? matching.join(", ") : numeroLot;
-}
-
 function formatDateTime(value: string | null) {
   if (!value) return "-";
   const date = new Date(value);
@@ -138,6 +122,7 @@ type LigneRow = {
   chaine: string;
   produit: string | null;
   numero_lot: string | null;
+  numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
   date_jour: string;
   vrac_a_fabriquer: number | null;
   qt_carton: number | null;
@@ -244,7 +229,36 @@ type DisplayRow = {
   emballage: StageEntry | null;
   isGeneral: boolean;
   generalRapportId: number | null;
+  displayCode: string;
+  displayVrac: number | null;
+  displayCarton: number | null;
 };
+
+// Une ligne "Programme par ligne" decoupee en plusieurs lots (voir
+// buildDispatcherDraftRows) stocke ses codes joints dans numero_lot
+// ("AA4140V, AA4141V, AA4142V") avec le total combine, et leur repartition
+// qt_vrac/qt_carton figee au moment du Save dans numero_lot_detail (meme
+// mecanisme que splitLigneIntoDisplayRows sur le Dashboard) - chaque code
+// est un lot physique distinct, donc affiche ici sa PROPRE ligne au lieu
+// des 3 codes empiles sur une seule ligne avec le total combine repete.
+// Sans detail fige (ligne d'avant l'ajout de cette colonne, ou lot unique)
+// on revient a l'affichage combine.
+function splitLigneByCode(
+  ligne: LigneRow
+): { code: string; vrac: number | null; carton: number | null }[] {
+  const codes = (ligne.numero_lot || "").split(",").map((code) => code.trim()).filter(Boolean);
+  const detail = ligne.numero_lot_detail ?? [];
+
+  if (codes.length <= 1 || detail.length !== codes.length) {
+    return [{ code: ligne.numero_lot || "-", vrac: ligne.vrac_a_fabriquer, carton: ligne.qt_carton }];
+  }
+
+  return detail.map((entry) => ({
+    code: entry.code || "-",
+    vrac: entry.qt_vrac,
+    carton: entry.qt_carton,
+  }));
+}
 
 async function fetchAllRows<T>(
   table: string,
@@ -300,6 +314,8 @@ function toStageEntry(entry: EntryRow | undefined): StageEntry | null {
 // avec seulement les colonnes de cette etape remplies. Une ligne de
 // programme avec un rapport mais aucune quantite encore saisie garde quand
 // meme une ligne "generale", pour ne rien perdre de visible.
+type BaseDisplayRow = Omit<DisplayRow, "displayCode" | "displayVrac" | "displayCarton">;
+
 function buildDisplayRows(
   lignes: LigneRow[],
   rapportsByLigneId: Map<number, RapportRow>,
@@ -319,7 +335,7 @@ function buildDisplayRows(
     ...rapportsByLigneId.keys(),
   ]);
 
-  const rows: DisplayRow[] = [];
+  const rows: BaseDisplayRow[] = [];
 
   for (const ligneId of allLigneIds) {
     const ligne = ligneById.get(ligneId);
@@ -383,7 +399,7 @@ function buildDisplayRows(
   // rapport lui-meme pour une ligne "generale" sans encore d'entree), id
   // auto-incremente donc plus fiable que la date_jour (calendaire, souvent
   // a egalite) pour determiner l'ordre reel des saisies.
-  function rowRecencyId(row: DisplayRow): number {
+  function rowRecencyId(row: BaseDisplayRow): number {
     return Math.max(
       row.fabrication?.entryId ?? 0,
       row.conditionnement?.entryId ?? 0,
@@ -394,7 +410,26 @@ function buildDisplayRows(
 
   rows.sort((a, b) => rowRecencyId(b) - rowRecencyId(a));
 
-  return rows;
+  // Une ligne dont le vrac a ete reparti sur plusieurs lots (voir
+  // splitLigneByCode) devient plusieurs lignes d'affichage, une par code -
+  // les colonnes propres a chaque etape (dates, cuves, dechets...) restent
+  // identiques sur chaque copie puisqu'un rapport n'est pas suivi par code,
+  // seuls Code/Vrac demande/Carton demande different.
+  const expandedRows: DisplayRow[] = [];
+  for (const row of rows) {
+    const codeSplits = splitLigneByCode(row.ligne);
+    codeSplits.forEach((split, index) => {
+      expandedRows.push({
+        ...row,
+        key: codeSplits.length > 1 ? `${row.key}-code${index}` : row.key,
+        displayCode: split.code,
+        displayVrac: split.vrac,
+        displayCarton: split.carton,
+      });
+    });
+  }
+
+  return expandedRows;
 }
 
 const PAGE_SIZE = 200;
@@ -417,7 +452,7 @@ export default async function SuiviProductionListPage({
   const [lignesResult, rapportsResult, vracResult, cartonResult, emballageResult] = await Promise.all([
     fetchAllRows<LigneRow>(
       "programme_lignes",
-      "id, zone, chaine, produit, numero_lot, date_jour, vrac_a_fabriquer, qt_carton, groupe_id, created_at"
+      "id, zone, chaine, produit, numero_lot, numero_lot_detail, date_jour, vrac_a_fabriquer, qt_carton, groupe_id, created_at"
     ),
     fetchAllRows<RapportRow>("production_rapports", RAPPORT_COLUMNS),
     fetchAllRows<EntryRow>("production_vrac_entries", "id, programme_ligne_id, quantite, date_jour"),
@@ -443,7 +478,7 @@ export default async function SuiviProductionListPage({
   );
 
   const rows = allRows.filter((row) => {
-    if (codeFilter && !(row.ligne.numero_lot || "").toLowerCase().includes(codeFilter)) {
+    if (codeFilter && !row.displayCode.toLowerCase().includes(codeFilter)) {
       return false;
     }
     if (produitFilter && !(row.ligne.produit || "").toLowerCase().includes(produitFilter)) {
@@ -680,12 +715,10 @@ export default async function SuiviProductionListPage({
                     return (
                       <tr key={row.key} className="border-t border-slate-100 align-top">
                         <td className="px-6 py-4 text-slate-600">{row.ligne.produit || "-"}</td>
-                        <td className="px-6 py-4 font-medium text-slate-900">
-                          {displayCodeForFilter(row.ligne.numero_lot, codeFilter)}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">{row.ligne.vrac_a_fabriquer ?? "-"}</td>
+                        <td className="px-6 py-4 font-medium text-slate-900">{row.displayCode}</td>
+                        <td className="px-6 py-4 text-slate-600">{row.displayVrac ?? "-"}</td>
                         <td className="px-6 py-4 text-slate-600">
-                          {row.ligne.qt_carton !== null ? Math.round(row.ligne.qt_carton * 100) / 100 : "-"}
+                          {row.displayCarton !== null ? Math.round(row.displayCarton * 100) / 100 : "-"}
                         </td>
                         <td className="px-6 py-4 font-medium text-slate-900">
                           {row.ligne.groupe_id !== null ? plCodeByGroupeId.get(row.ligne.groupe_id) ?? "-" : "-"}
