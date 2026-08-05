@@ -145,6 +145,14 @@ export default async function HistoriqueProgrammePage({
                 </Link>
                 <div className="flex items-center gap-2">
                   {canRelaunch ? (
+                    <Link
+                      href={`/programe-par-ligne?groupe_id=${group.groupeId}`}
+                      className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400"
+                    >
+                      Charger
+                    </Link>
+                  ) : null}
+                  {canRelaunch ? (
                     <form action={relaunchProgrammeLigneGroupAction}>
                       <input type="hidden" name="groupe_id" value={group.groupeId} />
                       <button

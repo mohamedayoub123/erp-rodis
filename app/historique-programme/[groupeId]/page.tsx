@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteProgrammeLigneGroupAction, relaunchProgrammeLigneGroupAction } from "../../programe-par-ligne/actions";
@@ -116,6 +117,14 @@ export default async function HistoriqueProgrammeDetailPage({
             <div className="flex flex-wrap items-center gap-3">
               <BackButton href="/historique-programme" label="Retour historique" />
               <RefreshButton />
+              {canRelaunch ? (
+                <Link
+                  href={`/programe-par-ligne?groupe_id=${groupeIdNumber}`}
+                  className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                >
+                  Charger dans Programme par ligne
+                </Link>
+              ) : null}
               {canRelaunch ? (
                 <form action={relaunchProgrammeLigneGroupAction}>
                   <input type="hidden" name="groupe_id" value={groupeIdNumber} />

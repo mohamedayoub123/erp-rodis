@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { ProgrammeLigneTable, type ArticleOption } from "./programme-table";
+import { ProgrammeLigneTable, type ArticleOption, type PrefillLigne } from "./programme-table";
 import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -48,9 +48,36 @@ async function fetchAllArticleOptions(): Promise<ArticleOption[]> {
   return rows;
 }
 
-export default async function ProgrameParLignePage() {
+// Rempli automatiquement la grille a partir d'un programme de l'historique
+// (bouton "Charger" sur Historique programme) - evite de retaper a la main
+// pour repartir d'un ancien programme comme base, tout en gardant la
+// possibilite de le modifier avant Save (contrairement a "Relancer" qui
+// enregistre direct).
+async function fetchPrefillLignes(groupeId: number): Promise<PrefillLigne[]> {
+  const { data } = await supabaseServer
+    .from("programme_lignes")
+    .select("zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe")
+    .eq("groupe_id", groupeId)
+    .order("id", { ascending: true });
+
+  return (data ?? []) as PrefillLigne[];
+}
+
+type SearchParams = Promise<{ groupe_id?: string }>;
+
+export default async function ProgrameParLignePage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
   noStore();
-  const articles = await fetchAllArticleOptions();
+  const params = await searchParams;
+  const prefillGroupeId = Number(params.groupe_id || "0") || null;
+
+  const [articles, prefillLignes] = await Promise.all([
+    fetchAllArticleOptions(),
+    prefillGroupeId ? fetchPrefillLignes(prefillGroupeId) : Promise.resolve([]),
+  ]);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -81,7 +108,7 @@ export default async function ProgrameParLignePage() {
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="overflow-x-auto">
-            <ProgrammeLigneTable zoneGroups={ZONE_GROUPS} articles={articles} />
+            <ProgrammeLigneTable zoneGroups={ZONE_GROUPS} articles={articles} prefillLignes={prefillLignes} />
           </div>
         </section>
       </div>
