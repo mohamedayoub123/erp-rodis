@@ -9,41 +9,29 @@ import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
 
 const VALID_ZONES = ["B1Z1", "B1Z2", "B4Z1", "B4Z2", "B4Z3", "D"];
 
-const COLUMNS = [
-  "DATE",
-  "CHAINE",
-  "PRODUIT",
-  "CODE",
-  "QT CARTON",
-  "QT VRAC",
-  "FLACON/POT",
-  "CAPSULE/POMPE",
-  "SLEEVE",
-  "CARTON",
-  "ETIQUETE",
-  "NB ETUIT",
-  "DISPENSEUR",
-];
-
 // PRODUIT (nom d'article, souvent long) a besoin de bien plus de place que
 // les colonnes booleennes/numeriques etroites - sans ca, le tableau force
 // en table-layout: fixed a l'impression repartit les 13 colonnes a peu pres
 // egalement, et le nom de produit passe sur 3-4 lignes au lieu d'1-2.
-const COLUMN_WIDTHS = [
-  "6%",
-  "7%",
-  "17%",
-  "8%",
-  "7%",
-  "7%",
-  "7%",
-  "7%",
-  "6%",
-  "6%",
-  "6%",
-  "6%",
-  "7%",
-];
+// Largeur par NOM de colonne (pas par position) - une colonne "besoin"
+// entierement vide pour une zone est retiree du tableau (voir
+// visibleColumnsForZone), donc les colonnes reellement affichees varient
+// d'une zone a l'autre.
+const WIDTH_BY_COLUMN: Record<string, string> = {
+  DATE: "6%",
+  CHAINE: "7%",
+  PRODUIT: "17%",
+  CODE: "8%",
+  "QT CARTON": "7%",
+  "QT VRAC": "7%",
+  "FLACON/POT": "7%",
+  "CAPSULE/POMPE": "7%",
+  SLEEVE: "6%",
+  CARTON: "6%",
+  ETIQUETE: "6%",
+  "NB ETUIT": "6%",
+  DISPENSEUR: "7%",
+};
 
 type DispatcherRow = {
   id: number;
@@ -238,6 +226,38 @@ export default async function RavitailleurToutesZonesPage() {
         {VALID_ZONES.map((zone) => {
           const zoneRows = rowsByZone.get(zone) ?? [];
 
+          // Une colonne "besoin" (FLACON/POT, CAPSULE/POMPE...) entierement
+          // vide pour CETTE zone (aucun article affiche n'en a besoin)
+          // n'apporte rien - elle est retiree du tableau (ecran ET
+          // impression) plutot que d'afficher une colonne vide sur toute la
+          // hauteur. Le calcul est propre a chaque zone : une colonne peut
+          // etre vide ici mais remplie ailleurs.
+          const hasArticleFlag = (flag: keyof ArticleProductionInfo) =>
+            zoneRows.some((row) => (row.article_id ? articlesInfo.get(row.article_id)?.[flag] : false));
+          const showFlaconPot = hasArticleFlag("besoin_pot_flacon");
+          const showCapsulePompe = hasArticleFlag("besoin_capsule");
+          const showSleeve = hasArticleFlag("besoin_sleeve");
+          const showCarton = hasArticleFlag("besoin_carton");
+          const showEtiquette = hasArticleFlag("besoin_etiquette");
+          const showEtui = hasArticleFlag("besoin_etui");
+          const showDispenseur = hasArticleFlag("besoin_dispenseur");
+
+          const visibleColumns = [
+            "DATE",
+            "CHAINE",
+            "PRODUIT",
+            "CODE",
+            "QT CARTON",
+            "QT VRAC",
+            ...(showFlaconPot ? ["FLACON/POT"] : []),
+            ...(showCapsulePompe ? ["CAPSULE/POMPE"] : []),
+            ...(showSleeve ? ["SLEEVE"] : []),
+            ...(showCarton ? ["CARTON"] : []),
+            ...(showEtiquette ? ["ETIQUETE"] : []),
+            ...(showEtui ? ["NB ETUIT"] : []),
+            ...(showDispenseur ? ["DISPENSEUR"] : []),
+          ];
+
           return (
             <section
               key={zone}
@@ -252,21 +272,21 @@ export default async function RavitailleurToutesZonesPage() {
               <div className="overflow-x-auto">
                 <table className="min-w-full border-collapse text-left text-sm">
                   <colgroup>
-                    {COLUMN_WIDTHS.map((width, index) => (
-                      <col key={COLUMNS[index]} style={{ width }} />
+                    {visibleColumns.map((column) => (
+                      <col key={column} style={{ width: WIDTH_BY_COLUMN[column] }} />
                     ))}
                   </colgroup>
                   <thead>
                     <tr>
                       <th
-                        colSpan={COLUMNS.length}
+                        colSpan={visibleColumns.length}
                         className="border border-slate-300 bg-slate-300 px-3 py-2 text-center font-bold text-slate-900"
                       >
                         {zone}
                       </th>
                     </tr>
                     <tr>
-                      {COLUMNS.map((column) => (
+                      {visibleColumns.map((column) => (
                         <th
                           key={column}
                           className="border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900"
@@ -280,7 +300,7 @@ export default async function RavitailleurToutesZonesPage() {
                     {zoneRows.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={COLUMNS.length}
+                          colSpan={visibleColumns.length}
                           className="border border-slate-300 bg-white px-3 py-4 text-center text-slate-400"
                         >
                           Aucune ligne pour cette zone.
@@ -305,29 +325,43 @@ export default async function RavitailleurToutesZonesPage() {
                             <td className="border border-slate-300 bg-white px-3 py-3">
                               {row.qt_vrac !== null ? row.qt_vrac.toLocaleString("fr-FR") : ""}
                             </td>
-                            <td className="border border-slate-300 bg-white px-3 py-3">
-                              {article?.besoin_pot_flacon ? formatCell(pieces) : ""}
-                            </td>
-                            <td className="border border-slate-300 bg-white px-3 py-3">
-                              {article?.besoin_capsule ? formatCell(pieces) : ""}
-                            </td>
-                            <td className="border border-slate-300 bg-white px-3 py-3">
-                              {article?.besoin_sleeve ? formatCell(pieces) : ""}
-                            </td>
-                            <td className="border border-slate-300 bg-white px-3 py-3">
-                              {article?.besoin_carton ? formatCell(row.qt_carton) : ""}
-                            </td>
-                            <td className="border border-slate-300 bg-white px-3 py-3">
-                              {article?.besoin_etiquette ? formatCell(pieces) : ""}
-                            </td>
-                            <td className="border border-slate-300 bg-white px-3 py-3">
-                              {article?.besoin_etui ? formatCell(pieces) : ""}
-                            </td>
-                            <td className="border border-slate-300 bg-white px-3 py-3">
-                              {article?.besoin_dispenseur
-                                ? formatCell(computeDispenseur(row.qt_carton, article?.dispenseur_pcs_carton))
-                                : ""}
-                            </td>
+                            {showFlaconPot ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_pot_flacon ? formatCell(pieces) : ""}
+                              </td>
+                            ) : null}
+                            {showCapsulePompe ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_capsule ? formatCell(pieces) : ""}
+                              </td>
+                            ) : null}
+                            {showSleeve ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_sleeve ? formatCell(pieces) : ""}
+                              </td>
+                            ) : null}
+                            {showCarton ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_carton ? formatCell(row.qt_carton) : ""}
+                              </td>
+                            ) : null}
+                            {showEtiquette ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_etiquette ? formatCell(pieces) : ""}
+                              </td>
+                            ) : null}
+                            {showEtui ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_etui ? formatCell(pieces) : ""}
+                              </td>
+                            ) : null}
+                            {showDispenseur ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_dispenseur
+                                  ? formatCell(computeDispenseur(row.qt_carton, article?.dispenseur_pcs_carton))
+                                  : ""}
+                              </td>
+                            ) : null}
                           </tr>
                         );
                       })
