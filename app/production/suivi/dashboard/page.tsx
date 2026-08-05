@@ -6,11 +6,9 @@ import { AutoRefresh } from "@/app/_components/auto-refresh";
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { markCartonTermineAction, markEmballageTermineAction, markVracTermineAction } from "../actions";
 import {
-  buildDispatcherBatchesByKey,
   buildPdLabelByCode,
   fetchAllCartonEntries,
   fetchAllEmballageEntries,
-  fetchAllProgrammeDispatcherLignes,
   fetchAllProgrammeLignes,
   fetchAllVracEntries,
   formatDate,
@@ -74,13 +72,10 @@ export default async function PlanningDashboardPage({
   const produitFilter = (params.produit || "").trim().toLowerCase();
   const pdFilter = (params.pd || "").trim().toLowerCase();
 
-  const [{ rows: allLignes }, pdLabelByCode, dispatcherLignes] = await Promise.all([
+  const [{ rows: allLignes }, pdLabelByCode] = await Promise.all([
     fetchAllProgrammeLignes({ activeOnly: true }),
     buildPdLabelByCode(),
-    fetchAllProgrammeDispatcherLignes(),
   ]);
-
-  const dispatcherBatchesByKey = buildDispatcherBatchesByKey(dispatcherLignes);
 
   const activeLigneIds = allLignes.map((ligne) => ligne.id);
 
@@ -178,10 +173,10 @@ export default async function PlanningDashboardPage({
   // quantite prevue (voir splitLigneIntoDisplayRows). Les totaux ci-dessus
   // restent bases sur les lignes combinees, pas sur cette version divisee.
   const vracDisplayRows = vracLignes
-    .flatMap((ligne) => splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_vrac", ligne.vracProduit))
+    .flatMap((ligne) => splitLigneIntoDisplayRows(ligne, "qt_vrac", ligne.vracProduit))
     .filter((row) => !codeFilter || row.displayCode.toLowerCase().includes(codeFilter));
   const cartonDisplayRows = cartonLignes
-    .flatMap((ligne) => splitLigneIntoDisplayRows(ligne, dispatcherBatchesByKey, "qt_carton", ligne.cartonProduit))
+    .flatMap((ligne) => splitLigneIntoDisplayRows(ligne, "qt_carton", ligne.cartonProduit))
     .filter((row) => !codeFilter || row.displayCode.toLowerCase().includes(codeFilter));
   const totalEmballageProduit = emballageLignes.reduce((sum, ligne) => sum + ligne.emballageProduit, 0);
 

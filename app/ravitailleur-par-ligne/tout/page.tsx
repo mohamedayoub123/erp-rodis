@@ -5,11 +5,13 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { ZonePrintButton } from "../zone-print-button";
 import { DispatcherSaveAllButton } from "../dispatcher-save-all-button";
 import { formatDate } from "../../production/suivi/data";
+import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
 
 const VALID_ZONES = ["B1Z1", "B1Z2", "B4Z1", "B4Z2", "B4Z3", "D"];
 
 const COLUMNS = [
   "DATE",
+  "PL",
   "CHAINE",
   "PRODUIT",
   "CODE",
@@ -30,8 +32,9 @@ const COLUMNS = [
 // egalement, et le nom de produit passe sur 3-4 lignes au lieu d'1-2.
 const COLUMN_WIDTHS = [
   "6%",
+  "6%",
   "7%",
-  "17%",
+  "15%",
   "8%",
   "7%",
   "7%",
@@ -93,6 +96,34 @@ async function fetchAllDispatcherRows(): Promise<DispatcherRow[]> {
   return rows;
 }
 
+// Toutes les lignes programme_lignes (pas seulement celles affichees) sont
+// necessaires pour calculer le rang PLn.annee correctement - le rang depend
+// de TOUS les groupes crees, pas seulement ceux representes ici.
+async function fetchAllProgrammeLignesForPlCode(): Promise<
+  { groupe_id: number | null; created_at: string; date_jour: string }[]
+> {
+  const rows: { groupe_id: number | null; created_at: string; date_jour: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("programme_lignes")
+      .select("groupe_id, created_at, date_jour")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as { groupe_id: number | null; created_at: string; date_jour: string }[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 async function fetchArticlesInfo(articleIds: number[]): Promise<Map<number, ArticleProductionInfo>> {
   const map = new Map<number, ArticleProductionInfo>();
   if (articleIds.length === 0) return map;
@@ -143,9 +174,14 @@ function uniqueDatesFrom(rows: DispatcherRow[]) {
 // Nb de programmes "Programme par ligne" (PL<n>.<annee>) distincts derriere
 // les lignes actuellement affichees - repose sur groupe_id, rempli
 // seulement depuis l'ajout de cette colonne : les lignes plus anciennes
-// (groupe_id NULL) ne sont pas comptees.
-function countDistinctProgrammesPl(rows: DispatcherRow[]) {
-  return new Set(rows.map((row) => row.groupe_id).filter((id): id is number => id !== null)).size;
+// (groupe_id NULL) ne sont pas comptees. Un groupe_id dont le programme
+// source a ete supprime depuis (Historique programme) n'a plus de code PL
+// resolvable (plCodeByGroupeId) - il n'est plus compte non plus, sinon
+// "Nb PL" annoncerait un programme qui n'existe plus dans l'historique.
+function countDistinctProgrammesPl(rows: DispatcherRow[], plCodeByGroupeId: Map<number, string>) {
+  return new Set(
+    rows.map((row) => row.groupe_id).filter((id): id is number => id !== null && plCodeByGroupeId.has(id))
+  ).size;
 }
 
 export default async function RavitailleurToutesZonesPage() {
@@ -156,7 +192,9 @@ export default async function RavitailleurToutesZonesPage() {
   const articlesInfo = await fetchArticlesInfo(articleIds);
   const programmesByChaine = countProgrammesByChaine(dataRows);
   const dates = uniqueDatesFrom(dataRows);
-  const nbProgrammesPl = countDistinctProgrammesPl(dataRows);
+  const programmeLignesForPl = await fetchAllProgrammeLignesForPlCode();
+  const plCodeByGroupeId = computePlCodesByGroupeId(programmeLignesForPl);
+  const nbProgrammesPl = countDistinctProgrammesPl(dataRows, plCodeByGroupeId);
   const rowsByZone = new Map<string, DispatcherRow[]>();
   for (const zone of VALID_ZONES) rowsByZone.set(zone, []);
   for (const row of dataRows) {
@@ -258,6 +296,9 @@ export default async function RavitailleurToutesZonesPage() {
                           <tr key={row.id}>
                             <td className="border border-slate-300 bg-white px-3 py-3">
                               {row.date_jour ? formatDate(row.date_jour) : ""}
+                            </td>
+                            <td className="border border-slate-300 bg-white px-3 py-3">
+                              {row.groupe_id !== null ? plCodeByGroupeId.get(row.groupe_id) ?? "" : ""}
                             </td>
                             <td className="border border-slate-300 bg-white px-3 py-3">{row.chaine || ""}</td>
                             <td className="border border-slate-300 bg-white px-3 py-3">{row.produit || ""}</td>

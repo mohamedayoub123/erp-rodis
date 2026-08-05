@@ -303,7 +303,22 @@ function buildDisplayRows(
     }
   }
 
-  rows.sort((a, b) => (a.ligne.numero_lot || "").localeCompare(b.ligne.numero_lot || ""));
+  // La 1ere ligne affichee doit etre le DERNIER enregistrement fait (pas un
+  // tri alphabetique par code) - on trie par l'id de l'entree la plus
+  // recente de la ligne (fabrication/conditionnement/emballage, ou le
+  // rapport lui-meme pour une ligne "generale" sans encore d'entree), id
+  // auto-incremente donc plus fiable que la date_jour (calendaire, souvent
+  // a egalite) pour determiner l'ordre reel des saisies.
+  function rowRecencyId(row: DisplayRow): number {
+    return Math.max(
+      row.fabrication?.entryId ?? 0,
+      row.conditionnement?.entryId ?? 0,
+      row.emballage?.entryId ?? 0,
+      row.generalRapportId ?? 0
+    );
+  }
+
+  rows.sort((a, b) => rowRecencyId(b) - rowRecencyId(a));
 
   return rows;
 }

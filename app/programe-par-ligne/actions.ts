@@ -501,6 +501,7 @@ async function performProgrammeLigneSave(
   // echouer tout l'enregistrement.
   const MAX_CODE_ATTEMPTS = 6;
   let codesBySourceIndex = new Map<number, string[]>();
+  let detailBySourceIndex = new Map<number, { code: string; qt_vrac: number | null; qt_carton: number | null }[]>();
   let dispatcherSucceeded = false;
 
   for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
@@ -537,12 +538,17 @@ async function performProgrammeLigneSave(
     }));
 
     codesBySourceIndex = new Map<number, string[]>();
+    detailBySourceIndex = new Map<number, { code: string; qt_vrac: number | null; qt_carton: number | null }[]>();
     draftRows.forEach((row, index) => {
       const code = codesByRowIndex.get(index);
       if (!code) return;
       const list = codesBySourceIndex.get(row.sourceIndex) ?? [];
       list.push(code);
       codesBySourceIndex.set(row.sourceIndex, list);
+
+      const detailList = detailBySourceIndex.get(row.sourceIndex) ?? [];
+      detailList.push({ code, qt_vrac: row.qtVrac, qt_carton: row.qtCarton });
+      detailBySourceIndex.set(row.sourceIndex, detailList);
     });
 
     // Une seule requete RPC (boucle cote base, valeurs passees en parametre
@@ -595,6 +601,13 @@ async function performProgrammeLigneSave(
   // Dispatcher (voir generateAutoCodes), reunis quand une ligne a ete
   // decoupee en plusieurs lots (join ", "), puis reecrits sur la ligne
   // programme_lignes d'origine juste apres son insertion.
+  // numero_lot_detail fige la repartition qt_vrac/qt_carton par code au
+  // moment du Save - contrairement a une lecture live du Dispatcher (qui
+  // est un instantane de la production EN COURS et se fait ecraser des
+  // qu'un Save ulterieur touche la meme zone/chaine), cette colonne ne
+  // change plus jamais et permet donc au Dashboard de toujours reconstituer
+  // le detail par code, meme longtemps apres que le Dispatcher soit passe
+  // a autre chose.
   // Une seule requete RPC - un Save/relance avec beaucoup de lignes remplies
   // faisait autant d'allers-retours DB sequentiels ici, la principale source
   // de lenteur (et de depassement du temps limite serverless) sur les gros
@@ -604,6 +617,7 @@ async function performProgrammeLigneSave(
     .map(([sourceIndex, codes]) => ({
       id: insertedIds[sourceIndex],
       numero_lot: [...new Set(codes)].join(", "),
+      numero_lot_detail: detailBySourceIndex.get(sourceIndex) ?? [],
     }));
 
   if (numeroLotUpdates.length > 0) {
