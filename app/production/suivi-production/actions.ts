@@ -159,6 +159,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     date_fabrication_conditionnement: parseOptionalText(formData, "date_fabrication_conditionnement"),
     date_peremption: parseOptionalText(formData, "date_peremption"),
     utilisateur_conditionnement: currentUser,
+    date_saisie_conditionnement: new Date().toISOString(),
   });
 
   // Alimente le journal carton (meme principe que le Dashboard) pour que
@@ -216,6 +217,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
     code_vrac_recupere: parseOptionalText(formData, "code_vrac_recupere"),
     utilisateur_fabrication: currentUser,
+    date_saisie_fabrication: new Date().toISOString(),
   });
 
   // Alimente le journal vrac (meme principe que le Dashboard) pour que le
@@ -261,6 +263,7 @@ export async function saveEmballageRapportAction(formData: FormData) {
     emballage_arret_coupure: parseOptionalNumber(formData, "emballage_arret_coupure"),
     emballage_arret_autre: parseOptionalNumber(formData, "emballage_arret_autre"),
     utilisateur_emballage: currentUser,
+    date_saisie_emballage: new Date().toISOString(),
   });
 
   // Alimente le journal emballage (meme principe que carton/vrac) pour que

@@ -6,6 +6,49 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../suivi/data";
 import { DeleteRowButton } from "./delete-row-button";
 
+// Meme calcul que Historique programme (PL1.2026, PL2.2026... remis a 1
+// chaque nouvelle annee de date_jour, rang par ordre de creation) - permet
+// d'afficher directement sur Suivi Production de quel programme "Programme
+// par ligne" vient chaque ligne, sans devoir aller chercher dans
+// l'historique. Les lignes d'avant l'ajout de groupe_id (NULL) ne sont pas
+// rattachables a un code PL.
+function computePlCodesByGroupeId(
+  rows: { groupe_id: number | null; created_at: string; date_jour: string }[]
+): Map<number, string> {
+  const earliestByGroup = new Map<number, { createdAt: string; dateJourForYear: string }>();
+  for (const row of rows) {
+    if (row.groupe_id === null) continue;
+    const current = earliestByGroup.get(row.groupe_id);
+    if (!current || new Date(row.created_at).getTime() < new Date(current.createdAt).getTime()) {
+      earliestByGroup.set(row.groupe_id, { createdAt: row.created_at, dateJourForYear: row.date_jour });
+    }
+  }
+
+  const orderedGroupIds = [...earliestByGroup.entries()]
+    .sort((a, b) => new Date(a[1].createdAt).getTime() - new Date(b[1].createdAt).getTime())
+    .map(([groupeId, info]) => ({ groupeId, annee: new Date(info.dateJourForYear).getFullYear() }));
+
+  const rankByYear = new Map<number, number>();
+  const codeByGroupeId = new Map<number, string>();
+  for (const entry of orderedGroupIds) {
+    const rank = (rankByYear.get(entry.annee) ?? 0) + 1;
+    rankByYear.set(entry.annee, rank);
+    codeByGroupeId.set(entry.groupeId, `PL${rank}.${entry.annee}`);
+  }
+  return codeByGroupeId;
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${day}-${month}-${year} ${hours}:${minutes}`;
+}
+
 type ArretField =
   | "arret_depot"
   | "arret_consommable_non_livre"
@@ -40,6 +83,8 @@ type LigneRow = {
   date_jour: string;
   vrac_a_fabriquer: number | null;
   qt_carton: number | null;
+  groupe_id: number | null;
+  created_at: string;
 };
 
 type RapportRow = {
@@ -99,6 +144,12 @@ type RapportRow = {
   emballage_scotcheuse: string | null;
   emballage_temps_demarrer: string | null;
   emballage_temps_arret: string | null;
+  utilisateur_fabrication: string | null;
+  date_saisie_fabrication: string | null;
+  utilisateur_conditionnement: string | null;
+  date_saisie_conditionnement: string | null;
+  utilisateur_emballage: string | null;
+  date_saisie_emballage: string | null;
 };
 
 type EntryRow = {
@@ -148,7 +199,7 @@ async function fetchAllRows<T>(
 }
 
 const RAPPORT_COLUMNS =
-  "id, programme_ligne_id, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret";
+  "id, programme_ligne_id, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
 
 function groupEntriesByLigne(entries: EntryRow[]): Map<number, EntryRow[]> {
   const map = new Map<number, EntryRow[]>();
@@ -276,7 +327,7 @@ export default async function SuiviProductionListPage({
   const [lignesResult, rapportsResult, vracResult, cartonResult, emballageResult] = await Promise.all([
     fetchAllRows<LigneRow>(
       "programme_lignes",
-      "id, zone, chaine, produit, numero_lot, date_jour, vrac_a_fabriquer, qt_carton"
+      "id, zone, chaine, produit, numero_lot, date_jour, vrac_a_fabriquer, qt_carton, groupe_id, created_at"
     ),
     fetchAllRows<RapportRow>("production_rapports", RAPPORT_COLUMNS),
     fetchAllRows<EntryRow>("production_vrac_entries", "id, programme_ligne_id, quantite, date_jour"),
@@ -290,6 +341,8 @@ export default async function SuiviProductionListPage({
   const rapportsByLigneId = new Map(
     rapportsResult.rows.map((rapport) => [rapport.programme_ligne_id, rapport])
   );
+
+  const plCodeByGroupeId = computePlCodesByGroupeId(lignesResult.rows);
 
   const allRows = buildDisplayRows(
     lignesResult.rows,
@@ -411,13 +464,16 @@ export default async function SuiviProductionListPage({
                     <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
                       Carton demande
                     </th>
-                    <th colSpan={23} className="border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
+                    <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
+                      Programme (PL)
+                    </th>
+                    <th colSpan={25} className="border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
                       Fabrication
                     </th>
-                    <th colSpan={30} className="border-b border-slate-200 bg-sky-50 px-6 py-2 text-center font-bold text-sky-800">
+                    <th colSpan={32} className="border-b border-slate-200 bg-sky-50 px-6 py-2 text-center font-bold text-sky-800">
                       Conditionnement
                     </th>
-                    <th colSpan={7} className="border-b border-slate-200 bg-emerald-50 px-6 py-2 text-center font-bold text-emerald-800">
+                    <th colSpan={9} className="border-b border-slate-200 bg-emerald-50 px-6 py-2 text-center font-bold text-emerald-800">
                       Emballage
                     </th>
                     <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
@@ -449,6 +505,8 @@ export default async function SuiviProductionListPage({
                     <th className="px-6 py-3 font-semibold">Vrac fabrique</th>
                     <th className="px-6 py-3 font-semibold">Qt vrac recupere</th>
                     <th className="px-6 py-3 font-semibold">Code vrac recupere</th>
+                    <th className="px-6 py-3 font-semibold">Saisi par (fabrication)</th>
+                    <th className="px-6 py-3 font-semibold">Date saisie (fabrication)</th>
 
                     {/* Conditionnement */}
                     <th className="px-6 py-3 font-semibold">Date conditionnement</th>
@@ -476,6 +534,8 @@ export default async function SuiviProductionListPage({
                     <th className="px-6 py-3 font-semibold">Date fabrication</th>
                     <th className="px-6 py-3 font-semibold">Date peremption</th>
                     <th className="px-6 py-3 font-semibold">Carton fabrique</th>
+                    <th className="px-6 py-3 font-semibold">Saisi par (conditionnement)</th>
+                    <th className="px-6 py-3 font-semibold">Date saisie (conditionnement)</th>
 
                     {/* Emballage */}
                     <th className="px-6 py-3 font-semibold">Date emballage</th>
@@ -485,6 +545,8 @@ export default async function SuiviProductionListPage({
                     <th className="px-6 py-3 font-semibold">Demarage emballage</th>
                     <th className="px-6 py-3 font-semibold">Arret emballage</th>
                     <th className="px-6 py-3 font-semibold">Quantite emballage</th>
+                    <th className="px-6 py-3 font-semibold">Saisi par (emballage)</th>
+                    <th className="px-6 py-3 font-semibold">Date saisie (emballage)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -503,6 +565,9 @@ export default async function SuiviProductionListPage({
                         <td className="px-6 py-4 text-slate-600">{row.ligne.vrac_a_fabriquer ?? "-"}</td>
                         <td className="px-6 py-4 text-slate-600">
                           {row.ligne.qt_carton !== null ? Math.round(row.ligne.qt_carton * 100) / 100 : "-"}
+                        </td>
+                        <td className="px-6 py-4 font-medium text-slate-900">
+                          {row.ligne.groupe_id !== null ? plCodeByGroupeId.get(row.ligne.groupe_id) ?? "-" : "-"}
                         </td>
 
                         {/* Fabrication */}
@@ -537,6 +602,10 @@ export default async function SuiviProductionListPage({
                         </td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.qt_vrac_recupere ?? "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.code_vrac_recupere || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.utilisateur_fabrication || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showFab ? formatDateTime(r?.date_saisie_fabrication ?? null) : "-"}
+                        </td>
 
                         {/* Conditionnement */}
                         <td className="px-6 py-4 text-slate-900 font-semibold">
@@ -585,6 +654,12 @@ export default async function SuiviProductionListPage({
                               ? r?.qt_fabriquer ?? "-"
                               : "-"}
                         </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showCond ? r?.utilisateur_conditionnement || "-" : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showCond ? formatDateTime(r?.date_saisie_conditionnement ?? null) : "-"}
+                        </td>
 
                         {/* Emballage */}
                         <td className="px-6 py-4 text-slate-900 font-semibold">
@@ -599,6 +674,10 @@ export default async function SuiviProductionListPage({
                         <td className="px-6 py-4 text-slate-600">{showEmb ? r?.emballage_temps_arret || "-" : "-"}</td>
                         <td className="px-6 py-4 font-semibold text-slate-900">
                           {row.emballage ? row.emballage.quantite : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">{showEmb ? r?.utilisateur_emballage || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showEmb ? formatDateTime(r?.date_saisie_emballage ?? null) : "-"}
                         </td>
 
                         <td className="px-6 py-4">
