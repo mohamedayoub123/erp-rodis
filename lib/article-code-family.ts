@@ -19,6 +19,26 @@ export function normalizeFamilyValue(value: string | null | undefined): string {
     .toUpperCase();
 }
 
+// Certaines gammes declinent le MEME produit en plusieurs variantes de
+// formulation (typiquement "Clarifiant" / "Exfoliant" sur les gels douche) -
+// ces variantes ne doivent PAS partager le meme code ni le meme lot entre
+// elles (formules differentes), mais chaque variante garde son propre
+// compteur de code partage a travers ses contenances (1L/500ml/...), au
+// meme titre que gamme+forme pour tout le reste.
+// Un nom SANS marqueur "Exfoliant" est considere comme la variante
+// "Clarifiant" par defaut - c'est la formulation standard/implicite quand
+// le nom ne precise rien (ex: "Gel Douche White Secret 1L" sans suffixe est
+// en realite la version Clarifiant, elle doit donc partager son code avec
+// "Gel Douche White Secret 500ml Clarifiant") - seul un marqueur Exfoliant
+// explicite bascule dans l'autre variante, separee.
+const EXFOLIANT_TOKENS = new Set(["EXFOLIANT", "EXFOLIANTE", "EXFO", "EXF"]);
+
+export function detectArticleVariantFromName(name: string | null | undefined): string {
+  const words = normalizeFamilyValue(name).split(" ");
+  if (words.some((word) => EXFOLIANT_TOKENS.has(word))) return "EXFOLIANT";
+  return "CLARIFIANT";
+}
+
 export function detectArticleFamilyFromName(name: string | null | undefined): string {
   const normalized = normalizeFamilyValue(name);
 
@@ -75,9 +95,10 @@ function isShVariant(normalizedName: string): boolean {
 export function computeArticleFamilyKey(nomArticle: string | null | undefined, gamme: string | null | undefined): string {
   const resolvedGamme = normalizeFamilyValue(gamme) || detectArticleGammeFromName(nomArticle);
   const resolvedForm = detectArticleFamilyFromName(nomArticle);
+  const resolvedVariant = detectArticleVariantFromName(nomArticle);
   const normalizedName = normalizeFamilyValue(nomArticle);
   const gammeKey = isShVariant(normalizedName) ? `${resolvedGamme} S-H` : resolvedGamme;
-  return `${gammeKey}::${resolvedForm}`;
+  return `${gammeKey}::${resolvedForm}::${resolvedVariant}`;
 }
 
 export function extractTrailingNumber(code: string): number | null {
