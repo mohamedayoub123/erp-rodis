@@ -141,10 +141,7 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
                         <th className="px-6 py-4 font-semibold">Temps (minutes)</th>
                       </>
                     ) : (
-                      <>
-                        <th className="px-6 py-4 font-semibold">Capacite</th>
-                        <th className="px-6 py-4 font-semibold">Temps (minutes)</th>
-                      </>
+                      <th className="px-6 py-4 font-semibold">Capacite</th>
                     )}
                     {canDelete ? <th className="px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
@@ -162,10 +159,7 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
                           <td className="px-6 py-4 text-slate-600">{formatNombre(produit.temps_minutes)}</td>
                         </>
                       ) : (
-                        <>
-                          <td className="px-6 py-4 text-slate-600">{formatNombre(produit.capacite)}</td>
-                          <td className="px-6 py-4 text-slate-600">{formatNombre(produit.temps_minutes)}</td>
-                        </>
+                        <td className="px-6 py-4 text-slate-600">{formatNombre(produit.capacite)}</td>
                       )}
                       {canDelete ? (
                         <td className="px-6 py-4">
