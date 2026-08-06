@@ -63,16 +63,19 @@ const SOURCE_COLUMNS =
 const ENTREE_SOURCE = "web:entree-mp";
 const RECEPTION_SOURCE = "web:reception-mp";
 const SORTIE_SOURCE = "web:sortie-mp";
+const SORTIE_SOURCE_ADMIN = "web:sortie-mp-admin";
 const ENTREE_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE];
-const WEB_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE, SORTIE_SOURCE];
+const WEB_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE, SORTIE_SOURCE, SORTIE_SOURCE_ADMIN];
 
-// Libelle affichable de la provenance d'une ligne - "TE manuel" saisi
-// directement depuis Entrer stock, ou "TE import" venu d'une Reception
-// depuis le detail d'un dossier Import.
+// Libelle affichable de la provenance d'une ligne - "Import" venu d'une
+// Reception depuis le detail d'un dossier Import, "Manuel" saisi
+// directement depuis Entrer/Sortie stock, "Manuel Admin" saisi depuis
+// Sortie Admin (bypasse le controle de stock disponible).
 export function mouvementMpSourceLabel(sourceImport: string | null) {
   if (sourceImport === RECEPTION_SOURCE) return "Import";
   if (sourceImport === ENTREE_SOURCE) return "Manuel";
   if (sourceImport === SORTIE_SOURCE) return "Manuel";
+  if (sourceImport === SORTIE_SOURCE_ADMIN) return "Manuel Admin";
   return "-";
 }
 
@@ -122,14 +125,16 @@ function groupKey(row: MouvementMpSourceRow) {
   return row.mouvement_groupe_id ?? row.id;
 }
 
+// Trie par ordre de creation (id auto-incremente), jamais par date_jour -
+// date_jour est une date CHOISIE par l'utilisateur (peut etre saisie dans
+// le passe), pas le moment reel de l'enregistrement. Trier par date_jour
+// faisait "sauter" les numeros TE/TS deja attribues : une nouvelle saisie
+// avec une date_jour anterieure a un mouvement existant se glissait avant
+// lui et decalait tous les numeros suivants. Le numero d'un mouvement doit
+// rester fixe une fois attribue, quelle que soit la date choisie sur une
+// saisie ulterieure.
 function sortChrono(rows: MouvementMpSourceRow[]) {
-  return [...rows].sort((a, b) => {
-    const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
-    const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
-
-    if (dateA !== dateB) return dateA - dateB;
-    return a.id - b.id;
-  });
+  return [...rows].sort((a, b) => a.id - b.id);
 }
 
 function buildGroups(
@@ -164,13 +169,9 @@ function buildGroups(
     };
   });
 
-  groupList.sort((a, b) => {
-    const dateA = a.dateJour ? new Date(a.dateJour).getTime() : 0;
-    const dateB = b.dateJour ? new Date(b.dateJour).getTime() : 0;
-
-    if (dateA !== dateB) return dateA - dateB;
-    return a.minId - b.minId;
-  });
+  // Meme principe que sortChrono : le numero attribue a un groupe (TE1,
+  // TS1...) suit l'ordre de creation (minId), jamais date_jour.
+  groupList.sort((a, b) => a.minId - b.minId);
 
   return groupList.map((group, index) => {
     const quantiteTotale = group.rows.reduce(
@@ -216,8 +217,13 @@ export function buildEntreeMpRows(rows: MouvementMpSourceRow[]): MouvementMpGrou
   return buildGroups(rows, "entree", "TE", ENTREE_SOURCES);
 }
 
+// Sortie normale (TS) et Sortie Admin (TSA) sont 2 compteurs separes, une
+// sortie admin ne doit jamais se glisser dans la numerotation TS normale.
 export function buildSortieMpRows(rows: MouvementMpSourceRow[]): MouvementMpGroup[] {
-  return buildGroups(rows, "sortie", "TS", [SORTIE_SOURCE]);
+  return [
+    ...buildGroups(rows, "sortie", "TS", [SORTIE_SOURCE]),
+    ...buildGroups(rows, "sortie", "TSA", [SORTIE_SOURCE_ADMIN]),
+  ];
 }
 
 export function formatMouvementMpDate(value: string | null) {

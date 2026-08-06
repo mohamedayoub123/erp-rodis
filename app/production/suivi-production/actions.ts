@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 function parseOptionalNumber(formData: FormData, name: string) {
   const raw = String(formData.get(name) || "").trim().replace(",", ".");
@@ -56,7 +56,7 @@ export async function deleteSuiviProductionRowAction(targets: {
 }) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "productionSuiviProductionListe"))) {
+  if (!(await canDeletePageUser(currentUser, "productionSuiviProductionListe"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer cette ligne.");
   }
 
