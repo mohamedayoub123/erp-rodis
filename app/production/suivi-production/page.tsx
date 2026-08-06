@@ -133,6 +133,7 @@ type LigneRow = {
 type RapportRow = {
   id: number;
   programme_ligne_id: number;
+  code: string;
   machine: string | null;
   type_fabrication: string | null;
   preparateur: string | null;
@@ -287,7 +288,7 @@ async function fetchAllRows<T>(
 }
 
 const RAPPORT_COLUMNS =
-  "id, programme_ligne_id, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
+  "id, programme_ligne_id, code, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
 
 function groupEntriesByLigne(entries: EntryRow[]): Map<number, EntryRow[]> {
   const map = new Map<number, EntryRow[]>();
@@ -316,9 +317,30 @@ function toStageEntry(entry: EntryRow | undefined): StageEntry | null {
 // meme une ligne "generale", pour ne rien perdre de visible.
 type BaseDisplayRow = Omit<DisplayRow, "displayCode" | "displayVrac" | "displayCarton">;
 
+// Conditionnement/Emballage sont desormais saisis PAR CODE (voir
+// upsertRapport) - une ligne decoupee en plusieurs lots a donc plusieurs
+// lignes production_rapports (une par code), plus eventuellement l'ancienne
+// ligne "partagee" (code "") utilisee par Fabrication (qui reste au niveau
+// de la ligne entiere) ou laissee par une saisie d'avant ce decoupage. Le
+// rapport affiche pour un code precis fusionne les 2 : priorite au rapport
+// de CE code (Conditionnement/Emballage), complete par les champs du
+// rapport partage (Fabrication, ou tout ce qui n'a jamais ete resaisi
+// depuis par code).
+function mergeRapports(codeSpecific: RapportRow | null, legacy: RapportRow | null): RapportRow | null {
+  if (!codeSpecific) return legacy;
+  if (!legacy) return codeSpecific;
+  const merged = { ...codeSpecific };
+  for (const key of Object.keys(legacy) as (keyof RapportRow)[]) {
+    if (merged[key] === null || merged[key] === undefined) {
+      (merged as Record<string, unknown>)[key] = legacy[key];
+    }
+  }
+  return merged;
+}
+
 function buildDisplayRows(
   lignes: LigneRow[],
-  rapportsByLigneId: Map<number, RapportRow>,
+  rapportRows: RapportRow[],
   vracEntries: EntryRow[],
   cartonEntries: EntryRow[],
   emballageEntries: EntryRow[]
@@ -328,11 +350,20 @@ function buildDisplayRows(
   const cartonByLigne = groupEntriesByLigne(cartonEntries);
   const emballageByLigne = groupEntriesByLigne(emballageEntries);
 
+  const rapportByLigneAndCode = new Map<string, RapportRow>();
+  const legacyRapportByLigne = new Map<number, RapportRow>();
+  const anyRapportByLigne = new Map<number, RapportRow>();
+  for (const rapport of rapportRows) {
+    rapportByLigneAndCode.set(`${rapport.programme_ligne_id}::${rapport.code}`, rapport);
+    if (!rapport.code) legacyRapportByLigne.set(rapport.programme_ligne_id, rapport);
+    anyRapportByLigne.set(rapport.programme_ligne_id, rapport);
+  }
+
   const allLigneIds = new Set<number>([
     ...vracByLigne.keys(),
     ...cartonByLigne.keys(),
     ...emballageByLigne.keys(),
-    ...rapportsByLigneId.keys(),
+    ...anyRapportByLigne.keys(),
   ]);
 
   const rows: BaseDisplayRow[] = [];
@@ -340,7 +371,11 @@ function buildDisplayRows(
   for (const ligneId of allLigneIds) {
     const ligne = ligneById.get(ligneId);
     if (!ligne) continue;
-    const rapport = rapportsByLigneId.get(ligneId) ?? null;
+    // Rapport "provisoire" pour cette passe (avant eclatement par code) -
+    // sert seulement a detecter une ligne "generale" (rapport sans encore
+    // aucune entree) ; le rapport reellement affiche est resolu PAR CODE
+    // plus bas (voir expandedRows), une fois le/les code(s) connus.
+    const rapport = anyRapportByLigne.get(ligneId) ?? null;
 
     const vracList = vracByLigne.get(ligneId) ?? [];
     const cartonList = cartonByLigne.get(ligneId) ?? [];
@@ -412,15 +447,21 @@ function buildDisplayRows(
 
   // Une ligne dont le vrac a ete reparti sur plusieurs lots (voir
   // splitLigneByCode) devient plusieurs lignes d'affichage, une par code -
-  // les colonnes propres a chaque etape (dates, cuves, dechets...) restent
-  // identiques sur chaque copie puisqu'un rapport n'est pas suivi par code,
-  // seuls Code/Vrac demande/Carton demande different.
+  // Conditionnement/Emballage sont desormais saisis par code (voir
+  // mergeRapports plus haut), seule Fabrication reste partagee entre tous
+  // les codes d'une meme ligne.
   const expandedRows: DisplayRow[] = [];
   for (const row of rows) {
     const codeSplits = splitLigneByCode(row.ligne);
     codeSplits.forEach((split, index) => {
+      const codeSpecific = rapportByLigneAndCode.get(`${row.ligne.id}::${split.code}`) ?? null;
+      const legacy = legacyRapportByLigne.get(row.ligne.id) ?? null;
+      const rapport = mergeRapports(codeSpecific, legacy);
+
       expandedRows.push({
         ...row,
+        rapport,
+        generalRapportId: row.isGeneral ? (rapport?.id ?? row.generalRapportId) : row.generalRapportId,
         key: codeSplits.length > 1 ? `${row.key}-code${index}` : row.key,
         displayCode: split.code,
         displayVrac: split.vrac,
@@ -463,15 +504,11 @@ export default async function SuiviProductionListPage({
   const fetchError =
     lignesResult.error || rapportsResult.error || vracResult.error || cartonResult.error || emballageResult.error;
 
-  const rapportsByLigneId = new Map(
-    rapportsResult.rows.map((rapport) => [rapport.programme_ligne_id, rapport])
-  );
-
   const plCodeByGroupeId = computePlCodesByGroupeId(lignesResult.rows);
 
   const allRows = buildDisplayRows(
     lignesResult.rows,
-    rapportsByLigneId,
+    rapportsResult.rows,
     vracResult.rows,
     cartonResult.rows,
     emballageResult.rows

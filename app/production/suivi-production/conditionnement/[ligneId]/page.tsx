@@ -66,14 +66,23 @@ type RapportInfo = {
   utilisateur_conditionnement: string | null;
 };
 
+type SearchParams = Promise<{ code?: string }>;
+
 export default async function RapportConditionnementPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ ligneId: string }>;
+  searchParams: SearchParams;
 }) {
   noStore();
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
+  const { code: codeParam } = await searchParams;
+  // Code du lot precis pour cette saisie (ex: "AA4141V" parmi les 3 codes
+  // d'une ligne decoupee en plusieurs lots) - vide seulement pour un lien
+  // genere avant l'ajout du suivi par code (comportement combine legacy).
+  const code = (codeParam || "").trim();
 
   if (!ligneIdNumber) {
     notFound();
@@ -81,6 +90,9 @@ export default async function RapportConditionnementPage({
 
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
+
+  const RAPPORT_FIELDS =
+    "chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, utilisateur_conditionnement";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
@@ -90,15 +102,32 @@ export default async function RapportConditionnementPage({
       .maybeSingle(),
     supabaseServer
       .from("production_rapports")
-      .select(
-        "chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, utilisateur_conditionnement"
-      )
+      .select(RAPPORT_FIELDS)
       .eq("programme_ligne_id", ligneIdNumber)
+      .eq("code", code)
       .maybeSingle(),
   ]);
 
   const ligne = ligneData as LigneInfo | null;
-  const rapport = rapportData as RapportInfo | null;
+  let rapport = rapportData as RapportInfo | null;
+
+  // Rien saisi pour ce code precis depuis l'ajout du suivi par code : si
+  // cette ligne n'a jamais ete decoupee en plusieurs lots (un seul code au
+  // total), l'ancien rapport partage (code "") reste sans ambiguite le bon
+  // prefill - sinon (plusieurs codes) on laisse le formulaire vide plutot
+  // que de reafficher a tort les donnees d'un AUTRE code.
+  if (!rapport && code) {
+    const numeroLotCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    if (numeroLotCodes.length <= 1) {
+      const { data: legacyRapport } = await supabaseServer
+        .from("production_rapports")
+        .select(RAPPORT_FIELDS)
+        .eq("programme_ligne_id", ligneIdNumber)
+        .eq("code", "")
+        .maybeSingle();
+      rapport = legacyRapport as RapportInfo | null;
+    }
+  }
 
   if (!ligne) {
     notFound();
@@ -132,7 +161,7 @@ export default async function RapportConditionnementPage({
                 )}
                 <span>
                   - {ligne.produit || "-"}
-                  {ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
+                  {code ? ` - Lot ${code}` : ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
                 </span>
               </div>
               {rapport?.utilisateur_conditionnement ? (
@@ -157,6 +186,7 @@ export default async function RapportConditionnementPage({
           ) : (
             <form action={saveConditionnementRapportAction} className="grid gap-6">
               <input type="hidden" name="ligne_id" value={ligne.id} />
+              <input type="hidden" name="code" value={code} />
 
               <div>
                 <h2 className="mb-3 text-lg font-bold text-slate-900">Equipe</h2>

@@ -3,10 +3,13 @@ import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { AutoRefresh } from "@/app/_components/auto-refresh";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { vracLabelFromName } from "@/lib/gamme-families";
+import { deleteCodeProgressAction } from "../../suivi-production/actions";
 import { markCartonTermineAction, markEmballageTermineAction, markVracTermineAction } from "../actions";
 import {
   buildPdLabelByCode,
+  computeProduitParCode,
   fetchAllCartonEntries,
   fetchAllEmballageEntries,
   fetchAllProgrammeLignes,
@@ -15,6 +18,7 @@ import {
   groupCartonEntriesByLigne,
   pdLabelsForNumeroLot,
   splitLigneIntoDisplayRows,
+  type ProgrammeLigneRow,
 } from "../data";
 
 function RestantBadge({ restant }: { restant: number }) {
@@ -59,6 +63,18 @@ function FinProgrammeButton({
   );
 }
 
+type CodeRow = {
+  ligne: ProgrammeLigneRow;
+  pdLabel: string;
+  code: string;
+  cartonPrevu: number;
+  cartonProduit: number;
+  cartonRestant: number;
+  emballagePrevu: number;
+  emballageProduit: number;
+  emballageRestant: number;
+};
+
 type SearchParams = Promise<{ code?: string; produit?: string; pd?: string }>;
 
 export default async function PlanningDashboardPage({
@@ -85,17 +101,20 @@ export default async function PlanningDashboardPage({
     fetchAllEmballageEntries(activeLigneIds),
   ]);
 
-  const cartonByLigne = groupCartonEntriesByLigne(cartonEntries);
+  const cartonByLigne = groupCartonEntriesByLigne(cartonEntries) as Map<
+    number,
+    { code: string; quantite: number }[]
+  >;
   const vracByLigne = groupCartonEntriesByLigne(vracEntries);
-  const emballageByLigne = groupCartonEntriesByLigne(emballageEntries);
+  const emballageByLigne = groupCartonEntriesByLigne(emballageEntries) as Map<
+    number,
+    { code: string; quantite: number }[]
+  >;
 
   const hasFilters = Boolean(codeFilter || produitFilter || pdFilter);
 
-  // Chaque ligne porte son PD, son reste vrac/carton/emballage - calcules
-  // une seule fois ici, puis chaque tableau filtre independamment. Le
-  // "prevu" de l'emballage n'est pas fixe au depart : c'est ce qui a deja
-  // ete conditionne (cartonProduit) qui alimente l'emballage au fur et a
-  // mesure.
+  // Fabrication reste au niveau de la ligne entiere (code "" partage) - le
+  // vrac est fabrique en un seul bloc avant meme d'etre reparti en lots.
   const enrichedLignes = allLignes
     .map((ligne) => {
       const pdLabel = pdLabelsForNumeroLot(ligne.numero_lot, pdLabelByCode);
@@ -103,101 +122,109 @@ export default async function PlanningDashboardPage({
         (sum, entry) => sum + Number(entry.quantite),
         0
       );
-      const cartonProduit = (cartonByLigne.get(ligne.id) ?? []).reduce(
-        (sum, entry) => sum + Number(entry.quantite),
-        0
-      );
-      const emballageProduit = (emballageByLigne.get(ligne.id) ?? []).reduce(
-        (sum, entry) => sum + Number(entry.quantite),
-        0
-      );
       const vracPrevu = ligne.vrac_a_fabriquer ?? 0;
-      const cartonPrevu = ligne.qt_carton ?? 0;
-      const emballagePrevu = cartonProduit;
 
       return {
         ...ligne,
         pdLabel,
         vracProduit,
-        cartonProduit,
-        emballageProduit,
         vracPrevu,
-        cartonPrevu,
-        emballagePrevu,
         vracRestant: vracPrevu - vracProduit,
-        cartonRestant: cartonPrevu - cartonProduit,
-        emballageRestant: emballagePrevu - emballageProduit,
       };
     })
     .filter((ligne) => {
       // Le filtre "Code" est applique plus loin, sur le code affiche apres
-      // eclatement (splitLigneIntoDisplayRows) - pas ici sur numero_lot brut,
-      // qui peut contenir plusieurs codes combines ("AA1265, AA1266, AA1267")
-      // pour un meme programme. Filtrer ici ferait ressortir les 3 lots des
-      // qu'un seul matche, au lieu du seul lot demande.
+      // eclatement - pas ici sur numero_lot brut, qui peut contenir
+      // plusieurs codes combines pour un meme programme. Filtrer ici ferait
+      // ressortir les 3 lots des qu'un seul matche, au lieu du seul lot
+      // demande.
       if (produitFilter && !(ligne.produit || "").toLowerCase().includes(produitFilter)) return false;
       if (pdFilter && !ligne.pdLabel.toLowerCase().includes(pdFilter)) return false;
       return true;
     });
 
-  // Une ligne terminee (manuellement, par colonne, ou par reste <= 0) sort
-  // du tableau correspondant - "Fin programme" est independant par colonne
-  // (vrac_termine/carton_termine/emballage_termine), fermer une colonne ne
-  // touche pas les autres. programme_termine reste un interrupteur general
-  // (utilise ailleurs, ex: suppression d'un groupe PD) qui ferme les 3 a la
-  // fois. L'emballage n'apparait que s'il y a deja quelque chose de
-  // conditionne a emballer.
   const vracLignes = enrichedLignes.filter(
     (ligne) => !ligne.programme_termine && !ligne.vrac_termine && ligne.vracRestant > 0
-  );
-  const cartonLignes = enrichedLignes.filter(
-    (ligne) => !ligne.programme_termine && !ligne.carton_termine && ligne.cartonRestant > 0
-  );
-  const emballageLignes = enrichedLignes.filter(
-    (ligne) =>
-      !ligne.programme_termine &&
-      !ligne.emballage_termine &&
-      ligne.emballagePrevu > 0 &&
-      ligne.emballageRestant > 0
   );
 
   const totalVracPrevu = vracLignes.reduce((sum, ligne) => sum + ligne.vracPrevu, 0);
   const totalVracProduit = vracLignes.reduce((sum, ligne) => sum + ligne.vracProduit, 0);
-  const totalCartonPrevu = cartonLignes.reduce((sum, ligne) => sum + ligne.cartonPrevu, 0);
-  const totalCartonProduit = cartonLignes.reduce((sum, ligne) => sum + ligne.cartonProduit, 0);
-  const totalEmballagePrevu = emballageLignes.reduce((sum, ligne) => sum + ligne.emballagePrevu, 0);
 
-  // Une ligne decoupee en plusieurs lots (numero_lot = "MB5, MB6, MB7") ne
-  // doit pas s'afficher regroupee sous un seul code/quantite - chaque lot
-  // apparait sur sa propre ligne, avec son propre code et sa propre
-  // quantite prevue (voir splitLigneIntoDisplayRows). Les totaux ci-dessus
-  // restent bases sur les lignes combinees, pas sur cette version divisee.
   const vracDisplayRows = vracLignes
     .flatMap((ligne) => splitLigneIntoDisplayRows(ligne, "qt_vrac", ligne.vracProduit))
     .filter((row) => !codeFilter || row.displayCode.toLowerCase().includes(codeFilter));
-  const cartonDisplayRows = cartonLignes
-    .flatMap((ligne) => splitLigneIntoDisplayRows(ligne, "qt_carton", ligne.cartonProduit))
-    .filter((row) => !codeFilter || row.displayCode.toLowerCase().includes(codeFilter));
-  const totalEmballageProduit = emballageLignes.reduce((sum, ligne) => sum + ligne.emballageProduit, 0);
 
-  // L'emballage n'a pas de quantite prevue par lot (contrairement au
-  // vrac/carton, pas de programme_dispatcher_lignes pour ce stade) - le
-  // "Reste" reste celui de la ligne combinee, partage sur chaque code
-  // eclate, mais chaque code obtient bien sa propre ligne d'affichage.
-  const emballageDisplayRows = emballageLignes
-    .flatMap((ligne) => {
-      const codes = (ligne.numero_lot || "")
-        .split(",")
-        .map((code) => code.trim())
-        .filter(Boolean);
+  // Conditionnement/Emballage : une ligne decoupee en plusieurs lots
+  // (numero_lot = "AA1, AA2, AA3") donne un CODE PAR LOT, chacun avec son
+  // propre avancement (voir computeProduitParCode) - contrairement a
+  // Fabrication, chaque code avance INDEPENDAMMENT : Conditionnement ou
+  // Emballage sur un code ne touche jamais les 2 autres (bug corrige : un
+  // Save sur un seul code faisait auparavant progresser/passer a l'etape
+  // suivante les 3 codes a la fois, puisque tout partageait le meme
+  // rapport/journal cote base).
+  const codeRows: CodeRow[] = [];
 
-      if (codes.length <= 1) {
-        return [{ ...ligne, displayCode: ligne.numero_lot || "-" }];
-      }
+  for (const ligne of enrichedLignes) {
+    if (ligne.programme_termine) continue;
 
-      return codes.map((code) => ({ ...ligne, displayCode: code }));
-    })
-    .filter((row) => !codeFilter || row.displayCode.toLowerCase().includes(codeFilter));
+    const rawCodes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    const detail = ligne.numero_lot_detail ?? [];
+    const hasDetail = rawCodes.length > 1 && detail.length === rawCodes.length;
+    const codes = rawCodes.length > 0 ? rawCodes : [ligne.numero_lot || "-"];
+
+    const cartonPrevuByCode = new Map<string, number>();
+    if (hasDetail) {
+      for (const entry of detail) cartonPrevuByCode.set(entry.code, Number(entry.qt_carton ?? 0));
+    } else {
+      for (const code of codes) cartonPrevuByCode.set(code, ligne.qt_carton ?? 0);
+    }
+
+    const cartonEntriesForLigne = cartonByLigne.get(ligne.id) ?? [];
+    const emballageEntriesForLigne = emballageByLigne.get(ligne.id) ?? [];
+
+    const cartonProduitByCode = computeProduitParCode(
+      cartonEntriesForLigne,
+      codes,
+      (code) => cartonPrevuByCode.get(code) ?? 0
+    );
+
+    const emballageProduitByCode = computeProduitParCode(
+      emballageEntriesForLigne,
+      codes,
+      (code) => cartonProduitByCode.get(code) ?? 0
+    );
+
+    for (const code of codes) {
+      const cartonPrevu = cartonPrevuByCode.get(code) ?? 0;
+      const cartonProduit = cartonProduitByCode.get(code) ?? 0;
+      const emballagePrevu = cartonProduit;
+      const emballageProduit = emballageProduitByCode.get(code) ?? 0;
+
+      codeRows.push({
+        ligne,
+        pdLabel: pdLabelsForNumeroLot(code, pdLabelByCode),
+        code,
+        cartonPrevu,
+        cartonProduit,
+        cartonRestant: cartonPrevu - cartonProduit,
+        emballagePrevu,
+        emballageProduit,
+        emballageRestant: emballagePrevu - emballageProduit,
+      });
+    }
+  }
+
+  const cartonRows = codeRows
+    .filter((row) => !row.ligne.carton_termine && row.cartonRestant > 0)
+    .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
+  const emballageRows = codeRows
+    .filter((row) => !row.ligne.emballage_termine && row.emballagePrevu > 0 && row.emballageRestant > 0)
+    .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
+
+  const totalCartonPrevu = cartonRows.reduce((sum, row) => sum + row.cartonPrevu, 0);
+  const totalCartonProduit = cartonRows.reduce((sum, row) => sum + row.cartonProduit, 0);
+  const totalEmballagePrevu = emballageRows.reduce((sum, row) => sum + row.emballagePrevu, 0);
+  const totalEmballageProduit = emballageRows.reduce((sum, row) => sum + row.emballageProduit, 0);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -323,7 +350,7 @@ export default async function PlanningDashboardPage({
                             href={`/production/suivi-production/fabrication/${row.id}`}
                             className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
                           >
-                            Ouvrir
+                            Entrer
                           </Link>
                         </td>
                         <td className="px-4 py-3">
@@ -360,7 +387,7 @@ export default async function PlanningDashboardPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {cartonDisplayRows.length === 0 ? (
+                  {cartonRows.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-4 py-6 text-center text-sm text-slate-500">
                         {hasFilters
@@ -369,35 +396,29 @@ export default async function PlanningDashboardPage({
                       </td>
                     </tr>
                   ) : (
-                    cartonDisplayRows.map((row) => (
-                      <tr key={`${row.id}-${row.displayCode}`} className="border-t border-slate-100">
-                        <td className="px-4 py-3 text-slate-600">{formatDate(row.date_jour)}</td>
+                    cartonRows.map((row) => (
+                      <tr key={`${row.ligne.id}-${row.code}`} className="border-t border-slate-100">
+                        <td className="px-4 py-3 text-slate-600">{formatDate(row.ligne.date_jour)}</td>
                         <td className="px-4 py-3 font-medium text-slate-900">
-                          {row.zone} / {row.chaine}
+                          {row.ligne.zone} / {row.ligne.chaine}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">{row.produit || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{row.displayCode}</td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {row.displayQuantite !== null
-                            ? pdLabelsForNumeroLot(row.displayCode, pdLabelByCode)
-                            : row.pdLabel}
-                        </td>
-                        <td className="px-4 py-3 text-slate-900">
-                          {Math.round(row.displayQuantite ?? row.cartonPrevu)}
-                        </td>
+                        <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
+                        <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                        <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
+                        <td className="px-4 py-3 text-slate-900">{Math.round(row.cartonPrevu)}</td>
                         <td className="px-4 py-3">
-                          <RestantBadge restant={row.displayRestant ?? row.cartonRestant} />
+                          <RestantBadge restant={row.cartonRestant} />
                         </td>
                         <td className="px-4 py-3">
                           <Link
-                            href={`/production/suivi-production/conditionnement/${row.id}`}
+                            href={`/production/suivi-production/conditionnement/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
                             className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
                           >
-                            Ouvrir
+                            Entrer
                           </Link>
                         </td>
                         <td className="px-4 py-3">
-                          <FinProgrammeButton ligneId={row.id} action={markCartonTermineAction} />
+                          <FinProgrammeButton ligneId={row.ligne.id} action={markCartonTermineAction} />
                         </td>
                       </tr>
                     ))
@@ -427,7 +448,7 @@ export default async function PlanningDashboardPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {emballageDisplayRows.length === 0 ? (
+                  {emballageRows.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500">
                         {hasFilters
@@ -436,24 +457,33 @@ export default async function PlanningDashboardPage({
                       </td>
                     </tr>
                   ) : (
-                    emballageDisplayRows.map((row) => (
-                      <tr key={`${row.id}-${row.displayCode}`} className="border-t border-slate-100">
-                        <td className="px-4 py-3 text-slate-600">{formatDate(row.date_jour)}</td>
-                        <td className="px-4 py-3 text-slate-600">{row.produit || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{row.displayCode}</td>
+                    emballageRows.map((row) => (
+                      <tr key={`${row.ligne.id}-${row.code}`} className="border-t border-slate-100">
+                        <td className="px-4 py-3 text-slate-600">{formatDate(row.ligne.date_jour)}</td>
+                        <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
+                        <td className="px-4 py-3 text-slate-700">{row.code}</td>
                         <td className="px-4 py-3">
                           <RestantBadge restant={row.emballageRestant} />
                         </td>
                         <td className="px-4 py-3">
                           <Link
-                            href={`/production/suivi-production/emballage/${row.id}`}
+                            href={`/production/suivi-production/emballage/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
                             className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
                           >
-                            Ouvrir
+                            Entrer
                           </Link>
                         </td>
                         <td className="px-4 py-3">
-                          <FinProgrammeButton ligneId={row.id} action={markEmballageTermineAction} />
+                          <div className="flex items-center gap-2">
+                            <FinProgrammeButton ligneId={row.ligne.id} action={markEmballageTermineAction} />
+                            <form action={deleteCodeProgressAction}>
+                              <input type="hidden" name="ligne_id" value={row.ligne.id} />
+                              <input type="hidden" name="code" value={row.code} />
+                              <DeleteIconButton
+                                label={`Supprimer ${row.code} (revient au Conditionnement)`}
+                              />
+                            </form>
+                          </div>
                         </td>
                       </tr>
                     ))

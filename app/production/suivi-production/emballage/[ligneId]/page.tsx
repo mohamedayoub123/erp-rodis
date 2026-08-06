@@ -40,14 +40,20 @@ type RapportInfo = {
   utilisateur_emballage: string | null;
 };
 
+type SearchParams = Promise<{ code?: string }>;
+
 export default async function RapportEmballagePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ ligneId: string }>;
+  searchParams: SearchParams;
 }) {
   noStore();
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
+  const { code: codeParam } = await searchParams;
+  const code = (codeParam || "").trim();
 
   if (!ligneIdNumber) {
     notFound();
@@ -55,6 +61,9 @@ export default async function RapportEmballagePage({
 
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionEmballage");
+
+  const RAPPORT_FIELDS =
+    "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, date_emballage, utilisateur_emballage";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
@@ -64,15 +73,30 @@ export default async function RapportEmballagePage({
       .maybeSingle(),
     supabaseServer
       .from("production_rapports")
-      .select(
-        "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, date_emballage, utilisateur_emballage"
-      )
+      .select(RAPPORT_FIELDS)
       .eq("programme_ligne_id", ligneIdNumber)
+      .eq("code", code)
       .maybeSingle(),
   ]);
 
   const ligne = ligneData as LigneInfo | null;
-  const rapport = rapportData as RapportInfo | null;
+  let rapport = rapportData as RapportInfo | null;
+
+  // Meme repli que Conditionnement : seulement pour une ligne jamais
+  // decoupee en plusieurs lots, l'ancien rapport partage (code "") reste
+  // sans ambiguite le bon prefill.
+  if (!rapport && code) {
+    const numeroLotCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    if (numeroLotCodes.length <= 1) {
+      const { data: legacyRapport } = await supabaseServer
+        .from("production_rapports")
+        .select(RAPPORT_FIELDS)
+        .eq("programme_ligne_id", ligneIdNumber)
+        .eq("code", "")
+        .maybeSingle();
+      rapport = legacyRapport as RapportInfo | null;
+    }
+  }
 
   if (!ligne) {
     notFound();
@@ -92,7 +116,7 @@ export default async function RapportEmballagePage({
               </h1>
               <p className="mt-2 text-sm text-slate-600">
                 {formatDate(ligne.date_jour)} - {ligne.produit || "-"}
-                {ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
+                {code ? ` - Lot ${code}` : ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
               </p>
               {rapport?.utilisateur_emballage ? (
                 <p className="mt-1 text-xs text-slate-500">
@@ -116,6 +140,7 @@ export default async function RapportEmballagePage({
           ) : (
             <form action={saveEmballageRapportAction} className="grid gap-6">
               <input type="hidden" name="ligne_id" value={ligne.id} />
+              <input type="hidden" name="code" value={code} />
 
               <div>
                 <h2 className="mb-1 text-lg font-bold text-slate-900">Date</h2>

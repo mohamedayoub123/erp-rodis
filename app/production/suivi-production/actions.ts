@@ -22,14 +22,19 @@ function revalidateRapportPages() {
   revalidatePath("/production/suivi/dashboard");
 }
 
-// Fabrication et Conditionnement remplissent le MEME rapport (un seul par
-// ligne de programme, donc par code) - peu importe lequel est rempli en
-// premier, le second vient completer la meme ligne au lieu d'en creer une
-// nouvelle (contrainte unique sur programme_ligne_id cote base).
-async function upsertRapport(ligneId: number, fields: Record<string, unknown>) {
+// Une ligne "Programme par ligne" decoupee en plusieurs lots (voir
+// buildDispatcherDraftRows) donne plusieurs codes physiques distincts
+// (ex: 9000 -> 3x3000) - Conditionnement/Emballage se font par code (chaque
+// lot avance independamment), donc "code" identifie precisement quel rapport
+// completer (contrainte unique sur (programme_ligne_id, code) cote base).
+// Fabrication reste au niveau de la ligne entiere (code = "") : le vrac est
+// fabrique en un seul bloc avant meme d'etre reparti en lots/codes.
+async function upsertRapport(ligneId: number, code: string, fields: Record<string, unknown>) {
   const { error } = await supabaseServer
     .from("production_rapports")
-    .upsert([{ programme_ligne_id: ligneId, ...fields }], { onConflict: "programme_ligne_id" });
+    .upsert([{ programme_ligne_id: ligneId, code, ...fields }], {
+      onConflict: "programme_ligne_id,code",
+    });
 
   if (error) {
     throw new Error(error.message);
@@ -123,6 +128,11 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   }
 
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  // Le code du lot precis en cours de saisie (ex: "AA4141V" sur une ligne
+  // decoupee en 3) - vide seulement pour une vieille ligne jamais reouverte
+  // depuis l'ajout du suivi par code (voir la page de saisie, qui retombe
+  // alors sur l'ancien rapport partage "" pour prefill).
+  const code = String(formData.get("code") || "").trim();
 
   if (!ligneId) {
     throw new Error("Ligne invalide.");
@@ -131,7 +141,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
-  await upsertRapport(ligneId, {
+  await upsertRapport(ligneId, code, {
     chef_zone: parseOptionalText(formData, "chef_zone"),
     chef_ligne: parseOptionalText(formData, "chef_ligne"),
     ravitailleur: parseOptionalText(formData, "ravitailleur"),
@@ -172,6 +182,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     const { error: cartonError } = await supabaseServer.from("production_carton_entries").insert([
       {
         programme_ligne_id: ligneId,
+        code,
         quantite: qtFabriquer,
         ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
       },
@@ -202,7 +213,9 @@ export async function saveFabricationRapportAction(formData: FormData) {
   const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
-  await upsertRapport(ligneId, {
+  // Fabrication reste au niveau de la ligne entiere (code "" partage) - le
+  // vrac est fabrique en un seul bloc avant meme d'etre reparti en lots.
+  await upsertRapport(ligneId, "", {
     machine: parseOptionalText(formData, "machine"),
     type_fabrication: parseOptionalText(formData, "type_fabrication"),
     preparateur: parseOptionalText(formData, "preparateur"),
@@ -259,6 +272,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     const { error: vracError } = await supabaseServer.from("production_vrac_entries").insert([
       {
         programme_ligne_id: ligneId,
+        code: "",
         quantite: vracFabrique,
         ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
       },
@@ -281,6 +295,7 @@ export async function saveEmballageRapportAction(formData: FormData) {
   }
 
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
 
   if (!ligneId) {
     throw new Error("Ligne invalide.");
@@ -289,7 +304,7 @@ export async function saveEmballageRapportAction(formData: FormData) {
   const quantite = parseOptionalNumber(formData, "quantite");
   const dateEmballage = parseOptionalText(formData, "date_emballage");
 
-  await upsertRapport(ligneId, {
+  await upsertRapport(ligneId, code, {
     emballage_machine: parseOptionalText(formData, "emballage_machine"),
     emballage_operateur: parseOptionalText(formData, "emballage_operateur"),
     emballage_scotcheuse: parseOptionalText(formData, "emballage_scotcheuse"),
@@ -315,6 +330,7 @@ export async function saveEmballageRapportAction(formData: FormData) {
     const { error: emballageError } = await supabaseServer.from("production_emballage_entries").insert([
       {
         programme_ligne_id: ligneId,
+        code,
         quantite,
         ...(dateEmballage ? { date_jour: dateEmballage } : {}),
       },
@@ -327,4 +343,38 @@ export async function saveEmballageRapportAction(formData: FormData) {
 
   revalidateRapportPages();
   redirect("/production/suivi/dashboard");
+}
+
+// Bouton "Supprimer" sur la colonne Emballage du Dashboard : efface tout ce
+// qui a ete saisi pour CE code precis (carton produit en Conditionnement ET
+// quantite emballee), pour qu'il revienne dans la colonne Conditionnement
+// au lieu de rester bloque cote Emballage. Un code n'a que ce qu'il a lui
+// meme reellement produit (voir upsertRapport/le journal carton/emballage
+// scopes par code) - supprimer un code n'affecte jamais les 2 autres.
+export async function deleteCodeProgressAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionEmballage"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer cette ligne.");
+  }
+
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+
+  if (!ligneId || !code) {
+    throw new Error("Ligne ou code invalide.");
+  }
+
+  const [cartonResult, emballageResult, rapportResult] = await Promise.all([
+    supabaseServer.from("production_carton_entries").delete().eq("programme_ligne_id", ligneId).eq("code", code),
+    supabaseServer.from("production_emballage_entries").delete().eq("programme_ligne_id", ligneId).eq("code", code),
+    supabaseServer.from("production_rapports").delete().eq("programme_ligne_id", ligneId).eq("code", code),
+  ]);
+
+  const failed = [cartonResult, emballageResult, rapportResult].find((result) => result.error);
+  if (failed?.error) {
+    throw new Error(failed.error.message);
+  }
+
+  revalidateRapportPages();
 }
