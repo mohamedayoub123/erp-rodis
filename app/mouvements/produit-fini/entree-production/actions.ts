@@ -70,7 +70,11 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
   const payload = pendingRows.map((entry) => {
     const ligne = ligneById.get(entry.programme_ligne_id);
     const articleId = ligne?.article_id;
-    const numeroLot = (ligne?.numero_lot || "").trim();
+    // Le code precis de CETTE entree (modifiable a l'ecran juste avant de
+    // valider) - jamais le numero_lot combine de la ligne source, qui
+    // regrouperait a tort les autres codes d'une ligne decoupee en
+    // plusieurs lots sur ce meme mouvement de stock.
+    const numeroLot = String(formData.get(`code_${entry.id}`) || "").trim();
 
     if (!articleId || !numeroLot) {
       throw new Error("Une ligne de production n'a pas d'article ou de code associe.");
@@ -140,4 +144,34 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
   revalidatePath("/mouvements/produit-fini");
   revalidatePath("/stock");
   revalidatePath("/dashboard");
+}
+
+// Retire une ligne de cette liste d'attente sans la transferer en stock -
+// supprime carrement l'entree Emballage (elle etait fausse/en trop), ce qui
+// annule au passage la quantite correspondante du "deja emballe" (Suivi
+// Production/Dashboard), exactement comme si elle n'avait jamais ete saisie.
+export async function deletePendingEmballageEntryAction(entryId: number, _formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "mouvementsEntreeProduction"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer cette ligne.");
+  }
+
+  if (!entryId) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("production_emballage_entries")
+    .delete()
+    .eq("id", entryId)
+    .eq("transfere_stock", false);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/mouvements/produit-fini/entree-production");
+  revalidatePath("/production/suivi/dashboard");
+  revalidatePath("/production/suivi-production");
 }
