@@ -6,6 +6,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../suivi/data";
 import { DeleteRowButton } from "./delete-row-button";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 // Meme calcul que Historique programme (PL1.2026, PL2.2026... remis a 1
 // chaque nouvelle annee de date_jour, rang par ordre de creation) - permet
@@ -535,7 +536,7 @@ export default async function SuiviProductionListPage({
     if (codeFilter && !row.displayCode.toLowerCase().includes(codeFilter)) {
       return false;
     }
-    if (produitFilter && !(row.ligne.produit || "").toLowerCase().includes(produitFilter)) {
+    if (produitFilter && !matchesArticleSearch(row.ligne.produit, produitFilter)) {
       return false;
     }
     // Une ligne a plusieurs dates possibles (date du programme, date de

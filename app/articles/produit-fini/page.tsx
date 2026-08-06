@@ -8,6 +8,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ArticlesFilterForm } from "./filter-form";
 import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 const PAGE_SIZE = 100;
 
@@ -115,7 +116,7 @@ export default async function ArticlesProduitFiniPage({
   const gammeLower = gamme.toLowerCase();
 
   const filteredArticles = allArticles.filter((article) => {
-    if (qLower && !String(article.nom_article ?? "").toLowerCase().includes(qLower)) return false;
+    if (qLower && !matchesArticleSearch(article.nom_article, qLower)) return false;
     if (typeLower && !String(article.type_article ?? "").toLowerCase().includes(typeLower)) return false;
     if (gammeLower && !String(article.gamme ?? "").toLowerCase().includes(gammeLower)) return false;
     return true;

@@ -6,6 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
+import { matchesArticleSearch } from "@/lib/article-search";
 import {
   deleteLotFromEntreeMpDetailAction,
   deleteLotFromSortieMpDetailAction,
@@ -246,7 +247,7 @@ export default async function StockMatierePremiereStockPage({
 
   const filteredRows = rowsWithStock.filter((row) => {
     if (hideZeroStock && row.stock_code <= 0) return false;
-    if (q && !(row.articles_matiere_premiere?.nom_article || "").toLowerCase().includes(q)) return false;
+    if (q && !matchesArticleSearch(row.articles_matiere_premiere?.nom_article, q)) return false;
     if (codeQ && !String(row.numero_lot || "").toLowerCase().includes(codeQ)) return false;
 
     if (!row.date_jour) {

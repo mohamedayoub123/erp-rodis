@@ -8,6 +8,7 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { deleteCommandeBcGroupAction } from "./actions";
 import { computeStatutBc, statutBcBadgeClass, STATUT_BC_OPTIONS, type StatutBc } from "./constants";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 type CommandeBcRow = {
   id: number;
@@ -187,7 +188,7 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
       // groupe matche, tout le groupe (vue exterieure) reste affiche.
       if (
         produitFilter &&
-        !groupRows.some((row) => (row.article_label || "").toLowerCase().includes(produitFilter))
+        !groupRows.some((row) => matchesArticleSearch(row.article_label, produitFilter))
       ) {
         return false;
       }
