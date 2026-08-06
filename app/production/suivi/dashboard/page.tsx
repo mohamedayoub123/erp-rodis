@@ -254,11 +254,18 @@ export default async function PlanningDashboardPage({
     }
   }
 
+  // cartonPrevu/emballagePrevu viennent d'une division (vrac / contenance /
+  // piece par carton) qui tombe rarement sur un nombre entier (ex: 52.08
+  // cartons prevus), alors que la quantite produite est toujours un nombre
+  // entier de cartons (on ne fabrique jamais 0.08 carton) - une ligne
+  // entierement realisee garde donc pour toujours un "restant" theorique
+  // juste en dessous de 1 carton et ne disparaissait jamais du Dashboard.
+  // Moins d'un carton restant = plus rien a faire concretement.
   const cartonRows = codeRows
-    .filter((row) => !row.ligne.carton_termine && row.cartonRestant > 0)
+    .filter((row) => !row.ligne.carton_termine && row.cartonRestant >= 1)
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
   const emballageRows = codeRows
-    .filter((row) => !row.ligne.emballage_termine && row.emballagePrevu > 0 && row.emballageRestant > 0)
+    .filter((row) => !row.ligne.emballage_termine && row.emballagePrevu > 0 && row.emballageRestant >= 1)
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
 
   const totalCartonPrevu = cartonRows.reduce((sum, row) => sum + row.cartonPrevu, 0);
