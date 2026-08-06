@@ -318,7 +318,13 @@ export default async function RapportEcartsPage({
     const cartonNaturel = cartonDemande <= 0 || cartonFabrique >= cartonDemande;
     const cartonOk = cartonManuel || cartonNaturel;
     const emballageManuel = Boolean(ligne.programme_termine || ligne.emballage_termine);
-    const emballageNaturel = cartonFabrique <= 0 || cartonEmballe >= cartonFabrique;
+    // cartonDemande <= 0 : rien a emballer pour ce code, trivialement fait.
+    // Sinon il faut que le conditionnement ait REELLEMENT produit quelque
+    // chose (cartonFabrique > 0) et que l'emballage ait suivi - sinon une
+    // ligne qui n'a encore rien fabrique affichait a tort "Termine" ici
+    // (cartonFabrique <= 0 etait vrai aussi bien "rien a faire" que "rien
+    // fait pour l'instant").
+    const emballageNaturel = cartonDemande <= 0 || (cartonFabrique > 0 && cartonEmballe >= cartonFabrique);
     const emballageOk = emballageManuel || emballageNaturel;
     const hasStarted = vracFabrique > 0 || cartonFabrique > 0 || cartonEmballe > 0;
     const anyManuel = vracManuel || cartonManuel || emballageManuel;
