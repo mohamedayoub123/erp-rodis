@@ -20,22 +20,30 @@ import {
 } from "../../suivi/data";
 import { deleteProgrammeLigneRapportAction } from "./actions";
 
-type Statut = "Termine" | "En cours" | "Pas commence";
+type Statut = "Termine" | "Termine Manuel" | "En cours" | "Pas commence";
 
 // Statut par etape (Fabrication/Conditionnement/Emballage) - le statut
 // combine existant ("Statut") ne dit pas LAQUELLE des 3 etapes bloque
-// quand la ligne est "En cours".
-function stageStatut(ok: boolean, started: boolean): Statut {
-  return ok ? "Termine" : started ? "En cours" : "Pas commence";
+// quand la ligne est "En cours". "naturel" (quantite reellement atteinte)
+// est prioritaire sur "manuel" (bouton "Fin programme") : si la quantite a
+// fini par suivre, la ligne serait de toute facon sortie du Dashboard
+// toute seule - "Termine Manuel" ne doit apparaitre QUE quand le bouton
+// est ce qui ferme la ligne, pas la quantite.
+function stageStatut(manuel: boolean, naturel: boolean, started: boolean): Statut {
+  if (naturel) return "Termine";
+  if (manuel) return "Termine Manuel";
+  return started ? "En cours" : "Pas commence";
 }
 
 function StatutBadge({ statut }: { statut: Statut }) {
   const className =
     statut === "Termine"
       ? "bg-emerald-100 text-emerald-800"
-      : statut === "En cours"
-        ? "bg-amber-100 text-amber-800"
-        : "bg-slate-100 text-slate-600";
+      : statut === "Termine Manuel"
+        ? "bg-violet-100 text-violet-800"
+        : statut === "En cours"
+          ? "bg-amber-100 text-amber-800"
+          : "bg-slate-100 text-slate-600";
 
   return (
     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${className}`}>{statut}</span>
@@ -55,7 +63,7 @@ function DiffCell({ value, whole }: { value: number; whole?: boolean }) {
 }
 
 const PAGE_SIZE = 200;
-const STATUT_OPTIONS: Statut[] = ["Termine", "En cours", "Pas commence"];
+const STATUT_OPTIONS: Statut[] = ["Termine", "Termine Manuel", "En cours", "Pas commence"];
 
 type SearchParams = Promise<{ code?: string; pd?: string; page?: string; statut?: string | string[] }>;
 
@@ -300,20 +308,44 @@ export default async function RapportEcartsPage({
     // "Fin programme" general) - meme regle, pas une estimation a part. Ces
     // drapeaux restent au niveau de la ligne entiere (pas encore suivis par
     // code cote base), donc partages par tous les codes d'une meme ligne.
-    const vracOk = ligne.programme_termine || ligne.vrac_termine || vracDemande <= 0 || vracFabrique >= vracDemande;
-    const cartonOk =
-      ligne.programme_termine || ligne.carton_termine || cartonDemande <= 0 || cartonFabrique >= cartonDemande;
-    const emballageOk =
-      ligne.programme_termine || ligne.emballage_termine || cartonFabrique <= 0 || cartonEmballe >= cartonFabrique;
+    // "manuel" = complete via le bouton "Fin programme" (pas parce que la
+    // quantite a ete atteinte) - distingue de "naturel" pour afficher
+    // "Termine Manuel" au lieu de "Termine" sur ces etapes-la.
+    const vracManuel = Boolean(ligne.programme_termine || ligne.vrac_termine);
+    const vracNaturel = vracDemande <= 0 || vracFabrique >= vracDemande;
+    const vracOk = vracManuel || vracNaturel;
+    const cartonManuel = Boolean(ligne.programme_termine || ligne.carton_termine);
+    const cartonNaturel = cartonDemande <= 0 || cartonFabrique >= cartonDemande;
+    const cartonOk = cartonManuel || cartonNaturel;
+    const emballageManuel = Boolean(ligne.programme_termine || ligne.emballage_termine);
+    // cartonDemande <= 0 : rien a emballer pour ce code, trivialement fait.
+    // Sinon il faut que le conditionnement ait REELLEMENT produit quelque
+    // chose (cartonFabrique > 0) et que l'emballage ait suivi - sinon une
+    // ligne qui n'a encore rien fabrique affichait a tort "Termine" ici
+    // (cartonFabrique <= 0 etait vrai aussi bien "rien a faire" que "rien
+    // fait pour l'instant").
+    const emballageNaturel = cartonDemande <= 0 || (cartonFabrique > 0 && cartonEmballe >= cartonFabrique);
+    const emballageOk = emballageManuel || emballageNaturel;
     const hasStarted = vracFabrique > 0 || cartonFabrique > 0 || cartonEmballe > 0;
+    // "Termine Manuel" seulement si au moins une etape depend du bouton
+    // pour etre consideree fermee (les autres peuvent tres bien etre
+    // naturellement completes en meme temps) - si les 3 sont naturellement
+    // atteintes, le bouton n'a rien "force", donc "Termine" tout court.
+    const allNaturel = vracNaturel && cartonNaturel && emballageNaturel;
     const statut: Statut =
-      vracOk && cartonOk && emballageOk ? "Termine" : hasStarted ? "En cours" : "Pas commence";
+      vracOk && cartonOk && emballageOk
+        ? allNaturel
+          ? "Termine"
+          : "Termine Manuel"
+        : hasStarted
+          ? "En cours"
+          : "Pas commence";
 
     return {
       statut,
-      statutFabrication: stageStatut(vracOk, vracFabrique > 0),
-      statutConditionnement: stageStatut(cartonOk, cartonFabrique > 0),
-      statutEmballage: stageStatut(emballageOk, cartonEmballe > 0),
+      statutFabrication: stageStatut(vracManuel, vracNaturel, vracFabrique > 0),
+      statutConditionnement: stageStatut(cartonManuel, cartonNaturel, cartonFabrique > 0),
+      statutEmballage: stageStatut(emballageManuel, emballageNaturel, cartonEmballe > 0),
       id: ligne.id,
       key: `${ligne.id}::${code}`,
       date: ligne.date_jour,
@@ -327,6 +359,7 @@ export default async function RapportEcartsPage({
       cartonFabrique,
       cartonDiff: cartonDemande - cartonFabrique,
       cartonEmballe,
+      cartonEmballeDiff: cartonDemande - cartonEmballe,
       conditionnementEmballageDiff: cartonEmballe - cartonFabrique,
     };
   }
@@ -468,7 +501,7 @@ export default async function RapportEcartsPage({
                     <th colSpan={4} className="bg-sky-50 px-4 py-2 text-center font-semibold text-sky-800">
                       Conditionnement
                     </th>
-                    <th colSpan={4} className="bg-emerald-50 px-4 py-2 text-center font-semibold text-emerald-800">
+                    <th colSpan={5} className="bg-emerald-50 px-4 py-2 text-center font-semibold text-emerald-800">
                       Emballage
                     </th>
                     {canDelete ? <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Action</th> : null}
@@ -486,8 +519,9 @@ export default async function RapportEcartsPage({
                     <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Statut</th>
                     <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Carton demande</th>
                     <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Carton emballe</th>
+                    <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Ecart carton</th>
                     <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">
-                      Ecart emballage/carton
+                      Ecart emballage/conditionnement
                     </th>
                   </tr>
                 </thead>
@@ -519,6 +553,7 @@ export default async function RapportEcartsPage({
                       </td>
                       <td className="bg-emerald-50/30 px-4 py-3 text-slate-600">{Math.round(row.cartonDemande)}</td>
                       <td className="bg-emerald-50/30 px-4 py-3 text-slate-600">{Math.round(row.cartonEmballe)}</td>
+                      <DiffCell value={row.cartonEmballeDiff} whole />
                       <DiffCell value={row.conditionnementEmballageDiff} whole />
                       {canDelete ? (
                         <td className="px-4 py-3">
