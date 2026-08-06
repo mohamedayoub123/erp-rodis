@@ -394,12 +394,6 @@ function buildDisplayRows(
     }
   }
 
-  // La 1ere ligne affichee doit etre le DERNIER enregistrement fait (pas un
-  // tri alphabetique par code) - on trie par l'id de l'entree la plus
-  // recente de la ligne (fabrication/conditionnement/emballage, ou le
-  // rapport lui-meme pour une ligne "generale" sans encore d'entree), id
-  // auto-incremente donc plus fiable que la date_jour (calendaire, souvent
-  // a egalite) pour determiner l'ordre reel des saisies.
   function rowRecencyId(row: BaseDisplayRow): number {
     return Math.max(
       row.fabrication?.entryId ?? 0,
@@ -409,7 +403,27 @@ function buildDisplayRows(
     );
   }
 
-  rows.sort((a, b) => rowRecencyId(b) - rowRecencyId(a));
+  // La 1ere ligne affichee doit etre celle avec la date la PLUS RECENTE
+  // (date de l'etape saisie, pas l'id de creation de l'entree) - trier par
+  // id placait a tort une ligne datee du 6/5 avant une datee du 10/5 des
+  // que la saisie du 6/5 avait ete faite APRES celle du 10/5 (ex:
+  // completer un jour manque a posteriori), ce qui melangeait l'ordre des
+  // dates affichees au lieu de les montrer proprement du plus recent au
+  // plus ancien. L'id ne sert plus que de departage entre 2 lignes de la
+  // meme date.
+  function rowSortDate(row: BaseDisplayRow): string {
+    const dates = [row.fabrication?.date, row.conditionnement?.date, row.emballage?.date].filter(
+      (date): date is string => Boolean(date)
+    );
+    if (dates.length === 0) return row.ligne.date_jour || "";
+    return dates.reduce((max, date) => (date > max ? date : max));
+  }
+
+  rows.sort((a, b) => {
+    const dateCompare = rowSortDate(b).localeCompare(rowSortDate(a));
+    if (dateCompare !== 0) return dateCompare;
+    return rowRecencyId(b) - rowRecencyId(a);
+  });
 
   // Une ligne dont le vrac a ete reparti sur plusieurs lots (voir
   // splitLigneByCode) devient plusieurs lignes d'affichage, une par code -
