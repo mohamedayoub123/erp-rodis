@@ -5,6 +5,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { AutoRefresh } from "@/app/_components/auto-refresh";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { vracLabelFromName } from "@/lib/gamme-families";
+import { matchesArticleSearch } from "@/lib/article-search";
 import { deleteCodeProgressAction } from "../../suivi-production/actions";
 import { markCartonTermineAction, markEmballageTermineAction, markVracTermineAction } from "../actions";
 import {
@@ -138,7 +139,7 @@ export default async function PlanningDashboardPage({
       // plusieurs codes combines pour un meme programme. Filtrer ici ferait
       // ressortir les 3 lots des qu'un seul matche, au lieu du seul lot
       // demande.
-      if (produitFilter && !(ligne.produit || "").toLowerCase().includes(produitFilter)) return false;
+      if (produitFilter && !matchesArticleSearch(ligne.produit, produitFilter)) return false;
       if (pdFilter && !ligne.pdLabel.toLowerCase().includes(pdFilter)) return false;
       return true;
     });
