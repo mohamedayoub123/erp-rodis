@@ -650,15 +650,15 @@ export default async function SuiviProductionListPage({
           <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500 shadow-[0_1px_0_rgba(15,23,42,0.08)]">
                   <tr>
-                    <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Article
                     </th>
-                    <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Code
                     </th>
-                    <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Vrac demande
                     </th>
                     <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
