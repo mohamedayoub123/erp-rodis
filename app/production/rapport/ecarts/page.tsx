@@ -55,8 +55,9 @@ function DiffCell({ value, whole }: { value: number; whole?: boolean }) {
 }
 
 const PAGE_SIZE = 200;
+const STATUT_OPTIONS: Statut[] = ["Termine", "En cours", "Pas commence"];
 
-type SearchParams = Promise<{ code?: string; pd?: string; page?: string }>;
+type SearchParams = Promise<{ code?: string; pd?: string; page?: string; statut?: string | string[] }>;
 
 export default async function RapportEcartsPage({
   searchParams,
@@ -69,14 +70,19 @@ export default async function RapportEcartsPage({
   const canDelete = await canDeletePageUser(currentUser, "productionRapportEcarts");
   const codeFilter = (params.code || "").trim().toLowerCase();
   const pdFilter = (params.pd || "").trim().toLowerCase();
-  const hasFilters = Boolean(codeFilter || pdFilter);
+  const statutParam = Array.isArray(params.statut) ? params.statut : params.statut ? [params.statut] : [];
+  const statutFilter = new Set(statutParam.filter((s): s is Statut => STATUT_OPTIONS.includes(s as Statut)));
+  const hasSearchFilters = Boolean(codeFilter || pdFilter);
+  const hasFilters = hasSearchFilters || statutFilter.size > 0;
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
 
   // Sans recherche, on se limite aux 3 derniers mois par defaut - une
-  // recherche par code/PD repasse sans borne pour retrouver du vieux.
+  // recherche par code/PD repasse sans borne pour retrouver du vieux. Le
+  // filtre Statut ne change pas cette fenetre (c'est un filtre d'affichage,
+  // pas une recherche de vieux code).
   const threeMonthsAgo = new Date();
   threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-  const sinceDate = hasFilters ? undefined : threeMonthsAgo.toISOString().slice(0, 10);
+  const sinceDate = hasSearchFilters ? undefined : threeMonthsAgo.toISOString().slice(0, 10);
 
   const [{ rows: lignes }, vracEntries, cartonEntries, emballageEntries, pdLabelByCode] =
     await Promise.all([
@@ -335,6 +341,7 @@ export default async function RapportEcartsPage({
   const rows = allRows.filter((row) => {
     if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
     if (pdFilter && !row.pd.toLowerCase().includes(pdFilter)) return false;
+    if (statutFilter.size > 0 && !statutFilter.has(row.statut)) return false;
     return true;
   });
 
@@ -351,6 +358,7 @@ export default async function RapportEcartsPage({
     qs.set("page", String(page));
     if (params.code) qs.set("code", params.code);
     if (params.pd) qs.set("pd", params.pd);
+    for (const statut of statutFilter) qs.append("statut", statut);
     return `/production/rapport/ecarts?${qs.toString()}`;
   };
 
@@ -415,6 +423,27 @@ export default async function RapportEcartsPage({
                 Effacer
               </Link>
             ) : null}
+
+            <div className="flex flex-wrap items-center gap-4 sm:col-span-4">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Statut general
+              </span>
+              {STATUT_OPTIONS.map((statut) => (
+                <label
+                  key={statut}
+                  className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"
+                >
+                  <input
+                    type="checkbox"
+                    name="statut"
+                    value={statut}
+                    defaultChecked={statutFilter.has(statut)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  {statut}
+                </label>
+              ))}
+            </div>
           </form>
         </section>
 
@@ -433,19 +462,20 @@ export default async function RapportEcartsPage({
                     <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Code</th>
                     <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Programme (PD)</th>
                     <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Produit</th>
-                    <th colSpan={4} className="bg-amber-50 px-4 py-2 text-center font-semibold text-amber-800">
+                    <th colSpan={5} className="bg-amber-50 px-4 py-2 text-center font-semibold text-amber-800">
                       Fabrication
                     </th>
                     <th colSpan={4} className="bg-sky-50 px-4 py-2 text-center font-semibold text-sky-800">
                       Conditionnement
                     </th>
-                    <th colSpan={3} className="bg-emerald-50 px-4 py-2 text-center font-semibold text-emerald-800">
+                    <th colSpan={4} className="bg-emerald-50 px-4 py-2 text-center font-semibold text-emerald-800">
                       Emballage
                     </th>
                     {canDelete ? <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Action</th> : null}
                   </tr>
                   <tr>
                     <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Statut</th>
+                    <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Carton a fabriquer</th>
                     <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Vrac demande</th>
                     <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Vrac fabrique</th>
                     <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Ecart vrac</th>
@@ -454,6 +484,7 @@ export default async function RapportEcartsPage({
                     <th className="bg-sky-50/60 px-4 py-2 font-semibold text-sky-800">Carton fabrique</th>
                     <th className="bg-sky-50/60 px-4 py-2 font-semibold text-sky-800">Ecart carton</th>
                     <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Statut</th>
+                    <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Carton demande</th>
                     <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Carton emballe</th>
                     <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">
                       Ecart emballage/carton
@@ -473,6 +504,7 @@ export default async function RapportEcartsPage({
                       <td className="bg-amber-50/30 px-4 py-3">
                         <StatutBadge statut={row.statutFabrication} />
                       </td>
+                      <td className="bg-amber-50/30 px-4 py-3 text-slate-600">{Math.round(row.cartonDemande)}</td>
                       <td className="bg-amber-50/30 px-4 py-3 text-slate-600">{formatQty(row.vracDemande)}</td>
                       <td className="bg-amber-50/30 px-4 py-3 text-slate-600">{formatQty(row.vracFabrique)}</td>
                       <DiffCell value={row.vracDiff} />
@@ -485,6 +517,7 @@ export default async function RapportEcartsPage({
                       <td className="bg-emerald-50/30 px-4 py-3">
                         <StatutBadge statut={row.statutEmballage} />
                       </td>
+                      <td className="bg-emerald-50/30 px-4 py-3 text-slate-600">{Math.round(row.cartonDemande)}</td>
                       <td className="bg-emerald-50/30 px-4 py-3 text-slate-600">{Math.round(row.cartonEmballe)}</td>
                       <DiffCell value={row.conditionnementEmballageDiff} whole />
                       {canDelete ? (

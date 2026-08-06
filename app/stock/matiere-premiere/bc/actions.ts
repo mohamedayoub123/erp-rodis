@@ -191,8 +191,9 @@ export async function createCommandeBcBatchAction(formData: FormData) {
 
 // Enregistre un NOUVEL evenement d'import pour une ligne (pas d'ecrasement -
 // un article commande en une fois peut arriver en plusieurs fois, chacune
-// avec son propre dossier). Refuse si la quantite depasse ce qu'il reste a
-// importer.
+// avec son propre dossier). Volontairement libre : peut depasser la
+// quantite commandee, et reste utilisable meme apres que la ligne soit
+// passee "Termine" (arrivage supplementaire, correction...).
 export async function createImportEvenementAction(formData: FormData) {
   await requireEditAccess();
 
@@ -214,27 +215,6 @@ export async function createImportEvenementAction(formData: FormData) {
     throw new Error("Ligne de commande introuvable.");
   }
 
-  // Exclut les evenements issus d'une Reception (lot_stock_id renseigne) -
-  // sinon une Reception qui a deja consomme le "reste" empecherait a tort
-  // de creer un import classique ensuite (les deux suivis sont distincts).
-  const { data: existingImports } = await supabaseServer
-    .from("bons_commande_mp_imports")
-    .select("quantite_importee")
-    .eq("bc_ligne_id", bcLigneId)
-    .is("lot_stock_id", null);
-
-  const dejaImporte = ((existingImports ?? []) as { quantite_importee: number }[]).reduce(
-    (sum, row) => sum + Number(row.quantite_importee ?? 0),
-    0
-  );
-
-  const quantiteCommandee = Number((ligneRow as { quantite: number }).quantite ?? 0);
-  const reste = quantiteCommandee - dejaImporte;
-
-  if (quantiteImportee > reste) {
-    throw new Error(`Quantite trop grande : il ne reste que ${reste} a importer.`);
-  }
-
   const { error } = await supabaseServer.from("bons_commande_mp_imports").insert([
     {
       bc_ligne_id: bcLigneId,
@@ -243,6 +223,97 @@ export async function createImportEvenementAction(formData: FormData) {
       n_doss_erp_import: parseOptionalText(formData, "n_doss_erp_import"),
     },
   ]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateCommandeBcMpPages();
+}
+
+// Change les dossiers 4D/ERP d'un evenement d'import deja enregistre (pas la
+// quantite : pour corriger une quantite, supprimer puis recreer, ce qui
+// remet correctement a jour le "reste" de la ligne). Le filtre
+// lot_stock_id null protege un evenement issu d'une Reception (credite du
+// stock reel) qui ne doit jamais passer par cette action legere.
+export async function updateImportEvenementAction(formData: FormData) {
+  await requireEditAccess();
+
+  const importId = Number(String(formData.get("import_id") || "0"));
+
+  if (!importId) {
+    throw new Error("Evenement d'import invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .update({
+      n_doss_4d_import: parseOptionalText(formData, "n_doss_4d_import"),
+      n_doss_erp_import: parseOptionalText(formData, "n_doss_erp_import"),
+    })
+    .eq("id", importId)
+    .is("lot_stock_id", null);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateCommandeBcMpPages();
+}
+
+// Supprime un evenement d'import - le "reste a importer" de la ligne
+// remonte automatiquement puisqu'il se recalcule a partir de la somme des
+// evenements restants (pas de champ separe a corriger). Meme protection
+// lot_stock_id que la modification.
+export async function deleteImportEvenementAction(formData: FormData) {
+  await requireDeleteAccess();
+
+  const importId = Number(String(formData.get("import_id") || "0"));
+
+  if (!importId) {
+    throw new Error("Evenement d'import invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .delete()
+    .eq("id", importId)
+    .is("lot_stock_id", null);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateCommandeBcMpPages();
+}
+
+// Modifie la quantite commandee et les dossiers 4D/ERP d'UNE ligne BC
+// (contrairement a updateCommandeBcGroupAction, qui n'ecrit que le dossier
+// et pour toutes les lignes du meme code).
+export async function updateCommandeBcLigneAction(formData: FormData) {
+  await requireEditAccess();
+
+  const bcId = Number(String(formData.get("bc_id") || "0"));
+
+  if (!bcId) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const quantiteRaw = String(formData.get("quantite") || "").trim().replace(",", ".");
+  const quantite = quantiteRaw ? Number(quantiteRaw) : null;
+
+  if (quantite === null || Number.isNaN(quantite) || quantite <= 0) {
+    throw new Error("Quantite invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("bons_commande_matiere_premiere")
+    .update({
+      quantite,
+      n_doss_4d: parseOptionalText(formData, "n_doss_4d"),
+      n_doss_erp: parseOptionalText(formData, "n_doss_erp"),
+    })
+    .eq("id", bcId);
 
   if (error) {
     throw new Error(error.message);
