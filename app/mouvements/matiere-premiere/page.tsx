@@ -121,7 +121,7 @@ export default async function MouvementsMatierePremierePage() {
                       <td className="px-4 py-3 text-slate-600">{group.lignes.length}</td>
                       <td className="px-4 py-3 text-slate-900">{group.quantite_totale}</td>
                       <td className="px-4 py-3 text-slate-600">
-                        {group.mouvement_type === "entree" ? mouvementMpSourceLabel(first?.source_import ?? null) : "-"}
+                        {mouvementMpSourceLabel(first?.source_import ?? null)}
                       </td>
                       <td className="px-4 py-3 text-slate-600">{first?.n_doss_4d || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{first?.n_doss_erp || "-"}</td>
