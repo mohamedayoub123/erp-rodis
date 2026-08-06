@@ -379,20 +379,19 @@ export async function deleteCodeProgressAction(formData: FormData) {
   revalidateRapportPages();
 }
 
-// Bouton "+" a cote de Conditionnement/Emballage sur le Dashboard : cree une
-// ligne minimale (pas de quantite prevue, cette fiche n'est pas suivie en
-// "reste a faire" - une fois saisie elle disparait simplement, comme deja
-// terminee) pour saisir une fiche Conditionnement/Emballage qui ne vient pas
-// d'un programme deja dispatche, puis ouvre directement sa fiche (meme
-// formulaire que "Entrer").
-export async function createManualEntryLigneAction(formData: FormData) {
-  const target = String(formData.get("target") || "").trim();
-  if (target !== "conditionnement" && target !== "emballage") {
-    throw new Error("Cible invalide.");
-  }
-
-  const permissionKey =
-    target === "emballage" ? "productionSuiviProductionEmballage" : "productionSuiviProductionConditionnement";
+// Fiche Conditionnement/Emballage "nouveau" (bouton "+" sur le Dashboard) :
+// cree une ligne minimale (pas de quantite prevue, cette fiche n'est pas
+// suivie en "reste a faire" - une fois saisie elle disparait simplement,
+// comme deja terminee) pour un lot qui ne vient pas d'un programme deja
+// dispatche, avec Zone/Chaine/Produit/N de lot choisis a la main, puis
+// delegue TOUT le reste (arrets, dechets, dates, quantite...) au meme
+// traitement que le Save normal de "Entrer", pour ne jamais dupliquer cette
+// logique.
+async function createManualEntryLigne(
+  formData: FormData,
+  permissionKey: "productionSuiviProductionConditionnement" | "productionSuiviProductionEmballage",
+  dateFieldName: string
+): Promise<{ id: number; numeroLot: string }> {
   const currentUser = await getCurrentStockUser();
 
   if (!(await canWritePageUser(currentUser, permissionKey))) {
@@ -404,7 +403,7 @@ export async function createManualEntryLigneAction(formData: FormData) {
   const articleId = Number(formData.get("article_id") || "0") || null;
   const produit = parseOptionalText(formData, "produit");
   const numeroLot = String(formData.get("numero_lot") || "").trim();
-  const dateJour = String(formData.get("date_jour") || "").trim();
+  const dateJour = String(formData.get(dateFieldName) || "").trim();
 
   if (!zone || !chaine || !numeroLot || !dateJour) {
     throw new Error("Zone, chaine, N de lot et date sont obligatoires.");
@@ -430,6 +429,27 @@ export async function createManualEntryLigneAction(formData: FormData) {
     throw new Error(error?.message || "Erreur pendant la creation de la ligne.");
   }
 
-  revalidateRapportPages();
-  redirect(`/production/suivi-production/${target}/${data.id}?code=${encodeURIComponent(numeroLot)}`);
+  return { id: data.id, numeroLot };
+}
+
+export async function createManualConditionnementEntryAction(formData: FormData) {
+  const { id, numeroLot } = await createManualEntryLigne(
+    formData,
+    "productionSuiviProductionConditionnement",
+    "date_fabrication_conditionnement"
+  );
+  formData.set("ligne_id", String(id));
+  formData.set("code", numeroLot);
+  return saveConditionnementRapportAction(formData);
+}
+
+export async function createManualEmballageEntryAction(formData: FormData) {
+  const { id, numeroLot } = await createManualEntryLigne(
+    formData,
+    "productionSuiviProductionEmballage",
+    "date_emballage"
+  );
+  formData.set("ligne_id", String(id));
+  formData.set("code", numeroLot);
+  return saveEmballageRapportAction(formData);
 }
