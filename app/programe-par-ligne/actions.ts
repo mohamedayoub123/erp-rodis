@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { computeArticleFamilyKey, extractTrailingNumber, incrementCode } from "@/lib/article-code-family";
+import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 
 type PendingProgrammeRow = {
   zone: string;
@@ -1135,11 +1136,17 @@ export async function dispatchExistingProgrammeLigneGroupAction(formData: FormDa
   const rowIds = remplies.map((ligne) => ligne.id);
   const dateJour = lignes[0].date_jour;
 
-  const affectedZoneChaineMap = new Map<string, { zone: string; chaine: string }>();
-  for (const ligne of lignes) {
-    affectedZoneChaineMap.set(`${ligne.zone}::${ligne.chaine}`, { zone: ligne.zone, chaine: ligne.chaine });
-  }
-  const affectedZoneChaine = [...affectedZoneChaineMap.values()];
+  // Efface TOUTE la grille (voir ZONE_GROUPS), pas seulement les chaines
+  // remplies dans ce groupe : programme_lignes ne stocke jamais les
+  // chaines laissees vides (elles ne sont jamais enregistrees), donc
+  // impossible de savoir ici lesquelles etaient blanches dans le formulaire
+  // d'origine - sans ca, une ancienne chaine dispatchee separement (ex:
+  // CHAINE 9C) qui n'apparait pas dans CE groupe restait affichee au
+  // Ravitailleur indefiniment, meme apres un nouveau Dispatch qui ne la
+  // concerne plus. Un Dispatch (immediat ou differe depuis l'Historique)
+  // represente toujours l'etat complet de toute la grille, jamais un ajout
+  // partiel.
+  const affectedZoneChaine = ZONE_GROUPS.flat();
 
   // Contrairement a performProgrammeLigneSave, aucune suppression en cas
   // d'echec : ces lignes programme_lignes existaient deja avant cet appel
