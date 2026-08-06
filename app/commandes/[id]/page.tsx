@@ -1,6 +1,7 @@
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import {
+  addFifoLigneForNewArticleAction,
   addManualFifoLotAction,
   calculateFifoForCommandeAction,
   cancelFifoBatchAction,
@@ -12,6 +13,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { PrintButton } from "./print-button";
 import { formatDate } from "@/lib/format-date";
+import { SearchableSelect } from "@/app/_components/searchable-select";
 
 type CommandeDetailRow = {
   id: number;
@@ -47,6 +49,7 @@ type FifoResultRow = {
   date_fabrication: string | null;
   chambre: string | null;
   quantite_chargee: number;
+  preparateur: string | null;
   regle_appliquee: string | null;
   articles: { nom_article: string | null } | { nom_article: string | null }[] | null;
 };
@@ -431,6 +434,32 @@ async function fetchAllClientNamesForCommandeDetail() {
   return rows;
 }
 
+// Pour le picker "Ajouter une ligne" (produit hors commande) - meme
+// pagination que fetchAllClientNamesForCommandeDetail.
+async function fetchAllArticlesForCommandeDetail() {
+  const rows: { id: number; nom_article: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { id: number; nom_article: string }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows.map((article) => ({ value: String(article.id), label: article.nom_article }));
+}
+
 export default async function CommandeDetailPage({
   params,
 }: {
@@ -443,7 +472,7 @@ export default async function CommandeDetailPage({
   const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
   const canEditCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
 
-  const [{ data: selectedCommandeData }, { data: fifoData }, commandesData] =
+  const [{ data: selectedCommandeData }, { data: fifoData }, commandesData, articleOptions] =
     await Promise.all([
       supabaseServer
         .from("commandes")
@@ -455,12 +484,13 @@ export default async function CommandeDetailPage({
       supabaseServer
         .from("fifo_resultats")
         .select(
-          "id, commande_ligne_id, article_id, numero_lot, date_fabrication, chambre, quantite_chargee, regle_appliquee, articles(nom_article)"
+          "id, commande_ligne_id, article_id, numero_lot, date_fabrication, chambre, quantite_chargee, preparateur, regle_appliquee, articles(nom_article)"
         )
         .eq("commande_id", commandeId)
         .order("ordre_ligne", { ascending: true })
         .order("id", { ascending: true }),
       fetchAllClientNamesForCommandeDetail(),
+      fetchAllArticlesForCommandeDetail(),
     ]);
 
   const selectedCommande = (selectedCommandeData as CommandeDetailRow | null) ?? null;
@@ -719,19 +749,6 @@ export default async function CommandeDetailPage({
               <form action={updateAllFifoResultsAction} className="mt-4">
                 <input type="hidden" name="commande_id" value={selectedCommande.id} />
 
-                {canEditCommandes ? (
-                  <label className="mb-3 grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
-                    Preparateur (pour toute la commande)
-                    <input
-                      type="text"
-                      name="preparateur"
-                      defaultValue={selectedPreparateur}
-                      placeholder="Preparateur"
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                    />
-                  </label>
-                ) : null}
-
                 <div className="overflow-x-auto">
                   <table className="min-w-full table-fixed text-left text-sm">
                     <colgroup>
@@ -778,7 +795,19 @@ export default async function CommandeDetailPage({
                           </td>
                           <td className="px-4 py-3 text-slate-700 align-middle">{ligne.chambre || "-"}</td>
                           <td className="px-4 py-3 align-middle">
-                            <span className="text-slate-700">{selectedPreparateur || "-"}</span>
+                            {canEditCommandes ? (
+                              <input
+                                type="text"
+                                name={`preparateur_${ligne.id}`}
+                                defaultValue={ligne.preparateur || selectedPreparateur}
+                                placeholder="Preparateur"
+                                className="w-full max-w-[140px] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                              />
+                            ) : (
+                              <span className="text-slate-700">
+                                {ligne.preparateur || selectedPreparateur || "-"}
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-3 align-middle">
                             {canEditCommandes ? (
@@ -815,6 +844,60 @@ export default async function CommandeDetailPage({
                 ) : null}
               </form>
             )}
+
+            {canEditCommandes ? (
+              <details className="no-print mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                  Ajouter une ligne (produit qui n&apos;est pas dans cette commande)
+                </summary>
+
+                <form action={addFifoLigneForNewArticleAction} className="mt-4 grid gap-4 sm:grid-cols-4">
+                  <input type="hidden" name="commande_id" value={selectedCommande.id} />
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500 sm:col-span-2">
+                    Produit
+                    <SearchableSelect name="article_id" options={articleOptions} placeholder="Chercher un produit..." required />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Numero lot
+                    <input
+                      type="text"
+                      name="numero_lot"
+                      required
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Qt chargee
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      name="quantite_chargee"
+                      required
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-sky-700 outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Preparateur
+                    <input
+                      type="text"
+                      name="preparateur"
+                      defaultValue={selectedPreparateur}
+                      placeholder="Preparateur"
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                    />
+                  </label>
+                  <div className="sm:col-span-4">
+                    <button
+                      type="submit"
+                      className="rounded-full bg-sky-700 px-6 py-2.5 text-sm font-semibold text-white"
+                    >
+                      Ajouter la ligne
+                    </button>
+                  </div>
+                </form>
+              </details>
+            ) : null}
           </div>
 
           {canEditCommandes ? (
