@@ -1,9 +1,19 @@
-export function DeleteIconButton({ label = "Supprimer" }: { label?: string }) {
+export function DeleteIconButton({
+  label = "Supprimer",
+  formAction,
+  formNoValidate,
+}: {
+  label?: string;
+  formAction?: (formData: FormData) => void | Promise<void>;
+  formNoValidate?: boolean;
+}) {
   return (
     <button
       type="submit"
       aria-label={label}
       title={label}
+      formAction={formAction}
+      formNoValidate={formNoValidate}
       className="flex h-9 w-9 items-center justify-center rounded-full border border-red-200 text-red-700 transition hover:bg-red-50"
     >
       <svg
