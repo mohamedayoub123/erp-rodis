@@ -13,18 +13,50 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
-export default async function MouvementsMatierePremierePage() {
+type SearchParams = Promise<{ code?: string; date?: string; dossier?: string; saisi_par?: string }>;
+
+export default async function MouvementsMatierePremierePage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const params = await searchParams;
+  const codeFilter = (params.code || "").trim().toLowerCase();
+  const dateFilter = (params.date || "").trim();
+  const dossierFilter = (params.dossier || "").trim().toLowerCase();
+  const saisiParFilter = (params.saisi_par || "").trim().toLowerCase();
+  const hasFilters = Boolean(codeFilter || dateFilter || dossierFilter || saisiParFilter);
+
   const currentStockUser = await getCurrentStockUser();
   const canDeleteStock = await canDeletePageUser(currentStockUser, "mouvementsMatierePremiere");
   const sourceRows = await fetchWebMouvementMpSourceRows();
   const entreeGroups = buildEntreeMpRows(sourceRows);
   const sortieGroups = buildSortieMpRows(sourceRows);
-  const groups: MouvementMpGroup[] = [...entreeGroups, ...sortieGroups].sort((a, b) => {
+  const allGroups: MouvementMpGroup[] = [...entreeGroups, ...sortieGroups].sort((a, b) => {
     const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
     const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
 
     if (dateB !== dateA) return dateB - dateA;
     return b.groupe_id - a.groupe_id;
+  });
+
+  // Dossier cherche dans Doss. 4D ET Doss. ERP - l'utilisateur ne sait pas
+  // toujours lequel des deux il a en main.
+  const groups = allGroups.filter((group) => {
+    if (codeFilter && !group.code.toLowerCase().includes(codeFilter)) return false;
+    if (dateFilter && group.date_jour !== dateFilter) return false;
+
+    const first = group.lignes[0];
+    if (
+      dossierFilter &&
+      !(first?.n_doss_4d || "").toLowerCase().includes(dossierFilter) &&
+      !(first?.n_doss_erp || "").toLowerCase().includes(dossierFilter)
+    ) {
+      return false;
+    }
+    if (saisiParFilter && !(first?.utilisateur || "").toLowerCase().includes(saisiParFilter)) return false;
+
+    return true;
   });
 
   return (
@@ -80,9 +112,57 @@ export default async function MouvementsMatierePremierePage() {
           </div>
         </section>
 
+        <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto_auto]">
+            <input
+              type="text"
+              name="code"
+              defaultValue={params.code || ""}
+              placeholder="Code (TE1, TS1...)"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="date"
+              name="date"
+              defaultValue={params.date || ""}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="text"
+              name="dossier"
+              defaultValue={params.dossier || ""}
+              placeholder="Dossier (4D ou ERP)"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="text"
+              name="saisi_par"
+              defaultValue={params.saisi_par || ""}
+              placeholder="Saisi par"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <button
+              type="submit"
+              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Filtrer
+            </button>
+            {hasFilters ? (
+              <Link
+                href="/mouvements/matiere-premiere"
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+              >
+                Effacer
+              </Link>
+            ) : null}
+          </form>
+        </section>
+
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           {groups.length === 0 ? (
-            <div className="p-6 text-sm text-slate-500">Aucun mouvement enregistre.</div>
+            <div className="p-6 text-sm text-slate-500">
+              {hasFilters ? "Aucun resultat pour ce filtre." : "Aucun mouvement enregistre."}
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
