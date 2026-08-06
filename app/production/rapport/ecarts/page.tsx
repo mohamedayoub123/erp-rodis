@@ -6,13 +6,16 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   buildPdLabelByCode,
+  computeProduitParCode,
   fetchAllCartonEntries,
   fetchAllEmballageEntries,
   fetchAllProgrammeLignes,
   fetchAllVracEntries,
   formatDate,
   formatQty,
+  groupCartonEntriesByLigne,
   pdLabelsForNumeroLot,
+  splitLigneIntoDisplayRows,
   type ProgrammeLigneRow,
 } from "../../suivi/data";
 import { deleteProgrammeLigneRapportAction } from "./actions";
@@ -84,43 +87,24 @@ export default async function RapportEcartsPage({
       buildPdLabelByCode(),
     ]);
 
-  function sumByLigne(entries: { programme_ligne_id: number; quantite: number }[]) {
-    const map = new Map<number, number>();
-    for (const entry of entries) {
-      map.set(entry.programme_ligne_id, (map.get(entry.programme_ligne_id) ?? 0) + Number(entry.quantite));
-    }
-    return map;
+  function sumEntries(entries: { quantite: number }[]) {
+    return entries.reduce((sum, entry) => sum + Number(entry.quantite), 0);
   }
 
-  const vracByLigne = sumByLigne(vracEntries);
-  const cartonByLigne = sumByLigne(cartonEntries);
-  const emballageByLigne = sumByLigne(emballageEntries);
+  const vracByLigne = groupCartonEntriesByLigne(vracEntries);
+  const cartonByLigne = groupCartonEntriesByLigne(cartonEntries);
+  const emballageByLigne = groupCartonEntriesByLigne(emballageEntries);
 
-  // Les codes (lots) d'une ligne : un seul (numero_lot) sauf si la ligne a
-  // ete decoupee en plusieurs lots au Save (numero_lot_detail fige).
-  function ligneOwnCodes(ligne: ProgrammeLigneRow) {
-    const codes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
-    const detail = ligne.numero_lot_detail ?? [];
-    if (codes.length <= 1 || detail.length !== codes.length) {
-      if (codes.length === 0) return [];
-      return [{ code: codes[0], vracDemande: ligne.vrac_a_fabriquer ?? 0, cartonDemande: ligne.qt_carton ?? 0 }];
-    }
-    return detail.map((entry) => ({
-      code: entry.code,
-      vracDemande: entry.qt_vrac ?? 0,
-      cartonDemande: entry.qt_carton ?? 0,
-    }));
+  // Les codes (lots) d'une ligne, dans le meme ordre/texte que
+  // splitLigneIntoDisplayRows (reutilise directement pour ne jamais
+  // diverger sur le libelle exact d'un code).
+  function ligneOwnCodes(ligne: ProgrammeLigneRow): string[] {
+    return splitLigneIntoDisplayRows(ligne, "qt_vrac", 0).map((split) => split.displayCode);
   }
 
   // Deux lignes (2 produits differents) peuvent partager UN MEME code quand
-  // le Dispatcher a regroupe leurs vracs dans un seul lot (petites qtes). La
-  // production saisie pour ce code atterrit alors sur UNE SEULE des 2
-  // lignes en base, faussant l'ecart des deux (l'une affiche tout le
-  // fabrique en trop, l'autre rien) - on regroupe ici les lignes qui
-  // partagent un code (union-find) pour repartir le fabrique du groupe
-  // entre elles : chaque ligne (dans l'ordre de son id, le plus stable)
-  // recoit d'abord de quoi couvrir son propre besoin, la derniere de la
-  // chaine recupere le reste (surplus visible plutot que perdu).
+  // le Dispatcher a regroupe leurs vracs dans un seul lot (petites qtes) -
+  // union-find pour regrouper les lignes qui partagent au moins un code.
   function buildLigneRoots(rows: ProgrammeLigneRow[]): Map<number, number> {
     const parent = new Map<number, number>();
     const find = (x: number): number => {
@@ -144,7 +128,7 @@ export default async function RapportEcartsPage({
 
     const ligneIdsByCode = new Map<string, number[]>();
     for (const ligne of rows) {
-      for (const { code } of ligneOwnCodes(ligne)) {
+      for (const code of ligneOwnCodes(ligne)) {
         const list = ligneIdsByCode.get(code) ?? [];
         list.push(ligne.id);
         ligneIdsByCode.set(code, list);
@@ -159,6 +143,10 @@ export default async function RapportEcartsPage({
     return rootOf;
   }
 
+  // Repartit un total (pool reel fabrique) entre plusieurs "besoins" dans
+  // l'ordre donne : chacun recoit d'abord de quoi couvrir son propre
+  // besoin, le dernier de la liste recupere tout le reste (le surplus
+  // reste visible au lieu d'etre perdu ou attribue au hasard).
   function cascadeFamily(tuples: { key: string; demande: number }[], totalPool: number): Map<string, number> {
     const result = new Map<string, number>();
     let remaining = totalPool;
@@ -171,19 +159,141 @@ export default async function RapportEcartsPage({
     return result;
   }
 
-  function buildEcartRow(
-    ligne: ProgrammeLigneRow,
-    code: string,
-    pd: string,
-    vracDemande: number,
-    cartonDemande: number,
-    vracFabrique: number,
-    cartonFabrique: number,
-    cartonEmballe: number
-  ) {
+  type CodeRowBase = {
+    ligne: ProgrammeLigneRow;
+    code: string;
+    vracDemande: number;
+    vracFabrique: number;
+    cartonDemande: number;
+    cartonFabrique: number;
+    cartonEmballe: number;
+  };
+
+  const lignesWithLot = lignes.filter((ligne) => ligne.numero_lot);
+  const lignesById = new Map(lignesWithLot.map((ligne) => [ligne.id, ligne]));
+
+  // Etape 1 : decoupage par code AU SEIN de chaque ligne (deja fabrique
+  // cascade dans l'ordre des codes de CETTE ligne) - meme decoupage que le
+  // Dashboard : vrac/carton via splitLigneIntoDisplayRows, emballage via
+  // computeProduitParCode qui lit le code par entree quand il est connu.
+  const baseRowsByKey = new Map<string, CodeRowBase>();
+  for (const ligne of lignesWithLot) {
+    const vracEntriesForLigne = (vracByLigne.get(ligne.id) ?? []) as { code: string; quantite: number }[];
+    const cartonEntriesForLigne = (cartonByLigne.get(ligne.id) ?? []) as { code: string; quantite: number }[];
+    const emballageEntriesForLigne = (emballageByLigne.get(ligne.id) ?? []) as { code: string; quantite: number }[];
+
+    const totalVracFabrique = sumEntries(vracEntriesForLigne);
+    const totalCartonFabrique = sumEntries(cartonEntriesForLigne);
+
+    const vracSplits = splitLigneIntoDisplayRows(ligne, "qt_vrac", totalVracFabrique);
+    const cartonSplits = splitLigneIntoDisplayRows(ligne, "qt_carton", totalCartonFabrique);
+
+    const codes = vracSplits.map((split) => split.displayCode);
+    const cartonPrevuByCode = new Map(cartonSplits.map((split) => [split.displayCode, split.displayQuantite]));
+    const cartonFabriqueByCode = new Map(
+      cartonSplits.map((split) => [
+        split.displayCode,
+        split.displayQuantite !== null ? (split.displayQuantite ?? 0) - (split.displayRestant ?? 0) : null,
+      ])
+    );
+
+    const emballageProduitByCode = computeProduitParCode(
+      emballageEntriesForLigne,
+      codes,
+      (code) => cartonFabriqueByCode.get(code) ?? 0
+    );
+
+    for (const vracSplit of vracSplits) {
+      const code = vracSplit.displayCode;
+      const vracDemande = vracSplit.displayQuantite ?? ligne.vrac_a_fabriquer ?? 0;
+      const vracFabrique =
+        vracSplit.displayQuantite !== null
+          ? (vracSplit.displayQuantite ?? 0) - (vracSplit.displayRestant ?? 0)
+          : totalVracFabrique;
+      const cartonDemande = cartonPrevuByCode.get(code) ?? ligne.qt_carton ?? 0;
+      const cartonFabrique = cartonFabriqueByCode.get(code) ?? totalCartonFabrique;
+      const cartonEmballe = emballageProduitByCode.get(code) ?? 0;
+
+      baseRowsByKey.set(`${ligne.id}::${code}`, {
+        ligne,
+        code,
+        vracDemande,
+        vracFabrique,
+        cartonDemande,
+        cartonFabrique,
+        cartonEmballe,
+      });
+    }
+  }
+
+  // Etape 2 : les lignes (produits differents) qui partagent un meme code
+  // (lot regroupe par le Dispatcher) doivent se repartir la production de
+  // CE code - sinon un produit affiche tout le fabrique en surplus pendant
+  // que l'autre n'en voit rien. Remplace le resultat de l'etape 1
+  // uniquement pour les lignes concernees (les autres restent inchangees).
+  const rootOf = buildLigneRoots(lignesWithLot);
+  const familyByRoot = new Map<number, number[]>();
+  for (const ligne of lignesWithLot) {
+    const root = rootOf.get(ligne.id)!;
+    const list = familyByRoot.get(root) ?? [];
+    list.push(ligne.id);
+    familyByRoot.set(root, list);
+  }
+
+  for (const ligneIds of familyByRoot.values()) {
+    if (ligneIds.length <= 1) continue;
+    const orderedIds = [...ligneIds].sort((a, b) => a - b);
+
+    const tupleKeys = orderedIds.flatMap((ligneId) =>
+      ligneOwnCodes(lignesById.get(ligneId)!).map((code) => `${ligneId}::${code}`)
+    );
+
+    const familyVracPool = orderedIds.reduce(
+      (sum, id) => sum + sumEntries((vracByLigne.get(id) ?? []) as { quantite: number }[]),
+      0
+    );
+    const familyCartonPool = orderedIds.reduce(
+      (sum, id) => sum + sumEntries((cartonByLigne.get(id) ?? []) as { quantite: number }[]),
+      0
+    );
+    const familyEmballagePool = orderedIds.reduce(
+      (sum, id) => sum + sumEntries((emballageByLigne.get(id) ?? []) as { quantite: number }[]),
+      0
+    );
+
+    const vracByTuple = cascadeFamily(
+      tupleKeys.map((key) => ({ key, demande: baseRowsByKey.get(key)?.vracDemande ?? 0 })),
+      familyVracPool
+    );
+    const cartonByTuple = cascadeFamily(
+      tupleKeys.map((key) => ({ key, demande: baseRowsByKey.get(key)?.cartonDemande ?? 0 })),
+      familyCartonPool
+    );
+    const emballageByTuple = cascadeFamily(
+      tupleKeys.map((key) => ({ key, demande: cartonByTuple.get(key) ?? 0 })),
+      familyEmballagePool
+    );
+
+    for (const key of tupleKeys) {
+      const base = baseRowsByKey.get(key);
+      if (!base) continue;
+      baseRowsByKey.set(key, {
+        ...base,
+        vracFabrique: vracByTuple.get(key) ?? 0,
+        cartonFabrique: cartonByTuple.get(key) ?? 0,
+        cartonEmballe: emballageByTuple.get(key) ?? 0,
+      });
+    }
+  }
+
+  function buildEcartRow(base: CodeRowBase) {
+    const { ligne, code, vracDemande, vracFabrique, cartonDemande, cartonFabrique, cartonEmballe } = base;
+
     // "Termine" = exactement quand la ligne a disparu des 3 colonnes du
-    // Dashboard (reste <= 0 OU "Fin programme" appuye pour cette etape,
-    // OU "Fin programme" general) - meme regle, pas une estimation a part.
+    // Dashboard (reste <= 0 OU "Fin programme" appuye pour cette etape, OU
+    // "Fin programme" general) - meme regle, pas une estimation a part. Ces
+    // drapeaux restent au niveau de la ligne entiere (pas encore suivis par
+    // code cote base), donc partages par tous les codes d'une meme ligne.
     const vracOk = ligne.programme_termine || ligne.vrac_termine || vracDemande <= 0 || vracFabrique >= vracDemande;
     const cartonOk =
       ligne.programme_termine || ligne.carton_termine || cartonDemande <= 0 || cartonFabrique >= cartonDemande;
@@ -199,9 +309,10 @@ export default async function RapportEcartsPage({
       statutConditionnement: stageStatut(cartonOk, cartonFabrique > 0),
       statutEmballage: stageStatut(emballageOk, cartonEmballe > 0),
       id: ligne.id,
+      key: `${ligne.id}::${code}`,
       date: ligne.date_jour,
       code,
-      pd,
+      pd: pdLabelsForNumeroLot(code, pdLabelByCode),
       produit: ligne.produit || "-",
       vracDemande,
       vracFabrique,
@@ -214,87 +325,12 @@ export default async function RapportEcartsPage({
     };
   }
 
-  const lignesWithLot = lignes.filter((ligne) => ligne.numero_lot);
-  const lignesById = new Map(lignesWithLot.map((ligne) => [ligne.id, ligne]));
-  const rootOf = buildLigneRoots(lignesWithLot);
-  const familyByRoot = new Map<number, number[]>();
-  for (const ligne of lignesWithLot) {
-    const root = rootOf.get(ligne.id)!;
-    const list = familyByRoot.get(root) ?? [];
-    list.push(ligne.id);
-    familyByRoot.set(root, list);
-  }
-
-  const allRows: ReturnType<typeof buildEcartRow>[] = [];
-  const processedRoots = new Set<number>();
-
-  for (const ligne of lignesWithLot) {
-    const root = rootOf.get(ligne.id)!;
-    if (processedRoots.has(root)) continue;
-    processedRoots.add(root);
-
-    const ligneIds = [...(familyByRoot.get(root) ?? [ligne.id])].sort((a, b) => a - b);
-
-    if (ligneIds.length === 1) {
-      // Pas de code partage avec une autre ligne - affichage combine inchange.
-      allRows.push(
-        buildEcartRow(
-          ligne,
-          ligne.numero_lot || "-",
-          pdLabelsForNumeroLot(ligne.numero_lot, pdLabelByCode),
-          ligne.vrac_a_fabriquer ?? 0,
-          ligne.qt_carton ?? 0,
-          vracByLigne.get(ligne.id) ?? 0,
-          cartonByLigne.get(ligne.id) ?? 0,
-          emballageByLigne.get(ligne.id) ?? 0
-        )
-      );
-      continue;
-    }
-
-    const tuples = ligneIds.flatMap((ligneId) => {
-      const familyLigne = lignesById.get(ligneId)!;
-      return ligneOwnCodes(familyLigne).map(({ code, vracDemande, cartonDemande }) => ({
-        key: `${ligneId}::${code}`,
-        ligne: familyLigne,
-        code,
-        vracDemande,
-        cartonDemande,
-      }));
-    });
-
-    const familyVracPool = ligneIds.reduce((sum, id) => sum + (vracByLigne.get(id) ?? 0), 0);
-    const familyCartonPool = ligneIds.reduce((sum, id) => sum + (cartonByLigne.get(id) ?? 0), 0);
-    const familyEmballagePool = ligneIds.reduce((sum, id) => sum + (emballageByLigne.get(id) ?? 0), 0);
-
-    const vracByTuple = cascadeFamily(
-      tuples.map((t) => ({ key: t.key, demande: t.vracDemande })),
-      familyVracPool
-    );
-    const cartonByTuple = cascadeFamily(
-      tuples.map((t) => ({ key: t.key, demande: t.cartonDemande })),
-      familyCartonPool
-    );
-    const emballageByTuple = cascadeFamily(
-      tuples.map((t) => ({ key: t.key, demande: cartonByTuple.get(t.key) ?? 0 })),
-      familyEmballagePool
-    );
-
-    for (const tuple of tuples) {
-      allRows.push(
-        buildEcartRow(
-          tuple.ligne,
-          tuple.code,
-          pdLabelByCode.get(tuple.code) ?? "-",
-          tuple.vracDemande,
-          tuple.cartonDemande,
-          vracByTuple.get(tuple.key) ?? 0,
-          cartonByTuple.get(tuple.key) ?? 0,
-          emballageByTuple.get(tuple.key) ?? 0
-        )
-      );
-    }
-  }
+  const allRows = lignesWithLot.flatMap((ligne) =>
+    ligneOwnCodes(ligne).flatMap((code) => {
+      const base = baseRowsByKey.get(`${ligne.id}::${code}`);
+      return base ? [buildEcartRow(base)] : [];
+    })
+  );
 
   const rows = allRows.filter((row) => {
     if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
@@ -426,7 +462,7 @@ export default async function RapportEcartsPage({
                 </thead>
                 <tbody>
                   {pagedRows.map((row) => (
-                    <tr key={`${row.id}::${row.code}`} className="border-t border-slate-100">
+                    <tr key={row.key} className="border-t border-slate-100">
                       <td className="px-4 py-3">
                         <StatutBadge statut={row.statut} />
                       </td>

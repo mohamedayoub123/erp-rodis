@@ -1517,16 +1517,73 @@ export async function deliverCommandeAction(formData: FormData) {
   revalidatePath("/stock-dormant");
 }
 
-export async function updateFifoResultAction(formData: FormData) {
+// Appelle stock_override_fifo_result une fois par ligne FIFO pour tout
+// enregistrer en un seul clic. Le Preparateur reste modifiable PAR LIGNE
+// (un lot different peut etre prepare par une personne differente) - voir
+// fifo_resultats.preparateur, ajoute par add_fifo_resultats_preparateur.sql.
+// Sequentiel (pas Promise.all) : chaque appel relit/reecrit
+// commandes.commentaire (valeur de secours), un envoi en parallele
+// risquerait de faire perdre l'ecriture d'un appel par un autre.
+export async function updateAllFifoResultsAction(formData: FormData) {
   await requireCommandesEditAccess();
-  const fifoId = Number(String(formData.get("fifo_id") || "0"));
   const commandeId = Number(String(formData.get("commande_id") || "0"));
+  const fifoIds = formData
+    .getAll("fifo_ids")
+    .map((value) => Number(value))
+    .filter(Boolean);
+
+  if (!commandeId || fifoIds.length === 0) {
+    throw new Error("Commande invalide.");
+  }
+
+  for (const fifoId of fifoIds) {
+    const numeroLot = String(formData.get(`numero_lot_${fifoId}`) || "").trim();
+    const preparateur = String(formData.get(`preparateur_${fifoId}`) || "").trim();
+    const quantiteChargee = Number(
+      String(formData.get(`quantite_chargee_${fifoId}`) || "0").replace(",", ".")
+    );
+
+    if (!numeroLot) {
+      throw new Error("Le code / numero de lot est obligatoire sur chaque ligne.");
+    }
+
+    if (Number.isNaN(quantiteChargee) || quantiteChargee <= 0) {
+      throw new Error("La quantite chargee doit etre superieure a zero sur chaque ligne.");
+    }
+
+    const { error: rpcError } = await supabaseServer.rpc("stock_override_fifo_result", {
+      p_fifo_id: fifoId,
+      p_commande_id: commandeId,
+      p_numero_lot: numeroLot,
+      p_preparateur: preparateur,
+      p_quantite_chargee: quantiteChargee,
+    });
+
+    if (rpcError) {
+      throw new Error(rpcError.message);
+    }
+  }
+
+  revalidateCommandeDependentPages(commandeId);
+}
+
+// "Ajouter une ligne" sur le Resultat FIFO : dispatcher un produit qui
+// n'a jamais ete demande dans cette commande (contrairement a
+// addManualFifoLotAction, qui ne fait que combler le manque d'une ligne
+// DEJA presente). Cree la ligne "demandee" correspondante (pour que ce
+// produit se comporte normalement partout ailleurs : manque, impression...)
+// puis un resultat FIFO qu'on resout immediatement via le meme RPC que le
+// Save normal, pour ne pas dupliquer sa logique de validation du lot/stock.
+export async function addFifoLigneForNewArticleAction(formData: FormData) {
+  await requireCommandesEditAccess();
+  const commandeId = Number(String(formData.get("commande_id") || "0"));
+  const articleId = Number(String(formData.get("article_id") || "0"));
   const numeroLot = String(formData.get("numero_lot") || "").trim();
   const preparateur = String(formData.get("preparateur") || "").trim();
   const quantiteChargee = Number(String(formData.get("quantite_chargee") || "0").replace(",", "."));
 
-  if (!fifoId || !commandeId) {
-    throw new Error("Ligne FIFO invalide.");
+  if (!commandeId || !articleId) {
+    throw new Error("Commande ou article invalide.");
   }
 
   if (!numeroLot) {
@@ -1534,19 +1591,55 @@ export async function updateFifoResultAction(formData: FormData) {
   }
 
   if (Number.isNaN(quantiteChargee) || quantiteChargee <= 0) {
-    throw new Error("La quantite chargee doit etre superieure a zero.");
+    throw new Error("La quantite doit etre superieure a zero.");
   }
 
-  const { error } = await supabaseServer.rpc("stock_override_fifo_result", {
-    p_fifo_id: fifoId,
+  const { data: newLigne, error: ligneError } = await supabaseServer
+    .from("commande_lignes")
+    .insert({ commande_id: commandeId, article_id: articleId, quantite_demandee: quantiteChargee })
+    .select("id")
+    .single();
+
+  if (ligneError || !newLigne) {
+    throw new Error(ligneError?.message || "Erreur pendant la creation de la ligne.");
+  }
+
+  const { data: maxOrdreRow } = await supabaseServer
+    .from("fifo_resultats")
+    .select("ordre_ligne")
+    .eq("commande_id", commandeId)
+    .order("ordre_ligne", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const nextOrdre = Number(maxOrdreRow?.ordre_ligne ?? 0) + 1;
+
+  const { data: newFifo, error: fifoError } = await supabaseServer
+    .from("fifo_resultats")
+    .insert({
+      commande_id: commandeId,
+      commande_ligne_id: newLigne.id,
+      article_id: articleId,
+      quantite_chargee: 0,
+      ordre_ligne: nextOrdre,
+    })
+    .select("id")
+    .single();
+
+  if (fifoError || !newFifo) {
+    throw new Error(fifoError?.message || "Erreur pendant la creation de la ligne FIFO.");
+  }
+
+  const { error: rpcError } = await supabaseServer.rpc("stock_override_fifo_result", {
+    p_fifo_id: newFifo.id,
     p_commande_id: commandeId,
     p_numero_lot: numeroLot,
     p_preparateur: preparateur,
     p_quantite_chargee: quantiteChargee,
   });
 
-  if (error) {
-    throw new Error(error.message);
+  if (rpcError) {
+    throw new Error(rpcError.message);
   }
 
   revalidateCommandeDependentPages(commandeId);
