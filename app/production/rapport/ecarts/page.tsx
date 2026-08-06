@@ -13,10 +13,18 @@ import {
   formatDate,
   formatQty,
   pdLabelsForNumeroLot,
+  type ProgrammeLigneRow,
 } from "../../suivi/data";
 import { deleteProgrammeLigneRapportAction } from "./actions";
 
 type Statut = "Termine" | "En cours" | "Pas commence";
+
+// Statut par etape (Fabrication/Conditionnement/Emballage) - le statut
+// combine existant ("Statut") ne dit pas LAQUELLE des 3 etapes bloque
+// quand la ligne est "En cours".
+function stageStatut(ok: boolean, started: boolean): Statut {
+  return ok ? "Termine" : started ? "En cours" : "Pas commence";
+}
 
 function StatutBadge({ statut }: { statut: Statut }) {
   const className =
@@ -88,47 +96,205 @@ export default async function RapportEcartsPage({
   const cartonByLigne = sumByLigne(cartonEntries);
   const emballageByLigne = sumByLigne(emballageEntries);
 
-  const allRows = lignes
-    .filter((ligne) => ligne.numero_lot)
-    .map((ligne) => {
-      const vracDemande = ligne.vrac_a_fabriquer ?? 0;
-      const vracFabrique = vracByLigne.get(ligne.id) ?? 0;
-      const cartonDemande = ligne.qt_carton ?? 0;
-      const cartonFabrique = cartonByLigne.get(ligne.id) ?? 0;
-      const cartonEmballe = emballageByLigne.get(ligne.id) ?? 0;
+  // Les codes (lots) d'une ligne : un seul (numero_lot) sauf si la ligne a
+  // ete decoupee en plusieurs lots au Save (numero_lot_detail fige).
+  function ligneOwnCodes(ligne: ProgrammeLigneRow) {
+    const codes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    const detail = ligne.numero_lot_detail ?? [];
+    if (codes.length <= 1 || detail.length !== codes.length) {
+      if (codes.length === 0) return [];
+      return [{ code: codes[0], vracDemande: ligne.vrac_a_fabriquer ?? 0, cartonDemande: ligne.qt_carton ?? 0 }];
+    }
+    return detail.map((entry) => ({
+      code: entry.code,
+      vracDemande: entry.qt_vrac ?? 0,
+      cartonDemande: entry.qt_carton ?? 0,
+    }));
+  }
 
-      // "Termine" = exactement quand la ligne a disparu des 3 colonnes du
-      // Dashboard (reste <= 0 OU "Fin programme" appuye pour cette etape,
-      // OU "Fin programme" general) - meme regle, pas une estimation a part.
-      const vracOk = ligne.programme_termine || ligne.vrac_termine || vracDemande <= 0 || vracFabrique >= vracDemande;
-      const cartonOk =
-        ligne.programme_termine || ligne.carton_termine || cartonDemande <= 0 || cartonFabrique >= cartonDemande;
-      const emballageOk =
-        ligne.programme_termine ||
-        ligne.emballage_termine ||
-        cartonFabrique <= 0 ||
-        cartonEmballe >= cartonFabrique;
-      const hasStarted = vracFabrique > 0 || cartonFabrique > 0 || cartonEmballe > 0;
-      const statut: Statut =
-        vracOk && cartonOk && emballageOk ? "Termine" : hasStarted ? "En cours" : "Pas commence";
+  // Deux lignes (2 produits differents) peuvent partager UN MEME code quand
+  // le Dispatcher a regroupe leurs vracs dans un seul lot (petites qtes). La
+  // production saisie pour ce code atterrit alors sur UNE SEULE des 2
+  // lignes en base, faussant l'ecart des deux (l'une affiche tout le
+  // fabrique en trop, l'autre rien) - on regroupe ici les lignes qui
+  // partagent un code (union-find) pour repartir le fabrique du groupe
+  // entre elles : chaque ligne (dans l'ordre de son id, le plus stable)
+  // recoit d'abord de quoi couvrir son propre besoin, la derniere de la
+  // chaine recupere le reste (surplus visible plutot que perdu).
+  function buildLigneRoots(rows: ProgrammeLigneRow[]): Map<number, number> {
+    const parent = new Map<number, number>();
+    const find = (x: number): number => {
+      let root = x;
+      while (parent.get(root) !== root) root = parent.get(root)!;
+      let cur = x;
+      while (parent.get(cur) !== root) {
+        const next = parent.get(cur)!;
+        parent.set(cur, root);
+        cur = next;
+      }
+      return root;
+    };
+    const union = (a: number, b: number) => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent.set(ra, rb);
+    };
 
-      return {
-        statut,
-        id: ligne.id,
-        date: ligne.date_jour,
-        code: ligne.numero_lot || "-",
-        pd: pdLabelsForNumeroLot(ligne.numero_lot, pdLabelByCode),
-        produit: ligne.produit || "-",
-        vracDemande,
-        vracFabrique,
-        vracDiff: vracDemande - vracFabrique,
-        cartonDemande,
-        cartonFabrique,
-        cartonDiff: cartonDemande - cartonFabrique,
-        cartonEmballe,
-        conditionnementEmballageDiff: cartonEmballe - cartonFabrique,
-      };
+    for (const ligne of rows) parent.set(ligne.id, ligne.id);
+
+    const ligneIdsByCode = new Map<string, number[]>();
+    for (const ligne of rows) {
+      for (const { code } of ligneOwnCodes(ligne)) {
+        const list = ligneIdsByCode.get(code) ?? [];
+        list.push(ligne.id);
+        ligneIdsByCode.set(code, list);
+      }
+    }
+    for (const ids of ligneIdsByCode.values()) {
+      for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
+    }
+
+    const rootOf = new Map<number, number>();
+    for (const ligne of rows) rootOf.set(ligne.id, find(ligne.id));
+    return rootOf;
+  }
+
+  function cascadeFamily(tuples: { key: string; demande: number }[], totalPool: number): Map<string, number> {
+    const result = new Map<string, number>();
+    let remaining = totalPool;
+    tuples.forEach((tuple, index) => {
+      const isLast = index === tuples.length - 1;
+      const amount = isLast ? Math.max(0, remaining) : Math.min(Math.max(0, remaining), Math.max(0, tuple.demande));
+      result.set(tuple.key, amount);
+      remaining -= amount;
     });
+    return result;
+  }
+
+  function buildEcartRow(
+    ligne: ProgrammeLigneRow,
+    code: string,
+    pd: string,
+    vracDemande: number,
+    cartonDemande: number,
+    vracFabrique: number,
+    cartonFabrique: number,
+    cartonEmballe: number
+  ) {
+    // "Termine" = exactement quand la ligne a disparu des 3 colonnes du
+    // Dashboard (reste <= 0 OU "Fin programme" appuye pour cette etape,
+    // OU "Fin programme" general) - meme regle, pas une estimation a part.
+    const vracOk = ligne.programme_termine || ligne.vrac_termine || vracDemande <= 0 || vracFabrique >= vracDemande;
+    const cartonOk =
+      ligne.programme_termine || ligne.carton_termine || cartonDemande <= 0 || cartonFabrique >= cartonDemande;
+    const emballageOk =
+      ligne.programme_termine || ligne.emballage_termine || cartonFabrique <= 0 || cartonEmballe >= cartonFabrique;
+    const hasStarted = vracFabrique > 0 || cartonFabrique > 0 || cartonEmballe > 0;
+    const statut: Statut =
+      vracOk && cartonOk && emballageOk ? "Termine" : hasStarted ? "En cours" : "Pas commence";
+
+    return {
+      statut,
+      statutFabrication: stageStatut(vracOk, vracFabrique > 0),
+      statutConditionnement: stageStatut(cartonOk, cartonFabrique > 0),
+      statutEmballage: stageStatut(emballageOk, cartonEmballe > 0),
+      id: ligne.id,
+      date: ligne.date_jour,
+      code,
+      pd,
+      produit: ligne.produit || "-",
+      vracDemande,
+      vracFabrique,
+      vracDiff: vracDemande - vracFabrique,
+      cartonDemande,
+      cartonFabrique,
+      cartonDiff: cartonDemande - cartonFabrique,
+      cartonEmballe,
+      conditionnementEmballageDiff: cartonEmballe - cartonFabrique,
+    };
+  }
+
+  const lignesWithLot = lignes.filter((ligne) => ligne.numero_lot);
+  const lignesById = new Map(lignesWithLot.map((ligne) => [ligne.id, ligne]));
+  const rootOf = buildLigneRoots(lignesWithLot);
+  const familyByRoot = new Map<number, number[]>();
+  for (const ligne of lignesWithLot) {
+    const root = rootOf.get(ligne.id)!;
+    const list = familyByRoot.get(root) ?? [];
+    list.push(ligne.id);
+    familyByRoot.set(root, list);
+  }
+
+  const allRows: ReturnType<typeof buildEcartRow>[] = [];
+  const processedRoots = new Set<number>();
+
+  for (const ligne of lignesWithLot) {
+    const root = rootOf.get(ligne.id)!;
+    if (processedRoots.has(root)) continue;
+    processedRoots.add(root);
+
+    const ligneIds = [...(familyByRoot.get(root) ?? [ligne.id])].sort((a, b) => a - b);
+
+    if (ligneIds.length === 1) {
+      // Pas de code partage avec une autre ligne - affichage combine inchange.
+      allRows.push(
+        buildEcartRow(
+          ligne,
+          ligne.numero_lot || "-",
+          pdLabelsForNumeroLot(ligne.numero_lot, pdLabelByCode),
+          ligne.vrac_a_fabriquer ?? 0,
+          ligne.qt_carton ?? 0,
+          vracByLigne.get(ligne.id) ?? 0,
+          cartonByLigne.get(ligne.id) ?? 0,
+          emballageByLigne.get(ligne.id) ?? 0
+        )
+      );
+      continue;
+    }
+
+    const tuples = ligneIds.flatMap((ligneId) => {
+      const familyLigne = lignesById.get(ligneId)!;
+      return ligneOwnCodes(familyLigne).map(({ code, vracDemande, cartonDemande }) => ({
+        key: `${ligneId}::${code}`,
+        ligne: familyLigne,
+        code,
+        vracDemande,
+        cartonDemande,
+      }));
+    });
+
+    const familyVracPool = ligneIds.reduce((sum, id) => sum + (vracByLigne.get(id) ?? 0), 0);
+    const familyCartonPool = ligneIds.reduce((sum, id) => sum + (cartonByLigne.get(id) ?? 0), 0);
+    const familyEmballagePool = ligneIds.reduce((sum, id) => sum + (emballageByLigne.get(id) ?? 0), 0);
+
+    const vracByTuple = cascadeFamily(
+      tuples.map((t) => ({ key: t.key, demande: t.vracDemande })),
+      familyVracPool
+    );
+    const cartonByTuple = cascadeFamily(
+      tuples.map((t) => ({ key: t.key, demande: t.cartonDemande })),
+      familyCartonPool
+    );
+    const emballageByTuple = cascadeFamily(
+      tuples.map((t) => ({ key: t.key, demande: cartonByTuple.get(t.key) ?? 0 })),
+      familyEmballagePool
+    );
+
+    for (const tuple of tuples) {
+      allRows.push(
+        buildEcartRow(
+          tuple.ligne,
+          tuple.code,
+          pdLabelByCode.get(tuple.code) ?? "-",
+          tuple.vracDemande,
+          tuple.cartonDemande,
+          vracByTuple.get(tuple.key) ?? 0,
+          cartonByTuple.get(tuple.key) ?? 0,
+          emballageByTuple.get(tuple.key) ?? 0
+        )
+      );
+    }
+  }
 
   const rows = allRows.filter((row) => {
     if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
@@ -226,25 +392,41 @@ export default async function RapportEcartsPage({
               <table className="min-w-full text-left text-sm">
                 <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
                   <tr>
-                    <th className="px-4 py-3 font-semibold">Statut</th>
-                    <th className="px-4 py-3 font-semibold">Date programme</th>
-                    <th className="px-4 py-3 font-semibold">Code</th>
-                    <th className="px-4 py-3 font-semibold">Programme (PD)</th>
-                    <th className="px-4 py-3 font-semibold">Produit</th>
-                    <th className="px-4 py-3 font-semibold">Vrac demande</th>
-                    <th className="px-4 py-3 font-semibold">Vrac fabrique</th>
-                    <th className="px-4 py-3 font-semibold">Ecart vrac</th>
-                    <th className="px-4 py-3 font-semibold">Carton demande</th>
-                    <th className="px-4 py-3 font-semibold">Carton fabrique</th>
-                    <th className="px-4 py-3 font-semibold">Ecart carton</th>
-                    <th className="px-4 py-3 font-semibold">Carton emballe</th>
-                    <th className="px-4 py-3 font-semibold">Ecart emballage/conditionnement</th>
-                    {canDelete ? <th className="px-4 py-3 font-semibold">Action</th> : null}
+                    <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Statut</th>
+                    <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Date programme</th>
+                    <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Code</th>
+                    <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Programme (PD)</th>
+                    <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Produit</th>
+                    <th colSpan={4} className="bg-amber-50 px-4 py-2 text-center font-semibold text-amber-800">
+                      Fabrication
+                    </th>
+                    <th colSpan={4} className="bg-sky-50 px-4 py-2 text-center font-semibold text-sky-800">
+                      Conditionnement
+                    </th>
+                    <th colSpan={3} className="bg-emerald-50 px-4 py-2 text-center font-semibold text-emerald-800">
+                      Emballage
+                    </th>
+                    {canDelete ? <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Action</th> : null}
+                  </tr>
+                  <tr>
+                    <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Statut</th>
+                    <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Vrac demande</th>
+                    <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Vrac fabrique</th>
+                    <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Ecart vrac</th>
+                    <th className="bg-sky-50/60 px-4 py-2 font-semibold text-sky-800">Statut</th>
+                    <th className="bg-sky-50/60 px-4 py-2 font-semibold text-sky-800">Carton demande</th>
+                    <th className="bg-sky-50/60 px-4 py-2 font-semibold text-sky-800">Carton fabrique</th>
+                    <th className="bg-sky-50/60 px-4 py-2 font-semibold text-sky-800">Ecart carton</th>
+                    <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Statut</th>
+                    <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Carton emballe</th>
+                    <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">
+                      Ecart emballage/carton
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {pagedRows.map((row) => (
-                    <tr key={row.id} className="border-t border-slate-100">
+                    <tr key={`${row.id}::${row.code}`} className="border-t border-slate-100">
                       <td className="px-4 py-3">
                         <StatutBadge statut={row.statut} />
                       </td>
@@ -252,13 +434,22 @@ export default async function RapportEcartsPage({
                       <td className="px-4 py-3 font-medium text-slate-900">{row.code}</td>
                       <td className="px-4 py-3 text-slate-600">{row.pd}</td>
                       <td className="px-4 py-3 text-slate-600">{row.produit}</td>
-                      <td className="px-4 py-3 text-slate-600">{formatQty(row.vracDemande)}</td>
-                      <td className="px-4 py-3 text-slate-600">{formatQty(row.vracFabrique)}</td>
+                      <td className="bg-amber-50/30 px-4 py-3">
+                        <StatutBadge statut={row.statutFabrication} />
+                      </td>
+                      <td className="bg-amber-50/30 px-4 py-3 text-slate-600">{formatQty(row.vracDemande)}</td>
+                      <td className="bg-amber-50/30 px-4 py-3 text-slate-600">{formatQty(row.vracFabrique)}</td>
                       <DiffCell value={row.vracDiff} />
-                      <td className="px-4 py-3 text-slate-600">{Math.round(row.cartonDemande)}</td>
-                      <td className="px-4 py-3 text-slate-600">{Math.round(row.cartonFabrique)}</td>
+                      <td className="bg-sky-50/30 px-4 py-3">
+                        <StatutBadge statut={row.statutConditionnement} />
+                      </td>
+                      <td className="bg-sky-50/30 px-4 py-3 text-slate-600">{Math.round(row.cartonDemande)}</td>
+                      <td className="bg-sky-50/30 px-4 py-3 text-slate-600">{Math.round(row.cartonFabrique)}</td>
                       <DiffCell value={row.cartonDiff} whole />
-                      <td className="px-4 py-3 text-slate-600">{Math.round(row.cartonEmballe)}</td>
+                      <td className="bg-emerald-50/30 px-4 py-3">
+                        <StatutBadge statut={row.statutEmballage} />
+                      </td>
+                      <td className="bg-emerald-50/30 px-4 py-3 text-slate-600">{Math.round(row.cartonEmballe)}</td>
                       <DiffCell value={row.conditionnementEmballageDiff} whole />
                       {canDelete ? (
                         <td className="px-4 py-3">
