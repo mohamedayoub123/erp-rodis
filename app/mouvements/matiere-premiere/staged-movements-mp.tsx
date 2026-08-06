@@ -5,6 +5,7 @@ import { createEntreeMpBatchAction, createSortieMpBatchAction } from "./actions"
 import { DateJmaInput } from "@/app/_components/date-jma-input";
 import { formatDate } from "@/lib/format-date";
 import { useComboboxNav } from "@/app/_components/use-combobox-nav";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 export type ArticleMpOption = {
   id: number;
@@ -86,14 +87,12 @@ export function EntreePanelMp({
     [articleInput, articles]
   );
 
+  // Pas de plafond : avec 1800+ articles matiere premiere, limiter a 80
+  // quand le champ est vide cachait la grande majorite du catalogue des
+  // qu'on ouvrait la liste sans avoir encore tape de recherche.
   const filteredArticles = useMemo(() => {
-    const words = articleInput.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return articles.slice(0, 80);
-
-    return articles.filter((article) => {
-      const label = article.label.toLowerCase();
-      return words.every((word) => label.includes(word));
-    });
+    if (!articleInput.trim()) return articles;
+    return articles.filter((article) => matchesArticleSearch(article.label, articleInput));
   }, [articleInput, articles]);
 
   function selectArticle(article: ArticleMpOption) {
@@ -471,14 +470,12 @@ export function SortiePanelMp({
     [articleInput, articles]
   );
 
+  // Pas de plafond : avec 1800+ articles matiere premiere, limiter a 80
+  // quand le champ est vide cachait la grande majorite du catalogue des
+  // qu'on ouvrait la liste sans avoir encore tape de recherche.
   const filteredArticles = useMemo(() => {
-    const words = articleInput.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return articles.slice(0, 80);
-
-    return articles.filter((article) => {
-      const label = article.label.toLowerCase();
-      return words.every((word) => label.includes(word));
-    });
+    if (!articleInput.trim()) return articles;
+    return articles.filter((article) => matchesArticleSearch(article.label, articleInput));
   }, [articleInput, articles]);
 
   function selectArticle(article: ArticleMpOption) {
