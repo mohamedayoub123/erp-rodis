@@ -5,6 +5,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { updateLotMpNoteAction } from "./actions";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 const FENETRE_JOURS = 90; // ~3 mois avant peremption
 
@@ -129,7 +130,7 @@ export default async function StockPerimeMpPage({
   const filtered = withJours.filter((lot) => {
     if (statut === "perime" && lot.jours >= 0) return false;
     if (statut === "proche" && lot.jours < 0) return false;
-    if (q && !lot.nom_article.toLowerCase().includes(q)) return false;
+    if (q && !matchesArticleSearch(lot.nom_article, q)) return false;
     return true;
   });
 
