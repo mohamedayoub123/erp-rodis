@@ -20,6 +20,7 @@ export type LotOption = {
   numeroLot: string;
   chambre: string;
   codePays: string;
+  datePeremption: string;
   stock: number;
 };
 
@@ -28,6 +29,7 @@ type PendingEntree = {
   article_label: string;
   numero_lot: string;
   date_fabrication: string;
+  date_peremption: string;
   quantite: number;
   chambre: string;
   code_pays: string;
@@ -47,7 +49,7 @@ type PendingSortie = {
 function formatLotLabel(lot: LotOption) {
   return `${lot.articleLabel} | ${lot.numeroLot} | restant ${lot.stock}${
     lot.chambre ? ` | ${lot.chambre}` : ""
-  }${lot.codePays ? ` | ${lot.codePays}` : ""}`;
+  }${lot.codePays ? ` | ${lot.codePays}` : ""}${lot.datePeremption ? ` | exp. ${lot.datePeremption}` : ""}`;
 }
 
 export function EntreePanel({
@@ -62,6 +64,7 @@ export function EntreePanel({
   const [showArticleDropdown, setShowArticleDropdown] = useState(false);
   const [numeroLot, setNumeroLot] = useState("");
   const [dateFabrication, setDateFabrication] = useState("");
+  const [datePeremption, setDatePeremption] = useState("");
   const [quantite, setQuantite] = useState("");
   const [chambre, setChambre] = useState("");
   const [codePays, setCodePays] = useState("");
@@ -107,6 +110,7 @@ export function EntreePanel({
         article_label: selectedArticle.label,
         numero_lot: numeroLot.trim(),
         date_fabrication: dateFabrication,
+        date_peremption: datePeremption,
         quantite: qty,
         chambre: chambre.trim(),
         code_pays: codePays.trim(),
@@ -117,6 +121,7 @@ export function EntreePanel({
     setArticleInput("");
     setNumeroLot("");
     setDateFabrication("");
+    setDatePeremption("");
     setQuantite("");
     setChambre("");
     setCodePays("");
@@ -146,6 +151,7 @@ export function EntreePanel({
             numeroLot: row.numero_lot,
             chambre: row.chambre,
             codePays: row.code_pays,
+            datePeremption: row.date_peremption,
             stock: row.quantite,
           })),
           ...currentLots,
@@ -163,6 +169,7 @@ export function EntreePanel({
       article_id: row.article_id,
       numero_lot: row.numero_lot,
       date_fabrication: row.date_fabrication,
+      date_peremption: row.date_peremption,
       quantite: row.quantite,
       chambre: row.chambre,
       code_pays: row.code_pays,
@@ -218,7 +225,17 @@ export function EntreePanel({
             placeholder="Numero lot"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
-          <DateJmaInput value={dateFabrication} onChange={setDateFabrication} />
+          <label className="grid gap-1 text-xs font-semibold text-slate-500">
+            Date fabrication
+            <DateJmaInput value={dateFabrication} onChange={setDateFabrication} />
+          </label>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="grid gap-1 text-xs font-semibold text-slate-500">
+            Date d&apos;expiration
+            <DateJmaInput value={datePeremption} onChange={setDatePeremption} />
+          </label>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -278,7 +295,8 @@ export function EntreePanel({
                 <tr>
                   <th className="px-3 py-2 font-semibold">Article</th>
                   <th className="px-3 py-2 font-semibold">Qt</th>
-                  <th className="px-3 py-2 font-semibold">Date</th>
+                  <th className="px-3 py-2 font-semibold">Date fab.</th>
+                  <th className="px-3 py-2 font-semibold">Date exp.</th>
                   <th className="px-3 py-2 font-semibold">Code</th>
                   <th className="px-3 py-2 font-semibold">Pays</th>
                   <th className="px-3 py-2 font-semibold">Chambre</th>
@@ -292,6 +310,7 @@ export function EntreePanel({
                     <td className="px-3 py-2 font-semibold text-slate-900">{row.article_label}</td>
                     <td className="px-3 py-2 text-slate-700">{row.quantite}</td>
                     <td className="px-3 py-2 text-slate-700">{row.date_fabrication}</td>
+                    <td className="px-3 py-2 text-slate-700">{row.date_peremption || "-"}</td>
                     <td className="px-3 py-2 text-slate-700">{row.numero_lot}</td>
                     <td className="px-3 py-2 text-slate-700">{row.code_pays || "-"}</td>
                     <td className="px-3 py-2 text-slate-700">{row.chambre || "-"}</td>
@@ -510,6 +529,13 @@ export function SortiePanel({
             </div>
           ) : null}
         </label>
+
+        {selectedLot ? (
+          <p className="text-xs font-semibold text-slate-500">
+            Date d&apos;expiration : {selectedLot.datePeremption || "non renseignee"} (reprise
+            automatiquement du lot, pas modifiable ici)
+          </p>
+        ) : null}
 
         <input
           type="number"

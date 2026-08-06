@@ -202,6 +202,7 @@ export default async function EntreeProductionPage() {
         ) : (
           dateGroups.map((group) => {
             const allValid = group.lignes.every((ligne) => ligne.hasArticle);
+            const totalQuantite = group.lignes.reduce((sum, ligne) => sum + Number(ligne.quantite), 0);
 
             return (
               <section
@@ -219,6 +220,9 @@ export default async function EntreeProductionPage() {
                     <div>
                       <h2 className="text-lg font-bold text-slate-900">
                         Entree Production {group.previewNumber}
+                        <span className="ml-2 text-sm font-semibold text-emerald-700">
+                          Total Qt : {totalQuantite}
+                        </span>
                       </h2>
                       <p className="text-xs text-slate-500">{formatDate(group.date)}</p>
                     </div>

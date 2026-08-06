@@ -9,6 +9,7 @@ type PendingEntreeRow = {
   article_id: number;
   numero_lot: string;
   date_fabrication: string;
+  date_peremption?: string;
   quantite: number;
   chambre?: string;
   code_pays?: string;
@@ -59,6 +60,7 @@ export async function createEntreeStockAction(formData: FormData) {
         article_id: Number(String(formData.get("article_id") || "0")),
         numero_lot: String(formData.get("numero_lot") || "").trim(),
         date_fabrication: String(formData.get("date_fabrication") || "").trim(),
+        date_peremption: String(formData.get("date_peremption") || "").trim(),
         quantite: Number(String(formData.get("quantite") || "0").replace(",", ".")),
         chambre: String(formData.get("chambre") || "").trim(),
         code_pays: String(formData.get("code_pays") || "").trim(),
@@ -115,6 +117,7 @@ export async function createEntreeStockBatchAction(formData: FormData) {
     const quantite = Number(row.quantite);
     const numeroLot = String(row.numero_lot || "").trim();
     const dateFabrication = String(row.date_fabrication || "").trim();
+    const datePeremption = String(row.date_peremption || "").trim();
     const chambre = String(row.chambre || "").trim();
     const codePays = String(row.code_pays || "").trim();
     const note = String(row.note || "").trim();
@@ -129,6 +132,7 @@ export async function createEntreeStockBatchAction(formData: FormData) {
       numero_lot: numeroLot,
       code_normalise: numeroLot.toUpperCase(),
       date_fabrication: dateFabrication,
+      date_peremption: datePeremption || null,
       qte_entree: quantite,
       qte_sortie: 0,
       chambre: chambre || null,
