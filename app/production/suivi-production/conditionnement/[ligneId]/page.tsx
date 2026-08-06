@@ -274,6 +274,7 @@ export default async function RapportConditionnementPage({
                     <DateJmaFormField
                       name="date_fabrication_conditionnement"
                       defaultValue={rapport?.date_fabrication_conditionnement}
+                      required
                     />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
