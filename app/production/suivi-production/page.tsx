@@ -5,6 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../suivi/data";
 import { DeleteRowButton } from "./delete-row-button";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 // Meme calcul que Historique programme (PL1.2026, PL2.2026... remis a 1
 // chaque nouvelle annee de date_jour, rang par ordre de creation) - permet
@@ -442,6 +443,8 @@ export default async function SuiviProductionListPage({
   searchParams: SearchParams;
 }) {
   noStore();
+  const currentUser = await getCurrentStockUser();
+  const canDelete = await canDeletePageUser(currentUser, "productionSuiviProductionListe");
   const params = await searchParams;
   const codeFilter = (params.code || "").trim().toLowerCase();
   const produitFilter = (params.produit || "").trim().toLowerCase();
@@ -859,12 +862,14 @@ export default async function SuiviProductionListPage({
                         </td>
 
                         <td className="px-6 py-4">
-                          <DeleteRowButton
-                            fabricationId={row.fabrication?.entryId}
-                            conditionnementId={row.conditionnement?.entryId}
-                            emballageId={row.emballage?.entryId}
-                            rapportId={row.isGeneral ? row.generalRapportId : null}
-                          />
+                          {canDelete ? (
+                            <DeleteRowButton
+                              fabricationId={row.fabrication?.entryId}
+                              conditionnementId={row.conditionnement?.entryId}
+                              emballageId={row.emballage?.entryId}
+                              rapportId={row.isGeneral ? row.generalRapportId : null}
+                            />
+                          ) : null}
                         </td>
                       </tr>
                     );
