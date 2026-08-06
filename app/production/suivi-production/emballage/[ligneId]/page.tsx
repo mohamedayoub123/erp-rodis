@@ -150,7 +150,7 @@ export default async function RapportEmballagePage({
                 </p>
                 <label className="grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
                   Date emballage
-                  <DateJmaFormField name="date_emballage" defaultValue={rapport?.date_emballage} />
+                  <DateJmaFormField name="date_emballage" defaultValue={rapport?.date_emballage} required />
                 </label>
               </div>
 

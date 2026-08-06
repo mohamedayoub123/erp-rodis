@@ -10,6 +10,8 @@ import { matchesArticleSearch } from "@/lib/article-search";
 import { deleteCodeProgressAction } from "../../suivi-production/actions";
 import { markCartonTermineAction, markEmballageTermineAction, markVracTermineAction } from "../actions";
 import { ProduitFilterInput } from "./produit-filter-input";
+import { ManualEntryButton } from "./manual-entry-button";
+import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 import {
   buildPdLabelByCode,
   computeProduitParCode,
@@ -131,6 +133,7 @@ export default async function PlanningDashboardPage({
   const distinctGammes = [...new Set(articles.map((article) => article.gamme).filter(Boolean))].sort(
     (a, b) => (a as string).localeCompare(b as string)
   ) as string[];
+  const articleOptions = articles.map((article) => ({ id: article.id, label: article.nom_article }));
 
   const activeLigneIds = allLignes.map((ligne) => ligne.id);
 
@@ -317,7 +320,7 @@ export default async function PlanningDashboardPage({
             <ProduitFilterInput
               name="produit"
               defaultValue={params.produit || ""}
-              articles={articles.map((article) => ({ id: article.id, label: article.nom_article }))}
+              articles={articleOptions}
               placeholder="Produit"
             />
             <select
@@ -424,7 +427,15 @@ export default async function PlanningDashboardPage({
 
           <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <h2 className="text-lg font-bold text-slate-900">Conditionnement</h2>
+              <div className="relative flex items-center gap-2">
+                <h2 className="text-lg font-bold text-slate-900">Conditionnement</h2>
+                <ManualEntryButton
+                  target="conditionnement"
+                  label="Conditionnement"
+                  zoneChaineOptions={ZONE_GROUPS.flat()}
+                  articles={articleOptions}
+                />
+              </div>
               <p className="text-xs text-slate-500">
                 {Math.round(totalCartonProduit)} / {Math.round(totalCartonPrevu)} produit
               </p>
@@ -488,7 +499,15 @@ export default async function PlanningDashboardPage({
 
           <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <h2 className="text-lg font-bold text-slate-900">Emballage</h2>
+              <div className="relative flex items-center gap-2">
+                <h2 className="text-lg font-bold text-slate-900">Emballage</h2>
+                <ManualEntryButton
+                  target="emballage"
+                  label="Emballage"
+                  zoneChaineOptions={ZONE_GROUPS.flat()}
+                  articles={articleOptions}
+                />
+              </div>
               <p className="text-xs text-slate-500">
                 {Math.round(totalEmballageProduit)} / {Math.round(totalEmballagePrevu)} produit
               </p>
