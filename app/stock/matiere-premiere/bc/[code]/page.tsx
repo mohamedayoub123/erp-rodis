@@ -9,8 +9,11 @@ import { formatDate } from "@/lib/format-date";
 import {
   createImportEvenementAction,
   deleteCommandeBcLigneAction,
+  deleteImportEvenementAction,
   markCommandeBcLigneTermineAction,
   updateCommandeBcGroupAction,
+  updateCommandeBcLigneAction,
+  updateImportEvenementAction,
 } from "../actions";
 import { computeStatutBc, statutBcBadgeClass } from "../constants";
 
@@ -193,12 +196,57 @@ export default async function CommandeBcMpDetailPage({
                             {ligneImports.length === 0 ? (
                               "-"
                             ) : (
-                              <ul className="space-y-1">
+                              <ul className="space-y-1.5">
                                 {ligneImports.map((imp) => (
-                                  <li key={imp.id} className="text-xs">
-                                    {imp.quantite_importee} - {imp.n_doss_4d_import || "-"} /{" "}
-                                    {imp.n_doss_erp_import || "-"} -{" "}
-                                    {formatDate(imp.date_import)}
+                                  <li key={imp.id} className="flex items-start gap-1.5 text-xs">
+                                    <span className="pt-0.5">
+                                      {imp.quantite_importee} - {imp.n_doss_4d_import || "-"} /{" "}
+                                      {imp.n_doss_erp_import || "-"} -{" "}
+                                      {formatDate(imp.date_import)}
+                                    </span>
+                                    {canEdit ? (
+                                      <details className="rounded-lg border border-slate-200 bg-slate-50 px-1.5 py-0.5">
+                                        <summary className="cursor-pointer text-xs font-semibold text-slate-700">
+                                          Modifier
+                                        </summary>
+                                        <form
+                                          action={updateImportEvenementAction}
+                                          className="mt-2 grid w-52 gap-2"
+                                        >
+                                          <input type="hidden" name="import_id" value={imp.id} />
+                                          <label className="grid gap-1 text-xs text-slate-500">
+                                            Doss import 4D
+                                            <input
+                                              type="text"
+                                              name="n_doss_4d_import"
+                                              defaultValue={imp.n_doss_4d_import || ""}
+                                              className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                            />
+                                          </label>
+                                          <label className="grid gap-1 text-xs text-slate-500">
+                                            Doss import ERP
+                                            <input
+                                              type="text"
+                                              name="n_doss_erp_import"
+                                              defaultValue={imp.n_doss_erp_import || ""}
+                                              className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                            />
+                                          </label>
+                                          <button
+                                            type="submit"
+                                            className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                          >
+                                            Enregistrer
+                                          </button>
+                                        </form>
+                                      </details>
+                                    ) : null}
+                                    {canDelete ? (
+                                      <form action={deleteImportEvenementAction}>
+                                        <input type="hidden" name="import_id" value={imp.id} />
+                                        <DeleteIconButton label="Supprimer cet import" />
+                                      </form>
+                                    ) : null}
                                   </li>
                                 ))}
                               </ul>
@@ -216,6 +264,56 @@ export default async function CommandeBcMpDetailPage({
                           {canEdit || canDelete ? (
                             <td className="px-4 py-3">
                               <div className="flex items-start gap-2">
+                                {canEdit ? (
+                                  <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                                    <summary className="cursor-pointer text-xs font-semibold text-slate-800">
+                                      Modifier
+                                    </summary>
+                                    <form
+                                      action={updateCommandeBcLigneAction}
+                                      className="mt-2 grid w-60 gap-2"
+                                    >
+                                      <input type="hidden" name="bc_id" value={row.id} />
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Qte commandee
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          name="quantite"
+                                          defaultValue={quantite}
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                          required
+                                        />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Doss 4D
+                                        <input
+                                          type="text"
+                                          name="n_doss_4d"
+                                          defaultValue={row.n_doss_4d || ""}
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Doss ERP
+                                        <input
+                                          type="text"
+                                          name="n_doss_erp"
+                                          defaultValue={row.n_doss_erp || ""}
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
+                                      <button
+                                        type="submit"
+                                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                      >
+                                        Enregistrer
+                                      </button>
+                                    </form>
+                                  </details>
+                                ) : null}
+
                                 {canEdit ? (
                                   <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
                                     <summary className="cursor-pointer text-xs font-semibold text-slate-800">
