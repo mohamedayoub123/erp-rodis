@@ -7,7 +7,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { deleteCommandeBcGroupAction } from "./actions";
-import { computeStatutBc, statutBcBadgeClass } from "./constants";
+import { computeStatutBc, statutBcBadgeClass, STATUT_BC_OPTIONS, type StatutBc } from "./constants";
 
 type CommandeBcRow = {
   id: number;
@@ -40,6 +40,7 @@ type BcGroup = {
   quantiteTotale: number;
   quantiteImporteeTotale: number;
   statutLigne: string | null;
+  statut: StatutBc;
   dossImport4d: string;
   dossImportErp: string;
 };
@@ -122,7 +123,7 @@ async function fetchAllImportDossiers() {
   return { rows, error: null };
 }
 
-type SearchParams = Promise<{ doss_4d?: string; doss_erp?: string; produit?: string }>;
+type SearchParams = Promise<{ doss_4d?: string; doss_erp?: string; produit?: string; statut?: string }>;
 
 export default async function CommandeBcMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
@@ -130,7 +131,8 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
   const doss4dFilter = (params.doss_4d || "").trim().toLowerCase();
   const dossErpFilter = (params.doss_erp || "").trim().toLowerCase();
   const produitFilter = (params.produit || "").trim().toLowerCase();
-  const hasFilters = Boolean(doss4dFilter || dossErpFilter || produitFilter);
+  const statutFilter = (params.statut || "").trim();
+  const hasFilters = Boolean(doss4dFilter || dossErpFilter || produitFilter || statutFilter);
   const currentUser = await getCurrentStockUser();
   const canWriteNouvelle = await canWritePageUser(currentUser, "commandeBcMpNouvelle");
   const canDelete = await canDeletePageUser(currentUser, "commandeBcMp");
@@ -193,26 +195,31 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
     })
     .map(([code, groupRows]) => {
       const first = groupRows[0];
+      const quantiteTotale = groupRows.reduce((sum, row) => sum + Number(row.quantite ?? 0), 0);
+      const quantiteImporteeTotale = groupRows.reduce(
+        (sum, row) => sum + (importeeParLigne.get(row.id) ?? 0),
+        0
+      );
+      // Un BC groupe peut avoir plusieurs lignes/articles - si au moins une
+      // a ete forcee "Termine" a la main (bouton, independant du cote
+      // Import), le badge du groupe affiche ce statut en priorite (coherent
+      // avec le detail par ligne).
+      const statutLigne = groupRows.some((row) => row.statut === "Termine") ? "Termine" : null;
       return {
         code,
         n_doss_4d: first.n_doss_4d,
         n_doss_erp: first.n_doss_erp,
         date_jour: first.date_jour,
         nbArticles: groupRows.length,
-        quantiteTotale: groupRows.reduce((sum, row) => sum + Number(row.quantite ?? 0), 0),
-        quantiteImporteeTotale: groupRows.reduce(
-          (sum, row) => sum + (importeeParLigne.get(row.id) ?? 0),
-          0
-        ),
-        // Un BC groupe peut avoir plusieurs lignes/articles - si au moins
-        // une a ete forcee "Termine" a la main (bouton, independant du cote
-        // Import), le badge du groupe affiche ce statut en priorite
-        // (coherent avec le detail par ligne).
-        statutLigne: groupRows.some((row) => row.statut === "Termine") ? "Termine" : null,
+        quantiteTotale,
+        quantiteImporteeTotale,
+        statutLigne,
+        statut: computeStatutBc(quantiteTotale, quantiteImporteeTotale, statutLigne),
         dossImport4d: [...(doss4dParCode.get(code) ?? [])].join(", "),
         dossImportErp: [...(dossErpParCode.get(code) ?? [])].join(", "),
       };
     })
+    .filter((group) => !statutFilter || group.statut === statutFilter)
     .sort((a, b) => {
       const numA = Number(a.code.replace("BC", ""));
       const numB = Number(b.code.replace("BC", ""));
@@ -250,7 +257,7 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto_auto]">
             <input
               type="text"
               name="doss_4d"
@@ -272,6 +279,18 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
               placeholder="Produit"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
+            <select
+              name="statut"
+              defaultValue={statutFilter}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              <option value="">Tous les statuts</option>
+              {STATUT_BC_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
             <button
               type="submit"
               className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
@@ -321,11 +340,7 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
                 </thead>
                 <tbody>
                   {groups.map((group) => {
-                    const statut = computeStatutBc(
-                      group.quantiteTotale,
-                      group.quantiteImporteeTotale,
-                      group.statutLigne
-                    );
+                    const statut = group.statut;
                     const reste = group.quantiteTotale - group.quantiteImporteeTotale;
 
                     return (

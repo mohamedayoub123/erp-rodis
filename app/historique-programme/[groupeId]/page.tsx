@@ -2,7 +2,10 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { deleteProgrammeLigneGroupAction, relaunchProgrammeLigneGroupAction } from "../../programe-par-ligne/actions";
+import {
+  deleteProgrammeLigneGroupAction,
+  dispatchExistingProgrammeLigneGroupAction,
+} from "../../programe-par-ligne/actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -23,6 +26,7 @@ type ProgrammeLigneRow = {
   created_at: string;
   numero_lot: string | null;
   cree_par: string | null;
+  remarque: string | null;
 };
 
 function formatDate(value: string) {
@@ -51,7 +55,7 @@ export default async function HistoriqueProgrammeDetailPage({
   const { data } = await supabaseServer
     .from("programme_lignes")
     .select(
-      "id, groupe_id, zone, chaine, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe, date_jour, created_at, numero_lot, cree_par"
+      "id, groupe_id, zone, chaine, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe, date_jour, created_at, numero_lot, cree_par, remarque"
     )
     .eq("groupe_id", groupeIdNumber)
     .order("id", { ascending: true });
@@ -124,6 +128,9 @@ export default async function HistoriqueProgrammeDetailPage({
                 {formatDate(dateJour)} - {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
                 {lignes[0]?.cree_par ? ` - Cree par ${lignes[0].cree_par}` : ""}
               </p>
+              {lignes[0]?.remarque ? (
+                <p className="mt-2 text-base font-semibold text-sky-700">{lignes[0].remarque}</p>
+              ) : null}
             </div>
 
             <div className="no-print flex flex-wrap items-center gap-3">
@@ -139,13 +146,13 @@ export default async function HistoriqueProgrammeDetailPage({
                 </Link>
               ) : null}
               {canRelaunch ? (
-                <form action={relaunchProgrammeLigneGroupAction}>
+                <form action={dispatchExistingProgrammeLigneGroupAction}>
                   <input type="hidden" name="groupe_id" value={groupeIdNumber} />
                   <button
                     type="submit"
                     className="rounded-full bg-emerald-700 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
                   >
-                    Relancer au Ravitailleur
+                    Dispatch
                   </button>
                 </form>
               ) : null}

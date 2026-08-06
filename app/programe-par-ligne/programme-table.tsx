@@ -34,6 +34,7 @@ export type PrefillLigne = {
   vrac_a_fabriquer: number | null;
   plateforme: string | null;
   programe: string | null;
+  remarque?: string | null;
 };
 
 export type ArticleOption = {
@@ -253,10 +254,12 @@ export function ProgrammeLigneTable({
   zoneGroups,
   articles,
   prefillLignes = [],
+  prefillRemarque = "",
 }: {
   zoneGroups: LigneRow[][];
   articles: ArticleOption[];
   prefillLignes?: PrefillLigne[];
+  prefillRemarque?: string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -270,6 +273,7 @@ export function ProgrammeLigneTable({
   const [jourDate, setJourDate] = useState("");
   const [moisDate, setMoisDate] = useState("");
   const [anneeDate, setAnneeDate] = useState("");
+  const [remarque, setRemarque] = useState(prefillRemarque);
   const dateJour =
     jourDate && moisDate && anneeDate
       ? `${anneeDate.padStart(4, "0")}-${moisDate.padStart(2, "0")}-${jourDate.padStart(2, "0")}`
@@ -369,7 +373,11 @@ export function ProgrammeLigneTable({
     }));
   }
 
-  function handleSave() {
+  // "Dispatch" fait tout comme avant (Historique + Programme Dispatcher/
+  // Ravitailleur). "Save" enregistre seulement dans l'Historique, sans
+  // toucher au Dispatcher - pour poser un programme sans encore l'engager
+  // en fabrication.
+  function handleSave(withDispatch: boolean) {
     setMessage("");
     setErrorMessage("");
 
@@ -393,6 +401,8 @@ export function ProgrammeLigneTable({
     const formData = new FormData();
     formData.set("payload", JSON.stringify(payload));
     formData.set("date_jour", dateJour);
+    formData.set("remarque", remarque);
+    formData.set("with_dispatch", withDispatch ? "1" : "0");
 
     startTransition(async () => {
       try {
@@ -407,7 +417,12 @@ export function ProgrammeLigneTable({
         rowsRef.current = {};
         setSubRowCounts({});
         setResetKey((current) => current + 1);
-        router.push("/ravitailleur-par-ligne");
+        // Save reste sur cette page (grille reinitialisee, prete pour un
+        // nouveau programme) - seul Dispatch redirige vers Ravitailleur, la
+        // ou le programme vient d'etre reparti en lots.
+        if (withDispatch) {
+          router.push("/ravitailleur-par-ligne");
+        }
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
       }
@@ -466,6 +481,34 @@ export function ProgrammeLigneTable({
             {MOIS_OPTIONS.find((mois) => mois.value === moisDate)?.label} {anneeDate}
           </p>
         ) : null}
+        <label className="grid min-w-[16rem] flex-1 gap-1 text-xs font-semibold text-slate-500">
+          Remarque
+          <input
+            type="text"
+            value={remarque}
+            onChange={(event) => setRemarque(event.target.value)}
+            placeholder="Ecris ici..."
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => handleSave(false)}
+          disabled={isPending}
+          className="rounded-full border border-slate-200 px-6 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:opacity-60"
+        >
+          {isPending ? "Enregistrement..." : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleSave(true)}
+          disabled={isPending}
+          className="rounded-full bg-sky-700 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:opacity-60"
+        >
+          {isPending ? "Enregistrement..." : "Dispatch"}
+        </button>
+        {errorMessage ? <p className="w-full text-sm font-semibold text-red-700">{errorMessage}</p> : null}
+        {message ? <p className="w-full text-sm font-semibold text-emerald-700">{message}</p> : null}
       </div>
 
       <table className="min-w-full text-left text-sm">
@@ -568,14 +611,24 @@ export function ProgrammeLigneTable({
           {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
           {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}
         </div>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isPending}
-          className="rounded-full bg-sky-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:opacity-60"
-        >
-          {isPending ? "Enregistrement..." : "Save"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => handleSave(false)}
+            disabled={isPending}
+            className="rounded-full border border-slate-200 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:opacity-60"
+          >
+            {isPending ? "Enregistrement..." : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSave(true)}
+            disabled={isPending}
+            className="rounded-full bg-sky-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:opacity-60"
+          >
+            {isPending ? "Enregistrement..." : "Dispatch"}
+          </button>
+        </div>
       </div>
     </div>
   );

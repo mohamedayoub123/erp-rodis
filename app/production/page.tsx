@@ -60,6 +60,13 @@ const TILES = [
     icon: "\u{1F4C4}",
     description: "Tous les rapports de production.",
   },
+  {
+    label: "Machines",
+    href: "/production/machines",
+    pageKey: "machines",
+    icon: "\u{2699}\u{FE0F}",
+    description: "Liste des machines de production : zone, type, capacite.",
+  },
 ] as const;
 
 export default async function ProductionPage() {
