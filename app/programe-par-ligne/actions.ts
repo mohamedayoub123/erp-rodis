@@ -640,6 +640,55 @@ async function generateAutoCodes(
   return { codesByRowIndex, codeUpdatesByArticleId };
 }
 
+// Le code genere au Dispatch ne doit alimenter "Code par article"
+// (articles.code_manu/code_auto) qu'une fois le programme confirme sur
+// Ravitailleur (voir dispatcher-actions.ts) - le garde en attente ici,
+// fusionne avec une eventuelle attente deja posee pour ce meme groupe (un
+// Dispatch peut toucher plusieurs zones/chaines d'affilee avant la
+// confirmation ; un update qui ne touche que code_auto ne doit pas effacer
+// un code_manu deja mis en attente par un update precedent du meme groupe).
+async function upsertPendingArticleCodeUpdates(
+  groupeId: number,
+  updates: Map<number, { code_manu?: string; code_auto?: string }>
+): Promise<void> {
+  const articleIds = [...updates.keys()];
+
+  const { data: existingRows, error: fetchError } = await supabaseServer
+    .from("pending_article_code_updates")
+    .select("article_id, code_manu, code_auto")
+    .eq("groupe_id", groupeId)
+    .in("article_id", articleIds);
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  const existingByArticleId = new Map(
+    ((existingRows as { article_id: number; code_manu: string | null; code_auto: string | null }[] | null) ?? []).map(
+      (row) => [row.article_id, row]
+    )
+  );
+
+  const mergedRows = articleIds.map((articleId) => {
+    const existing = existingByArticleId.get(articleId);
+    const update = updates.get(articleId)!;
+    return {
+      groupe_id: groupeId,
+      article_id: articleId,
+      code_manu: update.code_manu ?? existing?.code_manu ?? null,
+      code_auto: update.code_auto ?? existing?.code_auto ?? null,
+    };
+  });
+
+  const { error: upsertError } = await supabaseServer
+    .from("pending_article_code_updates")
+    .upsert(mergedRows, { onConflict: "groupe_id,article_id" });
+
+  if (upsertError) {
+    throw new Error(upsertError.message);
+  }
+}
+
 // Enregistre un nouveau groupe programme_lignes (saisie depuis la grille de
 // "Programme par ligne"), puis le dispatche via assignDispatcherCodesAndInsert
 // si withDispatch. Pour dispatcher un groupe DEJA enregistre plus tard (voir
@@ -681,6 +730,7 @@ async function assignDispatcherCodesAndInsert(
   const MAX_CODE_ATTEMPTS = 6;
   let codesBySourceIndex = new Map<number, string[]>();
   let detailBySourceIndex = new Map<number, { code: string; qt_vrac: number | null; qt_carton: number | null }[]>();
+  let finalCodeUpdatesByArticleId = new Map<number, { code_manu?: string; code_auto?: string }>();
   let dispatcherSucceeded = false;
 
   for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
@@ -783,30 +833,18 @@ async function assignDispatcherCodesAndInsert(
       detailBySourceIndex.set(row.sourceIndex, detailList);
     });
 
-    // 2 RPC totalement independantes (maj des codes articles, nettoyage des
-    // zones dispatcher) lancees en parallele plutot qu'enchainees - aucune
-    // n'a besoin du resultat de l'autre, ni du resultat de l'insert qui
-    // suit (les valeurs passees a l'insert dispatcher viennent deja de
-    // codesByRowIndex, calcule en memoire plus haut).
-    const parallelWrites: PromiseLike<{ error: { message: string } | null }>[] = [];
-    if (codeUpdatesByArticleId.size > 0) {
-      parallelWrites.push(
-        supabaseServer.rpc("articles_bulk_update_codes", {
-          p_updates: [...codeUpdatesByArticleId.entries()].map(([articleId, updates]) => ({
-            id: articleId,
-            ...updates,
-          })),
-        })
-      );
-    }
+    // Le code genere n'est PAS ecrit sur articles.code_manu/code_auto ici -
+    // "Code par article" ne doit refleter que des codes CONFIRMES (voir
+    // upsertPendingArticleCodeUpdates plus bas, applique seulement quand
+    // Ravitailleur confirme le programme). Seul le nettoyage des zones
+    // dispatcher (independant de tout ca) reste ici.
+    finalCodeUpdatesByArticleId = codeUpdatesByArticleId;
     if (affectedZoneChaine.length > 0) {
-      parallelWrites.push(
-        supabaseServer.rpc("programme_dispatcher_clear_zones", { p_pairs: affectedZoneChaine })
-      );
-    }
-    for (const { error: parallelWriteError } of await Promise.all(parallelWrites)) {
-      if (parallelWriteError) {
-        throw new Error(parallelWriteError.message);
+      const { error: clearZonesError } = await supabaseServer.rpc("programme_dispatcher_clear_zones", {
+        p_pairs: affectedZoneChaine,
+      });
+      if (clearZonesError) {
+        throw new Error(clearZonesError.message);
       }
     }
 
@@ -847,6 +885,10 @@ async function assignDispatcherCodesAndInsert(
 
   if (!dispatcherSucceeded) {
     throw new Error("Impossible de generer un code de lot unique apres plusieurs tentatives - reessaie.");
+  }
+
+  if (finalCodeUpdatesByArticleId.size > 0) {
+    await upsertPendingArticleCodeUpdates(groupeId, finalCodeUpdatesByArticleId);
   }
 
   // Le numero de lot affiche sur "Programme par ligne"/Dashboard est

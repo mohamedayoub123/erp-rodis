@@ -4,6 +4,75 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { extractTrailingNumber } from "@/lib/article-code-family";
+
+// Le code genere au Dispatch (Programme par ligne) reste "en attente"
+// (pending_article_code_updates) jusqu'a ce que le programme soit confirme
+// ICI - "Code par article" ne doit refleter que des codes reellement
+// utilises, pas un Dispatch qui pourrait encore etre abandonne/refait.
+// Plusieurs groupe_id encore en attente (cas normal du Save "Toutes les
+// zones", qui confirme d'un coup tout ce qui trainait) peuvent avoir chacun
+// leur propre code en attente pour le MEME article (2 dispatchs distincts
+// de la meme famille, aucun encore confirme) - garde le plus recent (le
+// numero le plus grand) par champ plutot que le dernier lu au hasard.
+async function applyPendingArticleCodeUpdates(groupeIds: number[]): Promise<void> {
+  if (groupeIds.length === 0) return;
+
+  const { data: pendingRows, error: fetchError } = await supabaseServer
+    .from("pending_article_code_updates")
+    .select("article_id, code_manu, code_auto")
+    .in("groupe_id", groupeIds);
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  const rows =
+    (pendingRows as { article_id: number; code_manu: string | null; code_auto: string | null }[] | null) ?? [];
+
+  if (rows.length > 0) {
+    const bestByArticleId = new Map<number, { code_manu: string | null; code_auto: string | null }>();
+
+    for (const row of rows) {
+      const current = bestByArticleId.get(row.article_id) ?? { code_manu: null, code_auto: null };
+
+      const currentManuNum = current.code_manu ? extractTrailingNumber(current.code_manu) : null;
+      const rowManuNum = row.code_manu ? extractTrailingNumber(row.code_manu) : null;
+      if (rowManuNum !== null && (currentManuNum === null || rowManuNum > currentManuNum)) {
+        current.code_manu = row.code_manu;
+      }
+
+      const currentAutoNum = current.code_auto ? extractTrailingNumber(current.code_auto) : null;
+      const rowAutoNum = row.code_auto ? extractTrailingNumber(row.code_auto) : null;
+      if (rowAutoNum !== null && (currentAutoNum === null || rowAutoNum > currentAutoNum)) {
+        current.code_auto = row.code_auto;
+      }
+
+      bestByArticleId.set(row.article_id, current);
+    }
+
+    const { error: applyError } = await supabaseServer.rpc("articles_bulk_update_codes", {
+      p_updates: [...bestByArticleId.entries()].map(([articleId, update]) => ({
+        id: articleId,
+        code_manu: update.code_manu,
+        code_auto: update.code_auto,
+      })),
+    });
+
+    if (applyError) {
+      throw new Error(applyError.message);
+    }
+  }
+
+  const { error: deleteError } = await supabaseServer
+    .from("pending_article_code_updates")
+    .delete()
+    .in("groupe_id", groupeIds);
+
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+}
 
 export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
@@ -107,12 +176,15 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
     if (confirmError) {
       throw new Error(confirmError.message);
     }
+
+    await applyPendingArticleCodeUpdates(sourceGroupeIds);
   }
 
   revalidatePath(`/ravitailleur-par-ligne/${zone}`);
   revalidatePath("/historique-programme-dispatcher");
   revalidatePath("/production/suivi/dashboard");
   revalidatePath("/production/suivi/calendrier");
+  revalidatePath("/articles/produit-fini");
 
   return { ok: true, code: generatedCode, groupe_id: groupeId };
 }
@@ -213,12 +285,15 @@ export async function saveAllZonesDispatcherSnapshotAction() {
     if (confirmError) {
       throw new Error(confirmError.message);
     }
+
+    await applyPendingArticleCodeUpdates(sourceGroupeIds);
   }
 
   revalidatePath("/ravitailleur-par-ligne/tout");
   revalidatePath("/historique-programme-dispatcher");
   revalidatePath("/production/suivi/dashboard");
   revalidatePath("/production/suivi/calendrier");
+  revalidatePath("/articles/produit-fini");
 
   return { ok: true, code: generatedCode, groupe_id: groupeId };
 }
