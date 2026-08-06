@@ -7,6 +7,7 @@ import {
 } from "./actions";
 import { DateJmaInput } from "@/app/_components/date-jma-input";
 import { useComboboxNav } from "@/app/_components/use-combobox-nav";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 export type ArticleOption = {
   id: number;
@@ -74,17 +75,12 @@ export function EntreePanel({
     [articleInput, articles]
   );
 
+  // Pas de plafond : limiter le catalogue quand le champ est vide cachait
+  // la grande majorite des articles des qu'on ouvrait la liste sans avoir
+  // encore tape de recherche.
   const filteredArticles = useMemo(() => {
-    const words = articleInput.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return articles.slice(0, 80);
-
-    // Each word typed is matched independently anywhere in the name, so
-    // "la wh" still finds "Lait WHITE SECRET 500ml" without needing the
-    // full word.
-    return articles.filter((article) => {
-      const label = article.label.toLowerCase();
-      return words.every((word) => label.includes(word));
-    });
+    if (!articleInput.trim()) return articles;
+    return articles.filter((article) => matchesArticleSearch(article.label, articleInput));
   }, [articleInput, articles]);
 
   function selectArticle(article: ArticleOption) {

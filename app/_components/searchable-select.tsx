@@ -35,12 +35,10 @@ export function SearchableSelect({
     const query = inputValue.trim().toLowerCase();
 
     if (!query) {
-      return options.slice(0, 40);
+      return options;
     }
 
-    return options
-      .filter((option) => matchesArticleSearch(option.label, query))
-      .slice(0, 40);
+    return options.filter((option) => matchesArticleSearch(option.label, query));
   }, [inputValue, options]);
 
   return (
