@@ -55,14 +55,23 @@ type RapportInfo = {
   utilisateur_fabrication: string | null;
 };
 
+type SearchParams = Promise<{ code?: string }>;
+
 export default async function RapportFabricationPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ ligneId: string }>;
+  searchParams: SearchParams;
 }) {
   noStore();
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
+  const { code: codeParam } = await searchParams;
+  // Comme Conditionnement/Emballage : code du lot precis pour cette saisie
+  // (ex: "AA4141V" parmi les 3 codes d'une ligne decoupee en plusieurs lots)
+  // - vide seulement pour un lien genere avant l'ajout du suivi par code.
+  const code = (codeParam || "").trim();
 
   if (!ligneIdNumber) {
     notFound();
@@ -70,6 +79,9 @@ export default async function RapportFabricationPage({
 
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionFabrication");
+
+  const RAPPORT_FIELDS =
+    "machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, date_fabrication_conditionnement, utilisateur_fabrication";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
@@ -79,15 +91,30 @@ export default async function RapportFabricationPage({
       .maybeSingle(),
     supabaseServer
       .from("production_rapports")
-      .select(
-        "machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, date_fabrication_conditionnement, utilisateur_fabrication"
-      )
+      .select(RAPPORT_FIELDS)
       .eq("programme_ligne_id", ligneIdNumber)
+      .eq("code", code)
       .maybeSingle(),
   ]);
 
   const ligne = ligneData as LigneInfo | null;
-  const rapport = rapportData as RapportInfo | null;
+  let rapport = rapportData as RapportInfo | null;
+
+  // Meme repli que Conditionnement/Emballage : seulement pour une ligne
+  // jamais decoupee en plusieurs lots, l'ancien rapport partage (code "")
+  // reste sans ambiguite le bon prefill.
+  if (!rapport && code) {
+    const numeroLotCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    if (numeroLotCodes.length <= 1) {
+      const { data: legacyRapport } = await supabaseServer
+        .from("production_rapports")
+        .select(RAPPORT_FIELDS)
+        .eq("programme_ligne_id", ligneIdNumber)
+        .eq("code", "")
+        .maybeSingle();
+      rapport = legacyRapport as RapportInfo | null;
+    }
+  }
 
   if (!ligne) {
     notFound();
@@ -108,7 +135,7 @@ export default async function RapportFabricationPage({
               <p className="mt-2 text-sm text-slate-600">
                 {formatDate(ligne.date_jour)} - {ligne.zone} / {ligne.chaine} -{" "}
                 {vracLabelFromName(ligne.produit) || "-"}
-                {ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
+                {code ? ` - Lot ${code}` : ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
               </p>
               {rapport?.utilisateur_fabrication ? (
                 <p className="mt-1 text-xs text-slate-500">
@@ -130,7 +157,7 @@ export default async function RapportFabricationPage({
               Lecture seule : saisie de rapport cachee pour cet utilisateur.
             </p>
           ) : (
-            <FabricationForm ligneId={ligne.id} rapport={rapport} />
+            <FabricationForm ligneId={ligne.id} code={code} rapport={rapport} />
           )}
         </section>
       </div>

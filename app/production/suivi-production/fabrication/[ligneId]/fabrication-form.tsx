@@ -140,9 +140,11 @@ function TempsField({
 
 export function FabricationForm({
   ligneId,
+  code,
   rapport,
 }: {
   ligneId: number;
+  code: string;
   rapport: RapportInfo | null;
 }) {
   const [cuvesPoids, setCuvesPoids] = useState({
@@ -163,6 +165,7 @@ export function FabricationForm({
   return (
     <form action={saveFabricationRapportAction} className="grid gap-6">
       <input type="hidden" name="ligne_id" value={ligneId} />
+      <input type="hidden" name="code" value={code} />
 
       <div>
         <h2 className="mb-1 text-lg font-bold text-slate-900">Date</h2>
