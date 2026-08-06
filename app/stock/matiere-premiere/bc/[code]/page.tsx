@@ -216,7 +216,7 @@ export default async function CommandeBcMpDetailPage({
                           {canEdit || canDelete ? (
                             <td className="px-4 py-3">
                               <div className="flex items-start gap-2">
-                                {canEdit && reste > 0 ? (
+                                {canEdit ? (
                                   <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
                                     <summary className="cursor-pointer text-xs font-semibold text-slate-800">
                                       Creer import
@@ -232,7 +232,6 @@ export default async function CommandeBcMpDetailPage({
                                           type="number"
                                           step="0.01"
                                           min="0"
-                                          max={reste}
                                           name="quantite_importee"
                                           className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                           required

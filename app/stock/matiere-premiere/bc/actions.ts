@@ -191,8 +191,9 @@ export async function createCommandeBcBatchAction(formData: FormData) {
 
 // Enregistre un NOUVEL evenement d'import pour une ligne (pas d'ecrasement -
 // un article commande en une fois peut arriver en plusieurs fois, chacune
-// avec son propre dossier). Refuse si la quantite depasse ce qu'il reste a
-// importer.
+// avec son propre dossier). Volontairement libre : peut depasser la
+// quantite commandee, et reste utilisable meme apres que la ligne soit
+// passee "Termine" (arrivage supplementaire, correction...).
 export async function createImportEvenementAction(formData: FormData) {
   await requireEditAccess();
 
@@ -212,27 +213,6 @@ export async function createImportEvenementAction(formData: FormData) {
 
   if (ligneError || !ligneRow) {
     throw new Error("Ligne de commande introuvable.");
-  }
-
-  // Exclut les evenements issus d'une Reception (lot_stock_id renseigne) -
-  // sinon une Reception qui a deja consomme le "reste" empecherait a tort
-  // de creer un import classique ensuite (les deux suivis sont distincts).
-  const { data: existingImports } = await supabaseServer
-    .from("bons_commande_mp_imports")
-    .select("quantite_importee")
-    .eq("bc_ligne_id", bcLigneId)
-    .is("lot_stock_id", null);
-
-  const dejaImporte = ((existingImports ?? []) as { quantite_importee: number }[]).reduce(
-    (sum, row) => sum + Number(row.quantite_importee ?? 0),
-    0
-  );
-
-  const quantiteCommandee = Number((ligneRow as { quantite: number }).quantite ?? 0);
-  const reste = quantiteCommandee - dejaImporte;
-
-  if (quantiteImportee > reste) {
-    throw new Error(`Quantite trop grande : il ne reste que ${reste} a importer.`);
   }
 
   const { error } = await supabaseServer.from("bons_commande_mp_imports").insert([
