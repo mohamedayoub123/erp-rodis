@@ -359,6 +359,7 @@ export default async function RapportEcartsPage({
       cartonFabrique,
       cartonDiff: cartonDemande - cartonFabrique,
       cartonEmballe,
+      cartonEmballeDiff: cartonDemande - cartonEmballe,
       conditionnementEmballageDiff: cartonEmballe - cartonFabrique,
     };
   }
@@ -500,7 +501,7 @@ export default async function RapportEcartsPage({
                     <th colSpan={4} className="bg-sky-50 px-4 py-2 text-center font-semibold text-sky-800">
                       Conditionnement
                     </th>
-                    <th colSpan={4} className="bg-emerald-50 px-4 py-2 text-center font-semibold text-emerald-800">
+                    <th colSpan={5} className="bg-emerald-50 px-4 py-2 text-center font-semibold text-emerald-800">
                       Emballage
                     </th>
                     {canDelete ? <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Action</th> : null}
@@ -518,8 +519,9 @@ export default async function RapportEcartsPage({
                     <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Statut</th>
                     <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Carton demande</th>
                     <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Carton emballe</th>
+                    <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Ecart carton</th>
                     <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">
-                      Ecart emballage/carton
+                      Ecart emballage/conditionnement
                     </th>
                   </tr>
                 </thead>
@@ -551,6 +553,7 @@ export default async function RapportEcartsPage({
                       </td>
                       <td className="bg-emerald-50/30 px-4 py-3 text-slate-600">{Math.round(row.cartonDemande)}</td>
                       <td className="bg-emerald-50/30 px-4 py-3 text-slate-600">{Math.round(row.cartonEmballe)}</td>
+                      <DiffCell value={row.cartonEmballeDiff} whole />
                       <DiffCell value={row.conditionnementEmballageDiff} whole />
                       {canDelete ? (
                         <td className="px-4 py-3">
