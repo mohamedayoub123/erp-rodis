@@ -20,22 +20,30 @@ import {
 } from "../../suivi/data";
 import { deleteProgrammeLigneRapportAction } from "./actions";
 
-type Statut = "Termine" | "En cours" | "Pas commence";
+type Statut = "Termine" | "Termine Manuel" | "En cours" | "Pas commence";
 
 // Statut par etape (Fabrication/Conditionnement/Emballage) - le statut
 // combine existant ("Statut") ne dit pas LAQUELLE des 3 etapes bloque
-// quand la ligne est "En cours".
-function stageStatut(ok: boolean, started: boolean): Statut {
-  return ok ? "Termine" : started ? "En cours" : "Pas commence";
+// quand la ligne est "En cours". "manuel" = le bouton "Fin programme" a ete
+// utilise pour cette etape (vrac_termine/carton_termine/emballage_termine
+// ou programme_termine) - prioritaire sur "naturel" (quantite atteinte)
+// pour que "Termine Manuel" reste visible meme si la quantite a fini par
+// suivre entre-temps.
+function stageStatut(manuel: boolean, naturel: boolean, started: boolean): Statut {
+  if (manuel) return "Termine Manuel";
+  if (naturel) return "Termine";
+  return started ? "En cours" : "Pas commence";
 }
 
 function StatutBadge({ statut }: { statut: Statut }) {
   const className =
     statut === "Termine"
       ? "bg-emerald-100 text-emerald-800"
-      : statut === "En cours"
-        ? "bg-amber-100 text-amber-800"
-        : "bg-slate-100 text-slate-600";
+      : statut === "Termine Manuel"
+        ? "bg-violet-100 text-violet-800"
+        : statut === "En cours"
+          ? "bg-amber-100 text-amber-800"
+          : "bg-slate-100 text-slate-600";
 
   return (
     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${className}`}>{statut}</span>
@@ -55,7 +63,7 @@ function DiffCell({ value, whole }: { value: number; whole?: boolean }) {
 }
 
 const PAGE_SIZE = 200;
-const STATUT_OPTIONS: Statut[] = ["Termine", "En cours", "Pas commence"];
+const STATUT_OPTIONS: Statut[] = ["Termine", "Termine Manuel", "En cours", "Pas commence"];
 
 type SearchParams = Promise<{ code?: string; pd?: string; page?: string; statut?: string | string[] }>;
 
@@ -300,20 +308,34 @@ export default async function RapportEcartsPage({
     // "Fin programme" general) - meme regle, pas une estimation a part. Ces
     // drapeaux restent au niveau de la ligne entiere (pas encore suivis par
     // code cote base), donc partages par tous les codes d'une meme ligne.
-    const vracOk = ligne.programme_termine || ligne.vrac_termine || vracDemande <= 0 || vracFabrique >= vracDemande;
-    const cartonOk =
-      ligne.programme_termine || ligne.carton_termine || cartonDemande <= 0 || cartonFabrique >= cartonDemande;
-    const emballageOk =
-      ligne.programme_termine || ligne.emballage_termine || cartonFabrique <= 0 || cartonEmballe >= cartonFabrique;
+    // "manuel" = complete via le bouton "Fin programme" (pas parce que la
+    // quantite a ete atteinte) - distingue de "naturel" pour afficher
+    // "Termine Manuel" au lieu de "Termine" sur ces etapes-la.
+    const vracManuel = Boolean(ligne.programme_termine || ligne.vrac_termine);
+    const vracNaturel = vracDemande <= 0 || vracFabrique >= vracDemande;
+    const vracOk = vracManuel || vracNaturel;
+    const cartonManuel = Boolean(ligne.programme_termine || ligne.carton_termine);
+    const cartonNaturel = cartonDemande <= 0 || cartonFabrique >= cartonDemande;
+    const cartonOk = cartonManuel || cartonNaturel;
+    const emballageManuel = Boolean(ligne.programme_termine || ligne.emballage_termine);
+    const emballageNaturel = cartonFabrique <= 0 || cartonEmballe >= cartonFabrique;
+    const emballageOk = emballageManuel || emballageNaturel;
     const hasStarted = vracFabrique > 0 || cartonFabrique > 0 || cartonEmballe > 0;
+    const anyManuel = vracManuel || cartonManuel || emballageManuel;
     const statut: Statut =
-      vracOk && cartonOk && emballageOk ? "Termine" : hasStarted ? "En cours" : "Pas commence";
+      vracOk && cartonOk && emballageOk
+        ? anyManuel
+          ? "Termine Manuel"
+          : "Termine"
+        : hasStarted
+          ? "En cours"
+          : "Pas commence";
 
     return {
       statut,
-      statutFabrication: stageStatut(vracOk, vracFabrique > 0),
-      statutConditionnement: stageStatut(cartonOk, cartonFabrique > 0),
-      statutEmballage: stageStatut(emballageOk, cartonEmballe > 0),
+      statutFabrication: stageStatut(vracManuel, vracNaturel, vracFabrique > 0),
+      statutConditionnement: stageStatut(cartonManuel, cartonNaturel, cartonFabrique > 0),
+      statutEmballage: stageStatut(emballageManuel, emballageNaturel, cartonEmballe > 0),
       id: ligne.id,
       key: `${ligne.id}::${code}`,
       date: ligne.date_jour,
