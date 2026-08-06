@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
+import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { AutoRefresh } from "@/app/_components/auto-refresh";
@@ -8,6 +9,7 @@ import { vracLabelFromName } from "@/lib/gamme-families";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { deleteCodeProgressAction } from "../../suivi-production/actions";
 import { markCartonTermineAction, markEmballageTermineAction, markVracTermineAction } from "../actions";
+import { ProduitFilterInput } from "./produit-filter-input";
 import {
   buildPdLabelByCode,
   computeProduitParCode,
@@ -76,7 +78,36 @@ type CodeRow = {
   emballageRestant: number;
 };
 
-type SearchParams = Promise<{ code?: string; produit?: string; pd?: string }>;
+type ArticleOption = { id: number; nom_article: string; gamme: string | null };
+
+// Utilise pour le menu du filtre Produit (liste complete, pas les
+// suggestions "deja saisies" du navigateur) et pour resoudre la gamme d'une
+// ligne (via son article_id) pour le filtre Gamme.
+async function fetchAllArticlesForFilters(): Promise<ArticleOption[]> {
+  const rows: ArticleOption[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article, gamme")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as ArticleOption[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+type SearchParams = Promise<{ code?: string; produit?: string; pd?: string; gamme?: string }>;
 
 export default async function PlanningDashboardPage({
   searchParams,
@@ -88,11 +119,18 @@ export default async function PlanningDashboardPage({
   const codeFilter = (params.code || "").trim().toLowerCase();
   const produitFilter = (params.produit || "").trim().toLowerCase();
   const pdFilter = (params.pd || "").trim().toLowerCase();
+  const gammeFilter = (params.gamme || "").trim();
 
-  const [{ rows: allLignes }, pdLabelByCode] = await Promise.all([
+  const [{ rows: allLignes }, pdLabelByCode, articles] = await Promise.all([
     fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true }),
     buildPdLabelByCode(),
+    fetchAllArticlesForFilters(),
   ]);
+
+  const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
+  const distinctGammes = [...new Set(articles.map((article) => article.gamme).filter(Boolean))].sort(
+    (a, b) => (a as string).localeCompare(b as string)
+  ) as string[];
 
   const activeLigneIds = allLignes.map((ligne) => ligne.id);
 
@@ -112,7 +150,7 @@ export default async function PlanningDashboardPage({
     { code: string; quantite: number }[]
   >;
 
-  const hasFilters = Boolean(codeFilter || produitFilter || pdFilter);
+  const hasFilters = Boolean(codeFilter || produitFilter || pdFilter || gammeFilter);
 
   // Fabrication reste au niveau de la ligne entiere (code "" partage) - le
   // vrac est fabrique en un seul bloc avant meme d'etre reparti en lots.
@@ -141,6 +179,7 @@ export default async function PlanningDashboardPage({
       // demande.
       if (produitFilter && !matchesArticleSearch(ligne.produit, produitFilter)) return false;
       if (pdFilter && !ligne.pdLabel.toLowerCase().includes(pdFilter)) return false;
+      if (gammeFilter && gammeByArticleId.get(ligne.article_id ?? -1) !== gammeFilter) return false;
       return true;
     });
 
@@ -253,7 +292,7 @@ export default async function PlanningDashboardPage({
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto_auto]">
             <input
               type="text"
               name="pd"
@@ -268,13 +307,24 @@ export default async function PlanningDashboardPage({
               placeholder="Code"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <ProduitFilterInput
               name="produit"
               defaultValue={params.produit || ""}
+              articles={articles.map((article) => ({ id: article.id, label: article.nom_article }))}
               placeholder="Produit"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
+            <select
+              name="gamme"
+              defaultValue={params.gamme || ""}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              <option value="">Toutes les gammes</option>
+              {distinctGammes.map((gamme) => (
+                <option key={gamme} value={gamme}>
+                  {gamme}
+                </option>
+              ))}
+            </select>
             <button
               type="submit"
               className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
