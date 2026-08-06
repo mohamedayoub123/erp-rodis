@@ -5,7 +5,7 @@ import {
   calculateFifoForCommandeAction,
   cancelFifoBatchAction,
   deliverCommandeAction,
-  updateFifoResultAction,
+  updateAllFifoResultsAction,
   updateManualCommandeAction,
 } from "../actions";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -716,123 +716,104 @@ export default async function CommandeDetailPage({
                 Aucun resultat FIFO encore. Clique sur &quot;Despatcher&quot;.
               </p>
             ) : (
-              <div className="mt-4 overflow-x-auto">
-                <table className="min-w-full table-fixed text-left text-sm">
-                  <colgroup>
-                    <col className="w-[18%]" />
-                    <col className="w-[14%]" />
-                    <col className="w-[10%]" />
-                    <col className="w-[8%]" />
-                    <col className="w-[14%]" />
-                    <col className="w-[10%]" />
-                    <col className="w-[16%]" />
-                    {canEditCommandes ? <col className="w-[10%]" /> : null}
-                  </colgroup>
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3 font-semibold">Article</th>
-                      <th className="px-4 py-3 font-semibold">Numero lot</th>
-                      <th className="px-4 py-3 font-semibold">Date fab.</th>
-                      <th className="px-4 py-3 font-semibold">Chambre</th>
-                      <th className="px-4 py-3 font-semibold">Preparateur</th>
-                      <th className="px-4 py-3 font-semibold">Qt chargee</th>
-                      <th className="no-print px-4 py-3 font-semibold">Regle FIFO</th>
-                      {canEditCommandes ? (
-                        <th className="no-print px-4 py-3 font-semibold">Action</th>
-                      ) : null}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fifoResults.map((ligne) => (
-                      <tr key={ligne.id} className="border-t border-slate-100">
-                        <td colSpan={8} className="px-0 py-0">
-                          <form action={updateFifoResultAction}>
-                            <input type="hidden" name="fifo_id" value={ligne.id} />
-                            <input type="hidden" name="commande_id" value={selectedCommande.id} />
-                            <table className="min-w-full table-fixed text-left text-sm">
-                              <colgroup>
-                                <col className="w-[18%]" />
-                                <col className="w-[14%]" />
-                                <col className="w-[10%]" />
-                                <col className="w-[8%]" />
-                                <col className="w-[14%]" />
-                                <col className="w-[10%]" />
-                                <col className="w-[16%]" />
-                                {canEditCommandes ? <col className="w-[10%]" /> : null}
-                              </colgroup>
-                              <tbody>
-                                <tr>
-                                  <td className="px-4 py-3 font-medium text-slate-900 align-middle">
-                                    {getArticleName(ligne.articles)}
-                                  </td>
-                                  <td className="px-4 py-3 align-middle">
-                                    {canEditCommandes ? (
-                                      <input
-                                        type="text"
-                                        name="numero_lot"
-                                        defaultValue={ligne.numero_lot || ""}
-                                        className="w-full max-w-[140px] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                                      />
-                                    ) : (
-                                      <span className="text-slate-700">{ligne.numero_lot || "-"}</span>
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3 text-slate-700 align-middle">
-                                    {formatDate(ligne.date_fabrication)}
-                                  </td>
-                                  <td className="px-4 py-3 text-slate-700 align-middle">
-                                    {ligne.chambre || "-"}
-                                  </td>
-                                  <td className="px-4 py-3 align-middle">
-                                    {canEditCommandes ? (
-                                      <input
-                                        type="text"
-                                        name="preparateur"
-                                        defaultValue={selectedPreparateur}
-                                        placeholder="Preparateur"
-                                        className="w-full max-w-[140px] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                                      />
-                                    ) : (
-                                      <span className="text-slate-700">{selectedPreparateur || "-"}</span>
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3 align-middle">
-                                    {canEditCommandes ? (
-                                      <input
-                                        type="number"
-                                        min="1"
-                                        step="1"
-                                        name="quantite_chargee"
-                                        defaultValue={ligne.quantite_chargee}
-                                        className="w-full max-w-[110px] rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-sky-700 outline-none"
-                                      />
-                                    ) : (
-                                      <span className="font-semibold text-sky-700">{ligne.quantite_chargee}</span>
-                                    )}
-                                  </td>
-                                  <td className="no-print px-4 py-3 text-slate-600 align-middle">
-                                    {ligne.regle_appliquee || "-"}
-                                  </td>
-                                  {canEditCommandes ? (
-                                    <td className="no-print px-4 py-3 align-middle">
-                                      <button
-                                        type="submit"
-                                        className="w-full min-w-[110px] rounded-full bg-amber-600 px-4 py-2 text-xs font-semibold text-white"
-                                      >
-                                        Enregistrer
-                                      </button>
-                                    </td>
-                                  ) : null}
-                                </tr>
-                              </tbody>
-                            </table>
-                          </form>
-                        </td>
+              <form action={updateAllFifoResultsAction} className="mt-4">
+                <input type="hidden" name="commande_id" value={selectedCommande.id} />
+
+                {canEditCommandes ? (
+                  <label className="mb-3 grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
+                    Preparateur (pour toute la commande)
+                    <input
+                      type="text"
+                      name="preparateur"
+                      defaultValue={selectedPreparateur}
+                      placeholder="Preparateur"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                    />
+                  </label>
+                ) : null}
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full table-fixed text-left text-sm">
+                    <colgroup>
+                      <col className="w-[20%]" />
+                      <col className="w-[16%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[16%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[14%]" />
+                    </colgroup>
+                    <thead className="bg-slate-50 text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold">Article</th>
+                        <th className="px-4 py-3 font-semibold">Numero lot</th>
+                        <th className="px-4 py-3 font-semibold">Date fab.</th>
+                        <th className="px-4 py-3 font-semibold">Chambre</th>
+                        <th className="px-4 py-3 font-semibold">Preparateur</th>
+                        <th className="px-4 py-3 font-semibold">Qt chargee</th>
+                        <th className="no-print px-4 py-3 font-semibold">Regle FIFO</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {fifoResults.map((ligne) => (
+                        <tr key={ligne.id} className="border-t border-slate-100">
+                          <td className="px-4 py-3 font-medium text-slate-900 align-middle">
+                            <input type="hidden" name="fifo_ids" value={ligne.id} />
+                            {getArticleName(ligne.articles)}
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            {canEditCommandes ? (
+                              <input
+                                type="text"
+                                name={`numero_lot_${ligne.id}`}
+                                defaultValue={ligne.numero_lot || ""}
+                                className="w-full max-w-[140px] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                              />
+                            ) : (
+                              <span className="text-slate-700">{ligne.numero_lot || "-"}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700 align-middle">
+                            {formatDate(ligne.date_fabrication)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700 align-middle">{ligne.chambre || "-"}</td>
+                          <td className="px-4 py-3 align-middle">
+                            <span className="text-slate-700">{selectedPreparateur || "-"}</span>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            {canEditCommandes ? (
+                              <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                name={`quantite_chargee_${ligne.id}`}
+                                defaultValue={ligne.quantite_chargee}
+                                className="w-full max-w-[110px] rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-sky-700 outline-none"
+                              />
+                            ) : (
+                              <span className="font-semibold text-sky-700">{ligne.quantite_chargee}</span>
+                            )}
+                          </td>
+                          <td className="no-print px-4 py-3 text-slate-600 align-middle">
+                            {ligne.regle_appliquee || "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {canEditCommandes ? (
+                  <div className="no-print mt-4">
+                    <button
+                      type="submit"
+                      className="rounded-full bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white"
+                    >
+                      Enregistrer tout
+                    </button>
+                  </div>
+                ) : null}
+              </form>
             )}
           </div>
 

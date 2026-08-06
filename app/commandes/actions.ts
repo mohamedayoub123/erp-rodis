@@ -1517,36 +1517,52 @@ export async function deliverCommandeAction(formData: FormData) {
   revalidatePath("/stock-dormant");
 }
 
-export async function updateFifoResultAction(formData: FormData) {
+// Appelle stock_override_fifo_result une fois par ligne FIFO pour tout
+// enregistrer en un seul clic - le Preparateur n'est pas une
+// donnee par ligne (stocke une seule fois dans commandes.commentaire, voir
+// stock_override_fifo_result) donc devoir cliquer "Enregistrer" sur chaque
+// ligne juste pour le saisir n'avait pas de sens. Sequentiel (pas
+// Promise.all) : chaque appel relit/reecrit commandes.commentaire, un envoi
+// en parallele risquerait de faire perdre l'ecriture d'un appel par un
+// autre.
+export async function updateAllFifoResultsAction(formData: FormData) {
   await requireCommandesEditAccess();
-  const fifoId = Number(String(formData.get("fifo_id") || "0"));
   const commandeId = Number(String(formData.get("commande_id") || "0"));
-  const numeroLot = String(formData.get("numero_lot") || "").trim();
   const preparateur = String(formData.get("preparateur") || "").trim();
-  const quantiteChargee = Number(String(formData.get("quantite_chargee") || "0").replace(",", "."));
+  const fifoIds = formData
+    .getAll("fifo_ids")
+    .map((value) => Number(value))
+    .filter(Boolean);
 
-  if (!fifoId || !commandeId) {
-    throw new Error("Ligne FIFO invalide.");
+  if (!commandeId || fifoIds.length === 0) {
+    throw new Error("Commande invalide.");
   }
 
-  if (!numeroLot) {
-    throw new Error("Le code / numero de lot est obligatoire.");
-  }
+  for (const fifoId of fifoIds) {
+    const numeroLot = String(formData.get(`numero_lot_${fifoId}`) || "").trim();
+    const quantiteChargee = Number(
+      String(formData.get(`quantite_chargee_${fifoId}`) || "0").replace(",", ".")
+    );
 
-  if (Number.isNaN(quantiteChargee) || quantiteChargee <= 0) {
-    throw new Error("La quantite chargee doit etre superieure a zero.");
-  }
+    if (!numeroLot) {
+      throw new Error("Le code / numero de lot est obligatoire sur chaque ligne.");
+    }
 
-  const { error } = await supabaseServer.rpc("stock_override_fifo_result", {
-    p_fifo_id: fifoId,
-    p_commande_id: commandeId,
-    p_numero_lot: numeroLot,
-    p_preparateur: preparateur,
-    p_quantite_chargee: quantiteChargee,
-  });
+    if (Number.isNaN(quantiteChargee) || quantiteChargee <= 0) {
+      throw new Error("La quantite chargee doit etre superieure a zero sur chaque ligne.");
+    }
 
-  if (error) {
-    throw new Error(error.message);
+    const { error: rpcError } = await supabaseServer.rpc("stock_override_fifo_result", {
+      p_fifo_id: fifoId,
+      p_commande_id: commandeId,
+      p_numero_lot: numeroLot,
+      p_preparateur: preparateur,
+      p_quantite_chargee: quantiteChargee,
+    });
+
+    if (rpcError) {
+      throw new Error(rpcError.message);
+    }
   }
 
   revalidateCommandeDependentPages(commandeId);
