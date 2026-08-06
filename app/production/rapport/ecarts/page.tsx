@@ -6,13 +6,16 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   buildPdLabelByCode,
+  computeProduitParCode,
   fetchAllCartonEntries,
   fetchAllEmballageEntries,
   fetchAllProgrammeLignes,
   fetchAllVracEntries,
   formatDate,
   formatQty,
+  groupCartonEntriesByLigne,
   pdLabelsForNumeroLot,
+  splitLigneIntoDisplayRows,
 } from "../../suivi/data";
 import { deleteProgrammeLigneRapportAction } from "./actions";
 
@@ -76,58 +79,96 @@ export default async function RapportEcartsPage({
       buildPdLabelByCode(),
     ]);
 
-  function sumByLigne(entries: { programme_ligne_id: number; quantite: number }[]) {
-    const map = new Map<number, number>();
-    for (const entry of entries) {
-      map.set(entry.programme_ligne_id, (map.get(entry.programme_ligne_id) ?? 0) + Number(entry.quantite));
-    }
-    return map;
+  function sumEntries(entries: { quantite: number }[]) {
+    return entries.reduce((sum, entry) => sum + Number(entry.quantite), 0);
   }
 
-  const vracByLigne = sumByLigne(vracEntries);
-  const cartonByLigne = sumByLigne(cartonEntries);
-  const emballageByLigne = sumByLigne(emballageEntries);
+  const vracByLigne = groupCartonEntriesByLigne(vracEntries);
+  const cartonByLigne = groupCartonEntriesByLigne(cartonEntries);
+  const emballageByLigne = groupCartonEntriesByLigne(emballageEntries);
 
+  // Une ligne dispatchee sur plusieurs codes (numero_lot = "AA1, AA2, AA3")
+  // affichait auparavant un seul total combine pour les 3 - eclate
+  // desormais un code par ligne (meme decoupage que le Dashboard : vrac/
+  // carton via splitLigneIntoDisplayRows qui cascade le "deja fabrique"
+  // dans l'ordre des codes, emballage via computeProduitParCode qui lit le
+  // code par entree quand il est connu).
   const allRows = lignes
     .filter((ligne) => ligne.numero_lot)
-    .map((ligne) => {
-      const vracDemande = ligne.vrac_a_fabriquer ?? 0;
-      const vracFabrique = vracByLigne.get(ligne.id) ?? 0;
-      const cartonDemande = ligne.qt_carton ?? 0;
-      const cartonFabrique = cartonByLigne.get(ligne.id) ?? 0;
-      const cartonEmballe = emballageByLigne.get(ligne.id) ?? 0;
+    .flatMap((ligne) => {
+      const vracEntriesForLigne = (vracByLigne.get(ligne.id) ?? []) as { code: string; quantite: number }[];
+      const cartonEntriesForLigne = (cartonByLigne.get(ligne.id) ?? []) as { code: string; quantite: number }[];
+      const emballageEntriesForLigne = (emballageByLigne.get(ligne.id) ?? []) as { code: string; quantite: number }[];
 
-      // "Termine" = exactement quand la ligne a disparu des 3 colonnes du
-      // Dashboard (reste <= 0 OU "Fin programme" appuye pour cette etape,
-      // OU "Fin programme" general) - meme regle, pas une estimation a part.
-      const vracOk = ligne.programme_termine || ligne.vrac_termine || vracDemande <= 0 || vracFabrique >= vracDemande;
-      const cartonOk =
-        ligne.programme_termine || ligne.carton_termine || cartonDemande <= 0 || cartonFabrique >= cartonDemande;
-      const emballageOk =
-        ligne.programme_termine ||
-        ligne.emballage_termine ||
-        cartonFabrique <= 0 ||
-        cartonEmballe >= cartonFabrique;
-      const hasStarted = vracFabrique > 0 || cartonFabrique > 0 || cartonEmballe > 0;
-      const statut: Statut =
-        vracOk && cartonOk && emballageOk ? "Termine" : hasStarted ? "En cours" : "Pas commence";
+      const totalVracFabrique = sumEntries(vracEntriesForLigne);
+      const totalCartonFabrique = sumEntries(cartonEntriesForLigne);
 
-      return {
-        statut,
-        id: ligne.id,
-        date: ligne.date_jour,
-        code: ligne.numero_lot || "-",
-        pd: pdLabelsForNumeroLot(ligne.numero_lot, pdLabelByCode),
-        produit: ligne.produit || "-",
-        vracDemande,
-        vracFabrique,
-        vracDiff: vracDemande - vracFabrique,
-        cartonDemande,
-        cartonFabrique,
-        cartonDiff: cartonDemande - cartonFabrique,
-        cartonEmballe,
-        conditionnementEmballageDiff: cartonEmballe - cartonFabrique,
-      };
+      const vracSplits = splitLigneIntoDisplayRows(ligne, "qt_vrac", totalVracFabrique);
+      const cartonSplits = splitLigneIntoDisplayRows(ligne, "qt_carton", totalCartonFabrique);
+
+      const codes = vracSplits.map((split) => split.displayCode);
+      const cartonPrevuByCode = new Map(cartonSplits.map((split) => [split.displayCode, split.displayQuantite]));
+      const cartonFabriqueByCode = new Map(
+        cartonSplits.map((split) => [
+          split.displayCode,
+          split.displayQuantite !== null ? (split.displayQuantite ?? 0) - (split.displayRestant ?? 0) : null,
+        ])
+      );
+
+      const emballageProduitByCode = computeProduitParCode(
+        emballageEntriesForLigne,
+        codes,
+        (code) => cartonFabriqueByCode.get(code) ?? 0
+      );
+
+      return vracSplits.map((vracSplit) => {
+        const code = vracSplit.displayCode;
+        const vracDemande = vracSplit.displayQuantite ?? ligne.vrac_a_fabriquer ?? 0;
+        const vracFabrique =
+          vracSplit.displayQuantite !== null
+            ? (vracSplit.displayQuantite ?? 0) - (vracSplit.displayRestant ?? 0)
+            : totalVracFabrique;
+        const cartonDemande = cartonPrevuByCode.get(code) ?? ligne.qt_carton ?? 0;
+        const cartonFabrique = cartonFabriqueByCode.get(code) ?? totalCartonFabrique;
+        const cartonEmballe = emballageProduitByCode.get(code) ?? 0;
+
+        // "Termine" = exactement quand la ligne a disparu des 3 colonnes du
+        // Dashboard (reste <= 0 OU "Fin programme" appuye pour cette etape,
+        // OU "Fin programme" general) - meme regle, pas une estimation a part.
+        // Ces drapeaux restent au niveau de la ligne entiere (pas encore
+        // suivis par code cote base), donc partages par tous les codes d'une
+        // meme ligne.
+        const vracOk =
+          ligne.programme_termine || ligne.vrac_termine || vracDemande <= 0 || vracFabrique >= vracDemande;
+        const cartonOk =
+          ligne.programme_termine || ligne.carton_termine || cartonDemande <= 0 || cartonFabrique >= cartonDemande;
+        const emballageOk =
+          ligne.programme_termine ||
+          ligne.emballage_termine ||
+          cartonFabrique <= 0 ||
+          cartonEmballe >= cartonFabrique;
+        const hasStarted = vracFabrique > 0 || cartonFabrique > 0 || cartonEmballe > 0;
+        const statut: Statut =
+          vracOk && cartonOk && emballageOk ? "Termine" : hasStarted ? "En cours" : "Pas commence";
+
+        return {
+          statut,
+          id: ligne.id,
+          key: `${ligne.id}-${code}`,
+          date: ligne.date_jour,
+          code,
+          pd: pdLabelsForNumeroLot(code, pdLabelByCode),
+          produit: ligne.produit || "-",
+          vracDemande,
+          vracFabrique,
+          vracDiff: vracDemande - vracFabrique,
+          cartonDemande,
+          cartonFabrique,
+          cartonDiff: cartonDemande - cartonFabrique,
+          cartonEmballe,
+          conditionnementEmballageDiff: cartonEmballe - cartonFabrique,
+        };
+      });
     });
 
   const rows = allRows.filter((row) => {
@@ -244,7 +285,7 @@ export default async function RapportEcartsPage({
                 </thead>
                 <tbody>
                   {pagedRows.map((row) => (
-                    <tr key={row.id} className="border-t border-slate-100">
+                    <tr key={row.key} className="border-t border-slate-100">
                       <td className="px-4 py-3">
                         <StatutBadge statut={row.statut} />
                       </td>
