@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { saveFabricationRapportAction } from "../../actions";
-import { DateJmaFormField } from "@/app/_components/date-jma-input";
+import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input";
 
 const TYPE_FABRICATION_OPTIONS = [
   "Automatique",
@@ -67,6 +67,76 @@ type RapportInfo = {
 
 const inputClass =
   "rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none";
+
+// Une preparation peut s'etaler sur plusieurs jours (ex: debut un soir,
+// echantillon envoye le lendemain) - chaque "temps" garde donc aussi son
+// jour/mois, pas seulement l'heure. Stocke en un seul texte "JJ/MM HH:MM"
+// (mois nomme cote saisie pour eviter l'ambiguite jour/mois d'un champ date
+// natif, meme raison que DateJmaFormField) pour rester dans la meme colonne
+// texte existante, sans migration de base necessaire.
+function splitTempsJourMois(value: string | null | undefined) {
+  const match = (value || "").match(/^(\d{1,2})\/(\d{2})\s+(\d{2}:\d{2})$/);
+  if (match) {
+    return { day: match[1], month: match[2], time: match[3] };
+  }
+  return { day: "", month: "", time: value || "" };
+}
+
+function combineTempsJourMois(day: string, month: string, time: string) {
+  if (!time) return "";
+  return day && month ? `${day.padStart(2, "0")}/${month} ${time}` : time;
+}
+
+function TempsField({
+  label,
+  name,
+  defaultValue,
+}: {
+  label: string;
+  name: string;
+  defaultValue: string | null | undefined;
+}) {
+  const initial = splitTempsJourMois(defaultValue);
+  const [day, setDay] = useState(initial.day);
+  const [month, setMonth] = useState(initial.month);
+  const [time, setTime] = useState(initial.time);
+
+  return (
+    <label className="grid gap-1 text-xs font-semibold text-slate-500">
+      {label}
+      <input type="hidden" name={name} value={combineTempsJourMois(day, month, time)} />
+      <div className="flex gap-1">
+        <input
+          type="number"
+          min="1"
+          max="31"
+          placeholder="JJ"
+          value={day}
+          onChange={(event) => setDay(event.target.value)}
+          className={`w-14 ${inputClass} px-2`}
+        />
+        <select
+          value={month}
+          onChange={(event) => setMonth(event.target.value)}
+          className={`${inputClass} px-1`}
+        >
+          <option value="">Mois</option>
+          {MOIS_OPTIONS.map((mois) => (
+            <option key={mois.value} value={mois.value}>
+              {mois.label.slice(0, 3)}
+            </option>
+          ))}
+        </select>
+        <input
+          type="time"
+          value={time}
+          onChange={(event) => setTime(event.target.value)}
+          className={inputClass}
+        />
+      </div>
+    </label>
+  );
+}
 
 export function FabricationForm({
   ligneId,
@@ -246,44 +316,24 @@ export function FabricationForm({
       </div>
 
       <div>
-        <h2 className="mb-3 text-lg font-bold text-slate-900">Temps</h2>
-        <div className="grid gap-4 md:grid-cols-4">
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Debut preparation
-            <input
-              type="time"
-              name="temps_debut_preparation"
-              defaultValue={rapport?.temps_debut_preparation || ""}
-              className={inputClass}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Envoi echantillon labo
-            <input
-              type="time"
-              name="temps_envoi_echantillon_labo"
-              defaultValue={rapport?.temps_envoi_echantillon_labo || ""}
-              className={inputClass}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Fin test
-            <input
-              type="time"
-              name="temps_fin_test"
-              defaultValue={rapport?.temps_fin_test || ""}
-              className={inputClass}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Vidange
-            <input
-              type="time"
-              name="temps_vidange"
-              defaultValue={rapport?.temps_vidange || ""}
-              className={inputClass}
-            />
-          </label>
+        <h2 className="mb-1 text-lg font-bold text-slate-900">Temps</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Jour/mois + heure pour chaque temps, une preparation pouvant s&apos;etaler sur plusieurs
+          jours.
+        </p>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <TempsField
+            label="Debut preparation"
+            name="temps_debut_preparation"
+            defaultValue={rapport?.temps_debut_preparation}
+          />
+          <TempsField
+            label="Envoi echantillon labo"
+            name="temps_envoi_echantillon_labo"
+            defaultValue={rapport?.temps_envoi_echantillon_labo}
+          />
+          <TempsField label="Fin test" name="temps_fin_test" defaultValue={rapport?.temps_fin_test} />
+          <TempsField label="Vidange" name="temps_vidange" defaultValue={rapport?.temps_vidange} />
         </div>
       </div>
 
