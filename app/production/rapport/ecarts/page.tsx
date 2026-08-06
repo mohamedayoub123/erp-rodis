@@ -433,7 +433,7 @@ export default async function RapportEcartsPage({
                     <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Code</th>
                     <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Programme (PD)</th>
                     <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Produit</th>
-                    <th colSpan={4} className="bg-amber-50 px-4 py-2 text-center font-semibold text-amber-800">
+                    <th colSpan={5} className="bg-amber-50 px-4 py-2 text-center font-semibold text-amber-800">
                       Fabrication
                     </th>
                     <th colSpan={4} className="bg-sky-50 px-4 py-2 text-center font-semibold text-sky-800">
@@ -446,6 +446,7 @@ export default async function RapportEcartsPage({
                   </tr>
                   <tr>
                     <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Statut</th>
+                    <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Carton a fabriquer</th>
                     <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Vrac demande</th>
                     <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Vrac fabrique</th>
                     <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Ecart vrac</th>
@@ -473,6 +474,7 @@ export default async function RapportEcartsPage({
                       <td className="bg-amber-50/30 px-4 py-3">
                         <StatutBadge statut={row.statutFabrication} />
                       </td>
+                      <td className="bg-amber-50/30 px-4 py-3 text-slate-600">{Math.round(row.cartonDemande)}</td>
                       <td className="bg-amber-50/30 px-4 py-3 text-slate-600">{formatQty(row.vracDemande)}</td>
                       <td className="bg-amber-50/30 px-4 py-3 text-slate-600">{formatQty(row.vracFabrique)}</td>
                       <DiffCell value={row.vracDiff} />
