@@ -24,14 +24,14 @@ type Statut = "Termine" | "Termine Manuel" | "En cours" | "Pas commence";
 
 // Statut par etape (Fabrication/Conditionnement/Emballage) - le statut
 // combine existant ("Statut") ne dit pas LAQUELLE des 3 etapes bloque
-// quand la ligne est "En cours". "manuel" = le bouton "Fin programme" a ete
-// utilise pour cette etape (vrac_termine/carton_termine/emballage_termine
-// ou programme_termine) - prioritaire sur "naturel" (quantite atteinte)
-// pour que "Termine Manuel" reste visible meme si la quantite a fini par
-// suivre entre-temps.
+// quand la ligne est "En cours". "naturel" (quantite reellement atteinte)
+// est prioritaire sur "manuel" (bouton "Fin programme") : si la quantite a
+// fini par suivre, la ligne serait de toute facon sortie du Dashboard
+// toute seule - "Termine Manuel" ne doit apparaitre QUE quand le bouton
+// est ce qui ferme la ligne, pas la quantite.
 function stageStatut(manuel: boolean, naturel: boolean, started: boolean): Statut {
-  if (manuel) return "Termine Manuel";
   if (naturel) return "Termine";
+  if (manuel) return "Termine Manuel";
   return started ? "En cours" : "Pas commence";
 }
 
@@ -327,12 +327,16 @@ export default async function RapportEcartsPage({
     const emballageNaturel = cartonDemande <= 0 || (cartonFabrique > 0 && cartonEmballe >= cartonFabrique);
     const emballageOk = emballageManuel || emballageNaturel;
     const hasStarted = vracFabrique > 0 || cartonFabrique > 0 || cartonEmballe > 0;
-    const anyManuel = vracManuel || cartonManuel || emballageManuel;
+    // "Termine Manuel" seulement si au moins une etape depend du bouton
+    // pour etre consideree fermee (les autres peuvent tres bien etre
+    // naturellement completes en meme temps) - si les 3 sont naturellement
+    // atteintes, le bouton n'a rien "force", donc "Termine" tout court.
+    const allNaturel = vracNaturel && cartonNaturel && emballageNaturel;
     const statut: Statut =
       vracOk && cartonOk && emballageOk
-        ? anyManuel
-          ? "Termine Manuel"
-          : "Termine"
+        ? allNaturel
+          ? "Termine"
+          : "Termine Manuel"
         : hasStarted
           ? "En cours"
           : "Pas commence";
