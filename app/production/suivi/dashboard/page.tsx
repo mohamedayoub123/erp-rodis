@@ -20,7 +20,6 @@ import {
   formatDate,
   groupCartonEntriesByLigne,
   pdLabelsForNumeroLot,
-  splitLigneIntoDisplayRows,
   type ProgrammeLigneRow,
 } from "../data";
 
@@ -70,6 +69,9 @@ type CodeRow = {
   ligne: ProgrammeLigneRow;
   pdLabel: string;
   code: string;
+  vracPrevu: number;
+  vracProduit: number;
+  vracRestant: number;
   cartonPrevu: number;
   cartonProduit: number;
   cartonRestant: number;
@@ -145,7 +147,7 @@ export default async function PlanningDashboardPage({
     number,
     { code: string; quantite: number }[]
   >;
-  const vracByLigne = groupCartonEntriesByLigne(vracEntries);
+  const vracByLigne = groupCartonEntriesByLigne(vracEntries) as Map<number, { code: string; quantite: number }[]>;
   const emballageByLigne = groupCartonEntriesByLigne(emballageEntries) as Map<
     number,
     { code: string; quantite: number }[]
@@ -153,25 +155,8 @@ export default async function PlanningDashboardPage({
 
   const hasFilters = Boolean(codeFilter || produitFilter || pdFilter || gammeFilter);
 
-  // Fabrication reste au niveau de la ligne entiere (code "" partage) - le
-  // vrac est fabrique en un seul bloc avant meme d'etre reparti en lots.
   const enrichedLignes = allLignes
-    .map((ligne) => {
-      const pdLabel = pdLabelsForNumeroLot(ligne.numero_lot, pdLabelByCode);
-      const vracProduit = (vracByLigne.get(ligne.id) ?? []).reduce(
-        (sum, entry) => sum + Number(entry.quantite),
-        0
-      );
-      const vracPrevu = ligne.vrac_a_fabriquer ?? 0;
-
-      return {
-        ...ligne,
-        pdLabel,
-        vracProduit,
-        vracPrevu,
-        vracRestant: vracPrevu - vracProduit,
-      };
-    })
+    .map((ligne) => ({ ...ligne, pdLabel: pdLabelsForNumeroLot(ligne.numero_lot, pdLabelByCode) }))
     .filter((ligne) => {
       // Le filtre "Code" est applique plus loin, sur le code affiche apres
       // eclatement - pas ici sur numero_lot brut, qui peut contenir
@@ -184,25 +169,14 @@ export default async function PlanningDashboardPage({
       return true;
     });
 
-  const vracLignes = enrichedLignes.filter(
-    (ligne) => !ligne.programme_termine && !ligne.vrac_termine && ligne.vracRestant > 0
-  );
-
-  const totalVracPrevu = vracLignes.reduce((sum, ligne) => sum + ligne.vracPrevu, 0);
-  const totalVracProduit = vracLignes.reduce((sum, ligne) => sum + ligne.vracProduit, 0);
-
-  const vracDisplayRows = vracLignes
-    .flatMap((ligne) => splitLigneIntoDisplayRows(ligne, "qt_vrac", ligne.vracProduit))
-    .filter((row) => !codeFilter || row.displayCode.toLowerCase().includes(codeFilter));
-
-  // Conditionnement/Emballage : une ligne decoupee en plusieurs lots
-  // (numero_lot = "AA1, AA2, AA3") donne un CODE PAR LOT, chacun avec son
-  // propre avancement (voir computeProduitParCode) - contrairement a
-  // Fabrication, chaque code avance INDEPENDAMMENT : Conditionnement ou
-  // Emballage sur un code ne touche jamais les 2 autres (bug corrige : un
-  // Save sur un seul code faisait auparavant progresser/passer a l'etape
-  // suivante les 3 codes a la fois, puisque tout partageait le meme
-  // rapport/journal cote base).
+  // Fabrication/Conditionnement/Emballage : une ligne decoupee en plusieurs
+  // lots (numero_lot = "AA1, AA2, AA3") donne un CODE PAR LOT, chacun avec
+  // son propre avancement (voir computeProduitParCode) - chaque code avance
+  // INDEPENDAMMENT des 2 autres a chaque etape (bug corrige : un Save sur un
+  // seul code faisait auparavant progresser/passer a l'etape suivante les 3
+  // codes a la fois, puisque tout partageait le meme rapport/journal cote
+  // base). Fabrication suit desormais le meme decoupage que Conditionnement/
+  // Emballage - avant, elle restait au niveau de la ligne entiere.
   const codeRows: CodeRow[] = [];
 
   for (const ligne of enrichedLignes) {
@@ -213,15 +187,29 @@ export default async function PlanningDashboardPage({
     const hasDetail = rawCodes.length > 1 && detail.length === rawCodes.length;
     const codes = rawCodes.length > 0 ? rawCodes : [ligne.numero_lot || "-"];
 
+    const vracPrevuByCode = new Map<string, number>();
     const cartonPrevuByCode = new Map<string, number>();
     if (hasDetail) {
-      for (const entry of detail) cartonPrevuByCode.set(entry.code, Number(entry.qt_carton ?? 0));
+      for (const entry of detail) {
+        vracPrevuByCode.set(entry.code, Number(entry.qt_vrac ?? 0));
+        cartonPrevuByCode.set(entry.code, Number(entry.qt_carton ?? 0));
+      }
     } else {
-      for (const code of codes) cartonPrevuByCode.set(code, ligne.qt_carton ?? 0);
+      for (const code of codes) {
+        vracPrevuByCode.set(code, ligne.vrac_a_fabriquer ?? 0);
+        cartonPrevuByCode.set(code, ligne.qt_carton ?? 0);
+      }
     }
 
+    const vracEntriesForLigne = vracByLigne.get(ligne.id) ?? [];
     const cartonEntriesForLigne = cartonByLigne.get(ligne.id) ?? [];
     const emballageEntriesForLigne = emballageByLigne.get(ligne.id) ?? [];
+
+    const vracProduitByCode = computeProduitParCode(
+      vracEntriesForLigne,
+      codes,
+      (code) => vracPrevuByCode.get(code) ?? 0
+    );
 
     const cartonProduitByCode = computeProduitParCode(
       cartonEntriesForLigne,
@@ -236,6 +224,8 @@ export default async function PlanningDashboardPage({
     );
 
     for (const code of codes) {
+      const vracPrevu = vracPrevuByCode.get(code) ?? 0;
+      const vracProduit = vracProduitByCode.get(code) ?? 0;
       const cartonPrevu = cartonPrevuByCode.get(code) ?? 0;
       const cartonProduit = cartonProduitByCode.get(code) ?? 0;
       const emballagePrevu = cartonProduit;
@@ -245,6 +235,9 @@ export default async function PlanningDashboardPage({
         ligne,
         pdLabel: pdLabelsForNumeroLot(code, pdLabelByCode),
         code,
+        vracPrevu,
+        vracProduit,
+        vracRestant: vracPrevu - vracProduit,
         cartonPrevu,
         cartonProduit,
         cartonRestant: cartonPrevu - cartonProduit,
@@ -255,13 +248,16 @@ export default async function PlanningDashboardPage({
     }
   }
 
-  // cartonPrevu/emballagePrevu viennent d'une division (vrac / contenance /
-  // piece par carton) qui tombe rarement sur un nombre entier (ex: 52.08
-  // cartons prevus), alors que la quantite produite est toujours un nombre
+  // cartonPrevu/emballagePrevu (et vracPrevu, reparti depuis
+  // numero_lot_detail) viennent d'une division qui tombe rarement sur un
+  // nombre entier, alors que la quantite produite est toujours un nombre
   // entier de cartons (on ne fabrique jamais 0.08 carton) - une ligne
   // entierement realisee garde donc pour toujours un "restant" theorique
-  // juste en dessous de 1 carton et ne disparaissait jamais du Dashboard.
-  // Moins d'un carton restant = plus rien a faire concretement.
+  // juste en dessous de 1 et ne disparaissait jamais du Dashboard. Moins
+  // d'un carton restant = plus rien a faire concretement.
+  const vracRows = codeRows
+    .filter((row) => !row.ligne.vrac_termine && row.vracRestant >= 1)
+    .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
   const cartonRows = codeRows
     .filter((row) => !row.ligne.carton_termine && row.cartonRestant >= 1)
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
@@ -269,6 +265,8 @@ export default async function PlanningDashboardPage({
     .filter((row) => !row.ligne.emballage_termine && row.emballagePrevu > 0 && row.emballageRestant >= 1)
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
 
+  const totalVracPrevu = vracRows.reduce((sum, row) => sum + row.vracPrevu, 0);
+  const totalVracProduit = vracRows.reduce((sum, row) => sum + row.vracProduit, 0);
   const totalCartonPrevu = cartonRows.reduce((sum, row) => sum + row.cartonPrevu, 0);
   const totalCartonProduit = cartonRows.reduce((sum, row) => sum + row.cartonProduit, 0);
   const totalEmballagePrevu = emballageRows.reduce((sum, row) => sum + row.emballagePrevu, 0);
@@ -374,7 +372,7 @@ export default async function PlanningDashboardPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {vracDisplayRows.length === 0 ? (
+                  {vracRows.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-4 py-6 text-center text-sm text-slate-500">
                         {hasFilters
@@ -383,37 +381,31 @@ export default async function PlanningDashboardPage({
                       </td>
                     </tr>
                   ) : (
-                    vracDisplayRows.map((row) => (
-                      <tr key={`${row.id}-${row.displayCode}`} className="border-t border-slate-100">
-                        <td className="px-4 py-3 text-slate-600">{formatDate(row.date_jour)}</td>
+                    vracRows.map((row) => (
+                      <tr key={`${row.ligne.id}-${row.code}`} className="border-t border-slate-100">
+                        <td className="px-4 py-3 text-slate-600">{formatDate(row.ligne.date_jour)}</td>
                         <td className="px-4 py-3 font-medium text-slate-900">
-                          {row.zone} / {row.chaine}
+                          {row.ligne.zone} / {row.ligne.chaine}
                         </td>
-                        <td className="px-4 py-3 text-slate-900">
-                          {Math.round(row.displayQuantite ?? row.vracPrevu)}
-                        </td>
+                        <td className="px-4 py-3 text-slate-900">{Math.round(row.vracPrevu)}</td>
                         <td className="px-4 py-3 text-slate-600">
-                          {vracLabelFromName(row.produit) || "-"}
+                          {vracLabelFromName(row.ligne.produit) || "-"}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">{row.displayCode}</td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {row.displayQuantite !== null
-                            ? pdLabelsForNumeroLot(row.displayCode, pdLabelByCode)
-                            : row.pdLabel}
-                        </td>
+                        <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                        <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                         <td className="px-4 py-3">
-                          <RestantBadge restant={row.displayRestant ?? row.vracRestant} />
+                          <RestantBadge restant={row.vracRestant} />
                         </td>
                         <td className="px-4 py-3">
                           <Link
-                            href={`/production/suivi-production/fabrication/${row.id}`}
+                            href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
                             className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
                           >
                             Entrer
                           </Link>
                         </td>
                         <td className="px-4 py-3">
-                          <FinProgrammeButton ligneId={row.id} action={markVracTermineAction} />
+                          <FinProgrammeButton ligneId={row.ligne.id} action={markVracTermineAction} />
                         </td>
                       </tr>
                     ))

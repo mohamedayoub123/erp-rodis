@@ -205,6 +205,11 @@ export async function saveFabricationRapportAction(formData: FormData) {
   }
 
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  // Comme Conditionnement/Emballage, la Fabrication se saisit desormais par
+  // code precis (ex: "AA4141V" parmi les 3 codes d'une ligne decoupee en
+  // plusieurs lots) - vide seulement pour une vieille ligne jamais reouverte
+  // depuis l'ajout du suivi par code.
+  const code = String(formData.get("code") || "").trim();
 
   if (!ligneId) {
     throw new Error("Ligne invalide.");
@@ -213,9 +218,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
   const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
-  // Fabrication reste au niveau de la ligne entiere (code "" partage) - le
-  // vrac est fabrique en un seul bloc avant meme d'etre reparti en lots.
-  await upsertRapport(ligneId, "", {
+  await upsertRapport(ligneId, code, {
     machine: parseOptionalText(formData, "machine"),
     type_fabrication: parseOptionalText(formData, "type_fabrication"),
     preparateur: parseOptionalText(formData, "preparateur"),
@@ -272,7 +275,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     const { error: vracError } = await supabaseServer.from("production_vrac_entries").insert([
       {
         programme_ligne_id: ligneId,
-        code: "",
+        code,
         quantite: vracFabrique,
         ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
       },
