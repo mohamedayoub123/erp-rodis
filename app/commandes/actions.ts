@@ -1429,6 +1429,64 @@ export async function deleteCommandeAction(formData: FormData) {
   revalidateCommandeDependentPages();
 }
 
+// Reduire le nombre de camions d'une commande existante (ex: 3 -> 2) revient
+// a supprimer UNE des commandes-camion qui partagent la meme numero_proforma
+// de base (voir createManualCommandeAction) - jamais la derniere, sinon
+// utilise "Supprimer" sur la liste pour effacer toute la commande.
+export async function deleteCommandeTruckAction(formData: FormData) {
+  await requireCommandesDeleteAccess();
+  const commandeId = Number(String(formData.get("commande_id") || "0"));
+  const currentViewedId = Number(String(formData.get("current_viewed_id") || "0"));
+
+  if (!commandeId) {
+    throw new Error("Commande invalide.");
+  }
+
+  const { data: commande, error: fetchError } = await supabaseServer
+    .from("commandes")
+    .select("id, numero_proforma")
+    .eq("id", commandeId)
+    .maybeSingle();
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  if (!commande) {
+    throw new Error("Commande introuvable.");
+  }
+
+  const baseProforma = commande.numero_proforma.replace(/-\d+$/, "");
+
+  const { data: siblings, error: siblingsError } = await supabaseServer
+    .from("commandes")
+    .select("id")
+    .or(`numero_proforma.eq.${baseProforma},numero_proforma.like.${baseProforma}-%`);
+
+  if (siblingsError) {
+    throw new Error(siblingsError.message);
+  }
+
+  if ((siblings?.length ?? 0) <= 1) {
+    throw new Error(
+      "Impossible de supprimer le dernier camion - utilise Supprimer sur la liste des commandes pour effacer toute la commande."
+    );
+  }
+
+  const { error } = await supabaseServer.from("commandes").delete().eq("id", commandeId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateCommandeDependentPages();
+
+  if (currentViewedId && currentViewedId === commandeId) {
+    const nextId = siblings?.find((row) => row.id !== commandeId)?.id;
+    redirect(nextId ? `/commandes/${nextId}` : "/commandes");
+  }
+}
+
 export async function deleteProformaGroupAction(formData: FormData) {
   await requireCommandesDeleteAccess();
   const numeroProforma = String(formData.get("numero_proforma") || "").trim();
