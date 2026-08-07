@@ -141,7 +141,14 @@ async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeTermineR
   return rows;
 }
 
-type SearchParams = Promise<{ code?: string; produit?: string; pd?: string; gamme?: string }>;
+type SearchParams = Promise<{
+  code?: string;
+  produit?: string;
+  pd?: string;
+  gamme?: string;
+  date_debut?: string;
+  date_fin?: string;
+}>;
 
 export default async function PlanningDashboardPage({
   searchParams,
@@ -154,6 +161,8 @@ export default async function PlanningDashboardPage({
   const produitFilter = (params.produit || "").trim().toLowerCase();
   const pdFilter = (params.pd || "").trim().toLowerCase();
   const gammeFilter = (params.gamme || "").trim();
+  const dateDebutFilter = (params.date_debut || "").trim();
+  const dateFinFilter = (params.date_fin || "").trim();
 
   const [{ rows: allLignes }, pdLabelByCode, articles] = await Promise.all([
     fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true }),
@@ -205,7 +214,9 @@ export default async function PlanningDashboardPage({
     { code: string; quantite: number }[]
   >;
 
-  const hasFilters = Boolean(codeFilter || produitFilter || pdFilter || gammeFilter);
+  const hasFilters = Boolean(
+    codeFilter || produitFilter || pdFilter || gammeFilter || dateDebutFilter || dateFinFilter
+  );
 
   const enrichedLignes = allLignes
     .map((ligne) => ({ ...ligne, pdLabel: pdLabelsForNumeroLot(ligne.numero_lot, pdLabelByCode) }))
@@ -218,6 +229,8 @@ export default async function PlanningDashboardPage({
       if (produitFilter && !matchesArticleSearch(ligne.produit, produitFilter)) return false;
       if (pdFilter && !ligne.pdLabel.toLowerCase().includes(pdFilter)) return false;
       if (gammeFilter && gammeByArticleId.get(ligne.article_id ?? -1) !== gammeFilter) return false;
+      if (dateDebutFilter && (!ligne.date_jour || ligne.date_jour < dateDebutFilter)) return false;
+      if (dateFinFilter && (!ligne.date_jour || ligne.date_jour > dateFinFilter)) return false;
       return true;
     });
 
@@ -411,6 +424,27 @@ export default async function PlanningDashboardPage({
                 Effacer
               </Link>
             ) : null}
+
+            <div className="flex flex-wrap items-end gap-4 sm:col-span-6">
+              <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Date programme depuis
+                <input
+                  type="date"
+                  name="date_debut"
+                  defaultValue={params.date_debut || ""}
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-normal normal-case text-slate-900 outline-none"
+                />
+              </label>
+              <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Date programme jusqu&apos;au
+                <input
+                  type="date"
+                  name="date_fin"
+                  defaultValue={params.date_fin || ""}
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-normal normal-case text-slate-900 outline-none"
+                />
+              </label>
+            </div>
           </form>
         </section>
 

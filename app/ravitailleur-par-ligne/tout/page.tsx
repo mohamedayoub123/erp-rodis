@@ -240,6 +240,7 @@ export default async function RavitailleurToutesZonesPage() {
     const list = rowsByZone.get(row.zone);
     if (list) list.push(row);
   }
+  const missingCodeCount = dataRows.filter((row) => !row.code || !row.code.trim()).length;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -275,6 +276,14 @@ export default async function RavitailleurToutesZonesPage() {
             </div>
           </div>
         </section>
+
+        {missingCodeCount > 0 ? (
+          <section className="no-print rounded-[1.75rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-800">
+            {missingCodeCount} ligne{missingCodeCount > 1 ? "s" : ""} sans code (surlignee
+            {missingCodeCount > 1 ? "s" : ""} en rouge ci-dessous) - le systeme n&apos;a jamais vu de
+            code pour cette famille de produit, tape le 1er code toi-meme dans la case CODE.
+          </section>
+        ) : null}
 
         {VALID_ZONES.map((zone) => {
           const zoneRows = rowsByZone.get(zone) ?? [];

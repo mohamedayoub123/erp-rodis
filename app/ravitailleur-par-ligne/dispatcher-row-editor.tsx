@@ -27,10 +27,21 @@ export function DispatcherRowEditor({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  // Un article dont AUCUN membre de la famille (gamme+forme+variante) n'a
+  // jamais eu de code ne peut pas en generer un automatiquement (rien a
+  // incrementer) - la ligne arrive donc ici sans code, silencieusement.
+  // Signale-le clairement au lieu de laisser une case vide facile a rater :
+  // il faut taper le 1er code de cette famille a la main, une seule fois.
+  const missingCode = !initialCode.trim();
+
   if (!canEdit) {
     return (
       <>
-        <td className="border border-slate-300 bg-white px-3 py-3">{initialCode}</td>
+        <td
+          className={`border border-slate-300 bg-white px-3 py-3 ${missingCode ? "bg-red-50 font-semibold text-red-700" : ""}`}
+        >
+          {initialCode || "Pas de code"}
+        </td>
         <td className="border border-slate-300 bg-white px-3 py-3">
           {initialQtCarton !== null ? Math.round(initialQtCarton).toLocaleString("fr-FR") : ""}
         </td>
@@ -53,14 +64,21 @@ export function DispatcherRowEditor({
     });
   }
 
+  const codeStillMissing = !code.trim();
+
   return (
     <>
-      <td className="border border-slate-300 bg-white px-2 py-2">
+      <td className={`border border-slate-300 bg-white px-2 py-2 ${codeStillMissing ? "bg-red-50" : ""}`}>
         <input
           type="text"
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          className="no-print w-full min-w-[6rem] rounded-lg border border-slate-200 px-2 py-1 text-sm outline-none focus:border-sky-400"
+          placeholder={codeStillMissing ? "Pas de code - a taper ici" : ""}
+          className={`no-print w-full min-w-[6rem] rounded-lg border px-2 py-1 text-sm outline-none focus:border-sky-400 ${
+            codeStillMissing
+              ? "border-red-300 font-semibold text-red-700 placeholder:text-red-400"
+              : "border-slate-200"
+          }`}
         />
         <span className="print-only">{initialCode}</span>
       </td>
