@@ -6,6 +6,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 const PAGE_SIZE = 100;
 
@@ -74,7 +75,7 @@ export default async function ArticlesMatierePremierePage({
   const categorieLower = categorie.toLowerCase();
 
   const filteredArticles = allArticles.filter((article) => {
-    if (qLower && !String(article.nom_article ?? "").toLowerCase().includes(qLower)) return false;
+    if (qLower && !matchesArticleSearch(article.nom_article, qLower)) return false;
     if (
       categorieLower &&
       !String(article.categorie ?? "").toLowerCase().includes(categorieLower)

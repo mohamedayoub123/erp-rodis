@@ -3,31 +3,15 @@ import { BackButton } from "@/app/_components/back-button";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { deleteAllDispatcherLignesAction } from "../dispatcher-actions";
-import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "../../production/suivi/data";
 import { ZonePrintButton } from "../zone-print-button";
 import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
+import { DispatcherRowEditor } from "../dispatcher-row-editor";
 
 const VALID_ZONES = ["B1Z1", "B1Z2", "B4Z1", "B4Z2", "B4Z3", "D"];
-
-const COLUMNS = [
-  "DATE",
-  "PL",
-  "CHAINE",
-  "PRODUIT",
-  "CODE",
-  "QT CARTON",
-  "QT VRAC",
-  "FLACON/POT",
-  "CAPSULE/POMPE",
-  "SLEEVE",
-  "CARTON",
-  "ETIQUETE",
-  "NB ETUIT",
-  "DISPENSEUR",
-];
 
 type DispatcherRow = {
   id: number;
@@ -74,6 +58,19 @@ async function fetchDispatcherRows(zone: string): Promise<DispatcherRow[]> {
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
+
+  // Trie par date puis par chaine (tri numerique-aware : "5" avant "10A")
+  // au lieu de l'ordre d'insertion brut - le decoupage en lots (voir
+  // buildDispatcherDraftRows) peut inserer les lignes d'une chaine avant
+  // celles d'une autre dans un ordre qui ne correspond plus a l'ordre des
+  // chaines (ex: un lot "reliquat combine" est toujours insere apres tous
+  // les lots pleins, meme s'il appartient a une chaine plus petite), ce qui
+  // affichait a tort une chaine avant une autre plus petite.
+  rows.sort((a, b) => {
+    const dateCompare = (a.date_jour || "").localeCompare(b.date_jour || "");
+    if (dateCompare !== 0) return dateCompare;
+    return (a.chaine || "").localeCompare(b.chaine || "", "fr", { numeric: true });
+  });
 
   return rows;
 }
@@ -165,10 +162,41 @@ function uniqueDatesFrom(rows: DispatcherRow[]) {
 // programme source a ete supprime depuis (Historique programme) n'a plus de
 // code PL resolvable (plCodeByGroupeId) - il n'est plus compte non plus,
 // sinon "Nb PL" annoncerait un programme qui n'existe plus dans l'historique.
-function countDistinctProgrammesPl(rows: DispatcherRow[], plCodeByGroupeId: Map<number, string>) {
-  return new Set(
+function listDistinctPlCodes(rows: DispatcherRow[], plCodeByGroupeId: Map<number, string>) {
+  const groupeIds = new Set(
     rows.map((row) => row.groupe_id).filter((id): id is number => id !== null && plCodeByGroupeId.has(id))
-  ).size;
+  );
+  return [...groupeIds].map((id) => plCodeByGroupeId.get(id)!).sort();
+}
+
+// Remarque (voir Programme par ligne) : un champ libre pour tout le
+// programme, pas par ligne - recuperee ici scopee aux groupe_id
+// effectivement affiches sur cette page (pas toute la table, contrairement
+// a fetchAllProgrammeLignesForPlCode qui a besoin de tout pour le rang).
+async function fetchRemarqueByGroupeId(groupeIds: number[]): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  if (groupeIds.length === 0) return map;
+
+  const { data } = await supabaseServer
+    .from("programme_lignes")
+    .select("groupe_id, remarque")
+    .in("groupe_id", groupeIds)
+    .not("remarque", "is", null);
+
+  for (const row of (data as { groupe_id: number; remarque: string }[] | null) ?? []) {
+    if (row.remarque && !map.has(row.groupe_id)) {
+      map.set(row.groupe_id, row.remarque);
+    }
+  }
+
+  return map;
+}
+
+function listDistinctRemarques(rows: DispatcherRow[], remarqueByGroupeId: Map<number, string>) {
+  const groupeIds = new Set(
+    rows.map((row) => row.groupe_id).filter((id): id is number => id !== null && remarqueByGroupeId.has(id))
+  );
+  return [...new Set([...groupeIds].map((id) => remarqueByGroupeId.get(id)!))];
 }
 
 export default async function RavitailleurParLigneZonePage({
@@ -181,6 +209,7 @@ export default async function RavitailleurParLigneZonePage({
   const zoneUpper = decodeURIComponent(zone).toUpperCase();
   const currentUser = await getCurrentStockUser();
   const canDelete = await canDeletePageUser(currentUser, "ravitailleurParLigne");
+  const canEdit = await canWritePageUser(currentUser, "ravitailleurParLigne");
 
   if (!VALID_ZONES.includes(zoneUpper)) {
     notFound();
@@ -193,7 +222,42 @@ export default async function RavitailleurParLigneZonePage({
   const dates = uniqueDatesFrom(dataRows);
   const programmeLignesForPl = await fetchAllProgrammeLignesForPlCode();
   const plCodeByGroupeId = computePlCodesByGroupeId(programmeLignesForPl);
-  const nbProgrammesPl = countDistinctProgrammesPl(dataRows, plCodeByGroupeId);
+  const plCodes = listDistinctPlCodes(dataRows, plCodeByGroupeId);
+  const groupeIdsInView = [
+    ...new Set(dataRows.map((row) => row.groupe_id).filter((id): id is number => id !== null)),
+  ];
+  const remarqueByGroupeId = await fetchRemarqueByGroupeId(groupeIdsInView);
+  const remarques = listDistinctRemarques(dataRows, remarqueByGroupeId);
+
+  // Une colonne "besoin" (FLACON/POT, CAPSULE/POMPE...) entierement vide
+  // pour cette zone (aucun article affiche n'en a besoin) n'apporte rien -
+  // elle est retiree du tableau (ecran ET impression) plutot que d'afficher
+  // une colonne vide sur toute la hauteur.
+  const hasArticleFlag = (flag: keyof ArticleProductionInfo) =>
+    dataRows.some((row) => (row.article_id ? articlesInfo.get(row.article_id)?.[flag] : false));
+  const showFlaconPot = hasArticleFlag("besoin_pot_flacon");
+  const showCapsulePompe = hasArticleFlag("besoin_capsule");
+  const showSleeve = hasArticleFlag("besoin_sleeve");
+  const showCarton = hasArticleFlag("besoin_carton");
+  const showEtiquette = hasArticleFlag("besoin_etiquette");
+  const showEtui = hasArticleFlag("besoin_etui");
+  const showDispenseur = hasArticleFlag("besoin_dispenseur");
+
+  const visibleColumns = [
+    "DATE",
+    "CHAINE",
+    "PRODUIT",
+    "CODE",
+    "QT CARTON",
+    "QT VRAC",
+    ...(showFlaconPot ? ["FLACON/POT"] : []),
+    ...(showCapsulePompe ? ["CAPSULE/POMPE"] : []),
+    ...(showSleeve ? ["SLEEVE"] : []),
+    ...(showCarton ? ["CARTON"] : []),
+    ...(showEtiquette ? ["ETIQUETE"] : []),
+    ...(showEtui ? ["NB ETUIT"] : []),
+    ...(showDispenseur ? ["DISPENSEUR"] : []),
+  ];
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -213,7 +277,8 @@ export default async function RavitailleurParLigneZonePage({
                     Date{dates.length > 1 ? "s" : ""} : {dates.map((date) => formatDate(date)).join(", ")}
                   </span>
                 ) : null}
-                {nbProgrammesPl > 0 ? <span>Nb PL : {nbProgrammesPl}</span> : null}
+                {plCodes.length > 0 ? <span>PL : {plCodes.join(", ")}</span> : null}
+                {remarques.length > 0 ? <span>Remarque : {remarques.join(", ")}</span> : null}
                 {programmesByChaine.map(([chaine, count]) => (
                   <span key={chaine}>
                     {chaine} : {count} programme{count > 1 ? "s" : ""}
@@ -242,14 +307,14 @@ export default async function RavitailleurParLigneZonePage({
               <thead>
                 <tr>
                   <th
-                    colSpan={COLUMNS.length}
+                    colSpan={visibleColumns.length}
                     className="border border-slate-300 bg-slate-300 px-3 py-2 text-center font-bold text-slate-900"
                   >
                     {zoneUpper}
                   </th>
                 </tr>
                 <tr>
-                  {COLUMNS.map((column) => (
+                  {visibleColumns.map((column) => (
                     <th
                       key={column}
                       className="border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900"
@@ -269,41 +334,52 @@ export default async function RavitailleurParLigneZonePage({
                       <td className="border border-slate-300 bg-white px-3 py-3">
                         {row.date_jour ? formatDate(row.date_jour) : ""}
                       </td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {row.groupe_id !== null ? plCodeByGroupeId.get(row.groupe_id) ?? "" : ""}
-                      </td>
                       <td className="border border-slate-300 bg-white px-3 py-3">{row.chaine || ""}</td>
                       <td className="border border-slate-300 bg-white px-3 py-3">{row.produit || ""}</td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">{row.code || ""}</td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {row.qt_carton !== null ? Math.round(row.qt_carton).toLocaleString("fr-FR") : ""}
-                      </td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {row.qt_vrac !== null ? row.qt_vrac.toLocaleString("fr-FR") : ""}
-                      </td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {article?.besoin_pot_flacon ? formatCell(pieces) : ""}
-                      </td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {article?.besoin_capsule ? formatCell(pieces) : ""}
-                      </td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {article?.besoin_sleeve ? formatCell(pieces) : ""}
-                      </td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {article?.besoin_carton ? formatCell(row.qt_carton) : ""}
-                      </td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {article?.besoin_etiquette ? formatCell(pieces) : ""}
-                      </td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {article?.besoin_etui ? formatCell(pieces) : ""}
-                      </td>
-                      <td className="border border-slate-300 bg-white px-3 py-3">
-                        {article?.besoin_dispenseur
-                          ? formatCell(computeDispenseur(row.qt_carton, article?.dispenseur_pcs_carton))
-                          : ""}
-                      </td>
+                      <DispatcherRowEditor
+                        id={row.id}
+                        initialCode={row.code || ""}
+                        initialQtCarton={row.qt_carton}
+                        initialQtVrac={row.qt_vrac}
+                        canEdit={canEdit}
+                      />
+                      {showFlaconPot ? (
+                        <td className="border border-slate-300 bg-white px-3 py-3">
+                          {article?.besoin_pot_flacon ? formatCell(pieces) : ""}
+                        </td>
+                      ) : null}
+                      {showCapsulePompe ? (
+                        <td className="border border-slate-300 bg-white px-3 py-3">
+                          {article?.besoin_capsule ? formatCell(pieces) : ""}
+                        </td>
+                      ) : null}
+                      {showSleeve ? (
+                        <td className="border border-slate-300 bg-white px-3 py-3">
+                          {article?.besoin_sleeve ? formatCell(pieces) : ""}
+                        </td>
+                      ) : null}
+                      {showCarton ? (
+                        <td className="border border-slate-300 bg-white px-3 py-3">
+                          {article?.besoin_carton ? formatCell(row.qt_carton) : ""}
+                        </td>
+                      ) : null}
+                      {showEtiquette ? (
+                        <td className="border border-slate-300 bg-white px-3 py-3">
+                          {article?.besoin_etiquette ? formatCell(pieces) : ""}
+                        </td>
+                      ) : null}
+                      {showEtui ? (
+                        <td className="border border-slate-300 bg-white px-3 py-3">
+                          {article?.besoin_etui ? formatCell(pieces) : ""}
+                        </td>
+                      ) : null}
+                      {showDispenseur ? (
+                        <td className="border border-slate-300 bg-white px-3 py-3">
+                          {article?.besoin_dispenseur
+                            ? formatCell(computeDispenseur(row.qt_carton, article?.dispenseur_pcs_carton))
+                            : ""}
+                        </td>
+                      ) : null}
                     </tr>
                   );
                 })}

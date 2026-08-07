@@ -6,6 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
 import { saveEmballageRapportAction } from "../../actions";
+import { DateJmaFormField } from "@/app/_components/date-jma-input";
 
 const ARRET_CAUSES = [
   { field: "emballage_arret_changement_bobine", label: "ARRET CHANGEMENT BOBINE" },
@@ -35,17 +36,24 @@ type RapportInfo = {
   emballage_arret_reglage: number | null;
   emballage_arret_coupure: number | null;
   emballage_arret_autre: number | null;
+  date_emballage: string | null;
   utilisateur_emballage: string | null;
 };
 
+type SearchParams = Promise<{ code?: string }>;
+
 export default async function RapportEmballagePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ ligneId: string }>;
+  searchParams: SearchParams;
 }) {
   noStore();
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
+  const { code: codeParam } = await searchParams;
+  const code = (codeParam || "").trim();
 
   if (!ligneIdNumber) {
     notFound();
@@ -53,6 +61,9 @@ export default async function RapportEmballagePage({
 
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionEmballage");
+
+  const RAPPORT_FIELDS =
+    "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, date_emballage, utilisateur_emballage";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
@@ -62,15 +73,30 @@ export default async function RapportEmballagePage({
       .maybeSingle(),
     supabaseServer
       .from("production_rapports")
-      .select(
-        "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, utilisateur_emballage"
-      )
+      .select(RAPPORT_FIELDS)
       .eq("programme_ligne_id", ligneIdNumber)
+      .eq("code", code)
       .maybeSingle(),
   ]);
 
   const ligne = ligneData as LigneInfo | null;
-  const rapport = rapportData as RapportInfo | null;
+  let rapport = rapportData as RapportInfo | null;
+
+  // Meme repli que Conditionnement : seulement pour une ligne jamais
+  // decoupee en plusieurs lots, l'ancien rapport partage (code "") reste
+  // sans ambiguite le bon prefill.
+  if (!rapport && code) {
+    const numeroLotCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    if (numeroLotCodes.length <= 1) {
+      const { data: legacyRapport } = await supabaseServer
+        .from("production_rapports")
+        .select(RAPPORT_FIELDS)
+        .eq("programme_ligne_id", ligneIdNumber)
+        .eq("code", "")
+        .maybeSingle();
+      rapport = legacyRapport as RapportInfo | null;
+    }
+  }
 
   if (!ligne) {
     notFound();
@@ -78,7 +104,7 @@ export default async function RapportEmballagePage({
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
-      <div className="mx-auto w-full max-w-3xl space-y-6">
+      <div className="mx-auto w-full space-y-6">
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -90,7 +116,7 @@ export default async function RapportEmballagePage({
               </h1>
               <p className="mt-2 text-sm text-slate-600">
                 {formatDate(ligne.date_jour)} - {ligne.produit || "-"}
-                {ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
+                {code ? ` - Lot ${code}` : ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
               </p>
               {rapport?.utilisateur_emballage ? (
                 <p className="mt-1 text-xs text-slate-500">
@@ -114,6 +140,19 @@ export default async function RapportEmballagePage({
           ) : (
             <form action={saveEmballageRapportAction} className="grid gap-6">
               <input type="hidden" name="ligne_id" value={ligne.id} />
+              <input type="hidden" name="code" value={code} />
+
+              <div>
+                <h2 className="mb-1 text-lg font-bold text-slate-900">Date</h2>
+                <p className="mb-3 text-xs text-slate-500">
+                  Cette date remplace la date automatique dans Suivi Production (colonne Date
+                  emballage).
+                </p>
+                <label className="grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
+                  Date emballage
+                  <DateJmaFormField name="date_emballage" defaultValue={rapport?.date_emballage} required />
+                </label>
+              </div>
 
               <div>
                 <h2 className="mb-3 text-lg font-bold text-slate-900">Equipe</h2>

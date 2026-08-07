@@ -6,6 +6,7 @@ import { CodeParArticleFilterForm } from "./filter-form";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { BackButton } from "@/app/_components/back-button";
 import { CodeCell } from "./code-cell";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 type ArticleRow = {
   id: number;
@@ -67,7 +68,7 @@ export default async function CodeParArticlePage({
   const codeManuLower = codeManu.toLowerCase();
 
   const filteredArticles = allArticles.filter((row) => {
-    if (articleLower && !row.nom_article.toLowerCase().includes(articleLower)) return false;
+    if (articleLower && !matchesArticleSearch(row.nom_article, articleLower)) return false;
     if (gammeLower && !String(row.gamme ?? "").toLowerCase().includes(gammeLower)) return false;
     if (codeAutoLower && !String(row.code_auto ?? "").toLowerCase().includes(codeAutoLower)) return false;
     if (codeManuLower && !String(row.code_manu ?? "").toLowerCase().includes(codeManuLower)) return false;

@@ -4,6 +4,75 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { extractTrailingNumber } from "@/lib/article-code-family";
+
+// Le code genere au Dispatch (Programme par ligne) reste "en attente"
+// (pending_article_code_updates) jusqu'a ce que le programme soit confirme
+// ICI - "Code par article" ne doit refleter que des codes reellement
+// utilises, pas un Dispatch qui pourrait encore etre abandonne/refait.
+// Plusieurs groupe_id encore en attente (cas normal du Save "Toutes les
+// zones", qui confirme d'un coup tout ce qui trainait) peuvent avoir chacun
+// leur propre code en attente pour le MEME article (2 dispatchs distincts
+// de la meme famille, aucun encore confirme) - garde le plus recent (le
+// numero le plus grand) par champ plutot que le dernier lu au hasard.
+async function applyPendingArticleCodeUpdates(groupeIds: number[]): Promise<void> {
+  if (groupeIds.length === 0) return;
+
+  const { data: pendingRows, error: fetchError } = await supabaseServer
+    .from("pending_article_code_updates")
+    .select("article_id, code_manu, code_auto")
+    .in("groupe_id", groupeIds);
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  const rows =
+    (pendingRows as { article_id: number; code_manu: string | null; code_auto: string | null }[] | null) ?? [];
+
+  if (rows.length > 0) {
+    const bestByArticleId = new Map<number, { code_manu: string | null; code_auto: string | null }>();
+
+    for (const row of rows) {
+      const current = bestByArticleId.get(row.article_id) ?? { code_manu: null, code_auto: null };
+
+      const currentManuNum = current.code_manu ? extractTrailingNumber(current.code_manu) : null;
+      const rowManuNum = row.code_manu ? extractTrailingNumber(row.code_manu) : null;
+      if (rowManuNum !== null && (currentManuNum === null || rowManuNum > currentManuNum)) {
+        current.code_manu = row.code_manu;
+      }
+
+      const currentAutoNum = current.code_auto ? extractTrailingNumber(current.code_auto) : null;
+      const rowAutoNum = row.code_auto ? extractTrailingNumber(row.code_auto) : null;
+      if (rowAutoNum !== null && (currentAutoNum === null || rowAutoNum > currentAutoNum)) {
+        current.code_auto = row.code_auto;
+      }
+
+      bestByArticleId.set(row.article_id, current);
+    }
+
+    const { error: applyError } = await supabaseServer.rpc("articles_bulk_update_codes", {
+      p_updates: [...bestByArticleId.entries()].map(([articleId, update]) => ({
+        id: articleId,
+        code_manu: update.code_manu,
+        code_auto: update.code_auto,
+      })),
+    });
+
+    if (applyError) {
+      throw new Error(applyError.message);
+    }
+  }
+
+  const { error: deleteError } = await supabaseServer
+    .from("pending_article_code_updates")
+    .delete()
+    .in("groupe_id", groupeIds);
+
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+}
 
 export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
@@ -20,7 +89,7 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
 
   const { data: currentRows, error: fetchError } = await supabaseServer
     .from("programme_dispatcher_lignes")
-    .select("zone, article_id, date_jour, chaine, produit, code, qt_carton, qt_vrac")
+    .select("zone, article_id, date_jour, chaine, produit, code, qt_carton, qt_vrac, groupe_id")
     .eq("zone", zone);
 
   if (fetchError) {
@@ -32,6 +101,19 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
   if (rows.length === 0) {
     throw new Error("Rien a enregistrer pour cette zone.");
   }
+
+  // groupe_id ici identifie le programme SOURCE (programme_lignes), pas le
+  // groupe PD - renomme en source_groupe_id avant insertion dans
+  // l'historique (qui a son propre groupe_id, attribue plus bas). Garde
+  // aussi de cote pour confirmer les lignes source correspondantes (voir
+  // plus bas) : source_groupe_id permet a deleteProgrammeDispatcherHistoryGroupAction
+  // de retrouver TOUTES les lignes du programme meme celles sans code
+  // (article sans code_manu/code_auto configure, donc invisibles au
+  // matching par code sur numero_lot).
+  const sourceGroupeIds = [
+    ...new Set(rows.map((row) => row.groupe_id).filter((id): id is number => id !== null)),
+  ];
+  const historyRows = rows.map(({ groupe_id, ...rest }) => ({ ...rest, source_groupe_id: groupe_id }));
 
   // Le code PD1/PD2/PD3... est recalcule a la lecture selon le rang du
   // groupe (meme principe que MB1/MB2 et TE1/TS1) - on compte les
@@ -63,7 +145,7 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
 
   const { data: inserted, error: insertError } = await supabaseServer
     .from("programme_dispatcher_history")
-    .insert(rows)
+    .insert(historyRows)
     .select("id");
 
   if (insertError) {
@@ -82,8 +164,27 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
     throw new Error(groupUpdateError.message);
   }
 
+  // Ce Save confirme officiellement les programmes source pour le suivi de
+  // production - ils deviennent visibles sur le Dashboard/Calendrier
+  // seulement a partir de maintenant (voir confirme_production).
+  if (sourceGroupeIds.length > 0) {
+    const { error: confirmError } = await supabaseServer
+      .from("programme_lignes")
+      .update({ confirme_production: true })
+      .in("groupe_id", sourceGroupeIds);
+
+    if (confirmError) {
+      throw new Error(confirmError.message);
+    }
+
+    await applyPendingArticleCodeUpdates(sourceGroupeIds);
+  }
+
   revalidatePath(`/ravitailleur-par-ligne/${zone}`);
   revalidatePath("/historique-programme-dispatcher");
+  revalidatePath("/production/suivi/dashboard");
+  revalidatePath("/production/suivi/calendrier");
+  revalidatePath("/articles/produit-fini");
 
   return { ok: true, code: generatedCode, groupe_id: groupeId };
 }
@@ -101,7 +202,7 @@ export async function saveAllZonesDispatcherSnapshotAction() {
 
   const { data: currentRows, error: fetchError } = await supabaseServer
     .from("programme_dispatcher_lignes")
-    .select("zone, article_id, date_jour, chaine, produit, code, qt_carton, qt_vrac");
+    .select("zone, article_id, date_jour, chaine, produit, code, qt_carton, qt_vrac, groupe_id");
 
   if (fetchError) {
     throw new Error(fetchError.message);
@@ -112,6 +213,19 @@ export async function saveAllZonesDispatcherSnapshotAction() {
   if (rows.length === 0) {
     throw new Error("Rien a enregistrer.");
   }
+
+  // groupe_id ici identifie le programme SOURCE (programme_lignes), pas le
+  // groupe PD - renomme en source_groupe_id avant insertion dans
+  // l'historique (qui a son propre groupe_id, attribue plus bas). Garde
+  // aussi de cote pour confirmer les lignes source correspondantes (voir
+  // plus bas) : source_groupe_id permet a deleteProgrammeDispatcherHistoryGroupAction
+  // de retrouver TOUTES les lignes du programme meme celles sans code
+  // (article sans code_manu/code_auto configure, donc invisibles au
+  // matching par code sur numero_lot).
+  const sourceGroupeIds = [
+    ...new Set(rows.map((row) => row.groupe_id).filter((id): id is number => id !== null)),
+  ];
+  const historyRows = rows.map(({ groupe_id, ...rest }) => ({ ...rest, source_groupe_id: groupe_id }));
 
   const existingGroupIds = new Set<number>();
   let fromIndex = 0;
@@ -140,7 +254,7 @@ export async function saveAllZonesDispatcherSnapshotAction() {
 
   const { data: inserted, error: insertError } = await supabaseServer
     .from("programme_dispatcher_history")
-    .insert(rows)
+    .insert(historyRows)
     .select("id");
 
   if (insertError) {
@@ -159,10 +273,123 @@ export async function saveAllZonesDispatcherSnapshotAction() {
     throw new Error(groupUpdateError.message);
   }
 
+  // Ce Save confirme officiellement les programmes source pour le suivi de
+  // production - ils deviennent visibles sur le Dashboard/Calendrier
+  // seulement a partir de maintenant (voir confirme_production).
+  if (sourceGroupeIds.length > 0) {
+    const { error: confirmError } = await supabaseServer
+      .from("programme_lignes")
+      .update({ confirme_production: true })
+      .in("groupe_id", sourceGroupeIds);
+
+    if (confirmError) {
+      throw new Error(confirmError.message);
+    }
+
+    await applyPendingArticleCodeUpdates(sourceGroupeIds);
+  }
+
   revalidatePath("/ravitailleur-par-ligne/tout");
   revalidatePath("/historique-programme-dispatcher");
+  revalidatePath("/production/suivi/dashboard");
+  revalidatePath("/production/suivi/calendrier");
+  revalidatePath("/articles/produit-fini");
 
   return { ok: true, code: generatedCode, groupe_id: groupeId };
+}
+
+// Modification manuelle d'une ligne Dispatcher (code + qt vrac) avant le
+// grand "Save" de zone - appelee directement depuis un composant client
+// (pas liee a un <form>), donc en arguments simples plutot qu'en FormData.
+// qt_carton est recalcule a partir du nouveau qt_vrac (contenance/piece par
+// carton de l'article), jamais saisi directement.
+export async function updateDispatcherLigneAction(id: number, code: string, qtVracRaw: string) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "ravitailleurParLigne"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier.");
+  }
+
+  if (!id) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const trimmedCode = code.trim();
+  const qtVracClean = qtVracRaw.trim().replace(",", ".");
+  const qtVrac = qtVracClean ? Number(qtVracClean) : null;
+
+  if (qtVracClean && Number.isNaN(qtVrac)) {
+    throw new Error("Quantite vrac invalide.");
+  }
+
+  const { data: rowData, error: rowError } = await supabaseServer
+    .from("programme_dispatcher_lignes")
+    .select("id, zone, article_id, groupe_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (rowError || !rowData) {
+    throw new Error("Ligne introuvable.");
+  }
+
+  const row = rowData as { id: number; zone: string; article_id: number | null; groupe_id: number | null };
+
+  let qtCarton: number | null = null;
+  if (row.article_id && qtVrac && qtVrac > 0) {
+    const { data: articleData } = await supabaseServer
+      .from("articles")
+      .select("contenance, piece_par_carton")
+      .eq("id", row.article_id)
+      .maybeSingle();
+
+    const article = articleData as { contenance: number | null; piece_par_carton: number | null } | null;
+
+    if (article?.contenance && article.piece_par_carton) {
+      qtCarton = qtVrac / article.contenance / article.piece_par_carton;
+    }
+  }
+
+  const { error: updateError } = await supabaseServer
+    .from("programme_dispatcher_lignes")
+    .update({ code: trimmedCode || null, qt_vrac: qtVrac, qt_carton: qtCarton })
+    .eq("id", id);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  // Propage le code corrige a la main sur l'article correspondant (Code
+  // Article) pour que le prochain code auto-genere reparte de cette valeur
+  // au lieu de l'ancienne - le Dispatcher ne garde pas la plateforme (M/A)
+  // utilisee, elle est retrouvee via le programme source
+  // (programme_lignes, meme groupe_id + article_id).
+  if (trimmedCode && row.article_id && row.groupe_id) {
+    const { data: sourceLigne } = await supabaseServer
+      .from("programme_lignes")
+      .select("plateforme")
+      .eq("groupe_id", row.groupe_id)
+      .eq("article_id", row.article_id)
+      .limit(1)
+      .maybeSingle();
+
+    const plateforme = (sourceLigne as { plateforme: string | null } | null)?.plateforme;
+
+    if (plateforme === "M" || plateforme === "A") {
+      const field = plateforme === "M" ? "code_manu" : "code_auto";
+      const { error: articleUpdateError } = await supabaseServer
+        .from("articles")
+        .update({ [field]: trimmedCode })
+        .eq("id", row.article_id);
+
+      if (articleUpdateError) {
+        throw new Error(articleUpdateError.message);
+      }
+    }
+  }
+
+  revalidatePath(`/ravitailleur-par-ligne/${row.zone}`);
+  revalidatePath("/ravitailleur-par-ligne/tout");
+  revalidatePath("/articles/produit-fini");
 }
 
 export async function deleteAllDispatcherLignesAction(formData: FormData) {
@@ -202,17 +429,17 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
 
   const { data: codeRows, error: codeFetchError } = await supabaseServer
     .from("programme_dispatcher_history")
-    .select("code")
+    .select("code, source_groupe_id")
     .eq("groupe_id", groupeId);
 
   if (codeFetchError) {
     throw new Error(codeFetchError.message);
   }
 
-  const deletedCodes = new Set(
-    ((codeRows as { code: string | null }[] | null) ?? [])
-      .map((row) => row.code)
-      .filter((code): code is string => Boolean(code))
+  const historyLignes = (codeRows as { code: string | null; source_groupe_id: number | null }[] | null) ?? [];
+  const deletedCodes = new Set(historyLignes.map((row) => row.code).filter((code): code is string => Boolean(code)));
+  const sourceGroupeIds = new Set(
+    historyLignes.map((row) => row.source_groupe_id).filter((id): id is number => id !== null)
   );
 
   const { error } = await supabaseServer
@@ -225,30 +452,37 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
   }
 
   // Pas de lien direct (FK) entre l'historique PD et les lignes de
-  // programme - on retrouve les lignes concernees via leurs codes presents
-  // dans "numero_lot" (liste separee par virgules) et on les marque comme
-  // terminees pour qu'elles disparaissent du Dashboard.
-  if (deletedCodes.size > 0) {
-    const matchingIds: number[] = [];
+  // programme - 2 facons complementaires de retrouver les lignes source a
+  // marquer terminees : par code (via numero_lot, ligne par ligne) et par
+  // source_groupe_id (le programme entier). Le matching par groupe_id est
+  // indispensable pour les lignes dont l'article n'a pas de code_manu/
+  // code_auto configure (numero_lot reste NULL, invisibles au matching par
+  // code) - sans lui elles resteraient indefiniment visibles sur le
+  // Dashboard meme apres suppression de leur PD.
+  if (deletedCodes.size > 0 || sourceGroupeIds.size > 0) {
+    const matchingIds = new Set<number>();
     let from = 0;
     const pageSize = 1000;
 
     while (true) {
       const { data: ligneRows, error: ligneFetchError } = await supabaseServer
         .from("programme_lignes")
-        .select("id, numero_lot")
-        .not("numero_lot", "is", null)
+        .select("id, numero_lot, groupe_id")
         .range(from, from + pageSize - 1);
 
       if (ligneFetchError) {
         throw new Error(ligneFetchError.message);
       }
 
-      const chunk = (ligneRows as { id: number; numero_lot: string | null }[] | null) ?? [];
+      const chunk = (ligneRows as { id: number; numero_lot: string | null; groupe_id: number }[] | null) ?? [];
       for (const row of chunk) {
+        if (sourceGroupeIds.has(row.groupe_id)) {
+          matchingIds.add(row.id);
+          continue;
+        }
         const codes = (row.numero_lot || "").split(",").map((code) => code.trim()).filter(Boolean);
         if (codes.some((code) => deletedCodes.has(code))) {
-          matchingIds.push(row.id);
+          matchingIds.add(row.id);
         }
       }
 
@@ -256,11 +490,11 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
       from += pageSize;
     }
 
-    if (matchingIds.length > 0) {
+    if (matchingIds.size > 0) {
       const { error: updateError } = await supabaseServer
         .from("programme_lignes")
         .update({ programme_termine: true, programme_termine_date: new Date().toISOString() })
-        .in("id", matchingIds);
+        .in("id", [...matchingIds]);
 
       if (updateError) {
         throw new Error(updateError.message);

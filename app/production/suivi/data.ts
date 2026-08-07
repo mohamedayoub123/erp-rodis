@@ -27,6 +27,7 @@ export type ProgrammeLigneRow = {
 export type CartonEntryRow = {
   id: number;
   programme_ligne_id: number;
+  code: string;
   quantite: number;
   date_jour: string;
 };
@@ -34,6 +35,7 @@ export type CartonEntryRow = {
 export type VracEntryRow = {
   id: number;
   programme_ligne_id: number;
+  code: string;
   quantite: number;
   date_jour: string;
 };
@@ -41,6 +43,7 @@ export type VracEntryRow = {
 export type EmballageEntryRow = {
   id: number;
   programme_ligne_id: number;
+  code: string;
   quantite: number;
   date_jour: string;
 };
@@ -53,9 +56,15 @@ export type EmballageEntryRow = {
 // par Rapport Ecarts en vue par defaut (sans recherche) pour eviter de
 // rapatrier des annees d'historique a chaque chargement ; une recherche
 // explicite (code/PD) repasse sans cette borne pour retrouver du vieux.
+// confirmedOnly: n'affiche que les programmes valides via le Save de
+// Ravitailleur par ligne (confirme_production=true) - un programme juste
+// saisi depuis "Programme par ligne" reste visible/ajustable sur
+// Ravitailleur mais ne doit pas encore apparaitre sur le Dashboard/
+// Calendrier tant qu'il n'a pas ete confirme.
 export async function fetchAllProgrammeLignes(options?: {
   activeOnly?: boolean;
   sinceDate?: string;
+  confirmedOnly?: boolean;
 }): Promise<{
   rows: ProgrammeLigneRow[];
   error: string | null;
@@ -73,6 +82,10 @@ export async function fetchAllProgrammeLignes(options?: {
 
     if (options?.activeOnly) {
       query = query.or("programme_termine.eq.false,programme_termine.is.null");
+    }
+
+    if (options?.confirmedOnly) {
+      query = query.eq("confirme_production", true);
     }
 
     if (options?.sinceDate) {
@@ -110,7 +123,7 @@ export async function fetchAllCartonEntries(ligneIds?: number[]): Promise<Carton
   while (true) {
     let query = supabaseServer
       .from("production_carton_entries")
-      .select("id, programme_ligne_id, quantite, date_jour");
+      .select("id, programme_ligne_id, code, quantite, date_jour");
 
     if (ligneIds) {
       query = query.in("programme_ligne_id", ligneIds);
@@ -142,7 +155,7 @@ export async function fetchAllVracEntries(ligneIds?: number[]): Promise<VracEntr
   while (true) {
     let query = supabaseServer
       .from("production_vrac_entries")
-      .select("id, programme_ligne_id, quantite, date_jour");
+      .select("id, programme_ligne_id, code, quantite, date_jour");
 
     if (ligneIds) {
       query = query.in("programme_ligne_id", ligneIds);
@@ -174,7 +187,7 @@ export async function fetchAllEmballageEntries(ligneIds?: number[]): Promise<Emb
   while (true) {
     let query = supabaseServer
       .from("production_emballage_entries")
-      .select("id, programme_ligne_id, quantite, date_jour");
+      .select("id, programme_ligne_id, code, quantite, date_jour");
 
     if (ligneIds) {
       query = query.in("programme_ligne_id", ligneIds);
@@ -266,6 +279,44 @@ export function groupCartonEntriesByLigne(
     map.set(entry.programme_ligne_id, list);
   }
   return map;
+}
+
+// Repartit le produit (carton ou emballage) d'une ligne ENTRE SES CODES -
+// depuis que Conditionnement/Emballage scopent chaque saisie par code (voir
+// upsertRapport), une entree recente porte deja le bon code et peut etre
+// sommee directement par code. Une ligne jamais retouchee depuis cet ajout
+// (toutes ses entrees encore en code "" partage) retombe sur l'ancienne
+// repartition en cascade (le 1er code se remplit avant le 2eme, etc.) pour
+// ne pas perdre l'affichage historique. Un melange (certains codes deja
+// scopes, d'autres pas) ne devrait plus arriver pour une ligne donnee une
+// fois qu'un premier Save par code a eu lieu, chaque code repassant alors
+// par la case per-code definitivement.
+export function computeProduitParCode(
+  entries: { code: string; quantite: number }[],
+  codes: string[],
+  prevuParCode: (code: string) => number
+): Map<string, number> {
+  const result = new Map<string, number>();
+  const hasCodeSpecificEntries = entries.some((entry) => entry.code);
+
+  if (hasCodeSpecificEntries) {
+    for (const code of codes) {
+      const sum = entries
+        .filter((entry) => entry.code === code)
+        .reduce((total, entry) => total + Number(entry.quantite), 0);
+      result.set(code, sum);
+    }
+    return result;
+  }
+
+  const total = entries.reduce((total, entry) => total + Number(entry.quantite), 0);
+  let remaining = total;
+  for (const code of codes) {
+    const consumed = Math.min(prevuParCode(code), Math.max(0, remaining));
+    result.set(code, consumed);
+    remaining -= consumed;
+  }
+  return result;
 }
 
 // Associe chaque code deja enregistre dans "Historique Programme

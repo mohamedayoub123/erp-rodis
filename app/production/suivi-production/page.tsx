@@ -5,6 +5,8 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../suivi/data";
 import { DeleteRowButton } from "./delete-row-button";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 // Meme calcul que Historique programme (PL1.2026, PL2.2026... remis a 1
 // chaque nouvelle annee de date_jour, rang par ordre de creation) - permet
@@ -74,12 +76,55 @@ const ARRET_LABELS: { field: ArretField; label: string }[] = [
   { field: "arret_autre", label: "Autre arret" },
 ];
 
+type FabricationArretField =
+  | "fabrication_arret_absence_air"
+  | "fabrication_arret_absence_vapeur"
+  | "fabrication_arret_attente_aspiration_aqueuse"
+  | "fabrication_arret_attente_cuves_mobiles"
+  | "fabrication_arret_attente_eau_osmosee"
+  | "fabrication_arret_coupure_electrique"
+  | "fabrication_arret_maintenance_plateforme"
+  | "fabrication_arret_manque_cuves_mobiles"
+  | "fabrication_arret_probleme_pompe"
+  | "fabrication_arret_probleme_ph"
+  | "fabrication_arret_probleme_technique";
+
+const FABRICATION_ARRET_LABELS: { field: FabricationArretField; label: string }[] = [
+  { field: "fabrication_arret_absence_air", label: "Absence d'air" },
+  { field: "fabrication_arret_absence_vapeur", label: "Absence de vapeur" },
+  { field: "fabrication_arret_attente_aspiration_aqueuse", label: "Attente aspiration aqueuse vers trimix" },
+  { field: "fabrication_arret_attente_cuves_mobiles", label: "Attente de cuves mobiles" },
+  { field: "fabrication_arret_attente_eau_osmosee", label: "Attente eau osmosee" },
+  { field: "fabrication_arret_coupure_electrique", label: "Coupure electrique" },
+  { field: "fabrication_arret_maintenance_plateforme", label: "Maintenance sur la plateforme" },
+  { field: "fabrication_arret_manque_cuves_mobiles", label: "Manque de cuves mobiles" },
+  { field: "fabrication_arret_probleme_pompe", label: "Probleme de la pompe" },
+  { field: "fabrication_arret_probleme_ph", label: "Probleme de PH" },
+  { field: "fabrication_arret_probleme_technique", label: "Probleme technique" },
+];
+
+type EmballageArretField =
+  | "emballage_arret_changement_bobine"
+  | "emballage_arret_technique"
+  | "emballage_arret_reglage"
+  | "emballage_arret_coupure"
+  | "emballage_arret_autre";
+
+const EMBALLAGE_ARRET_LABELS: { field: EmballageArretField; label: string }[] = [
+  { field: "emballage_arret_changement_bobine", label: "Arret changement bobine" },
+  { field: "emballage_arret_technique", label: "Arret technique (emb.)" },
+  { field: "emballage_arret_reglage", label: "Arret reglage" },
+  { field: "emballage_arret_coupure", label: "Arret coupure" },
+  { field: "emballage_arret_autre", label: "Autre arret (emb.)" },
+];
+
 type LigneRow = {
   id: number;
   zone: string;
   chaine: string;
   produit: string | null;
   numero_lot: string | null;
+  numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
   date_jour: string;
   vrac_a_fabriquer: number | null;
   qt_carton: number | null;
@@ -90,6 +135,7 @@ type LigneRow = {
 type RapportRow = {
   id: number;
   programme_ligne_id: number;
+  code: string;
   machine: string | null;
   type_fabrication: string | null;
   preparateur: string | null;
@@ -144,6 +190,22 @@ type RapportRow = {
   emballage_scotcheuse: string | null;
   emballage_temps_demarrer: string | null;
   emballage_temps_arret: string | null;
+  emballage_arret_changement_bobine: number | null;
+  emballage_arret_technique: number | null;
+  emballage_arret_reglage: number | null;
+  emballage_arret_coupure: number | null;
+  emballage_arret_autre: number | null;
+  fabrication_arret_absence_air: number | null;
+  fabrication_arret_absence_vapeur: number | null;
+  fabrication_arret_attente_aspiration_aqueuse: number | null;
+  fabrication_arret_attente_cuves_mobiles: number | null;
+  fabrication_arret_attente_eau_osmosee: number | null;
+  fabrication_arret_coupure_electrique: number | null;
+  fabrication_arret_maintenance_plateforme: number | null;
+  fabrication_arret_manque_cuves_mobiles: number | null;
+  fabrication_arret_probleme_pompe: number | null;
+  fabrication_arret_probleme_ph: number | null;
+  fabrication_arret_probleme_technique: number | null;
   utilisateur_fabrication: string | null;
   date_saisie_fabrication: string | null;
   utilisateur_conditionnement: string | null;
@@ -170,7 +232,36 @@ type DisplayRow = {
   emballage: StageEntry | null;
   isGeneral: boolean;
   generalRapportId: number | null;
+  displayCode: string;
+  displayVrac: number | null;
+  displayCarton: number | null;
 };
+
+// Une ligne "Programme par ligne" decoupee en plusieurs lots (voir
+// buildDispatcherDraftRows) stocke ses codes joints dans numero_lot
+// ("AA4140V, AA4141V, AA4142V") avec le total combine, et leur repartition
+// qt_vrac/qt_carton figee au moment du Save dans numero_lot_detail (meme
+// mecanisme que splitLigneIntoDisplayRows sur le Dashboard) - chaque code
+// est un lot physique distinct, donc affiche ici sa PROPRE ligne au lieu
+// des 3 codes empiles sur une seule ligne avec le total combine repete.
+// Sans detail fige (ligne d'avant l'ajout de cette colonne, ou lot unique)
+// on revient a l'affichage combine.
+function splitLigneByCode(
+  ligne: LigneRow
+): { code: string; vrac: number | null; carton: number | null }[] {
+  const codes = (ligne.numero_lot || "").split(",").map((code) => code.trim()).filter(Boolean);
+  const detail = ligne.numero_lot_detail ?? [];
+
+  if (codes.length <= 1 || detail.length !== codes.length) {
+    return [{ code: ligne.numero_lot || "-", vrac: ligne.vrac_a_fabriquer, carton: ligne.qt_carton }];
+  }
+
+  return detail.map((entry) => ({
+    code: entry.code || "-",
+    vrac: entry.qt_vrac,
+    carton: entry.qt_carton,
+  }));
+}
 
 async function fetchAllRows<T>(
   table: string,
@@ -199,7 +290,7 @@ async function fetchAllRows<T>(
 }
 
 const RAPPORT_COLUMNS =
-  "id, programme_ligne_id, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
+  "id, programme_ligne_id, code, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
 
 function groupEntriesByLigne(entries: EntryRow[]): Map<number, EntryRow[]> {
   const map = new Map<number, EntryRow[]>();
@@ -226,9 +317,32 @@ function toStageEntry(entry: EntryRow | undefined): StageEntry | null {
 // avec seulement les colonnes de cette etape remplies. Une ligne de
 // programme avec un rapport mais aucune quantite encore saisie garde quand
 // meme une ligne "generale", pour ne rien perdre de visible.
+type BaseDisplayRow = Omit<DisplayRow, "displayCode" | "displayVrac" | "displayCarton">;
+
+// Conditionnement/Emballage sont desormais saisis PAR CODE (voir
+// upsertRapport) - une ligne decoupee en plusieurs lots a donc plusieurs
+// lignes production_rapports (une par code), plus eventuellement l'ancienne
+// ligne "partagee" (code "") utilisee par Fabrication (qui reste au niveau
+// de la ligne entiere) ou laissee par une saisie d'avant ce decoupage. Le
+// rapport affiche pour un code precis fusionne les 2 : priorite au rapport
+// de CE code (Conditionnement/Emballage), complete par les champs du
+// rapport partage (Fabrication, ou tout ce qui n'a jamais ete resaisi
+// depuis par code).
+function mergeRapports(codeSpecific: RapportRow | null, legacy: RapportRow | null): RapportRow | null {
+  if (!codeSpecific) return legacy;
+  if (!legacy) return codeSpecific;
+  const merged = { ...codeSpecific };
+  for (const key of Object.keys(legacy) as (keyof RapportRow)[]) {
+    if (merged[key] === null || merged[key] === undefined) {
+      (merged as Record<string, unknown>)[key] = legacy[key];
+    }
+  }
+  return merged;
+}
+
 function buildDisplayRows(
   lignes: LigneRow[],
-  rapportsByLigneId: Map<number, RapportRow>,
+  rapportRows: RapportRow[],
   vracEntries: EntryRow[],
   cartonEntries: EntryRow[],
   emballageEntries: EntryRow[]
@@ -238,19 +352,32 @@ function buildDisplayRows(
   const cartonByLigne = groupEntriesByLigne(cartonEntries);
   const emballageByLigne = groupEntriesByLigne(emballageEntries);
 
+  const rapportByLigneAndCode = new Map<string, RapportRow>();
+  const legacyRapportByLigne = new Map<number, RapportRow>();
+  const anyRapportByLigne = new Map<number, RapportRow>();
+  for (const rapport of rapportRows) {
+    rapportByLigneAndCode.set(`${rapport.programme_ligne_id}::${rapport.code}`, rapport);
+    if (!rapport.code) legacyRapportByLigne.set(rapport.programme_ligne_id, rapport);
+    anyRapportByLigne.set(rapport.programme_ligne_id, rapport);
+  }
+
   const allLigneIds = new Set<number>([
     ...vracByLigne.keys(),
     ...cartonByLigne.keys(),
     ...emballageByLigne.keys(),
-    ...rapportsByLigneId.keys(),
+    ...anyRapportByLigne.keys(),
   ]);
 
-  const rows: DisplayRow[] = [];
+  const rows: BaseDisplayRow[] = [];
 
   for (const ligneId of allLigneIds) {
     const ligne = ligneById.get(ligneId);
     if (!ligne) continue;
-    const rapport = rapportsByLigneId.get(ligneId) ?? null;
+    // Rapport "provisoire" pour cette passe (avant eclatement par code) -
+    // sert seulement a detecter une ligne "generale" (rapport sans encore
+    // aucune entree) ; le rapport reellement affiche est resolu PAR CODE
+    // plus bas (voir expandedRows), une fois le/les code(s) connus.
+    const rapport = anyRapportByLigne.get(ligneId) ?? null;
 
     const vracList = vracByLigne.get(ligneId) ?? [];
     const cartonList = cartonByLigne.get(ligneId) ?? [];
@@ -303,13 +430,7 @@ function buildDisplayRows(
     }
   }
 
-  // La 1ere ligne affichee doit etre le DERNIER enregistrement fait (pas un
-  // tri alphabetique par code) - on trie par l'id de l'entree la plus
-  // recente de la ligne (fabrication/conditionnement/emballage, ou le
-  // rapport lui-meme pour une ligne "generale" sans encore d'entree), id
-  // auto-incremente donc plus fiable que la date_jour (calendaire, souvent
-  // a egalite) pour determiner l'ordre reel des saisies.
-  function rowRecencyId(row: DisplayRow): number {
+  function rowRecencyId(row: BaseDisplayRow): number {
     return Math.max(
       row.fabrication?.entryId ?? 0,
       row.conditionnement?.entryId ?? 0,
@@ -318,14 +439,59 @@ function buildDisplayRows(
     );
   }
 
-  rows.sort((a, b) => rowRecencyId(b) - rowRecencyId(a));
+  // La 1ere ligne affichee doit etre celle avec la date la PLUS RECENTE
+  // (date de l'etape saisie, pas l'id de creation de l'entree) - trier par
+  // id placait a tort une ligne datee du 6/5 avant une datee du 10/5 des
+  // que la saisie du 6/5 avait ete faite APRES celle du 10/5 (ex:
+  // completer un jour manque a posteriori), ce qui melangeait l'ordre des
+  // dates affichees au lieu de les montrer proprement du plus recent au
+  // plus ancien. L'id ne sert plus que de departage entre 2 lignes de la
+  // meme date.
+  function rowSortDate(row: BaseDisplayRow): string {
+    const dates = [row.fabrication?.date, row.conditionnement?.date, row.emballage?.date].filter(
+      (date): date is string => Boolean(date)
+    );
+    if (dates.length === 0) return row.ligne.date_jour || "";
+    return dates.reduce((max, date) => (date > max ? date : max));
+  }
 
-  return rows;
+  rows.sort((a, b) => {
+    const dateCompare = rowSortDate(b).localeCompare(rowSortDate(a));
+    if (dateCompare !== 0) return dateCompare;
+    return rowRecencyId(b) - rowRecencyId(a);
+  });
+
+  // Une ligne dont le vrac a ete reparti sur plusieurs lots (voir
+  // splitLigneByCode) devient plusieurs lignes d'affichage, une par code -
+  // Conditionnement/Emballage sont desormais saisis par code (voir
+  // mergeRapports plus haut), seule Fabrication reste partagee entre tous
+  // les codes d'une meme ligne.
+  const expandedRows: DisplayRow[] = [];
+  for (const row of rows) {
+    const codeSplits = splitLigneByCode(row.ligne);
+    codeSplits.forEach((split, index) => {
+      const codeSpecific = rapportByLigneAndCode.get(`${row.ligne.id}::${split.code}`) ?? null;
+      const legacy = legacyRapportByLigne.get(row.ligne.id) ?? null;
+      const rapport = mergeRapports(codeSpecific, legacy);
+
+      expandedRows.push({
+        ...row,
+        rapport,
+        generalRapportId: row.isGeneral ? (rapport?.id ?? row.generalRapportId) : row.generalRapportId,
+        key: codeSplits.length > 1 ? `${row.key}-code${index}` : row.key,
+        displayCode: split.code,
+        displayVrac: split.vrac,
+        displayCarton: split.carton,
+      });
+    });
+  }
+
+  return expandedRows;
 }
 
 const PAGE_SIZE = 200;
 
-type SearchParams = Promise<{ code?: string; produit?: string; page?: string }>;
+type SearchParams = Promise<{ code?: string; produit?: string; date?: string; page?: string }>;
 
 export default async function SuiviProductionListPage({
   searchParams,
@@ -333,16 +499,19 @@ export default async function SuiviProductionListPage({
   searchParams: SearchParams;
 }) {
   noStore();
+  const currentUser = await getCurrentStockUser();
+  const canDelete = await canDeletePageUser(currentUser, "productionSuiviProductionListe");
   const params = await searchParams;
   const codeFilter = (params.code || "").trim().toLowerCase();
   const produitFilter = (params.produit || "").trim().toLowerCase();
-  const hasFilters = Boolean(codeFilter || produitFilter);
+  const dateFilter = (params.date || "").trim();
+  const hasFilters = Boolean(codeFilter || produitFilter || dateFilter);
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
 
   const [lignesResult, rapportsResult, vracResult, cartonResult, emballageResult] = await Promise.all([
     fetchAllRows<LigneRow>(
       "programme_lignes",
-      "id, zone, chaine, produit, numero_lot, date_jour, vrac_a_fabriquer, qt_carton, groupe_id, created_at"
+      "id, zone, chaine, produit, numero_lot, numero_lot_detail, date_jour, vrac_a_fabriquer, qt_carton, groupe_id, created_at"
     ),
     fetchAllRows<RapportRow>("production_rapports", RAPPORT_COLUMNS),
     fetchAllRows<EntryRow>("production_vrac_entries", "id, programme_ligne_id, quantite, date_jour"),
@@ -353,25 +522,35 @@ export default async function SuiviProductionListPage({
   const fetchError =
     lignesResult.error || rapportsResult.error || vracResult.error || cartonResult.error || emballageResult.error;
 
-  const rapportsByLigneId = new Map(
-    rapportsResult.rows.map((rapport) => [rapport.programme_ligne_id, rapport])
-  );
-
   const plCodeByGroupeId = computePlCodesByGroupeId(lignesResult.rows);
 
   const allRows = buildDisplayRows(
     lignesResult.rows,
-    rapportsByLigneId,
+    rapportsResult.rows,
     vracResult.rows,
     cartonResult.rows,
     emballageResult.rows
   );
 
   const rows = allRows.filter((row) => {
-    if (codeFilter && !(row.ligne.numero_lot || "").toLowerCase().includes(codeFilter)) {
+    if (codeFilter && !row.displayCode.toLowerCase().includes(codeFilter)) {
       return false;
     }
-    if (produitFilter && !(row.ligne.produit || "").toLowerCase().includes(produitFilter)) {
+    if (produitFilter && !matchesArticleSearch(row.ligne.produit, produitFilter)) {
+      return false;
+    }
+    // Une ligne a plusieurs dates possibles (date du programme, date de
+    // chaque etape faite) - le filtre matche si l'une d'elles correspond,
+    // pas seulement la date du programme, sinon une ligne dont seule
+    // l'etape (fabrication/conditionnement/emballage) a ete faite au jour
+    // recherche resterait invisible.
+    if (
+      dateFilter &&
+      row.ligne.date_jour !== dateFilter &&
+      row.fabrication?.date !== dateFilter &&
+      row.conditionnement?.date !== dateFilter &&
+      row.emballage?.date !== dateFilter
+    ) {
       return false;
     }
     return true;
@@ -389,6 +568,7 @@ export default async function SuiviProductionListPage({
     qs.set("page", String(page));
     if (params.code) qs.set("code", params.code);
     if (params.produit) qs.set("produit", params.produit);
+    if (params.date) qs.set("date", params.date);
     return `/production/suivi-production?${qs.toString()}`;
   };
 
@@ -419,7 +599,7 @@ export default async function SuiviProductionListPage({
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto_auto]">
             <input
               type="text"
               name="code"
@@ -432,6 +612,12 @@ export default async function SuiviProductionListPage({
               name="produit"
               defaultValue={params.produit || ""}
               placeholder="Produit"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="date"
+              name="date"
+              defaultValue={params.date || ""}
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
@@ -465,15 +651,15 @@ export default async function SuiviProductionListPage({
           <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500 shadow-[0_1px_0_rgba(15,23,42,0.08)]">
                   <tr>
-                    <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Article
                     </th>
-                    <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Code
                     </th>
-                    <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Vrac demande
                     </th>
                     <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
@@ -482,13 +668,13 @@ export default async function SuiviProductionListPage({
                     <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
                       Programme (PL)
                     </th>
-                    <th colSpan={25} className="border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
+                    <th colSpan={36} className="border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
                       Fabrication
                     </th>
                     <th colSpan={32} className="border-b border-slate-200 bg-sky-50 px-6 py-2 text-center font-bold text-sky-800">
                       Conditionnement
                     </th>
-                    <th colSpan={9} className="border-b border-slate-200 bg-emerald-50 px-6 py-2 text-center font-bold text-emerald-800">
+                    <th colSpan={14} className="border-b border-slate-200 bg-emerald-50 px-6 py-2 text-center font-bold text-emerald-800">
                       Emballage
                     </th>
                     <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
@@ -520,6 +706,11 @@ export default async function SuiviProductionListPage({
                     <th className="px-6 py-3 font-semibold">Vrac fabrique</th>
                     <th className="px-6 py-3 font-semibold">Qt vrac recupere</th>
                     <th className="px-6 py-3 font-semibold">Code vrac recupere</th>
+                    {FABRICATION_ARRET_LABELS.map(({ field, label }) => (
+                      <th key={field} className="px-6 py-3 font-semibold">
+                        {label}
+                      </th>
+                    ))}
                     <th className="px-6 py-3 font-semibold">Saisi par (fabrication)</th>
                     <th className="px-6 py-3 font-semibold">Date saisie (fabrication)</th>
 
@@ -559,6 +750,11 @@ export default async function SuiviProductionListPage({
                     <th className="px-6 py-3 font-semibold">Scotcheuse</th>
                     <th className="px-6 py-3 font-semibold">Demarage emballage</th>
                     <th className="px-6 py-3 font-semibold">Arret emballage</th>
+                    {EMBALLAGE_ARRET_LABELS.map(({ field, label }) => (
+                      <th key={field} className="px-6 py-3 font-semibold">
+                        {label}
+                      </th>
+                    ))}
                     <th className="px-6 py-3 font-semibold">Quantite emballage</th>
                     <th className="px-6 py-3 font-semibold">Saisi par (emballage)</th>
                     <th className="px-6 py-3 font-semibold">Date saisie (emballage)</th>
@@ -574,12 +770,10 @@ export default async function SuiviProductionListPage({
                     return (
                       <tr key={row.key} className="border-t border-slate-100 align-top">
                         <td className="px-6 py-4 text-slate-600">{row.ligne.produit || "-"}</td>
-                        <td className="px-6 py-4 font-medium text-slate-900">
-                          {row.ligne.numero_lot || "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">{row.ligne.vrac_a_fabriquer ?? "-"}</td>
+                        <td className="px-6 py-4 font-medium text-slate-900">{row.displayCode}</td>
+                        <td className="px-6 py-4 text-slate-600">{row.displayVrac ?? "-"}</td>
                         <td className="px-6 py-4 text-slate-600">
-                          {row.ligne.qt_carton !== null ? Math.round(row.ligne.qt_carton * 100) / 100 : "-"}
+                          {row.displayCarton !== null ? Math.round(row.displayCarton * 100) / 100 : "-"}
                         </td>
                         <td className="px-6 py-4 font-medium text-slate-900">
                           {row.ligne.groupe_id !== null ? plCodeByGroupeId.get(row.ligne.groupe_id) ?? "-" : "-"}
@@ -617,6 +811,18 @@ export default async function SuiviProductionListPage({
                         </td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.qt_vrac_recupere ?? "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.code_vrac_recupere || "-" : "-"}</td>
+                        {FABRICATION_ARRET_LABELS.map(({ field }) => (
+                          <td
+                            key={field}
+                            className={`px-6 py-4 ${
+                              showFab && Number(r?.[field] ?? 0) > 0
+                                ? "font-semibold text-red-700"
+                                : "text-slate-400"
+                            }`}
+                          >
+                            {showFab ? r?.[field] ?? "-" : "-"}
+                          </td>
+                        ))}
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.utilisateur_fabrication || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">
                           {showFab ? formatDateTime(r?.date_saisie_fabrication ?? null) : "-"}
@@ -687,6 +893,18 @@ export default async function SuiviProductionListPage({
                           {showEmb ? r?.emballage_temps_demarrer || "-" : "-"}
                         </td>
                         <td className="px-6 py-4 text-slate-600">{showEmb ? r?.emballage_temps_arret || "-" : "-"}</td>
+                        {EMBALLAGE_ARRET_LABELS.map(({ field }) => (
+                          <td
+                            key={field}
+                            className={`px-6 py-4 ${
+                              showEmb && Number(r?.[field] ?? 0) > 0
+                                ? "font-semibold text-red-700"
+                                : "text-slate-400"
+                            }`}
+                          >
+                            {showEmb ? r?.[field] ?? "-" : "-"}
+                          </td>
+                        ))}
                         <td className="px-6 py-4 font-semibold text-slate-900">
                           {row.emballage ? row.emballage.quantite : "-"}
                         </td>
@@ -696,12 +914,14 @@ export default async function SuiviProductionListPage({
                         </td>
 
                         <td className="px-6 py-4">
-                          <DeleteRowButton
-                            fabricationId={row.fabrication?.entryId}
-                            conditionnementId={row.conditionnement?.entryId}
-                            emballageId={row.emballage?.entryId}
-                            rapportId={row.isGeneral ? row.generalRapportId : null}
-                          />
+                          {canDelete ? (
+                            <DeleteRowButton
+                              fabricationId={row.fabrication?.entryId}
+                              conditionnementId={row.conditionnement?.entryId}
+                              emballageId={row.emballage?.entryId}
+                              rapportId={row.isGeneral ? row.generalRapportId : null}
+                            />
+                          ) : null}
                         </td>
                       </tr>
                     );

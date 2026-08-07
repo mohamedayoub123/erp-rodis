@@ -30,6 +30,7 @@ type CommandeListRow = {
 
 type CommandeRow = CommandeListRow & {
   lignes_count: number;
+  carton_total: number;
 };
 
 type ProformaGroup = {
@@ -39,6 +40,7 @@ type ProformaGroup = {
   createdAt: string | null;
   rows: CommandeRow[];
   lignesTotal: number;
+  cartonTotal: number;
   statusCounts: { statut: string; count: number }[];
   openTargetId: number;
 };
@@ -120,25 +122,35 @@ export default async function CommandesPage({
   const commandeListRows = (data as CommandeListRow[] | null) ?? [];
   const commandeIds = commandeListRows.map((commande) => commande.id);
 
-  // The list only ever displays a line COUNT per order, so fetch just the
-  // commande_id column here instead of embedding full lines + article joins
-  // for all 300 orders on every page load.
+  // The list only ever displays a line COUNT + total carton per order, so
+  // fetch just commande_id/quantite_demandee here instead of embedding full
+  // lines + article joins for all 300 orders on every page load.
   const { data: lignesCountData } =
     commandeIds.length > 0
-      ? await supabaseServer.from("commande_lignes").select("commande_id").in("commande_id", commandeIds)
-      : { data: [] as { commande_id: number }[] };
+      ? await supabaseServer
+          .from("commande_lignes")
+          .select("commande_id, quantite_demandee")
+          .in("commande_id", commandeIds)
+      : { data: [] as { commande_id: number; quantite_demandee: number | null }[] };
 
   const lignesCountByCommande = new Map<number, number>();
-  for (const row of (lignesCountData as { commande_id: number }[] | null) ?? []) {
+  const cartonTotalByCommande = new Map<number, number>();
+  for (const row of (lignesCountData as { commande_id: number; quantite_demandee: number | null }[] | null) ??
+    []) {
     lignesCountByCommande.set(
       row.commande_id,
       (lignesCountByCommande.get(row.commande_id) ?? 0) + 1
+    );
+    cartonTotalByCommande.set(
+      row.commande_id,
+      (cartonTotalByCommande.get(row.commande_id) ?? 0) + Number(row.quantite_demandee ?? 0)
     );
   }
 
   const commandes: CommandeRow[] = commandeListRows.map((commande) => ({
     ...commande,
     lignes_count: lignesCountByCommande.get(commande.id) ?? 0,
+    carton_total: cartonTotalByCommande.get(commande.id) ?? 0,
   }));
 
   // One truck/container = one commande row (see createManualCommandeAction),
@@ -179,6 +191,7 @@ export default async function CommandesPage({
         createdAt,
         rows,
         lignesTotal: rows.reduce((sum, row) => sum + row.lignes_count, 0),
+        cartonTotal: rows.reduce((sum, row) => sum + row.carton_total, 0),
         statusCounts,
         openTargetId: openTarget.id,
       };
@@ -279,6 +292,7 @@ export default async function CommandesPage({
                   <col style={{ width: "90px" }} />
                   <col style={{ width: "110px" }} />
                   <col style={{ width: "70px" }} />
+                  <col style={{ width: "110px" }} />
                   <col style={{ width: "170px" }} />
                 </colgroup>
                 <thead className="bg-slate-50 text-slate-500">
@@ -291,6 +305,7 @@ export default async function CommandesPage({
                     <th className="px-4 py-3 font-semibold">Nb camion</th>
                     <th className="px-4 py-3 font-semibold">Type camion</th>
                     <th className="px-4 py-3 font-semibold">Lignes</th>
+                    <th className="px-4 py-3 font-semibold">Total carton</th>
                     <th className="px-4 py-3 font-semibold">Actions</th>
                   </tr>
                 </thead>
@@ -388,6 +403,7 @@ export default async function CommandesPage({
                         {group.modeChargement || "-"}
                       </td>
                       <td className="px-4 py-3 text-slate-600">{group.lignesTotal}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{group.cartonTotal}</td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <Link

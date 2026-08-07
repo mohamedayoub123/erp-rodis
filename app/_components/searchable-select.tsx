@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 type SearchableOption = {
   value: string;
@@ -34,12 +35,10 @@ export function SearchableSelect({
     const query = inputValue.trim().toLowerCase();
 
     if (!query) {
-      return options.slice(0, 40);
+      return options;
     }
 
-    return options
-      .filter((option) => option.label.toLowerCase().includes(query))
-      .slice(0, 40);
+    return options.filter((option) => matchesArticleSearch(option.label, query));
   }, [inputValue, options]);
 
   return (

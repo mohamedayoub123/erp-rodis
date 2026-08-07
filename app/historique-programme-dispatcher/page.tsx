@@ -5,6 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 type HistoryRow = {
   id: number;
@@ -98,10 +99,7 @@ export default async function HistoriqueProgrammeDispatcherPage({
       if (codeFilter && !group.rows.some((row) => (row.code || "").toLowerCase().includes(codeFilter))) {
         return false;
       }
-      if (
-        produitFilter &&
-        !group.rows.some((row) => (row.produit || "").toLowerCase().includes(produitFilter))
-      ) {
+      if (produitFilter && !group.rows.some((row) => matchesArticleSearch(row.produit, produitFilter))) {
         return false;
       }
       if (creeParFilter && !(group.creePar || "").toLowerCase().includes(creeParFilter)) return false;

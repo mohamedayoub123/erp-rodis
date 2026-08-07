@@ -5,6 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
 import { encodeDossierId } from "../commande/dossier-id";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 type ArticleMpRow = {
   id: number;
@@ -279,7 +280,7 @@ export default async function StockAlerteMpPage({
       importRefs: [...(importRefsByArticle.get(article.id)?.values() ?? [])],
     }))
     .filter((row) => row.stock_actuel <= row.min_stock)
-    .filter((row) => !qLower || row.nom_article.toLowerCase().includes(qLower))
+    .filter((row) => !qLower || matchesArticleSearch(row.nom_article, qLower))
     .filter((row) => !categorieLower || (row.categorie || "").toLowerCase().includes(categorieLower))
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { deleteProgrammeLigneGroupAction, relaunchProgrammeLigneGroupAction } from "../programe-par-ligne/actions";
+import { deleteProgrammeLigneGroupAction } from "../programe-par-ligne/actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -13,6 +13,7 @@ type ProgrammeLigneRow = {
   created_at: string;
   programe: string | null;
   cree_par: string | null;
+  remarque: string | null;
 };
 
 async function fetchAllProgrammeLignes(): Promise<ProgrammeLigneRow[]> {
@@ -23,7 +24,7 @@ async function fetchAllProgrammeLignes(): Promise<ProgrammeLigneRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("programme_lignes")
-      .select("id, groupe_id, date_jour, created_at, programe, cree_par")
+      .select("id, groupe_id, date_jour, created_at, programe, cree_par, remarque")
       .order("created_at", { ascending: false })
       .range(from, from + pageSize - 1);
 
@@ -91,6 +92,7 @@ export default async function HistoriqueProgrammePage({
       createdAt: lignes[0]?.created_at,
       count: lignes.length,
       creePar: lignes[0]?.cree_par ?? null,
+      remarque: lignes[0]?.remarque ?? null,
     }))
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
@@ -203,6 +205,11 @@ export default async function HistoriqueProgrammePage({
                   className="flex flex-1 flex-wrap items-center justify-between gap-3"
                 >
                   <span className="text-lg font-bold text-slate-900">{group.code}</span>
+                  {group.remarque ? (
+                    <span className="text-center text-base font-semibold text-sky-700">
+                      {group.remarque}
+                    </span>
+                  ) : null}
                   <span className="text-sm text-slate-500">
                     {formatDate(group.dateJour)} - {group.count} ligne
                     {group.count > 1 ? "s" : ""}
@@ -217,17 +224,6 @@ export default async function HistoriqueProgrammePage({
                     >
                       Charger
                     </Link>
-                  ) : null}
-                  {canRelaunch ? (
-                    <form action={relaunchProgrammeLigneGroupAction}>
-                      <input type="hidden" name="groupe_id" value={group.groupeId} />
-                      <button
-                        type="submit"
-                        className="rounded-full bg-emerald-700 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-600"
-                      >
-                        Relancer
-                      </button>
-                    </form>
                   ) : null}
                   {canDelete ? (
                     <form action={deleteProgrammeLigneGroupAction}>

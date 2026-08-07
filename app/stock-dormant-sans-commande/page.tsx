@@ -5,6 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DormantTable } from "../stock-dormant/dormant-table";
 import { DormantFilterForm } from "../stock-dormant/filter-form";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 // Assez grand pour afficher tout le dormant sur une seule page - meme
 // convention que /stock-dormant.
@@ -331,8 +332,7 @@ export default async function StockDormantSansCommandePage({
   let filteredRows = allDormantRows;
 
   if (article) {
-    const needle = article.toLowerCase();
-    filteredRows = filteredRows.filter((ligne) => ligne.nom_article.toLowerCase().includes(needle));
+    filteredRows = filteredRows.filter((ligne) => matchesArticleSearch(ligne.nom_article, article));
   }
 
   if (gamme) {

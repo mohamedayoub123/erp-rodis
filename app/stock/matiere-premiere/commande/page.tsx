@@ -89,8 +89,13 @@ async function fetchAllDossierStatuts() {
   return { rows, error: null };
 }
 
-export default async function CommandeMpPage() {
+type SearchParams = Promise<{ statut?: string }>;
+
+export default async function CommandeMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
+  const params = await searchParams;
+  const statutFilter = params.statut || "";
+  const hasFilters = Boolean(statutFilter);
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "commandeMp");
@@ -117,6 +122,11 @@ export default async function CommandeMpPage() {
   }
 
   const groups: DossierGroup[] = [...byDossier.entries()]
+    .filter(([key]) => {
+      if (!statutFilter) return true;
+      const statutInfo = statutByDossier.get(key);
+      return (statutInfo?.statut ?? STATUT_DOSSIER_MP_OPTIONS[0]) === statutFilter;
+    })
     .map(([key, groupRows]) => {
       const first = groupRows[0];
       const statutInfo = statutByDossier.get(key);
@@ -163,6 +173,37 @@ export default async function CommandeMpPage() {
           </div>
         </div>
 
+        <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+            <select
+              name="statut"
+              defaultValue={statutFilter}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              <option value="">Tous les statuts</option>
+              {STATUT_DOSSIER_MP_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Filtrer
+            </button>
+            {hasFilters ? (
+              <Link
+                href="/stock/matiere-premiere/commande"
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+              >
+                Effacer
+              </Link>
+            ) : null}
+          </form>
+        </section>
+
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           {error ? (
             <div className="px-6 py-8">
@@ -171,7 +212,9 @@ export default async function CommandeMpPage() {
               </p>
             </div>
           ) : groups.length === 0 ? (
-            <div className="px-6 py-8 text-sm text-slate-500">Aucun import pour le moment.</div>
+            <div className="px-6 py-8 text-sm text-slate-500">
+              {hasFilters ? "Aucun resultat pour ce filtre." : "Aucun import pour le moment."}
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">

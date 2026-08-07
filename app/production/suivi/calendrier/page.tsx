@@ -75,7 +75,7 @@ export default async function PlanningCalendrierPage({
   const params = await searchParams;
   const { year, month } = parseMonthParam(params.month);
 
-  const { rows: lignes } = await fetchAllProgrammeLignes({ activeOnly: true });
+  const { rows: lignes } = await fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true });
 
   const byDate = new Map<string, ProgrammeLigneRow[]>();
   for (const ligne of lignes) {

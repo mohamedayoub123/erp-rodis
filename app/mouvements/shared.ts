@@ -7,6 +7,7 @@ export type MouvementSourceRow = {
   numero_lot: string | null;
   code_normalise: string | null;
   date_fabrication: string | null;
+  date_peremption: string | null;
   date_jour: string | null;
   qte_entree: number;
   qte_sortie: number;
@@ -43,7 +44,7 @@ export type MouvementGroup = {
 };
 
 const SOURCE_COLUMNS =
-  "id, article_id, numero_lot, code_normalise, date_fabrication, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, source_import, mouvement_groupe_id, utilisateur, articles(nom_article)";
+  "id, article_id, numero_lot, code_normalise, date_fabrication, date_peremption, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, source_import, mouvement_groupe_id, utilisateur, articles(nom_article)";
 
 export async function fetchMouvementSourceRows() {
   // PostgREST plafonne chaque requete a son max-rows interne (~1000) peu
@@ -111,14 +112,16 @@ function groupKey(row: MouvementSourceRow) {
   return row.mouvement_groupe_id ?? row.id;
 }
 
+// Trie par ordre de creation (id auto-incremente), jamais par date_jour -
+// date_jour est une date CHOISIE par l'utilisateur (peut etre saisie dans
+// le passe), pas le moment reel de l'enregistrement. Trier par date_jour
+// faisait "sauter" les numeros TE/TS deja attribues : une nouvelle saisie
+// avec une date_jour anterieure a un mouvement existant se glissait avant
+// lui et decalait tous les numeros suivants. Le numero d'un mouvement doit
+// rester fixe une fois attribue, quelle que soit la date choisie sur une
+// saisie ulterieure.
 function sortChrono(rows: MouvementSourceRow[]) {
-  return [...rows].sort((a, b) => {
-    const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
-    const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
-
-    if (dateA !== dateB) return dateA - dateB;
-    return a.id - b.id;
-  });
+  return [...rows].sort((a, b) => a.id - b.id);
 }
 
 // Seuls les mouvements crees depuis le web (saisie manuelle entree/sortie,
@@ -164,13 +167,9 @@ function buildGroups(
     };
   });
 
-  groupList.sort((a, b) => {
-    const dateA = a.dateJour ? new Date(a.dateJour).getTime() : 0;
-    const dateB = b.dateJour ? new Date(b.dateJour).getTime() : 0;
-
-    if (dateA !== dateB) return dateA - dateB;
-    return a.minId - b.minId;
-  });
+  // Meme principe que sortChrono : le numero attribue a un groupe (TE1,
+  // TS1...) suit l'ordre de creation (minId), jamais date_jour.
+  groupList.sort((a, b) => a.minId - b.minId);
 
   return groupList.map((group, index) => {
     const quantiteTotale = group.rows.reduce(
@@ -224,6 +223,7 @@ export type AvailableLotOption = {
   numeroLot: string;
   chambre: string;
   codePays: string;
+  datePeremption: string;
   stock: number;
 };
 
@@ -260,6 +260,7 @@ export function computeAvailableLots(rows: MouvementSourceRow[]): AvailableLotOp
       numeroLot: representative.numero_lot || representative.code_normalise || "",
       chambre: representative.chambre || "",
       codePays: representative.code_pays || "",
+      datePeremption: representative.date_peremption || "",
       stock: remaining,
     });
   }

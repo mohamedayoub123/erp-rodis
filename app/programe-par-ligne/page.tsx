@@ -56,7 +56,7 @@ async function fetchAllArticleOptions(): Promise<ArticleOption[]> {
 async function fetchPrefillLignes(groupeId: number): Promise<PrefillLigne[]> {
   const { data } = await supabaseServer
     .from("programme_lignes")
-    .select("zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe")
+    .select("zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe, remarque")
     .eq("groupe_id", groupeId)
     .order("id", { ascending: true });
 
@@ -108,7 +108,12 @@ export default async function ProgrameParLignePage({
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="overflow-x-auto">
-            <ProgrammeLigneTable zoneGroups={ZONE_GROUPS} articles={articles} prefillLignes={prefillLignes} />
+            <ProgrammeLigneTable
+              zoneGroups={ZONE_GROUPS}
+              articles={articles}
+              prefillLignes={prefillLignes}
+              prefillRemarque={prefillLignes[0]?.remarque || ""}
+            />
           </div>
         </section>
       </div>

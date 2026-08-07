@@ -2,14 +2,16 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { fetchWebMouvementSourceRows } from "../../shared";
-import { createEntreeProductionBatchAction } from "./actions";
+import { createEntreeProductionBatchAction, deletePendingEmballageEntryAction } from "./actions";
 
 type EmballageEntryRow = {
   id: number;
   programme_ligne_id: number;
+  code: string;
   quantite: number;
   date_jour: string;
 };
@@ -51,7 +53,7 @@ async function fetchPendingEmballageEntries(): Promise<EmballageEntryRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("production_emballage_entries")
-      .select("id, programme_ligne_id, quantite, date_jour")
+      .select("id, programme_ligne_id, code, quantite, date_jour")
       .eq("transfere_stock", false)
       .order("date_jour", { ascending: true })
       .range(from, from + pageSize - 1);
@@ -138,14 +140,28 @@ export default async function EntreeProductionPage() {
       groupsByDate.set(date, group);
     }
 
+    // Chaque entree Emballage porte desormais son propre code precis (voir
+    // le suivi par code de Suivi Production) - une ligne decoupee en
+    // plusieurs lots ("AA1, AA2, AA3") ne doit donc PAS afficher/transferer
+    // les 3 codes combines sur chaque entree, seulement celui de CETTE
+    // entree. Repli sur le numero_lot combine seulement pour une vieille
+    // entree jamais resaisie depuis ce changement ET une ligne qui n'a
+    // jamais ete decoupee en plusieurs codes (aucune ambiguite dans ce cas).
+    const ligneCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    const resolvedCode = entry.code || (ligneCodes.length <= 1 ? ligne?.numero_lot || "" : "");
+
     group.lignes.push({
       entryId: entry.id,
       produit: ligne?.produit || "-",
-      numeroLot: ligne?.numero_lot || "-",
+      numeroLot: resolvedCode || "-",
       quantite: entry.quantite,
       dateFabrication: rapport?.date_fabrication_conditionnement || "",
       datePeremption: rapport?.date_peremption || "",
-      hasArticle: Boolean(ligne?.article_id && ligne?.numero_lot),
+      // Le code peut manquer (ligne decoupee en plusieurs lots, entree pas
+      // encore resaisie depuis l'ajout du suivi par code) mais reste
+      // modifiable a l'ecran juste avant de valider - seul l'article
+      // (jamais modifiable ici) bloque vraiment la validation.
+      hasArticle: Boolean(ligne?.article_id),
     });
   }
 
@@ -186,6 +202,7 @@ export default async function EntreeProductionPage() {
         ) : (
           dateGroups.map((group) => {
             const allValid = group.lignes.every((ligne) => ligne.hasArticle);
+            const totalQuantite = group.lignes.reduce((sum, ligne) => sum + Number(ligne.quantite), 0);
 
             return (
               <section
@@ -203,6 +220,9 @@ export default async function EntreeProductionPage() {
                     <div>
                       <h2 className="text-lg font-bold text-slate-900">
                         Entree Production {group.previewNumber}
+                        <span className="ml-2 text-sm font-semibold text-emerald-700">
+                          Total Qt : {totalQuantite}
+                        </span>
                       </h2>
                       <p className="text-xs text-slate-500">{formatDate(group.date)}</p>
                     </div>
@@ -226,13 +246,21 @@ export default async function EntreeProductionPage() {
                           <th className="px-4 py-3 font-semibold">Date peremption</th>
                           <th className="px-4 py-3 font-semibold">Chambre</th>
                           <th className="px-4 py-3 font-semibold">Code pays</th>
+                          <th className="px-4 py-3 font-semibold">Action</th>
                         </tr>
                       </thead>
                       <tbody>
                         {group.lignes.map((ligne) => (
                           <tr key={ligne.entryId} className="border-t border-slate-100 align-top">
                             <td className="px-4 py-3 text-slate-900">{ligne.produit}</td>
-                            <td className="px-4 py-3 text-slate-600">{ligne.numeroLot}</td>
+                            <td className="px-4 py-3">
+                              <input
+                                type="text"
+                                name={`code_${ligne.entryId}`}
+                                defaultValue={ligne.numeroLot === "-" ? "" : ligne.numeroLot}
+                                className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                              />
+                            </td>
                             <td className="px-4 py-3">
                               <input
                                 type="number"
@@ -272,6 +300,13 @@ export default async function EntreeProductionPage() {
                                 className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                               />
                             </td>
+                            <td className="px-4 py-3">
+                              <DeleteIconButton
+                                label="Supprimer cette ligne (annule la quantite emballee correspondante)"
+                                formAction={deletePendingEmballageEntryAction.bind(null, ligne.entryId)}
+                                formNoValidate
+                              />
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -279,8 +314,8 @@ export default async function EntreeProductionPage() {
                   </div>
                   {!allValid ? (
                     <p className="border-t border-red-100 bg-red-50 px-5 py-3 text-xs font-semibold text-red-700">
-                      Une ou plusieurs lignes n&apos;ont pas d&apos;article/code associe - corrige la
-                      ligne de programme avant de valider.
+                      Une ou plusieurs lignes n&apos;ont pas d&apos;article associe - corrige la ligne
+                      de programme avant de valider.
                     </p>
                   ) : null}
                 </form>
