@@ -11,7 +11,6 @@ import {
   getPageViewMap,
   getUserPermissions,
 } from "@/lib/stock-auth";
-import { GlobalFooter } from "./_components/global-footer";
 import { GlobalNav } from "./_components/global-nav";
 import { RouteAccessGate } from "./_components/route-access-gate";
 import { ServiceWorkerRegister } from "./_components/service-worker-register";
@@ -224,7 +223,6 @@ export default async function RootLayout({
             >
               <div className="flex-1">{children}</div>
             </RouteAccessGate>
-            <GlobalFooter />
           </div>
         </div>
       </body>

@@ -88,6 +88,7 @@ export async function createReceptionMpAction(formData: FormData) {
   const numeroLot = parseOptionalText(formData, "numero_lot");
   const dateFabrication = parseOptionalText(formData, "date_fabrication");
   const dateExpiration = parseOptionalText(formData, "date_expiration");
+  const dateReception = parseOptionalText(formData, "date_reception");
   const nDoss4dImport = parseOptionalText(formData, "n_doss_4d_import");
   const nDossErpImport = parseOptionalText(formData, "n_doss_erp_import");
 
@@ -97,6 +98,18 @@ export async function createReceptionMpAction(formData: FormData) {
 
   if (!numeroLot) {
     throw new Error("Le numero de lot est obligatoire pour receptionner.");
+  }
+
+  if (!dateFabrication) {
+    throw new Error("La date de fabrication est obligatoire pour receptionner.");
+  }
+
+  if (!dateExpiration) {
+    throw new Error("La date d'expiration est obligatoire pour receptionner.");
+  }
+
+  if (!dateReception) {
+    throw new Error("La date de reception est obligatoire pour receptionner.");
   }
 
   const { data: ligneRow, error: ligneError } = await supabaseServer
@@ -159,6 +172,7 @@ export async function createReceptionMpAction(formData: FormData) {
         numero_lot: numeroLot,
         date_fabrication: dateFabrication,
         date_expiration: dateExpiration,
+        date_import: dateReception,
       },
     ])
     .select("id")
@@ -169,15 +183,14 @@ export async function createReceptionMpAction(formData: FormData) {
   }
 
   const importId = (importRow as { id: number }).id;
-  const today = new Date().toISOString().slice(0, 10);
 
   const { data: lotRow, error: insertLotError } = await supabaseServer
     .from("lots_stock_matiere_premiere")
     .insert([
       {
         article_id: articleId,
-        date_jour: today,
-        date_reception: today,
+        date_jour: dateReception,
+        date_reception: dateReception,
         numero_lot: numeroLot,
         code_normalise: numeroLot.toUpperCase(),
         date_fabrication: dateFabrication,
