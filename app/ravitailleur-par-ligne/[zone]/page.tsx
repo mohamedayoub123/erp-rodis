@@ -243,6 +243,8 @@ export default async function RavitailleurParLigneZonePage({
   const showEtui = hasArticleFlag("besoin_etui");
   const showDispenseur = hasArticleFlag("besoin_dispenseur");
 
+  const missingCodeCount = dataRows.filter((row) => !row.code || !row.code.trim()).length;
+
   const visibleColumns = [
     "DATE",
     "CHAINE",
@@ -300,6 +302,14 @@ export default async function RavitailleurParLigneZonePage({
             </div>
           </div>
         </section>
+
+        {missingCodeCount > 0 ? (
+          <section className="no-print rounded-[1.75rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-800">
+            {missingCodeCount} ligne{missingCodeCount > 1 ? "s" : ""} sans code (surlignee
+            {missingCodeCount > 1 ? "s" : ""} en rouge ci-dessous) - le systeme n&apos;a jamais vu de
+            code pour cette famille de produit, tape le 1er code toi-meme dans la case CODE.
+          </section>
+        ) : null}
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="overflow-x-auto">
