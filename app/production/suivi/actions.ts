@@ -10,7 +10,12 @@ function revalidateSuiviPages() {
   revalidatePath("/production/suivi/calendrier");
 }
 
-export async function markVracTermineAction(formData: FormData) {
+// Insere le code precis dans production_code_termine plutot que de mettre a
+// jour un flag ligne entiere - une ligne decoupee en plusieurs codes (voir
+// numero_lot_detail) doit pouvoir terminer UN SEUL de ses codes sans cacher
+// les autres du Dashboard (bug corrige : Terminer un code y cachait avant
+// tous les codes freres, puisque le flag etait au niveau de la ligne).
+async function markCodeTermine(formData: FormData, stage: "vrac" | "carton" | "emballage") {
   const currentUser = await getCurrentStockUser();
 
   if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
@@ -18,15 +23,17 @@ export async function markVracTermineAction(formData: FormData) {
   }
 
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
 
-  if (!ligneId) {
-    throw new Error("Ligne invalide.");
+  if (!ligneId || !code) {
+    throw new Error("Ligne ou code invalide.");
   }
 
   const { error } = await supabaseServer
-    .from("programme_lignes")
-    .update({ vrac_termine: true, vrac_termine_date: new Date().toISOString().slice(0, 10) })
-    .eq("id", ligneId);
+    .from("production_code_termine")
+    .upsert([{ programme_ligne_id: ligneId, code, stage }], {
+      onConflict: "programme_ligne_id,code,stage",
+    });
 
   if (error) {
     throw new Error(error.message);
@@ -35,82 +42,19 @@ export async function markVracTermineAction(formData: FormData) {
   revalidateSuiviPages();
 }
 
-export async function unmarkVracTermineAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
-
-  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
-    throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
-  }
-
-  const ligneId = Number(String(formData.get("ligne_id") || "0"));
-
-  if (!ligneId) {
-    throw new Error("Ligne invalide.");
-  }
-
-  const { error } = await supabaseServer
-    .from("programme_lignes")
-    .update({ vrac_termine: false, vrac_termine_date: null })
-    .eq("id", ligneId);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  revalidateSuiviPages();
+export async function markVracTermineAction(formData: FormData) {
+  await markCodeTermine(formData, "vrac");
 }
 
 // Fin programme independante par colonne du Dashboard : fermer Fabrication
 // ne ferme plus Conditionnement/Emballage (et inversement) - chaque etape a
 // son propre flag "termine".
 export async function markCartonTermineAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
-
-  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
-    throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
-  }
-
-  const ligneId = Number(String(formData.get("ligne_id") || "0"));
-
-  if (!ligneId) {
-    throw new Error("Ligne invalide.");
-  }
-
-  const { error } = await supabaseServer
-    .from("programme_lignes")
-    .update({ carton_termine: true, carton_termine_date: new Date().toISOString().slice(0, 10) })
-    .eq("id", ligneId);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  revalidateSuiviPages();
+  await markCodeTermine(formData, "carton");
 }
 
 export async function markEmballageTermineAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
-
-  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
-    throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
-  }
-
-  const ligneId = Number(String(formData.get("ligne_id") || "0"));
-
-  if (!ligneId) {
-    throw new Error("Ligne invalide.");
-  }
-
-  const { error } = await supabaseServer
-    .from("programme_lignes")
-    .update({ emballage_termine: true, emballage_termine_date: new Date().toISOString().slice(0, 10) })
-    .eq("id", ligneId);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  revalidateSuiviPages();
+  await markCodeTermine(formData, "emballage");
 }
 
 export async function addCartonEntryAction(formData: FormData) {
