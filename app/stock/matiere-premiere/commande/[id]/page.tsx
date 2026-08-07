@@ -226,11 +226,11 @@ export default async function ImportMpDossierPage({
                                       </label>
                                       <label className="grid gap-1 text-xs text-slate-500">
                                         Date de fabrication
-                                        <DateJmaFormField name="date_fabrication" />
+                                        <DateJmaFormField name="date_fabrication" required />
                                       </label>
                                       <label className="grid gap-1 text-xs text-slate-500">
                                         Date d&apos;expiration
-                                        <DateJmaFormField name="date_expiration" />
+                                        <DateJmaFormField name="date_expiration" required />
                                       </label>
                                       <label className="grid gap-1 text-xs text-slate-500">
                                         Quantite receptionnee

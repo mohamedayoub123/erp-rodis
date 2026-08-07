@@ -99,6 +99,14 @@ export async function createReceptionMpAction(formData: FormData) {
     throw new Error("Le numero de lot est obligatoire pour receptionner.");
   }
 
+  if (!dateFabrication) {
+    throw new Error("La date de fabrication est obligatoire pour receptionner.");
+  }
+
+  if (!dateExpiration) {
+    throw new Error("La date d'expiration est obligatoire pour receptionner.");
+  }
+
   const { data: ligneRow, error: ligneError } = await supabaseServer
     .from("bons_commande_matiere_premiere")
     .select("id, article_id, article_label")
