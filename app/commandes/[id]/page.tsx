@@ -524,21 +524,38 @@ export default async function CommandeDetailPage({
   const baseProformaForSiblings = getBaseProforma(selectedCommande.numero_proforma);
   const { data: siblingTrucksData } = await supabaseServer
     .from("commandes")
-    .select("id, numero_proforma, statut, commande_lignes(id)")
+    .select("id, numero_proforma, statut, commande_lignes(id, quantite_demandee)")
     .or(`numero_proforma.eq.${baseProformaForSiblings},numero_proforma.like.${baseProformaForSiblings}-%`)
     .order("id", { ascending: true });
 
   const siblingTrucks = (
     (siblingTrucksData as
-      | { id: number; numero_proforma: string; statut: string | null; commande_lignes: { id: number }[] | null }[]
+      | {
+          id: number;
+          numero_proforma: string;
+          statut: string | null;
+          commande_lignes: { id: number; quantite_demandee: number | null }[] | null;
+        }[]
       | null) ?? []
   ).map((row, index) => ({
     id: row.id,
     numeroProforma: row.numero_proforma,
     statut: row.statut,
     lignesCount: row.commande_lignes?.length ?? 0,
+    cartonTotal: (row.commande_lignes ?? []).reduce(
+      (sum, ligne) => sum + Number(ligne.quantite_demandee ?? 0),
+      0
+    ),
     truckNumber: index + 1,
   }));
+
+  const cartonTotalProforma = siblingTrucks.reduce((sum, truck) => sum + truck.cartonTotal, 0);
+  const totalCartonCommande =
+    siblingTrucks.find((truck) => truck.id === selectedCommande.id)?.cartonTotal ??
+    (selectedCommande.commande_lignes ?? []).reduce(
+      (sum, ligne) => sum + Number(ligne.quantite_demandee ?? 0),
+      0
+    );
 
   const selectedArticleIds = [
     ...new Set(
@@ -592,7 +609,8 @@ export default async function CommandeDetailPage({
               </h1>
               <p className="text-sm text-slate-600">
                 Client : {selectedCommande.client} | Pays : {selectedClientPays || "-"} | Statut :{" "}
-                {formatStatus(selectedCommande.statut)}
+                {formatStatus(selectedCommande.statut)} | Total carton : {totalCartonCommande}
+                {siblingTrucks.length > 1 ? ` (proforma : ${cartonTotalProforma})` : ""}
               </p>
               <p className="text-sm text-slate-500">
                 Mode : {selectedCommande.mode_chargement || "-"}
@@ -931,7 +949,8 @@ export default async function CommandeDetailPage({
           {siblingTrucks.length > 1 ? (
             <div className="no-print mt-5 rounded-[1.5rem] border border-slate-200 bg-white p-4">
               <h3 className="text-sm font-semibold text-slate-800">
-                Camions de cette commande ({siblingTrucks.length})
+                Camions de cette commande ({siblingTrucks.length}) - Total {cartonTotalProforma}{" "}
+                carton(s)
               </h3>
               <p className="mt-1 text-xs text-slate-500">
                 Chaque camion est une commande suivie separement. Pour reduire le nombre de
@@ -953,6 +972,7 @@ export default async function CommandeDetailPage({
                     </span>
                     <span className="text-slate-600">{formatStatus(truck.statut)}</span>
                     <span className="text-slate-500">{truck.lignesCount} ligne(s)</span>
+                    <span className="text-slate-500">{truck.cartonTotal} carton(s)</span>
                     <div className="flex items-center gap-2">
                       {truck.id !== selectedCommande.id ? (
                         <Link
