@@ -392,7 +392,10 @@ export async function deleteCodeProgressAction(formData: FormData) {
 // logique.
 async function createManualEntryLigne(
   formData: FormData,
-  permissionKey: "productionSuiviProductionConditionnement" | "productionSuiviProductionEmballage",
+  permissionKey:
+    | "productionSuiviProductionConditionnement"
+    | "productionSuiviProductionEmballage"
+    | "productionSuiviProductionFabrication",
   dateFieldName: string
 ): Promise<{ id: number; numeroLot: string }> {
   const currentUser = await getCurrentStockUser();
@@ -455,4 +458,15 @@ export async function createManualEmballageEntryAction(formData: FormData) {
   formData.set("ligne_id", String(id));
   formData.set("code", numeroLot);
   return saveEmballageRapportAction(formData);
+}
+
+export async function createManualFabricationEntryAction(formData: FormData) {
+  const { id, numeroLot } = await createManualEntryLigne(
+    formData,
+    "productionSuiviProductionFabrication",
+    "date_fabrication_conditionnement"
+  );
+  formData.set("ligne_id", String(id));
+  formData.set("code", numeroLot);
+  return saveFabricationRapportAction(formData);
 }
