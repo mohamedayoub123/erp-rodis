@@ -197,6 +197,61 @@ export async function createCommandeBcBatchAction(formData: FormData) {
   return { ok: true, code };
 }
 
+// Ajoute un article de plus a un BC deja existant - copie le dossier
+// (n_doss_4d/n_doss_erp), le fournisseur et la date de la commande depuis
+// une ligne existante du meme code, pour rester coherent avec le reste du
+// BC sans redemander ces informations.
+export async function addArticleToCommandeBcAction(formData: FormData) {
+  await requireEditAccess();
+
+  const code = String(formData.get("code") || "").trim();
+  const articleName = String(formData.get("article") || "").trim();
+  const quantite = Number(String(formData.get("quantite") || "").replace(",", "."));
+
+  if (!code) {
+    throw new Error("Commande invalide.");
+  }
+
+  if (!articleName || !quantite || quantite <= 0) {
+    throw new Error("Choisis un article et une quantite valide.");
+  }
+
+  const { data: existingLigne, error: existingError } = await supabaseServer
+    .from("bons_commande_matiere_premiere")
+    .select("n_doss_4d, n_doss_erp, fournisseur, date_jour")
+    .eq("code", code)
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError || !existingLigne) {
+    throw new Error("Commande introuvable.");
+  }
+
+  const articleRows = await fetchAllArticlesMp();
+  const articleByNormalise = new Map(articleRows.map((row) => [normalizeArticle(row.nom_article), row]));
+  const articleRow = articleByNormalise.get(normalizeArticle(articleName));
+
+  const { error } = await supabaseServer.from("bons_commande_matiere_premiere").insert([
+    {
+      code,
+      article_id: articleRow?.id ?? null,
+      article_label: articleRow?.nom_article ?? articleName,
+      quantite,
+      n_doss_4d: (existingLigne as { n_doss_4d: string | null }).n_doss_4d,
+      n_doss_erp: (existingLigne as { n_doss_erp: string | null }).n_doss_erp,
+      fournisseur: (existingLigne as { fournisseur: string | null }).fournisseur,
+      date_jour: (existingLigne as { date_jour: string | null }).date_jour,
+    },
+  ]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateCommandeBcMpPages();
+}
+
 // Enregistre un NOUVEL evenement d'import pour une ligne (pas d'ecrasement -
 // un article commande en une fois peut arriver en plusieurs fois, chacune
 // avec son propre dossier). Volontairement libre : peut depasser la
