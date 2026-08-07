@@ -37,6 +37,7 @@ type RapportInfo = {
   emballage_arret_coupure: number | null;
   emballage_arret_autre: number | null;
   date_emballage: string | null;
+  date_peremption: string | null;
   utilisateur_emballage: string | null;
 };
 
@@ -63,7 +64,7 @@ export default async function RapportEmballagePage({
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionEmballage");
 
   const RAPPORT_FIELDS =
-    "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, date_emballage, utilisateur_emballage";
+    "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, date_emballage, date_peremption, utilisateur_emballage";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
@@ -152,6 +153,10 @@ export default async function RapportEmballagePage({
                   Date emballage
                   <DateJmaFormField name="date_emballage" defaultValue={rapport?.date_emballage} required />
                 </label>
+                <p className="mt-3 text-xs font-semibold text-slate-500">
+                  Date d&apos;expiration : {rapport?.date_peremption || "non renseignee"} (reprise
+                  automatiquement du Conditionnement, pas modifiable ici)
+                </p>
               </div>
 
               <div>
@@ -163,6 +168,7 @@ export default async function RapportEmballagePage({
                       type="text"
                       name="emballage_machine"
                       defaultValue={rapport?.emballage_machine || ""}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -172,6 +178,7 @@ export default async function RapportEmballagePage({
                       type="text"
                       name="emballage_operateur"
                       defaultValue={rapport?.emballage_operateur || ""}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -181,6 +188,7 @@ export default async function RapportEmballagePage({
                       type="text"
                       name="emballage_scotcheuse"
                       defaultValue={rapport?.emballage_scotcheuse || ""}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -196,6 +204,7 @@ export default async function RapportEmballagePage({
                       type="time"
                       name="emballage_temps_demarrer"
                       defaultValue={rapport?.emballage_temps_demarrer || ""}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -205,6 +214,7 @@ export default async function RapportEmballagePage({
                       type="time"
                       name="emballage_temps_arret"
                       defaultValue={rapport?.emballage_temps_arret || ""}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -214,7 +224,7 @@ export default async function RapportEmballagePage({
               <div>
                 <h2 className="mb-1 text-lg font-bold text-slate-900">Arret</h2>
                 <p className="mb-3 text-xs text-slate-500">
-                  Temps d&apos;arret (en minutes) pour chaque cause concernee.
+                  Temps d&apos;arret (en minutes) pour chaque cause concernee - 0 si pas concerne.
                 </p>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {ARRET_CAUSES.map((cause) => (
@@ -225,8 +235,8 @@ export default async function RapportEmballagePage({
                         step="1"
                         min="0"
                         name={cause.field}
-                        defaultValue={rapport?.[cause.field] ?? ""}
-                        placeholder="minutes"
+                        defaultValue={rapport?.[cause.field] ?? "0"}
+                        required
                         className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                       />
                     </label>
@@ -246,6 +256,8 @@ export default async function RapportEmballagePage({
                     type="number"
                     step="0.01"
                     name="quantite"
+                    defaultValue="0"
+                    required
                     className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                   />
                 </label>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // Meme motif que ProduitCell (Programme par ligne) : texte libre qui se
 // filtre au fur et a mesure sur la liste complete des articles,
@@ -16,6 +16,7 @@ export function ProduitPickerField({
   const [value, setValue] = useState(defaultValue);
   const [articleId, setArticleId] = useState<number | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const filtered = useMemo(() => {
     const words = value.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -26,10 +27,24 @@ export function ProduitPickerField({
     });
   }, [value, articles]);
 
+  // "article_id" (champ cache) ne participe pas a la validation native du
+  // navigateur - sans ca, taper un texte SANS cliquer une suggestion
+  // laissait valider le formulaire avec un produit texte jamais relie a un
+  // vrai article. setCustomValidity sur le champ VISIBLE force le blocage
+  // (avec l'infobulle native, au bon endroit) tant qu'aucune suggestion n'a
+  // ete cliquee.
+  useEffect(() => {
+    if (!inputRef.current) return;
+    inputRef.current.setCustomValidity(
+      value.trim() && articleId === null ? "Choisis un article dans la liste (clique une suggestion)." : ""
+    );
+  }, [value, articleId]);
+
   return (
     <div className="relative">
       <input type="hidden" name="article_id" value={articleId ?? ""} />
       <input
+        ref={inputRef}
         type="text"
         name="produit"
         value={value}

@@ -238,6 +238,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     ph: parseOptionalNumber(formData, "ph"),
     densite: parseOptionalNumber(formData, "densite"),
     viscosite: parseOptionalNumber(formData, "viscosite"),
+    degre_alcool: parseOptionalNumber(formData, "degre_alcool"),
     stabilite: parseOptionalText(formData, "stabilite"),
     vrac_fabrique: vracFabrique,
     qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
@@ -308,7 +309,7 @@ export async function saveEmballageRapportAction(formData: FormData) {
   const quantite = parseOptionalNumber(formData, "quantite");
   const dateEmballage = parseOptionalText(formData, "date_emballage");
 
-  await upsertRapport(ligneId, code, {
+  const fields: Record<string, unknown> = {
     emballage_machine: parseOptionalText(formData, "emballage_machine"),
     emballage_operateur: parseOptionalText(formData, "emballage_operateur"),
     emballage_scotcheuse: parseOptionalText(formData, "emballage_scotcheuse"),
@@ -322,7 +323,19 @@ export async function saveEmballageRapportAction(formData: FormData) {
     date_emballage: dateEmballage,
     utilisateur_emballage: currentUser,
     date_saisie_emballage: new Date().toISOString(),
-  });
+  };
+
+  // date_peremption vient normalement du rapport Conditionnement DEJA saisi
+  // pour ce meme (ligne, code) - meme ligne de production_rapports, colonne
+  // partagee entre les etapes (voir upsertRapport). Le formulaire "Entrer"
+  // normal ne renvoie donc jamais ce champ (affiche en lecture seule) : ne
+  // l'ecrase que si la page l'a explicitement envoye (le cas de la fiche
+  // "nouveau", ou aucun Conditionnement n'existe pour fournir la date).
+  if (formData.get("date_peremption") !== null) {
+    fields.date_peremption = parseOptionalText(formData, "date_peremption");
+  }
+
+  await upsertRapport(ligneId, code, fields);
 
   // Alimente le journal emballage (meme principe que carton/vrac) pour que
   // le "reste" par rapport a ce qui a deja ete conditionne se recalcule
