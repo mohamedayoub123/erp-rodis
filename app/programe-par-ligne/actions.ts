@@ -940,6 +940,25 @@ async function assignDispatcherCodesAndInsert(
     if (reactivateError) {
       throw new Error(reactivateError.message);
     }
+
+    // Une ligne deja confirmee (confirme_production=true) qui se fait
+    // redispatcher recoit ICI un nouveau numero_lot/numero_lot_detail, mais
+    // Ravitailleur ne l'a pas encore reconfirme avec ces nouveaux codes -
+    // sans ce reset, le Dashboard continuait a la montrer (confirme_production
+    // etait resté a true depuis l'ANCIENNE confirmation) avec les codes du
+    // redispatch, jamais valides sur Ravitailleur (bug remonte : "Parfum
+    // Target" visible en PD2 avec un code, mais un autre code sur le
+    // Dashboard). Elle redisparait donc du Dashboard jusqu'a ce que
+    // Ravitailleur confirme a nouveau (voir saveProgrammeDispatcherSnapshotAction).
+    const { error: unconfirmError } = await supabaseServer
+      .from("programme_lignes")
+      .update({ confirme_production: false })
+      .in("id", dispatchedLigneIds)
+      .eq("confirme_production", true);
+
+    if (unconfirmError) {
+      throw new Error(unconfirmError.message);
+    }
   }
 }
 

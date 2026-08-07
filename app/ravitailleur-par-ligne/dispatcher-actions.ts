@@ -363,18 +363,24 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
   // au lieu de l'ancienne - le Dispatcher ne garde pas la plateforme (M/A)
   // utilisee, elle est retrouvee via le programme source
   // (programme_lignes, meme groupe_id + article_id).
-  if (trimmedCode && row.article_id && row.groupe_id) {
-    const { data: sourceLigne } = await supabaseServer
-      .from("programme_lignes")
-      .select("plateforme")
-      .eq("groupe_id", row.groupe_id)
-      .eq("article_id", row.article_id)
-      .limit(1)
-      .maybeSingle();
+  if (row.article_id && row.groupe_id) {
+    const [{ data: sourceLignes }, { data: dispatcherSiblings }] = await Promise.all([
+      supabaseServer
+        .from("programme_lignes")
+        .select("id, plateforme")
+        .eq("groupe_id", row.groupe_id)
+        .eq("article_id", row.article_id),
+      supabaseServer
+        .from("programme_dispatcher_lignes")
+        .select("id")
+        .eq("groupe_id", row.groupe_id)
+        .eq("article_id", row.article_id),
+    ]);
 
-    const plateforme = (sourceLigne as { plateforme: string | null } | null)?.plateforme;
+    const lignes = (sourceLignes as { id: number; plateforme: string | null }[] | null) ?? [];
+    const plateforme = lignes[0]?.plateforme;
 
-    if (plateforme === "M" || plateforme === "A") {
+    if (trimmedCode && (plateforme === "M" || plateforme === "A")) {
       const field = plateforme === "M" ? "code_manu" : "code_auto";
       const { error: articleUpdateError } = await supabaseServer
         .from("articles")
@@ -385,11 +391,36 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
         throw new Error(articleUpdateError.message);
       }
     }
+
+    // Le Dashboard lit numero_lot/numero_lot_detail sur programme_lignes, pas
+    // le code affiche ici (programme_dispatcher_lignes.code) - sans cette
+    // synchro, un code ajoute/corrige a la main ici restait invisible du
+    // Dashboard (et de l'historique PD une fois confirme, mais absent cote
+    // PL) meme apres confirmation Ravitailleur. On ne le fait que quand le
+    // lien (groupe_id, article_id) est sans ambiguite (une seule ligne
+    // programme_lignes ET une seule ligne dispatcher pour ce couple) - un lot
+    // reparti sur plusieurs chaines/codes reste inchange ici pour eviter de
+    // deviner a quelle portion du decoupage ce code appartient.
+    if (lignes.length === 1 && (dispatcherSiblings?.length ?? 0) === 1) {
+      const numeroLotDetail = trimmedCode
+        ? [{ code: trimmedCode, qt_vrac: qtVrac, qt_carton: qtCarton }]
+        : [];
+      const { error: syncError } = await supabaseServer
+        .from("programme_lignes")
+        .update({ numero_lot: trimmedCode || null, numero_lot_detail: numeroLotDetail })
+        .eq("id", lignes[0].id);
+
+      if (syncError) {
+        throw new Error(syncError.message);
+      }
+    }
   }
 
   revalidatePath(`/ravitailleur-par-ligne/${row.zone}`);
   revalidatePath("/ravitailleur-par-ligne/tout");
   revalidatePath("/articles/produit-fini");
+  revalidatePath("/production/suivi/dashboard");
+  revalidatePath("/production/suivi/calendrier");
 }
 
 export async function deleteAllDispatcherLignesAction(formData: FormData) {
