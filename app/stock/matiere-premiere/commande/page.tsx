@@ -7,6 +7,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
+import { matchesArticleSearch } from "@/lib/article-search";
 import { encodeDossierId } from "./dossier-id";
 import { deleteDossierImportsAction, updateDossierMpStatutAction } from "./actions";
 import { STATUT_DOSSIER_MP_OPTIONS, statutDossierMpBadgeClass } from "./constants";
@@ -28,6 +29,35 @@ type DossierStatutRow = {
   date_prevue_reception: string | null;
 };
 
+type BcLigneInfo = {
+  id: number;
+  code: string;
+  article_label: string | null;
+};
+
+async function fetchAllBcLigneInfo() {
+  const rows: BcLigneInfo[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("bons_commande_matiere_premiere")
+      .select("id, code, article_label")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as BcLigneInfo[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 type DossierGroup = {
   nDoss4d: string | null;
   nDossErp: string | null;
@@ -36,6 +66,8 @@ type DossierGroup = {
   dateRecente: string | null;
   statut: string;
   datePrevueReception: string | null;
+  codes: string[];
+  articles: string[];
 };
 
 function dossierKey(nDoss4d: string | null, nDossErp: string | null) {
@@ -89,22 +121,37 @@ async function fetchAllDossierStatuts() {
   return { rows, error: null };
 }
 
-type SearchParams = Promise<{ statut?: string }>;
+type SearchParams = Promise<{
+  statut?: string;
+  article?: string;
+  code?: string;
+  date_debut?: string;
+  date_fin?: string;
+}>;
 
 export default async function CommandeMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
   const params = await searchParams;
   const statutFilter = params.statut || "";
-  const hasFilters = Boolean(statutFilter);
+  const articleFilter = (params.article || "").trim();
+  const codeFilter = (params.code || "").trim().toLowerCase();
+  const dateDebutFilter = (params.date_debut || "").trim();
+  const dateFinFilter = (params.date_fin || "").trim();
+  const hasFilters = Boolean(
+    statutFilter || articleFilter || codeFilter || dateDebutFilter || dateFinFilter
+  );
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "commandeMp");
   const canDelete = await canDeletePageUser(currentUser, "commandeMp");
 
-  const [{ rows, error }, { rows: statutRows }] = await Promise.all([
+  const [{ rows, error }, { rows: statutRows }, bcLigneRows] = await Promise.all([
     fetchAllImports(),
     fetchAllDossierStatuts(),
+    fetchAllBcLigneInfo(),
   ]);
+
+  const bcLigneById = new Map(bcLigneRows.map((row) => [row.id, row]));
 
   const statutByDossier = new Map(
     statutRows.map((row) => [
@@ -122,11 +169,6 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
   }
 
   const groups: DossierGroup[] = [...byDossier.entries()]
-    .filter(([key]) => {
-      if (!statutFilter) return true;
-      const statutInfo = statutByDossier.get(key);
-      return (statutInfo?.statut ?? STATUT_DOSSIER_MP_OPTIONS[0]) === statutFilter;
-    })
     .map(([key, groupRows]) => {
       const first = groupRows[0];
       const statutInfo = statutByDossier.get(key);
@@ -136,6 +178,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
       // import" qui l'a fait arriver, sinon les totaux doublent des qu'on
       // receptionne (ex: 50 importes + 50 receptionnes affichait 100).
       const arrivalRows = groupRows.filter((row) => row.lot_stock_id === null);
+      const bcLignes = groupRows.map((row) => bcLigneById.get(row.bc_ligne_id)).filter(Boolean) as BcLigneInfo[];
       return {
         nDoss4d: first.n_doss_4d_import,
         nDossErp: first.n_doss_erp_import,
@@ -148,7 +191,19 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
         }, null),
         statut: statutInfo?.statut ?? STATUT_DOSSIER_MP_OPTIONS[0],
         datePrevueReception: statutInfo?.datePrevueReception ?? null,
+        codes: [...new Set(bcLignes.map((ligne) => ligne.code))],
+        articles: [...new Set(bcLignes.map((ligne) => ligne.article_label).filter((label): label is string => Boolean(label)))],
       };
+    })
+    .filter((group) => {
+      if (statutFilter && group.statut !== statutFilter) return false;
+      if (codeFilter && !group.codes.some((code) => code.toLowerCase().includes(codeFilter))) return false;
+      if (articleFilter && !group.articles.some((article) => matchesArticleSearch(article, articleFilter))) {
+        return false;
+      }
+      if (dateDebutFilter && (!group.dateRecente || group.dateRecente < dateDebutFilter)) return false;
+      if (dateFinFilter && (!group.dateRecente || group.dateRecente > dateFinFilter)) return false;
+      return true;
     })
     .sort((a, b) => (b.dateRecente ?? "").localeCompare(a.dateRecente ?? ""));
 
@@ -174,7 +229,21 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-3">
+            <input
+              type="text"
+              name="article"
+              defaultValue={params.article || ""}
+              placeholder="Article"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="text"
+              name="code"
+              defaultValue={params.code || ""}
+              placeholder="N commande (BC...)"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
             <select
               name="statut"
               defaultValue={statutFilter}
@@ -187,20 +256,40 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                 </option>
               ))}
             </select>
-            <button
-              type="submit"
-              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
-            >
-              Filtrer
-            </button>
-            {hasFilters ? (
-              <Link
-                href="/stock/matiere-premiere/commande"
-                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Date recente depuis
+              <input
+                type="date"
+                name="date_debut"
+                defaultValue={params.date_debut || ""}
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-normal normal-case text-slate-900 outline-none"
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Date recente jusqu&apos;au
+              <input
+                type="date"
+                name="date_fin"
+                defaultValue={params.date_fin || ""}
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-normal normal-case text-slate-900 outline-none"
+              />
+            </label>
+            <div className="flex items-end gap-3">
+              <button
+                type="submit"
+                className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
               >
-                Effacer
-              </Link>
-            ) : null}
+                Filtrer
+              </button>
+              {hasFilters ? (
+                <Link
+                  href="/stock/matiere-premiere/commande"
+                  className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+                >
+                  Effacer
+                </Link>
+              ) : null}
+            </div>
           </form>
         </section>
 

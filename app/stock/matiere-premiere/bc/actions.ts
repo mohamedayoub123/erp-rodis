@@ -8,6 +8,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 type PendingBcLigne = {
   article: string;
   quantite: number;
+  fournisseur?: string;
 };
 
 // Cle de correspondance article: recalculee ici depuis nom_article des deux
@@ -146,6 +147,7 @@ export async function createCommandeBcBatchAction(formData: FormData) {
 
   const nDoss4d = parseOptionalText(formData, "n_doss_4d");
   const nDossErp = parseOptionalText(formData, "n_doss_erp");
+  const dateJour = parseOptionalText(formData, "date_jour");
 
   const rowsToInsert = lignes
     .map((ligne) => {
@@ -161,6 +163,7 @@ export async function createCommandeBcBatchAction(formData: FormData) {
         quantite,
         n_doss_4d: nDoss4d,
         n_doss_erp: nDossErp,
+        fournisseur: String(ligne.fournisseur || "").trim() || null,
       };
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -173,9 +176,11 @@ export async function createCommandeBcBatchAction(formData: FormData) {
   // ensemble, dans une seule transaction verrouillee cote base - sinon deux
   // creations lancees a quelques millisecondes d'ecart peuvent toutes les
   // deux compter le meme nombre de BC existants et recevoir le meme code
-  // (voir stock_bc_mp_create_batch).
+  // (voir stock_bc_mp_create_batch). date_jour par defaut a aujourd'hui
+  // cote SQL si non fournie.
   const { data, error } = await supabaseServer.rpc("stock_bc_mp_create_batch", {
     p_lignes: rowsToInsert,
+    p_date_jour: dateJour,
   });
 
   if (error) {
