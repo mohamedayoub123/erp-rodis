@@ -87,7 +87,7 @@ function combineTempsJourMois(day: string, month: string, time: string) {
   return day && month ? `${day.padStart(2, "0")}/${month} ${time}` : time;
 }
 
-function TempsField({
+export function TempsField({
   label,
   name,
   defaultValue,

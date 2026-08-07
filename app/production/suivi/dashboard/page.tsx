@@ -451,7 +451,16 @@ export default async function PlanningDashboardPage({
         <section className="grid gap-6 xl:grid-cols-3">
           <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <h2 className="text-lg font-bold text-slate-900">Fabrication</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-slate-900">Fabrication</h2>
+                <Link
+                  href="/production/suivi-production/fabrication/nouveau"
+                  title="Nouvelle fiche Fabrication (sans programme dispatche)"
+                  className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-100 text-base font-bold leading-none text-sky-700 hover:bg-sky-200"
+                >
+                  +
+                </Link>
+              </div>
               <p className="text-xs text-slate-500">
                 {Math.round(totalVracProduit)} / {Math.round(totalVracPrevu)} produit
               </p>
