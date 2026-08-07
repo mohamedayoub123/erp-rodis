@@ -9,6 +9,7 @@ import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { fetchWebMouvementSourceRows } from "../../shared";
 import { createEntreeProductionBatchAction, deletePendingEmballageEntryAction } from "./actions";
+import { ExtraLignesField } from "./extra-lignes-field";
 
 type EmballageEntryRow = {
   id: number;
@@ -117,6 +118,32 @@ async function countExistingEntreeProductionGroups(): Promise<number> {
   return groupIds.size;
 }
 
+// Options pour ExtraLignesField ("Ajouter une ligne" a la main sur un
+// groupe) - meme table que le reste de l'appli pour un article produit fini.
+async function fetchArticleOptions(): Promise<{ id: number; label: string }[]> {
+  const options: { id: number; label: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as { id: number; nom_article: string }[];
+    options.push(...chunk.map((row) => ({ id: row.id, label: row.nom_article })));
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return options;
+}
+
 type SearchParams = Promise<{ article?: string; code?: string }>;
 
 export default async function EntreeProductionPage({
@@ -130,9 +157,10 @@ export default async function EntreeProductionPage({
   const codeFilter = (params.code || "").trim().toLowerCase();
   const hasFilters = Boolean(articleFilter || codeFilter);
 
-  const [pendingEntries, existingCount] = await Promise.all([
+  const [pendingEntries, existingCount, articleOptions] = await Promise.all([
     fetchPendingEmballageEntries(),
     countExistingEntreeProductionGroups(),
+    fetchArticleOptions(),
   ]);
 
   const ligneIds = [...new Set(pendingEntries.map((entry) => entry.programme_ligne_id))];
@@ -411,6 +439,7 @@ export default async function EntreeProductionPage({
                       de programme avant de valider.
                     </p>
                   ) : null}
+                  <ExtraLignesField articleOptions={articleOptions} />
                 </form>
               </section>
             );

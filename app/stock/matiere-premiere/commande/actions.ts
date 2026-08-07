@@ -339,32 +339,45 @@ export async function deleteDossierImportsAction(formData: FormData) {
   revalidateCommandeMpPages();
 }
 
-// Supprime une ligne de commande depuis le detail d'un dossier Import -
-// meme effet que le bouton Supprimer sur le detail d'un BC (bc/actions.ts),
-// mais accessible ici et verifie contre la permission "commandeMp" de cette
-// page plutot que "commandeBcMp". Retire aussi le stock credite par une
-// eventuelle reception avant de supprimer la ligne (dont la suppression
-// cascade sur ses evenements d'import cote base).
+// Retire une ligne de commande de CE dossier Import uniquement - supprime
+// les evenements d'import qui la relient a ce doss. 4D/ERP (et le stock
+// credite par une eventuelle reception parmi eux), mais PAS la ligne de
+// commande elle-meme : sa quantite commandee reste intacte sur le BC, et
+// "reste a importer" remonte tout seul puisqu'il se recalcule a partir des
+// evenements restants. Supprimer completement la ligne (et sa quantite) se
+// fait depuis le detail du BC (bc/actions.ts deleteCommandeBcLigneAction),
+// pas depuis cette vue Import qui n'est qu'un regroupement par dossier.
 export async function deleteBcLigneFromDossierAction(formData: FormData) {
   await requireDeleteAccess();
 
   const bcId = Number(String(formData.get("bc_id") || "0"));
+  const nDoss4d = parseOptionalText(formData, "n_doss_4d");
+  const nDossErp = parseOptionalText(formData, "n_doss_erp");
 
   if (!bcId) {
     throw new Error("Ligne invalide.");
   }
 
-  const { data: importRows } = await supabaseServer
+  let query = supabaseServer
     .from("bons_commande_mp_imports")
     .select("id, bc_ligne_id, lot_stock_id")
     .eq("bc_ligne_id", bcId);
+  query = nDoss4d ? query.eq("n_doss_4d_import", nDoss4d) : query.is("n_doss_4d_import", null);
+  query = nDossErp ? query.eq("n_doss_erp_import", nDossErp) : query.is("n_doss_erp_import", null);
+  const { data: importRows } = await query;
 
-  await releaseStockForImportEvenements((importRows ?? []) as ImportEvenementForCleanup[]);
+  const rows = (importRows ?? []) as ImportEvenementForCleanup[];
+  await releaseStockForImportEvenements(rows);
 
-  const { error } = await supabaseServer.from("bons_commande_matiere_premiere").delete().eq("id", bcId);
+  if (rows.length > 0) {
+    const { error } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .delete()
+      .in("id", rows.map((row) => row.id));
 
-  if (error) {
-    throw new Error(error.message);
+    if (error) {
+      throw new Error(error.message);
+    }
   }
 
   revalidateCommandeMpPages();

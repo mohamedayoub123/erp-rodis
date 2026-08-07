@@ -8,7 +8,6 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 type PendingBcLigne = {
   article: string;
   quantite: number;
-  fournisseur?: string;
 };
 
 // Cle de correspondance article: recalculee ici depuis nom_article des deux
@@ -148,6 +147,10 @@ export async function createCommandeBcBatchAction(formData: FormData) {
   const nDoss4d = parseOptionalText(formData, "n_doss_4d");
   const nDossErp = parseOptionalText(formData, "n_doss_erp");
   const dateJour = parseOptionalText(formData, "date_jour");
+  // Le fournisseur d'un BC est presque toujours le meme pour tous ses
+  // articles - un seul champ, rempli une fois, applique a chaque ligne
+  // (meme principe que n_doss_4d/n_doss_erp ci-dessus).
+  const fournisseur = parseOptionalText(formData, "fournisseur");
 
   const rowsToInsert = lignes
     .map((ligne) => {
@@ -163,7 +166,7 @@ export async function createCommandeBcBatchAction(formData: FormData) {
         quantite,
         n_doss_4d: nDoss4d,
         n_doss_erp: nDossErp,
-        fournisseur: String(ligne.fournisseur || "").trim() || null,
+        fournisseur,
       };
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -192,6 +195,61 @@ export async function createCommandeBcBatchAction(formData: FormData) {
   revalidateCommandeBcMpPages();
 
   return { ok: true, code };
+}
+
+// Ajoute un article de plus a un BC deja existant - copie le dossier
+// (n_doss_4d/n_doss_erp), le fournisseur et la date de la commande depuis
+// une ligne existante du meme code, pour rester coherent avec le reste du
+// BC sans redemander ces informations.
+export async function addArticleToCommandeBcAction(formData: FormData) {
+  await requireEditAccess();
+
+  const code = String(formData.get("code") || "").trim();
+  const articleName = String(formData.get("article") || "").trim();
+  const quantite = Number(String(formData.get("quantite") || "").replace(",", "."));
+
+  if (!code) {
+    throw new Error("Commande invalide.");
+  }
+
+  if (!articleName || !quantite || quantite <= 0) {
+    throw new Error("Choisis un article et une quantite valide.");
+  }
+
+  const { data: existingLigne, error: existingError } = await supabaseServer
+    .from("bons_commande_matiere_premiere")
+    .select("n_doss_4d, n_doss_erp, fournisseur, date_jour")
+    .eq("code", code)
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError || !existingLigne) {
+    throw new Error("Commande introuvable.");
+  }
+
+  const articleRows = await fetchAllArticlesMp();
+  const articleByNormalise = new Map(articleRows.map((row) => [normalizeArticle(row.nom_article), row]));
+  const articleRow = articleByNormalise.get(normalizeArticle(articleName));
+
+  const { error } = await supabaseServer.from("bons_commande_matiere_premiere").insert([
+    {
+      code,
+      article_id: articleRow?.id ?? null,
+      article_label: articleRow?.nom_article ?? articleName,
+      quantite,
+      n_doss_4d: (existingLigne as { n_doss_4d: string | null }).n_doss_4d,
+      n_doss_erp: (existingLigne as { n_doss_erp: string | null }).n_doss_erp,
+      fournisseur: (existingLigne as { fournisseur: string | null }).fournisseur,
+      date_jour: (existingLigne as { date_jour: string | null }).date_jour,
+    },
+  ]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateCommandeBcMpPages();
 }
 
 // Enregistre un NOUVEL evenement d'import pour une ligne (pas d'ecrasement -

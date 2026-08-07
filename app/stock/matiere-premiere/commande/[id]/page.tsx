@@ -256,7 +256,9 @@ export default async function ImportMpDossierPage({
                                 {canDelete ? (
                                   <form action={deleteBcLigneFromDossierAction}>
                                     <input type="hidden" name="bc_id" value={ligne.id} />
-                                    <DeleteIconButton label="Supprimer ligne" />
+                                    <input type="hidden" name="n_doss_4d" value={nDoss4d ?? ""} />
+                                    <input type="hidden" name="n_doss_erp" value={nDossErp ?? ""} />
+                                    <DeleteIconButton label="Retirer de ce dossier (garde la commande sur le BC)" />
                                   </form>
                                 ) : null}
                               </div>

@@ -16,6 +16,31 @@ import {
   updateImportEvenementAction,
 } from "../actions";
 import { computeStatutBc, statutBcBadgeClass } from "../constants";
+import { AddArticleForm } from "./add-article-form";
+
+async function fetchArticleOptions() {
+  const options: string[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("nom_article")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as { nom_article: string }[];
+    options.push(...chunk.map((row) => row.nom_article));
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return options;
+}
 
 type CommandeBcRow = {
   id: number;
@@ -85,7 +110,10 @@ export default async function CommandeBcMpDetailPage({
   }
 
   const first = rows[0];
-  const imports = await fetchImportsForLignes(rows.map((row) => row.id));
+  const [imports, articleOptions] = await Promise.all([
+    fetchImportsForLignes(rows.map((row) => row.id)),
+    fetchArticleOptions(),
+  ]);
   const importsByLigne = new Map<number, ImportEvenementRow[]>();
   for (const imp of imports) {
     const list = importsByLigne.get(imp.bc_ligne_id) ?? [];
@@ -392,6 +420,13 @@ export default async function CommandeBcMpDetailPage({
                 </table>
               </div>
             </section>
+
+            {canEdit ? (
+              <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                <h2 className="mb-3 text-lg font-bold text-slate-900">Ajouter un article a ce BC</h2>
+                <AddArticleForm code={code} articleOptions={articleOptions} />
+              </section>
+            ) : null}
           </>
         )}
       </div>
