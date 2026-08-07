@@ -7,6 +7,7 @@ export type MouvementSourceRow = {
   numero_lot: string | null;
   code_normalise: string | null;
   date_fabrication: string | null;
+  date_peremption: string | null;
   date_jour: string | null;
   qte_entree: number;
   qte_sortie: number;
@@ -43,7 +44,7 @@ export type MouvementGroup = {
 };
 
 const SOURCE_COLUMNS =
-  "id, article_id, numero_lot, code_normalise, date_fabrication, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, source_import, mouvement_groupe_id, utilisateur, articles(nom_article)";
+  "id, article_id, numero_lot, code_normalise, date_fabrication, date_peremption, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, source_import, mouvement_groupe_id, utilisateur, articles(nom_article)";
 
 export async function fetchMouvementSourceRows() {
   // PostgREST plafonne chaque requete a son max-rows interne (~1000) peu
@@ -222,6 +223,7 @@ export type AvailableLotOption = {
   numeroLot: string;
   chambre: string;
   codePays: string;
+  datePeremption: string;
   stock: number;
 };
 
@@ -258,6 +260,7 @@ export function computeAvailableLots(rows: MouvementSourceRow[]): AvailableLotOp
       numeroLot: representative.numero_lot || representative.code_normalise || "",
       chambre: representative.chambre || "",
       codePays: representative.code_pays || "",
+      datePeremption: representative.date_peremption || "",
       stock: remaining,
     });
   }

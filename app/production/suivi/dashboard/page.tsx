@@ -47,14 +47,17 @@ function RestantBadge({ restant }: { restant: number }) {
 
 function FinProgrammeButton({
   ligneId,
+  code,
   action,
 }: {
   ligneId: number;
+  code: string;
   action: (formData: FormData) => void | Promise<void>;
 }) {
   return (
     <form action={action}>
       <input type="hidden" name="ligne_id" value={ligneId} />
+      <input type="hidden" name="code" value={code} />
       <button
         type="submit"
         className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
@@ -69,6 +72,7 @@ type CodeRow = {
   ligne: ProgrammeLigneRow;
   pdLabel: string;
   code: string;
+  codeCount: number;
   vracPrevu: number;
   vracProduit: number;
   vracRestant: number;
@@ -109,6 +113,34 @@ async function fetchAllArticlesForFilters(): Promise<ArticleOption[]> {
   return rows;
 }
 
+type CodeTermineRow = { programme_ligne_id: number; code: string; stage: "vrac" | "carton" | "emballage" };
+
+async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeTermineRow[]> {
+  if (ligneIds.length === 0) return [];
+
+  const rows: CodeTermineRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("production_code_termine")
+      .select("programme_ligne_id, code, stage")
+      .in("programme_ligne_id", ligneIds)
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as CodeTermineRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 type SearchParams = Promise<{ code?: string; produit?: string; pd?: string; gamme?: string }>;
 
 export default async function PlanningDashboardPage({
@@ -137,11 +169,31 @@ export default async function PlanningDashboardPage({
 
   const activeLigneIds = allLignes.map((ligne) => ligne.id);
 
-  const [cartonEntries, vracEntries, emballageEntries] = await Promise.all([
+  const [cartonEntries, vracEntries, emballageEntries, codeTermineRows] = await Promise.all([
     fetchAllCartonEntries(activeLigneIds),
     fetchAllVracEntries(activeLigneIds),
     fetchAllEmballageEntries(activeLigneIds),
+    fetchAllCodeTermineRows(activeLigneIds),
   ]);
+
+  // Terminer UN code (Fabrication/Conditionnement/Emballage) ne doit jamais
+  // cacher les autres codes de la MEME ligne (bug corrige : c'etait avant un
+  // seul flag partage sur toute la ligne) - le repli sur l'ancien flag
+  // ligne.xxx_termine ne reste valide que pour une ligne qui n'a jamais eu
+  // qu'un seul code (aucune ambiguite possible dans ce cas).
+  const terminatedCodes = new Set(
+    codeTermineRows.map((row) => `${row.programme_ligne_id}::${row.code}::${row.stage}`)
+  );
+  function isCodeTerminated(
+    ligneId: number,
+    code: string,
+    stage: "vrac" | "carton" | "emballage",
+    codeCount: number,
+    legacyLigneFlag: boolean
+  ): boolean {
+    if (terminatedCodes.has(`${ligneId}::${code}::${stage}`)) return true;
+    return codeCount <= 1 && legacyLigneFlag;
+  }
 
   const cartonByLigne = groupCartonEntriesByLigne(cartonEntries) as Map<
     number,
@@ -235,6 +287,7 @@ export default async function PlanningDashboardPage({
         ligne,
         pdLabel: pdLabelsForNumeroLot(code, pdLabelByCode),
         code,
+        codeCount: codes.length,
         vracPrevu,
         vracProduit,
         vracRestant: vracPrevu - vracProduit,
@@ -256,13 +309,26 @@ export default async function PlanningDashboardPage({
   // juste en dessous de 1 et ne disparaissait jamais du Dashboard. Moins
   // d'un carton restant = plus rien a faire concretement.
   const vracRows = codeRows
-    .filter((row) => !row.ligne.vrac_termine && row.vracRestant >= 1)
+    .filter(
+      (row) =>
+        !isCodeTerminated(row.ligne.id, row.code, "vrac", row.codeCount, row.ligne.vrac_termine) &&
+        row.vracRestant >= 1
+    )
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
   const cartonRows = codeRows
-    .filter((row) => !row.ligne.carton_termine && row.cartonRestant >= 1)
+    .filter(
+      (row) =>
+        !isCodeTerminated(row.ligne.id, row.code, "carton", row.codeCount, row.ligne.carton_termine) &&
+        row.cartonRestant >= 1
+    )
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
   const emballageRows = codeRows
-    .filter((row) => !row.ligne.emballage_termine && row.emballagePrevu > 0 && row.emballageRestant >= 1)
+    .filter(
+      (row) =>
+        !isCodeTerminated(row.ligne.id, row.code, "emballage", row.codeCount, row.ligne.emballage_termine) &&
+        row.emballagePrevu > 0 &&
+        row.emballageRestant >= 1
+    )
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
 
   const totalVracPrevu = vracRows.reduce((sum, row) => sum + row.vracPrevu, 0);
@@ -405,7 +471,7 @@ export default async function PlanningDashboardPage({
                           </Link>
                         </td>
                         <td className="px-4 py-3">
-                          <FinProgrammeButton ligneId={row.ligne.id} action={markVracTermineAction} />
+                          <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markVracTermineAction} />
                         </td>
                       </tr>
                     ))
@@ -478,7 +544,7 @@ export default async function PlanningDashboardPage({
                           </Link>
                         </td>
                         <td className="px-4 py-3">
-                          <FinProgrammeButton ligneId={row.ligne.id} action={markCartonTermineAction} />
+                          <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markCartonTermineAction} />
                         </td>
                       </tr>
                     ))
@@ -544,7 +610,7 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <FinProgrammeButton ligneId={row.ligne.id} action={markEmballageTermineAction} />
+                            <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markEmballageTermineAction} />
                             <form action={deleteCodeProgressAction}>
                               <input type="hidden" name="ligne_id" value={row.ligne.id} />
                               <input type="hidden" name="code" value={row.code} />

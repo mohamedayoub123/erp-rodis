@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import {
@@ -5,15 +6,18 @@ import {
   addManualFifoLotAction,
   calculateFifoForCommandeAction,
   cancelFifoBatchAction,
+  deleteCommandeTruckAction,
   deliverCommandeAction,
   updateAllFifoResultsAction,
   updateManualCommandeAction,
 } from "../actions";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeleteCommandesUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { PrintButton } from "./print-button";
 import { formatDate } from "@/lib/format-date";
 import { SearchableSelect } from "@/app/_components/searchable-select";
+import { LignesCommandeField } from "./lignes-commande-field";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
 type CommandeDetailRow = {
   id: number;
@@ -471,6 +475,7 @@ export default async function CommandeDetailPage({
   const currentStockUser = await getCurrentStockUser();
   const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
   const canEditCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
+  const canDeleteCommandes = await canDeleteCommandesUser(currentStockUser);
 
   const [{ data: selectedCommandeData }, { data: fifoData }, commandesData, articleOptions] =
     await Promise.all([
@@ -511,6 +516,46 @@ export default async function CommandeDetailPage({
   }
 
   const fifoResults: FifoResultRow[] = (fifoData as FifoResultRow[] | null) ?? [];
+
+  // Chaque camion d'une commande "Nb de camion > 1" est une commande a part
+  // entiere partageant la meme numero_proforma de base (suffixe -2, -3... -
+  // voir createManualCommandeAction) - recharge les camions freres ici pour
+  // permettre d'en supprimer un (reduire le nombre de camions).
+  const baseProformaForSiblings = getBaseProforma(selectedCommande.numero_proforma);
+  const { data: siblingTrucksData } = await supabaseServer
+    .from("commandes")
+    .select("id, numero_proforma, statut, commande_lignes(id, quantite_demandee)")
+    .or(`numero_proforma.eq.${baseProformaForSiblings},numero_proforma.like.${baseProformaForSiblings}-%`)
+    .order("id", { ascending: true });
+
+  const siblingTrucks = (
+    (siblingTrucksData as
+      | {
+          id: number;
+          numero_proforma: string;
+          statut: string | null;
+          commande_lignes: { id: number; quantite_demandee: number | null }[] | null;
+        }[]
+      | null) ?? []
+  ).map((row, index) => ({
+    id: row.id,
+    numeroProforma: row.numero_proforma,
+    statut: row.statut,
+    lignesCount: row.commande_lignes?.length ?? 0,
+    cartonTotal: (row.commande_lignes ?? []).reduce(
+      (sum, ligne) => sum + Number(ligne.quantite_demandee ?? 0),
+      0
+    ),
+    truckNumber: index + 1,
+  }));
+
+  const cartonTotalProforma = siblingTrucks.reduce((sum, truck) => sum + truck.cartonTotal, 0);
+  const totalCartonCommande =
+    siblingTrucks.find((truck) => truck.id === selectedCommande.id)?.cartonTotal ??
+    (selectedCommande.commande_lignes ?? []).reduce(
+      (sum, ligne) => sum + Number(ligne.quantite_demandee ?? 0),
+      0
+    );
 
   const selectedArticleIds = [
     ...new Set(
@@ -564,7 +609,8 @@ export default async function CommandeDetailPage({
               </h1>
               <p className="text-sm text-slate-600">
                 Client : {selectedCommande.client} | Pays : {selectedClientPays || "-"} | Statut :{" "}
-                {formatStatus(selectedCommande.statut)}
+                {formatStatus(selectedCommande.statut)} | Total carton : {totalCartonCommande}
+                {siblingTrucks.length > 1 ? ` (proforma : ${cartonTotalProforma})` : ""}
               </p>
               <p className="text-sm text-slate-500">
                 Mode : {selectedCommande.mode_chargement || "-"}
@@ -900,6 +946,60 @@ export default async function CommandeDetailPage({
             ) : null}
           </div>
 
+          {siblingTrucks.length > 1 ? (
+            <div className="no-print mt-5 rounded-[1.5rem] border border-slate-200 bg-white p-4">
+              <h3 className="text-sm font-semibold text-slate-800">
+                Camions de cette commande ({siblingTrucks.length}) - Total {cartonTotalProforma}{" "}
+                carton(s)
+              </h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Chaque camion est une commande suivie separement. Pour reduire le nombre de
+                camions (ex: 3 vers 2), supprime celui en trop ci-dessous.
+              </p>
+              <div className="mt-3 flex flex-col gap-2">
+                {siblingTrucks.map((truck) => (
+                  <div
+                    key={truck.id}
+                    className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-2 text-sm ${
+                      truck.id === selectedCommande.id
+                        ? "border-sky-300 bg-sky-50"
+                        : "border-slate-200"
+                    }`}
+                  >
+                    <span className="font-semibold text-slate-800">
+                      Camion {truck.truckNumber}
+                      {truck.id === selectedCommande.id ? " (actuel)" : ""}
+                    </span>
+                    <span className="text-slate-600">{formatStatus(truck.statut)}</span>
+                    <span className="text-slate-500">{truck.lignesCount} ligne(s)</span>
+                    <span className="text-slate-500">{truck.cartonTotal} carton(s)</span>
+                    <div className="flex items-center gap-2">
+                      {truck.id !== selectedCommande.id ? (
+                        <Link
+                          href={`/commandes/${truck.id}`}
+                          className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
+                        >
+                          Ouvrir
+                        </Link>
+                      ) : null}
+                      {canDeleteCommandes ? (
+                        <form action={deleteCommandeTruckAction}>
+                          <input type="hidden" name="commande_id" value={truck.id} />
+                          <input
+                            type="hidden"
+                            name="current_viewed_id"
+                            value={selectedCommande.id}
+                          />
+                          <DeleteIconButton label={`Supprimer camion ${truck.truckNumber}`} />
+                        </form>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {canEditCommandes ? (
             <details className="no-print mt-5 rounded-[1.5rem] border border-slate-200 bg-white p-4">
               <summary className="cursor-pointer text-sm font-semibold text-slate-800">
@@ -974,14 +1074,11 @@ export default async function CommandeDetailPage({
                   (elle n&apos;est pas remultipliee si tu changes ce nombre ici).
                 </p>
 
-                <textarea
-                  name="lignes"
-                  rows={8}
+                <LignesCommandeField
+                  articles={articleOptions}
                   defaultValue={(selectedCommande.commande_lignes ?? [])
                     .map((ligne) => `${getArticleName(ligne.articles)} | ${ligne.quantite_demandee}`)
                     .join("\n")}
-                  className="rounded-[1.5rem] border border-slate-200 px-4 py-4 text-sm outline-none"
-                  required
                 />
 
                 <datalist id="clients-commandes">
