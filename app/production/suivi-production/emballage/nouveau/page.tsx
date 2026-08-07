@@ -143,6 +143,15 @@ export default async function NouvelleFicheEmballagePage() {
                 <h2 className="mb-3 text-lg font-bold text-slate-900">Equipe</h2>
                 <div className="grid gap-4 md:grid-cols-3">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Nom chef de zone
+                    <input
+                      type="text"
+                      name="emballage_chef_zone"
+                      required
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Machine
                     <input
                       type="text"
@@ -165,6 +174,18 @@ export default async function NouvelleFicheEmballagePage() {
                     <input
                       type="text"
                       name="emballage_scotcheuse"
+                      required
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Nb de journaliers
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      name="nb_journaliers_emballage"
+                      defaultValue="0"
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />

@@ -40,6 +40,7 @@ type RapportInfo = {
   chef_ligne: string | null;
   ravitailleur: string | null;
   tireur: string | null;
+  nb_journaliers_conditionnement: number | null;
   qt_fabriquer: number | null;
   cadence: number | null;
   poids_reel: number | null;
@@ -93,7 +94,7 @@ export default async function RapportConditionnementPage({
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
 
   const RAPPORT_FIELDS =
-    "chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, utilisateur_conditionnement";
+    "chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, utilisateur_conditionnement";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
@@ -228,6 +229,18 @@ export default async function RapportConditionnementPage({
                       type="text"
                       name="tireur"
                       defaultValue={rapport?.tireur || ""}
+                      required
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Nb de journaliers
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      name="nb_journaliers_conditionnement"
+                      defaultValue={rapport?.nb_journaliers_conditionnement ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />

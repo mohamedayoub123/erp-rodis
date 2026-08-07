@@ -29,6 +29,8 @@ type RapportInfo = {
   emballage_machine: string | null;
   emballage_operateur: string | null;
   emballage_scotcheuse: string | null;
+  emballage_chef_zone: string | null;
+  nb_journaliers_emballage: number | null;
   emballage_temps_demarrer: string | null;
   emballage_temps_arret: string | null;
   emballage_arret_changement_bobine: number | null;
@@ -64,7 +66,7 @@ export default async function RapportEmballagePage({
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionEmballage");
 
   const RAPPORT_FIELDS =
-    "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, date_emballage, date_peremption, utilisateur_emballage";
+    "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_chef_zone, nb_journaliers_emballage, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, date_emballage, date_peremption, utilisateur_emballage";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
@@ -163,6 +165,16 @@ export default async function RapportEmballagePage({
                 <h2 className="mb-3 text-lg font-bold text-slate-900">Equipe</h2>
                 <div className="grid gap-4 md:grid-cols-3">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Nom chef de zone
+                    <input
+                      type="text"
+                      name="emballage_chef_zone"
+                      defaultValue={rapport?.emballage_chef_zone || ""}
+                      required
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Machine
                     <input
                       type="text"
@@ -188,6 +200,18 @@ export default async function RapportEmballagePage({
                       type="text"
                       name="emballage_scotcheuse"
                       defaultValue={rapport?.emballage_scotcheuse || ""}
+                      required
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Nb de journaliers
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      name="nb_journaliers_emballage"
+                      defaultValue={rapport?.nb_journaliers_emballage ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />

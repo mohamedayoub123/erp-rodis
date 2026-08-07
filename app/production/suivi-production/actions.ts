@@ -146,6 +146,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     chef_ligne: parseOptionalText(formData, "chef_ligne"),
     ravitailleur: parseOptionalText(formData, "ravitailleur"),
     tireur: parseOptionalText(formData, "tireur"),
+    nb_journaliers_conditionnement: parseOptionalNumber(formData, "nb_journaliers_conditionnement"),
     qt_fabriquer: qtFabriquer,
     cadence: parseOptionalNumber(formData, "cadence"),
     poids_reel: parseOptionalNumber(formData, "poids_reel"),
@@ -310,9 +311,11 @@ export async function saveEmballageRapportAction(formData: FormData) {
   const dateEmballage = parseOptionalText(formData, "date_emballage");
 
   const fields: Record<string, unknown> = {
+    emballage_chef_zone: parseOptionalText(formData, "emballage_chef_zone"),
     emballage_machine: parseOptionalText(formData, "emballage_machine"),
     emballage_operateur: parseOptionalText(formData, "emballage_operateur"),
     emballage_scotcheuse: parseOptionalText(formData, "emballage_scotcheuse"),
+    nb_journaliers_emballage: parseOptionalNumber(formData, "nb_journaliers_emballage"),
     emballage_temps_demarrer: parseOptionalText(formData, "emballage_temps_demarrer"),
     emballage_temps_arret: parseOptionalText(formData, "emballage_temps_arret"),
     emballage_arret_changement_bobine: parseOptionalNumber(formData, "emballage_arret_changement_bobine"),
