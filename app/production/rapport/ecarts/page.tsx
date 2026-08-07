@@ -65,7 +65,14 @@ function DiffCell({ value, whole }: { value: number; whole?: boolean }) {
 const PAGE_SIZE = 200;
 const STATUT_OPTIONS: Statut[] = ["Termine", "Termine Manuel", "En cours", "Pas commence"];
 
-type SearchParams = Promise<{ code?: string; pd?: string; page?: string; statut?: string | string[] }>;
+type SearchParams = Promise<{
+  code?: string;
+  pd?: string;
+  page?: string;
+  statut?: string | string[];
+  date_debut?: string;
+  date_fin?: string;
+}>;
 
 export default async function RapportEcartsPage({
   searchParams,
@@ -80,14 +87,20 @@ export default async function RapportEcartsPage({
   const pdFilter = (params.pd || "").trim().toLowerCase();
   const statutParam = Array.isArray(params.statut) ? params.statut : params.statut ? [params.statut] : [];
   const statutFilter = new Set(statutParam.filter((s): s is Statut => STATUT_OPTIONS.includes(s as Statut)));
-  const hasSearchFilters = Boolean(codeFilter || pdFilter);
+  const dateDebutFilter = (params.date_debut || "").trim();
+  const dateFinFilter = (params.date_fin || "").trim();
+  const hasSearchFilters = Boolean(codeFilter || pdFilter || dateDebutFilter || dateFinFilter);
   const hasFilters = hasSearchFilters || statutFilter.size > 0;
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
 
   // Sans recherche, on se limite aux 3 derniers mois par defaut - une
-  // recherche par code/PD repasse sans borne pour retrouver du vieux. Le
-  // filtre Statut ne change pas cette fenetre (c'est un filtre d'affichage,
-  // pas une recherche de vieux code).
+  // recherche par code/PD/date repasse sans borne pour retrouver du vieux
+  // (un filtre par date ne se contente pas de resserrer cette fenetre : une
+  // ligne partage parfois un code avec une autre ligne plus ancienne, il
+  // faut donc TOUJOURS repartir de l'historique complet pour que la
+  // repartition entre lignes reste juste, puis filtrer par date seulement
+  // a l'affichage, plus bas). Le filtre Statut ne change pas cette fenetre
+  // (c'est un filtre d'affichage, pas une recherche de vieux code).
   const threeMonthsAgo = new Date();
   threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
   const sinceDate = hasSearchFilters ? undefined : threeMonthsAgo.toISOString().slice(0, 10);
@@ -375,6 +388,8 @@ export default async function RapportEcartsPage({
     if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
     if (pdFilter && !row.pd.toLowerCase().includes(pdFilter)) return false;
     if (statutFilter.size > 0 && !statutFilter.has(row.statut)) return false;
+    if (dateDebutFilter && row.date < dateDebutFilter) return false;
+    if (dateFinFilter && row.date > dateFinFilter) return false;
     return true;
   });
 
@@ -391,6 +406,8 @@ export default async function RapportEcartsPage({
     qs.set("page", String(page));
     if (params.code) qs.set("code", params.code);
     if (params.pd) qs.set("pd", params.pd);
+    if (params.date_debut) qs.set("date_debut", params.date_debut);
+    if (params.date_fin) qs.set("date_fin", params.date_fin);
     for (const statut of statutFilter) qs.append("statut", statut);
     return `/production/rapport/ecarts?${qs.toString()}`;
   };
@@ -456,6 +473,27 @@ export default async function RapportEcartsPage({
                 Effacer
               </Link>
             ) : null}
+
+            <div className="flex flex-wrap items-end gap-4 sm:col-span-4">
+              <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Date programme depuis
+                <input
+                  type="date"
+                  name="date_debut"
+                  defaultValue={params.date_debut || ""}
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-normal normal-case text-slate-900 outline-none"
+                />
+              </label>
+              <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Date programme jusqu&apos;au
+                <input
+                  type="date"
+                  name="date_fin"
+                  defaultValue={params.date_fin || ""}
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-normal normal-case text-slate-900 outline-none"
+                />
+              </label>
+            </div>
 
             <div className="flex flex-wrap items-center gap-4 sm:col-span-4">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
