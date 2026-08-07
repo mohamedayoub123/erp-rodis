@@ -198,6 +198,7 @@ export default async function RapportConditionnementPage({
                       type="text"
                       name="chef_zone"
                       defaultValue={rapport?.chef_zone || ""}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -207,6 +208,7 @@ export default async function RapportConditionnementPage({
                       type="text"
                       name="chef_ligne"
                       defaultValue={rapport?.chef_ligne || ""}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -216,6 +218,7 @@ export default async function RapportConditionnementPage({
                       type="text"
                       name="ravitailleur"
                       defaultValue={rapport?.ravitailleur || ""}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -225,6 +228,7 @@ export default async function RapportConditionnementPage({
                       type="text"
                       name="tireur"
                       defaultValue={rapport?.tireur || ""}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -244,7 +248,8 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="qt_fabriquer"
-                      defaultValue={rapport?.qt_fabriquer ?? ""}
+                      defaultValue={rapport?.qt_fabriquer ?? "0"}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -254,7 +259,8 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="cadence"
-                      defaultValue={rapport?.cadence ?? ""}
+                      defaultValue={rapport?.cadence ?? "0"}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -264,7 +270,8 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="poids_reel"
-                      defaultValue={rapport?.poids_reel ?? ""}
+                      defaultValue={rapport?.poids_reel ?? "0"}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -280,7 +287,11 @@ export default async function RapportConditionnementPage({
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Date de peremption
-                    <DateJmaFormField name="date_peremption" defaultValue={rapport?.date_peremption} />
+                    <DateJmaFormField
+                      name="date_peremption"
+                      defaultValue={rapport?.date_peremption}
+                      required
+                    />
                   </label>
                 </div>
               </div>
@@ -294,7 +305,8 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_sleeve"
-                      defaultValue={rapport?.dechet_sleeve ?? ""}
+                      defaultValue={rapport?.dechet_sleeve ?? "0"}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -304,7 +316,8 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_capsule"
-                      defaultValue={rapport?.dechet_capsule ?? ""}
+                      defaultValue={rapport?.dechet_capsule ?? "0"}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -314,7 +327,8 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_pompe"
-                      defaultValue={rapport?.dechet_pompe ?? ""}
+                      defaultValue={rapport?.dechet_pompe ?? "0"}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -324,7 +338,8 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_flacon"
-                      defaultValue={rapport?.dechet_flacon ?? ""}
+                      defaultValue={rapport?.dechet_flacon ?? "0"}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -334,7 +349,8 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_pot"
-                      defaultValue={rapport?.dechet_pot ?? ""}
+                      defaultValue={rapport?.dechet_pot ?? "0"}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -344,7 +360,8 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_etiquette"
-                      defaultValue={rapport?.dechet_etiquette ?? ""}
+                      defaultValue={rapport?.dechet_etiquette ?? "0"}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -354,7 +371,8 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_etui"
-                      defaultValue={rapport?.dechet_etui ?? ""}
+                      defaultValue={rapport?.dechet_etui ?? "0"}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -364,7 +382,7 @@ export default async function RapportConditionnementPage({
               <div>
                 <h2 className="mb-1 text-lg font-bold text-slate-900">Arret</h2>
                 <p className="mb-3 text-xs text-slate-500">
-                  Temps d&apos;arret (en minutes) pour chaque cause concernee.
+                  Temps d&apos;arret (en minutes) pour chaque cause concernee - 0 si pas concerne.
                 </p>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {ARRET_CAUSES.map((cause) => (
@@ -375,8 +393,8 @@ export default async function RapportConditionnementPage({
                         step="1"
                         min="0"
                         name={cause.field}
-                        defaultValue={rapport?.[cause.field] ?? ""}
-                        placeholder="minutes"
+                        defaultValue={rapport?.[cause.field] ?? "0"}
+                        required
                         className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                       />
                     </label>
@@ -389,6 +407,7 @@ export default async function RapportConditionnementPage({
                       type="time"
                       name="temps_demarage_lot"
                       defaultValue={rapport?.temps_demarage_lot || ""}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -398,6 +417,7 @@ export default async function RapportConditionnementPage({
                       type="time"
                       name="temps_arret_batch"
                       defaultValue={rapport?.temps_arret_batch || ""}
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
