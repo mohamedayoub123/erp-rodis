@@ -8,7 +8,6 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 type PendingBcLigne = {
   article: string;
   quantite: number;
-  fournisseur?: string;
 };
 
 // Cle de correspondance article: recalculee ici depuis nom_article des deux
@@ -148,6 +147,10 @@ export async function createCommandeBcBatchAction(formData: FormData) {
   const nDoss4d = parseOptionalText(formData, "n_doss_4d");
   const nDossErp = parseOptionalText(formData, "n_doss_erp");
   const dateJour = parseOptionalText(formData, "date_jour");
+  // Le fournisseur d'un BC est presque toujours le meme pour tous ses
+  // articles - un seul champ, rempli une fois, applique a chaque ligne
+  // (meme principe que n_doss_4d/n_doss_erp ci-dessus).
+  const fournisseur = parseOptionalText(formData, "fournisseur");
 
   const rowsToInsert = lignes
     .map((ligne) => {
@@ -163,7 +166,7 @@ export async function createCommandeBcBatchAction(formData: FormData) {
         quantite,
         n_doss_4d: nDoss4d,
         n_doss_erp: nDossErp,
-        fournisseur: String(ligne.fournisseur || "").trim() || null,
+        fournisseur,
       };
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);

@@ -9,7 +9,6 @@ import { createCommandeBcBatchAction } from "./actions";
 type PendingLigne = {
   article: string;
   quantite: number;
-  fournisseur: string;
 };
 
 export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
@@ -18,13 +17,15 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
   const [articleInput, setArticleInput] = useState("");
   const [showArticleOptions, setShowArticleOptions] = useState(false);
   const [quantite, setQuantite] = useState("");
-  const [ligneFournisseur, setLigneFournisseur] = useState("");
   const [dateCommande, setDateCommande] = useState("");
   const [nDoss4d, setNDoss4d] = useState("");
   const [nDossErp, setNDossErp] = useState("");
+  const [fournisseur, setFournisseur] = useState("");
   const [lignes, setLignes] = useState<PendingLigne[]>([]);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+
+  const totalQuantite = lignes.reduce((sum, ligne) => sum + ligne.quantite, 0);
 
   // Recherche multi-mots (meme logique que le reste de l'appli) sans
   // plafond sur le nombre de resultats - un plafond cachait des articles
@@ -48,13 +49,9 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
     }
 
     setErrorMessage("");
-    setLignes((current) => [
-      ...current,
-      { article: articleInput.trim(), quantite: qty, fournisseur: ligneFournisseur.trim() },
-    ]);
+    setLignes((current) => [...current, { article: articleInput.trim(), quantite: qty }]);
     setArticleInput("");
     setQuantite("");
-    setLigneFournisseur("");
   }
 
   function removeLigne(index: number) {
@@ -75,6 +72,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
     formData.set("n_doss_4d", nDoss4d.trim());
     formData.set("n_doss_erp", nDossErp.trim());
     formData.set("date_jour", dateCommande);
+    formData.set("fournisseur", fournisseur.trim());
 
     startTransition(async () => {
       try {
@@ -84,6 +82,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
         setNDoss4d("");
         setNDossErp("");
         setDateCommande("");
+        setFournisseur("");
         router.push(`/stock/matiere-premiere/bc/${result.code}`);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
@@ -95,7 +94,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
     <div className="grid gap-6">
       <div>
         <h2 className="mb-3 text-lg font-bold text-slate-900">Ajouter des articles</h2>
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr_auto]">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
           <div className="relative">
             <input
               type="text"
@@ -140,13 +139,6 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
             placeholder="Quantite"
             className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
-          <input
-            type="text"
-            value={ligneFournisseur}
-            onChange={(event) => setLigneFournisseur(event.target.value)}
-            placeholder="Fournisseur"
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-          />
           <button
             type="button"
             onClick={addLigne}
@@ -164,7 +156,6 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
               <tr>
                 <th className="px-4 py-3 font-semibold">Article</th>
                 <th className="px-4 py-3 font-semibold">Quantite</th>
-                <th className="px-4 py-3 font-semibold">Fournisseur</th>
                 <th className="px-4 py-3 font-semibold"></th>
               </tr>
             </thead>
@@ -173,7 +164,6 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
                 <tr key={`${ligne.article}-${index}`} className="border-t border-slate-100">
                   <td className="px-4 py-3 font-medium text-slate-900">{ligne.article}</td>
                   <td className="px-4 py-3 text-slate-600">{ligne.quantite}</td>
-                  <td className="px-4 py-3 text-slate-600">{ligne.fournisseur || "-"}</td>
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"
@@ -186,6 +176,13 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr className="border-t border-slate-200 bg-slate-50">
+                <td className="px-4 py-3 font-semibold text-slate-900">Total</td>
+                <td className="px-4 py-3 font-semibold text-slate-900">{totalQuantite}</td>
+                <td></td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       ) : (
@@ -194,7 +191,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
 
       <div>
         <h2 className="mb-3 text-lg font-bold text-slate-900">Dossier</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-3">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Doss. 4D
             <input
@@ -213,6 +210,16 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
             />
           </label>
+          <label className="grid gap-1 text-xs font-semibold text-slate-500">
+            Fournisseur
+            <input
+              type="text"
+              value={fournisseur}
+              onChange={(event) => setFournisseur(event.target.value)}
+              placeholder="Le meme pour tous les articles de ce BC"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+            />
+          </label>
         </div>
         <label className="mt-3 grid gap-1 text-xs font-semibold text-slate-500">
           Date de la commande (par defaut : aujourd&apos;hui)
@@ -223,7 +230,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
       {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
       {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}
 
-      <div>
+      <div className="flex items-center gap-4">
         <button
           type="button"
           onClick={enregistrerCommande}
@@ -232,6 +239,11 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
         >
           {isPending ? "Enregistrement..." : "Enregistrer commande"}
         </button>
+        {lignes.length > 0 ? (
+          <p className="text-sm font-semibold text-slate-700">
+            Total : {totalQuantite} ({lignes.length} article{lignes.length > 1 ? "s" : ""})
+          </p>
+        ) : null}
       </div>
     </div>
   );
