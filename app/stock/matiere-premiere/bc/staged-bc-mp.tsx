@@ -2,32 +2,42 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { matchesArticleSearch } from "@/lib/article-search";
+import { DateJmaInput } from "@/app/_components/date-jma-input";
 import { createCommandeBcBatchAction } from "./actions";
 
 type PendingLigne = {
   article: string;
   quantite: number;
+  fournisseur: string;
 };
 
 export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [articleInput, setArticleInput] = useState("");
+  const [showArticleOptions, setShowArticleOptions] = useState(false);
   const [quantite, setQuantite] = useState("");
+  const [ligneFournisseur, setLigneFournisseur] = useState("");
+  const [dateCommande, setDateCommande] = useState("");
   const [nDoss4d, setNDoss4d] = useState("");
   const [nDossErp, setNDossErp] = useState("");
   const [lignes, setLignes] = useState<PendingLigne[]>([]);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  const filteredArticles = useMemo(() => {
-    const words = articleInput.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return articleOptions.slice(0, 50);
-    return articleOptions.filter((option) => {
-      const label = option.toLowerCase();
-      return words.every((word) => label.includes(word));
-    });
-  }, [articleInput, articleOptions]);
+  // Recherche multi-mots (meme logique que le reste de l'appli) sans
+  // plafond sur le nombre de resultats - un plafond cachait des articles
+  // reels a la recherche vide comme a la recherche filtree.
+  const filteredArticles = useMemo(
+    () => articleOptions.filter((option) => matchesArticleSearch(option, articleInput)),
+    [articleInput, articleOptions]
+  );
+
+  function selectArticle(option: string) {
+    setArticleInput(option);
+    setShowArticleOptions(false);
+  }
 
   function addLigne() {
     const qty = Number(quantite.replace(",", "."));
@@ -38,9 +48,13 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
     }
 
     setErrorMessage("");
-    setLignes((current) => [...current, { article: articleInput.trim(), quantite: qty }]);
+    setLignes((current) => [
+      ...current,
+      { article: articleInput.trim(), quantite: qty, fournisseur: ligneFournisseur.trim() },
+    ]);
     setArticleInput("");
     setQuantite("");
+    setLigneFournisseur("");
   }
 
   function removeLigne(index: number) {
@@ -60,6 +74,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
     formData.set("payload", JSON.stringify(lignes));
     formData.set("n_doss_4d", nDoss4d.trim());
     formData.set("n_doss_erp", nDossErp.trim());
+    formData.set("date_jour", dateCommande);
 
     startTransition(async () => {
       try {
@@ -68,6 +83,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
         setLignes([]);
         setNDoss4d("");
         setNDossErp("");
+        setDateCommande("");
         router.push(`/stock/matiere-premiere/bc/${result.code}`);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
@@ -79,22 +95,41 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
     <div className="grid gap-6">
       <div>
         <h2 className="mb-3 text-lg font-bold text-slate-900">Ajouter des articles</h2>
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
-          <div>
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr_auto]">
+          <div className="relative">
             <input
               type="text"
-              list="bc-article-options"
               autoComplete="off"
               value={articleInput}
-              onChange={(event) => setArticleInput(event.target.value)}
+              onChange={(event) => {
+                setArticleInput(event.target.value);
+                setShowArticleOptions(true);
+              }}
+              onFocus={() => setShowArticleOptions(true)}
+              onBlur={() => {
+                // Delai court pour laisser le clic sur une option s'executer
+                // avant que la liste ne se ferme (onBlur arrive avant onClick).
+                setTimeout(() => setShowArticleOptions(false), 150);
+              }}
               placeholder="Ecrire un article..."
               className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="bc-article-options">
-              {filteredArticles.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
+            {showArticleOptions && filteredArticles.length > 0 ? (
+              <ul className="absolute left-0 top-full z-20 mt-1 max-h-72 w-full min-w-[28rem] max-w-[90vw] overflow-y-auto rounded-2xl border border-slate-200 bg-white py-1 shadow-[0_18px_40px_rgba(15,23,42,0.15)]">
+                {filteredArticles.map((option) => (
+                  <li key={option}>
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => selectArticle(option)}
+                      className="block w-full whitespace-normal px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
+                    >
+                      {option}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
           <input
             type="number"
@@ -104,6 +139,13 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
             onChange={(event) => setQuantite(event.target.value)}
             placeholder="Quantite"
             className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+          />
+          <input
+            type="text"
+            value={ligneFournisseur}
+            onChange={(event) => setLigneFournisseur(event.target.value)}
+            placeholder="Fournisseur"
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
           <button
             type="button"
@@ -122,6 +164,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
               <tr>
                 <th className="px-4 py-3 font-semibold">Article</th>
                 <th className="px-4 py-3 font-semibold">Quantite</th>
+                <th className="px-4 py-3 font-semibold">Fournisseur</th>
                 <th className="px-4 py-3 font-semibold"></th>
               </tr>
             </thead>
@@ -130,6 +173,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
                 <tr key={`${ligne.article}-${index}`} className="border-t border-slate-100">
                   <td className="px-4 py-3 font-medium text-slate-900">{ligne.article}</td>
                   <td className="px-4 py-3 text-slate-600">{ligne.quantite}</td>
+                  <td className="px-4 py-3 text-slate-600">{ligne.fournisseur || "-"}</td>
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"
@@ -170,6 +214,10 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
             />
           </label>
         </div>
+        <label className="mt-3 grid gap-1 text-xs font-semibold text-slate-500">
+          Date de la commande (par defaut : aujourd&apos;hui)
+          <DateJmaInput value={dateCommande} onChange={setDateCommande} />
+        </label>
       </div>
 
       {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}

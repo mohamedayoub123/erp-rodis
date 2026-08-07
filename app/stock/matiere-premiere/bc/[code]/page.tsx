@@ -24,6 +24,7 @@ type CommandeBcRow = {
   quantite: number | null;
   n_doss_4d: string | null;
   n_doss_erp: string | null;
+  fournisseur: string | null;
   date_jour: string | null;
   statut: string | null;
 };
@@ -40,7 +41,7 @@ type ImportEvenementRow = {
 async function fetchGroup(code: string) {
   const { data, error } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, date_jour, statut")
+    .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, fournisseur, date_jour, statut")
     .eq("code", code)
     .order("id", { ascending: true });
 
@@ -163,6 +164,7 @@ export default async function CommandeBcMpDetailPage({
                   <thead className="bg-slate-50 text-slate-500">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Article</th>
+                      <th className="px-4 py-3 font-semibold">Fournisseur</th>
                       <th className="px-4 py-3 font-semibold">Dossier 4D</th>
                       <th className="px-4 py-3 font-semibold">Qte commandee</th>
                       <th className="px-4 py-3 font-semibold">Qte importee</th>
@@ -188,6 +190,7 @@ export default async function CommandeBcMpDetailPage({
                           <td className="px-4 py-3 font-medium text-slate-900">
                             {row.article_label || "-"}
                           </td>
+                          <td className="px-4 py-3 text-slate-600">{row.fournisseur || "-"}</td>
                           <td className="px-4 py-3 text-slate-600">{row.n_doss_4d || "-"}</td>
                           <td className="px-4 py-3 text-slate-900">{quantite}</td>
                           <td className="px-4 py-3 text-slate-600">{quantiteImportee}</td>
