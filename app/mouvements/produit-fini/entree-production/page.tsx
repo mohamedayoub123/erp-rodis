@@ -14,6 +14,7 @@ type EmballageEntryRow = {
   code: string;
   quantite: number;
   date_jour: string;
+  created_at: string;
 };
 
 type LigneInfo = {
@@ -53,9 +54,9 @@ async function fetchPendingEmballageEntries(): Promise<EmballageEntryRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("production_emballage_entries")
-      .select("id, programme_ligne_id, code, quantite, date_jour")
+      .select("id, programme_ligne_id, code, quantite, date_jour, created_at")
       .eq("transfere_stock", false)
-      .order("date_jour", { ascending: true })
+      .order("created_at", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) break;
@@ -132,7 +133,13 @@ export default async function EntreeProductionPage() {
   for (const entry of pendingEntries) {
     const ligne = ligneById.get(entry.programme_ligne_id);
     const rapport = rapportById.get(entry.programme_ligne_id);
-    const date = String(entry.date_jour).slice(0, 10);
+    // Regroupe par date de SAISIE (created_at, le jour reel ou l'emballage a
+    // ete entre) et non par date_jour (la date programme, saisie a la main
+    // sur le formulaire Emballage et parfois differente du jour reel) -
+    // sinon des entrees faites le meme jour pour des programmes de dates
+    // differentes se retrouvaient a tort dans des lots "Entree Production"
+    // separes.
+    const date = String(entry.created_at).slice(0, 10);
 
     let group = groupsByDate.get(date);
     if (!group) {
