@@ -271,6 +271,15 @@ export default async function NouvelleFicheConditionnementPage() {
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Etui
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="dechet_etui"
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
                 </div>
               </div>
 

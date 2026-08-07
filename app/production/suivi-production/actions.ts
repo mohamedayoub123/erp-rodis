@@ -155,6 +155,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     dechet_flacon: parseOptionalNumber(formData, "dechet_flacon"),
     dechet_pot: parseOptionalNumber(formData, "dechet_pot"),
     dechet_etiquette: parseOptionalNumber(formData, "dechet_etiquette"),
+    dechet_etui: parseOptionalNumber(formData, "dechet_etui"),
     arret_depot: parseOptionalNumber(formData, "arret_depot"),
     arret_consommable_non_livre: parseOptionalNumber(formData, "arret_consommable_non_livre"),
     arret_manque_conditionnement: parseOptionalNumber(formData, "arret_manque_conditionnement"),
