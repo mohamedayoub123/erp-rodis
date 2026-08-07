@@ -107,9 +107,59 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
     };
   });
 
+  // Lignes ajoutees a la main sur ce groupe (article jamais passe par
+  // l'Emballage/Suivi Production - arrivage exceptionnel, correction...) -
+  // meme mouvement de stock que les lignes automatiques ci-dessus, portees
+  // en JSON par ExtraLignesField dans le meme <form>.
+  const extraLignesRaw = String(formData.get("extra_lignes") || "").trim();
+  type ExtraLigne = {
+    articleId: number;
+    code: string;
+    quantite: number;
+    dateFabrication: string;
+    datePeremption: string;
+    chambre: string;
+    codePays: string;
+  };
+  let extraLignes: ExtraLigne[] = [];
+  if (extraLignesRaw) {
+    try {
+      extraLignes = JSON.parse(extraLignesRaw) as ExtraLigne[];
+    } catch {
+      throw new Error("Le contenu des lignes ajoutees a la main est invalide.");
+    }
+  }
+
+  const extraPayload = extraLignes.map((ligne) => {
+    const articleId = Number(ligne.articleId);
+    const numeroLot = String(ligne.code || "").trim();
+    const quantite = Number(ligne.quantite);
+    const dateFabrication = String(ligne.dateFabrication || "").trim();
+
+    if (!articleId || !numeroLot || !quantite || quantite <= 0 || !dateFabrication) {
+      throw new Error("Une ligne ajoutee a la main est incomplete.");
+    }
+
+    return {
+      article_id: articleId,
+      date_jour: new Date().toISOString().slice(0, 10),
+      numero_lot: numeroLot,
+      code_normalise: numeroLot.toUpperCase(),
+      date_fabrication: dateFabrication,
+      date_peremption: String(ligne.datePeremption || "").trim() || null,
+      qte_entree: quantite,
+      qte_sortie: 0,
+      chambre: String(ligne.chambre || "").trim() || null,
+      code_pays: String(ligne.codePays || "").trim() || null,
+      source_import: "web:entree-production",
+      note: null,
+      utilisateur: currentUser,
+    };
+  });
+
   const { data: inserted, error: insertError } = await supabaseServer
     .from("lots_stock")
-    .insert(payload)
+    .insert([...payload, ...extraPayload])
     .select("id");
 
   if (insertError) {
