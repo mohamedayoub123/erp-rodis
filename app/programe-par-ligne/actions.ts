@@ -923,6 +923,23 @@ async function assignDispatcherCodesAndInsert(
     if (numeroLotError) {
       throw new Error(numeroLotError.message);
     }
+
+    // Une ligne deja marquee "programme_termine" (ex: son ancien PD a ete
+    // supprime depuis Historique Programme Dispatcher, voir
+    // deleteProgrammeDispatcherHistoryGroupAction) redevient une ligne
+    // active des qu'elle est redispatchee - sans ce reset elle restait
+    // invisible du Dashboard pour toujours, meme une fois confirmee sur
+    // Ravitailleur avec un nouveau code/PD.
+    const dispatchedLigneIds = numeroLotUpdates.map((update) => update.id);
+    const { error: reactivateError } = await supabaseServer
+      .from("programme_lignes")
+      .update({ programme_termine: false, programme_termine_date: null })
+      .in("id", dispatchedLigneIds)
+      .eq("programme_termine", true);
+
+    if (reactivateError) {
+      throw new Error(reactivateError.message);
+    }
   }
 }
 
