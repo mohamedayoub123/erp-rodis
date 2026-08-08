@@ -18,6 +18,8 @@ type MouvementRow = {
   date_jour: string | null;
 };
 
+type NiveauRotation = "FORTE" | "MOYENNE" | "FAIBLE";
+
 type RotationRow = {
   article_id: number;
   nom_article: string;
@@ -30,7 +32,30 @@ type RotationRow = {
   consommation_par_mois: number;
   rotation: number | null;
   jours_couverture: number | null;
+  niveau: NiveauRotation | null;
 };
+
+// Forte = le stock tourne au moins 4 fois par an (tous les 3 mois ou
+// moins) ; Moyenne = entre 1 et 4 fois par an ; Faible = moins d'une fois
+// par an (plus d'un an pour ecouler le stock moyen). Pas de niveau si la
+// rotation n'a pas de sens (stock moyen a 0).
+function niveauRotation(rotation: number | null): NiveauRotation | null {
+  if (rotation === null) return null;
+  if (rotation >= 4) return "FORTE";
+  if (rotation >= 1) return "MOYENNE";
+  return "FAIBLE";
+}
+
+function niveauBadgeClasses(niveau: NiveauRotation) {
+  switch (niveau) {
+    case "FORTE":
+      return "bg-emerald-100 text-emerald-900";
+    case "MOYENNE":
+      return "bg-amber-100 text-amber-900";
+    case "FAIBLE":
+      return "bg-red-100 text-red-900";
+  }
+}
 
 async function fetchAllArticlesMp() {
   const rows: ArticleMpRow[] = [];
@@ -82,14 +107,15 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ article?: string; categorie?: string }>;
+type SearchParams = Promise<{ article?: string; categorie?: string; niveau?: string }>;
 
 export default async function RotationStockMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
   const params = await searchParams;
   const articleFilter = (params.article || "").trim();
   const categorieFilter = (params.categorie || "").trim().toLowerCase();
-  const hasFilters = Boolean(articleFilter || categorieFilter);
+  const niveauFilter = (params.niveau || "").trim().toUpperCase() as NiveauRotation | "";
+  const hasFilters = Boolean(articleFilter || categorieFilter || niveauFilter);
 
   const [{ rows: articles, error: articlesError }, { rows: mouvements, error: mouvementsError }] =
     await Promise.all([fetchAllArticlesMp(), fetchAllMouvements()]);
@@ -159,6 +185,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
       const stockMoyen = (stockAvant12Mois + stockActuel) / 2;
       const consommation = consommation12MoisByArticle.get(article.id) ?? 0;
       const consommation1Mois = consommation1MoisByArticle.get(article.id) ?? 0;
+      const rotation = stockMoyen > 0 ? consommation / stockMoyen : null;
 
       return {
         article_id: article.id,
@@ -170,12 +197,14 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
         stock_moyen: stockMoyen,
         consommation_12_mois: consommation,
         consommation_par_mois: consommation1Mois,
-        rotation: stockMoyen > 0 ? consommation / stockMoyen : null,
+        rotation,
         jours_couverture: consommation > 0 ? (stockActuel * 365) / consommation : null,
+        niveau: niveauRotation(rotation),
       };
     })
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
     .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
+    .filter((row) => !niveauFilter || row.niveau === niveauFilter)
     .sort((a, b) => (b.rotation ?? -1) - (a.rotation ?? -1));
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
@@ -196,7 +225,8 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
               Rotation = consommation des 12 derniers mois / stock moyen (moyenne entre le stock
               d&apos;il y a 12 mois et le stock actuel - combien de fois le stock a ete renouvele
               dans l&apos;annee). Jours de couverture = a la vitesse actuelle, combien de jours le
-              stock restant tiendrait. Trie du plus rapide au plus lent.
+              stock restant tiendrait. Niveau : Forte (4x/an ou plus), Moyenne (1 a 4x/an), Faible
+              (moins d&apos;1x/an). Trie du plus rapide au plus lent.
             </p>
           </div>
 
@@ -207,6 +237,24 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <div className="mb-5 flex flex-wrap gap-2">
+            {(["FORTE", "MOYENNE", "FAIBLE"] as NiveauRotation[]).map((item) => (
+              <a
+                key={item}
+                href={`/stock/matiere-premiere/rotation?${new URLSearchParams({
+                  ...(articleFilter ? { article: articleFilter } : {}),
+                  ...(categorieFilter ? { categorie: categorieFilter } : {}),
+                  niveau: niveauFilter === item ? "" : item,
+                }).toString()}`}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition hover:opacity-90 ${
+                  niveauFilter === item ? "ring-2 ring-slate-900" : ""
+                } ${niveauBadgeClasses(item)}`}
+              >
+                {item === "FORTE" ? "Forte rotation" : item === "MOYENNE" ? "Rotation moyenne" : "Faible rotation"}
+              </a>
+            ))}
+          </div>
+
           <form className="grid gap-3 sm:grid-cols-3">
             <input
               type="text"
@@ -236,6 +284,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                 <option key={option} value={option} />
               ))}
             </datalist>
+            <input type="hidden" name="niveau" value={niveauFilter} />
             <div className="flex gap-3">
               <button
                 type="submit"
@@ -280,6 +329,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                     <th className="px-6 py-4 font-semibold">Consommation (12 mois)</th>
                     <th className="px-6 py-4 font-semibold">Consommation (dernier mois)</th>
                     <th className="px-6 py-4 font-semibold">Rotation</th>
+                    <th className="px-6 py-4 font-semibold">Niveau</th>
                     <th className="px-6 py-4 font-semibold">Jours de couverture</th>
                   </tr>
                 </thead>
@@ -304,6 +354,23 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                         ) : (
                           <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
                             {formatNumber(row.rotation)}x / an
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {row.niveau === null ? (
+                          <span className="text-slate-400">-</span>
+                        ) : (
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${niveauBadgeClasses(
+                              row.niveau
+                            )}`}
+                          >
+                            {row.niveau === "FORTE"
+                              ? "Forte rotation"
+                              : row.niveau === "MOYENNE"
+                                ? "Rotation moyenne"
+                                : "Faible rotation"}
                           </span>
                         )}
                       </td>
