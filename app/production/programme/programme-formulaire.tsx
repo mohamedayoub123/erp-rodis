@@ -110,7 +110,11 @@ export function ProgrammeFormulaire({
       capaciteConditionnement?.capacite && piecePartCarton
         ? (capaciteConditionnement.capacite * duree) / piecePartCarton
         : null;
-    const vracDisponibleFabrication = capaciteFabrication?.capaciteMax ?? null;
+    // capaciteMax est une cadence par heure (ex: 3000 kg/h) - sur la duree
+    // prevue (en minutes), la fabrication peut fournir capaciteMax x
+    // (duree / 60).
+    const vracDisponibleFabrication =
+      capaciteFabrication?.capaciteMax != null ? capaciteFabrication.capaciteMax * (duree / 60) : null;
 
     let carton: number | null = cartonMaxConditionnement;
     let vrac: number | null = vracDisponibleFabrication;
