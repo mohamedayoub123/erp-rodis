@@ -3,10 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ProduitPickerField } from "@/app/production/suivi-production/produit-picker-field";
 
-type PfOption = { id: number; label: string; contenance: number | null; piecePartCarton: number | null };
+type PfOption = {
+  id: number;
+  label: string;
+  contenance: number | null;
+  piecePartCarton: number | null;
+  dispenseurPcsCarton: number | null;
+};
 type MpOption = { id: number; label: string };
 
-type AutoKind = "vrac" | "piece" | "carton" | null;
+type AutoKind = "vrac" | "piece" | "carton" | "dispenseur" | null;
 
 type Ligne = {
   key: number;
@@ -30,12 +36,13 @@ function ligneVide(key: number): Ligne {
 
 // Tous les articles MP de la formule se calculent automatiquement par
 // rapport au nombre de cartons du lot : par defaut a raison de 1 par piece
-// (sleeve, capsule, etiquette, pot/flacon...), sauf le carton/la boite (et
-// le display box) qui suivent directement le nb de cartons, pas le nb de
-// pieces. Toujours modifiable a la main ensuite.
+// (sleeve, capsule, etiquette, pot/flacon...), "display" = le dispenseur
+// (qt = dispenseur_pcs_carton de l'article PF), "carton" = la boite qui
+// suit directement le nb de cartons. Toujours modifiable a la main ensuite.
 function classifyAuto(label: string): AutoKind {
   const upper = label.toUpperCase();
-  if (upper.includes("CARTON") || upper.includes("BOX") || upper.includes("DISPLAY")) return "carton";
+  if (upper.includes("DISPLAY")) return "dispenseur";
+  if (upper.includes("CARTON")) return "carton";
   return "piece";
 }
 
@@ -82,6 +89,10 @@ export function RecetteConditionnementFormulaire({
     const carton = Number(nbCarton);
     if (!kind || !carton || Number.isNaN(carton)) return null;
     if (kind === "carton") return round(carton, 3);
+    if (kind === "dispenseur") {
+      if (!pfSelectionne?.dispenseurPcsCarton) return null;
+      return round(carton * pfSelectionne.dispenseurPcsCarton, 3);
+    }
     if (!pfSelectionne || !pfSelectionne.piecePartCarton) return null;
     if (kind === "piece") return round(carton * pfSelectionne.piecePartCarton, 3);
     if (!pfSelectionne.contenance) return null;
@@ -206,15 +217,6 @@ export function RecetteConditionnementFormulaire({
                   ) : (
                     <input type="hidden" name="mp_article_id" value={ligne.articleId ?? ""} />
                   )}
-                  {ligne.autoKind ? (
-                    <p className="mt-1 text-xs text-slate-500">
-                      {ligne.autoKind === "vrac"
-                        ? "Vrac - quantite calculee automatiquement (nb cartons x piece/carton x contenance), modifiable si besoin."
-                        : ligne.autoKind === "piece"
-                        ? "Quantite calculee automatiquement (nb cartons x piece/carton), modifiable si besoin."
-                        : "Quantite calculee automatiquement (= nb cartons), modifiable si besoin."}
-                    </p>
-                  ) : null}
                 </div>
                 <input
                   type="number"

@@ -10,11 +10,13 @@ function round(value: number, decimals = 3) {
 
 // Meme convention que RecetteConditionnementFormulaire (page "nouvelle") :
 // tous les articles MP se calculent automatiquement a raison de 1 par
-// piece par defaut, sauf le carton/la boite (et le display box) qui
-// suivent directement le nb de cartons.
-function classifyAuto(label: string): "piece" | "carton" {
+// piece par defaut, "display" = le dispenseur (qt = dispenseur_pcs_carton
+// de l'article PF), "carton" = la boite qui suit directement le nb de
+// cartons.
+function classifyAuto(label: string): "piece" | "carton" | "dispenseur" {
   const upper = label.toUpperCase();
-  if (upper.includes("CARTON") || upper.includes("BOX") || upper.includes("DISPLAY")) return "carton";
+  if (upper.includes("DISPLAY")) return "dispenseur";
+  if (upper.includes("CARTON")) return "carton";
   return "piece";
 }
 
@@ -27,15 +29,16 @@ export function AjouterArticleFormulaire({
   vracOptions,
   nbCarton,
   piecePartCarton,
+  dispenseurPcsCarton,
 }: {
   mpOptions: { id: number; label: string }[];
   vracOptions: { id: number; label: string }[];
   nbCarton: number | null;
   piecePartCarton: number | null;
+  dispenseurPcsCarton: number | null;
 }) {
   const [articleId, setArticleId] = useState<number | null>(null);
   const [quantite, setQuantite] = useState("");
-  const [auto, setAuto] = useState(false);
   const estVrac = articleId !== null && articleId < 0;
 
   const combined = [
@@ -45,43 +48,35 @@ export function AjouterArticleFormulaire({
 
   function handleSelect(id: number | null) {
     setArticleId(id);
-    if (id === null || id < 0) {
+    if (id === null || id < 0 || !nbCarton) {
       setQuantite("");
-      setAuto(false);
       return;
     }
     const option = mpOptions.find((item) => item.id === id);
     const kind = option ? classifyAuto(option.label) : null;
-    if (kind && nbCarton) {
-      const computed = kind === "carton" ? nbCarton : piecePartCarton ? nbCarton * piecePartCarton : null;
-      if (computed !== null) {
-        setQuantite(String(round(computed, 3)));
-        setAuto(true);
-        return;
-      }
-    }
-    setQuantite("");
-    setAuto(false);
+    const computed =
+      kind === "carton"
+        ? nbCarton
+        : kind === "dispenseur"
+        ? dispenseurPcsCarton
+          ? nbCarton * dispenseurPcsCarton
+          : null
+        : piecePartCarton
+        ? nbCarton * piecePartCarton
+        : null;
+    setQuantite(computed !== null ? String(round(computed, 3)) : "");
   }
 
   return (
     <div className="grid gap-1 sm:grid-cols-[1fr_auto_auto]">
-      <div>
-        <ProduitPickerField articles={combined} onSelect={handleSelect} />
-        {auto ? (
-          <p className="mt-1 text-xs text-slate-500">Quantite calculee automatiquement, modifiable si besoin.</p>
-        ) : null}
-      </div>
+      <ProduitPickerField articles={combined} onSelect={handleSelect} />
       <input
         type="number"
         step="0.001"
         min="0"
         name="quantite"
         value={quantite}
-        onChange={(event) => {
-          setQuantite(event.target.value);
-          setAuto(false);
-        }}
+        onChange={(event) => setQuantite(event.target.value)}
         placeholder="Quantite"
         required={!estVrac}
         disabled={estVrac}

@@ -5,23 +5,29 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { RecetteConditionnementFormulaire } from "../recette-conditionnement-formulaire";
 import { createRecetteCompleteAction } from "../../recette-fabrication/actions";
 
+type ArticleFiniRow = {
+  id: number;
+  nom_article: string;
+  contenance: number | null;
+  piece_par_carton: number | null;
+  dispenseur_pcs_carton: number | null;
+};
+
 async function fetchArticlesFini() {
-  const rows: { id: number; nom_article: string; contenance: number | null; piece_par_carton: number | null }[] = [];
+  const rows: ArticleFiniRow[] = [];
   let from = 0;
   const pageSize = 1000;
 
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles")
-      .select("id, nom_article, contenance, piece_par_carton")
+      .select("id, nom_article, contenance, piece_par_carton, dispenseur_pcs_carton")
       .neq("nature", "vrac")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
 
-    rows.push(
-      ...((data ?? []) as { id: number; nom_article: string; contenance: number | null; piece_par_carton: number | null }[])
-    );
+    rows.push(...((data ?? []) as ArticleFiniRow[]));
 
     if ((data ?? []).length < pageSize) break;
     from += pageSize;
@@ -92,6 +98,7 @@ export default async function NouvelleRecetteConditionnementPage() {
       label: article.nom_article,
       contenance: article.contenance,
       piecePartCarton: article.piece_par_carton,
+      dispenseurPcsCarton: article.dispenseur_pcs_carton,
     }))
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
   const vracOptions = articlesVrac

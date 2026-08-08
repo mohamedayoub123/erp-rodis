@@ -20,6 +20,7 @@ type ArticlePfRow = {
   vrac_article_id: number | null;
   contenance: number | null;
   piece_par_carton: number | null;
+  dispenseur_pcs_carton: number | null;
 };
 
 type ArticleMpRow = {
@@ -97,7 +98,9 @@ export default async function RecetteConditionnementDetailPage({
 
   const { data: articlePf } = await supabaseServer
     .from("articles")
-    .select("id, nom_article, gamme, nature, quantite_recette_base, vrac_article_id, contenance, piece_par_carton")
+    .select(
+      "id, nom_article, gamme, nature, quantite_recette_base, vrac_article_id, contenance, piece_par_carton, dispenseur_pcs_carton"
+    )
     .eq("id", articlePfId)
     .maybeSingle();
 
@@ -132,7 +135,8 @@ export default async function RecetteConditionnementDetailPage({
 
   const usedMpIds = new Set(lignes.map((ligne) => ligne.article_mp_id));
   const quantiteBase = (articlePf as ArticlePfRow).quantite_recette_base;
-  const { contenance, piece_par_carton: piecePartCarton } = articlePf as ArticlePfRow;
+  const { contenance, piece_par_carton: piecePartCarton, dispenseur_pcs_carton: dispenseurPcsCarton } =
+    articlePf as ArticlePfRow;
   const qtVracNecessaire =
     quantiteBase && contenance && piecePartCarton
       ? round(quantiteBase * piecePartCarton * contenance, 3)
@@ -302,6 +306,7 @@ export default async function RecetteConditionnementDetailPage({
               vracOptions={vracActuel ? [] : vracOptions}
               nbCarton={quantiteBase}
               piecePartCarton={piecePartCarton}
+              dispenseurPcsCarton={dispenseurPcsCarton}
             />
           </form>
         </section>
