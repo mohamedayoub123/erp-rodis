@@ -49,12 +49,16 @@ const MOIS_LONG = [
 ];
 
 // Meme calcul que Besoin Commande MP : objectif pour un mois de depart =
-// somme de la consommation reelle de ce mois-la et des 5 suivants (sur les
-// 12 derniers mois, un seul passage par mois calendaire - la consommation
-// varie selon le mois, ce n'est pas une moyenne fixe).
+// somme de la consommation reelle de ce mois-la et des 8 suivants (3 mois
+// de delai de livraison + 6 mois de cycle de commande, sur les 12 derniers
+// mois, un seul passage par mois calendaire - la consommation varie selon
+// le mois, ce n'est pas une moyenne fixe).
+const DELAI_LIVRAISON_MOIS = 3;
+const CYCLE_COMMANDE_MOIS = 6;
+
 function objectifGlissant(consommationParMoisCalendaire: number[], moisDepart: number) {
   let total = 0;
-  for (let decalage = 0; decalage < 6; decalage++) {
+  for (let decalage = 0; decalage < DELAI_LIVRAISON_MOIS + CYCLE_COMMANDE_MOIS; decalage++) {
     total += consommationParMoisCalendaire[(moisDepart + decalage) % 12];
   }
   return Math.round(total * 100) / 100;
@@ -216,8 +220,9 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
   // Stock actuel = somme entree-sortie de TOUS les mouvements (meme calcul
   // que Stock MP). Consommation par mois calendaire = sortie des 12
   // derniers mois seulement, regroupee par mois (Janvier, Fevrier...).
-  // Objectif du mois choisi = besoin des 6 mois a partir de ce mois-la
-  // (meme formule que Besoin Commande MP). A commander = objectif moins ce
+  // Objectif du mois choisi = besoin des 9 mois a partir de ce mois-la (3
+  // de delai de livraison + 6 de cycle de commande, meme formule que
+  // Besoin Commande MP). A commander = objectif moins ce
   // qu'il reste deja en stock ET moins ce qui est deja en commande/import
   // (jamais negatif - si stock + deja-commande couvrent deja l'objectif,
   // rien a commander, l'article n'apparait pas).
@@ -280,7 +285,8 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
               Choisis le mois de la commande : pour chaque article, l&apos;objectif (besoin reel
-              des 6 mois a partir de ce mois, meme calcul que Besoin Commande MP) est compare au
+              des 9 mois a partir de ce mois - 3 mois de delai de livraison + 6 mois de cycle de
+              commande, meme calcul que Besoin Commande MP) est compare au
               stock actuel et a ce qui est deja en commande/import (pas encore receptionne). Seuls
               les articles ou stock + deja-commande ne suffisent pas apparaissent, avec la quantite
               a commander proposee (objectif moins stock actuel moins deja en commande/import).
@@ -376,7 +382,7 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Stock actuel</th>
                     <th className="px-6 py-4 font-semibold">Deja en commande/import</th>
-                    <th className="px-6 py-4 font-semibold">Objectif ({MOIS_LONG[moisIdx]}, 6 mois)</th>
+                    <th className="px-6 py-4 font-semibold">Objectif ({MOIS_LONG[moisIdx]}, 9 mois)</th>
                     <th className="px-6 py-4 font-semibold">Stock min (3 mois)</th>
                     <th className="px-6 py-4 font-semibold">A commander</th>
                   </tr>

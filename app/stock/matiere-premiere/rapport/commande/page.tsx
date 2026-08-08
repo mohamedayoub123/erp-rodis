@@ -51,15 +51,22 @@ const MOIS_LONG = [
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
 
-// Consommation glissante sur 6 mois a partir du mois de depart (index
-// 0=Janvier..11=Decembre), en bouclant sur l'annee : commandeParMoisDepart[i]
-// = conso du mois i + conso des 5 mois suivants (avec retour a Janvier
-// apres Decembre). C'est la quantite a avoir en stock en entrant dans ce
-// mois pour tenir jusqu'a la prochaine commande, 6 mois plus tard.
+// Delai de livraison d'une commande MP : environ 3 mois entre la commande
+// et l'arrivee reelle en stock. Le stock a avoir en entrant dans un mois
+// doit donc couvrir ce delai (3 mois, le temps que la commande arrive) PLUS
+// les 6 mois de fonctionnement normal entre deux commandes - 9 mois de
+// consommation au total, pas seulement 6.
+const DELAI_LIVRAISON_MOIS = 3;
+const CYCLE_COMMANDE_MOIS = 6;
+
+// Consommation glissante sur 9 mois (3 de delai + 6 de cycle) a partir du
+// mois de depart (index 0=Janvier..11=Decembre), en bouclant sur l'annee :
+// commandeParMoisDepart[i] = conso du mois i + conso des 8 mois suivants
+// (avec retour a Janvier apres Decembre).
 function commandeGlissanteParMois(consommationParMoisCalendaire: number[]): number[] {
   return consommationParMoisCalendaire.map((_, moisDepart) => {
     let total = 0;
-    for (let decalage = 0; decalage < 6; decalage++) {
+    for (let decalage = 0; decalage < DELAI_LIVRAISON_MOIS + CYCLE_COMMANDE_MOIS; decalage++) {
       total += consommationParMoisCalendaire[(moisDepart + decalage) % 12];
     }
     return Math.round(total * 100) / 100;
@@ -225,10 +232,10 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
   // la sortie de chaque mois calendaire (Janvier, Fevrier...) sur les 12
   // derniers mois - une seule occurrence de chaque mois dans cette fenetre,
   // donc pas de moyenne a faire. La quantite a avoir en stock en entrant
-  // dans un mois donne = somme de la conso de ce mois-la et des 5 suivants
-  // (commande mensuelle qui couvre 6 mois, meme rythme que le
-  // fonctionnement reel). Stock min (3 mois, deja sur l'article) reste
-  // affiche a cote pour comparaison.
+  // dans un mois donne = somme de la conso de ce mois-la et des 8 suivants
+  // (3 mois de delai de livraison + 6 mois de cycle de commande, meme
+  // rythme que le fonctionnement reel). Stock min (3 mois, deja sur
+  // l'article) reste affiche a cote pour comparaison.
   const consommationByArticle = new Map<number, number>();
   const consommationByArticleAndMois = new Map<number, number[]>();
   for (const row of mouvements) {
@@ -289,8 +296,9 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
               Pour chaque article : consommation moyenne mensuelle (sortie des 12 derniers mois /
               12), le Stock min actuel (3 mois) pour comparaison, ce qui est deja en commande/import
               et pas encore receptionne, et pour chacun des 12 mois de l&apos;annee, la quantite a
-              commander en plus (objectif 6 mois - ce qui est deja en commande/import - la
-              consommation change selon le mois, ce n&apos;est pas juste la moyenne x 6).
+              commander en plus (objectif 9 mois - 3 mois de delai de livraison + 6 mois de cycle de
+              commande - moins ce qui est deja en commande/import - la consommation change selon le
+              mois, ce n&apos;est pas juste la moyenne x 9).
             </p>
           </div>
 
@@ -385,7 +393,7 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
                       <th
                         key={mois}
                         className="px-4 py-4 text-center font-semibold"
-                        title={`A avoir en stock en entrant dans ${MOIS_LONG[idx]} (couvre 6 mois)`}
+                        title={`A avoir en stock en entrant dans ${MOIS_LONG[idx]} (3 mois de delai + 6 mois de cycle = 9 mois)`}
                       >
                         {mois}
                       </th>

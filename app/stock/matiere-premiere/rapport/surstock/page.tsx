@@ -30,12 +30,16 @@ type SurstockRow = {
 
 // Meme calcul que Besoin Commande MP / Proposition de Commande MP :
 // objectif pour un mois de depart = somme de la consommation reelle de ce
-// mois-la et des 5 suivants (sur les 12 derniers mois, un seul passage par
-// mois calendaire - la consommation varie selon le mois, ce n'est pas une
+// mois-la et des 8 suivants (3 mois de delai de livraison + 6 mois de
+// cycle de commande, sur les 12 derniers mois, un seul passage par mois
+// calendaire - la consommation varie selon le mois, ce n'est pas une
 // moyenne fixe).
+const DELAI_LIVRAISON_MOIS = 3;
+const CYCLE_COMMANDE_MOIS = 6;
+
 function objectifGlissant(consommationParMoisCalendaire: number[], moisDepart: number) {
   let total = 0;
-  for (let decalage = 0; decalage < 6; decalage++) {
+  for (let decalage = 0; decalage < DELAI_LIVRAISON_MOIS + CYCLE_COMMANDE_MOIS; decalage++) {
     total += consommationParMoisCalendaire[(moisDepart + decalage) % 12];
   }
   return Math.round(total * 100) / 100;
@@ -114,9 +118,10 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
   // Stock actuel = somme entree-sortie de TOUS les mouvements (meme calcul
   // que Stock MP). Consommation par mois calendaire = sortie des 12
   // derniers mois seulement, regroupee par mois (Janvier, Fevrier...).
-  // Objectif = besoin des 6 mois a partir du mois actuel (meme formule que
-  // Besoin Commande MP / Proposition). Surstock = ce qui depasse cet
-  // objectif : stock qu'on n'a pas besoin de toucher avant plus de 6 mois.
+  // Objectif = besoin des 9 mois a partir du mois actuel (3 de delai de
+  // livraison + 6 de cycle de commande, meme formule que Besoin Commande MP
+  // / Proposition). Surstock = ce qui depasse cet objectif : stock qu'on
+  // n'a pas besoin de toucher avant plus de 9 mois.
   const stockByArticle = new Map<number, number>();
   const consommationByArticleAndMois = new Map<number, number[]>();
 
@@ -170,10 +175,11 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
               Surstock MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Articles dont le stock actuel depasse ce qu&apos;il faut pour tenir 6 mois a partir
-              d&apos;aujourd&apos;hui (meme calcul que Besoin Commande MP / Proposition de
-              Commande, base sur la consommation reelle de chaque mois). Le surplus = stock actuel
-              moins cet objectif. Trie du plus gros surplus au plus petit.
+              Articles dont le stock actuel depasse ce qu&apos;il faut pour tenir 9 mois a partir
+              d&apos;aujourd&apos;hui (3 mois de delai de livraison + 6 mois de cycle de commande,
+              meme calcul que Besoin Commande MP / Proposition de Commande, base sur la
+              consommation reelle de chaque mois). Le surplus = stock actuel moins cet objectif.
+              Trie du plus gros surplus au plus petit.
             </p>
           </div>
 
@@ -252,7 +258,7 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
                     <th className="px-6 py-4 font-semibold">Categorie</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Stock actuel</th>
-                    <th className="px-6 py-4 font-semibold">Stock necessaire (6 mois)</th>
+                    <th className="px-6 py-4 font-semibold">Stock necessaire (9 mois)</th>
                     <th className="px-6 py-4 font-semibold">Surplus</th>
                   </tr>
                 </thead>
