@@ -19,6 +19,18 @@ export function ExportExcelButton({
       Object.fromEntries(columns.map((column) => [column.label, row[column.key] ?? ""]))
     );
     const worksheet = XLSX.utils.json_to_sheet(data, { header: columns.map((column) => column.label) });
+
+    // Largeur de chaque colonne ajustee au plus long contenu (titre ou
+    // valeur), pour ne pas avoir a redimensionner a la main a l'ouverture.
+    worksheet["!cols"] = columns.map((column) => {
+      const longest = rows.reduce((max, row) => {
+        const text = row[column.key];
+        const length = text === null || text === undefined ? 0 : String(text).length;
+        return Math.max(max, length);
+      }, column.label.length);
+      return { wch: Math.min(Math.max(longest + 2, 10), 60) };
+    });
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Export");
     XLSX.writeFile(workbook, filename);
