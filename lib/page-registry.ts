@@ -99,6 +99,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     legacyWrite: "editStock",
   },
   {
+    key: "stockActuelPf",
+    module: "Stock",
+    label: "Stock Actuel PF",
+    pathPrefixes: ["/stock/stock-actuel"],
+    hasWrite: false,
+  },
+  {
     key: "stockMatierePremiere",
     module: "Stock",
     label: "Stock Matiere Premiere",
@@ -110,6 +117,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     module: "Stock",
     label: "Stock Alert MP",
     pathPrefixes: ["/stock/matiere-premiere/alerte"],
+    hasWrite: false,
+  },
+  {
+    key: "stockActuelMp",
+    module: "Stock",
+    label: "Stock Actuel MP",
+    pathPrefixes: ["/stock/matiere-premiere/stock-actuel"],
     hasWrite: false,
   },
   {
@@ -552,6 +566,7 @@ export const ADMIN_SECTION_ORDER: AdminSection[] = [
 const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockMatierePremiere",
   "stockAlerteMp",
+  "stockActuelMp",
   "stockPerimeMp",
   "stockDormantMp",
   "statistiqueMp",

@@ -35,6 +35,7 @@ export const navItems: NavItem[] = [
     ],
     subLinks: [
       { href: "/stock", label: "Stock", pageKey: "stock" },
+      { href: "/stock/stock-actuel", label: "Stock Actuel", pageKey: "stockActuelPf" },
       { href: "/articles", label: "Articles", pageKey: "articlesHub" },
       { href: "/mouvements", label: "Mouvements", pageKey: "mouvementsHub" },
       { href: "/commandes", label: "Commandes", pageKey: "commandesListe" },
@@ -71,6 +72,7 @@ export const navItems: NavItem[] = [
         pageKey: "mouvementsMatierePremiere",
       },
       { href: "/stock/matiere-premiere/alerte", label: "Stock Alert", pageKey: "stockAlerteMp" },
+      { href: "/stock/matiere-premiere/stock-actuel", label: "Stock Actuel", pageKey: "stockActuelMp" },
       { href: "/stock/matiere-premiere/dormant", label: "Stock Dormant", pageKey: "stockDormantMp" },
       { href: "/stock/matiere-premiere/statistique", label: "Statistique", pageKey: "statistiqueMp" },
       { href: "/stock/matiere-premiere/perime", label: "Stock Perime", pageKey: "stockPerimeMp" },

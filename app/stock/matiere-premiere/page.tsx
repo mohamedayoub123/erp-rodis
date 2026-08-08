@@ -33,6 +33,13 @@ const TILES = [
     description: "Articles sous le seuil d'alerte.",
   },
   {
+    label: "Stock Actuel",
+    href: "/stock/matiere-premiere/stock-actuel",
+    pageKey: "stockActuelMp",
+    icon: "\u{1F4CB}",
+    description: "Tous les articles avec leur stock actuel.",
+  },
+  {
     label: "Stock Dormant",
     href: "/stock/matiere-premiere/dormant",
     pageKey: "stockDormantMp",
