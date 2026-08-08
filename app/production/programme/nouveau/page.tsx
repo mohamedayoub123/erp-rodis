@@ -143,7 +143,7 @@ export default async function NouveauProgrammePage() {
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
-      <div className="mx-auto w-full max-w-4xl space-y-6">
+      <div className="mx-auto w-full space-y-6">
         <div className="flex flex-col gap-4 rounded-[2rem] border border-black/5 bg-white/85 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
@@ -153,9 +153,10 @@ export default async function NouveauProgrammePage() {
               Nouveau programme
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Choisis l&apos;article, la machine Fabrication et la machine Conditionnement, puis la
-              duree prevue : la quantite de carton et de vrac se calcule automatiquement a partir
-              de la capacite des machines (page Machines), modifiable a la main.
+              Ajoute autant d&apos;articles que necessaire, une ligne par article. Pour chaque
+              ligne : machines Fabrication/Conditionnement/Emballage et duree prevue, puis
+              &quot;Calculer&quot; pour remplir qt carton/vrac automatiquement a partir de la
+              capacite des machines (page Machines) - tout reste modifiable a la main.
             </p>
           </div>
 

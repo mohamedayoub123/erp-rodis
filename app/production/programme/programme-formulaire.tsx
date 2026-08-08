@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ProduitPickerField } from "@/app/production/suivi-production/produit-picker-field";
 
 type ArticleOption = {
@@ -21,19 +21,53 @@ type CapaciteInfo = {
   tempsMinutes: number | null;
 };
 
+type Ligne = {
+  key: number;
+  articleId: number | null;
+  machineFabricationId: number | null;
+  machineConditionnementId: number | null;
+  machineEmballageId: number | null;
+  dureeMinutes: string;
+  qtCarton: string;
+  qtVrac: string;
+  qtEmballage: string;
+  autoCalcule: boolean;
+};
+
 function round(value: number, decimals = 3) {
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
 }
 
-// Calcul automatique de qt carton / qt vrac a partir de la capacite des
-// machines choisies (table machine_produits) : la machine Conditionnement
-// donne une capacite en piece/min pour l'article fini choisi, la machine
-// Fabrication donne un lot min/max de vrac pour le vrac correspondant.
-// Si ce que la ligne de conditionnement peut produire dans la duree
-// prevue pese moins lourd (en vrac necessaire) que ce que la fabrication
-// peut fournir, on limite le vrac a ce que le conditionnement peut
-// vraiment consommer - sinon on part du lot de fabrication max.
+function ligneVide(key: number): Ligne {
+  return {
+    key,
+    articleId: null,
+    machineFabricationId: null,
+    machineConditionnementId: null,
+    machineEmballageId: null,
+    dureeMinutes: "",
+    qtCarton: "",
+    qtVrac: "",
+    qtEmballage: "",
+    autoCalcule: false,
+  };
+}
+
+// Plusieurs articles dans le meme programme, une ligne par article. Chaque
+// champ ecrit sous le meme nom sur toutes les lignes (ex: "article_id"),
+// le serveur relit avec formData.getAll() dans l'ordre du DOM - les
+// tableaux se correspondent tous par position pour creer une ligne
+// "programmes" par article.
+//
+// Calcul automatique qt carton / qt vrac par ligne, a partir de la
+// capacite des machines choisies (table machine_produits) : la machine
+// Conditionnement donne une capacite en piece/min pour l'article fini, la
+// machine Fabrication donne un lot min/max de vrac pour le vrac
+// correspondant. Si ce que la ligne de conditionnement peut produire dans
+// la duree prevue pese moins lourd (en vrac necessaire) que ce que la
+// fabrication peut fournir, on limite le vrac a ce que le conditionnement
+// peut vraiment consommer - sinon on part du lot de fabrication max.
 export function ProgrammeFormulaire({
   articles,
   machinesFabrication,
@@ -47,61 +81,46 @@ export function ProgrammeFormulaire({
   machinesEmballage: MachineOption[];
   capaciteParMachineArticle: Record<string, CapaciteInfo>;
 }) {
-  const [articleId, setArticleId] = useState<number | null>(null);
-  const [machineFabricationId, setMachineFabricationId] = useState<number | null>(null);
-  const [machineConditionnementId, setMachineConditionnementId] = useState<number | null>(null);
-  const [dureeMinutes, setDureeMinutes] = useState("");
-  const [qtCarton, setQtCarton] = useState("");
-  const [qtVrac, setQtVrac] = useState("");
-  const [qtEmballage, setQtEmballage] = useState("");
-  const [autoCalcule, setAutoCalcule] = useState(false);
+  const [lignes, setLignes] = useState<Ligne[]>([ligneVide(0)]);
+  const nextKey = useRef(1);
 
-  const articleSelectionne = useMemo(() => articles.find((article) => article.id === articleId) ?? null, [
-    articleId,
-    articles,
-  ]);
+  const articleById = useMemo(() => new Map(articles.map((article) => [article.id, article])), [articles]);
 
-  const capaciteFabrication = useMemo(() => {
-    if (!machineFabricationId || !articleSelectionne?.vracArticleId) return null;
-    return capaciteParMachineArticle[`${machineFabricationId}-${articleSelectionne.vracArticleId}`] ?? null;
-  }, [machineFabricationId, articleSelectionne, capaciteParMachineArticle]);
+  function updateLigne(key: number, patch: Partial<Ligne>) {
+    setLignes((current) => current.map((ligne) => (ligne.key === key ? { ...ligne, ...patch } : ligne)));
+  }
 
-  const capaciteConditionnement = useMemo(() => {
-    if (!machineConditionnementId || !articleId) return null;
-    return capaciteParMachineArticle[`${machineConditionnementId}-${articleId}`] ?? null;
-  }, [machineConditionnementId, articleId, capaciteParMachineArticle]);
+  function calculer(ligne: Ligne) {
+    const article = ligne.articleId ? articleById.get(ligne.articleId) : null;
+    const duree = Number(ligne.dureeMinutes);
+    if (!article || !duree) return;
 
-  function calculer() {
-    const duree = Number(dureeMinutes);
-    if (!articleSelectionne || !duree) return;
-
-    const { contenance, piecePartCarton } = articleSelectionne;
+    const { contenance, piecePartCarton } = article;
     const vracParCarton = contenance && piecePartCarton ? contenance * piecePartCarton : null;
 
-    // Ce que la ligne de Conditionnement peut produire en cartons pendant
-    // la duree prevue (capacite en piece/min -> cartons via piece_par_carton).
+    const capaciteFabrication =
+      ligne.machineFabricationId && article.vracArticleId
+        ? capaciteParMachineArticle[`${ligne.machineFabricationId}-${article.vracArticleId}`] ?? null
+        : null;
+    const capaciteConditionnement = ligne.machineConditionnementId
+      ? capaciteParMachineArticle[`${ligne.machineConditionnementId}-${article.id}`] ?? null
+      : null;
+
     const cartonMaxConditionnement =
       capaciteConditionnement?.capacite && piecePartCarton
         ? (capaciteConditionnement.capacite * duree) / piecePartCarton
         : null;
-
-    // Lot de vrac que la machine Fabrication peut fournir (on prend le max
-    // du lot - capacite_max).
     const vracDisponibleFabrication = capaciteFabrication?.capaciteMax ?? null;
 
     let carton: number | null = cartonMaxConditionnement;
     let vrac: number | null = vracDisponibleFabrication;
 
     if (vracParCarton && cartonMaxConditionnement !== null && vracDisponibleFabrication !== null) {
-      const vracNecessairePourConditionnement = cartonMaxConditionnement * vracParCarton;
-      if (vracNecessairePourConditionnement < vracDisponibleFabrication) {
-        // Le conditionnement est le facteur limitant : pas la peine de
-        // fabriquer plus de vrac que ce qu'il peut consommer.
-        vrac = round(vracNecessairePourConditionnement);
+      const vracNecessaire = cartonMaxConditionnement * vracParCarton;
+      if (vracNecessaire < vracDisponibleFabrication) {
+        vrac = round(vracNecessaire);
         carton = round(cartonMaxConditionnement);
       } else {
-        // Le vrac disponible est le facteur limitant : le conditionnement
-        // absorbe tout, qt carton se deduit du vrac disponible.
         vrac = round(vracDisponibleFabrication);
         carton = round(vracDisponibleFabrication / vracParCarton);
       }
@@ -113,174 +132,187 @@ export function ProgrammeFormulaire({
       carton = round(vracDisponibleFabrication / vracParCarton);
     }
 
-    setQtCarton(carton !== null ? String(carton) : "");
-    setQtVrac(vrac !== null ? String(vrac) : "");
-    setAutoCalcule(true);
+    updateLigne(ligne.key, {
+      qtCarton: carton !== null ? String(carton) : "",
+      qtVrac: vrac !== null ? String(vrac) : "",
+      autoCalcule: true,
+    });
   }
 
   return (
-    <div className="grid gap-6">
-      <input type="hidden" name="vrac_article_id" value={articleSelectionne?.vracArticleId ?? ""} />
-
-      <div className="rounded-2xl border border-slate-200 p-5">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
-          Article
-        </h2>
-        <ProduitPickerField
-          articles={articles}
-          hiddenName="article_id"
-          textName="produit"
-          onSelect={setArticleId}
-        />
-        {articleSelectionne ? (
-          <p className="mt-2 text-sm text-slate-600">
-            Vrac utilise :{" "}
-            <span className="font-semibold text-slate-900">
-              {articleSelectionne.vracLabel || "non renseigne (voir Recette Conditionnement)"}
-            </span>
-          </p>
-        ) : null}
+    <div className="grid gap-4">
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="bg-slate-50 text-slate-500">
+            <tr>
+              <th className="px-3 py-3 font-semibold">Article</th>
+              <th className="px-3 py-3 font-semibold">Vrac</th>
+              <th className="px-3 py-3 font-semibold">Machine Fabrication</th>
+              <th className="px-3 py-3 font-semibold">Machine Conditionnement</th>
+              <th className="px-3 py-3 font-semibold">Machine Emballage</th>
+              <th className="px-3 py-3 font-semibold">Duree (min)</th>
+              <th className="px-3 py-3 font-semibold"></th>
+              <th className="px-3 py-3 font-semibold">Qt carton</th>
+              <th className="px-3 py-3 font-semibold">Qt vrac</th>
+              <th className="px-3 py-3 font-semibold">Qt emballage</th>
+              <th className="px-3 py-3 font-semibold"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {lignes.map((ligne) => {
+              const article = ligne.articleId ? articleById.get(ligne.articleId) : null;
+              const articlesDisponibles = articles.filter(
+                (item) =>
+                  item.id === ligne.articleId ||
+                  !lignes.some((autre) => autre.key !== ligne.key && autre.articleId === item.id)
+              );
+              return (
+                <tr key={ligne.key} className="border-t border-slate-100 align-top">
+                  <td className="min-w-[220px] px-3 py-3">
+                    <ProduitPickerField
+                      articles={articlesDisponibles}
+                      hiddenName="article_id"
+                      textName="produit"
+                      onSelect={(articleId) => updateLigne(ligne.key, { articleId })}
+                    />
+                    <input type="hidden" name="vrac_article_id" value={article?.vracArticleId ?? ""} />
+                  </td>
+                  <td className="px-3 py-3 text-xs text-slate-600">
+                    {article ? article.vracLabel || "non renseigne" : "-"}
+                  </td>
+                  <td className="min-w-[160px] px-3 py-3">
+                    <select
+                      name="machine_fabrication_id"
+                      value={ligne.machineFabricationId ?? ""}
+                      onChange={(event) =>
+                        updateLigne(ligne.key, { machineFabricationId: Number(event.target.value) || null })
+                      }
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                    >
+                      <option value="">Choisir...</option>
+                      {machinesFabrication.map((machine) => (
+                        <option key={machine.id} value={machine.id}>
+                          {machine.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="min-w-[160px] px-3 py-3">
+                    <select
+                      name="machine_conditionnement_id"
+                      value={ligne.machineConditionnementId ?? ""}
+                      onChange={(event) =>
+                        updateLigne(ligne.key, { machineConditionnementId: Number(event.target.value) || null })
+                      }
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                    >
+                      <option value="">Choisir...</option>
+                      {machinesConditionnement.map((machine) => (
+                        <option key={machine.id} value={machine.id}>
+                          {machine.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="min-w-[160px] px-3 py-3">
+                    <select
+                      name="machine_emballage_id"
+                      value={ligne.machineEmballageId ?? ""}
+                      onChange={(event) =>
+                        updateLigne(ligne.key, { machineEmballageId: Number(event.target.value) || null })
+                      }
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                    >
+                      <option value="">Choisir...</option>
+                      {machinesEmballage.map((machine) => (
+                        <option key={machine.id} value={machine.id}>
+                          {machine.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="w-28 px-3 py-3">
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      name="duree_minutes"
+                      value={ligne.dureeMinutes}
+                      onChange={(event) => updateLigne(ligne.key, { dureeMinutes: event.target.value })}
+                      placeholder="Ex: 480"
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    <button
+                      type="button"
+                      onClick={() => calculer(ligne)}
+                      className="whitespace-nowrap rounded-2xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+                    >
+                      Calculer
+                    </button>
+                  </td>
+                  <td className="w-28 px-3 py-3">
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      name="qt_carton"
+                      value={ligne.qtCarton}
+                      onChange={(event) => updateLigne(ligne.key, { qtCarton: event.target.value })}
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                    />
+                  </td>
+                  <td className="w-28 px-3 py-3">
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      name="qt_vrac"
+                      value={ligne.qtVrac}
+                      onChange={(event) => updateLigne(ligne.key, { qtVrac: event.target.value })}
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                    />
+                  </td>
+                  <td className="w-28 px-3 py-3">
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      name="qt_emballage"
+                      value={ligne.qtEmballage}
+                      onChange={(event) => updateLigne(ligne.key, { qtEmballage: event.target.value })}
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    <button
+                      type="button"
+                      onClick={() => setLignes((current) => current.filter((item) => item.key !== ligne.key))}
+                      disabled={lignes.length <= 1}
+                      className="whitespace-nowrap rounded-2xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Retirer
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 p-5">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
-            Machine Fabrication
-          </h2>
-          <select
-            name="machine_fabrication_id"
-            value={machineFabricationId ?? ""}
-            onChange={(event) => setMachineFabricationId(Number(event.target.value) || null)}
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-          >
-            <option value="">Choisir...</option>
-            {machinesFabrication.map((machine) => (
-              <option key={machine.id} value={machine.id}>
-                {machine.label}
-              </option>
-            ))}
-          </select>
-          {capaciteFabrication ? (
-            <p className="mt-2 text-xs text-slate-500">
-              Lot vrac : {capaciteFabrication.capaciteMin ?? "-"} a {capaciteFabrication.capaciteMax ?? "-"}
-              {capaciteFabrication.tempsMinutes ? ` (${capaciteFabrication.tempsMinutes} min)` : ""}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 p-5">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
-            Machine Conditionnement
-          </h2>
-          <select
-            name="machine_conditionnement_id"
-            value={machineConditionnementId ?? ""}
-            onChange={(event) => setMachineConditionnementId(Number(event.target.value) || null)}
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-          >
-            <option value="">Choisir...</option>
-            {machinesConditionnement.map((machine) => (
-              <option key={machine.id} value={machine.id}>
-                {machine.label}
-              </option>
-            ))}
-          </select>
-          {capaciteConditionnement?.capacite ? (
-            <p className="mt-2 text-xs text-slate-500">Capacite : {capaciteConditionnement.capacite} piece/min</p>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 p-5">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
-          Duree prevue et quantites
-        </h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Duree prevue (minutes)
-            <input
-              type="number"
-              step="1"
-              min="0"
-              name="duree_minutes"
-              value={dureeMinutes}
-              onChange={(event) => setDureeMinutes(event.target.value)}
-              placeholder="Ex: 480 (8h)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-            />
-          </label>
-          <div className="flex items-end">
-            <button
-              type="button"
-              onClick={calculer}
-              className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              Calculer qt carton / qt vrac
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Qt carton {autoCalcule ? "(calcule, modifiable)" : ""}
-            <input
-              type="number"
-              step="0.001"
-              min="0"
-              name="qt_carton"
-              value={qtCarton}
-              onChange={(event) => setQtCarton(event.target.value)}
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Qt vrac (kg) {autoCalcule ? "(calcule, modifiable)" : ""}
-            <input
-              type="number"
-              step="0.001"
-              min="0"
-              name="qt_vrac"
-              value={qtVrac}
-              onChange={(event) => setQtVrac(event.target.value)}
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-            />
-          </label>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 p-5">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
-          Emballage
-        </h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <p className="mb-1 text-xs font-semibold text-slate-500">Machine Emballage</p>
-            <select
-              name="machine_emballage_id"
-              defaultValue=""
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-            >
-              <option value="">Choisir...</option>
-              {machinesEmballage.map((machine) => (
-                <option key={machine.id} value={machine.id}>
-                  {machine.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Qt emballage (saisie manuelle)
-            <input
-              type="number"
-              step="0.001"
-              min="0"
-              name="qt_emballage"
-              value={qtEmballage}
-              onChange={(event) => setQtEmballage(event.target.value)}
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-            />
-          </label>
-        </div>
+      <div>
+        <button
+          type="button"
+          onClick={() => {
+            setLignes((current) => [...current, ligneVide(nextKey.current)]);
+            nextKey.current += 1;
+          }}
+          className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+        >
+          + Ajouter un article
+        </button>
       </div>
     </div>
   );
