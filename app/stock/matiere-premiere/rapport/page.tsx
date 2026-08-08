@@ -32,6 +32,13 @@ const TILES = [
     icon: "\u{1F6D2}",
     description: "Consommation moyenne mensuelle et quantite a commander pour couvrir 6 mois, par article.",
   },
+  {
+    label: "Proposition de Commande",
+    href: "/stock/matiere-premiere/rapport/proposition",
+    pageKey: "stockPropositionCommandeMp",
+    icon: "\u{2705}",
+    description: "Choisis le mois : liste des articles ou le stock actuel ne suffit pas, avec la quantite a commander.",
+  },
 ] as const;
 
 export default async function RapportMpPage() {
