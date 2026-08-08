@@ -60,6 +60,13 @@ const TILES = [
     icon: "\u{2705}",
     description: "Choisis le mois : liste des articles ou le stock actuel ne suffit pas, avec la quantite a commander.",
   },
+  {
+    label: "Surstock",
+    href: "/stock/matiere-premiere/rapport/surstock",
+    pageKey: "stockSurstockMp",
+    icon: "\u{1F4E6}",
+    description: "Articles avec plus de 6 mois de stock actuel : le surplus par rapport au besoin reel.",
+  },
 ] as const;
 
 export default async function RapportMpPage() {

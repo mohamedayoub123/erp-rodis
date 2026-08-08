@@ -155,6 +155,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "stockSurstockMp",
+    module: "Stock",
+    label: "Surstock MP",
+    pathPrefixes: ["/stock/matiere-premiere/rapport/surstock"],
+    hasWrite: false,
+  },
+  {
     key: "stockActuelMp",
     module: "Stock",
     label: "Stock Actuel MP",
@@ -614,6 +621,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockMinProposeMp",
   "stockBesoinCommandeMp",
   "stockPropositionCommandeMp",
+  "stockSurstockMp",
   "stockPerimeMp",
   "stockDormantMp",
   "statistiqueMp",
