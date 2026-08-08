@@ -18,6 +18,18 @@ type MouvementRow = {
   date_jour: string | null;
 };
 
+type BcLigneRow = {
+  id: number;
+  article_id: number | null;
+  quantite: number | null;
+};
+
+type ImportEvenementRow = {
+  bc_ligne_id: number;
+  quantite_importee: number;
+  lot_stock_id: number | null;
+};
+
 type BesoinRow = {
   article_id: number;
   nom_article: string;
@@ -26,6 +38,7 @@ type BesoinRow = {
   min_stock: number | null;
   consommation_12_mois: number;
   consommation_par_mois: number;
+  deja_en_commande: number;
   commande_par_mois_depart: number[];
 };
 
@@ -100,6 +113,52 @@ async function fetchMouvementsSince(sinceDate: string) {
   return { rows, error: null };
 }
 
+async function fetchAllBcLignes() {
+  const rows: BcLigneRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("bons_commande_matiere_premiere")
+      .select("id, article_id, quantite")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as BcLigneRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
+async function fetchAllImportEvenements() {
+  const rows: ImportEvenementRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .select("bc_ligne_id, quantite_importee, lot_stock_id")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as ImportEvenementRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
@@ -118,10 +177,47 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
   const sinceDate = twelveMonthsAgo.toISOString().slice(0, 10);
 
-  const [{ rows: articles, error: articlesError }, { rows: mouvements, error: mouvementsError }] =
-    await Promise.all([fetchAllArticlesMp(), fetchMouvementsSince(sinceDate)]);
+  const [
+    { rows: articles, error: articlesError },
+    { rows: mouvements, error: mouvementsError },
+    { rows: bcLignes, error: bcError },
+    { rows: importEvenements, error: importError },
+  ] = await Promise.all([
+    fetchAllArticlesMp(),
+    fetchMouvementsSince(sinceDate),
+    fetchAllBcLignes(),
+    fetchAllImportEvenements(),
+  ]);
 
-  const error = articlesError || mouvementsError;
+  const error = articlesError || mouvementsError || bcError || importError;
+
+  // Quantite deja en commande/import pas encore receptionnee (donc pas
+  // encore dans le stock actuel) : par ligne de BC, ce qui reste = quantite
+  // commandee - ce qui a deja ete receptionne pour cette ligne (evenements
+  // avec lot_stock_id renseigne = vraie reception qui a credite le stock ;
+  // lot_stock_id vide = juste declare importe, pas encore receptionne, donc
+  // toujours en attente). On soustrait cette quantite deja en attente de
+  // l'objectif : pas la peine de proposer une commande pour ce qui arrive
+  // deja.
+  const receptionneParLigne = new Map<number, number>();
+  for (const evenement of importEvenements) {
+    if (evenement.lot_stock_id === null) continue;
+    receptionneParLigne.set(
+      evenement.bc_ligne_id,
+      (receptionneParLigne.get(evenement.bc_ligne_id) ?? 0) + Number(evenement.quantite_importee ?? 0)
+    );
+  }
+
+  const dejaEnCommandeByArticle = new Map<number, number>();
+  for (const ligne of bcLignes) {
+    if (!ligne.article_id) continue;
+    const receptionne = receptionneParLigne.get(ligne.id) ?? 0;
+    const enAttente = Math.max(0, Number(ligne.quantite ?? 0) - receptionne);
+    dejaEnCommandeByArticle.set(
+      ligne.article_id,
+      (dejaEnCommandeByArticle.get(ligne.article_id) ?? 0) + enAttente
+    );
+  }
 
   // Consommation moyenne/mois = sortie des 12 derniers mois / 12 (chiffre
   // de reference global). Mais la consommation reelle varie selon le mois
@@ -152,6 +248,9 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
     const consommation12Mois = consommationByArticle.get(article.id) ?? 0;
     const consommationParMois = consommation12Mois / 12;
     const consommationParMoisCalendaire = consommationByArticleAndMois.get(article.id) ?? new Array(12).fill(0);
+    const dejaEnCommande = dejaEnCommandeByArticle.get(article.id) ?? 0;
+    const commandeBrute = commandeGlissanteParMois(consommationParMoisCalendaire);
+    const commandeNette = commandeBrute.map((valeur) => Math.max(0, Math.round((valeur - dejaEnCommande) * 100) / 100));
 
     return {
       article_id: article.id,
@@ -161,7 +260,8 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
       min_stock: article.min_stock,
       consommation_12_mois: consommation12Mois,
       consommation_par_mois: Math.round(consommationParMois * 100) / 100,
-      commande_par_mois_depart: commandeGlissanteParMois(consommationParMoisCalendaire),
+      deja_en_commande: dejaEnCommande,
+      commande_par_mois_depart: commandeNette,
     };
   });
 
@@ -187,11 +287,10 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
               Pour chaque article : consommation moyenne mensuelle (sortie des 12 derniers mois /
-              12), le Stock min actuel (3 mois) pour comparaison, et pour chacun des 12 mois de
-              l&apos;annee, la quantite a avoir en stock en entrant dans ce mois pour tenir 6 mois
-              (somme de la consommation reelle de ce mois-la et des 5 suivants, meme annee
-              derniere - la consommation change selon le mois, ce n&apos;est pas juste la moyenne
-              x 6).
+              12), le Stock min actuel (3 mois) pour comparaison, ce qui est deja en commande/import
+              et pas encore receptionne, et pour chacun des 12 mois de l&apos;annee, la quantite a
+              commander en plus (objectif 6 mois - ce qui est deja en commande/import - la
+              consommation change selon le mois, ce n&apos;est pas juste la moyenne x 6).
             </p>
           </div>
 
@@ -281,6 +380,7 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Conso. moyenne/mois</th>
                     <th className="px-6 py-4 font-semibold">Stock min (3 mois)</th>
+                    <th className="px-6 py-4 font-semibold">Deja en commande/import</th>
                     {MOIS_COURT.map((mois, idx) => (
                       <th
                         key={mois}
@@ -302,6 +402,7 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
                       <td className="px-6 py-4 text-slate-600">
                         {row.min_stock === null ? "-" : formatNumber(row.min_stock)}
                       </td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.deja_en_commande)}</td>
                       {row.commande_par_mois_depart.map((valeur, idx) => (
                         <td key={idx} className="px-4 py-4 text-center">
                           <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-900">

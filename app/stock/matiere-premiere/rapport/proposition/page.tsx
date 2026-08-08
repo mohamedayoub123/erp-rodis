@@ -19,6 +19,18 @@ type MouvementRow = {
   date_jour: string | null;
 };
 
+type BcLigneRow = {
+  id: number;
+  article_id: number | null;
+  quantite: number | null;
+};
+
+type ImportEvenementRow = {
+  bc_ligne_id: number;
+  quantite_importee: number;
+  lot_stock_id: number | null;
+};
+
 type PropositionRow = {
   article_id: number;
   nom_article: string;
@@ -26,6 +38,7 @@ type PropositionRow = {
   unite: string | null;
   min_stock: number | null;
   stock_actuel: number;
+  deja_en_commande: number;
   objectif: number;
   a_commander: number;
 };
@@ -93,6 +106,52 @@ async function fetchAllMouvements() {
   return { rows, error: null };
 }
 
+async function fetchAllBcLignes() {
+  const rows: BcLigneRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("bons_commande_matiere_premiere")
+      .select("id, article_id, quantite")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as BcLigneRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
+async function fetchAllImportEvenements() {
+  const rows: ImportEvenementRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .select("bc_ligne_id, quantite_importee, lot_stock_id")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as ImportEvenementRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
@@ -115,18 +174,53 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
   const sinceDate = twelveMonthsAgo.toISOString().slice(0, 10);
 
-  const [{ rows: articles, error: articlesError }, { rows: mouvements, error: mouvementsError }] =
-    await Promise.all([fetchAllArticlesMp(), fetchAllMouvements()]);
+  const [
+    { rows: articles, error: articlesError },
+    { rows: mouvements, error: mouvementsError },
+    { rows: bcLignes, error: bcError },
+    { rows: importEvenements, error: importError },
+  ] = await Promise.all([
+    fetchAllArticlesMp(),
+    fetchAllMouvements(),
+    fetchAllBcLignes(),
+    fetchAllImportEvenements(),
+  ]);
 
-  const error = articlesError || mouvementsError;
+  const error = articlesError || mouvementsError || bcError || importError;
+
+  // Quantite deja en commande/import pas encore receptionnee, par ligne de
+  // BC : quantite commandee - ce qui a deja ete receptionne pour cette
+  // ligne (evenements avec lot_stock_id renseigne = vraie reception qui a
+  // credite le stock). On la retire de l'objectif : pas la peine de
+  // proposer une commande pour ce qui arrive deja.
+  const receptionneParLigne = new Map<number, number>();
+  for (const evenement of importEvenements) {
+    if (evenement.lot_stock_id === null) continue;
+    receptionneParLigne.set(
+      evenement.bc_ligne_id,
+      (receptionneParLigne.get(evenement.bc_ligne_id) ?? 0) + Number(evenement.quantite_importee ?? 0)
+    );
+  }
+
+  const dejaEnCommandeByArticle = new Map<number, number>();
+  for (const ligne of bcLignes) {
+    if (!ligne.article_id) continue;
+    const receptionne = receptionneParLigne.get(ligne.id) ?? 0;
+    const enAttente = Math.max(0, Number(ligne.quantite ?? 0) - receptionne);
+    dejaEnCommandeByArticle.set(
+      ligne.article_id,
+      (dejaEnCommandeByArticle.get(ligne.article_id) ?? 0) + enAttente
+    );
+  }
 
   // Stock actuel = somme entree-sortie de TOUS les mouvements (meme calcul
   // que Stock MP). Consommation par mois calendaire = sortie des 12
   // derniers mois seulement, regroupee par mois (Janvier, Fevrier...).
   // Objectif du mois choisi = besoin des 6 mois a partir de ce mois-la
   // (meme formule que Besoin Commande MP). A commander = objectif moins ce
-  // qu'il reste deja en stock (jamais negatif - si le stock actuel couvre
-  // deja l'objectif, rien a commander, l'article n'apparait pas).
+  // qu'il reste deja en stock ET moins ce qui est deja en commande/import
+  // (jamais negatif - si stock + deja-commande couvrent deja l'objectif,
+  // rien a commander, l'article n'apparait pas).
   const stockByArticle = new Map<number, number>();
   const consommationByArticleAndMois = new Map<number, number[]>();
 
@@ -147,9 +241,10 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
   const propositionRows: PropositionRow[] = articles
     .map((article) => {
       const stockActuel = stockByArticle.get(article.id) ?? 0;
+      const dejaEnCommande = dejaEnCommandeByArticle.get(article.id) ?? 0;
       const consommationParMoisCalendaire = consommationByArticleAndMois.get(article.id) ?? new Array(12).fill(0);
       const objectif = objectifGlissant(consommationParMoisCalendaire, moisIdx);
-      const aCommander = Math.max(0, Math.round((objectif - stockActuel) * 100) / 100);
+      const aCommander = Math.max(0, Math.round((objectif - stockActuel - dejaEnCommande) * 100) / 100);
 
       return {
         article_id: article.id,
@@ -158,6 +253,7 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
         unite: article.unite,
         min_stock: article.min_stock,
         stock_actuel: stockActuel,
+        deja_en_commande: dejaEnCommande,
         objectif,
         a_commander: aCommander,
       };
@@ -185,8 +281,9 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
               Choisis le mois de la commande : pour chaque article, l&apos;objectif (besoin reel
               des 6 mois a partir de ce mois, meme calcul que Besoin Commande MP) est compare au
-              stock actuel. Seuls les articles ou le stock ne suffit pas apparaissent, avec la
-              quantite a commander proposee (objectif moins stock actuel).
+              stock actuel et a ce qui est deja en commande/import (pas encore receptionne). Seuls
+              les articles ou stock + deja-commande ne suffisent pas apparaissent, avec la quantite
+              a commander proposee (objectif moins stock actuel moins deja en commande/import).
             </p>
           </div>
 
@@ -278,6 +375,7 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
                     <th className="px-6 py-4 font-semibold">Categorie</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Stock actuel</th>
+                    <th className="px-6 py-4 font-semibold">Deja en commande/import</th>
                     <th className="px-6 py-4 font-semibold">Objectif ({MOIS_LONG[moisIdx]}, 6 mois)</th>
                     <th className="px-6 py-4 font-semibold">Stock min (3 mois)</th>
                     <th className="px-6 py-4 font-semibold">A commander</th>
@@ -290,6 +388,7 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_actuel)}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.deja_en_commande)}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.objectif)}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.min_stock === null ? "-" : formatNumber(row.min_stock)}
