@@ -90,6 +90,7 @@ export default async function RecetteFabricationDetailPage({
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
 
   const usedMpIds = new Set(lignes.map((ligne) => ligne.article_mp_id));
+  const totalQuantite = lignes.reduce((total, ligne) => total + Number(ligne.quantite ?? 0), 0);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -132,6 +133,7 @@ export default async function RecetteFabricationDetailPage({
                     <th className="px-6 py-4 font-semibold">Article MP</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Quantite</th>
+                    <th className="px-6 py-4 font-semibold">%</th>
                     <th className="px-6 py-4 font-semibold"></th>
                   </tr>
                 </thead>
@@ -164,6 +166,11 @@ export default async function RecetteFabricationDetailPage({
                               Enregistrer
                             </button>
                           </form>
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {totalQuantite > 0
+                            ? `${formatNumber((Number(ligne.quantite ?? 0) / totalQuantite) * 100)} %`
+                            : "-"}
                         </td>
                         <td className="px-6 py-4">
                           <form action={deleteRecetteLigneAction}>
