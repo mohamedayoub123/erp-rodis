@@ -99,6 +99,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     legacyWrite: "editStock",
   },
   {
+    key: "stockRapportPf",
+    module: "Stock",
+    label: "Rapport PF (accueil)",
+    pathPrefixes: ["/stock/rapport"],
+    hasWrite: false,
+  },
+  {
     key: "stockActuelPf",
     module: "Stock",
     label: "Stock Actuel PF",
@@ -117,6 +124,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     module: "Stock",
     label: "Stock Alert MP",
     pathPrefixes: ["/stock/matiere-premiere/alerte"],
+    hasWrite: false,
+  },
+  {
+    key: "stockRapportMp",
+    module: "Stock",
+    label: "Rapport MP (accueil)",
+    pathPrefixes: ["/stock/matiere-premiere/rapport"],
     hasWrite: false,
   },
   {
@@ -567,6 +581,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockMatierePremiere",
   "stockAlerteMp",
   "stockActuelMp",
+  "stockRapportMp",
   "stockPerimeMp",
   "stockDormantMp",
   "statistiqueMp",

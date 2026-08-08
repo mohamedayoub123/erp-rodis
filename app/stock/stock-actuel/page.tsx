@@ -144,7 +144,7 @@ export default async function StockActuelPfPage({ searchParams }: { searchParams
           </div>
 
           <div className="flex items-center gap-3">
-            <BackButton href="/gestion-stock-pf" label="Retour gestion stock PF" />
+            <BackButton href="/stock/rapport" label="Retour rapport" />
             <RefreshButton />
           </div>
         </div>

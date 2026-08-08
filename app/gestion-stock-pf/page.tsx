@@ -12,11 +12,11 @@ const TILES = [
     description: "Lots de stock, entrees/sorties, modifier ou supprimer.",
   },
   {
-    label: "Stock Actuel",
-    href: "/stock/stock-actuel",
-    pageKey: "stockActuelPf",
+    label: "Rapport",
+    href: "/stock/rapport",
+    pageKey: "stockRapportPf",
     icon: "\u{1F4CB}",
-    description: "Tous les articles avec leur stock actuel.",
+    description: "Stock Actuel et autres rapports.",
   },
   {
     label: "Articles",

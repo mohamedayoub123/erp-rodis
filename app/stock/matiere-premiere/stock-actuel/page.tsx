@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { encodeDossierId } from "../commande/dossier-id";
 
 type ArticleMpRow = {
   id: number;
@@ -18,6 +20,36 @@ type MouvementRow = {
   numero_lot: string | null;
 };
 
+type BcLigneRow = {
+  id: number;
+  article_id: number | null;
+  code: string;
+  n_doss_4d: string | null;
+  n_doss_erp: string | null;
+  quantite: number | null;
+};
+
+type ImportEvenementRow = {
+  bc_ligne_id: number;
+  n_doss_4d_import: string | null;
+  n_doss_erp_import: string | null;
+  quantite_importee: number;
+  lot_stock_id: number | null;
+};
+
+type BcRef = {
+  code: string;
+  nDoss4d: string | null;
+  nDossErp: string | null;
+  quantite: number;
+};
+
+type DossierRef = {
+  nDoss4d: string | null;
+  nDossErp: string | null;
+  qteImportee: number;
+};
+
 type StockRow = {
   article_id: number;
   nom_article: string;
@@ -25,6 +57,8 @@ type StockRow = {
   unite: string | null;
   stock_actuel: number;
   codes: string[];
+  bcRefs: BcRef[];
+  importRefs: DossierRef[];
 };
 
 async function fetchAllArticlesMp() {
@@ -73,6 +107,56 @@ async function fetchAllMouvements() {
   return { rows, error: null };
 }
 
+async function fetchAllBcLignes() {
+  const rows: BcLigneRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("bons_commande_matiere_premiere")
+      .select("id, article_id, code, n_doss_4d, n_doss_erp, quantite")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as BcLigneRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
+async function fetchAllImportEvenements() {
+  const rows: ImportEvenementRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .select("bc_ligne_id, n_doss_4d_import, n_doss_erp_import, quantite_importee, lot_stock_id")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as ImportEvenementRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
+function dossierKey(nDoss4d: string | null, nDossErp: string | null) {
+  return `${nDoss4d ?? ""}|||${nDossErp ?? ""}`;
+}
+
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
@@ -87,10 +171,19 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
   const categorieFilter = (params.categorie || "").trim().toLowerCase();
   const hasFilters = Boolean(articleFilter || codeFilter || categorieFilter);
 
-  const [{ rows: articles, error: articlesError }, { rows: mouvements, error: mouvementsError }] =
-    await Promise.all([fetchAllArticlesMp(), fetchAllMouvements()]);
+  const [
+    { rows: articles, error: articlesError },
+    { rows: mouvements, error: mouvementsError },
+    { rows: bcLignes, error: bcError },
+    { rows: importEvenements, error: importError },
+  ] = await Promise.all([
+    fetchAllArticlesMp(),
+    fetchAllMouvements(),
+    fetchAllBcLignes(),
+    fetchAllImportEvenements(),
+  ]);
 
-  const error = articlesError || mouvementsError;
+  const error = articlesError || mouvementsError || bcError || importError;
 
   // Stock actuel = somme entree-sortie de tous les mouvements de l'article
   // (meme calcul que Stock Alert MP) - "codes" retient chaque numero de lot
@@ -111,6 +204,45 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
     }
   }
 
+  // Pour chaque article, retrouve les BC (avec leur doss.) qui le
+  // concernent, et via leurs lignes les evenements d'import (meme logique
+  // que Stock Alert MP) - pour voir tout de suite si un article a une
+  // commande/un import en cours.
+  const bcRefsByArticle = new Map<number, BcRef[]>();
+  const articleByLigneId = new Map<number, number>();
+  for (const ligne of bcLignes) {
+    if (!ligne.article_id) continue;
+    articleByLigneId.set(ligne.id, ligne.article_id);
+    const list = bcRefsByArticle.get(ligne.article_id) ?? [];
+    list.push({
+      code: ligne.code,
+      nDoss4d: ligne.n_doss_4d,
+      nDossErp: ligne.n_doss_erp,
+      quantite: Number(ligne.quantite ?? 0),
+    });
+    bcRefsByArticle.set(ligne.article_id, list);
+  }
+
+  // "Qte importee" par dossier ne compte que les evenements "Creer import"
+  // (lot_stock_id null) - une Reception ecrit sa propre ligne dans la meme
+  // table pour l'historique, qu'il ne faut pas recompter en plus (meme
+  // regle que Stock Alert MP / page Import).
+  const importRefsByArticle = new Map<number, Map<string, DossierRef>>();
+  for (const evenement of importEvenements) {
+    if (evenement.lot_stock_id !== null) continue;
+    const articleId = articleByLigneId.get(evenement.bc_ligne_id);
+    if (!articleId) continue;
+    const key = dossierKey(evenement.n_doss_4d_import, evenement.n_doss_erp_import);
+    const map = importRefsByArticle.get(articleId) ?? new Map<string, DossierRef>();
+    const existing = map.get(key);
+    map.set(key, {
+      nDoss4d: evenement.n_doss_4d_import,
+      nDossErp: evenement.n_doss_erp_import,
+      qteImportee: (existing?.qteImportee ?? 0) + Number(evenement.quantite_importee ?? 0),
+    });
+    importRefsByArticle.set(articleId, map);
+  }
+
   const stockRows: StockRow[] = articles
     .map((article) => ({
       article_id: article.id,
@@ -119,6 +251,8 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
       unite: article.unite,
       stock_actuel: stockByArticle.get(article.id) ?? 0,
       codes: [...(codesByArticle.get(article.id) ?? [])],
+      bcRefs: bcRefsByArticle.get(article.id) ?? [],
+      importRefs: [...(importRefsByArticle.get(article.id)?.values() ?? [])],
     }))
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
     .filter((row) => !codeFilter || row.codes.some((code) => code.toLowerCase().includes(codeFilter)))
@@ -141,12 +275,12 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
               Tous les articles matiere premiere avec leur stock actuel (calcule depuis les
-              mouvements TE/TS), meme a zero.
+              mouvements TE/TS), meme a zero, et les BC/import en cours.
             </p>
           </div>
 
           <div className="flex items-center gap-3">
-            <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
+            <BackButton href="/stock/matiere-premiere/rapport" label="Retour rapport" />
             <RefreshButton />
           </div>
         </div>
@@ -227,11 +361,13 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
                     <th className="px-6 py-4 font-semibold">Categorie</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Stock actuel</th>
+                    <th className="px-6 py-4 font-semibold">Commande (BC)</th>
+                    <th className="px-6 py-4 font-semibold">Import</th>
                   </tr>
                 </thead>
                 <tbody>
                   {stockRows.map((row) => (
-                    <tr key={row.article_id} className="border-t border-slate-100">
+                    <tr key={row.article_id} className="border-t border-slate-100 align-top">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
@@ -245,6 +381,50 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
                         >
                           {formatNumber(row.stock_actuel)}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {row.bcRefs.length === 0 ? (
+                          "-"
+                        ) : (
+                          <ul className="space-y-1">
+                            {row.bcRefs.map((ref, index) => (
+                              <li key={`${ref.code}-${index}`} className="text-xs">
+                                <Link
+                                  href={`/stock/matiere-premiere/bc/${ref.code}`}
+                                  className="font-semibold text-sky-700 underline"
+                                >
+                                  {ref.code}
+                                </Link>{" "}
+                                - Qte: {formatNumber(ref.quantite)}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {row.importRefs.length === 0 ? (
+                          "-"
+                        ) : (
+                          <ul className="space-y-1">
+                            {row.importRefs.map((ref, index) => (
+                              <li
+                                key={`${dossierKey(ref.nDoss4d, ref.nDossErp)}-${index}`}
+                                className="text-xs"
+                              >
+                                <Link
+                                  href={`/stock/matiere-premiere/commande/${encodeDossierId(
+                                    ref.nDoss4d,
+                                    ref.nDossErp
+                                  )}`}
+                                  className="font-semibold text-sky-700 underline"
+                                >
+                                  4D: {ref.nDoss4d || "-"} / ERP: {ref.nDossErp || "-"}
+                                </Link>{" "}
+                                - Qte: {formatNumber(ref.qteImportee)}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </td>
                     </tr>
                   ))}
