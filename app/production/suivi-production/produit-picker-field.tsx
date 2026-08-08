@@ -35,9 +35,12 @@ export function ProduitPickerField({
   const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Liste vide tant que rien n'est tape - ne propose pas d'articles au
+  // hasard juste en cliquant dans le champ, seulement une fois qu'on
+  // cherche vraiment quelque chose.
   const filtered = useMemo(() => {
     const words = value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return articles.slice(0, 50);
+    if (words.length === 0) return [];
     return articles.filter((article) => {
       const label = article.label.toLowerCase();
       return words.every((word) => label.includes(word));

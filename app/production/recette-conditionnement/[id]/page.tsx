@@ -137,9 +137,11 @@ export default async function RecetteConditionnementDetailPage({
   const quantiteBase = (articlePf as ArticlePfRow).quantite_recette_base;
   const { contenance, piece_par_carton: piecePartCarton, dispenseur_pcs_carton: dispenseurPcsCarton } =
     articlePf as ArticlePfRow;
+  // "Nombre de cartons du lot" pas encore rempli -> calcule quand meme pour
+  // 1 carton, pour ne pas laisser le vrac affiche a vide.
   const qtVracNecessaire =
-    quantiteBase && contenance && piecePartCarton
-      ? round(quantiteBase * piecePartCarton * contenance, 3)
+    contenance && piecePartCarton
+      ? round((quantiteBase || 1) * piecePartCarton * contenance, 3)
       : null;
 
   return (

@@ -90,6 +90,42 @@ export function ProgrammeFormulaire({
     setLignes((current) => current.map((ligne) => (ligne.key === key ? { ...ligne, ...patch } : ligne)));
   }
 
+  function vracParCartonDe(ligne: Ligne) {
+    const article = ligne.articleId ? articleById.get(ligne.articleId) : null;
+    return article?.contenance && article?.piecePartCarton ? article.contenance * article.piecePartCarton : null;
+  }
+
+  // Qt carton et Qt vrac restent lies : modifier l'un recalcule l'autre a
+  // partir de contenance x piece/carton de l'article choisi (meme si la
+  // valeur vient d'un "Calculer" precedent ou d'une saisie manuelle). Si
+  // cette conversion n'est pas connue pour l'article, les deux champs
+  // restent independants.
+  function updateQtCarton(key: number, rawCarton: string) {
+    setLignes((current) =>
+      current.map((ligne) => {
+        if (ligne.key !== key) return ligne;
+        const vracParCarton = vracParCartonDe(ligne);
+        if (!vracParCarton) return { ...ligne, qtCarton: rawCarton };
+        const carton = Number(rawCarton);
+        const qtVrac = rawCarton && !Number.isNaN(carton) ? String(round(carton * vracParCarton)) : "";
+        return { ...ligne, qtCarton: rawCarton, qtVrac };
+      })
+    );
+  }
+
+  function updateQtVrac(key: number, rawVrac: string) {
+    setLignes((current) =>
+      current.map((ligne) => {
+        if (ligne.key !== key) return ligne;
+        const vracParCarton = vracParCartonDe(ligne);
+        if (!vracParCarton) return { ...ligne, qtVrac: rawVrac };
+        const vrac = Number(rawVrac);
+        const qtCarton = rawVrac && !Number.isNaN(vrac) ? String(round(vrac / vracParCarton)) : "";
+        return { ...ligne, qtVrac: rawVrac, qtCarton };
+      })
+    );
+  }
+
   function calculer(ligne: Ligne) {
     const article = ligne.articleId ? articleById.get(ligne.articleId) : null;
     const duree = Number(ligne.dureeMinutes);
@@ -256,7 +292,7 @@ export function ProgrammeFormulaire({
                       min="0"
                       name="qt_carton"
                       value={ligne.qtCarton}
-                      onChange={(event) => updateLigne(ligne.key, { qtCarton: event.target.value })}
+                      onChange={(event) => updateQtCarton(ligne.key, event.target.value)}
                       className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                     />
                   </td>
@@ -267,7 +303,7 @@ export function ProgrammeFormulaire({
                       min="0"
                       name="qt_vrac"
                       value={ligne.qtVrac}
-                      onChange={(event) => updateLigne(ligne.key, { qtVrac: event.target.value })}
+                      onChange={(event) => updateQtVrac(ligne.key, event.target.value)}
                       className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                     />
                   </td>
