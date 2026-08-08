@@ -60,6 +60,12 @@ export default async function NouvelArticleMpPage() {
                 placeholder="Gamme"
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
               />
+              <input
+                type="text"
+                name="utilisation"
+                placeholder="Utilisation"
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+              />
               <div className="grid gap-4 sm:grid-cols-2">
                 <input
                   type="number"
