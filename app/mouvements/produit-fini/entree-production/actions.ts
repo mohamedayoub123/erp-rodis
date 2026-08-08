@@ -67,24 +67,64 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
     )
   );
 
-  const payload = pendingRows.map((entry) => {
-    const ligne = ligneById.get(entry.programme_ligne_id);
+  const pendingById = new Map(pendingRows.map((row) => [row.id, row]));
+
+  // Plusieurs entrees emballage (article + code identiques) peuvent avoir
+  // ete fusionnees en une seule ligne a l'ecran (voir page.tsx) - "merge_group"
+  // (un champ par ligne fusionnee, meme nom repete) porte
+  // "<id representant>:<id1,id2,...>" pour retrouver quelles entrees
+  // partagent le meme jeu de champs code_X/qty_X/... et doivent finir dans
+  // le MEME lots_stock (une seule quantite totale), pas une par entree.
+  const mergeGroupsRaw = formData.getAll("merge_group").map((value) => String(value));
+  const seenEntryIds = new Set<number>();
+  const mergedGroups: { representativeId: number; memberIds: number[] }[] = [];
+
+  for (const raw of mergeGroupsRaw) {
+    const [repPart, membersPart] = raw.split(":");
+    const representativeId = Number(repPart);
+    const memberIds = (membersPart || "")
+      .split(",")
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0 && pendingById.has(id));
+
+    if (!representativeId || memberIds.length === 0) continue;
+
+    mergedGroups.push({ representativeId, memberIds });
+    memberIds.forEach((id) => seenEntryIds.add(id));
+  }
+
+  // Toute entree en attente non couverte par "merge_group" (ancien lien
+  // genere avant ce champ, ou incoherence) reste traitee seule - jamais
+  // perdue silencieusement.
+  for (const row of pendingRows) {
+    if (!seenEntryIds.has(row.id)) {
+      mergedGroups.push({ representativeId: row.id, memberIds: [row.id] });
+    }
+  }
+
+  const payload = mergedGroups.map(({ representativeId, memberIds }) => {
+    const members = memberIds.map((id) => pendingById.get(id)!).filter(Boolean);
+    const first = members[0];
+    const ligne = ligneById.get(first.programme_ligne_id);
     const articleId = ligne?.article_id;
-    // Le code precis de CETTE entree (modifiable a l'ecran juste avant de
-    // valider) - jamais le numero_lot combine de la ligne source, qui
+    // Le code precis de ce groupe fusionne (modifiable a l'ecran juste avant
+    // de valider) - jamais le numero_lot combine de la ligne source, qui
     // regrouperait a tort les autres codes d'une ligne decoupee en
     // plusieurs lots sur ce meme mouvement de stock.
-    const numeroLot = String(formData.get(`code_${entry.id}`) || "").trim();
+    const numeroLot = String(formData.get(`code_${representativeId}`) || "").trim();
 
     if (!articleId || !numeroLot) {
       throw new Error("Une ligne de production n'a pas d'article ou de code associe.");
     }
 
-    const quantite = Number(String(formData.get(`qty_${entry.id}`) || entry.quantite).replace(",", "."));
-    const dateFabrication = String(formData.get(`datefab_${entry.id}`) || entry.date_jour).trim();
-    const datePeremption = String(formData.get(`dateperemption_${entry.id}`) || "").trim();
-    const chambre = String(formData.get(`chambre_${entry.id}`) || "").trim();
-    const codePays = String(formData.get(`codepays_${entry.id}`) || "").trim();
+    const totalQuantiteEntrees = members.reduce((sum, member) => sum + Number(member.quantite), 0);
+    const quantite = Number(
+      String(formData.get(`qty_${representativeId}`) || totalQuantiteEntrees).replace(",", ".")
+    );
+    const dateFabrication = String(formData.get(`datefab_${representativeId}`) || first.date_jour).trim();
+    const datePeremption = String(formData.get(`dateperemption_${representativeId}`) || "").trim();
+    const chambre = String(formData.get(`chambre_${representativeId}`) || "").trim();
+    const codePays = String(formData.get(`codepays_${representativeId}`) || "").trim();
 
     if (!quantite || quantite <= 0 || !dateFabrication) {
       throw new Error("Quantite ou date de fabrication invalide sur une ligne.");
@@ -197,24 +237,28 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
 }
 
 // Retire une ligne de cette liste d'attente sans la transferer en stock -
-// supprime carrement l'entree Emballage (elle etait fausse/en trop), ce qui
-// annule au passage la quantite correspondante du "deja emballe" (Suivi
-// Production/Dashboard), exactement comme si elle n'avait jamais ete saisie.
-export async function deletePendingEmballageEntryAction(entryId: number, _formData: FormData) {
+// supprime carrement la ou les entrees Emballage correspondantes (fausses/en
+// trop), ce qui annule au passage la quantite correspondante du "deja
+// emballe" (Suivi Production/Dashboard), exactement comme si elles n'avaient
+// jamais ete saisies. Plusieurs ids quand la ligne affichee est une fusion de
+// plusieurs entrees emballage (meme article + code) - voir page.tsx.
+export async function deletePendingEmballageEntriesAction(entryIds: number[], _formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
   if (!(await canWritePageUser(currentUser, "mouvementsEntreeProduction"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer cette ligne.");
   }
 
-  if (!entryId) {
+  const validIds = (entryIds || []).filter((id) => Number.isFinite(id) && id > 0);
+
+  if (validIds.length === 0) {
     throw new Error("Ligne invalide.");
   }
 
   const { error } = await supabaseServer
     .from("production_emballage_entries")
     .delete()
-    .eq("id", entryId)
+    .in("id", validIds)
     .eq("transfere_stock", false);
 
   if (error) {
