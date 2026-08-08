@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { formatDate } from "@/lib/format-date";
 import { encodeDossierId } from "../commande/dossier-id";
 import { matchesArticleSearch } from "@/lib/article-search";
@@ -351,6 +352,55 @@ export default async function StockAlerteMpPage({
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
   const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
 
+  const exportColumns = [
+    { label: "Categorie", key: "categorie" },
+    { label: "Article", key: "article" },
+    { label: "Stock", key: "stock" },
+    { label: "Unite", key: "unite" },
+    { label: "Consommation dernier mois", key: "consommation1Mois" },
+    { label: "Consommation dernier 3 mois", key: "consommation3Mois" },
+    { label: "Consommation dernier 6 mois", key: "consommation6Mois" },
+    { label: "Consommation dernier 12 mois", key: "consommation12Mois" },
+    { label: "Total entree (12 mois)", key: "entree12Mois" },
+    { label: "Total entree (3 mois)", key: "entree3Mois" },
+    { label: "Stock alert", key: "stockAlert" },
+    { label: "Commande (BC)", key: "commandeBc" },
+    { label: "Import", key: "import" },
+    { label: "Average consommation 12 mois", key: "averageConsommation" },
+    { label: "Utilisation produit", key: "utilisationProduit" },
+  ];
+
+  const exportRows = alertes.map((alerte) => ({
+    categorie: alerte.categorie || "-",
+    article: alerte.nom_article,
+    stock: alerte.stock_actuel,
+    unite: alerte.unite || "-",
+    consommation1Mois: alerte.consommation_1_mois,
+    consommation3Mois: alerte.consommation_3_mois,
+    consommation6Mois: alerte.consommation_6_mois,
+    consommation12Mois: alerte.consommation_12_mois,
+    entree12Mois: alerte.entree_12_mois,
+    entree3Mois: alerte.entree_3_mois,
+    stockAlert: alerte.min_stock,
+    commandeBc: alerte.bcRefs.length
+      ? alerte.bcRefs
+          .map((ref) => `${ref.code} - Qte commandee: ${ref.quantite} - 4D: ${ref.nDoss4d || "-"} / ERP: ${ref.nDossErp || "-"}`)
+          .join(" | ")
+      : "-",
+    import: alerte.importRefs.length
+      ? alerte.importRefs
+          .map(
+            (ref) =>
+              `4D: ${ref.nDoss4d || "-"} / ERP: ${ref.nDossErp || "-"} - Qte importee: ${ref.qteImportee} - Arrivee prevue: ${
+                ref.datePrevueReception ? formatDate(ref.datePrevueReception) : "-"
+              }`
+          )
+          .join(" | ")
+      : "-",
+    averageConsommation: Math.round((alerte.consommation_12_mois / 12) * 100) / 100,
+    utilisationProduit: alerte.utilisation_produit || "-",
+  }));
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#fffaf3_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
@@ -370,6 +420,11 @@ export default async function StockAlerteMpPage({
 
           <div className="flex items-center gap-3">
             <BackButton href="/stock/matiere-premiere/rapport" label="Retour rapport" />
+            <ExportExcelButton
+              rows={exportRows}
+              columns={exportColumns}
+              filename={`stock-alert-mp-${new Date().toISOString().slice(0, 10)}.csv`}
+            />
             <RefreshButton />
           </div>
         </div>
