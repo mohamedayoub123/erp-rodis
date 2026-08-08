@@ -48,21 +48,25 @@ export function AjouterArticleFormulaire({
 
   function handleSelect(id: number | null) {
     setArticleId(id);
-    if (id === null || id < 0 || !nbCarton) {
+    if (id === null || id < 0) {
       setQuantite("");
       return;
     }
     const option = mpOptions.find((item) => item.id === id);
     const kind = option ? classifyAuto(option.label) : null;
+    // "Nombre de cartons du lot" pas encore rempli -> calcule quand meme
+    // pour 1 carton (ex: le dispenseur prend directement
+    // dispenseur_pcs_carton), au lieu de laisser vide.
+    const carton = nbCarton || 1;
     const computed =
       kind === "carton"
-        ? nbCarton
+        ? carton
         : kind === "dispenseur"
         ? dispenseurPcsCarton
-          ? nbCarton * dispenseurPcsCarton
+          ? carton * dispenseurPcsCarton
           : null
         : piecePartCarton
-        ? nbCarton * piecePartCarton
+        ? carton * piecePartCarton
         : null;
     setQuantite(computed !== null ? String(round(computed, 3)) : "");
   }

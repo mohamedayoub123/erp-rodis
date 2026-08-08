@@ -86,8 +86,12 @@ export function RecetteConditionnementFormulaire({
   );
 
   function computeAutoQuantite(kind: AutoKind) {
-    const carton = Number(nbCarton);
-    if (!kind || !carton || Number.isNaN(carton)) return null;
+    if (!kind) return null;
+    // "Nombre de cartons du lot" pas encore rempli -> calcule quand meme
+    // pour 1 carton, pour donner tout de suite une valeur utile (ex: le
+    // dispenseur prend directement dispenseur_pcs_carton). Se remet a
+    // l'echelle automatiquement des que le nombre de cartons est saisi.
+    const carton = Number(nbCarton) || 1;
     if (kind === "carton") return round(carton, 3);
     if (kind === "dispenseur") {
       if (!pfSelectionne?.dispenseurPcsCarton) return null;
