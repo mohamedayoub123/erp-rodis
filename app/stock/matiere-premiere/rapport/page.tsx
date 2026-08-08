@@ -12,10 +12,17 @@ const TILES = [
     description: "Tous les articles avec leur stock actuel, filtre Article/Code/Categorie, BC et import.",
   },
   {
-    label: "Rotation",
-    href: "/stock/matiere-premiere/rapport/rotation",
+    label: "Rotation de Stock",
+    href: "/stock/matiere-premiere/rotation",
     pageKey: "stockRotationMp",
     icon: "\u{1F504}",
+    description: "Vitesse de rotation de chaque article (consommation 12 mois / stock actuel) et jours de couverture.",
+  },
+  {
+    label: "Stock Min Propose",
+    href: "/stock/matiere-premiere/rapport/stock-min",
+    pageKey: "stockMinProposeMp",
+    icon: "\u{1F4C9}",
     description: "Stock min surdimensionne par rapport a la consommation reelle des 12 derniers mois.",
   },
 ] as const;

@@ -30,7 +30,7 @@ export async function applyProposedMinStockAction(formData: FormData) {
     throw new Error(error.message);
   }
 
-  revalidatePath("/stock/matiere-premiere/rapport/rotation");
+  revalidatePath("/stock/matiere-premiere/rapport/stock-min");
   revalidatePath("/articles/matiere-premiere");
   revalidatePath("/stock/matiere-premiere/alerte");
 }

@@ -134,10 +134,10 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
-    key: "stockRotationMp",
+    key: "stockMinProposeMp",
     module: "Stock",
-    label: "Rapport Rotation MP",
-    pathPrefixes: ["/stock/matiere-premiere/rapport/rotation"],
+    label: "Stock Min Propose MP",
+    pathPrefixes: ["/stock/matiere-premiere/rapport/stock-min"],
     hasWrite: false,
   },
   {
@@ -145,6 +145,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     module: "Stock",
     label: "Stock Actuel MP",
     pathPrefixes: ["/stock/matiere-premiere/stock-actuel"],
+    hasWrite: false,
+  },
+  {
+    key: "stockRotationMp",
+    module: "Stock",
+    label: "Rotation de Stock MP",
+    pathPrefixes: ["/stock/matiere-premiere/rotation"],
     hasWrite: false,
   },
   {
@@ -590,6 +597,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockActuelMp",
   "stockRapportMp",
   "stockRotationMp",
+  "stockMinProposeMp",
   "stockPerimeMp",
   "stockDormantMp",
   "statistiqueMp",

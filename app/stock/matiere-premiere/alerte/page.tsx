@@ -14,6 +14,7 @@ type ArticleMpRow = {
   unite: string | null;
   min_stock: number | null;
   max_stock: number | null;
+  utilisation: string | null;
 };
 
 type MouvementRow = {
@@ -30,10 +31,13 @@ type AlerteRow = {
   unite: string | null;
   stock_actuel: number;
   min_stock: number;
+  consommation_1_mois: number;
+  consommation_3_mois: number;
+  consommation_6_mois: number;
+  consommation_12_mois: number;
   entree_12_mois: number;
-  sortie_12_mois: number;
   entree_3_mois: number;
-  sortie_3_mois: number;
+  utilisation_produit: string | null;
   bcRefs: BcRef[];
   importRefs: DossierRef[];
 };
@@ -83,7 +87,7 @@ async function fetchAllArticlesMp() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite, min_stock, max_stock")
+      .select("id, nom_article, categorie, unite, min_stock, max_stock, utilisation")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -188,6 +192,7 @@ function formatNumber(value: number) {
 type SearchParams = Promise<{
   q?: string;
   categorie?: string;
+  hide_low_threshold?: string;
 }>;
 
 export default async function StockAlerteMpPage({
@@ -201,6 +206,7 @@ export default async function StockAlerteMpPage({
   const categorieFilter = (params.categorie || "").trim();
   const qLower = q.toLowerCase();
   const categorieLower = categorieFilter.toLowerCase();
+  const hideLowThreshold = (params.hide_low_threshold || "").trim() === "1";
 
   const [
     { rows: articles, error: articlesError },
@@ -226,44 +232,53 @@ export default async function StockAlerteMpPage({
   // (meme calcul que la page Stock MP). Alerte des que ce stock descend a
   // ou sous le seuil "Stock min" defini sur l'article.
   const stockByArticle = new Map<number, number>();
-  // Entree/Sortie des 12 et 3 derniers mois (date_jour, meme convention
-  // "AAAA-MM-JJ" que le reste de l'appli - comparaison de chaines directe) -
-  // donne un apercu de la vitesse de consommation/reapprovisionnement d'un
-  // article en alerte, sans avoir a rouvrir Stock MP.
-  const twelveMonthsAgo = new Date();
-  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-  const twelveMonthsAgoIso = twelveMonthsAgo.toISOString().slice(0, 10);
-  const threeMonthsAgo = new Date();
-  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-  const threeMonthsAgoIso = threeMonthsAgo.toISOString().slice(0, 10);
+
+  // Consommation (sortie) sur plusieurs fenetres glissantes (1/3/6/12 mois)
+  // + Entree sur 12/3 mois - date_jour, meme convention "AAAA-MM-JJ" que le
+  // reste de l'appli (comparaison de chaines directe). Donne un apercu de la
+  // vitesse de consommation/reapprovisionnement d'un article en alerte, sans
+  // avoir a rouvrir Stock MP.
+  function isoMonthsAgo(months: number) {
+    const date = new Date();
+    date.setMonth(date.getMonth() - months);
+    return date.toISOString().slice(0, 10);
+  }
+
+  const isoByPeriod = { 1: isoMonthsAgo(1), 3: isoMonthsAgo(3), 6: isoMonthsAgo(6), 12: isoMonthsAgo(12) } as const;
+
+  const consommationByPeriodAndArticle: Record<1 | 3 | 6 | 12, Map<number, number>> = {
+    1: new Map(),
+    3: new Map(),
+    6: new Map(),
+    12: new Map(),
+  };
   const entree12MoisByArticle = new Map<number, number>();
-  const sortie12MoisByArticle = new Map<number, number>();
   const entree3MoisByArticle = new Map<number, number>();
-  const sortie3MoisByArticle = new Map<number, number>();
+
   for (const row of mouvements) {
     if (!row.article_id) continue;
     const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
     stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
 
-    if (row.date_jour && row.date_jour >= twelveMonthsAgoIso) {
+    if (!row.date_jour) continue;
+
+    if (row.date_jour >= isoByPeriod[12]) {
       entree12MoisByArticle.set(
         row.article_id,
         (entree12MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_entree ?? 0)
       );
-      sortie12MoisByArticle.set(
-        row.article_id,
-        (sortie12MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_sortie ?? 0)
-      );
-
-      if (row.date_jour >= threeMonthsAgoIso) {
+      if (row.date_jour >= isoByPeriod[3]) {
         entree3MoisByArticle.set(
           row.article_id,
           (entree3MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_entree ?? 0)
         );
-        sortie3MoisByArticle.set(
-          row.article_id,
-          (sortie3MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_sortie ?? 0)
-        );
+      }
+    }
+
+    for (const period of [1, 3, 6, 12] as const) {
+      if (row.date_jour >= isoByPeriod[period]) {
+        const map = consommationByPeriodAndArticle[period];
+        map.set(row.article_id, (map.get(row.article_id) ?? 0) + Number(row.qte_sortie ?? 0));
       }
     }
   }
@@ -317,16 +332,20 @@ export default async function StockAlerteMpPage({
       unite: article.unite,
       stock_actuel: stockByArticle.get(article.id) ?? 0,
       min_stock: article.min_stock as number,
+      consommation_1_mois: consommationByPeriodAndArticle[1].get(article.id) ?? 0,
+      consommation_3_mois: consommationByPeriodAndArticle[3].get(article.id) ?? 0,
+      consommation_6_mois: consommationByPeriodAndArticle[6].get(article.id) ?? 0,
+      consommation_12_mois: consommationByPeriodAndArticle[12].get(article.id) ?? 0,
       entree_12_mois: entree12MoisByArticle.get(article.id) ?? 0,
-      sortie_12_mois: sortie12MoisByArticle.get(article.id) ?? 0,
       entree_3_mois: entree3MoisByArticle.get(article.id) ?? 0,
-      sortie_3_mois: sortie3MoisByArticle.get(article.id) ?? 0,
+      utilisation_produit: article.utilisation,
       bcRefs: bcRefsByArticle.get(article.id) ?? [],
       importRefs: [...(importRefsByArticle.get(article.id)?.values() ?? [])],
     }))
     .filter((row) => row.stock_actuel <= row.min_stock)
     .filter((row) => !qLower || matchesArticleSearch(row.nom_article, qLower))
     .filter((row) => !categorieLower || (row.categorie || "").toLowerCase().includes(categorieLower))
+    .filter((row) => !hideLowThreshold || row.min_stock > 1)
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
@@ -356,7 +375,7 @@ export default async function StockAlerteMpPage({
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <form className="grid gap-3 sm:grid-cols-3">
+          <form className="grid gap-3 sm:grid-cols-4">
             <input
               type="text"
               name="q"
@@ -385,6 +404,16 @@ export default async function StockAlerteMpPage({
                 <option key={option} value={option} />
               ))}
             </datalist>
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                name="hide_low_threshold"
+                value="1"
+                defaultChecked={hideLowThreshold}
+                className="h-4 w-4"
+              />
+              Cacher Stock alert a 1 ou moins
+            </label>
             <button
               type="submit"
               className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
@@ -414,14 +443,17 @@ export default async function StockAlerteMpPage({
                     <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Stock</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
-                    <th className="px-6 py-4 font-semibold">Total sortie (12 mois)</th>
+                    <th className="px-6 py-4 font-semibold">Consommation dernier mois</th>
+                    <th className="px-6 py-4 font-semibold">Consommation dernier 3 mois</th>
+                    <th className="px-6 py-4 font-semibold">Consommation dernier 6 mois</th>
+                    <th className="px-6 py-4 font-semibold">Consommation dernier 12 mois</th>
                     <th className="px-6 py-4 font-semibold">Total entree (12 mois)</th>
-                    <th className="px-6 py-4 font-semibold">Total sortie (3 mois)</th>
                     <th className="px-6 py-4 font-semibold">Total entree (3 mois)</th>
                     <th className="px-6 py-4 font-semibold">Stock alert</th>
                     <th className="px-6 py-4 font-semibold">Commande (BC)</th>
                     <th className="px-6 py-4 font-semibold">Import</th>
-                    <th className="px-6 py-4 font-semibold">Utilisation</th>
+                    <th className="px-6 py-4 font-semibold">Average consommation 12 mois</th>
+                    <th className="px-6 py-4 font-semibold">Utilisation produit</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -436,13 +468,19 @@ export default async function StockAlerteMpPage({
                       </td>
                       <td className="px-6 py-4 text-slate-600">{alerte.unite || "-"}</td>
                       <td className="px-6 py-4 font-semibold text-sky-700">
-                        {formatNumber(alerte.sortie_12_mois)}
+                        {formatNumber(alerte.consommation_1_mois)}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-sky-700">
+                        {formatNumber(alerte.consommation_3_mois)}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-sky-700">
+                        {formatNumber(alerte.consommation_6_mois)}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-sky-700">
+                        {formatNumber(alerte.consommation_12_mois)}
                       </td>
                       <td className="px-6 py-4 font-semibold text-emerald-700">
                         {formatNumber(alerte.entree_12_mois)}
-                      </td>
-                      <td className="px-6 py-4 font-semibold text-sky-700">
-                        {formatNumber(alerte.sortie_3_mois)}
                       </td>
                       <td className="px-6 py-4 font-semibold text-emerald-700">
                         {formatNumber(alerte.entree_3_mois)}
@@ -495,8 +533,9 @@ export default async function StockAlerteMpPage({
                         )}
                       </td>
                       <td className="px-6 py-4 text-slate-600">
-                        {formatNumber(alerte.sortie_12_mois / 12)} / mois
+                        {formatNumber(alerte.consommation_12_mois / 12)} / mois
                       </td>
+                      <td className="px-6 py-4 text-slate-600">{alerte.utilisation_produit || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
