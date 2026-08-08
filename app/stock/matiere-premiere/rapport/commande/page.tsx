@@ -26,8 +26,32 @@ type BesoinRow = {
   min_stock: number | null;
   consommation_12_mois: number;
   consommation_par_mois: number;
-  commande_6_mois: number;
+  commande_par_mois_depart: number[];
 };
+
+const MOIS_COURT = [
+  "Jan", "Fév", "Mar", "Avr", "Mai", "Juin",
+  "Juil", "Aoû", "Sep", "Oct", "Nov", "Déc",
+];
+const MOIS_LONG = [
+  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
+];
+
+// Consommation glissante sur 6 mois a partir du mois de depart (index
+// 0=Janvier..11=Decembre), en bouclant sur l'annee : commandeParMoisDepart[i]
+// = conso du mois i + conso des 5 mois suivants (avec retour a Janvier
+// apres Decembre). C'est la quantite a avoir en stock en entrant dans ce
+// mois pour tenir jusqu'a la prochaine commande, 6 mois plus tard.
+function commandeGlissanteParMois(consommationParMoisCalendaire: number[]): number[] {
+  return consommationParMoisCalendaire.map((_, moisDepart) => {
+    let total = 0;
+    for (let decalage = 0; decalage < 6; decalage++) {
+      total += consommationParMoisCalendaire[(moisDepart + decalage) % 12];
+    }
+    return Math.round(total * 100) / 100;
+  });
+}
 
 async function fetchAllArticlesMp() {
   const rows: ArticleMpRow[] = [];
@@ -98,23 +122,35 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
 
   const error = articlesError || mouvementsError;
 
-  // Consommation moyenne/mois = sortie des 12 derniers mois / 12. Commande
-  // suggeree pour 6 mois = cette moyenne x 6 (commande mensuelle qui
-  // couvre 6 mois de besoin, meme rythme que le fonctionnement reel :
-  // commande chaque mois pour 6 mois). Stock min (3 mois, deja sur
-  // l'article) reste affiche a cote pour comparaison.
+  // Consommation moyenne/mois = sortie des 12 derniers mois / 12 (chiffre
+  // de reference global). Mais la consommation reelle varie selon le mois
+  // calendaire (saisonnalite) : on calcule donc aussi, pour chaque article,
+  // la sortie de chaque mois calendaire (Janvier, Fevrier...) sur les 12
+  // derniers mois - une seule occurrence de chaque mois dans cette fenetre,
+  // donc pas de moyenne a faire. La quantite a avoir en stock en entrant
+  // dans un mois donne = somme de la conso de ce mois-la et des 5 suivants
+  // (commande mensuelle qui couvre 6 mois, meme rythme que le
+  // fonctionnement reel). Stock min (3 mois, deja sur l'article) reste
+  // affiche a cote pour comparaison.
   const consommationByArticle = new Map<number, number>();
+  const consommationByArticleAndMois = new Map<number, number[]>();
   for (const row of mouvements) {
-    if (!row.article_id) continue;
-    consommationByArticle.set(
-      row.article_id,
-      (consommationByArticle.get(row.article_id) ?? 0) + Number(row.qte_sortie ?? 0)
-    );
+    if (!row.article_id || !row.date_jour) continue;
+    const qteSortie = Number(row.qte_sortie ?? 0);
+    consommationByArticle.set(row.article_id, (consommationByArticle.get(row.article_id) ?? 0) + qteSortie);
+
+    const moisIdx = Number(row.date_jour.slice(5, 7)) - 1;
+    if (moisIdx < 0 || moisIdx > 11) continue;
+    if (!consommationByArticleAndMois.has(row.article_id)) {
+      consommationByArticleAndMois.set(row.article_id, new Array(12).fill(0));
+    }
+    consommationByArticleAndMois.get(row.article_id)![moisIdx] += qteSortie;
   }
 
   const besoinRows: BesoinRow[] = articles.map((article) => {
     const consommation12Mois = consommationByArticle.get(article.id) ?? 0;
     const consommationParMois = consommation12Mois / 12;
+    const consommationParMoisCalendaire = consommationByArticleAndMois.get(article.id) ?? new Array(12).fill(0);
 
     return {
       article_id: article.id,
@@ -124,7 +160,7 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
       min_stock: article.min_stock,
       consommation_12_mois: consommation12Mois,
       consommation_par_mois: Math.round(consommationParMois * 100) / 100,
-      commande_6_mois: Math.round(consommationParMois * 6 * 100) / 100,
+      commande_par_mois_depart: commandeGlissanteParMois(consommationParMoisCalendaire),
     };
   });
 
@@ -149,8 +185,11 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
               Pour chaque article : consommation moyenne mensuelle (sortie des 12 derniers mois /
-              12), quantite a commander pour couvrir 6 mois (commande mensuelle), et le Stock min
-              actuel (3 mois) pour comparaison.
+              12), le Stock min actuel (3 mois) pour comparaison, et pour chacun des 12 mois de
+              l&apos;annee, la quantite a avoir en stock en entrant dans ce mois pour tenir 6 mois
+              (somme de la consommation reelle de ce mois-la et des 5 suivants, meme annee
+              derniere - la consommation change selon le mois, ce n&apos;est pas juste la moyenne
+              x 6).
             </p>
           </div>
 
@@ -229,8 +268,16 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
                     <th className="px-6 py-4 font-semibold">Categorie</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Conso. moyenne/mois</th>
-                    <th className="px-6 py-4 font-semibold">A commander (6 mois)</th>
                     <th className="px-6 py-4 font-semibold">Stock min (3 mois)</th>
+                    {MOIS_COURT.map((mois, idx) => (
+                      <th
+                        key={mois}
+                        className="px-4 py-4 text-center font-semibold"
+                        title={`A avoir en stock en entrant dans ${MOIS_LONG[idx]} (couvre 6 mois)`}
+                      >
+                        {mois}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -240,14 +287,16 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.consommation_par_mois)}</td>
-                      <td className="px-6 py-4">
-                        <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-900">
-                          {formatNumber(row.commande_6_mois)}
-                        </span>
-                      </td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.min_stock === null ? "-" : formatNumber(row.min_stock)}
                       </td>
+                      {row.commande_par_mois_depart.map((valeur, idx) => (
+                        <td key={idx} className="px-4 py-4 text-center">
+                          <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-900">
+                            {formatNumber(valeur)}
+                          </span>
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
