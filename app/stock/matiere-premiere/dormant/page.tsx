@@ -10,6 +10,7 @@ type ArticleMpRow = {
   id: number;
   nom_article: string;
   categorie: string | null;
+  unite: string | null;
 };
 
 type MouvementRow = {
@@ -25,10 +26,14 @@ type DormantRow = {
   article_id: number;
   nom_article: string;
   categorie: string | null;
+  unite: string | null;
   stock_actuel: number;
   derniere_sortie: string | null;
   age_mois: number;
   couleur: Couleur;
+  sortie_periode: number;
+  seuil: number | null;
+  periode_mois: number;
 };
 
 async function fetchAllArticlesMp() {
@@ -39,7 +44,7 @@ async function fetchAllArticlesMp() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie")
+      .select("id, nom_article, categorie, unite")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -81,10 +86,21 @@ function monthsBetween(fromDate: Date, toDate: Date) {
   return (toDate.getFullYear() - fromDate.getFullYear()) * 12 + (toDate.getMonth() - fromDate.getMonth());
 }
 
-function getCouleur(ageMois: number): Couleur | null {
-  if (ageMois >= 12) return "ROUGE";
-  if (ageMois >= 6) return "ORANGE";
-  if (ageMois >= 3) return "JAUNE";
+function isoMonthsAgo(months: number) {
+  const date = new Date();
+  date.setMonth(date.getMonth() - months);
+  return date.toISOString().slice(0, 10);
+}
+
+// Seuil de sortie "significative" par unite : en dessous, l'article est
+// considere comme sans veritable mouvement sur la periode (ex: 100 pcs,
+// 10 kg, 100 g). Unite non reconnue -> pas de seuil, on garde l'ancien
+// comportement (age depuis la derniere sortie, quelle que soit sa taille).
+function seuilForUnite(unite: string | null): number | null {
+  const normalized = (unite || "").trim().toLowerCase();
+  if (normalized === "pcs" || normalized === "piece" || normalized === "pièce") return 100;
+  if (normalized === "kg") return 10;
+  if (normalized === "g" || normalized === "gr" || normalized === "grs") return 100;
   return null;
 }
 
@@ -127,11 +143,24 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
   // Stock actuel = somme entree-sortie (meme calcul que Stock Actuel MP).
   // "Derniere sortie" = date la plus recente parmi les mouvements de
   // sortie (qte_sortie > 0) de l'article - si l'article n'a JAMAIS eu de
-  // sortie, on prend sa premiere entree a la place : dormant se mesure
-  // depuis quand le stock est arrive sans jamais repartir.
+  // sortie, on prend sa premiere entree a la place : l'anciennete se
+  // mesure depuis quand le stock est arrive sans jamais repartir.
+  //
+  // En plus de l'anciennete, on verifie le volume sorti cumule sur la
+  // periode (3/6/12 mois) par rapport a un seuil "sortie significative"
+  // qui depend de l'unite (100 pcs, 10 kg, 100 g) : si le cumul reste
+  // sous le seuil, l'article compte comme sans veritable mouvement sur
+  // cette periode, meme s'il y a eu quelques petites sorties.
   const stockByArticle = new Map<number, number>();
   const derniereSortieByArticle = new Map<number, string>();
   const premiereEntreeByArticle = new Map<number, string>();
+  const sortie3MoisByArticle = new Map<number, number>();
+  const sortie6MoisByArticle = new Map<number, number>();
+  const sortie12MoisByArticle = new Map<number, number>();
+
+  const iso3MoisAgo = isoMonthsAgo(3);
+  const iso6MoisAgo = isoMonthsAgo(6);
+  const iso12MoisAgo = isoMonthsAgo(12);
 
   for (const row of mouvements) {
     if (!row.article_id) continue;
@@ -140,10 +169,21 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
 
     if (!row.date_jour) continue;
 
-    if (Number(row.qte_sortie ?? 0) > 0) {
+    const qteSortie = Number(row.qte_sortie ?? 0);
+    if (qteSortie > 0) {
       const current = derniereSortieByArticle.get(row.article_id);
       if (!current || row.date_jour > current) {
         derniereSortieByArticle.set(row.article_id, row.date_jour);
+      }
+
+      if (row.date_jour >= iso3MoisAgo) {
+        sortie3MoisByArticle.set(row.article_id, (sortie3MoisByArticle.get(row.article_id) ?? 0) + qteSortie);
+      }
+      if (row.date_jour >= iso6MoisAgo) {
+        sortie6MoisByArticle.set(row.article_id, (sortie6MoisByArticle.get(row.article_id) ?? 0) + qteSortie);
+      }
+      if (row.date_jour >= iso12MoisAgo) {
+        sortie12MoisByArticle.set(row.article_id, (sortie12MoisByArticle.get(row.article_id) ?? 0) + qteSortie);
       }
     }
 
@@ -167,17 +207,43 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
     if (!reference) continue;
 
     const ageMois = monthsBetween(new Date(reference), today);
-    const couleur = getCouleur(ageMois);
+    const seuil = seuilForUnite(article.unite);
+    const sortie3 = sortie3MoisByArticle.get(article.id) ?? 0;
+    const sortie6 = sortie6MoisByArticle.get(article.id) ?? 0;
+    const sortie12 = sortie12MoisByArticle.get(article.id) ?? 0;
+
+    let couleur: Couleur | null = null;
+    let sortiePeriode = 0;
+    let periodeMois = 0;
+
+    if (ageMois >= 12 && (seuil === null || sortie12 < seuil)) {
+      couleur = "ROUGE";
+      sortiePeriode = sortie12;
+      periodeMois = 12;
+    } else if (ageMois >= 6 && (seuil === null || sortie6 < seuil)) {
+      couleur = "ORANGE";
+      sortiePeriode = sortie6;
+      periodeMois = 6;
+    } else if (ageMois >= 3 && (seuil === null || sortie3 < seuil)) {
+      couleur = "JAUNE";
+      sortiePeriode = sortie3;
+      periodeMois = 3;
+    }
+
     if (!couleur) continue;
 
     dormantRows.push({
       article_id: article.id,
       nom_article: article.nom_article,
       categorie: article.categorie,
+      unite: article.unite,
       stock_actuel: stockActuel,
       derniere_sortie: derniereSortie,
       age_mois: ageMois,
       couleur,
+      sortie_periode: sortiePeriode,
+      seuil,
+      periode_mois: periodeMois,
     });
   }
 
@@ -207,8 +273,10 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
               Stock Dormant MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Articles avec du stock mais sans sortie depuis au moins 3 mois (jaune), 6 mois
-              (orange) ou 12 mois (rouge).
+              Articles avec du stock mais sans sortie significative depuis au moins 3 mois
+              (jaune), 6 mois (orange) ou 12 mois (rouge). Une sortie compte comme significative
+              si le total sorti sur la periode atteint le seuil de l&apos;unite (100 pcs, 10 kg,
+              100 g) ; en dessous, l&apos;article est considere sans veritable mouvement.
             </p>
           </div>
 

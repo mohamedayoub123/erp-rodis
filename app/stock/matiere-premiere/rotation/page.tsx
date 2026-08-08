@@ -24,6 +24,7 @@ type RotationRow = {
   categorie: string | null;
   unite: string | null;
   stock_actuel: number;
+  stock_moyen: number;
   consommation_12_mois: number;
   rotation: number | null;
   jours_couverture: number | null;
@@ -97,16 +98,27 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   // (meme calcul que Stock Actuel MP / Stock Alert MP). Consommation 12 mois
   // = sortie des 12 derniers mois seulement (date_jour, meme convention
   // "AAAA-MM-JJ" que le reste de l'appli - comparaison de chaines directe).
+  // Stock avant 12 mois = solde des mouvements anterieurs au debut de la
+  // periode (ou sans date, traites comme anterieurs) - sert a calculer un
+  // stock moyen sur la periode plutot que le seul stock du jour.
   const twelveMonthsAgo = new Date();
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
   const twelveMonthsAgoIso = twelveMonthsAgo.toISOString().slice(0, 10);
 
   const stockByArticle = new Map<number, number>();
+  const stockAvant12MoisByArticle = new Map<number, number>();
   const consommation12MoisByArticle = new Map<number, number>();
   for (const row of mouvements) {
     if (!row.article_id) continue;
     const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
     stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
+
+    if (!row.date_jour || row.date_jour < twelveMonthsAgoIso) {
+      stockAvant12MoisByArticle.set(
+        row.article_id,
+        (stockAvant12MoisByArticle.get(row.article_id) ?? 0) + mouvement
+      );
+    }
 
     if (row.date_jour && row.date_jour >= twelveMonthsAgoIso) {
       consommation12MoisByArticle.set(
@@ -116,15 +128,18 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
     }
   }
 
-  // Rotation = combien de fois le stock actuel a ete "renouvele" par la
-  // consommation des 12 derniers mois (formule standard, ex: rotation = 6 ->
-  // stock renouvele 6 fois dans l'annee). Jours de couverture = a la vitesse
-  // de consommation actuelle, combien de jours le stock restant tiendrait.
-  // Les deux restent "-" quand le calcul n'a pas de sens (stock a 0 sans
-  // rien sorti, ou pas de consommation du tout sur la periode).
+  // Rotation = consommation des 12 derniers mois / stock MOYEN sur la
+  // periode (moyenne entre le stock d'il y a 12 mois et le stock actuel) -
+  // formule standard du taux de rotation, plus precise que de diviser par
+  // le seul stock du jour (qui peut avoir beaucoup varie sur la periode).
+  // Jours de couverture reste base sur le stock actuel : c'est bien "avec
+  // ce qu'il reste aujourd'hui, combien de jours ca tient" a la vitesse
+  // actuelle. Les deux restent "-" quand le calcul n'a pas de sens.
   const rotationRows: RotationRow[] = articles
     .map((article) => {
       const stockActuel = stockByArticle.get(article.id) ?? 0;
+      const stockAvant12Mois = stockAvant12MoisByArticle.get(article.id) ?? 0;
+      const stockMoyen = (stockAvant12Mois + stockActuel) / 2;
       const consommation = consommation12MoisByArticle.get(article.id) ?? 0;
 
       return {
@@ -133,8 +148,9 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
         categorie: article.categorie,
         unite: article.unite,
         stock_actuel: stockActuel,
+        stock_moyen: stockMoyen,
         consommation_12_mois: consommation,
-        rotation: stockActuel > 0 ? consommation / stockActuel : null,
+        rotation: stockMoyen > 0 ? consommation / stockMoyen : null,
         jours_couverture: consommation > 0 ? (stockActuel * 365) / consommation : null,
       };
     })
@@ -157,9 +173,10 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
               Rotation de Stock MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Rotation = consommation des 12 derniers mois / stock actuel (combien de fois le stock
-              a ete renouvele dans l&apos;annee). Jours de couverture = a la vitesse actuelle,
-              combien de jours le stock restant tiendrait. Trie du plus rapide au plus lent.
+              Rotation = consommation des 12 derniers mois / stock moyen (moyenne entre le stock
+              d&apos;il y a 12 mois et le stock actuel - combien de fois le stock a ete renouvele
+              dans l&apos;annee). Jours de couverture = a la vitesse actuelle, combien de jours le
+              stock restant tiendrait. Trie du plus rapide au plus lent.
             </p>
           </div>
 
@@ -238,6 +255,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                     <th className="px-6 py-4 font-semibold">Categorie</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Stock actuel</th>
+                    <th className="px-6 py-4 font-semibold">Stock moyen (12 mois)</th>
                     <th className="px-6 py-4 font-semibold">Consommation (12 mois)</th>
                     <th className="px-6 py-4 font-semibold">Rotation</th>
                     <th className="px-6 py-4 font-semibold">Jours de couverture</th>
@@ -250,6 +268,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_actuel)}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_moyen)}</td>
                       <td className="px-6 py-4 font-semibold text-sky-700">
                         {formatNumber(row.consommation_12_mois)}
                       </td>
