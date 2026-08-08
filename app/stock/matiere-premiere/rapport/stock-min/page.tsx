@@ -81,14 +81,15 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ article?: string; categorie?: string }>;
+type SearchParams = Promise<{ article?: string; categorie?: string; hide_min_1?: string }>;
 
 export default async function RapportRotationMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
   const params = await searchParams;
   const articleFilter = (params.article || "").trim();
   const categorieFilter = (params.categorie || "").trim().toLowerCase();
-  const hasFilters = Boolean(articleFilter || categorieFilter);
+  const hideMinUnOuMoins = (params.hide_min_1 || "").trim() === "1";
+  const hasFilters = Boolean(articleFilter || categorieFilter || hideMinUnOuMoins);
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "articlesMatierePremiere");
@@ -142,6 +143,7 @@ export default async function RapportRotationMpPage({ searchParams }: { searchPa
   const filteredRows = rotationRows
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
     .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
+    .filter((row) => !hideMinUnOuMoins || row.min_actuel > 1)
     .sort(
       (a, b) =>
         b.min_actuel - b.nouveau_min_propose - (a.min_actuel - a.nouveau_min_propose)
@@ -175,7 +177,7 @@ export default async function RapportRotationMpPage({ searchParams }: { searchPa
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <form className="grid gap-3 sm:grid-cols-3">
+          <form className="grid gap-3 sm:grid-cols-4">
             <input
               type="text"
               name="article"
@@ -204,6 +206,16 @@ export default async function RapportRotationMpPage({ searchParams }: { searchPa
                 <option key={option} value={option} />
               ))}
             </datalist>
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                name="hide_min_1"
+                value="1"
+                defaultChecked={hideMinUnOuMoins}
+                className="h-4 w-4"
+              />
+              Cacher stock min &#8804; 1
+            </label>
             <div className="flex gap-3">
               <button
                 type="submit"
