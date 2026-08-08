@@ -18,7 +18,7 @@ type MouvementRow = {
   date_jour: string | null;
 };
 
-type NiveauRotation = "FORTE" | "MOYENNE" | "FAIBLE";
+type NiveauRotation = "FORTE" | "MOYENNE" | "FAIBLE" | "DORMANT";
 
 type RotationRow = {
   article_id: number;
@@ -35,15 +35,31 @@ type RotationRow = {
   niveau: NiveauRotation | null;
 };
 
+// Dormant = aucune sortie du tout sur les 12 derniers mois (0 fois), meme
+// notion que Stock Dormant MP - plus fort qu'une simple "faible rotation".
 // Forte = le stock tourne au moins 4 fois par an (tous les 3 mois ou
 // moins) ; Moyenne = entre 1 et 4 fois par an ; Faible = moins d'une fois
-// par an (plus d'un an pour ecouler le stock moyen). Pas de niveau si la
-// rotation n'a pas de sens (stock moyen a 0).
-function niveauRotation(rotation: number | null): NiveauRotation | null {
+// par an mais au moins une sortie. Pas de niveau si la rotation n'a pas de
+// sens (stock moyen a 0).
+function niveauRotation(rotation: number | null, consommation12Mois: number): NiveauRotation | null {
   if (rotation === null) return null;
+  if (consommation12Mois <= 0) return "DORMANT";
   if (rotation >= 4) return "FORTE";
   if (rotation >= 1) return "MOYENNE";
   return "FAIBLE";
+}
+
+function niveauLabel(niveau: NiveauRotation) {
+  switch (niveau) {
+    case "FORTE":
+      return "Forte rotation";
+    case "MOYENNE":
+      return "Rotation moyenne";
+    case "FAIBLE":
+      return "Faible rotation";
+    case "DORMANT":
+      return "Dormant";
+  }
 }
 
 function niveauBadgeClasses(niveau: NiveauRotation) {
@@ -54,6 +70,8 @@ function niveauBadgeClasses(niveau: NiveauRotation) {
       return "bg-amber-100 text-amber-900";
     case "FAIBLE":
       return "bg-red-100 text-red-900";
+    case "DORMANT":
+      return "bg-slate-200 text-slate-800";
   }
 }
 
@@ -199,7 +217,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
         consommation_par_mois: consommation1Mois,
         rotation,
         jours_couverture: consommation > 0 ? (stockActuel * 365) / consommation : null,
-        niveau: niveauRotation(rotation),
+        niveau: niveauRotation(rotation, consommation),
       };
     })
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
@@ -226,7 +244,8 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
               d&apos;il y a 12 mois et le stock actuel - combien de fois le stock a ete renouvele
               dans l&apos;annee). Jours de couverture = a la vitesse actuelle, combien de jours le
               stock restant tiendrait. Niveau : Forte (4x/an ou plus), Moyenne (1 a 4x/an), Faible
-              (moins d&apos;1x/an). Trie du plus rapide au plus lent.
+              (moins d&apos;1x/an mais au moins une sortie), Dormant (aucune sortie du tout sur les
+              12 derniers mois). Trie du plus rapide au plus lent.
             </p>
           </div>
 
@@ -238,7 +257,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <div className="mb-5 flex flex-wrap gap-2">
-            {(["FORTE", "MOYENNE", "FAIBLE"] as NiveauRotation[]).map((item) => (
+            {(["FORTE", "MOYENNE", "FAIBLE", "DORMANT"] as NiveauRotation[]).map((item) => (
               <a
                 key={item}
                 href={`/stock/matiere-premiere/rotation?${new URLSearchParams({
@@ -250,7 +269,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                   niveauFilter === item ? "ring-2 ring-slate-900" : ""
                 } ${niveauBadgeClasses(item)}`}
               >
-                {item === "FORTE" ? "Forte rotation" : item === "MOYENNE" ? "Rotation moyenne" : "Faible rotation"}
+                {niveauLabel(item)}
               </a>
             ))}
           </div>
@@ -318,7 +337,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Categorie</th>
@@ -366,11 +385,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                               row.niveau
                             )}`}
                           >
-                            {row.niveau === "FORTE"
-                              ? "Forte rotation"
-                              : row.niveau === "MOYENNE"
-                                ? "Rotation moyenne"
-                                : "Faible rotation"}
+                            {niveauLabel(row.niveau)}
                           </span>
                         )}
                       </td>
