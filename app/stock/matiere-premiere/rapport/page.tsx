@@ -25,6 +25,13 @@ const TILES = [
     icon: "\u{1F4C9}",
     description: "Stock min surdimensionne par rapport a la consommation reelle des 12 derniers mois.",
   },
+  {
+    label: "Besoin Commande",
+    href: "/stock/matiere-premiere/rapport/commande",
+    pageKey: "stockBesoinCommandeMp",
+    icon: "\u{1F6D2}",
+    description: "Consommation moyenne mensuelle et quantite a commander pour couvrir 6 mois, par article.",
+  },
 ] as const;
 
 export default async function RapportMpPage() {
