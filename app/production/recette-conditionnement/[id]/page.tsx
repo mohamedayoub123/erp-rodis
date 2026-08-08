@@ -3,10 +3,9 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { ProduitPickerField } from "@/app/production/suivi-production/produit-picker-field";
-import { QuantitePourcentField } from "../../recette-fabrication/quantite-pourcent-field";
+import { AjouterArticleFormulaire } from "../ajouter-article-formulaire";
 import {
-  addRecetteLigneAction,
+  addRecetteOuVracAction,
   updateRecetteLigneAction,
   deleteRecetteLigneAction,
   updateQuantiteBaseAction,
@@ -133,8 +132,6 @@ export default async function RecetteConditionnementDetailPage({
 
   const usedMpIds = new Set(lignes.map((ligne) => ligne.article_mp_id));
   const quantiteBase = (articlePf as ArticlePfRow).quantite_recette_base;
-  const sommeLignes = lignes.reduce((total, ligne) => total + Number(ligne.quantite ?? 0), 0);
-  const totalQuantite = quantiteBase !== null && quantiteBase !== undefined && quantiteBase > 0 ? quantiteBase : sommeLignes;
   const { contenance, piece_par_carton: piecePartCarton } = articlePf as ArticlePfRow;
   const qtVracNecessaire =
     quantiteBase && contenance && piecePartCarton
@@ -165,21 +162,12 @@ export default async function RecetteConditionnementDetailPage({
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">
-            Vrac utilise et quantite du lot
+            Quantite du lot
           </h2>
           <form action={updateQuantiteBaseAction} className="flex flex-wrap items-end gap-3">
             <input type="hidden" name="page_key" value="recetteConditionnement" />
             <input type="hidden" name="article_pf_id" value={articlePfId} />
-            <div className="min-w-[240px]">
-              <p className="mb-1 text-xs font-semibold text-slate-500">Article vrac</p>
-              <ProduitPickerField
-                articles={vracOptions}
-                hiddenName="vrac_article_id"
-                textName="vrac_produit"
-                defaultValue={vracActuel?.nom_article ?? ""}
-                defaultArticleId={vracActuel?.id ?? null}
-              />
-            </div>
+            <input type="hidden" name="vrac_article_id" value={vracActuel?.id ?? ""} />
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Nombre de cartons du lot
               <input
@@ -199,19 +187,6 @@ export default async function RecetteConditionnementDetailPage({
               Enregistrer
             </button>
           </form>
-          <p className="mt-3 text-sm text-slate-600">
-            Qt vrac necessaire pour ce lot :{" "}
-            <span className="font-semibold text-slate-900">
-              {qtVracNecessaire !== null
-                ? `${qtVracNecessaire.toLocaleString("fr-FR", { maximumFractionDigits: 3 })} kg`
-                : "-"}
-            </span>
-            {quantiteBase && (!contenance || !piecePartCarton) ? (
-              <span className="ml-2 text-xs text-amber-700">
-                (contenance / piece par carton pas renseignes sur cet article)
-              </span>
-            ) : null}
-          </p>
         </section>
 
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
@@ -221,22 +196,49 @@ export default async function RecetteConditionnementDetailPage({
                 {error.message}
               </p>
             </div>
-          ) : lignes.length === 0 ? (
+          ) : lignes.length === 0 && !vracActuel ? (
             <div className="px-6 py-8 text-sm text-slate-500">
-              Aucun article MP dans la formule pour le moment.
+              Aucun article dans la formule pour le moment.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
-                    <th className="px-6 py-4 font-semibold">Article MP</th>
+                    <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
-                    <th className="px-6 py-4 font-semibold">Quantite / %</th>
+                    <th className="px-6 py-4 font-semibold">Quantite</th>
                     <th className="px-6 py-4 font-semibold"></th>
                   </tr>
                 </thead>
                 <tbody>
+                  {vracActuel ? (
+                    <tr className="border-t border-slate-100 bg-sky-50/40">
+                      <td className="px-6 py-4 font-medium text-slate-900">
+                        {vracActuel.nom_article} <span className="text-xs text-sky-700">(vrac)</span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">kg</td>
+                      <td className="px-6 py-4 text-slate-700">
+                        {qtVracNecessaire !== null
+                          ? qtVracNecessaire.toLocaleString("fr-FR", { maximumFractionDigits: 3 })
+                          : "-"}
+                        <span className="ml-2 text-xs text-slate-400">(auto)</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <form action={updateQuantiteBaseAction}>
+                          <input type="hidden" name="page_key" value="recetteConditionnement" />
+                          <input type="hidden" name="article_pf_id" value={articlePfId} />
+                          <input type="hidden" name="quantite_recette_base" value={quantiteBase ?? ""} />
+                          <button
+                            type="submit"
+                            className="rounded-full border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50"
+                          >
+                            Retirer
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  ) : null}
                   {lignes.map((ligne) => {
                     const articleMp = mpById.get(ligne.article_mp_id);
                     return (
@@ -250,10 +252,15 @@ export default async function RecetteConditionnementDetailPage({
                             <input type="hidden" name="page_key" value="recetteConditionnement" />
                             <input type="hidden" name="ligne_id" value={ligne.id} />
                             <input type="hidden" name="article_pf_id" value={articlePfId} />
-                            <QuantitePourcentField
-                              total={totalQuantite}
-                              quantiteName="quantite"
-                              defaultQuantite={ligne.quantite}
+                            <input
+                              type="number"
+                              step="0.001"
+                              min="0"
+                              name="quantite"
+                              defaultValue={ligne.quantite}
+                              placeholder="Quantite"
+                              required
+                              className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                             />
                             <button
                               type="submit"
@@ -286,18 +293,14 @@ export default async function RecetteConditionnementDetailPage({
         </section>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <h2 className="mb-4 text-lg font-bold text-slate-900">Ajouter un article MP a la formule</h2>
-          <form action={addRecetteLigneAction} className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+          <h2 className="mb-4 text-lg font-bold text-slate-900">Ajouter un article a la formule</h2>
+          <form action={addRecetteOuVracAction}>
             <input type="hidden" name="page_key" value="recetteConditionnement" />
             <input type="hidden" name="article_pf_id" value={articlePfId} />
-            <ProduitPickerField articles={mpOptions.filter((option) => !usedMpIds.has(option.id))} />
-            <QuantitePourcentField total={totalQuantite} quantiteName="quantite" />
-            <button
-              type="submit"
-              className="rounded-2xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
-            >
-              Ajouter
-            </button>
+            <AjouterArticleFormulaire
+              mpOptions={mpOptions.filter((option) => !usedMpIds.has(option.id))}
+              vracOptions={vracActuel ? [] : vracOptions}
+            />
           </form>
         </section>
       </div>

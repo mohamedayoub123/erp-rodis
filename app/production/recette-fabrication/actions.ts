@@ -59,6 +59,55 @@ export async function addRecetteLigneAction(formData: FormData) {
   revalidateRecettePages(articlePfId);
 }
 
+// Formulaire "Ajouter un article a la formule" (page detail Conditionnement)
+// qui propose dans UNE MEME liste les articles MP et le vrac (nature=vrac) -
+// ProduitCombinePickerField encode le vrac en id negatif cote client (meme
+// convention que RecetteConditionnementFormulaire pour la page "nouvelle").
+// Id positif -> ligne recettes_pf classique. Id negatif -> met a jour
+// articles.vrac_article_id (un seul vrac par recette, pas de ligne dediee).
+export async function addRecetteOuVracAction(formData: FormData) {
+  const pageKey = String(formData.get("page_key") || "recetteFabrication") as
+    | "recetteFabrication"
+    | "recetteConditionnement";
+  await requireRecetteWriteAccess(pageKey);
+
+  const articlePfId = Number(formData.get("article_pf_id") || "0");
+  const combinedId = Number(formData.get("article_id") || "0");
+
+  if (!articlePfId || !combinedId) {
+    throw new Error("Choisis un article dans la liste (clique une suggestion).");
+  }
+
+  if (combinedId < 0) {
+    if (pageKey !== "recetteConditionnement") {
+      throw new Error("Le vrac n'existe que pour la recette Conditionnement.");
+    }
+
+    const { error } = await supabaseServer
+      .from("articles")
+      .update({ vrac_article_id: -combinedId })
+      .eq("id", articlePfId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  } else {
+    const quantite = parseQuantite(formData);
+    const { error } = await supabaseServer
+      .from("recettes_pf")
+      .upsert(
+        { article_pf_id: articlePfId, article_mp_id: combinedId, quantite },
+        { onConflict: "article_pf_id,article_mp_id" }
+      );
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  revalidateRecettePages(articlePfId);
+}
+
 // Cree une recette complete en un seul envoi : article PF choisi en haut du
 // formulaire (champ cache "article_pf_id", ecrit par ProduitPickerField),
 // suivi d'autant de lignes MP que l'utilisateur en a ajoutees - chaque ligne
