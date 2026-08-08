@@ -9,18 +9,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 export function ProduitPickerField({
   articles,
   defaultValue = "",
+  defaultArticleId = null,
   hiddenName = "article_id",
   textName = "produit",
   onSelect,
 }: {
   articles: { id: number; label: string }[];
   defaultValue?: string;
+  defaultArticleId?: number | null;
   hiddenName?: string;
   textName?: string;
   onSelect?: (articleId: number | null) => void;
 }) {
   const [value, setValue] = useState(defaultValue);
-  const [articleId, setArticleId] = useState<number | null>(null);
+  const [articleId, setArticleId] = useState<number | null>(defaultArticleId);
   const [showDropdown, setShowDropdown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 

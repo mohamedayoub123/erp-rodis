@@ -18,6 +18,9 @@ type ArticlePfRow = {
   gamme: string | null;
   nature: string | null;
   quantite_recette_base: number | null;
+  vrac_article_id: number | null;
+  contenance: number | null;
+  piece_par_carton: number | null;
 };
 
 type ArticleMpRow = {
@@ -56,6 +59,34 @@ async function fetchAllArticlesMp() {
   return { rows, error: null };
 }
 
+async function fetchArticlesVrac() {
+  const rows: { id: number; nom_article: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article")
+      .eq("nature", "vrac")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    rows.push(...((data ?? []) as { id: number; nom_article: string }[]));
+
+    if ((data ?? []).length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
+function round(value: number, decimals = 3) {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
 export default async function RecetteConditionnementDetailPage({
   params,
 }: {
@@ -67,7 +98,7 @@ export default async function RecetteConditionnementDetailPage({
 
   const { data: articlePf } = await supabaseServer
     .from("articles")
-    .select("id, nom_article, gamme, nature, quantite_recette_base")
+    .select("id, nom_article, gamme, nature, quantite_recette_base, vrac_article_id, contenance, piece_par_carton")
     .eq("id", articlePfId)
     .maybeSingle();
 
@@ -75,17 +106,25 @@ export default async function RecetteConditionnementDetailPage({
     notFound();
   }
 
-  const [{ data: lignesData, error: lignesError }, { rows: articlesMp, error: articlesMpError }] =
-    await Promise.all([
-      supabaseServer
-        .from("recettes_pf")
-        .select("id, article_pf_id, article_mp_id, quantite")
-        .eq("article_pf_id", articlePfId)
-        .order("id", { ascending: true }),
-      fetchAllArticlesMp(),
-    ]);
+  const [
+    { data: lignesData, error: lignesError },
+    { rows: articlesMp, error: articlesMpError },
+    { rows: articlesVrac, error: articlesVracError },
+  ] = await Promise.all([
+    supabaseServer
+      .from("recettes_pf")
+      .select("id, article_pf_id, article_mp_id, quantite")
+      .eq("article_pf_id", articlePfId)
+      .order("id", { ascending: true }),
+    fetchAllArticlesMp(),
+    fetchArticlesVrac(),
+  ]);
 
-  const error = lignesError || articlesMpError;
+  const error = lignesError || articlesMpError || articlesVracError;
+  const vracOptions = articlesVrac
+    .map((article) => ({ id: article.id, label: article.nom_article }))
+    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+  const vracActuel = articlesVrac.find((article) => article.id === (articlePf as ArticlePfRow).vrac_article_id) ?? null;
   const lignes = (lignesData ?? []) as RecetteLigneRow[];
   const mpById = new Map(articlesMp.map((article) => [article.id, article]));
   const mpOptions = articlesMp
@@ -96,6 +135,11 @@ export default async function RecetteConditionnementDetailPage({
   const quantiteBase = (articlePf as ArticlePfRow).quantite_recette_base;
   const sommeLignes = lignes.reduce((total, ligne) => total + Number(ligne.quantite ?? 0), 0);
   const totalQuantite = quantiteBase !== null && quantiteBase !== undefined && quantiteBase > 0 ? quantiteBase : sommeLignes;
+  const { contenance, piece_par_carton: piecePartCarton } = articlePf as ArticlePfRow;
+  const qtVracNecessaire =
+    quantiteBase && contenance && piecePartCarton
+      ? round(quantiteBase * piecePartCarton * contenance, 3)
+      : null;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -120,11 +164,24 @@ export default async function RecetteConditionnementDetailPage({
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">
+            Vrac utilise et quantite du lot
+          </h2>
           <form action={updateQuantiteBaseAction} className="flex flex-wrap items-end gap-3">
             <input type="hidden" name="page_key" value="recetteConditionnement" />
             <input type="hidden" name="article_pf_id" value={articlePfId} />
+            <div className="min-w-[240px]">
+              <p className="mb-1 text-xs font-semibold text-slate-500">Article vrac</p>
+              <ProduitPickerField
+                articles={vracOptions}
+                hiddenName="vrac_article_id"
+                textName="vrac_produit"
+                defaultValue={vracActuel?.nom_article ?? ""}
+                defaultArticleId={vracActuel?.id ?? null}
+              />
+            </div>
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
-              Quantite totale du lot (nombre de cartons produits)
+              Nombre de cartons du lot
               <input
                 type="number"
                 step="0.001"
@@ -142,6 +199,19 @@ export default async function RecetteConditionnementDetailPage({
               Enregistrer
             </button>
           </form>
+          <p className="mt-3 text-sm text-slate-600">
+            Qt vrac necessaire pour ce lot :{" "}
+            <span className="font-semibold text-slate-900">
+              {qtVracNecessaire !== null
+                ? `${qtVracNecessaire.toLocaleString("fr-FR", { maximumFractionDigits: 3 })} kg`
+                : "-"}
+            </span>
+            {quantiteBase && (!contenance || !piecePartCarton) ? (
+              <span className="ml-2 text-xs text-amber-700">
+                (contenance / piece par carton pas renseignes sur cet article)
+              </span>
+            ) : null}
+          </p>
         </section>
 
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">

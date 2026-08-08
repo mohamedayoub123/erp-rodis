@@ -77,6 +77,8 @@ export async function createRecetteCompleteAction(formData: FormData) {
 
   const quantiteBaseRaw = String(formData.get("quantite_recette_base") || "").trim().replace(",", ".");
   const quantiteBase = quantiteBaseRaw ? Number(quantiteBaseRaw) : null;
+  const vracArticleIdRaw = Number(formData.get("vrac_article_id") || "0");
+  const vracArticleId = vracArticleIdRaw > 0 ? vracArticleIdRaw : null;
 
   const mpIds = formData.getAll("mp_article_id").map((value) => Number(value));
   const quantites = formData.getAll("quantite_ligne").map((value) => {
@@ -104,10 +106,18 @@ export async function createRecetteCompleteAction(formData: FormData) {
     throw new Error(error.message);
   }
 
+  const articleFields: Record<string, unknown> = {};
   if (quantiteBase !== null && !Number.isNaN(quantiteBase)) {
+    articleFields.quantite_recette_base = quantiteBase;
+  }
+  if (pageKey === "recetteConditionnement") {
+    articleFields.vrac_article_id = vracArticleId;
+  }
+
+  if (Object.keys(articleFields).length > 0) {
     const { error: articleError } = await supabaseServer
       .from("articles")
-      .update({ quantite_recette_base: quantiteBase })
+      .update(articleFields)
       .eq("id", articlePfId);
 
     if (articleError) {
@@ -137,9 +147,17 @@ export async function updateQuantiteBaseAction(formData: FormData) {
   const raw = String(formData.get("quantite_recette_base") || "").trim().replace(",", ".");
   const quantiteBase = raw ? Number(raw) : null;
 
+  const articleFields: Record<string, unknown> = {
+    quantite_recette_base: Number.isNaN(quantiteBase) ? null : quantiteBase,
+  };
+  if (pageKey === "recetteConditionnement") {
+    const vracArticleIdRaw = Number(formData.get("vrac_article_id") || "0");
+    articleFields.vrac_article_id = vracArticleIdRaw > 0 ? vracArticleIdRaw : null;
+  }
+
   const { error } = await supabaseServer
     .from("articles")
-    .update({ quantite_recette_base: Number.isNaN(quantiteBase) ? null : quantiteBase })
+    .update(articleFields)
     .eq("id", articlePfId);
 
   if (error) {

@@ -2,11 +2,35 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { ProduitPickerField } from "@/app/production/suivi-production/produit-picker-field";
-import { NouvelleRecetteLignes } from "../../recette-fabrication/nouvelle-recette-lignes";
+import { RecetteConditionnementFormulaire } from "../recette-conditionnement-formulaire";
 import { createRecetteCompleteAction } from "../../recette-fabrication/actions";
 
 async function fetchArticlesFini() {
+  const rows: { id: number; nom_article: string; contenance: number | null; piece_par_carton: number | null }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article, contenance, piece_par_carton")
+      .neq("nature", "vrac")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    rows.push(
+      ...((data ?? []) as { id: number; nom_article: string; contenance: number | null; piece_par_carton: number | null }[])
+    );
+
+    if ((data ?? []).length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
+async function fetchArticlesVrac() {
   const rows: { id: number; nom_article: string }[] = [];
   let from = 0;
   const pageSize = 1000;
@@ -15,7 +39,7 @@ async function fetchArticlesFini() {
     const { data, error } = await supabaseServer
       .from("articles")
       .select("id, nom_article")
-      .neq("nature", "vrac")
+      .eq("nature", "vrac")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -54,12 +78,23 @@ async function fetchAllArticlesMp() {
 export default async function NouvelleRecetteConditionnementPage() {
   noStore();
 
-  const [{ rows: articlesFini, error: articlesFiniError }, { rows: articlesMp, error: articlesMpError }] =
-    await Promise.all([fetchArticlesFini(), fetchAllArticlesMp()]);
+  const [
+    { rows: articlesFini, error: articlesFiniError },
+    { rows: articlesVrac, error: articlesVracError },
+    { rows: articlesMp, error: articlesMpError },
+  ] = await Promise.all([fetchArticlesFini(), fetchArticlesVrac(), fetchAllArticlesMp()]);
 
-  const error = articlesFiniError || articlesMpError;
+  const error = articlesFiniError || articlesVracError || articlesMpError;
 
   const pfOptions = articlesFini
+    .map((article) => ({
+      id: article.id,
+      label: article.nom_article,
+      contenance: article.contenance,
+      piecePartCarton: article.piece_par_carton,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+  const vracOptions = articlesVrac
     .map((article) => ({ id: article.id, label: article.nom_article }))
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
   const mpOptions = articlesMp
@@ -68,7 +103,7 @@ export default async function NouvelleRecetteConditionnementPage() {
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
-      <div className="mx-auto w-full max-w-3xl space-y-6">
+      <div className="mx-auto w-full max-w-4xl space-y-6">
         <div className="flex flex-col gap-4 rounded-[2rem] border border-black/5 bg-white/85 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
@@ -78,8 +113,8 @@ export default async function NouvelleRecetteConditionnementPage() {
               Nouvelle recette
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Choisis le produit fini, puis ajoute en dessous tous les articles MP (et leur
-              quantite) qui composent sa formule.
+              Choisis le produit fini, le vrac utilise et le nombre de cartons du lot, puis ajoute
+              en dessous tous les articles MP (et leur quantite) qui composent la formule.
             </p>
           </div>
 
@@ -97,21 +132,7 @@ export default async function NouvelleRecetteConditionnementPage() {
           ) : (
             <form action={createRecetteCompleteAction} className="grid gap-6">
               <input type="hidden" name="page_key" value="recetteConditionnement" />
-
-              <div>
-                <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
-                  Produit fini
-                </h2>
-                <ProduitPickerField articles={pfOptions} hiddenName="article_pf_id" textName="pf_produit" />
-              </div>
-
-              <div>
-                <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
-                  Articles MP de la formule
-                </h2>
-                <NouvelleRecetteLignes articles={mpOptions} uniteBase="carton" />
-              </div>
-
+              <RecetteConditionnementFormulaire pfArticles={pfOptions} vracArticles={vracOptions} mpArticles={mpOptions} />
               <div>
                 <button
                   type="submit"
