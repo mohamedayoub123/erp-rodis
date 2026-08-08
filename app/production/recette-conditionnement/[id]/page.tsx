@@ -300,6 +300,8 @@ export default async function RecetteConditionnementDetailPage({
             <AjouterArticleFormulaire
               mpOptions={mpOptions.filter((option) => !usedMpIds.has(option.id))}
               vracOptions={vracActuel ? [] : vracOptions}
+              nbCarton={quantiteBase}
+              piecePartCarton={piecePartCarton}
             />
           </form>
         </section>

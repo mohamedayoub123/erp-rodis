@@ -6,6 +6,8 @@ import { ProduitPickerField } from "@/app/production/suivi-production/produit-pi
 type PfOption = { id: number; label: string; contenance: number | null; piecePartCarton: number | null };
 type MpOption = { id: number; label: string };
 
+type AutoKind = "vrac" | "piece" | "carton" | null;
+
 type Ligne = {
   key: number;
   // Positif = article MP (articles_matiere_premiere). Negatif = vrac
@@ -14,6 +16,7 @@ type Ligne = {
   articleId: number | null;
   quantite: string;
   quantiteAuto: boolean;
+  autoKind: AutoKind;
 };
 
 function round(value: number, decimals = 3) {
@@ -22,7 +25,18 @@ function round(value: number, decimals = 3) {
 }
 
 function ligneVide(key: number): Ligne {
-  return { key, articleId: null, quantite: "", quantiteAuto: false };
+  return { key, articleId: null, quantite: "", quantiteAuto: false, autoKind: null };
+}
+
+// Tous les articles MP de la formule se calculent automatiquement par
+// rapport au nombre de cartons du lot : par defaut a raison de 1 par piece
+// (sleeve, capsule, etiquette, pot/flacon...), sauf le carton/la boite (et
+// le display box) qui suivent directement le nb de cartons, pas le nb de
+// pieces. Toujours modifiable a la main ensuite.
+function classifyAuto(label: string): AutoKind {
+  const upper = label.toUpperCase();
+  if (upper.includes("CARTON") || upper.includes("BOX") || upper.includes("DISPLAY")) return "carton";
+  return "piece";
 }
 
 // Formulaire complet d'une recette Conditionnement : produit fini, nombre de
@@ -31,7 +45,10 @@ function ligneVide(key: number): Ligne {
 // choisit dans la meme liste que les MP (id negatif = vrac, cote client
 // seulement) et sa quantite se calcule automatiquement (nb cartons x piece
 // par carton x contenance de l'article PF choisi), tout en restant
-// modifiable a la main. Les vrais MP restent a quantite manuelle. Pas de %.
+// modifiable a la main. Les articles "sleeve"/"carton" (embalage) se
+// calculent aussi automatiquement (nb cartons x piece par carton, ou nb
+// cartons directement pour "carton"). Les autres MP restent a quantite
+// manuelle. Pas de %.
 export function RecetteConditionnementFormulaire({
   pfArticles,
   vracArticles,
@@ -51,6 +68,8 @@ export function RecetteConditionnementFormulaire({
     pfArticles,
   ]);
 
+  const mpById = useMemo(() => new Map(mpArticles.map((article) => [article.id, article])), [mpArticles]);
+
   const combinedOptions = useMemo(
     () => [
       ...mpArticles.map((article) => ({ id: article.id, label: article.label })),
@@ -59,25 +78,26 @@ export function RecetteConditionnementFormulaire({
     [mpArticles, vracArticles]
   );
 
-  function computeVracQuantite() {
+  function computeAutoQuantite(kind: AutoKind) {
     const carton = Number(nbCarton);
-    if (!pfSelectionne || !carton || Number.isNaN(carton)) return null;
-    if (!pfSelectionne.contenance || !pfSelectionne.piecePartCarton) return null;
+    if (!kind || !carton || Number.isNaN(carton)) return null;
+    if (kind === "carton") return round(carton, 3);
+    if (!pfSelectionne || !pfSelectionne.piecePartCarton) return null;
+    if (kind === "piece") return round(carton * pfSelectionne.piecePartCarton, 3);
+    if (!pfSelectionne.contenance) return null;
     return round(carton * pfSelectionne.piecePartCarton * pfSelectionne.contenance, 3);
   }
 
-  // Le vrac choisi suit automatiquement le nombre de cartons / la
+  // Les lignes auto (vrac, sleeve, carton) suivent le nombre de cartons / la
   // contenance-piece de l'article PF tant que l'utilisateur n'a pas modifie
-  // la quantite a la main (quantiteAuto passe alors a false pour cette ligne).
+  // la quantite a la main (quantiteAuto passe alors a false pour la ligne).
   useEffect(() => {
-    const computed = computeVracQuantite();
-    if (computed === null) return;
     setLignes((current) =>
-      current.map((ligne) =>
-        ligne.articleId !== null && ligne.articleId < 0 && ligne.quantiteAuto
-          ? { ...ligne, quantite: String(computed) }
-          : ligne
-      )
+      current.map((ligne) => {
+        if (!ligne.autoKind || !ligne.quantiteAuto) return ligne;
+        const computed = computeAutoQuantite(ligne.autoKind);
+        return computed !== null ? { ...ligne, quantite: String(computed) } : ligne;
+      })
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nbCarton, pfSelectionne]);
@@ -92,16 +112,31 @@ export function RecetteConditionnementFormulaire({
     setLignes((current) =>
       current.map((ligne) => {
         if (ligne.key !== key) return ligne;
-        if (articleId !== null && articleId < 0) {
-          const computed = computeVracQuantite();
+        if (articleId === null) {
+          return { ...ligne, articleId: null, quantiteAuto: false, autoKind: null };
+        }
+        if (articleId < 0) {
+          const computed = computeAutoQuantite("vrac");
           return {
             ...ligne,
             articleId,
             quantiteAuto: true,
+            autoKind: "vrac",
             quantite: computed !== null ? String(computed) : ligne.quantite,
           };
         }
-        return { ...ligne, articleId, quantiteAuto: false };
+        const kind = classifyAuto(mpById.get(articleId)?.label ?? "");
+        if (kind) {
+          const computed = computeAutoQuantite(kind);
+          return {
+            ...ligne,
+            articleId,
+            quantiteAuto: true,
+            autoKind: kind,
+            quantite: computed !== null ? String(computed) : ligne.quantite,
+          };
+        }
+        return { ...ligne, articleId, quantiteAuto: false, autoKind: null };
       })
     );
   }
@@ -140,7 +175,7 @@ export function RecetteConditionnementFormulaire({
         {pfSelectionne && (!pfSelectionne.contenance || !pfSelectionne.piecePartCarton) ? (
           <p className="mt-3 text-xs text-amber-700">
             Contenance / piece par carton pas renseignes sur cet article - le calcul automatique du
-            vrac ne pourra pas se faire.
+            vrac et des sleeves ne pourra pas se faire.
           </p>
         ) : null}
       </div>
@@ -167,16 +202,19 @@ export function RecetteConditionnementFormulaire({
                     onSelect={(articleId) => updateArticleId(ligne.key, articleId)}
                   />
                   {estVrac ? (
-                    <>
-                      <input type="hidden" name="vrac_article_id" value={-ligne.articleId!} />
-                      <p className="mt-1 text-xs text-slate-500">
-                        Vrac - quantite calculee automatiquement (nb cartons x piece/carton x
-                        contenance), modifiable si besoin.
-                      </p>
-                    </>
+                    <input type="hidden" name="vrac_article_id" value={-ligne.articleId!} />
                   ) : (
                     <input type="hidden" name="mp_article_id" value={ligne.articleId ?? ""} />
                   )}
+                  {ligne.autoKind ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      {ligne.autoKind === "vrac"
+                        ? "Vrac - quantite calculee automatiquement (nb cartons x piece/carton x contenance), modifiable si besoin."
+                        : ligne.autoKind === "piece"
+                        ? "Quantite calculee automatiquement (nb cartons x piece/carton), modifiable si besoin."
+                        : "Quantite calculee automatiquement (= nb cartons), modifiable si besoin."}
+                    </p>
+                  ) : null}
                 </div>
                 <input
                   type="number"
