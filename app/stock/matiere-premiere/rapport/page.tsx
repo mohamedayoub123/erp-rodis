@@ -12,6 +12,27 @@ const TILES = [
     description: "Tous les articles avec leur stock actuel, filtre Article/Code/Categorie, BC et import.",
   },
   {
+    label: "Stock Alert",
+    href: "/stock/matiere-premiere/alerte",
+    pageKey: "stockAlerteMp",
+    icon: "\u{26A0}\u{FE0F}",
+    description: "Articles sous le seuil d'alerte.",
+  },
+  {
+    label: "Stock Dormant",
+    href: "/stock/matiere-premiere/dormant",
+    pageKey: "stockDormantMp",
+    icon: "\u{23F3}",
+    description: "Articles avec du stock mais sans sortie significative depuis 3, 6 ou 12 mois.",
+  },
+  {
+    label: "Stock Perime",
+    href: "/stock/matiere-premiere/perime",
+    pageKey: "stockPerimeMp",
+    icon: "\u{1F6D1}",
+    description: "Lots perimes et actifs par article.",
+  },
+  {
     label: "Rotation de Stock",
     href: "/stock/matiere-premiere/rotation",
     pageKey: "stockRotationMp",

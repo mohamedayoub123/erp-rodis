@@ -369,7 +369,7 @@ export default async function StockAlerteMpPage({
           </div>
 
           <div className="flex items-center gap-3">
-            <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
+            <BackButton href="/stock/matiere-premiere/rapport" label="Retour rapport" />
             <RefreshButton />
           </div>
         </div>
