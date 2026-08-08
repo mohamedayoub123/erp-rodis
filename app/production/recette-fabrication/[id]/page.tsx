@@ -4,13 +4,20 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ProduitPickerField } from "@/app/production/suivi-production/produit-picker-field";
-import { addRecetteLigneAction, updateRecetteLigneAction, deleteRecetteLigneAction } from "../actions";
+import { QuantitePourcentField } from "../quantite-pourcent-field";
+import {
+  addRecetteLigneAction,
+  updateRecetteLigneAction,
+  deleteRecetteLigneAction,
+  updateQuantiteBaseAction,
+} from "../actions";
 
 type ArticlePfRow = {
   id: number;
   nom_article: string;
   gamme: string | null;
   nature: string | null;
+  quantite_recette_base: number | null;
 };
 
 type ArticleMpRow = {
@@ -49,10 +56,6 @@ async function fetchAllArticlesMp() {
   return { rows, error: null };
 }
 
-function formatNumber(value: number) {
-  return value.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
-}
-
 export default async function RecetteFabricationDetailPage({
   params,
 }: {
@@ -64,7 +67,7 @@ export default async function RecetteFabricationDetailPage({
 
   const { data: articlePf } = await supabaseServer
     .from("articles")
-    .select("id, nom_article, gamme, nature")
+    .select("id, nom_article, gamme, nature, quantite_recette_base")
     .eq("id", articlePfId)
     .maybeSingle();
 
@@ -90,7 +93,12 @@ export default async function RecetteFabricationDetailPage({
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
 
   const usedMpIds = new Set(lignes.map((ligne) => ligne.article_mp_id));
-  const totalQuantite = lignes.reduce((total, ligne) => total + Number(ligne.quantite ?? 0), 0);
+  const quantiteBase = (articlePf as ArticlePfRow).quantite_recette_base;
+  const sommeLignes = lignes.reduce((total, ligne) => total + Number(ligne.quantite ?? 0), 0);
+  // % se calcule sur la quantite totale du lot declaree (kg de vrac / nb de
+  // cartons) si elle est renseignee, sinon a defaut sur la somme des lignes
+  // (comportement precedent, pour les recettes pas encore mises a jour).
+  const totalQuantite = quantiteBase !== null && quantiteBase !== undefined && quantiteBase > 0 ? quantiteBase : sommeLignes;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -114,6 +122,31 @@ export default async function RecetteFabricationDetailPage({
           </div>
         </div>
 
+        <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <form action={updateQuantiteBaseAction} className="flex flex-wrap items-end gap-3">
+            <input type="hidden" name="page_key" value="recetteFabrication" />
+            <input type="hidden" name="article_pf_id" value={articlePfId} />
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Quantite totale du lot (kg de vrac produit)
+              <input
+                type="number"
+                step="0.001"
+                min="0"
+                name="quantite_recette_base"
+                defaultValue={quantiteBase ?? ""}
+                placeholder="Ex: 100"
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              />
+            </label>
+            <button
+              type="submit"
+              className="rounded-full bg-slate-900 px-4 py-3 text-xs font-semibold text-white transition hover:bg-slate-800"
+            >
+              Enregistrer
+            </button>
+          </form>
+        </section>
+
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           {error ? (
             <div className="px-6 py-8">
@@ -132,8 +165,7 @@ export default async function RecetteFabricationDetailPage({
                   <tr>
                     <th className="px-6 py-4 font-semibold">Article MP</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
-                    <th className="px-6 py-4 font-semibold">Quantite</th>
-                    <th className="px-6 py-4 font-semibold">%</th>
+                    <th className="px-6 py-4 font-semibold">Quantite / %</th>
                     <th className="px-6 py-4 font-semibold"></th>
                   </tr>
                 </thead>
@@ -151,13 +183,10 @@ export default async function RecetteFabricationDetailPage({
                             <input type="hidden" name="page_key" value="recetteFabrication" />
                             <input type="hidden" name="ligne_id" value={ligne.id} />
                             <input type="hidden" name="article_pf_id" value={articlePfId} />
-                            <input
-                              type="number"
-                              step="0.001"
-                              min="0"
-                              name="quantite"
-                              defaultValue={ligne.quantite}
-                              className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                            <QuantitePourcentField
+                              total={totalQuantite}
+                              quantiteName="quantite"
+                              defaultQuantite={ligne.quantite}
                             />
                             <button
                               type="submit"
@@ -166,11 +195,6 @@ export default async function RecetteFabricationDetailPage({
                               Enregistrer
                             </button>
                           </form>
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {totalQuantite > 0
-                            ? `${formatNumber((Number(ligne.quantite ?? 0) / totalQuantite) * 100)} %`
-                            : "-"}
                         </td>
                         <td className="px-6 py-4">
                           <form action={deleteRecetteLigneAction}>
@@ -200,15 +224,7 @@ export default async function RecetteFabricationDetailPage({
             <input type="hidden" name="page_key" value="recetteFabrication" />
             <input type="hidden" name="article_pf_id" value={articlePfId} />
             <ProduitPickerField articles={mpOptions.filter((option) => !usedMpIds.has(option.id))} />
-            <input
-              type="number"
-              step="0.001"
-              min="0"
-              name="quantite"
-              placeholder="Quantite"
-              required
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-            />
+            <QuantitePourcentField total={totalQuantite} quantiteName="quantite" />
             <button
               type="submit"
               className="rounded-2xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"

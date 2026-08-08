@@ -75,6 +75,9 @@ export async function createRecetteCompleteAction(formData: FormData) {
     throw new Error("Choisis un article dans la liste (clique une suggestion).");
   }
 
+  const quantiteBaseRaw = String(formData.get("quantite_recette_base") || "").trim().replace(",", ".");
+  const quantiteBase = quantiteBaseRaw ? Number(quantiteBaseRaw) : null;
+
   const mpIds = formData.getAll("mp_article_id").map((value) => Number(value));
   const quantites = formData.getAll("quantite_ligne").map((value) => {
     const parsed = Number(String(value).trim().replace(",", "."));
@@ -101,12 +104,49 @@ export async function createRecetteCompleteAction(formData: FormData) {
     throw new Error(error.message);
   }
 
+  if (quantiteBase !== null && !Number.isNaN(quantiteBase)) {
+    const { error: articleError } = await supabaseServer
+      .from("articles")
+      .update({ quantite_recette_base: quantiteBase })
+      .eq("id", articlePfId);
+
+    if (articleError) {
+      throw new Error(articleError.message);
+    }
+  }
+
   revalidateRecettePages(articlePfId);
   redirect(
     pageKey === "recetteFabrication"
       ? `/production/recette-fabrication/${articlePfId}`
       : `/production/recette-conditionnement/${articlePfId}`
   );
+}
+
+export async function updateQuantiteBaseAction(formData: FormData) {
+  const pageKey = String(formData.get("page_key") || "recetteFabrication") as
+    | "recetteFabrication"
+    | "recetteConditionnement";
+  await requireRecetteWriteAccess(pageKey);
+
+  const articlePfId = Number(formData.get("article_pf_id") || "0");
+  if (!articlePfId) {
+    throw new Error("Article invalide.");
+  }
+
+  const raw = String(formData.get("quantite_recette_base") || "").trim().replace(",", ".");
+  const quantiteBase = raw ? Number(raw) : null;
+
+  const { error } = await supabaseServer
+    .from("articles")
+    .update({ quantite_recette_base: Number.isNaN(quantiteBase) ? null : quantiteBase })
+    .eq("id", articlePfId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateRecettePages(articlePfId);
 }
 
 export async function updateRecetteLigneAction(formData: FormData) {

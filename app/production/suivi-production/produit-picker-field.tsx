@@ -11,11 +11,13 @@ export function ProduitPickerField({
   defaultValue = "",
   hiddenName = "article_id",
   textName = "produit",
+  onSelect,
 }: {
   articles: { id: number; label: string }[];
   defaultValue?: string;
   hiddenName?: string;
   textName?: string;
+  onSelect?: (articleId: number | null) => void;
 }) {
   const [value, setValue] = useState(defaultValue);
   const [articleId, setArticleId] = useState<number | null>(null);
@@ -56,6 +58,7 @@ export function ProduitPickerField({
           setValue(event.target.value);
           setArticleId(null);
           setShowDropdown(true);
+          onSelect?.(null);
         }}
         onFocus={() => setShowDropdown(true)}
         onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
@@ -75,6 +78,7 @@ export function ProduitPickerField({
                 setValue(article.label);
                 setArticleId(article.id);
                 setShowDropdown(false);
+                onSelect?.(article.id);
               }}
               className="block w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
             >

@@ -109,7 +109,7 @@ export default async function NouvelleRecetteConditionnementPage() {
                 <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
                   Articles MP de la formule
                 </h2>
-                <NouvelleRecetteLignes articles={mpOptions} />
+                <NouvelleRecetteLignes articles={mpOptions} uniteBase="carton" />
               </div>
 
               <div>
