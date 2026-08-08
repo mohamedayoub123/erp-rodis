@@ -2,6 +2,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { matchesArticleSearch } from "@/lib/article-search";
 
 type ArticleMpRow = {
@@ -281,6 +282,31 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
   const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
 
+  const exportColumns = [
+    { label: "Article", key: "article" },
+    { label: "Categorie", key: "categorie" },
+    { label: "Unite", key: "unite" },
+    { label: "Conso. moyenne/mois", key: "consommationParMois" },
+    { label: "Stock min (3 mois)", key: "minStock" },
+    { label: "Deja en commande/import", key: "dejaEnCommande" },
+    ...MOIS_LONG.map((mois, idx) => ({ label: mois, key: `mois${idx}` })),
+  ];
+
+  const exportRows = filteredRows.map((row) => {
+    const moisColumns = Object.fromEntries(
+      row.commande_par_mois_depart.map((valeur, idx) => [`mois${idx}`, valeur])
+    );
+    return {
+      article: row.nom_article,
+      categorie: row.categorie || "-",
+      unite: row.unite || "-",
+      consommationParMois: row.consommation_par_mois,
+      minStock: row.min_stock === null ? "-" : row.min_stock,
+      dejaEnCommande: row.deja_en_commande,
+      ...moisColumns,
+    };
+  });
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#fffaf3_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
@@ -304,6 +330,11 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
 
           <div className="flex items-center gap-3">
             <BackButton href="/stock/matiere-premiere/rapport" label="Retour rapport" />
+            <ExportExcelButton
+              rows={exportRows}
+              columns={exportColumns}
+              filename={`besoin-commande-mp-${new Date().toISOString().slice(0, 10)}.xlsx`}
+            />
             <RefreshButton />
           </div>
         </div>

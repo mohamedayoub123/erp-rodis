@@ -2,6 +2,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { matchesArticleSearch } from "@/lib/article-search";
 
 type ArticleMpRow = {
@@ -272,6 +273,28 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
   const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
   const hasFilters = Boolean(articleFilter || categorieFilter);
 
+  const exportColumns = [
+    { label: "Article", key: "article" },
+    { label: "Categorie", key: "categorie" },
+    { label: "Unite", key: "unite" },
+    { label: "Stock actuel", key: "stockActuel" },
+    { label: "Deja en commande/import", key: "dejaEnCommande" },
+    { label: `Objectif (${MOIS_LONG[moisIdx]}, 9 mois)`, key: "objectif" },
+    { label: "Stock min (3 mois)", key: "minStock" },
+    { label: "A commander", key: "aCommander" },
+  ];
+
+  const exportRows = propositionRows.map((row) => ({
+    article: row.nom_article,
+    categorie: row.categorie || "-",
+    unite: row.unite || "-",
+    stockActuel: row.stock_actuel,
+    dejaEnCommande: row.deja_en_commande,
+    objectif: row.objectif,
+    minStock: row.min_stock === null ? "-" : row.min_stock,
+    aCommander: row.a_commander,
+  }));
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#fffaf3_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
@@ -295,6 +318,11 @@ export default async function PropositionCommandeMpPage({ searchParams }: { sear
 
           <div className="flex items-center gap-3">
             <BackButton href="/stock/matiere-premiere/rapport" label="Retour rapport" />
+            <ExportExcelButton
+              rows={exportRows}
+              columns={exportColumns}
+              filename={`proposition-commande-mp-${new Date().toISOString().slice(0, 10)}.xlsx`}
+            />
             <RefreshButton />
           </div>
         </div>

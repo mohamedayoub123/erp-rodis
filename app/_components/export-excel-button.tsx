@@ -31,6 +31,11 @@ export function ExportExcelButton({
       return { wch: Math.min(Math.max(longest + 2, 10), 60) };
     });
 
+    // Filtre sur toutes les colonnes (fleches de tri/filtre Excel sur la
+    // ligne de titres).
+    const lastCol = XLSX.utils.encode_col(columns.length - 1);
+    worksheet["!autofilter"] = { ref: `A1:${lastCol}${rows.length + 1}` };
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Export");
     XLSX.writeFile(workbook, filename);
