@@ -5,6 +5,13 @@ import { getCurrentStockUser, getPageViewMap } from "@/lib/stock-auth";
 
 const TILES = [
   {
+    label: "Programme",
+    href: "/production/programme",
+    pageKey: "programme",
+    icon: "\u{1F4C5}",
+    description: "Article + machines Fabrication/Conditionnement/Emballage : qt carton et vrac calculees automatiquement selon la capacite machine.",
+  },
+  {
     label: "Planning Production",
     href: "/production/suivi",
     pageKey: "productionSuiviHub",
