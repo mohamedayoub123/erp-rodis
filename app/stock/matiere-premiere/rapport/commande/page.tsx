@@ -104,14 +104,15 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ article?: string; categorie?: string }>;
+type SearchParams = Promise<{ article?: string; categorie?: string; hide_low_conso?: string }>;
 
 export default async function RapportBesoinCommandeMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
   const params = await searchParams;
   const articleFilter = (params.article || "").trim();
   const categorieFilter = (params.categorie || "").trim().toLowerCase();
-  const hasFilters = Boolean(articleFilter || categorieFilter);
+  const hideLowConso = (params.hide_low_conso || "").trim() === "1";
+  const hasFilters = Boolean(articleFilter || categorieFilter || hideLowConso);
 
   const twelveMonthsAgo = new Date();
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
@@ -167,6 +168,7 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
   const filteredRows = besoinRows
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
     .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
+    .filter((row) => !hideLowConso || row.consommation_par_mois > 1)
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
@@ -200,7 +202,7 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <form className="grid gap-3 sm:grid-cols-3">
+          <form className="grid gap-3 sm:grid-cols-4">
             <input
               type="text"
               name="article"
@@ -229,6 +231,16 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
                 <option key={option} value={option} />
               ))}
             </datalist>
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                name="hide_low_conso"
+                value="1"
+                defaultChecked={hideLowConso}
+                className="h-4 w-4"
+              />
+              Cacher consommation/mois a 1 ou moins
+            </label>
             <div className="flex gap-3">
               <button
                 type="submit"
