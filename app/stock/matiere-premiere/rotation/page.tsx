@@ -26,6 +26,7 @@ type RotationRow = {
   stock_actuel: number;
   stock_moyen: number;
   consommation_12_mois: number;
+  consommation_par_mois: number;
   rotation: number | null;
   jours_couverture: number | null;
 };
@@ -150,6 +151,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
         stock_actuel: stockActuel,
         stock_moyen: stockMoyen,
         consommation_12_mois: consommation,
+        consommation_par_mois: consommation / 12,
         rotation: stockMoyen > 0 ? consommation / stockMoyen : null,
         jours_couverture: consommation > 0 ? (stockActuel * 365) / consommation : null,
       };
@@ -257,6 +259,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                     <th className="px-6 py-4 font-semibold">Stock actuel</th>
                     <th className="px-6 py-4 font-semibold">Stock moyen (12 mois)</th>
                     <th className="px-6 py-4 font-semibold">Consommation (12 mois)</th>
+                    <th className="px-6 py-4 font-semibold">Consommation par mois</th>
                     <th className="px-6 py-4 font-semibold">Rotation</th>
                     <th className="px-6 py-4 font-semibold">Jours de couverture</th>
                   </tr>
@@ -271,6 +274,9 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_moyen)}</td>
                       <td className="px-6 py-4 font-semibold text-sky-700">
                         {formatNumber(row.consommation_12_mois)}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {formatNumber(row.consommation_par_mois)}
                       </td>
                       <td className="px-6 py-4">
                         {row.rotation === null ? (
