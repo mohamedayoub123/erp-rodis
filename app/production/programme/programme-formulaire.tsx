@@ -63,11 +63,11 @@ function ligneVide(key: number): Ligne {
 // Calcul automatique qt carton / qt vrac par ligne, a partir de la
 // capacite des machines choisies (table machine_produits) : la machine
 // Conditionnement donne une capacite en piece/min pour l'article fini, la
-// machine Fabrication donne un lot min/max de vrac pour le vrac
-// correspondant. Si ce que la ligne de conditionnement peut produire dans
-// la duree prevue pese moins lourd (en vrac necessaire) que ce que la
-// fabrication peut fournir, on limite le vrac a ce que le conditionnement
-// peut vraiment consommer - sinon on part du lot de fabrication max.
+// machine Fabrication une cadence de vrac par heure. Le qt carton suit
+// TOUJOURS la capacite de la chaine de conditionnement (jamais limite par
+// ce que la fabrication peut fournir) - le qt vrac est ensuite derive de ce
+// qt carton (qt carton x contenance x piece/carton). Si aucune machine de
+// conditionnement n'est choisie, le vrac suit alors la fabrication seule.
 export function ProgrammeFormulaire({
   articles,
   machinesFabrication,
@@ -116,21 +116,14 @@ export function ProgrammeFormulaire({
     const vracDisponibleFabrication =
       capaciteFabrication?.capaciteMax != null ? capaciteFabrication.capaciteMax * (duree / 60) : null;
 
-    let carton: number | null = cartonMaxConditionnement;
-    let vrac: number | null = vracDisponibleFabrication;
+    let carton: number | null = null;
+    let vrac: number | null = null;
 
-    if (vracParCarton && cartonMaxConditionnement !== null && vracDisponibleFabrication !== null) {
-      const vracNecessaire = cartonMaxConditionnement * vracParCarton;
-      if (vracNecessaire < vracDisponibleFabrication) {
-        vrac = round(vracNecessaire);
-        carton = round(cartonMaxConditionnement);
-      } else {
-        vrac = round(vracDisponibleFabrication);
-        carton = round(vracDisponibleFabrication / vracParCarton);
-      }
-    } else if (cartonMaxConditionnement !== null) {
+    if (cartonMaxConditionnement !== null) {
+      // La chaine de conditionnement decide toujours du qt carton - le vrac
+      // necessaire en decoule, jamais l'inverse.
       carton = round(cartonMaxConditionnement);
-      vrac = vracParCarton ? round(cartonMaxConditionnement * vracParCarton) : vrac;
+      vrac = vracParCarton ? round(carton * vracParCarton) : null;
     } else if (vracDisponibleFabrication !== null && vracParCarton) {
       vrac = round(vracDisponibleFabrication);
       carton = round(vracDisponibleFabrication / vracParCarton);
