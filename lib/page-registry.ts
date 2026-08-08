@@ -141,6 +141,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "stockRotationMp",
+    module: "Stock",
+    label: "Rotation de Stock MP",
+    pathPrefixes: ["/stock/matiere-premiere/rotation"],
+    hasWrite: false,
+  },
+  {
     key: "stockPerimeMp",
     module: "Stock",
     label: "Stock Perime MP (liste + note)",
@@ -581,6 +588,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockMatierePremiere",
   "stockAlerteMp",
   "stockActuelMp",
+  "stockRotationMp",
   "stockRapportMp",
   "stockPerimeMp",
   "stockDormantMp",

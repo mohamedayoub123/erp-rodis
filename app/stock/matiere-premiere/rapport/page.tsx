@@ -11,6 +11,13 @@ const TILES = [
     icon: "\u{1F4CB}",
     description: "Tous les articles avec leur stock actuel, filtre Article/Code/Categorie, BC et import.",
   },
+  {
+    label: "Rotation de Stock",
+    href: "/stock/matiere-premiere/rotation",
+    pageKey: "stockRotationMp",
+    icon: "\u{1F504}",
+    description: "Vitesse de rotation de chaque article (consommation 12 mois / stock actuel) et jours de couverture.",
+  },
 ] as const;
 
 export default async function RapportMpPage() {

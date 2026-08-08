@@ -192,6 +192,7 @@ function formatNumber(value: number) {
 type SearchParams = Promise<{
   q?: string;
   categorie?: string;
+  hide_low_threshold?: string;
 }>;
 
 export default async function StockAlerteMpPage({
@@ -205,6 +206,7 @@ export default async function StockAlerteMpPage({
   const categorieFilter = (params.categorie || "").trim();
   const qLower = q.toLowerCase();
   const categorieLower = categorieFilter.toLowerCase();
+  const hideLowThreshold = (params.hide_low_threshold || "").trim() === "1";
 
   const [
     { rows: articles, error: articlesError },
@@ -343,6 +345,7 @@ export default async function StockAlerteMpPage({
     .filter((row) => row.stock_actuel <= row.min_stock)
     .filter((row) => !qLower || matchesArticleSearch(row.nom_article, qLower))
     .filter((row) => !categorieLower || (row.categorie || "").toLowerCase().includes(categorieLower))
+    .filter((row) => !hideLowThreshold || row.min_stock > 1)
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
@@ -372,7 +375,7 @@ export default async function StockAlerteMpPage({
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <form className="grid gap-3 sm:grid-cols-3">
+          <form className="grid gap-3 sm:grid-cols-4">
             <input
               type="text"
               name="q"
@@ -401,6 +404,16 @@ export default async function StockAlerteMpPage({
                 <option key={option} value={option} />
               ))}
             </datalist>
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                name="hide_low_threshold"
+                value="1"
+                defaultChecked={hideLowThreshold}
+                className="h-4 w-4"
+              />
+              Cacher Stock alert a 1 ou moins
+            </label>
             <button
               type="submit"
               className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
