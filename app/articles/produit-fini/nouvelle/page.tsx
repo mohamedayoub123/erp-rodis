@@ -63,6 +63,17 @@ export default async function NouvelArticlePage() {
                     placeholder="Gamme"
                     className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                   />
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Nature
+                    <select
+                      name="nature"
+                      defaultValue="fini"
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    >
+                      <option value="fini">Produit fini (conditionnement)</option>
+                      <option value="vrac">Vrac (fabrication)</option>
+                    </select>
+                  </label>
                 </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <input

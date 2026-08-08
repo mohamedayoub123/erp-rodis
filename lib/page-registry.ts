@@ -495,6 +495,18 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "recetteFabrication",
+    module: "Production",
+    label: "Recette Fabrication",
+    pathPrefixes: ["/production/recette-fabrication"],
+  },
+  {
+    key: "recetteConditionnement",
+    module: "Production",
+    label: "Recette Conditionnement",
+    pathPrefixes: ["/production/recette-conditionnement"],
+  },
+  {
     key: "machines",
     module: "Production",
     label: "Machines",
