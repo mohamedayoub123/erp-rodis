@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
@@ -56,6 +57,56 @@ export async function addRecetteLigneAction(formData: FormData) {
   }
 
   revalidateRecettePages(articlePfId);
+}
+
+// Cree une recette complete en un seul envoi : article PF choisi en haut du
+// formulaire (champ cache "article_pf_id", ecrit par ProduitPickerField),
+// suivi d'autant de lignes MP que l'utilisateur en a ajoutees - chaque ligne
+// ecrit sous les memes noms "mp_article_id"/"quantite_ligne", getAll() les
+// relit dans l'ordre du DOM (les deux tableaux se correspondent par index).
+export async function createRecetteCompleteAction(formData: FormData) {
+  const pageKey = String(formData.get("page_key") || "recetteFabrication") as
+    | "recetteFabrication"
+    | "recetteConditionnement";
+  await requireRecetteWriteAccess(pageKey);
+
+  const articlePfId = Number(formData.get("article_pf_id") || "0");
+  if (!articlePfId) {
+    throw new Error("Choisis un article dans la liste (clique une suggestion).");
+  }
+
+  const mpIds = formData.getAll("mp_article_id").map((value) => Number(value));
+  const quantites = formData.getAll("quantite_ligne").map((value) => {
+    const parsed = Number(String(value).trim().replace(",", "."));
+    return Number.isNaN(parsed) ? 0 : parsed;
+  });
+
+  const lignes = mpIds
+    .map((articleMpId, index) => ({
+      article_pf_id: articlePfId,
+      article_mp_id: articleMpId,
+      quantite: quantites[index] ?? 0,
+    }))
+    .filter((ligne) => ligne.article_mp_id > 0);
+
+  if (lignes.length === 0) {
+    throw new Error("Ajoute au moins un article MP a la recette.");
+  }
+
+  const { error } = await supabaseServer
+    .from("recettes_pf")
+    .upsert(lignes, { onConflict: "article_pf_id,article_mp_id" });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateRecettePages(articlePfId);
+  redirect(
+    pageKey === "recetteFabrication"
+      ? `/production/recette-fabrication/${articlePfId}`
+      : `/production/recette-conditionnement/${articlePfId}`
+  );
 }
 
 export async function updateRecetteLigneAction(formData: FormData) {

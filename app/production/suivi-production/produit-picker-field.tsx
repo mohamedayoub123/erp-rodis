@@ -9,9 +9,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 export function ProduitPickerField({
   articles,
   defaultValue = "",
+  hiddenName = "article_id",
+  textName = "produit",
 }: {
   articles: { id: number; label: string }[];
   defaultValue?: string;
+  hiddenName?: string;
+  textName?: string;
 }) {
   const [value, setValue] = useState(defaultValue);
   const [articleId, setArticleId] = useState<number | null>(null);
@@ -42,11 +46,11 @@ export function ProduitPickerField({
 
   return (
     <div className="relative">
-      <input type="hidden" name="article_id" value={articleId ?? ""} />
+      <input type="hidden" name={hiddenName} value={articleId ?? ""} />
       <input
         ref={inputRef}
         type="text"
-        name="produit"
+        name={textName}
         value={value}
         onChange={(event) => {
           setValue(event.target.value);

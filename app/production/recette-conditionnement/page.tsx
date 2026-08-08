@@ -105,6 +105,12 @@ export default async function RecetteConditionnementListPage({ searchParams }: {
 
           <div className="flex items-center gap-3">
             <BackButton href="/production" label="Retour production" />
+            <Link
+              href="/production/recette-conditionnement/nouvelle"
+              className="rounded-full bg-sky-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-sky-500"
+            >
+              Ajouter une recette
+            </Link>
             <RefreshButton />
           </div>
         </div>
