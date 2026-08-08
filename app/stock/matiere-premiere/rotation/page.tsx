@@ -24,6 +24,7 @@ type RotationRow = {
   categorie: string | null;
   unite: string | null;
   stock_actuel: number;
+  stock_avant_12_mois: number;
   stock_moyen: number;
   consommation_12_mois: number;
   consommation_par_mois: number;
@@ -99,6 +100,9 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   // (meme calcul que Stock Actuel MP / Stock Alert MP). Consommation 12 mois
   // = sortie des 12 derniers mois seulement (date_jour, meme convention
   // "AAAA-MM-JJ" que le reste de l'appli - comparaison de chaines directe).
+  // Consommation dernier mois = sortie reelle du dernier mois (pas le total
+  // 12 mois divise par 12 - une vraie fenetre glissante d'un mois, meme
+  // logique que "Consommation dernier mois" sur Stock Alert MP).
   // Stock avant 12 mois = solde des mouvements anterieurs au debut de la
   // periode (ou sans date, traites comme anterieurs) - sert a calculer un
   // stock moyen sur la periode plutot que le seul stock du jour.
@@ -106,9 +110,14 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
   const twelveMonthsAgoIso = twelveMonthsAgo.toISOString().slice(0, 10);
 
+  const oneMonthAgo = new Date();
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+  const oneMonthAgoIso = oneMonthAgo.toISOString().slice(0, 10);
+
   const stockByArticle = new Map<number, number>();
   const stockAvant12MoisByArticle = new Map<number, number>();
   const consommation12MoisByArticle = new Map<number, number>();
+  const consommation1MoisByArticle = new Map<number, number>();
   for (const row of mouvements) {
     if (!row.article_id) continue;
     const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
@@ -127,6 +136,13 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
         (consommation12MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_sortie ?? 0)
       );
     }
+
+    if (row.date_jour && row.date_jour >= oneMonthAgoIso) {
+      consommation1MoisByArticle.set(
+        row.article_id,
+        (consommation1MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_sortie ?? 0)
+      );
+    }
   }
 
   // Rotation = consommation des 12 derniers mois / stock MOYEN sur la
@@ -142,6 +158,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
       const stockAvant12Mois = stockAvant12MoisByArticle.get(article.id) ?? 0;
       const stockMoyen = (stockAvant12Mois + stockActuel) / 2;
       const consommation = consommation12MoisByArticle.get(article.id) ?? 0;
+      const consommation1Mois = consommation1MoisByArticle.get(article.id) ?? 0;
 
       return {
         article_id: article.id,
@@ -149,9 +166,10 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
         categorie: article.categorie,
         unite: article.unite,
         stock_actuel: stockActuel,
+        stock_avant_12_mois: stockAvant12Mois,
         stock_moyen: stockMoyen,
         consommation_12_mois: consommation,
-        consommation_par_mois: consommation / 12,
+        consommation_par_mois: consommation1Mois,
         rotation: stockMoyen > 0 ? consommation / stockMoyen : null,
         jours_couverture: consommation > 0 ? (stockActuel * 365) / consommation : null,
       };
@@ -257,9 +275,10 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                     <th className="px-6 py-4 font-semibold">Categorie</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Stock actuel</th>
+                    <th className="px-6 py-4 font-semibold">Stock il y a 12 mois</th>
                     <th className="px-6 py-4 font-semibold">Stock moyen (12 mois)</th>
                     <th className="px-6 py-4 font-semibold">Consommation (12 mois)</th>
-                    <th className="px-6 py-4 font-semibold">Consommation par mois</th>
+                    <th className="px-6 py-4 font-semibold">Consommation (dernier mois)</th>
                     <th className="px-6 py-4 font-semibold">Rotation</th>
                     <th className="px-6 py-4 font-semibold">Jours de couverture</th>
                   </tr>
@@ -271,6 +290,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_actuel)}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_avant_12_mois)}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_moyen)}</td>
                       <td className="px-6 py-4 font-semibold text-sky-700">
                         {formatNumber(row.consommation_12_mois)}
