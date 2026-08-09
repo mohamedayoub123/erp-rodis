@@ -71,6 +71,23 @@ export default async function ProduitMouvementPage({
 
   const depotNomById = new Map(((depotsData as { id: number; nom: string }[] | null) ?? []).map((d) => [d.id, d.nom]));
 
+  // Solde apres chaque mouvement (tous depots confondus, meme total que la
+  // ligne "Total" de l'onglet Stock) - calcule dans l'ordre CHRONOLOGIQUE
+  // (le plus ancien d'abord), puis reaffiche du plus recent au plus ancien.
+  const chronological = [...lots].sort((a, b) => {
+    const dateA = a.date_jour || "";
+    const dateB = b.date_jour || "";
+    if (dateA !== dateB) return dateA.localeCompare(dateB);
+    return a.id - b.id;
+  });
+
+  let runningBalance = 0;
+  const soldeApresById = new Map<number, number>();
+  for (const lot of chronological) {
+    runningBalance += Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0);
+    soldeApresById.set(lot.id, runningBalance);
+  }
+
   const rows = [...lots].sort((a, b) => {
     const dateA = a.date_jour || "";
     const dateB = b.date_jour || "";
@@ -90,6 +107,7 @@ export default async function ProduitMouvementPage({
                 <th className="px-6 py-4 font-semibold">Date</th>
                 <th className="px-6 py-4 font-semibold">Type</th>
                 <th className="px-6 py-4 font-semibold">Quantite</th>
+                <th className="px-6 py-4 font-semibold">Stock a ce jour</th>
                 <th className="px-6 py-4 font-semibold">Depot</th>
                 <th className="px-6 py-4 font-semibold">Lot</th>
                 <th className="px-6 py-4 font-semibold">Fait par</th>
@@ -115,6 +133,9 @@ export default async function ProduitMouvementPage({
                       </span>
                     </td>
                     <td className="px-6 py-4 font-medium text-slate-900">{formatNumber(quantite)}</td>
+                    <td className="px-6 py-4 font-semibold text-slate-900">
+                      {formatNumber(soldeApresById.get(row.id) ?? 0)}
+                    </td>
                     <td className="px-6 py-4 text-slate-600">
                       {row.depot_id ? depotNomById.get(row.depot_id) ?? "-" : "-"}
                     </td>
