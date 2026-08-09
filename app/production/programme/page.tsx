@@ -17,6 +17,7 @@ type ProgrammeRow = {
   qt_carton: number;
   qt_vrac: number;
   date_jour: string;
+  numero_programme: number | null;
   utilisateur: string | null;
 };
 
@@ -29,7 +30,7 @@ async function fetchAllProgrammes() {
     const { data, error } = await supabaseServer
       .from("programmes")
       .select(
-        "id, article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, date_jour, utilisateur"
+        "id, article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, date_jour, numero_programme, utilisateur"
       )
       .order("date_jour", { ascending: false })
       .order("id", { ascending: false })
@@ -111,6 +112,7 @@ export default async function ProgrammePage() {
               <table className="min-w-full text-left text-sm">
                 <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
                   <tr>
+                    <th className="px-6 py-4 font-semibold">Programme</th>
                     <th className="px-6 py-4 font-semibold">Date</th>
                     <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Vrac</th>
@@ -125,6 +127,9 @@ export default async function ProgrammePage() {
                 <tbody>
                   {programmes.map((programme) => (
                     <tr key={programme.id} className="border-t border-slate-100">
+                      <td className="px-6 py-4 font-semibold text-slate-900">
+                        {programme.numero_programme ? `MB${programme.numero_programme}` : "-"}
+                      </td>
                       <td className="px-6 py-4 text-slate-600">{formatDate(programme.date_jour)}</td>
                       <td className="px-6 py-4 font-medium text-slate-900">
                         {articleById.get(programme.article_id) || `#${programme.article_id}`}

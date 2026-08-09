@@ -31,11 +31,21 @@ function parseIdValue(raw: FormDataEntryValue | undefined) {
 // les champs (article_id, machine_*, qt_*...) sont ecrits sous le meme nom
 // sur chaque ligne du formulaire - getAll() les relit dans l'ordre du DOM,
 // les tableaux se correspondent tous par position. Une seule date pour
-// tout le programme.
+// tout le programme, et un seul numero de programme (MB1, MB2...) partage
+// par toutes les lignes de cet envoi - le prochain numero est simplement le
+// plus grand numero_programme existant + 1.
 export async function createProgrammeAction(formData: FormData) {
   const currentUser = await requireProgrammeWriteAccess();
 
   const dateJour = String(formData.get("date_jour") || "").trim() || new Date().toISOString().slice(0, 10);
+
+  const { data: dernierProgramme } = await supabaseServer
+    .from("programmes")
+    .select("numero_programme")
+    .order("numero_programme", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const numeroProgramme = ((dernierProgramme as { numero_programme: number | null } | null)?.numero_programme ?? 0) + 1;
 
   const articleIds = formData.getAll("article_id");
   const vracArticleIds = formData.getAll("vrac_article_id");
@@ -55,6 +65,7 @@ export async function createProgrammeAction(formData: FormData) {
       qt_carton: parseOptionalNumberValue(qtCartons[index]) ?? 0,
       qt_vrac: parseOptionalNumberValue(qtVracs[index]) ?? 0,
       date_jour: dateJour,
+      numero_programme: numeroProgramme,
       utilisateur: currentUser || null,
     }))
     .filter((ligne) => ligne.article_id !== null);
