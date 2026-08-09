@@ -174,6 +174,12 @@ export default async function ProgrammeDetailPage({
             >
               Verifier stock
             </Link>
+            <Link
+              href={`/production/programme/${numeroProgramme}/dispatch`}
+              className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+            >
+              Voir dispatch
+            </Link>
             {canWrite ? (
               <form action={dispatchProgrammeAction}>
                 <input type="hidden" name="numero_programme" value={numeroProgramme} />

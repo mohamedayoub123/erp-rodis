@@ -1,0 +1,186 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { supabaseServer } from "@/lib/supabase-server";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { extractTrailingNumber } from "@/lib/article-code-family";
+
+// Meme principe que saveProgrammeDispatcherSnapshotAction (app/ravitailleur-par-ligne/
+// dispatcher-actions.ts), mais filtre par groupe_id (= -numero_programme, voir
+// dispatchProgrammeAction) plutot que par zone - cette page ne montre QUE les
+// lignes de dispatch de ce programme (MB) precis, jamais melangees aux autres
+// chaines/zones reelles. sourceGroupeIds ici sera toujours vide (aucune ligne
+// programme_lignes n'a de groupe_id negatif) : la confirmation
+// confirme_production ne touche donc jamais programme_lignes pour ce chemin,
+// mais applyPendingArticleCodeUpdates reste necessaire pour transformer les
+// codes en attente (pending_article_code_updates, ecrits au Dispatch) en
+// codes definitifs sur les articles.
+async function applyPendingArticleCodeUpdates(groupeIds: number[]): Promise<void> {
+  if (groupeIds.length === 0) return;
+
+  const { data: pendingRows, error: fetchError } = await supabaseServer
+    .from("pending_article_code_updates")
+    .select("article_id, code_manu, code_auto")
+    .in("groupe_id", groupeIds);
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  const rows =
+    (pendingRows as { article_id: number; code_manu: string | null; code_auto: string | null }[] | null) ?? [];
+
+  if (rows.length > 0) {
+    const bestByArticleId = new Map<number, { code_manu: string | null; code_auto: string | null }>();
+
+    for (const row of rows) {
+      const current = bestByArticleId.get(row.article_id) ?? { code_manu: null, code_auto: null };
+
+      const currentManuNum = current.code_manu ? extractTrailingNumber(current.code_manu) : null;
+      const rowManuNum = row.code_manu ? extractTrailingNumber(row.code_manu) : null;
+      if (rowManuNum !== null && (currentManuNum === null || rowManuNum > currentManuNum)) {
+        current.code_manu = row.code_manu;
+      }
+
+      const currentAutoNum = current.code_auto ? extractTrailingNumber(current.code_auto) : null;
+      const rowAutoNum = row.code_auto ? extractTrailingNumber(row.code_auto) : null;
+      if (rowAutoNum !== null && (currentAutoNum === null || rowAutoNum > currentAutoNum)) {
+        current.code_auto = row.code_auto;
+      }
+
+      bestByArticleId.set(row.article_id, current);
+    }
+
+    const { error: applyError } = await supabaseServer.rpc("articles_bulk_update_codes", {
+      p_updates: [...bestByArticleId.entries()].map(([articleId, update]) => ({
+        id: articleId,
+        code_manu: update.code_manu,
+        code_auto: update.code_auto,
+      })),
+    });
+
+    if (applyError) {
+      throw new Error(applyError.message);
+    }
+  }
+
+  const { error: deleteError } = await supabaseServer
+    .from("pending_article_code_updates")
+    .delete()
+    .in("groupe_id", groupeIds);
+
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+}
+
+export async function saveProgrammeDispatchByGroupAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "ravitailleurParLigne"))) {
+    throw new Error("Cet utilisateur ne peut pas enregistrer.");
+  }
+
+  const numeroProgramme = Number(formData.get("numero_programme") || "0");
+  if (!numeroProgramme) {
+    throw new Error("Programme invalide.");
+  }
+  const groupeId = -numeroProgramme;
+
+  const { data: currentRows, error: fetchError } = await supabaseServer
+    .from("programme_dispatcher_lignes")
+    .select("zone, article_id, date_jour, chaine, produit, code, qt_carton, qt_vrac, groupe_id")
+    .eq("groupe_id", groupeId);
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  const rows = (currentRows ?? []).map((row) => ({ ...row, cree_par: currentUser }));
+
+  if (rows.length === 0) {
+    throw new Error("Rien a enregistrer pour ce programme.");
+  }
+
+  const historyRows = rows.map(({ groupe_id, ...rest }) => ({ ...rest, source_groupe_id: groupe_id }));
+
+  const existingGroupIds = new Set<number>();
+  let fromIndex = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data: groupRows, error: groupFetchError } = await supabaseServer
+      .from("programme_dispatcher_history")
+      .select("groupe_id")
+      .range(fromIndex, fromIndex + pageSize - 1);
+
+    if (groupFetchError) {
+      throw new Error(groupFetchError.message);
+    }
+
+    const chunk = (groupRows as { groupe_id: number }[] | null) ?? [];
+    chunk.forEach((row) => {
+      if (row.groupe_id !== null) existingGroupIds.add(row.groupe_id);
+    });
+
+    if (chunk.length < pageSize) break;
+    fromIndex += pageSize;
+  }
+
+  const generatedCode = `PD${existingGroupIds.size + 1}`;
+
+  const { data: inserted, error: insertError } = await supabaseServer
+    .from("programme_dispatcher_history")
+    .insert(historyRows)
+    .select("id");
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  const insertedIds = ((inserted as { id: number }[] | null) ?? []).map((row) => row.id);
+  const historyGroupeId = Math.min(...insertedIds);
+
+  const { error: groupUpdateError } = await supabaseServer
+    .from("programme_dispatcher_history")
+    .update({ groupe_id: historyGroupeId })
+    .in("id", insertedIds);
+
+  if (groupUpdateError) {
+    throw new Error(groupUpdateError.message);
+  }
+
+  await applyPendingArticleCodeUpdates([groupeId]);
+
+  revalidatePath(`/production/programme/${numeroProgramme}/dispatch`);
+  revalidatePath("/historique-programme-dispatcher");
+  revalidatePath("/production/suivi/dashboard");
+  revalidatePath("/production/suivi/calendrier");
+  revalidatePath("/articles/produit-fini");
+
+  return { ok: true, code: generatedCode, groupe_id: historyGroupeId };
+}
+
+export async function deleteProgrammeDispatchByGroupAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canDeletePageUser(currentUser, "ravitailleurParLigne"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer.");
+  }
+
+  const numeroProgramme = Number(formData.get("numero_programme") || "0");
+  if (!numeroProgramme) {
+    throw new Error("Programme invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("programme_dispatcher_lignes")
+    .delete()
+    .eq("groupe_id", -numeroProgramme);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath(`/production/programme/${numeroProgramme}/dispatch`);
+}

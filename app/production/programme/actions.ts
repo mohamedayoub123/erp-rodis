@@ -422,6 +422,13 @@ export async function dispatchProgrammeAction(formData: FormData) {
 
   revalidatePath("/production/programme");
   revalidatePath(`/production/programme/${numeroProgramme}`);
+  revalidatePath(`/production/programme/${numeroProgramme}/dispatch`);
   revalidatePath("/ravitailleur-par-ligne");
-  redirect("/ravitailleur-par-ligne");
+
+  // Redirige vers une page dediee qui ne montre QUE les lignes de CE
+  // programme (via groupe_id = -numero_programme), jamais melangees a la
+  // production reelle des autres chaines/zones - contrairement aux vues
+  // Ravitailleur par zone/"Toutes les zones", qui restent des vues globales
+  // partagees avec tout le reste de la production.
+  redirect(`/production/programme/${numeroProgramme}/dispatch`);
 }
