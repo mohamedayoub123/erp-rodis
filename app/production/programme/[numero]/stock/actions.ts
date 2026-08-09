@@ -35,10 +35,17 @@ function mapTypeArticleToGroupe(typeArticle: string | null): string {
 
 // COLORANT PLAS. / Col_Cosm / Col_cosm dans les donnees reelles - toujours
 // une categorie a part, jamais melangee avec le reste de la MP d'un meme
-// groupe.
-function isColorant(categorie: string | null): boolean {
-  const normalized = (categorie || "").toUpperCase();
-  return normalized.includes("COLORANT") || normalized.includes("COL_COSM") || normalized.includes("COL COSM");
+// groupe. "BASE" (categorie exacte) recoit le meme traitement - une TO a
+// part elle aussi, jamais melangee avec le reste.
+function categorieSousGroupe(categorie: string | null): string {
+  const normalized = (categorie || "").trim().toUpperCase();
+  if (normalized.includes("COLORANT") || normalized.includes("COL_COSM") || normalized.includes("COL COSM")) {
+    return "Colorant";
+  }
+  if (normalized === "BASE") {
+    return "Base";
+  }
+  return "Autre";
 }
 
 function round(value: number, decimals = 3) {
@@ -47,8 +54,8 @@ function round(value: number, decimals = 3) {
 }
 
 // Cree automatiquement un Transfer Order par famille de produit fini
-// (Clarifiant, Hydratant...), avec la MP Colorant toujours dans une TO a
-// part de celle du reste - vers "Depot B", a partir du depot par defaut de
+// (Clarifiant, Hydratant...), avec la MP Colorant et la MP Base chacune
+// dans leur propre TO a part du reste - vers "Depot B", a partir du depot par defaut de
 // chaque article MP. Quantite plafonnee au stock reellement disponible
 // (jamais plus) ; un article sans aucun stock disponible est simplement
 // exclu (pas d'echec global pour un seul article en rupture).
@@ -153,9 +160,9 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
   const skipped: { articleId: number; besoin: number; disponible: number }[] = [];
 
   for (const [groupe, besoinMap] of besoinParGroupeMp.entries()) {
-    // Colorant toujours a part du reste, meme groupe de type - et par depot
-    // source (rare que ca varie, mais un Transfer Order n'a qu'un seul
-    // depot source).
+    // Colorant et Base toujours a part du reste (et l'un de l'autre), meme
+    // groupe de type - et par depot source (rare que ca varie, mais un
+    // Transfer Order n'a qu'un seul depot source).
     const buckets = new Map<string, { mpArticleId: number; quantite: number; depotSourceId: number }[]>();
 
     for (const [mpArticleId, besoin] of besoinMap.entries()) {
@@ -164,7 +171,7 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
       const depotSourceId = mpArticle?.depot_id ?? null;
       if (!depotSourceId) continue; // pas de depot par defaut connu pour cet article - impossible de savoir d'ou transferer
 
-      const sousGroupe = isColorant(mpArticle?.categorie ?? null) ? "Colorant" : "Autre";
+      const sousGroupe = categorieSousGroupe(mpArticle?.categorie ?? null);
       const bucketKey = `${sousGroupe}::${depotSourceId}`;
       const list = buckets.get(bucketKey) ?? [];
       list.push({ mpArticleId, quantite: besoin, depotSourceId });

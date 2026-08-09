@@ -160,6 +160,34 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
           </div>
         </section>
 
+        {transferOrder.statut === "en_attente" ? (
+          <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-6 py-4 font-semibold">Article</th>
+                    <th className="px-6 py-4 font-semibold">Qt</th>
+                    <th className="px-6 py-4 font-semibold">Stock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lignesEnrichies.map((ligne) => (
+                    <tr key={ligne.id} className="border-t border-slate-100">
+                      <td className="px-6 py-4 font-medium text-slate-900">{ligne.nom}</td>
+                      <td className="px-6 py-4 text-slate-600">{ligne.quantite_demandee.toLocaleString("fr-FR")}</td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {ligne.lotsDisponibles
+                          .reduce((sum, lot) => sum + lot.solde, 0)
+                          .toLocaleString("fr-FR")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : (
         <section className="space-y-4">
           {lignesEnrichies.map((ligne) => {
             const lotsChoisis = lotsByLigneId.get(ligne.id) ?? [];
@@ -191,12 +219,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                   ) : null}
                 </div>
 
-                {transferOrder.statut === "en_attente" ? (
-                  <p className="px-6 py-4 text-sm text-slate-500">
-                    Les lots seront choisis automatiquement (date la plus proche en premier) a
-                    l&apos;approbation.
-                  </p>
-                ) : ligne.lotsDisponibles.length === 0 ? (
+                {ligne.lotsDisponibles.length === 0 ? (
                   <p className="px-6 py-4 text-sm text-slate-500">Aucun lot disponible dans le depot source.</p>
                 ) : (
                   <form action={updateLigneLotsAction} className="grid gap-3 px-6 py-4">
@@ -255,6 +278,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
             );
           })}
         </section>
+        )}
       </div>
     </main>
   );
