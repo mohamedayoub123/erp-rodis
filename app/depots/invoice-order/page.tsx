@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
+import { deleteInvoiceOrderAction } from "./actions";
 
 type InvoiceOrderRow = {
   id: number;
@@ -53,6 +56,9 @@ function computeCodes(rows: InvoiceOrderRow[]): Map<number, string> {
 
 export default async function InvoiceOrderListPage() {
   noStore();
+
+  const currentUser = await getCurrentStockUser();
+  const canDelete = await canDeletePageUser(currentUser, "depots");
 
   const [{ rows: invoiceOrders, error }, { rows: transferOrders }, { rows: depots }] = await Promise.all([
     fetchAll<InvoiceOrderRow>("invoice_orders", "id, transfer_order_id, statut, date_jour, created_at"),
@@ -109,6 +115,7 @@ export default async function InvoiceOrderListPage() {
                     <th className="px-6 py-4 font-semibold">De</th>
                     <th className="px-6 py-4 font-semibold">Vers</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
+                    {canDelete ? <th className="px-6 py-4 font-semibold"></th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -139,6 +146,14 @@ export default async function InvoiceOrderListPage() {
                             {row.statut === "valide" ? "Approuve" : "En attente"}
                           </span>
                         </td>
+                        {canDelete ? (
+                          <td className="px-6 py-4">
+                            <form action={deleteInvoiceOrderAction}>
+                              <input type="hidden" name="invoice_order_id" value={row.id} />
+                              <DeleteIconButton label={`Supprimer ${codeById.get(row.id)}`} />
+                            </form>
+                          </td>
+                        ) : null}
                       </tr>
                     );
                   })}

@@ -210,6 +210,8 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
           depot_destination_id: depotDestinationId,
           date_jour: dateJour,
           cree_par: currentUser,
+          famille_produit: groupe,
+          type_mp: sousGroupe === "Colorant-Base" ? "MP" : "Conditionnement",
         })
         .select("id")
         .single();

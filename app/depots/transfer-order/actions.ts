@@ -203,7 +203,11 @@ export async function approveTransferOrderAction(formData: FormData) {
 // seul tableau/un seul bouton "Enregistrer" (ligne_id[], numero_lot[],
 // quantite[] - meme convention getAll() indexee que partout ailleurs dans
 // l'appli) - le numero de lot reste modifiable a la main (pas fige aux lots
-// deja connus), seules les quantites non nulles sont gardees.
+// deja connus). Chaque quantite est replafonnee ici au stock REELLEMENT
+// disponible pour cet article/lot dans le depot source (jamais fait
+// confiance au seul "max" du champ HTML, qui ne suit pas forcement le lot
+// choisi si le lot a ete change dans la liste) - impossible de transferer
+// plus que ce qui existe vraiment.
 export async function updateAllLigneLotsAction(formData: FormData) {
   await requireWriteAccess();
 
@@ -211,6 +215,17 @@ export async function updateAllLigneLotsAction(formData: FormData) {
   if (!transferOrderId) {
     throw new Error("Transfer Order invalide.");
   }
+
+  const { data: transferOrderData, error: transferOrderError } = await supabaseServer
+    .from("transfer_orders")
+    .select("id, depot_source_id")
+    .eq("id", transferOrderId)
+    .maybeSingle();
+
+  if (transferOrderError || !transferOrderData) {
+    throw new Error("Transfer Order introuvable.");
+  }
+  const depotSourceId = (transferOrderData as { depot_source_id: number }).depot_source_id;
 
   const ligneIdsRaw = formData.getAll("ligne_id");
   const numeroLots = formData.getAll("numero_lot");
@@ -227,6 +242,41 @@ export async function updateAllLigneLotsAction(formData: FormData) {
     throw new Error("Aucune ligne a enregistrer.");
   }
 
+  const { data: lignesData, error: lignesError } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("id, article_type, article_id")
+    .in("id", ligneIds);
+
+  if (lignesError) {
+    throw new Error(lignesError.message);
+  }
+
+  const ligneById = new Map(
+    ((lignesData ?? []) as { id: number; article_type: ArticleType; article_id: number }[]).map((l) => [l.id, l])
+  );
+
+  const lotsCache = new Map<string, Awaited<ReturnType<typeof fetchLotsInDepot>>>();
+  const allocations: typeof rows = [];
+
+  for (const row of rows) {
+    if (row.ligneId <= 0 || row.quantite <= 0) continue;
+    const ligne = ligneById.get(row.ligneId);
+    if (!ligne) continue;
+
+    const cacheKey = `${ligne.article_type}::${ligne.article_id}`;
+    let lots = lotsCache.get(cacheKey);
+    if (!lots) {
+      lots = await fetchLotsInDepot(ligne.article_type, ligne.article_id, depotSourceId);
+      lotsCache.set(cacheKey, lots);
+    }
+
+    const disponible = lots.find((l) => l.numeroLot === (row.numeroLot ?? ""))?.solde ?? 0;
+    const quantite = Math.round(Math.min(row.quantite, disponible) * 1000) / 1000;
+    if (quantite <= 0) continue;
+
+    allocations.push({ ...row, quantite });
+  }
+
   const { error: deleteError } = await supabaseServer
     .from("transfer_order_ligne_lots")
     .delete()
@@ -235,8 +285,6 @@ export async function updateAllLigneLotsAction(formData: FormData) {
   if (deleteError) {
     throw new Error(deleteError.message);
   }
-
-  const allocations = rows.filter((r) => r.ligneId > 0 && r.quantite > 0);
 
   if (allocations.length > 0) {
     const { error: insertError } = await supabaseServer.from("transfer_order_ligne_lots").insert(

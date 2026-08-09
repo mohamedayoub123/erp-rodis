@@ -17,6 +17,8 @@ type TransferOrderRow = {
   statut: string;
   date_jour: string;
   created_at: string;
+  famille_produit: string | null;
+  type_mp: string | null;
 };
 
 async function fetchAll<T>(table: string, select: string) {
@@ -75,7 +77,7 @@ export default async function TransferOrderListPage() {
       fetchAll<DepotRow>("depots", "id, nom"),
       fetchAll<TransferOrderRow>(
         "transfer_orders",
-        "id, depot_source_id, depot_destination_id, statut, date_jour, created_at"
+        "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp"
       ),
       fetchAll<{ id: number; nom_article: string }>("articles_matiere_premiere", "id, nom_article"),
       fetchAll<{ id: number; nom_article: string }>("articles", "id, nom_article"),
@@ -162,6 +164,8 @@ export default async function TransferOrderListPage() {
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Code</th>
+                    <th className="px-6 py-4 font-semibold">Famille</th>
+                    <th className="px-6 py-4 font-semibold">Type</th>
                     <th className="px-6 py-4 font-semibold">Date</th>
                     <th className="px-6 py-4 font-semibold">De</th>
                     <th className="px-6 py-4 font-semibold">Vers</th>
@@ -176,6 +180,20 @@ export default async function TransferOrderListPage() {
                         <Link href={`/depots/transfer-order/${row.id}`} className="text-sky-700 underline">
                           {codeById.get(row.id)}
                         </Link>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{row.famille_produit ?? "-"}</td>
+                      <td className="px-6 py-4">
+                        {row.type_mp ? (
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                              row.type_mp === "MP" ? "bg-violet-50 text-violet-700" : "bg-amber-50 text-amber-700"
+                            }`}
+                          >
+                            {row.type_mp}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{formatDate(row.date_jour)}</td>
                       <td className="px-6 py-4 text-slate-600">{depotNomById.get(row.depot_source_id) ?? "-"}</td>

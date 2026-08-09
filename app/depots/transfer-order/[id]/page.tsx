@@ -22,6 +22,8 @@ type TransferOrderRow = {
   statut: string;
   date_jour: string;
   created_at: string;
+  famille_produit: string | null;
+  type_mp: string | null;
 };
 type LigneRow = { id: number; article_type: ArticleType; article_id: number; quantite_demandee: number };
 type LigneLotRow = { transfer_order_ligne_id: number; numero_lot: string | null; quantite: number };
@@ -55,7 +57,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
     await Promise.all([
       supabaseServer
         .from("transfer_orders")
-        .select("id, depot_source_id, depot_destination_id, statut, date_jour, created_at")
+        .select("id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp")
         .eq("id", transferOrderId)
         .maybeSingle(),
       supabaseServer

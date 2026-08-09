@@ -2,13 +2,18 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { type ArticleType } from "../../transfer-order/stock-lots";
-import { deleteInvoiceOrderLigneAction, updateInvoiceOrderLignesAction, validateInvoiceOrderAction } from "../actions";
+import {
+  deleteInvoiceOrderAction,
+  deleteInvoiceOrderLigneAction,
+  updateInvoiceOrderLignesAction,
+  validateInvoiceOrderAction,
+} from "../actions";
 
 type InvoiceOrderRow = { id: number; transfer_order_id: number; statut: string; date_jour: string; created_at: string };
 type TransferOrderRow = { id: number; depot_source_id: number; depot_destination_id: number };
@@ -31,6 +36,7 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "depots");
+  const canDelete = await canDeletePageUser(currentUser, "depots");
 
   const { data: invoiceOrderData } = await supabaseServer
     .from("invoice_orders")
@@ -141,6 +147,12 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
                   >
                     Approuver
                   </button>
+                </form>
+              ) : null}
+              {canDelete ? (
+                <form action={deleteInvoiceOrderAction}>
+                  <input type="hidden" name="invoice_order_id" value={invoiceOrderId} />
+                  <DeleteIconButton label="Supprimer ce Transfer Invoice" />
                 </form>
               ) : null}
             </div>
