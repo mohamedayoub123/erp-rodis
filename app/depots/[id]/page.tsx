@@ -6,9 +6,9 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 
 type DepotRow = { id: number; nom: string };
-type ArticlePfRow = { id: number; nom_article: string; nature: string | null };
-type ArticleMpRow = { id: number; nom_article: string; unite: string | null };
-type MouvementRow = { article_id: number | null; qte_entree: number; qte_sortie: number };
+type ArticlePfRow = { id: number; nom_article: string; nature: string | null; depot_id: number | null };
+type ArticleMpRow = { id: number; nom_article: string; unite: string | null; depot_id: number | null };
+type LotRow = { article_id: number | null; qte_entree: number; qte_sortie: number; depot_id: number | null };
 
 async function fetchAll<T>(table: string, select: string) {
   const rows: T[] = [];
@@ -30,15 +30,22 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 }
 
-// Solde reel par article (entree - sortie) a partir des mouvements de stock
-// deja existants (lots_stock pour le PF, lots_stock_matiere_premiere pour
-// la MP) - le depot n'ajoute rien lui-meme, il classe juste quel article va
-// dans quel depot (voir articles.depot_id / articles_matiere_premiere.depot_id).
-function computeSoldeByArticleId(mouvements: MouvementRow[]): Map<number, number> {
+// Solde par article DANS CE DEPOT precis - un lot dont depot_id est encore
+// vide (jamais transfere) est considere dans le depot par DEFAUT de son
+// article (voir articles.depot_id) - un article MP par defaut "Depot E"
+// peut donc quand meme avoir du stock affiche ici sur un AUTRE depot, une
+// fois qu'un Transfer Order/Invoice Order valide l'a deplace.
+function computeSoldeByArticleId(
+  lots: LotRow[],
+  depotIdByArticleId: Map<number, number | null>,
+  depotId: number
+): Map<number, number> {
   const map = new Map<number, number>();
-  for (const mv of mouvements) {
-    if (!mv.article_id) continue;
-    map.set(mv.article_id, (map.get(mv.article_id) ?? 0) + Number(mv.qte_entree ?? 0) - Number(mv.qte_sortie ?? 0));
+  for (const lot of lots) {
+    if (!lot.article_id) continue;
+    const effectiveDepotId = lot.depot_id ?? depotIdByArticleId.get(lot.article_id) ?? null;
+    if (effectiveDepotId !== depotId) continue;
+    map.set(lot.article_id, (map.get(lot.article_id) ?? 0) + Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0));
   }
   return map;
 }
@@ -55,20 +62,14 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
     { data: depotData },
     { rows: articlesPf },
     { rows: articlesMp },
-    { rows: mouvementsPf },
-    { rows: mouvementsMp },
+    { rows: lotsPf },
+    { rows: lotsMp },
   ] = await Promise.all([
     supabaseServer.from("depots").select("id, nom").eq("id", depotId).maybeSingle(),
-    fetchAll<ArticlePfRow>("articles", "id, nom_article, nature, depot_id").then((res) => ({
-      ...res,
-      rows: (res.rows as (ArticlePfRow & { depot_id: number | null })[]).filter((a) => a.depot_id === depotId),
-    })),
-    fetchAll<ArticleMpRow>("articles_matiere_premiere", "id, nom_article, unite, depot_id").then((res) => ({
-      ...res,
-      rows: (res.rows as (ArticleMpRow & { depot_id: number | null })[]).filter((a) => a.depot_id === depotId),
-    })),
-    fetchAll<MouvementRow>("lots_stock", "article_id, qte_entree, qte_sortie"),
-    fetchAll<MouvementRow>("lots_stock_matiere_premiere", "article_id, qte_entree, qte_sortie"),
+    fetchAll<ArticlePfRow>("articles", "id, nom_article, nature, depot_id"),
+    fetchAll<ArticleMpRow>("articles_matiere_premiere", "id, nom_article, unite, depot_id"),
+    fetchAll<LotRow>("lots_stock", "article_id, qte_entree, qte_sortie, depot_id"),
+    fetchAll<LotRow>("lots_stock_matiere_premiere", "article_id, qte_entree, qte_sortie, depot_id"),
   ]);
 
   const depot = depotData as DepotRow | null;
@@ -76,14 +77,27 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
     notFound();
   }
 
-  const soldePfById = computeSoldeByArticleId(mouvementsPf);
-  const soldeMpById = computeSoldeByArticleId(mouvementsMp);
+  const articlePfById = new Map(articlesPf.map((a) => [a.id, a]));
+  const articleMpById = new Map(articlesMp.map((a) => [a.id, a]));
+  const depotIdByArticlePfId = new Map(articlesPf.map((a) => [a.id, a.depot_id]));
+  const depotIdByArticleMpId = new Map(articlesMp.map((a) => [a.id, a.depot_id]));
 
-  const stockPf = articlesPf
-    .map((a) => ({ id: a.id, nom: a.nom_article, nature: a.nature, solde: soldePfById.get(a.id) ?? 0 }))
+  const soldePfById = computeSoldeByArticleId(lotsPf, depotIdByArticlePfId, depotId);
+  const soldeMpById = computeSoldeByArticleId(lotsMp, depotIdByArticleMpId, depotId);
+
+  const stockPf = [...soldePfById.entries()]
+    .map(([articleId, solde]) => {
+      const article = articlePfById.get(articleId);
+      return { id: articleId, nom: article?.nom_article ?? `#${articleId}`, nature: article?.nature ?? null, solde };
+    })
+    .filter((row) => Math.abs(row.solde) > 1e-6)
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
-  const stockMp = articlesMp
-    .map((a) => ({ id: a.id, nom: a.nom_article, unite: a.unite, solde: soldeMpById.get(a.id) ?? 0 }))
+  const stockMp = [...soldeMpById.entries()]
+    .map(([articleId, solde]) => {
+      const article = articleMpById.get(articleId);
+      return { id: articleId, nom: article?.nom_article ?? `#${articleId}`, unite: article?.unite ?? null, solde };
+    })
+    .filter((row) => Math.abs(row.solde) > 1e-6)
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
   return (
@@ -93,20 +107,23 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
-                Depot
+                Entrepot
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">{depot.nom}</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Stock reel des articles rattaches a ce depot - pour changer le depot d&apos;un
-                article, modifie-le depuis{" "}
+                Stock reel actuellement dans ce depot. Le champ Depot d&apos;un article (
                 <Link href="/articles/produit-fini" className="text-sky-700 underline">
                   Articles Produit Fini
                 </Link>{" "}
-                ou{" "}
+                /{" "}
                 <Link href="/articles/matiere-premiere" className="text-sky-700 underline">
                   Articles Matiere Premiere
                 </Link>
-                .
+                ) n&apos;est que le depot par defaut de son stock non encore transfere - utilise{" "}
+                <Link href="/depots/transfer-order" className="text-sky-700 underline">
+                  Transfer Order
+                </Link>{" "}
+                pour deplacer du stock d&apos;un depot vers un autre.
               </p>
             </div>
 
@@ -122,7 +139,7 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
             Produit fini
           </h2>
           {stockPf.length === 0 ? (
-            <p className="px-6 py-6 text-sm text-slate-500">Aucun article produit fini dans ce depot.</p>
+            <p className="px-6 py-6 text-sm text-slate-500">Aucun stock produit fini dans ce depot.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -152,7 +169,7 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
             Matiere premiere
           </h2>
           {stockMp.length === 0 ? (
-            <p className="px-6 py-6 text-sm text-slate-500">Aucun article matiere premiere dans ce depot.</p>
+            <p className="px-6 py-6 text-sm text-slate-500">Aucun stock matiere premiere dans ce depot.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">

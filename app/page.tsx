@@ -35,6 +35,14 @@ const mainButtons = [
     pageKey: "productionHub" as const,
   },
   {
+    label: "Entrepot",
+    href: "/depots",
+    icon: "\u{1F3E2}",
+    accent: "from-violet-500 to-purple-400",
+    panel: "bg-violet-50 text-violet-950 border-violet-200",
+    pageKey: "depots" as const,
+  },
+  {
     label: "Admin",
     href: "/admin",
     icon: "\u{1F6E0}\u{FE0F}",

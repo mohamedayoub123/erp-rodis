@@ -502,7 +502,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "depots",
     module: "Stock",
-    label: "Depots (creer, stock, transferts)",
+    label: "Entrepot (creer, stock, transferts)",
     pathPrefixes: ["/depots"],
   },
   {

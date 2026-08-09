@@ -69,7 +69,7 @@ export default async function DepotsPage() {
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
                 ERP Rodis
               </p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Depots</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Entrepot</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Cree autant de depots que necessaire (matiere premiere, produit fini, ou les 2
                 melanges), et transfere du stock de l&apos;un vers l&apos;autre.
@@ -151,6 +151,27 @@ export default async function DepotsPage() {
               </table>
             </div>
           )}
+        </section>
+
+        <section className="grid gap-4 sm:grid-cols-2">
+          <Link
+            href="/depots/transfer-order"
+            className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:-translate-y-1 hover:shadow-[0_22px_44px_rgba(15,23,42,0.12)]"
+          >
+            <span className="text-lg font-bold text-slate-900">Transfer Order</span>
+            <p className="mt-1 text-sm text-slate-600">
+              Demande de transfert entre 2 depots, avec choix automatique des lots.
+            </p>
+          </Link>
+          <Link
+            href="/depots/invoice-order"
+            className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:-translate-y-1 hover:shadow-[0_22px_44px_rgba(15,23,42,0.12)]"
+          >
+            <span className="text-lg font-bold text-slate-900">Invoice Order</span>
+            <p className="mt-1 text-sm text-slate-600">
+              Valide un Transfer Order approuve - deplace reellement le stock.
+            </p>
+          </Link>
         </section>
       </div>
     </main>
