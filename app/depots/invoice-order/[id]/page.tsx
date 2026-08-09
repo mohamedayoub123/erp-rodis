@@ -110,7 +110,7 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
                     {depotNomById.get(transferOrder.depot_destination_id) ?? "-"}
                   </>
                 ) : null}{" "}
-                - <span className="font-semibold">{invoiceOrder.statut === "valide" ? "Valide" : "Draft"}</span>
+                - <span className="font-semibold">{invoiceOrder.statut === "valide" ? "Approuve" : "En attente"}</span>
               </p>
             </div>
 
@@ -130,7 +130,7 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
                     type="submit"
                     className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
                   >
-                    Valider
+                    Approuver
                   </button>
                 </form>
               ) : null}

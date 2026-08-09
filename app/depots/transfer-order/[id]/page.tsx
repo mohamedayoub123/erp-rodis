@@ -165,6 +165,15 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                   Voir le Transfer Invoice
                 </Link>
               ) : null}
+              {canEditLots ? (
+                <button
+                  type="submit"
+                  form="lots-form"
+                  className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                >
+                  Enregistrer
+                </button>
+              ) : null}
               {canDelete ? (
                 <form action={deleteTransferOrderAction}>
                   <input type="hidden" name="transfer_order_id" value={transferOrderId} />
@@ -204,7 +213,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
           </section>
         ) : (
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form action={updateAllLigneLotsAction} className="grid gap-4 p-6">
+          <form id="lots-form" action={updateAllLigneLotsAction} className="grid gap-4 p-6">
             <input type="hidden" name="transfer_order_id" value={transferOrderId} />
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -235,33 +244,47 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                       ];
                     }
 
-                    return ligne.lotsDisponibles.map((lot, index) => {
-                      const choisi = lotsChoisis.find((l) => (l.numero_lot || "") === lot.numeroLot);
+                    // Seuls les lots reellement choisis (FEFO a l'approbation, ou
+                    // deja modifies) affichent une ligne - pas tous les lots
+                    // disponibles de l'article. Le lot reste modifiable via la
+                    // liste deroulante (les autres lots de cet article dans le
+                    // depot source), pour ne jamais faire sortir un lot non
+                    // voulu.
+                    const rows = lotsChoisis.length > 0 ? lotsChoisis : [{ numero_lot: null, quantite: 0 }];
+
+                    return rows.map((choisi, index) => {
+                      const disponible =
+                        ligne.lotsDisponibles.find((lot) => lot.numeroLot === (choisi.numero_lot || ""))?.solde ?? 0;
                       return (
-                        <tr key={`${ligne.id}-${lot.numeroLot}`} className="border-t border-slate-100">
+                        <tr key={`${ligne.id}-${index}`} className="border-t border-slate-100">
                           <td className="px-6 py-4 font-medium text-slate-900">{index === 0 ? ligne.nom : ""}</td>
                           <td className="px-6 py-4 text-slate-600">
                             {index === 0 ? ligne.quantite_demandee.toLocaleString("fr-FR") : ""}
                           </td>
                           <td className="px-6 py-4">
                             <input type="hidden" name="ligne_id" value={ligne.id} />
-                            <input
-                              type="text"
+                            <select
                               name="numero_lot"
-                              defaultValue={choisi?.numero_lot ?? lot.numeroLot}
+                              defaultValue={choisi.numero_lot ?? ""}
                               disabled={!canEditLots}
-                              className="w-40 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
-                            />
+                              className="w-56 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
+                            >
+                              {ligne.lotsDisponibles.map((lot) => (
+                                <option key={lot.numeroLot} value={lot.numeroLot}>
+                                  {lot.numeroLot || "(sans numero)"} - disponible : {lot.solde.toLocaleString("fr-FR")}
+                                </option>
+                              ))}
+                            </select>
                           </td>
-                          <td className="px-6 py-4 text-slate-600">{lot.solde.toLocaleString("fr-FR")}</td>
+                          <td className="px-6 py-4 text-slate-600">{disponible.toLocaleString("fr-FR")}</td>
                           <td className="px-6 py-4">
                             <input
                               type="number"
                               step="0.001"
                               min="0"
-                              max={lot.solde}
+                              max={disponible}
                               name="quantite"
-                              defaultValue={choisi?.quantite ?? 0}
+                              defaultValue={choisi.quantite ?? 0}
                               disabled={!canEditLots}
                               className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
                             />
@@ -273,16 +296,6 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                 </tbody>
               </table>
             </div>
-            {canEditLots ? (
-              <div>
-                <button
-                  type="submit"
-                  className="rounded-full bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                >
-                  Enregistrer
-                </button>
-              </div>
-            ) : null}
           </form>
         </section>
         )}

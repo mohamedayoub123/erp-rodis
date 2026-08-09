@@ -136,7 +136,7 @@ export default async function InvoiceOrderListPage() {
                                 : "bg-slate-100 text-slate-700"
                             }`}
                           >
-                            {row.statut === "valide" ? "Valide" : "Draft"}
+                            {row.statut === "valide" ? "Approuve" : "En attente"}
                           </span>
                         </td>
                       </tr>
