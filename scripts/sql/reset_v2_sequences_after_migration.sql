@@ -8,6 +8,7 @@ declare
   t text;
   seq text;
   max_id bigint;
+  has_id boolean;
 begin
   foreach t in array array[
     'familles', 'clients', 'machines', 'articles', 'articles_matiere_premiere',
@@ -23,10 +24,21 @@ begin
     'stock_alertes_matiere_premiere', 'import_logs', 'famille_besoins'
   ]
   loop
-    seq := pg_get_serial_sequence(t, 'id');
-    if seq is not null then
-      execute format('select coalesce(max(id), 0) from public.%I', t) into max_id;
-      perform setval(seq, greatest(max_id, 1), max_id > 0);
+    -- pg_get_serial_sequence leve une erreur (au lieu de renvoyer null) si
+    -- la colonne "id" n'existe carrement pas sur la table (ex: stock_users,
+    -- dont la cle primaire est "username") - on vérifie d'abord son
+    -- existence via information_schema, qui ne leve jamais d'erreur.
+    select exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = t and column_name = 'id'
+    ) into has_id;
+
+    if has_id then
+      seq := pg_get_serial_sequence('public.' || t, 'id');
+      if seq is not null then
+        execute format('select coalesce(max(id), 0) from public.%I', t) into max_id;
+        perform setval(seq, greatest(max_id, 1), max_id > 0);
+      end if;
     end if;
   end loop;
 end $$;
