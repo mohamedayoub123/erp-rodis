@@ -3,6 +3,8 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { autoCreateTransferOrdersAction } from "./actions";
 
 type ProgrammeRow = {
   article_id: number;
@@ -67,6 +69,9 @@ export default async function ProgrammeVerifierStockPage({
   if (!numeroProgramme) {
     notFound();
   }
+
+  const currentUser = await getCurrentStockUser();
+  const canCreateTransferOrders = await canWritePageUser(currentUser, "depots");
 
   const { data: lignesData, error } = await supabaseServer
     .from("programmes")
@@ -166,6 +171,17 @@ export default async function ProgrammeVerifierStockPage({
           <div className="flex items-center gap-3">
             <BackButton href={`/production/programme/${numeroProgramme}`} label="Retour" />
             <RefreshButton />
+            {canCreateTransferOrders ? (
+              <form action={autoCreateTransferOrdersAction}>
+                <input type="hidden" name="numero_programme" value={numeroProgramme} />
+                <button
+                  type="submit"
+                  className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+                >
+                  Creer les Transfer Order
+                </button>
+              </form>
+            ) : null}
           </div>
         </div>
 
