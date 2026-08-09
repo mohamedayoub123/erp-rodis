@@ -82,7 +82,12 @@ export default async function RecetteFabricationListPage({ searchParams }: { sea
     countByArticle.set(ligne.article_pf_id, (countByArticle.get(ligne.article_pf_id) ?? 0) + 1);
   }
 
+  // La liste ne montre que les produits qui ont deja une recette ajoutee -
+  // pour creer une nouvelle recette on passe par "Ajouter une recette", pas
+  // par ce tableau (qui contiendrait sinon tous les produits vrac existants,
+  // recette ou pas).
   const filteredArticles = articles
+    .filter((article) => (countByArticle.get(article.id) ?? 0) > 0)
     .filter((article) => !qLower || matchesArticleSearch(article.nom_article, qLower))
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
@@ -153,7 +158,7 @@ export default async function RecetteFabricationListPage({ searchParams }: { sea
             <div className="px-6 py-8 text-sm text-slate-500">
               {q
                 ? "Aucun resultat pour ce filtre."
-                : "Aucun article PF de nature Vrac pour le moment. Marque un article comme Vrac dans Articles Produit Fini pour qu'il apparaisse ici."}
+                : "Aucune recette ajoutee pour le moment - clique sur \"Ajouter une recette\"."}
             </div>
           ) : (
             <div className="overflow-x-auto">

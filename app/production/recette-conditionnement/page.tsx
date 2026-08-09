@@ -82,7 +82,12 @@ export default async function RecetteConditionnementListPage({ searchParams }: {
     countByArticle.set(ligne.article_pf_id, (countByArticle.get(ligne.article_pf_id) ?? 0) + 1);
   }
 
+  // La liste ne montre que les produits qui ont deja une recette ajoutee -
+  // pour creer une nouvelle recette on passe par "Ajouter une recette", pas
+  // par ce tableau (qui contiendrait sinon tous les produits finis existants,
+  // recette ou pas).
   const filteredArticles = articles
+    .filter((article) => (countByArticle.get(article.id) ?? 0) > 0)
     .filter((article) => !qLower || matchesArticleSearch(article.nom_article, qLower))
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
@@ -151,7 +156,9 @@ export default async function RecetteConditionnementListPage({ searchParams }: {
             </div>
           ) : filteredArticles.length === 0 ? (
             <div className="px-6 py-8 text-sm text-slate-500">
-              {q ? "Aucun resultat pour ce filtre." : "Aucun article PF pour le moment."}
+              {q
+                ? "Aucun resultat pour ce filtre."
+                : "Aucune recette ajoutee pour le moment - clique sur \"Ajouter une recette\"."}
             </div>
           ) : (
             <div className="overflow-x-auto">
