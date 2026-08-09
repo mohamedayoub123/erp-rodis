@@ -193,6 +193,13 @@ body {
   html[data-print-mode] table td {
     padding: 2px 4px !important;
     text-align: left !important;
+    /* "table-layout: fixed" ci-dessus donne des colonnes etroites - sans
+       ca, un titre de zone ou un nom d'article trop long pour sa colonne
+       ne passait pas a la ligne mais debordait par-dessus la colonne
+       suivante (les deux textes se chevauchaient a l'impression). */
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
   }
 
 

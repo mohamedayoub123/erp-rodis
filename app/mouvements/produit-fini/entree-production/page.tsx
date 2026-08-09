@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
@@ -5,8 +6,10 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
+import { matchesArticleSearch } from "@/lib/article-search";
 import { fetchWebMouvementSourceRows } from "../../shared";
-import { createEntreeProductionBatchAction, deletePendingEmballageEntryAction } from "./actions";
+import { createEntreeProductionBatchAction, deletePendingEmballageEntriesAction } from "./actions";
+import { ExtraLignesField } from "./extra-lignes-field";
 
 type EmballageEntryRow = {
   id: number;
@@ -14,6 +17,7 @@ type EmballageEntryRow = {
   code: string;
   quantite: number;
   date_jour: string;
+  created_at: string;
 };
 
 type LigneInfo = {
@@ -30,7 +34,7 @@ type RapportInfo = {
 };
 
 type DateGroupLigne = {
-  entryId: number;
+  entryIds: number[];
   produit: string;
   numeroLot: string;
   quantite: number;
@@ -41,8 +45,10 @@ type DateGroupLigne = {
 
 type DateGroup = {
   date: string;
+  datesEntree: string[];
   previewNumber: number;
   lignes: DateGroupLigne[];
+  lignesByKey: Map<string, DateGroupLigne>;
 };
 
 async function fetchPendingEmballageEntries(): Promise<EmballageEntryRow[]> {
@@ -53,9 +59,9 @@ async function fetchPendingEmballageEntries(): Promise<EmballageEntryRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("production_emballage_entries")
-      .select("id, programme_ligne_id, code, quantite, date_jour")
+      .select("id, programme_ligne_id, code, quantite, date_jour, created_at")
       .eq("transfere_stock", false)
-      .order("date_jour", { ascending: true })
+      .order("created_at", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) break;
@@ -113,12 +119,49 @@ async function countExistingEntreeProductionGroups(): Promise<number> {
   return groupIds.size;
 }
 
-export default async function EntreeProductionPage() {
-  noStore();
+// Options pour ExtraLignesField ("Ajouter une ligne" a la main sur un
+// groupe) - meme table que le reste de l'appli pour un article produit fini.
+async function fetchArticleOptions(): Promise<{ id: number; label: string }[]> {
+  const options: { id: number; label: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
 
-  const [pendingEntries, existingCount] = await Promise.all([
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as { id: number; nom_article: string }[];
+    options.push(...chunk.map((row) => ({ id: row.id, label: row.nom_article })));
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return options;
+}
+
+type SearchParams = Promise<{ article?: string; code?: string }>;
+
+export default async function EntreeProductionPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  noStore();
+  const params = await searchParams;
+  const articleFilter = (params.article || "").trim();
+  const codeFilter = (params.code || "").trim().toLowerCase();
+  const hasFilters = Boolean(articleFilter || codeFilter);
+
+  const [pendingEntries, existingCount, articleOptions] = await Promise.all([
     fetchPendingEmballageEntries(),
     countExistingEntreeProductionGroups(),
+    fetchArticleOptions(),
   ]);
 
   const ligneIds = [...new Set(pendingEntries.map((entry) => entry.programme_ligne_id))];
@@ -132,12 +175,27 @@ export default async function EntreeProductionPage() {
   for (const entry of pendingEntries) {
     const ligne = ligneById.get(entry.programme_ligne_id);
     const rapport = rapportById.get(entry.programme_ligne_id);
-    const date = String(entry.date_jour).slice(0, 10);
+    // Regroupe par date de SAISIE (created_at, le jour reel ou l'emballage a
+    // ete entre) et non par date_jour (la date programme, saisie a la main
+    // sur le formulaire Emballage et parfois differente du jour reel) -
+    // sinon des entrees faites le meme jour pour des programmes de dates
+    // differentes se retrouvaient a tort dans des lots "Entree Production"
+    // separes.
+    const date = String(entry.created_at).slice(0, 10);
 
     let group = groupsByDate.get(date);
     if (!group) {
-      group = { date, previewNumber: 0, lignes: [] };
+      group = { date, datesEntree: [], previewNumber: 0, lignes: [], lignesByKey: new Map() };
       groupsByDate.set(date, group);
+    }
+
+    // "Date d'entrer" = date_jour, la date saisie a la main sur le
+    // formulaire Emballage pour CETTE production (peut differer du jour
+    // reel de validation ci-dessus, ex: emballage fait hier, valide ici
+    // aujourd'hui) - affichee en resume dans l'entete du groupe.
+    const entryDate = String(entry.date_jour).slice(0, 10);
+    if (entryDate && !group.datesEntree.includes(entryDate)) {
+      group.datesEntree.push(entryDate);
     }
 
     // Chaque entree Emballage porte desormais son propre code precis (voir
@@ -150,25 +208,60 @@ export default async function EntreeProductionPage() {
     const ligneCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
     const resolvedCode = entry.code || (ligneCodes.length <= 1 ? ligne?.numero_lot || "" : "");
 
-    group.lignes.push({
-      entryId: entry.id,
-      produit: ligne?.produit || "-",
-      numeroLot: resolvedCode || "-",
-      quantite: entry.quantite,
-      dateFabrication: rapport?.date_fabrication_conditionnement || "",
-      datePeremption: rapport?.date_peremption || "",
-      // Le code peut manquer (ligne decoupee en plusieurs lots, entree pas
-      // encore resaisie depuis l'ajout du suivi par code) mais reste
-      // modifiable a l'ecran juste avant de valider - seul l'article
-      // (jamais modifiable ici) bloque vraiment la validation.
-      hasArticle: Boolean(ligne?.article_id),
-    });
+    // Plusieurs entrees emballage (des saisies "Entrer" separees) peuvent
+    // porter le meme article + code dans la meme date de saisie - fusionne
+    // en une seule ligne avec la quantite totale, au lieu d'une ligne par
+    // saisie individuelle (qui aurait aussi cree plusieurs lots_stock
+    // separes avec le meme code une fois validee).
+    const mergeKey = `${ligne?.article_id ?? "none"}::${resolvedCode || "none"}`;
+    const existingLigne = group.lignesByKey.get(mergeKey);
+
+    if (existingLigne) {
+      existingLigne.entryIds.push(entry.id);
+      existingLigne.quantite += Number(entry.quantite);
+    } else {
+      const nouvelleLigne: DateGroupLigne = {
+        entryIds: [entry.id],
+        produit: ligne?.produit || "-",
+        numeroLot: resolvedCode || "-",
+        quantite: Number(entry.quantite),
+        // Par defaut, la date de fabrication proposee est la date d'entree
+        // (date_jour, saisie a la main sur le formulaire Emballage) - pas la
+        // date du rapport Conditionnement, qui peut dater d'avant l'emballage
+        // reel. Reste modifiable a l'ecran avant de valider.
+        dateFabrication: entryDate,
+        datePeremption: rapport?.date_peremption || "",
+        // Le code peut manquer (ligne decoupee en plusieurs lots, entree pas
+        // encore resaisie depuis l'ajout du suivi par code) mais reste
+        // modifiable a l'ecran juste avant de valider - seul l'article
+        // (jamais modifiable ici) bloque vraiment la validation.
+        hasArticle: Boolean(ligne?.article_id),
+      };
+      group.lignesByKey.set(mergeKey, nouvelleLigne);
+      group.lignes.push(nouvelleLigne);
+    }
   }
 
   const dateGroups = [...groupsByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
   dateGroups.forEach((group, index) => {
     group.previewNumber = existingCount + index + 1;
+    group.datesEntree.sort();
   });
+
+  // Filtre sur les LIGNES (pas sur les groupes) - le numero "Entree
+  // Production N" reste celui du groupe complet, pas d'une numerotation qui
+  // changerait selon le filtre. Un groupe sans plus aucune ligne apres
+  // filtre disparait de l'affichage.
+  const visibleGroups = dateGroups
+    .map((group) => ({
+      ...group,
+      lignes: group.lignes.filter((ligne) => {
+        if (articleFilter && !matchesArticleSearch(ligne.produit, articleFilter)) return false;
+        if (codeFilter && !ligne.numeroLot.toLowerCase().includes(codeFilter)) return false;
+        return true;
+      }),
+    }))
+    .filter((group) => group.lignes.length > 0);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -195,12 +288,49 @@ export default async function EntreeProductionPage() {
           </div>
         </section>
 
+        <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]">
+            <input
+              type="text"
+              name="article"
+              defaultValue={params.article || ""}
+              placeholder="Article"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <input
+              type="text"
+              name="code"
+              defaultValue={params.code || ""}
+              placeholder="Code"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <button
+              type="submit"
+              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Filtrer
+            </button>
+            {hasFilters ? (
+              <Link
+                href="/mouvements/produit-fini/entree-production"
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+              >
+                Effacer
+              </Link>
+            ) : null}
+          </form>
+        </section>
+
         {dateGroups.length === 0 ? (
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-8 text-center text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             Rien a transferer pour le moment - aucune quantite emballee non encore entree en stock.
           </div>
+        ) : visibleGroups.length === 0 ? (
+          <div className="rounded-[1.75rem] border border-black/5 bg-white p-8 text-center text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            Aucun resultat pour ce filtre.
+          </div>
         ) : (
-          dateGroups.map((group) => {
+          visibleGroups.map((group) => {
             const allValid = group.lignes.every((ligne) => ligne.hasArticle);
             const totalQuantite = group.lignes.reduce((sum, ligne) => sum + Number(ligne.quantite), 0);
 
@@ -213,8 +343,16 @@ export default async function EntreeProductionPage() {
                   <input
                     type="hidden"
                     name="entry_ids"
-                    value={group.lignes.map((ligne) => ligne.entryId).join(",")}
+                    value={group.lignes.flatMap((ligne) => ligne.entryIds).join(",")}
                   />
+                  {group.lignes.map((ligne) => (
+                    <input
+                      key={ligne.entryIds[0]}
+                      type="hidden"
+                      name="merge_group"
+                      value={`${ligne.entryIds[0]}:${ligne.entryIds.join(",")}`}
+                    />
+                  ))}
 
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
                     <div>
@@ -224,7 +362,14 @@ export default async function EntreeProductionPage() {
                           Total Qt : {totalQuantite}
                         </span>
                       </h2>
-                      <p className="text-xs text-slate-500">{formatDate(group.date)}</p>
+                      <p className="text-xs text-slate-500">
+                        Date d&apos;aujourd&apos;hui : {formatDate(group.date)}
+                        <span className="mx-2 text-slate-300">|</span>
+                        Date d&apos;entrer :{" "}
+                        {group.datesEntree.length > 0
+                          ? group.datesEntree.map((d) => formatDate(d)).join(", ")
+                          : "-"}
+                      </p>
                     </div>
                     <button
                       type="submit"
@@ -250,13 +395,15 @@ export default async function EntreeProductionPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {group.lignes.map((ligne) => (
-                          <tr key={ligne.entryId} className="border-t border-slate-100 align-top">
+                        {group.lignes.map((ligne) => {
+                          const representativeId = ligne.entryIds[0];
+                          return (
+                          <tr key={representativeId} className="border-t border-slate-100 align-top">
                             <td className="px-4 py-3 text-slate-900">{ligne.produit}</td>
                             <td className="px-4 py-3">
                               <input
                                 type="text"
-                                name={`code_${ligne.entryId}`}
+                                name={`code_${representativeId}`}
                                 defaultValue={ligne.numeroLot === "-" ? "" : ligne.numeroLot}
                                 className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                               />
@@ -266,28 +413,33 @@ export default async function EntreeProductionPage() {
                                 type="number"
                                 step="0.01"
                                 min="0.01"
-                                name={`qty_${ligne.entryId}`}
+                                name={`qty_${representativeId}`}
                                 defaultValue={ligne.quantite}
                                 className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                               />
+                              {ligne.entryIds.length > 1 ? (
+                                <p className="mt-1 text-[11px] font-semibold text-slate-400">
+                                  Total de {ligne.entryIds.length} saisies fusionnees
+                                </p>
+                              ) : null}
                             </td>
                             <td className="px-4 py-3">
                               <DateJmaFormField
-                                name={`datefab_${ligne.entryId}`}
+                                name={`datefab_${representativeId}`}
                                 defaultValue={ligne.dateFabrication}
                                 required
                               />
                             </td>
                             <td className="px-4 py-3">
                               <DateJmaFormField
-                                name={`dateperemption_${ligne.entryId}`}
+                                name={`dateperemption_${representativeId}`}
                                 defaultValue={ligne.datePeremption}
                               />
                             </td>
                             <td className="px-4 py-3">
                               <input
                                 type="text"
-                                name={`chambre_${ligne.entryId}`}
+                                name={`chambre_${representativeId}`}
                                 placeholder="Chambre"
                                 className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                               />
@@ -295,7 +447,7 @@ export default async function EntreeProductionPage() {
                             <td className="px-4 py-3">
                               <input
                                 type="text"
-                                name={`codepays_${ligne.entryId}`}
+                                name={`codepays_${representativeId}`}
                                 placeholder="Code pays"
                                 className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                               />
@@ -303,12 +455,13 @@ export default async function EntreeProductionPage() {
                             <td className="px-4 py-3">
                               <DeleteIconButton
                                 label="Supprimer cette ligne (annule la quantite emballee correspondante)"
-                                formAction={deletePendingEmballageEntryAction.bind(null, ligne.entryId)}
+                                formAction={deletePendingEmballageEntriesAction.bind(null, ligne.entryIds)}
                                 formNoValidate
                               />
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -318,6 +471,7 @@ export default async function EntreeProductionPage() {
                       de programme avant de valider.
                     </p>
                   ) : null}
+                  <ExtraLignesField articleOptions={articleOptions} />
                 </form>
               </section>
             );

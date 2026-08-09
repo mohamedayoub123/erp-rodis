@@ -12,6 +12,13 @@ const TILES = [
     description: "Lots de stock, entrees/sorties, modifier ou supprimer.",
   },
   {
+    label: "Rapport",
+    href: "/stock/rapport",
+    pageKey: "stockRapportPf",
+    icon: "\u{1F4CB}",
+    description: "Stock Actuel et autres rapports.",
+  },
+  {
     label: "Articles",
     href: "/articles",
     pageKey: "articlesHub",

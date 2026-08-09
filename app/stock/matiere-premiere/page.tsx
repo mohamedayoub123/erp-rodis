@@ -26,18 +26,11 @@ const TILES = [
     description: "Liste des articles matiere premiere.",
   },
   {
-    label: "Stock Alert",
-    href: "/stock/matiere-premiere/alerte",
-    pageKey: "stockAlerteMp",
-    icon: "\u{26A0}\u{FE0F}",
-    description: "Articles sous le seuil d'alerte.",
-  },
-  {
-    label: "Stock Dormant",
-    href: "/stock/matiere-premiere/dormant",
-    pageKey: "stockDormantMp",
-    icon: "\u{23F3}",
-    description: "En attente de configuration.",
+    label: "Rapport",
+    href: "/stock/matiere-premiere/rapport",
+    pageKey: "stockRapportMp",
+    icon: "\u{1F4CB}",
+    description: "Stock Actuel, Stock Alert, Stock Dormant, Stock Perime et autres rapports.",
   },
   {
     label: "Statistique",
@@ -45,13 +38,6 @@ const TILES = [
     pageKey: "statistiqueMp",
     icon: "\u{1F4C8}",
     description: "En attente de configuration.",
-  },
-  {
-    label: "Stock Perime",
-    href: "/stock/matiere-premiere/perime",
-    pageKey: "stockPerimeMp",
-    icon: "\u{1F6D1}",
-    description: "Lots perimes et actifs par article.",
   },
   {
     label: "Import",

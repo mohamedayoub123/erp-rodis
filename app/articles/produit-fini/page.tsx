@@ -13,7 +13,7 @@ import { matchesArticleSearch } from "@/lib/article-search";
 const PAGE_SIZE = 100;
 
 const ARTICLE_SELECT_FIELDS =
-  "id, nom_article, type_article, marque, gamme, min_stock, max_stock, volume_unitaire, volume_stockage, cadence, nb_carton_par_vrac, max_production_vrac_8h, contenance, nb_piece_par_max_vrac, piece_par_carton, min_vrac, max_vrac_auto, vrac_max_manuel, dispenseur_pcs_carton, besoin_pot_flacon, besoin_capsule, besoin_sleeve, besoin_dispenseur, besoin_carton, besoin_etiquette, besoin_etui, code_auto, code_manu";
+  "id, nom_article, type_article, marque, gamme, nature, min_stock, max_stock, volume_unitaire, volume_stockage, cadence, nb_carton_par_vrac, max_production_vrac_8h, contenance, nb_piece_par_max_vrac, piece_par_carton, min_vrac, max_vrac_auto, vrac_max_manuel, dispenseur_pcs_carton, besoin_pot_flacon, besoin_capsule, besoin_sleeve, besoin_dispenseur, besoin_carton, besoin_etiquette, besoin_etui, code_auto, code_manu";
 
 type ArticleRow = {
   id: number;
@@ -21,6 +21,7 @@ type ArticleRow = {
   type_article: string | null;
   marque: string | null;
   gamme: string | null;
+  nature: string | null;
   min_stock: number | null;
   max_stock: number | null;
   volume_unitaire: number | null;
@@ -225,6 +226,7 @@ export default async function ArticlesProduitFiniPage({
                       <th className="px-6 py-4 font-semibold">Type</th>
                       <th className="px-6 py-4 font-semibold">Marque</th>
                       <th className="px-6 py-4 font-semibold">Gamme</th>
+                      <th className="px-6 py-4 font-semibold">Nature</th>
                       <th className="px-6 py-4 font-semibold">Min</th>
                       <th className="px-6 py-4 font-semibold">Max</th>
                       <th className="px-6 py-4 font-semibold">Volume unitaire</th>
@@ -256,6 +258,17 @@ export default async function ArticlesProduitFiniPage({
                         <td className="px-6 py-4 text-slate-600">{article.type_article || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.marque || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.gamme || "-"}</td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                              article.nature === "vrac"
+                                ? "bg-sky-100 text-sky-900"
+                                : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {article.nature === "vrac" ? "Vrac" : "Fini"}
+                          </span>
+                        </td>
                         <td className="px-6 py-4 text-slate-600">{article.min_stock ?? 0}</td>
                         <td className="px-6 py-4 text-slate-600">{article.max_stock ?? 0}</td>
                         <td className="px-6 py-4 text-slate-600">{article.volume_unitaire ?? "-"}</td>
@@ -314,6 +327,17 @@ export default async function ArticlesProduitFiniPage({
                                   placeholder="Gamme"
                                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                                 />
+                                <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                                  Nature
+                                  <select
+                                    name="nature"
+                                    defaultValue={article.nature === "vrac" ? "vrac" : "fini"}
+                                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                                  >
+                                    <option value="fini">Produit fini (conditionnement)</option>
+                                    <option value="vrac">Vrac (fabrication)</option>
+                                  </select>
+                                </label>
                                 <div className="grid gap-3 md:grid-cols-2">
                                   <input
                                     type="number"

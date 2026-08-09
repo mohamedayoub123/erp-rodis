@@ -226,11 +226,15 @@ export default async function ImportMpDossierPage({
                                       </label>
                                       <label className="grid gap-1 text-xs text-slate-500">
                                         Date de fabrication
-                                        <DateJmaFormField name="date_fabrication" />
+                                        <DateJmaFormField name="date_fabrication" required />
                                       </label>
                                       <label className="grid gap-1 text-xs text-slate-500">
                                         Date d&apos;expiration
-                                        <DateJmaFormField name="date_expiration" />
+                                        <DateJmaFormField name="date_expiration" required />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Date de reception
+                                        <DateJmaFormField name="date_reception" required />
                                       </label>
                                       <label className="grid gap-1 text-xs text-slate-500">
                                         Quantite receptionnee
@@ -256,7 +260,9 @@ export default async function ImportMpDossierPage({
                                 {canDelete ? (
                                   <form action={deleteBcLigneFromDossierAction}>
                                     <input type="hidden" name="bc_id" value={ligne.id} />
-                                    <DeleteIconButton label="Supprimer ligne" />
+                                    <input type="hidden" name="n_doss_4d" value={nDoss4d ?? ""} />
+                                    <input type="hidden" name="n_doss_erp" value={nDossErp ?? ""} />
+                                    <DeleteIconButton label="Retirer de ce dossier (garde la commande sur le BC)" />
                                   </form>
                                 ) : null}
                               </div>

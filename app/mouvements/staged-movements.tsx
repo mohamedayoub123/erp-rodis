@@ -8,20 +8,28 @@ import {
 import { DateJmaInput } from "@/app/_components/date-jma-input";
 import { useComboboxNav } from "@/app/_components/use-combobox-nav";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { formatDate } from "@/lib/format-date";
 
 export type ArticleOption = {
   id: number;
   label: string;
 };
 
+export type LotBatchOption = {
+  id: number;
+  dateFabrication: string;
+};
+
 export type LotOption = {
   id: number;
+  articleId: number;
   articleLabel: string;
   numeroLot: string;
   chambre: string;
   codePays: string;
   datePeremption: string;
   stock: number;
+  batches: LotBatchOption[];
 };
 
 type PendingEntree = {
@@ -44,13 +52,8 @@ type PendingSortie = {
   livre_pour: string;
   numero_bl: string;
   preparateur: string;
+  remarque: string;
 };
-
-function formatLotLabel(lot: LotOption) {
-  return `${lot.articleLabel} | ${lot.numeroLot} | restant ${lot.stock}${
-    lot.chambre ? ` | ${lot.chambre}` : ""
-  }${lot.codePays ? ` | ${lot.codePays}` : ""}${lot.datePeremption ? ` | exp. ${lot.datePeremption}` : ""}`;
-}
 
 export function EntreePanel({
   articles,
@@ -145,15 +148,20 @@ export function EntreePanel({
       try {
         await createEntreeStockBatchAction(formData);
         onLotsCreated((currentLots) => [
-          ...rows.map((row, index) => ({
-            id: -(Date.now() + index),
-            articleLabel: row.article_label,
-            numeroLot: row.numero_lot,
-            chambre: row.chambre,
-            codePays: row.code_pays,
-            datePeremption: row.date_peremption,
-            stock: row.quantite,
-          })),
+          ...rows.map((row, index) => {
+            const fakeId = -(Date.now() + index);
+            return {
+              id: fakeId,
+              articleId: row.article_id,
+              articleLabel: row.article_label,
+              numeroLot: row.numero_lot,
+              chambre: row.chambre,
+              codePays: row.code_pays,
+              datePeremption: row.date_peremption,
+              stock: row.quantite,
+              batches: [{ id: fakeId, dateFabrication: row.date_fabrication }],
+            };
+          }),
           ...currentLots,
         ]);
         setRows([]);
@@ -370,43 +378,80 @@ export function SortiePanel({
   onLotsUpdated: React.Dispatch<React.SetStateAction<LotOption[]>>;
 }) {
   const [isPending, startTransition] = useTransition();
-  const [lotInput, setLotInput] = useState("");
-  const [showLotDropdown, setShowLotDropdown] = useState(false);
+  const [articleInput, setArticleInput] = useState("");
+  const [showArticleDropdown, setShowArticleDropdown] = useState(false);
+  const [selectedCode, setSelectedCode] = useState("");
+  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
   const [quantite, setQuantite] = useState("");
   const [code, setCode] = useState("");
   const [livrePour, setLivrePour] = useState("");
   const [numeroBl, setNumeroBl] = useState("");
   const [preparateur, setPreparateur] = useState("");
+  const [remarque, setRemarque] = useState("");
   const [rows, setRows] = useState<PendingSortie[]>([]);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  const selectedLot = useMemo(
-    () => lots.find((lot) => formatLotLabel(lot) === lotInput) ?? null,
-    [lotInput, lots]
+  // 3 listes en cascade (Article -> Code -> Date de fabrication) plutot
+  // qu'une seule recherche combinee : computeAvailableLots regroupe deja
+  // les lots par article+code, mais collapsait auparavant les dates de
+  // fabrication differentes d'un meme code sur une seule (la plus recente)
+  // sans le dire - ici chaque etape ne propose que ce qui existe reellement
+  // ET a du stock.
+  const articleOptions = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const lot of lots) {
+      if (!seen.has(lot.articleId)) seen.set(lot.articleId, lot.articleLabel);
+    }
+    return [...seen.entries()]
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "fr"));
+  }, [lots]);
+
+  const selectedArticle = useMemo(
+    () => articleOptions.find((article) => article.label === articleInput) ?? null,
+    [articleInput, articleOptions]
   );
 
-  const filteredLots = useMemo(() => {
-    const words = lotInput.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return lots.slice(0, 80);
+  const filteredArticles = useMemo(() => {
+    if (!articleInput.trim()) return articleOptions;
+    return articleOptions.filter((article) => matchesArticleSearch(article.label, articleInput));
+  }, [articleInput, articleOptions]);
 
-    return lots.filter((lot) => {
-      const label = formatLotLabel(lot).toLowerCase();
-      return words.every((word) => label.includes(word));
-    });
-  }, [lotInput, lots]);
-
-  function selectLot(lot: LotOption) {
-    setLotInput(formatLotLabel(lot));
-    setShowLotDropdown(false);
+  function selectArticle(article: { id: number; label: string }) {
+    setArticleInput(article.label);
+    setShowArticleDropdown(false);
+    setSelectedCode("");
+    setSelectedBatchId(null);
   }
 
-  const lotNav = useComboboxNav(filteredLots, selectLot);
+  const articleNav = useComboboxNav(filteredArticles, selectArticle);
+
+  const codesForArticle = useMemo(
+    () => (selectedArticle ? lots.filter((lot) => lot.articleId === selectedArticle.id) : []),
+    [selectedArticle, lots]
+  );
+
+  const selectedLotOption = useMemo(
+    () => codesForArticle.find((lot) => lot.numeroLot === selectedCode) ?? null,
+    [codesForArticle, selectedCode]
+  );
+
+  const selectedBatch = useMemo(
+    () => selectedLotOption?.batches.find((batch) => batch.id === selectedBatchId) ?? null,
+    [selectedLotOption, selectedBatchId]
+  );
+
+  function selectCode(value: string) {
+    setSelectedCode(value);
+    const lot = codesForArticle.find((current) => current.numeroLot === value);
+    setSelectedBatchId(lot?.batches[0]?.id ?? null);
+  }
 
   function addRow() {
     const qty = Number(quantite.replace(",", "."));
 
-    if (!selectedLot || !qty || qty <= 0) {
+    if (!selectedLotOption || !selectedBatch || !qty || qty <= 0) {
       return;
     }
 
@@ -416,22 +461,28 @@ export function SortiePanel({
     setRows((current) => [
       ...current,
       {
-        lot_id: selectedLot.id,
-        lot_label: formatLotLabel(selectedLot),
+        lot_id: selectedBatch.id,
+        lot_label: `${selectedLotOption.articleLabel} | ${selectedLotOption.numeroLot} | fab. ${formatDate(
+          selectedBatch.dateFabrication
+        )}`,
         quantite: qty,
         code: code.trim(),
         livre_pour: livrePour.trim(),
         numero_bl: numeroBl.trim(),
         preparateur: preparateur.trim(),
+        remarque: remarque.trim(),
       },
     ]);
 
-    setLotInput("");
+    setArticleInput("");
+    setSelectedCode("");
+    setSelectedBatchId(null);
     setQuantite("");
     setCode("");
     setLivrePour("");
     setNumeroBl("");
     setPreparateur("");
+    setRemarque("");
   }
 
   function removeRow(index: number) {
@@ -459,7 +510,14 @@ export function SortiePanel({
 
           return currentLots
             .map((lot) => {
-              const qty = qtyByLot.get(lot.id) ?? 0;
+              // Le solde restant reste au niveau du GROUPE (article+code),
+              // pas d'un batch precis - la sortie choisit quelle date
+              // fabrication tamponner sur la note, mais consomme toujours le
+              // meme stock partage. lot.id est deja l'un des batch ids (le
+              // plus recent) - dedupe pour ne pas compter cette quantite
+              // deux fois.
+              const idsToCheck = new Set([lot.id, ...lot.batches.map((batch) => batch.id)]);
+              const qty = [...idsToCheck].reduce((sum, id) => sum + (qtyByLot.get(id) ?? 0), 0);
               if (!qty) {
                 return lot;
               }
@@ -487,6 +545,7 @@ export function SortiePanel({
       livre_pour: row.livre_pour,
       numero_bl: row.numero_bl,
       preparateur: row.preparateur,
+      remarque: row.remarque,
     }))
   );
 
@@ -496,43 +555,85 @@ export function SortiePanel({
 
       <div className="mt-4 grid gap-4">
         <label className="relative grid gap-2 text-sm font-semibold text-slate-900">
-          <span>Lot a sortir</span>
+          <span>Article</span>
           <input
-            value={lotInput}
+            value={articleInput}
             onChange={(event) => {
-              setLotInput(event.target.value);
-              setShowLotDropdown(true);
-              lotNav.setHighlightedIndex(0);
+              setArticleInput(event.target.value);
+              setShowArticleDropdown(true);
+              setSelectedCode("");
+              setSelectedBatchId(null);
+              articleNav.setHighlightedIndex(0);
             }}
-            onKeyDown={lotNav.handleKeyDown}
-            onFocus={() => setShowLotDropdown(true)}
-            onBlur={() => setTimeout(() => setShowLotDropdown(false), 150)}
-            placeholder="Ecris article, lot ou chambre puis choisis (fleches + Entree)"
+            onKeyDown={articleNav.handleKeyDown}
+            onFocus={() => setShowArticleDropdown(true)}
+            onBlur={() => setTimeout(() => setShowArticleDropdown(false), 150)}
+            placeholder="Ecris l'article puis choisis (fleches + Entree)"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
             autoComplete="off"
           />
-          {showLotDropdown && filteredLots.length > 0 ? (
+          {showArticleDropdown && filteredArticles.length > 0 ? (
             <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-              {filteredLots.map((lot, index) => (
+              {filteredArticles.map((article, index) => (
                 <button
-                  key={lot.id}
+                  key={article.id}
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => selectLot(lot)}
+                  onClick={() => selectArticle(article)}
                   className={`block w-full px-4 py-2 text-left text-sm text-slate-800 ${
-                    index === lotNav.highlightedIndex ? "bg-slate-100" : "hover:bg-slate-100"
+                    index === articleNav.highlightedIndex ? "bg-slate-100" : "hover:bg-slate-100"
                   }`}
                 >
-                  {formatLotLabel(lot)}
+                  {article.label}
                 </button>
               ))}
             </div>
           ) : null}
         </label>
 
-        {selectedLot ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="grid gap-1 text-xs font-semibold text-slate-500">
+            Code (seulement ceux qui ont du stock)
+            <select
+              value={selectedCode}
+              onChange={(event) => selectCode(event.target.value)}
+              disabled={!selectedArticle}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal normal-case text-slate-900 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+            >
+              <option value="">
+                {selectedArticle ? "Choisis un code" : "Choisis d'abord un article"}
+              </option>
+              {codesForArticle.map((lot) => (
+                <option key={lot.numeroLot} value={lot.numeroLot}>
+                  {lot.numeroLot} (restant {lot.stock})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="grid gap-1 text-xs font-semibold text-slate-500">
+            Date de fabrication
+            <select
+              value={selectedBatchId ?? ""}
+              onChange={(event) => setSelectedBatchId(Number(event.target.value) || null)}
+              disabled={!selectedLotOption}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal normal-case text-slate-900 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+            >
+              <option value="">
+                {selectedLotOption ? "Choisis une date" : "Choisis d'abord un code"}
+              </option>
+              {(selectedLotOption?.batches ?? []).map((batch) => (
+                <option key={batch.id} value={batch.id}>
+                  {formatDate(batch.dateFabrication)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {selectedLotOption ? (
           <p className="text-xs font-semibold text-slate-500">
-            Date d&apos;expiration : {selectedLot.datePeremption || "non renseignee"} (reprise
+            Date d&apos;expiration : {selectedLotOption.datePeremption || "non renseignee"} (reprise
             automatiquement du lot, pas modifiable ici)
           </p>
         ) : null}
@@ -552,7 +653,7 @@ export function SortiePanel({
             type="text"
             value={code}
             onChange={(event) => setCode(event.target.value)}
-            placeholder="Code"
+            placeholder="Code (reference sortie)"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
           <input
@@ -577,6 +678,14 @@ export function SortiePanel({
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
         </div>
+
+        <textarea
+          value={remarque}
+          onChange={(event) => setRemarque(event.target.value)}
+          rows={3}
+          placeholder="Remarque"
+          className="rounded-[1.5rem] border border-slate-200 px-4 py-3 text-sm outline-none"
+        />
 
         <button
           type="button"
@@ -608,6 +717,7 @@ export function SortiePanel({
                   {row.numero_bl ? `| BL ${row.numero_bl}` : ""}{" "}
                   {row.preparateur ? `| Prep ${row.preparateur}` : ""}
                 </p>
+                {row.remarque ? <p className="text-slate-500">Remarque : {row.remarque}</p> : null}
                 <button
                   type="button"
                   onClick={() => removeRow(index)}

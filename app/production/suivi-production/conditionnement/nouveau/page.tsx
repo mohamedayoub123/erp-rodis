@@ -137,6 +137,7 @@ export default async function NouvelleFicheConditionnementPage() {
                     <input
                       type="text"
                       name="chef_zone"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -145,6 +146,7 @@ export default async function NouvelleFicheConditionnementPage() {
                     <input
                       type="text"
                       name="chef_ligne"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -153,6 +155,7 @@ export default async function NouvelleFicheConditionnementPage() {
                     <input
                       type="text"
                       name="ravitailleur"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -161,6 +164,19 @@ export default async function NouvelleFicheConditionnementPage() {
                     <input
                       type="text"
                       name="tireur"
+                      required
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Nb de journaliers
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      name="nb_journaliers_conditionnement"
+                      defaultValue="0"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -180,6 +196,8 @@ export default async function NouvelleFicheConditionnementPage() {
                       type="number"
                       step="0.01"
                       name="qt_fabriquer"
+                      defaultValue="0"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -189,6 +207,8 @@ export default async function NouvelleFicheConditionnementPage() {
                       type="number"
                       step="0.01"
                       name="cadence"
+                      defaultValue="0"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -198,6 +218,8 @@ export default async function NouvelleFicheConditionnementPage() {
                       type="number"
                       step="0.01"
                       name="poids_reel"
+                      defaultValue="0"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -209,7 +231,7 @@ export default async function NouvelleFicheConditionnementPage() {
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Date de peremption
-                    <DateJmaFormField name="date_peremption" />
+                    <DateJmaFormField name="date_peremption" required />
                   </label>
                 </div>
               </div>
@@ -223,6 +245,8 @@ export default async function NouvelleFicheConditionnementPage() {
                       type="number"
                       step="0.01"
                       name="dechet_sleeve"
+                      defaultValue="0"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -232,6 +256,8 @@ export default async function NouvelleFicheConditionnementPage() {
                       type="number"
                       step="0.01"
                       name="dechet_capsule"
+                      defaultValue="0"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -241,6 +267,8 @@ export default async function NouvelleFicheConditionnementPage() {
                       type="number"
                       step="0.01"
                       name="dechet_pompe"
+                      defaultValue="0"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -250,6 +278,8 @@ export default async function NouvelleFicheConditionnementPage() {
                       type="number"
                       step="0.01"
                       name="dechet_flacon"
+                      defaultValue="0"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -259,6 +289,8 @@ export default async function NouvelleFicheConditionnementPage() {
                       type="number"
                       step="0.01"
                       name="dechet_pot"
+                      defaultValue="0"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -268,6 +300,19 @@ export default async function NouvelleFicheConditionnementPage() {
                       type="number"
                       step="0.01"
                       name="dechet_etiquette"
+                      defaultValue="0"
+                      required
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Etui
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="dechet_etui"
+                      defaultValue="0"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -277,7 +322,7 @@ export default async function NouvelleFicheConditionnementPage() {
               <div>
                 <h2 className="mb-1 text-lg font-bold text-slate-900">Arret</h2>
                 <p className="mb-3 text-xs text-slate-500">
-                  Temps d&apos;arret (en minutes) pour chaque cause concernee.
+                  Temps d&apos;arret (en minutes) pour chaque cause concernee - 0 si pas concerne.
                 </p>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {ARRET_CAUSES.map((cause) => (
@@ -288,7 +333,8 @@ export default async function NouvelleFicheConditionnementPage() {
                         step="1"
                         min="0"
                         name={cause.field}
-                        placeholder="minutes"
+                        defaultValue="0"
+                        required
                         className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                       />
                     </label>
@@ -300,6 +346,7 @@ export default async function NouvelleFicheConditionnementPage() {
                     <input
                       type="time"
                       name="temps_demarage_lot"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -308,6 +355,7 @@ export default async function NouvelleFicheConditionnementPage() {
                     <input
                       type="time"
                       name="temps_arret_batch"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>

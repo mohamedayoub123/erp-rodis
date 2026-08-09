@@ -88,6 +88,7 @@ export async function createReceptionMpAction(formData: FormData) {
   const numeroLot = parseOptionalText(formData, "numero_lot");
   const dateFabrication = parseOptionalText(formData, "date_fabrication");
   const dateExpiration = parseOptionalText(formData, "date_expiration");
+  const dateReception = parseOptionalText(formData, "date_reception");
   const nDoss4dImport = parseOptionalText(formData, "n_doss_4d_import");
   const nDossErpImport = parseOptionalText(formData, "n_doss_erp_import");
 
@@ -97,6 +98,18 @@ export async function createReceptionMpAction(formData: FormData) {
 
   if (!numeroLot) {
     throw new Error("Le numero de lot est obligatoire pour receptionner.");
+  }
+
+  if (!dateFabrication) {
+    throw new Error("La date de fabrication est obligatoire pour receptionner.");
+  }
+
+  if (!dateExpiration) {
+    throw new Error("La date d'expiration est obligatoire pour receptionner.");
+  }
+
+  if (!dateReception) {
+    throw new Error("La date de reception est obligatoire pour receptionner.");
   }
 
   const { data: ligneRow, error: ligneError } = await supabaseServer
@@ -159,6 +172,7 @@ export async function createReceptionMpAction(formData: FormData) {
         numero_lot: numeroLot,
         date_fabrication: dateFabrication,
         date_expiration: dateExpiration,
+        date_import: dateReception,
       },
     ])
     .select("id")
@@ -169,15 +183,14 @@ export async function createReceptionMpAction(formData: FormData) {
   }
 
   const importId = (importRow as { id: number }).id;
-  const today = new Date().toISOString().slice(0, 10);
 
   const { data: lotRow, error: insertLotError } = await supabaseServer
     .from("lots_stock_matiere_premiere")
     .insert([
       {
         article_id: articleId,
-        date_jour: today,
-        date_reception: today,
+        date_jour: dateReception,
+        date_reception: dateReception,
         numero_lot: numeroLot,
         code_normalise: numeroLot.toUpperCase(),
         date_fabrication: dateFabrication,
@@ -339,32 +352,45 @@ export async function deleteDossierImportsAction(formData: FormData) {
   revalidateCommandeMpPages();
 }
 
-// Supprime une ligne de commande depuis le detail d'un dossier Import -
-// meme effet que le bouton Supprimer sur le detail d'un BC (bc/actions.ts),
-// mais accessible ici et verifie contre la permission "commandeMp" de cette
-// page plutot que "commandeBcMp". Retire aussi le stock credite par une
-// eventuelle reception avant de supprimer la ligne (dont la suppression
-// cascade sur ses evenements d'import cote base).
+// Retire une ligne de commande de CE dossier Import uniquement - supprime
+// les evenements d'import qui la relient a ce doss. 4D/ERP (et le stock
+// credite par une eventuelle reception parmi eux), mais PAS la ligne de
+// commande elle-meme : sa quantite commandee reste intacte sur le BC, et
+// "reste a importer" remonte tout seul puisqu'il se recalcule a partir des
+// evenements restants. Supprimer completement la ligne (et sa quantite) se
+// fait depuis le detail du BC (bc/actions.ts deleteCommandeBcLigneAction),
+// pas depuis cette vue Import qui n'est qu'un regroupement par dossier.
 export async function deleteBcLigneFromDossierAction(formData: FormData) {
   await requireDeleteAccess();
 
   const bcId = Number(String(formData.get("bc_id") || "0"));
+  const nDoss4d = parseOptionalText(formData, "n_doss_4d");
+  const nDossErp = parseOptionalText(formData, "n_doss_erp");
 
   if (!bcId) {
     throw new Error("Ligne invalide.");
   }
 
-  const { data: importRows } = await supabaseServer
+  let query = supabaseServer
     .from("bons_commande_mp_imports")
     .select("id, bc_ligne_id, lot_stock_id")
     .eq("bc_ligne_id", bcId);
+  query = nDoss4d ? query.eq("n_doss_4d_import", nDoss4d) : query.is("n_doss_4d_import", null);
+  query = nDossErp ? query.eq("n_doss_erp_import", nDossErp) : query.is("n_doss_erp_import", null);
+  const { data: importRows } = await query;
 
-  await releaseStockForImportEvenements((importRows ?? []) as ImportEvenementForCleanup[]);
+  const rows = (importRows ?? []) as ImportEvenementForCleanup[];
+  await releaseStockForImportEvenements(rows);
 
-  const { error } = await supabaseServer.from("bons_commande_matiere_premiere").delete().eq("id", bcId);
+  if (rows.length > 0) {
+    const { error } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .delete()
+      .in("id", rows.map((row) => row.id));
 
-  if (error) {
-    throw new Error(error.message);
+    if (error) {
+      throw new Error(error.message);
+    }
   }
 
   revalidateCommandeMpPages();

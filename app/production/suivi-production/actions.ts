@@ -146,6 +146,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     chef_ligne: parseOptionalText(formData, "chef_ligne"),
     ravitailleur: parseOptionalText(formData, "ravitailleur"),
     tireur: parseOptionalText(formData, "tireur"),
+    nb_journaliers_conditionnement: parseOptionalNumber(formData, "nb_journaliers_conditionnement"),
     qt_fabriquer: qtFabriquer,
     cadence: parseOptionalNumber(formData, "cadence"),
     poids_reel: parseOptionalNumber(formData, "poids_reel"),
@@ -155,6 +156,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     dechet_flacon: parseOptionalNumber(formData, "dechet_flacon"),
     dechet_pot: parseOptionalNumber(formData, "dechet_pot"),
     dechet_etiquette: parseOptionalNumber(formData, "dechet_etiquette"),
+    dechet_etui: parseOptionalNumber(formData, "dechet_etui"),
     arret_depot: parseOptionalNumber(formData, "arret_depot"),
     arret_consommable_non_livre: parseOptionalNumber(formData, "arret_consommable_non_livre"),
     arret_manque_conditionnement: parseOptionalNumber(formData, "arret_manque_conditionnement"),
@@ -237,6 +239,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     ph: parseOptionalNumber(formData, "ph"),
     densite: parseOptionalNumber(formData, "densite"),
     viscosite: parseOptionalNumber(formData, "viscosite"),
+    degre_alcool: parseOptionalNumber(formData, "degre_alcool"),
     stabilite: parseOptionalText(formData, "stabilite"),
     vrac_fabrique: vracFabrique,
     qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
@@ -307,10 +310,12 @@ export async function saveEmballageRapportAction(formData: FormData) {
   const quantite = parseOptionalNumber(formData, "quantite");
   const dateEmballage = parseOptionalText(formData, "date_emballage");
 
-  await upsertRapport(ligneId, code, {
+  const fields: Record<string, unknown> = {
+    emballage_chef_zone: parseOptionalText(formData, "emballage_chef_zone"),
     emballage_machine: parseOptionalText(formData, "emballage_machine"),
     emballage_operateur: parseOptionalText(formData, "emballage_operateur"),
     emballage_scotcheuse: parseOptionalText(formData, "emballage_scotcheuse"),
+    nb_journaliers_emballage: parseOptionalNumber(formData, "nb_journaliers_emballage"),
     emballage_temps_demarrer: parseOptionalText(formData, "emballage_temps_demarrer"),
     emballage_temps_arret: parseOptionalText(formData, "emballage_temps_arret"),
     emballage_arret_changement_bobine: parseOptionalNumber(formData, "emballage_arret_changement_bobine"),
@@ -321,7 +326,19 @@ export async function saveEmballageRapportAction(formData: FormData) {
     date_emballage: dateEmballage,
     utilisateur_emballage: currentUser,
     date_saisie_emballage: new Date().toISOString(),
-  });
+  };
+
+  // date_peremption vient normalement du rapport Conditionnement DEJA saisi
+  // pour ce meme (ligne, code) - meme ligne de production_rapports, colonne
+  // partagee entre les etapes (voir upsertRapport). Le formulaire "Entrer"
+  // normal ne renvoie donc jamais ce champ (affiche en lecture seule) : ne
+  // l'ecrase que si la page l'a explicitement envoye (le cas de la fiche
+  // "nouveau", ou aucun Conditionnement n'existe pour fournir la date).
+  if (formData.get("date_peremption") !== null) {
+    fields.date_peremption = parseOptionalText(formData, "date_peremption");
+  }
+
+  await upsertRapport(ligneId, code, fields);
 
   // Alimente le journal emballage (meme principe que carton/vrac) pour que
   // le "reste" par rapport a ce qui a deja ete conditionne se recalcule
@@ -392,7 +409,10 @@ export async function deleteCodeProgressAction(formData: FormData) {
 // logique.
 async function createManualEntryLigne(
   formData: FormData,
-  permissionKey: "productionSuiviProductionConditionnement" | "productionSuiviProductionEmballage",
+  permissionKey:
+    | "productionSuiviProductionConditionnement"
+    | "productionSuiviProductionEmballage"
+    | "productionSuiviProductionFabrication",
   dateFieldName: string
 ): Promise<{ id: number; numeroLot: string }> {
   const currentUser = await getCurrentStockUser();
@@ -455,4 +475,15 @@ export async function createManualEmballageEntryAction(formData: FormData) {
   formData.set("ligne_id", String(id));
   formData.set("code", numeroLot);
   return saveEmballageRapportAction(formData);
+}
+
+export async function createManualFabricationEntryAction(formData: FormData) {
+  const { id, numeroLot } = await createManualEntryLigne(
+    formData,
+    "productionSuiviProductionFabrication",
+    "date_fabrication_conditionnement"
+  );
+  formData.set("ligne_id", String(id));
+  formData.set("code", numeroLot);
+  return saveFabricationRapportAction(formData);
 }

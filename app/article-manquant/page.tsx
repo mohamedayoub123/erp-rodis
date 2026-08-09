@@ -136,6 +136,14 @@ function computeCurrentStockLikeStockPage(rows: StockPageRawRow[]) {
         return dateA - dateB;
       }
 
+      // A date egale, une entree precede toujours une sortie : sinon le
+      // solde cumulatif peut passer par une valeur negative artificielle
+      // le temps d'une seule journee, meme quand le stock reel ne l'a
+      // jamais ete (l'id ne reflete pas l'ordre reel des mouvements).
+      const entreeA = Number(a.qte_entree ?? 0) > 0 ? 0 : 1;
+      const entreeB = Number(b.qte_entree ?? 0) > 0 ? 0 : 1;
+      if (entreeA !== entreeB) return entreeA - entreeB;
+
       return a.id - b.id;
     })
     .reduce<Array<StockPageRawRow & { stock_article: number }>>((acc, row) => {

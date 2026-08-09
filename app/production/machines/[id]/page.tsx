@@ -136,8 +136,8 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
                     <th className="px-6 py-4 font-semibold">Produit</th>
                     {isFabrication ? (
                       <>
-                        <th className="px-6 py-4 font-semibold">Min</th>
-                        <th className="px-6 py-4 font-semibold">Max</th>
+                        <th className="px-6 py-4 font-semibold">Min (par heure)</th>
+                        <th className="px-6 py-4 font-semibold">Max (par heure)</th>
                         <th className="px-6 py-4 font-semibold">Temps (minutes)</th>
                       </>
                     ) : (

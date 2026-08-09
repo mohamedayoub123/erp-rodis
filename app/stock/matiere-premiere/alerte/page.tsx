@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { formatDate } from "@/lib/format-date";
 import { encodeDossierId } from "../commande/dossier-id";
 import { matchesArticleSearch } from "@/lib/article-search";
@@ -14,12 +15,14 @@ type ArticleMpRow = {
   unite: string | null;
   min_stock: number | null;
   max_stock: number | null;
+  utilisation: string | null;
 };
 
 type MouvementRow = {
   article_id: number | null;
   qte_entree: number;
   qte_sortie: number;
+  date_jour: string | null;
 };
 
 type AlerteRow = {
@@ -29,6 +32,13 @@ type AlerteRow = {
   unite: string | null;
   stock_actuel: number;
   min_stock: number;
+  consommation_1_mois: number;
+  consommation_3_mois: number;
+  consommation_6_mois: number;
+  consommation_12_mois: number;
+  entree_12_mois: number;
+  entree_3_mois: number;
+  utilisation_produit: string | null;
   bcRefs: BcRef[];
   importRefs: DossierRef[];
 };
@@ -78,7 +88,7 @@ async function fetchAllArticlesMp() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite, min_stock, max_stock")
+      .select("id, nom_article, categorie, unite, min_stock, max_stock, utilisation")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -101,7 +111,7 @@ async function fetchAllMouvements() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("lots_stock_matiere_premiere")
-      .select("article_id, qte_entree, qte_sortie")
+      .select("article_id, qte_entree, qte_sortie, date_jour")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -183,6 +193,7 @@ function formatNumber(value: number) {
 type SearchParams = Promise<{
   q?: string;
   categorie?: string;
+  hide_low_threshold?: string;
 }>;
 
 export default async function StockAlerteMpPage({
@@ -196,6 +207,7 @@ export default async function StockAlerteMpPage({
   const categorieFilter = (params.categorie || "").trim();
   const qLower = q.toLowerCase();
   const categorieLower = categorieFilter.toLowerCase();
+  const hideLowThreshold = (params.hide_low_threshold || "").trim() === "1";
 
   const [
     { rows: articles, error: articlesError },
@@ -221,10 +233,55 @@ export default async function StockAlerteMpPage({
   // (meme calcul que la page Stock MP). Alerte des que ce stock descend a
   // ou sous le seuil "Stock min" defini sur l'article.
   const stockByArticle = new Map<number, number>();
+
+  // Consommation (sortie) sur plusieurs fenetres glissantes (1/3/6/12 mois)
+  // + Entree sur 12/3 mois - date_jour, meme convention "AAAA-MM-JJ" que le
+  // reste de l'appli (comparaison de chaines directe). Donne un apercu de la
+  // vitesse de consommation/reapprovisionnement d'un article en alerte, sans
+  // avoir a rouvrir Stock MP.
+  function isoMonthsAgo(months: number) {
+    const date = new Date();
+    date.setMonth(date.getMonth() - months);
+    return date.toISOString().slice(0, 10);
+  }
+
+  const isoByPeriod = { 1: isoMonthsAgo(1), 3: isoMonthsAgo(3), 6: isoMonthsAgo(6), 12: isoMonthsAgo(12) } as const;
+
+  const consommationByPeriodAndArticle: Record<1 | 3 | 6 | 12, Map<number, number>> = {
+    1: new Map(),
+    3: new Map(),
+    6: new Map(),
+    12: new Map(),
+  };
+  const entree12MoisByArticle = new Map<number, number>();
+  const entree3MoisByArticle = new Map<number, number>();
+
   for (const row of mouvements) {
     if (!row.article_id) continue;
     const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
     stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
+
+    if (!row.date_jour) continue;
+
+    if (row.date_jour >= isoByPeriod[12]) {
+      entree12MoisByArticle.set(
+        row.article_id,
+        (entree12MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_entree ?? 0)
+      );
+      if (row.date_jour >= isoByPeriod[3]) {
+        entree3MoisByArticle.set(
+          row.article_id,
+          (entree3MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_entree ?? 0)
+        );
+      }
+    }
+
+    for (const period of [1, 3, 6, 12] as const) {
+      if (row.date_jour >= isoByPeriod[period]) {
+        const map = consommationByPeriodAndArticle[period];
+        map.set(row.article_id, (map.get(row.article_id) ?? 0) + Number(row.qte_sortie ?? 0));
+      }
+    }
   }
 
   // Pour chaque article, retrouve les BC (avec leur doss.) qui le
@@ -276,16 +333,73 @@ export default async function StockAlerteMpPage({
       unite: article.unite,
       stock_actuel: stockByArticle.get(article.id) ?? 0,
       min_stock: article.min_stock as number,
+      consommation_1_mois: consommationByPeriodAndArticle[1].get(article.id) ?? 0,
+      consommation_3_mois: consommationByPeriodAndArticle[3].get(article.id) ?? 0,
+      consommation_6_mois: consommationByPeriodAndArticle[6].get(article.id) ?? 0,
+      consommation_12_mois: consommationByPeriodAndArticle[12].get(article.id) ?? 0,
+      entree_12_mois: entree12MoisByArticle.get(article.id) ?? 0,
+      entree_3_mois: entree3MoisByArticle.get(article.id) ?? 0,
+      utilisation_produit: article.utilisation,
       bcRefs: bcRefsByArticle.get(article.id) ?? [],
       importRefs: [...(importRefsByArticle.get(article.id)?.values() ?? [])],
     }))
     .filter((row) => row.stock_actuel <= row.min_stock)
     .filter((row) => !qLower || matchesArticleSearch(row.nom_article, qLower))
     .filter((row) => !categorieLower || (row.categorie || "").toLowerCase().includes(categorieLower))
+    .filter((row) => !hideLowThreshold || row.min_stock > 1)
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
   const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
+
+  const exportColumns = [
+    { label: "Categorie", key: "categorie" },
+    { label: "Article", key: "article" },
+    { label: "Stock", key: "stock" },
+    { label: "Unite", key: "unite" },
+    { label: "Consommation dernier mois", key: "consommation1Mois" },
+    { label: "Consommation dernier 3 mois", key: "consommation3Mois" },
+    { label: "Consommation dernier 6 mois", key: "consommation6Mois" },
+    { label: "Consommation dernier 12 mois", key: "consommation12Mois" },
+    { label: "Total entree (12 mois)", key: "entree12Mois" },
+    { label: "Total entree (3 mois)", key: "entree3Mois" },
+    { label: "Stock alert", key: "stockAlert" },
+    { label: "Commande (BC)", key: "commandeBc" },
+    { label: "Import", key: "import" },
+    { label: "Average consommation 12 mois", key: "averageConsommation" },
+    { label: "Utilisation produit", key: "utilisationProduit" },
+  ];
+
+  const exportRows = alertes.map((alerte) => ({
+    categorie: alerte.categorie || "-",
+    article: alerte.nom_article,
+    stock: alerte.stock_actuel,
+    unite: alerte.unite || "-",
+    consommation1Mois: alerte.consommation_1_mois,
+    consommation3Mois: alerte.consommation_3_mois,
+    consommation6Mois: alerte.consommation_6_mois,
+    consommation12Mois: alerte.consommation_12_mois,
+    entree12Mois: alerte.entree_12_mois,
+    entree3Mois: alerte.entree_3_mois,
+    stockAlert: alerte.min_stock,
+    commandeBc: alerte.bcRefs.length
+      ? alerte.bcRefs
+          .map((ref) => `${ref.code} - Qte commandee: ${ref.quantite} - 4D: ${ref.nDoss4d || "-"} / ERP: ${ref.nDossErp || "-"}`)
+          .join(" | ")
+      : "-",
+    import: alerte.importRefs.length
+      ? alerte.importRefs
+          .map(
+            (ref) =>
+              `4D: ${ref.nDoss4d || "-"} / ERP: ${ref.nDossErp || "-"} - Qte importee: ${ref.qteImportee} - Arrivee prevue: ${
+                ref.datePrevueReception ? formatDate(ref.datePrevueReception) : "-"
+              }`
+          )
+          .join(" | ")
+      : "-",
+    averageConsommation: Math.round((alerte.consommation_12_mois / 12) * 100) / 100,
+    utilisationProduit: alerte.utilisation_produit || "-",
+  }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#fffaf3_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -305,13 +419,18 @@ export default async function StockAlerteMpPage({
           </div>
 
           <div className="flex items-center gap-3">
-            <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
+            <BackButton href="/stock/matiere-premiere/rapport" label="Retour rapport" />
+            <ExportExcelButton
+              rows={exportRows}
+              columns={exportColumns}
+              filename={`stock-alert-mp-${new Date().toISOString().slice(0, 10)}.xlsx`}
+            />
             <RefreshButton />
           </div>
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <form className="grid gap-3 sm:grid-cols-3">
+          <form className="grid gap-3 sm:grid-cols-4">
             <input
               type="text"
               name="q"
@@ -340,6 +459,16 @@ export default async function StockAlerteMpPage({
                 <option key={option} value={option} />
               ))}
             </datalist>
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                name="hide_low_threshold"
+                value="1"
+                defaultChecked={hideLowThreshold}
+                className="h-4 w-4"
+              />
+              Cacher Stock alert a 1 ou moins
+            </label>
             <button
               type="submit"
               className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
@@ -363,28 +492,54 @@ export default async function StockAlerteMpPage({
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
                   <tr>
-                    <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Categorie</th>
-                    <th className="px-6 py-4 font-semibold">Quantite</th>
+                    <th className="px-6 py-4 font-semibold">Article</th>
+                    <th className="px-6 py-4 font-semibold">Stock</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
+                    <th className="px-6 py-4 font-semibold">Consommation dernier mois</th>
+                    <th className="px-6 py-4 font-semibold">Consommation dernier 3 mois</th>
+                    <th className="px-6 py-4 font-semibold">Consommation dernier 6 mois</th>
+                    <th className="px-6 py-4 font-semibold">Consommation dernier 12 mois</th>
+                    <th className="px-6 py-4 font-semibold">Total entree (12 mois)</th>
+                    <th className="px-6 py-4 font-semibold">Total entree (3 mois)</th>
                     <th className="px-6 py-4 font-semibold">Stock alert</th>
                     <th className="px-6 py-4 font-semibold">Commande (BC)</th>
                     <th className="px-6 py-4 font-semibold">Import</th>
+                    <th className="px-6 py-4 font-semibold">Average consommation 12 mois</th>
+                    <th className="px-6 py-4 font-semibold">Utilisation produit</th>
                   </tr>
                 </thead>
                 <tbody>
                   {alertes.map((alerte) => (
                     <tr key={alerte.article_id} className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium text-slate-900">{alerte.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{alerte.categorie || "-"}</td>
+                      <td className="px-6 py-4 font-medium text-slate-900">{alerte.nom_article}</td>
                       <td className="px-6 py-4">
                         <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
                           {formatNumber(alerte.stock_actuel)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-slate-600">{alerte.unite || "-"}</td>
+                      <td className="px-6 py-4 font-semibold text-sky-700">
+                        {formatNumber(alerte.consommation_1_mois)}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-sky-700">
+                        {formatNumber(alerte.consommation_3_mois)}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-sky-700">
+                        {formatNumber(alerte.consommation_6_mois)}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-sky-700">
+                        {formatNumber(alerte.consommation_12_mois)}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-emerald-700">
+                        {formatNumber(alerte.entree_12_mois)}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-emerald-700">
+                        {formatNumber(alerte.entree_3_mois)}
+                      </td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(alerte.min_stock)}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {alerte.bcRefs.length === 0 ? (
@@ -432,6 +587,10 @@ export default async function StockAlerteMpPage({
                           </ul>
                         )}
                       </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {formatNumber(alerte.consommation_12_mois / 12)} / mois
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{alerte.utilisation_produit || "-"}</td>
                     </tr>
                   ))}
                 </tbody>

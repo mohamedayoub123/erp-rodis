@@ -217,14 +217,26 @@ export function buildSortieRows(rows: MouvementSourceRow[]): MouvementGroup[] {
   return buildGroups(rows, "sortie", "TS", SORTIE_SOURCES);
 }
 
+export type LotBatchOption = {
+  id: number;
+  dateFabrication: string;
+};
+
 export type AvailableLotOption = {
   id: number;
+  articleId: number;
   articleLabel: string;
   numeroLot: string;
   chambre: string;
   codePays: string;
   datePeremption: string;
   stock: number;
+  // Plusieurs entrees peuvent partager le meme numero de lot mais des dates
+  // de fabrication differentes (lots produits des jours differents, meme
+  // code commercial) - une par date DISTINCTE rencontree, la plus recente en
+  // premier, pour que la Sortie puisse demander laquelle sortir au lieu de
+  // toujours prendre la plus recente sans le dire.
+  batches: LotBatchOption[];
 };
 
 // Le stock restant d'un lot est un agregat sur toutes les lignes
@@ -252,16 +264,30 @@ export function computeAvailableLots(rows: MouvementSourceRow[]): AvailableLotOp
 
     if (remaining <= 0) continue;
 
-    const representative = sortChrono(list)[list.length - 1];
+    const sorted = sortChrono(list);
+    const representative = sorted[sorted.length - 1];
+
+    const batchByDate = new Map<string, MouvementSourceRow>();
+    for (const row of sorted) {
+      if (Number(row.qte_entree ?? 0) <= 0 || !row.date_fabrication) continue;
+      if (!batchByDate.has(row.date_fabrication)) {
+        batchByDate.set(row.date_fabrication, row);
+      }
+    }
+    const batches = [...batchByDate.values()]
+      .sort((a, b) => b.id - a.id)
+      .map((row) => ({ id: row.id, dateFabrication: row.date_fabrication as string }));
 
     result.push({
-      id: representative.id,
+      id: batches[0]?.id ?? representative.id,
+      articleId: representative.article_id as number,
       articleLabel: representative.articles?.nom_article || "-",
       numeroLot: representative.numero_lot || representative.code_normalise || "",
       chambre: representative.chambre || "",
       codePays: representative.code_pays || "",
       datePeremption: representative.date_peremption || "",
       stock: remaining,
+      batches,
     });
   }
 
@@ -269,8 +295,10 @@ export function computeAvailableLots(rows: MouvementSourceRow[]): AvailableLotOp
 }
 
 export function parseSortieMeta(note: string | null) {
+  const empty = { code_sortie: null, livre_pour: null, numero_bl: null, preparateur: null, remarque: null };
+
   if (!note) {
-    return { code_sortie: null, livre_pour: null, numero_bl: null, preparateur: null };
+    return empty;
   }
 
   const lines = note
@@ -289,16 +317,18 @@ export function parseSortieMeta(note: string | null) {
     const livrePour = parts[3] || "";
     const numeroBl = parts[4] || "";
     const preparateur = parts.length >= 7 ? parts[5] || "" : "";
+    const remarque = parts.length >= 8 ? parts[7] || "" : "";
 
     return {
       code_sortie: code && code !== "-" ? code : null,
       livre_pour: livrePour && livrePour !== "-" ? livrePour : null,
       numero_bl: numeroBl && numeroBl !== "-" ? numeroBl : null,
       preparateur: preparateur && preparateur !== "-" ? preparateur : null,
+      remarque: remarque && remarque !== "-" ? remarque : null,
     };
   }
 
-  return { code_sortie: null, livre_pour: null, numero_bl: null, preparateur: null };
+  return empty;
 }
 
 export function formatMouvementDate(value: string | null) {

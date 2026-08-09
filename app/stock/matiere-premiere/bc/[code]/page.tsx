@@ -16,6 +16,31 @@ import {
   updateImportEvenementAction,
 } from "../actions";
 import { computeStatutBc, statutBcBadgeClass } from "../constants";
+import { AddArticleForm } from "./add-article-form";
+
+async function fetchArticleOptions() {
+  const options: string[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("nom_article")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as { nom_article: string }[];
+    options.push(...chunk.map((row) => row.nom_article));
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return options;
+}
 
 type CommandeBcRow = {
   id: number;
@@ -24,6 +49,7 @@ type CommandeBcRow = {
   quantite: number | null;
   n_doss_4d: string | null;
   n_doss_erp: string | null;
+  fournisseur: string | null;
   date_jour: string | null;
   statut: string | null;
 };
@@ -40,7 +66,7 @@ type ImportEvenementRow = {
 async function fetchGroup(code: string) {
   const { data, error } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, date_jour, statut")
+    .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, fournisseur, date_jour, statut")
     .eq("code", code)
     .order("id", { ascending: true });
 
@@ -84,7 +110,10 @@ export default async function CommandeBcMpDetailPage({
   }
 
   const first = rows[0];
-  const imports = await fetchImportsForLignes(rows.map((row) => row.id));
+  const [imports, articleOptions] = await Promise.all([
+    fetchImportsForLignes(rows.map((row) => row.id)),
+    fetchArticleOptions(),
+  ]);
   const importsByLigne = new Map<number, ImportEvenementRow[]>();
   for (const imp of imports) {
     const list = importsByLigne.get(imp.bc_ligne_id) ?? [];
@@ -163,6 +192,7 @@ export default async function CommandeBcMpDetailPage({
                   <thead className="bg-slate-50 text-slate-500">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Article</th>
+                      <th className="px-4 py-3 font-semibold">Fournisseur</th>
                       <th className="px-4 py-3 font-semibold">Dossier 4D</th>
                       <th className="px-4 py-3 font-semibold">Qte commandee</th>
                       <th className="px-4 py-3 font-semibold">Qte importee</th>
@@ -188,6 +218,7 @@ export default async function CommandeBcMpDetailPage({
                           <td className="px-4 py-3 font-medium text-slate-900">
                             {row.article_label || "-"}
                           </td>
+                          <td className="px-4 py-3 text-slate-600">{row.fournisseur || "-"}</td>
                           <td className="px-4 py-3 text-slate-600">{row.n_doss_4d || "-"}</td>
                           <td className="px-4 py-3 text-slate-900">{quantite}</td>
                           <td className="px-4 py-3 text-slate-600">{quantiteImportee}</td>
@@ -389,6 +420,13 @@ export default async function CommandeBcMpDetailPage({
                 </table>
               </div>
             </section>
+
+            {canEdit ? (
+              <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                <h2 className="mb-3 text-lg font-bold text-slate-900">Ajouter un article a ce BC</h2>
+                <AddArticleForm code={code} articleOptions={articleOptions} />
+              </section>
+            ) : null}
           </>
         )}
       </div>

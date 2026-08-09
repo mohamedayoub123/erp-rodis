@@ -127,20 +127,36 @@ export default async function NouvelleFicheEmballagePage() {
                   Cette date remplace la date automatique dans Suivi Production (colonne Date
                   emballage).
                 </p>
-                <label className="grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
-                  Date emballage
-                  <DateJmaFormField name="date_emballage" required />
-                </label>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Date emballage
+                    <DateJmaFormField name="date_emballage" required />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Date d&apos;expiration
+                    <DateJmaFormField name="date_peremption" required />
+                  </label>
+                </div>
               </div>
 
               <div>
                 <h2 className="mb-3 text-lg font-bold text-slate-900">Equipe</h2>
                 <div className="grid gap-4 md:grid-cols-3">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Nom chef de zone
+                    <input
+                      type="text"
+                      name="emballage_chef_zone"
+                      required
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Machine
                     <input
                       type="text"
                       name="emballage_machine"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -149,6 +165,7 @@ export default async function NouvelleFicheEmballagePage() {
                     <input
                       type="text"
                       name="emballage_operateur"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -157,6 +174,19 @@ export default async function NouvelleFicheEmballagePage() {
                     <input
                       type="text"
                       name="emballage_scotcheuse"
+                      required
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Nb de journaliers
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      name="nb_journaliers_emballage"
+                      defaultValue="0"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -171,6 +201,7 @@ export default async function NouvelleFicheEmballagePage() {
                     <input
                       type="time"
                       name="emballage_temps_demarrer"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -179,6 +210,7 @@ export default async function NouvelleFicheEmballagePage() {
                     <input
                       type="time"
                       name="emballage_temps_arret"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
@@ -188,7 +220,7 @@ export default async function NouvelleFicheEmballagePage() {
               <div>
                 <h2 className="mb-1 text-lg font-bold text-slate-900">Arret</h2>
                 <p className="mb-3 text-xs text-slate-500">
-                  Temps d&apos;arret (en minutes) pour chaque cause concernee.
+                  Temps d&apos;arret (en minutes) pour chaque cause concernee - 0 si pas concerne.
                 </p>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {ARRET_CAUSES.map((cause) => (
@@ -199,7 +231,8 @@ export default async function NouvelleFicheEmballagePage() {
                         step="1"
                         min="0"
                         name={cause.field}
-                        placeholder="minutes"
+                        defaultValue="0"
+                        required
                         className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                       />
                     </label>
@@ -219,6 +252,8 @@ export default async function NouvelleFicheEmballagePage() {
                     type="number"
                     step="0.01"
                     name="quantite"
+                    defaultValue="0"
+                    required
                     className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                   />
                 </label>

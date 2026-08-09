@@ -47,6 +47,7 @@ type RapportInfo = {
   ph: number | null;
   densite: number | null;
   viscosite: number | null;
+  degre_alcool: number | null;
   stabilite: string | null;
   vrac_fabrique: number | null;
   qt_vrac_recupere: number | null;
@@ -87,7 +88,7 @@ function combineTempsJourMois(day: string, month: string, time: string) {
   return day && month ? `${day.padStart(2, "0")}/${month} ${time}` : time;
 }
 
-function TempsField({
+export function TempsField({
   label,
   name,
   defaultValue,
@@ -113,11 +114,13 @@ function TempsField({
           placeholder="JJ"
           value={day}
           onChange={(event) => setDay(event.target.value)}
+          required
           className={`w-14 ${inputClass} px-2`}
         />
         <select
           value={month}
           onChange={(event) => setMonth(event.target.value)}
+          required
           className={`${inputClass} px-1`}
         >
           <option value="">Mois</option>
@@ -131,6 +134,7 @@ function TempsField({
           type="time"
           value={time}
           onChange={(event) => setTime(event.target.value)}
+          required
           className={inputClass}
         />
       </div>
@@ -148,10 +152,10 @@ export function FabricationForm({
   rapport: RapportInfo | null;
 }) {
   const [cuvesPoids, setCuvesPoids] = useState({
-    cuve_1_poids: rapport?.cuve_1_poids ?? "",
-    cuve_2_poids: rapport?.cuve_2_poids ?? "",
-    cuve_3_poids: rapport?.cuve_3_poids ?? "",
-    cuve_4_poids: rapport?.cuve_4_poids ?? "",
+    cuve_1_poids: rapport?.cuve_1_poids ?? "0",
+    cuve_2_poids: rapport?.cuve_2_poids ?? "0",
+    cuve_3_poids: rapport?.cuve_3_poids ?? "0",
+    cuve_4_poids: rapport?.cuve_4_poids ?? "0",
   });
 
   const vracTotal = useMemo(() => {
@@ -159,7 +163,7 @@ export function FabricationForm({
       const parsed = Number(String(value).replace(",", "."));
       return sum + (Number.isNaN(parsed) ? 0 : parsed);
     }, 0);
-    return total > 0 ? Math.round(total * 100) / 100 : "";
+    return Math.round(total * 100) / 100;
   }, [cuvesPoids]);
 
   return (
@@ -178,6 +182,7 @@ export function FabricationForm({
           <DateJmaFormField
             name="date_fabrication_conditionnement"
             defaultValue={rapport?.date_fabrication_conditionnement}
+            required
           />
         </label>
       </div>
@@ -191,6 +196,7 @@ export function FabricationForm({
               type="text"
               name="machine"
               defaultValue={rapport?.machine || ""}
+              required
               className={inputClass}
             />
           </label>
@@ -200,6 +206,7 @@ export function FabricationForm({
               type="text"
               name="preparateur"
               defaultValue={rapport?.preparateur || ""}
+              required
               className={inputClass}
             />
           </label>
@@ -208,6 +215,7 @@ export function FabricationForm({
             <select
               name="type_fabrication"
               defaultValue={rapport?.type_fabrication || ""}
+              required
               className={inputClass}
             >
               <option value="">-</option>
@@ -233,6 +241,7 @@ export function FabricationForm({
               type="text"
               name="cuve_1_numero"
               defaultValue={rapport?.cuve_1_numero || ""}
+              required
               className={inputClass}
             />
           </label>
@@ -242,6 +251,7 @@ export function FabricationForm({
               type="text"
               name="cuve_2_numero"
               defaultValue={rapport?.cuve_2_numero || ""}
+              required
               className={inputClass}
             />
           </label>
@@ -251,6 +261,7 @@ export function FabricationForm({
               type="text"
               name="cuve_3_numero"
               defaultValue={rapport?.cuve_3_numero || ""}
+              required
               className={inputClass}
             />
           </label>
@@ -260,6 +271,7 @@ export function FabricationForm({
               type="text"
               name="cuve_4_numero"
               defaultValue={rapport?.cuve_4_numero || ""}
+              required
               className={inputClass}
             />
           </label>
@@ -273,6 +285,7 @@ export function FabricationForm({
               onChange={(e) =>
                 setCuvesPoids((prev) => ({ ...prev, cuve_1_poids: e.target.value }))
               }
+              required
               className={inputClass}
             />
           </label>
@@ -286,6 +299,7 @@ export function FabricationForm({
               onChange={(e) =>
                 setCuvesPoids((prev) => ({ ...prev, cuve_2_poids: e.target.value }))
               }
+              required
               className={inputClass}
             />
           </label>
@@ -299,6 +313,7 @@ export function FabricationForm({
               onChange={(e) =>
                 setCuvesPoids((prev) => ({ ...prev, cuve_3_poids: e.target.value }))
               }
+              required
               className={inputClass}
             />
           </label>
@@ -312,6 +327,7 @@ export function FabricationForm({
               onChange={(e) =>
                 setCuvesPoids((prev) => ({ ...prev, cuve_4_poids: e.target.value }))
               }
+              required
               className={inputClass}
             />
           </label>
@@ -342,14 +358,15 @@ export function FabricationForm({
 
       <div>
         <h2 className="mb-3 text-lg font-bold text-slate-900">Controle qualite</h2>
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             pH
             <input
               type="number"
               step="0.01"
               name="ph"
-              defaultValue={rapport?.ph ?? ""}
+              defaultValue={rapport?.ph ?? "0"}
+              required
               className={inputClass}
             />
           </label>
@@ -359,7 +376,8 @@ export function FabricationForm({
               type="number"
               step="0.01"
               name="densite"
-              defaultValue={rapport?.densite ?? ""}
+              defaultValue={rapport?.densite ?? "0"}
+              required
               className={inputClass}
             />
           </label>
@@ -369,13 +387,30 @@ export function FabricationForm({
               type="number"
               step="0.01"
               name="viscosite"
-              defaultValue={rapport?.viscosite ?? ""}
+              defaultValue={rapport?.viscosite ?? "0"}
+              required
+              className={inputClass}
+            />
+          </label>
+          <label className="grid gap-1 text-xs font-semibold text-slate-500">
+            Degre d&apos;alcool
+            <input
+              type="number"
+              step="0.01"
+              name="degre_alcool"
+              defaultValue={rapport?.degre_alcool ?? "0"}
+              required
               className={inputClass}
             />
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Stabilite
-            <select name="stabilite" defaultValue={rapport?.stabilite || ""} className={inputClass}>
+            <select
+              name="stabilite"
+              defaultValue={rapport?.stabilite || ""}
+              required
+              className={inputClass}
+            >
               <option value="">-</option>
               <option value="Stable">Stable</option>
               <option value="Non stable">Non stable</option>
@@ -387,7 +422,7 @@ export function FabricationForm({
       <div>
         <h2 className="mb-1 text-lg font-bold text-slate-900">Arret</h2>
         <p className="mb-3 text-xs text-slate-500">
-          Temps d&apos;arret (en minutes) pour chaque cause concernee.
+          Temps d&apos;arret (en minutes) pour chaque cause concernee - 0 si pas concerne.
         </p>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {ARRET_CAUSES.map((cause) => (
@@ -398,8 +433,8 @@ export function FabricationForm({
                 step="1"
                 min="0"
                 name={cause.field}
-                defaultValue={rapport?.[cause.field] ?? ""}
-                placeholder="minutes"
+                defaultValue={rapport?.[cause.field] ?? "0"}
+                required
                 className={inputClass}
               />
             </label>
@@ -431,7 +466,8 @@ export function FabricationForm({
               type="number"
               step="0.01"
               name="qt_vrac_recupere"
-              defaultValue={rapport?.qt_vrac_recupere ?? ""}
+              defaultValue={rapport?.qt_vrac_recupere ?? "0"}
+              required
               className={inputClass}
             />
           </label>
@@ -441,6 +477,7 @@ export function FabricationForm({
               type="text"
               name="code_vrac_recupere"
               defaultValue={rapport?.code_vrac_recupere || ""}
+              required
               className={inputClass}
             />
           </label>
