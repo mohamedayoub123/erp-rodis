@@ -500,6 +500,12 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/production/machines"],
   },
   {
+    key: "depots",
+    module: "Stock",
+    label: "Depots (creer, stock, transferts)",
+    pathPrefixes: ["/depots"],
+  },
+  {
     key: "productionRapportEcarts",
     module: "Production",
     label: "Rapport Ecarts Production - supprimer",

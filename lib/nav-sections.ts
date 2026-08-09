@@ -106,6 +106,7 @@ export const navItems: NavItem[] = [
       { href: "/production/machines", label: "Machines", pageKey: "machines" },
     ],
   },
+  { href: "/depots", label: "Depots", pageKey: "depots" },
   { href: "/admin", label: "Admin", adminOnly: true },
 ];
 
