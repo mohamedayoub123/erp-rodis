@@ -354,7 +354,8 @@ export default async function PlanningDashboardPage({
 
   // Salle de pesage : article Vrac (via articles.vrac_article_id sur
   // l'article conditionne de la ligne) + quantite vrac a peser - clic ouvre
-  // sa formule MP (recette-fabrication, exige nature "Vrac").
+  // le besoin MP (vs stock Depot B) + Valider + numero de lot pour CE code
+  // precis (pas la formule brute).
   const pesageRows = vracRows.map((row) => {
     const article = row.ligne.article_id ? articleById.get(row.ligne.article_id) : null;
     const vracArticleId = article?.vrac_article_id ?? null;
@@ -364,20 +365,19 @@ export default async function PlanningDashboardPage({
       date: row.ligne.date_jour,
       label: vracArticle?.nom_article || vracLabelFromName(row.ligne.produit) || "-",
       qt: row.vracPrevu,
-      href: vracArticleId ? `/production/recette-fabrication/${vracArticleId}` : null,
+      href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=vrac&qt=${row.vracPrevu}`,
     };
   });
 
   // Salle de conditionnement : article conditionne + quantite carton a
-  // conditionner - clic ouvre sa formule d'emballage (recette-conditionnement,
-  // exige nature different de "Vrac", donc directement l'article de la
-  // ligne).
+  // conditionner - meme principe, besoin MP pour la formule de conditionnement
+  // de CE code precis.
   const conditionnementRows = cartonRows.map((row) => ({
     key: `${row.ligne.id}-${row.code}`,
     date: row.ligne.date_jour,
     label: row.ligne.produit || "-",
     qt: row.cartonPrevu,
-    href: row.ligne.article_id ? `/production/recette-conditionnement/${row.ligne.article_id}` : null,
+    href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=carton&qt=${row.cartonPrevu}`,
   }));
   const totalEmballagePrevu = emballageRows.reduce((sum, row) => sum + row.emballagePrevu, 0);
   const totalEmballageProduit = emballageRows.reduce((sum, row) => sum + row.emballageProduit, 0);

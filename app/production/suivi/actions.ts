@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
@@ -24,6 +25,7 @@ async function markCodeTermine(formData: FormData, stage: "vrac" | "carton" | "e
 
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();
+  const numeroLot = String(formData.get("numero_lot") || "").trim() || null;
 
   if (!ligneId || !code) {
     throw new Error("Ligne ou code invalide.");
@@ -31,7 +33,7 @@ async function markCodeTermine(formData: FormData, stage: "vrac" | "carton" | "e
 
   const { error } = await supabaseServer
     .from("production_code_termine")
-    .upsert([{ programme_ligne_id: ligneId, code, stage }], {
+    .upsert([{ programme_ligne_id: ligneId, code, stage, numero_lot: numeroLot }], {
       onConflict: "programme_ligne_id,code,stage",
     });
 
@@ -51,6 +53,17 @@ export async function markVracTermineAction(formData: FormData) {
 // son propre flag "termine".
 export async function markCartonTermineAction(formData: FormData) {
   await markCodeTermine(formData, "carton");
+}
+
+// Utilise depuis la page "Besoin" (Salle de pesage/conditionnement,
+// accessible depuis le Dashboard) - meme logique que Fin programme, mais
+// redirige vers le Dashboard apres coup pour que la ligne validee
+// disparaisse immediatement (au lieu de rester affichee sur cette page qui
+// n'existe plus a montrer une fois le code termine).
+export async function validerBatchAction(formData: FormData) {
+  const stage = String(formData.get("stage") || "") === "carton" ? "carton" : "vrac";
+  await markCodeTermine(formData, stage);
+  redirect("/production/suivi/dashboard");
 }
 
 export async function markEmballageTermineAction(formData: FormData) {
