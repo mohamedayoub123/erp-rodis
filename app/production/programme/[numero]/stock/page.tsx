@@ -97,20 +97,20 @@ export default async function ProgrammeVerifierStockPage({
   // fini), qt_vrac pour la recette Fabrication (article vrac).
   const besoinParMp = new Map<number, number>();
   for (const ligne of lignes) {
+    // quantite_recette_base pas renseigne sur l'article -> recette
+    // consideree calibree pour 1 carton/1 kg vrac (meme repli que sur les
+    // pages Recette Conditionnement/Fabrication), au lieu de ne rien
+    // afficher du tout.
     const article = articleById.get(ligne.article_id);
-    if (article?.quantite_recette_base) {
-      const ratio = ligne.qt_carton / article.quantite_recette_base;
-      for (const r of recettes.filter((r) => r.article_pf_id === ligne.article_id)) {
-        besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratio);
-      }
+    const ratioCarton = ligne.qt_carton / (article?.quantite_recette_base || 1);
+    for (const r of recettes.filter((r) => r.article_pf_id === ligne.article_id)) {
+      besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioCarton);
     }
     if (ligne.vrac_article_id) {
       const vracArticle = articleById.get(ligne.vrac_article_id);
-      if (vracArticle?.quantite_recette_base) {
-        const ratio = ligne.qt_vrac / vracArticle.quantite_recette_base;
-        for (const r of recettes.filter((r) => r.article_pf_id === ligne.vrac_article_id)) {
-          besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratio);
-        }
+      const ratioVrac = ligne.qt_vrac / (vracArticle?.quantite_recette_base || 1);
+      for (const r of recettes.filter((r) => r.article_pf_id === ligne.vrac_article_id)) {
+        besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioVrac);
       }
     }
   }
