@@ -33,20 +33,23 @@ function mapTypeArticleToGroupe(typeArticle: string | null): string {
   return "Autre";
 }
 
-// Colorant (COLORANT PLAS. / Col_Cosm / Col_cosm dans les donnees reelles)
-// et Base (categorie exacte "BASE") vont TOUJOURS ensemble dans la MEME
-// Transfer Order, separee du reste ("Autre") - 2 groupes au total, pas 3.
+// Colorant (COLORANT PLAS. / Col_Cosm / Col_cosm), Base (categorie exacte
+// "BASE") ET toute categorie MP generique (mot "MP" isole dans la categorie,
+// ex: "mp cosm", "mp plastique") vont TOUJOURS ensemble dans la MEME
+// Transfer Order, separee de l'emballage - Sleeve, Carton, Spray, Pump,
+// Etiquette... ("Autre") - 2 groupes au total, pas 3. Le mot "MP" doit etre
+// un token isole (espace/tiret autour) pour ne pas matcher par accident des
+// mots comme "PUMP" ou "CAPSULES-IMP" qui contiennent "MP" en sous-chaine.
 function categorieSousGroupe(categorie: string | null): string {
   const normalized = (categorie || "").trim().toUpperCase();
-  if (
+  const tokens = normalized.split(/[^A-Z0-9]+/).filter(Boolean);
+  const isChimique =
     normalized.includes("COLORANT") ||
     normalized.includes("COL_COSM") ||
     normalized.includes("COL COSM") ||
-    normalized === "BASE"
-  ) {
-    return "Colorant-Base";
-  }
-  return "Autre";
+    normalized === "BASE" ||
+    tokens.includes("MP");
+  return isChimique ? "Colorant-Base" : "Autre";
 }
 
 function round(value: number, decimals = 3) {

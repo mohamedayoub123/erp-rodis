@@ -5,9 +5,10 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { type ArticleType } from "../../transfer-order/stock-lots";
-import { updateInvoiceOrderLignesAction, validateInvoiceOrderAction } from "../actions";
+import { deleteInvoiceOrderLigneAction, updateInvoiceOrderLignesAction, validateInvoiceOrderAction } from "../actions";
 
 type InvoiceOrderRow = { id: number; transfer_order_id: number; statut: string; date_jour: string; created_at: string };
 type TransferOrderRow = { id: number; depot_source_id: number; depot_destination_id: number };
@@ -157,12 +158,13 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
                     <th className="px-6 py-4 font-semibold">Type</th>
                     <th className="px-6 py-4 font-semibold">Lot</th>
                     <th className="px-6 py-4 font-semibold">Quantite</th>
+                    {canEditLignes ? <th className="px-6 py-4 font-semibold"></th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {invoiceLignesEnrichies.length === 0 ? (
                     <tr>
-                      <td className="px-6 py-4 text-slate-400" colSpan={4}>
+                      <td className="px-6 py-4 text-slate-400" colSpan={5}>
                         Aucune ligne - tout a deja ete livre ou efface.
                       </td>
                     </tr>
@@ -192,6 +194,17 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
                             ligne.quantite.toLocaleString("fr-FR")
                           )}
                         </td>
+                        {canEditLignes ? (
+                          <td className="px-6 py-4">
+                            <DeleteIconButton
+                              label="Supprimer cette ligne"
+                              formAction={deleteInvoiceOrderLigneAction}
+                              formNoValidate
+                              name="delete_invoice_order_ligne_id"
+                              value={ligne.id}
+                            />
+                          </td>
+                        ) : null}
                       </tr>
                     ))
                   )}

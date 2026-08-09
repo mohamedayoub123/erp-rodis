@@ -2,10 +2,14 @@ export function DeleteIconButton({
   label = "Supprimer",
   formAction,
   formNoValidate,
+  name,
+  value,
 }: {
   label?: string;
   formAction?: (formData: FormData) => void | Promise<void>;
   formNoValidate?: boolean;
+  name?: string;
+  value?: string | number;
 }) {
   return (
     <button
@@ -14,6 +18,8 @@ export function DeleteIconButton({
       title={label}
       formAction={formAction}
       formNoValidate={formNoValidate}
+      name={name}
+      value={value}
       className="flex h-9 w-9 items-center justify-center rounded-full border border-red-200 text-red-700 transition hover:bg-red-50"
     >
       <svg

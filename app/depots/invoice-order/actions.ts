@@ -104,6 +104,55 @@ export async function updateInvoiceOrderLignesAction(formData: FormData) {
   revalidatePath(`/depots/invoice-order/${invoiceOrderId}`);
 }
 
+// Efface une seule ligne du Transfer Invoice en attente (icone Supprimer par
+// ligne) - equivalent a la mettre a 0 dans "Enregistrer", mais en un clic.
+// Le montant efface redevient disponible sur le Transfer Order a la
+// validation.
+export async function deleteInvoiceOrderLigneAction(formData: FormData) {
+  await requireWriteAccess();
+
+  const invoiceOrderLigneId = Number(formData.get("delete_invoice_order_ligne_id") || "0");
+  if (!invoiceOrderLigneId) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const { data: ligneData, error: ligneError } = await supabaseServer
+    .from("invoice_order_lignes")
+    .select("id, invoice_order_id")
+    .eq("id", invoiceOrderLigneId)
+    .maybeSingle();
+
+  if (ligneError || !ligneData) {
+    throw new Error("Ligne introuvable.");
+  }
+
+  const invoiceOrderId = (ligneData as { invoice_order_id: number }).invoice_order_id;
+
+  const { data: invoiceOrderData, error: invoiceOrderError } = await supabaseServer
+    .from("invoice_orders")
+    .select("id, statut")
+    .eq("id", invoiceOrderId)
+    .maybeSingle();
+
+  if (invoiceOrderError || !invoiceOrderData) {
+    throw new Error("Transfer Invoice introuvable.");
+  }
+  if ((invoiceOrderData as { statut: string }).statut === "valide") {
+    throw new Error("Cet Transfer Invoice est deja valide.");
+  }
+
+  const { error: deleteError } = await supabaseServer
+    .from("invoice_order_lignes")
+    .delete()
+    .eq("id", invoiceOrderLigneId);
+
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+
+  revalidatePath(`/depots/invoice-order/${invoiceOrderId}`);
+}
+
 // La validation est le seul moment ou le stock bouge reellement : pour
 // chaque ligne du Transfer Invoice (invoice_order_lignes - potentiellement
 // reduites/effacees a la main avant validation), une ligne "sortie" est
