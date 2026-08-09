@@ -95,7 +95,7 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
   );
 
   // TI1.2026, TI2.2026... fige a la creation (colonne numero) - stable.
-  const code = `TI${invoiceOrder.numero ?? invoiceOrder.id}.${invoiceOrder.date_jour.slice(0, 4)}`;
+  const code = `TI.${invoiceOrder.date_jour.slice(0, 4)}.${invoiceOrder.numero ?? invoiceOrder.id}`;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">

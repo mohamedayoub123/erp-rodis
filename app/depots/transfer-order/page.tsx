@@ -43,7 +43,7 @@ async function fetchAll<T>(table: string, select: string) {
 function computeCodes(rows: TransferOrderRow[]): Map<number, string> {
   const codeById = new Map<number, string>();
   for (const row of rows) {
-    codeById.set(row.id, `TO${row.numero ?? row.id}.${row.date_jour.slice(0, 4)}`);
+    codeById.set(row.id, `TO.${row.date_jour.slice(0, 4)}.${row.numero ?? row.id}`);
   }
   return codeById;
 }

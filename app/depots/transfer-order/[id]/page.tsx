@@ -100,7 +100,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
   // Code TI1.2026, TI2.2026... fige a la creation (colonne numero) - stable.
   const invoiceOrderCodeById = new Map<number, string>();
   for (const io of invoiceOrders) {
-    invoiceOrderCodeById.set(io.id, `TI${io.numero ?? io.id}.${io.date_jour.slice(0, 4)}`);
+    invoiceOrderCodeById.set(io.id, `TI.${io.date_jour.slice(0, 4)}.${io.numero ?? io.id}`);
   }
 
   const { data: ligneLotsData } = await supabaseServer
@@ -119,7 +119,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
   }
 
   // TO1.2026, TO2.2026... fige a la creation (colonne numero) - stable.
-  const code = `TO${transferOrder.numero ?? transferOrder.id}.${transferOrder.date_jour.slice(0, 4)}`;
+  const code = `TO.${transferOrder.date_jour.slice(0, 4)}.${transferOrder.numero ?? transferOrder.id}`;
 
   const lignesEnrichies = await Promise.all(
     lignes.map(async (ligne) => {
@@ -180,7 +180,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                   href={`/depots/invoice-order/${io.id}`}
                   className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
                 >
-                  Voir {invoiceOrderCodeById.get(io.id) ?? `TI${io.id}`}
+                  Voir {invoiceOrderCodeById.get(io.id) ?? `TI.${io.id}`}
                 </Link>
               ))}
               {canEditLots ? (
