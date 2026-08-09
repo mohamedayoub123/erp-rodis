@@ -4,6 +4,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ProgrammeFormulaire } from "../programme-formulaire";
 import { createProgrammeAction } from "../actions";
+import { STATUT_PROGRAMME_OPTIONS } from "../constants";
 
 type ArticleRow = {
   id: number;
@@ -169,15 +170,40 @@ export default async function NouveauProgrammePage() {
             </p>
           ) : (
             <form action={createProgrammeAction} className="grid gap-6">
-              <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                Date
-                <input
-                  type="date"
-                  name="date_jour"
-                  defaultValue={new Date().toISOString().slice(0, 10)}
-                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                />
-              </label>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                  Date
+                  <input
+                    type="date"
+                    name="date_jour"
+                    defaultValue={new Date().toISOString().slice(0, 10)}
+                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                  Remarque
+                  <input
+                    type="text"
+                    name="remarque"
+                    placeholder="Optionnel"
+                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                  Statut
+                  <select
+                    name="statut"
+                    defaultValue={STATUT_PROGRAMME_OPTIONS[0]}
+                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                  >
+                    {STATUT_PROGRAMME_OPTIONS.map((statut) => (
+                      <option key={statut} value={statut}>
+                        {statut}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
 
               <ProgrammeFormulaire
                 articles={articleOptions}

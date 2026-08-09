@@ -5,20 +5,26 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { formatDate } from "@/lib/format-date";
-import { deleteProgrammeAction } from "./actions";
 
 type ProgrammeRow = {
   id: number;
-  article_id: number;
-  vrac_article_id: number | null;
-  machine_fabrication_id: number | null;
-  machine_conditionnement_id: number | null;
-  duree_minutes: number | null;
+  numero_programme: number;
   qt_carton: number;
   qt_vrac: number;
   date_jour: string;
-  numero_programme: number | null;
+  remarque: string | null;
+  statut: string;
   utilisateur: string | null;
+};
+
+type GroupeProgramme = {
+  numero: number;
+  date: string;
+  remarque: string | null;
+  statut: string;
+  utilisateur: string | null;
+  qtCartonTotal: number;
+  qtVracTotal: number;
 };
 
 async function fetchAllProgrammes() {
@@ -29,11 +35,9 @@ async function fetchAllProgrammes() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("programmes")
-      .select(
-        "id, article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, date_jour, numero_programme, utilisateur"
-      )
+      .select("id, numero_programme, qt_carton, qt_vrac, date_jour, remarque, statut, utilisateur")
       .order("date_jour", { ascending: false })
-      .order("id", { ascending: false })
+      .order("numero_programme", { ascending: false })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -51,19 +55,39 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
+// Regroupe les lignes (une par article) par numero_programme, meme "MB" -
+// date/remarque/statut/utilisateur sont identiques sur toutes les lignes
+// d'un groupe (ecrites ainsi a la creation), seuls qt carton/vrac
+// s'additionnent pour le total du programme.
+function regrouperParProgramme(rows: ProgrammeRow[]) {
+  const groupes = new Map<number, GroupeProgramme>();
+  for (const row of rows) {
+    const existant = groupes.get(row.numero_programme);
+    if (existant) {
+      existant.qtCartonTotal += row.qt_carton;
+      existant.qtVracTotal += row.qt_vrac;
+      continue;
+    }
+    groupes.set(row.numero_programme, {
+      numero: row.numero_programme,
+      date: row.date_jour,
+      remarque: row.remarque,
+      statut: row.statut,
+      utilisateur: row.utilisateur,
+      qtCartonTotal: row.qt_carton,
+      qtVracTotal: row.qt_vrac,
+    });
+  }
+  return Array.from(groupes.values());
+}
+
 export default async function ProgrammePage() {
   noStore();
   const currentUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentUser, "programme");
 
-  const [{ rows: programmes, error }, { data: articlesData }, { data: machinesData }] = await Promise.all([
-    fetchAllProgrammes(),
-    supabaseServer.from("articles").select("id, nom_article"),
-    supabaseServer.from("machines").select("id, nom"),
-  ]);
-
-  const articleById = new Map(((articlesData ?? []) as { id: number; nom_article: string }[]).map((a) => [a.id, a.nom_article]));
-  const machineById = new Map(((machinesData ?? []) as { id: number; nom: string }[]).map((m) => [m.id, m.nom]));
+  const { rows: programmes, error } = await fetchAllProgrammes();
+  const groupes = regrouperParProgramme(programmes);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -77,8 +101,8 @@ export default async function ProgrammePage() {
               Programme
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Article, machines et quantites (carton/vrac calcules a partir de la capacite
-              machine).
+              Un programme par ligne (MB1, MB2...). Clique &quot;Voir&quot; pour le detail :
+              articles, machines et quantites.
             </p>
           </div>
 
@@ -103,7 +127,7 @@ export default async function ProgrammePage() {
                 {error.message}
               </p>
             </div>
-          ) : programmes.length === 0 ? (
+          ) : groupes.length === 0 ? (
             <div className="px-6 py-8 text-sm text-slate-500">
               Aucun programme pour le moment.
             </div>
@@ -114,53 +138,32 @@ export default async function ProgrammePage() {
                   <tr>
                     <th className="px-6 py-4 font-semibold">Programme</th>
                     <th className="px-6 py-4 font-semibold">Date</th>
-                    <th className="px-6 py-4 font-semibold">Article</th>
-                    <th className="px-6 py-4 font-semibold">Vrac</th>
-                    <th className="px-6 py-4 font-semibold">Machine Fabrication</th>
-                    <th className="px-6 py-4 font-semibold">Machine Conditionnement</th>
-                    <th className="px-6 py-4 font-semibold">Qt carton</th>
-                    <th className="px-6 py-4 font-semibold">Qt vrac</th>
+                    <th className="px-6 py-4 font-semibold">Remarque</th>
+                    <th className="px-6 py-4 font-semibold">Statut</th>
                     <th className="px-6 py-4 font-semibold">Saisi par</th>
-                    {canWrite ? <th className="px-6 py-4 font-semibold"></th> : null}
+                    <th className="px-6 py-4 font-semibold">Qt carton total</th>
+                    <th className="px-6 py-4 font-semibold">Qt vrac total</th>
+                    <th className="px-6 py-4 font-semibold"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {programmes.map((programme) => (
-                    <tr key={programme.id} className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-semibold text-slate-900">
-                        {programme.numero_programme ? `MB${programme.numero_programme}` : "-"}
+                  {groupes.map((groupe) => (
+                    <tr key={groupe.numero} className="border-t border-slate-100">
+                      <td className="px-6 py-4 font-semibold text-slate-900">MB{groupe.numero}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatDate(groupe.date)}</td>
+                      <td className="px-6 py-4 text-slate-600">{groupe.remarque || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{groupe.statut}</td>
+                      <td className="px-6 py-4 text-slate-600">{groupe.utilisateur || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(groupe.qtCartonTotal)}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(groupe.qtVracTotal)}</td>
+                      <td className="px-6 py-4">
+                        <Link
+                          href={`/production/programme/${groupe.numero}`}
+                          className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+                        >
+                          Voir
+                        </Link>
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{formatDate(programme.date_jour)}</td>
-                      <td className="px-6 py-4 font-medium text-slate-900">
-                        {articleById.get(programme.article_id) || `#${programme.article_id}`}
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {programme.vrac_article_id ? articleById.get(programme.vrac_article_id) || "-" : "-"}
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {programme.machine_fabrication_id ? machineById.get(programme.machine_fabrication_id) || "-" : "-"}
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {programme.machine_conditionnement_id
-                          ? machineById.get(programme.machine_conditionnement_id) || "-"
-                          : "-"}
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(programme.qt_carton)}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(programme.qt_vrac)}</td>
-                      <td className="px-6 py-4 text-slate-600">{programme.utilisateur || "-"}</td>
-                      {canWrite ? (
-                        <td className="px-6 py-4">
-                          <form action={deleteProgrammeAction}>
-                            <input type="hidden" name="programme_id" value={programme.id} />
-                            <button
-                              type="submit"
-                              className="rounded-full border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50"
-                            >
-                              Supprimer
-                            </button>
-                          </form>
-                        </td>
-                      ) : null}
                     </tr>
                   ))}
                 </tbody>

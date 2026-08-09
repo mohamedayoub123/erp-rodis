@@ -38,6 +38,8 @@ export async function createProgrammeAction(formData: FormData) {
   const currentUser = await requireProgrammeWriteAccess();
 
   const dateJour = String(formData.get("date_jour") || "").trim() || new Date().toISOString().slice(0, 10);
+  const remarque = String(formData.get("remarque") || "").trim() || null;
+  const statut = String(formData.get("statut") || "").trim() || "En attente";
 
   const { data: dernierProgramme } = await supabaseServer
     .from("programmes")
@@ -66,6 +68,8 @@ export async function createProgrammeAction(formData: FormData) {
       qt_vrac: parseOptionalNumberValue(qtVracs[index]) ?? 0,
       date_jour: dateJour,
       numero_programme: numeroProgramme,
+      remarque,
+      statut,
       utilisateur: currentUser || null,
     }))
     .filter((ligne) => ligne.article_id !== null);
@@ -81,7 +85,7 @@ export async function createProgrammeAction(formData: FormData) {
   }
 
   revalidatePath("/production/programme");
-  redirect("/production/programme");
+  redirect(`/production/programme/${numeroProgramme}`);
 }
 
 export async function deleteProgrammeAction(formData: FormData) {
@@ -99,4 +103,31 @@ export async function deleteProgrammeAction(formData: FormData) {
   }
 
   revalidatePath("/production/programme");
+}
+
+// Remarque et Statut sont partages par toutes les lignes d'un meme
+// numero_programme (meme "MB") - les modifier met a jour toutes les lignes
+// du groupe d'un coup.
+export async function updateProgrammeGroupeAction(formData: FormData) {
+  await requireProgrammeWriteAccess();
+
+  const numeroProgramme = Number(formData.get("numero_programme") || "0");
+  if (!numeroProgramme) {
+    throw new Error("Programme invalide.");
+  }
+
+  const remarque = String(formData.get("remarque") || "").trim() || null;
+  const statut = String(formData.get("statut") || "").trim() || "En attente";
+
+  const { error } = await supabaseServer
+    .from("programmes")
+    .update({ remarque, statut })
+    .eq("numero_programme", numeroProgramme);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/production/programme");
+  revalidatePath(`/production/programme/${numeroProgramme}`);
 }
