@@ -123,10 +123,6 @@ export default async function NouveauProgrammePage() {
     .filter((machine) => machine.type === "Conditionnement")
     .map((machine) => ({ id: machine.id, label: machine.nom }))
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
-  const machinesEmballage = machines
-    .filter((machine) => machine.type === "Emballage")
-    .map((machine) => ({ id: machine.id, label: machine.nom }))
-    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
 
   const capaciteParMachineArticle: Record<
     string,
@@ -154,7 +150,7 @@ export default async function NouveauProgrammePage() {
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
               Ajoute autant d&apos;articles que necessaire, une ligne par article. Pour chaque
-              ligne : machines Fabrication/Conditionnement/Emballage et duree prevue, puis
+              ligne : machines Fabrication/Conditionnement et duree prevue, puis
               &quot;Calculer&quot; pour remplir qt carton/vrac automatiquement a partir de la
               capacite des machines (page Machines) - tout reste modifiable a la main.
             </p>
@@ -187,7 +183,6 @@ export default async function NouveauProgrammePage() {
                 articles={articleOptions}
                 machinesFabrication={machinesFabrication}
                 machinesConditionnement={machinesConditionnement}
-                machinesEmballage={machinesEmballage}
                 capaciteParMachineArticle={capaciteParMachineArticle}
               />
 

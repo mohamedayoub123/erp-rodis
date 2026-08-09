@@ -13,11 +13,9 @@ type ProgrammeRow = {
   vrac_article_id: number | null;
   machine_fabrication_id: number | null;
   machine_conditionnement_id: number | null;
-  machine_emballage_id: number | null;
   duree_minutes: number | null;
   qt_carton: number;
   qt_vrac: number;
-  qt_emballage: number;
   date_jour: string;
   utilisateur: string | null;
 };
@@ -31,7 +29,7 @@ async function fetchAllProgrammes() {
     const { data, error } = await supabaseServer
       .from("programmes")
       .select(
-        "id, article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, machine_emballage_id, duree_minutes, qt_carton, qt_vrac, qt_emballage, date_jour, utilisateur"
+        "id, article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, date_jour, utilisateur"
       )
       .order("date_jour", { ascending: false })
       .order("id", { ascending: false })
@@ -79,7 +77,7 @@ export default async function ProgrammePage() {
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
               Article, machines et quantites (carton/vrac calcules a partir de la capacite
-              machine, emballage saisi a la main).
+              machine).
             </p>
           </div>
 
@@ -118,10 +116,8 @@ export default async function ProgrammePage() {
                     <th className="px-6 py-4 font-semibold">Vrac</th>
                     <th className="px-6 py-4 font-semibold">Machine Fabrication</th>
                     <th className="px-6 py-4 font-semibold">Machine Conditionnement</th>
-                    <th className="px-6 py-4 font-semibold">Machine Emballage</th>
                     <th className="px-6 py-4 font-semibold">Qt carton</th>
                     <th className="px-6 py-4 font-semibold">Qt vrac</th>
-                    <th className="px-6 py-4 font-semibold">Qt emballage</th>
                     <th className="px-6 py-4 font-semibold">Saisi par</th>
                     {canWrite ? <th className="px-6 py-4 font-semibold"></th> : null}
                   </tr>
@@ -144,12 +140,8 @@ export default async function ProgrammePage() {
                           ? machineById.get(programme.machine_conditionnement_id) || "-"
                           : "-"}
                       </td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {programme.machine_emballage_id ? machineById.get(programme.machine_emballage_id) || "-" : "-"}
-                      </td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(programme.qt_carton)}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(programme.qt_vrac)}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(programme.qt_emballage)}</td>
                       <td className="px-6 py-4 text-slate-600">{programme.utilisateur || "-"}</td>
                       {canWrite ? (
                         <td className="px-6 py-4">

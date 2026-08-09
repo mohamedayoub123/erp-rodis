@@ -26,11 +26,9 @@ type Ligne = {
   articleId: number | null;
   machineFabricationId: number | null;
   machineConditionnementId: number | null;
-  machineEmballageId: number | null;
   dureeMinutes: string;
   qtCarton: string;
   qtVrac: string;
-  qtEmballage: string;
   autoCalcule: boolean;
 };
 
@@ -45,11 +43,9 @@ function ligneVide(key: number): Ligne {
     articleId: null,
     machineFabricationId: null,
     machineConditionnementId: null,
-    machineEmballageId: null,
     dureeMinutes: "",
     qtCarton: "",
     qtVrac: "",
-    qtEmballage: "",
     autoCalcule: false,
   };
 }
@@ -72,13 +68,11 @@ export function ProgrammeFormulaire({
   articles,
   machinesFabrication,
   machinesConditionnement,
-  machinesEmballage,
   capaciteParMachineArticle,
 }: {
   articles: ArticleOption[];
   machinesFabrication: MachineOption[];
   machinesConditionnement: MachineOption[];
-  machinesEmballage: MachineOption[];
   capaciteParMachineArticle: Record<string, CapaciteInfo>;
 }) {
   const [lignes, setLignes] = useState<Ligne[]>([ligneVide(0)]);
@@ -182,12 +176,10 @@ export function ProgrammeFormulaire({
               <th className="px-3 py-3 font-semibold">Vrac</th>
               <th className="px-3 py-3 font-semibold">Machine Fabrication</th>
               <th className="px-3 py-3 font-semibold">Machine Conditionnement</th>
-              <th className="px-3 py-3 font-semibold">Machine Emballage</th>
               <th className="px-3 py-3 font-semibold">Duree (min)</th>
               <th className="px-3 py-3 font-semibold"></th>
               <th className="px-3 py-3 font-semibold">Qt carton</th>
               <th className="px-3 py-3 font-semibold">Qt vrac</th>
-              <th className="px-3 py-3 font-semibold">Qt emballage</th>
               <th className="px-3 py-3 font-semibold"></th>
             </tr>
           </thead>
@@ -247,23 +239,6 @@ export function ProgrammeFormulaire({
                       ))}
                     </select>
                   </td>
-                  <td className="min-w-[160px] px-3 py-3">
-                    <select
-                      name="machine_emballage_id"
-                      value={ligne.machineEmballageId ?? ""}
-                      onChange={(event) =>
-                        updateLigne(ligne.key, { machineEmballageId: Number(event.target.value) || null })
-                      }
-                      className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                    >
-                      <option value="">Choisir...</option>
-                      {machinesEmballage.map((machine) => (
-                        <option key={machine.id} value={machine.id}>
-                          {machine.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
                   <td className="w-28 px-3 py-3">
                     <input
                       type="number"
@@ -304,17 +279,6 @@ export function ProgrammeFormulaire({
                       name="qt_vrac"
                       value={ligne.qtVrac}
                       onChange={(event) => updateQtVrac(ligne.key, event.target.value)}
-                      className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                    />
-                  </td>
-                  <td className="w-28 px-3 py-3">
-                    <input
-                      type="number"
-                      step="0.001"
-                      min="0"
-                      name="qt_emballage"
-                      value={ligne.qtEmballage}
-                      onChange={(event) => updateLigne(ligne.key, { qtEmballage: event.target.value })}
                       className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                     />
                   </td>

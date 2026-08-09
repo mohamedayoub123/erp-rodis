@@ -41,11 +41,9 @@ export async function createProgrammeAction(formData: FormData) {
   const vracArticleIds = formData.getAll("vrac_article_id");
   const machineFabricationIds = formData.getAll("machine_fabrication_id");
   const machineConditionnementIds = formData.getAll("machine_conditionnement_id");
-  const machineEmballageIds = formData.getAll("machine_emballage_id");
   const dureesMinutes = formData.getAll("duree_minutes");
   const qtCartons = formData.getAll("qt_carton");
   const qtVracs = formData.getAll("qt_vrac");
-  const qtEmballages = formData.getAll("qt_emballage");
 
   const lignes = articleIds
     .map((rawArticleId, index) => ({
@@ -53,11 +51,9 @@ export async function createProgrammeAction(formData: FormData) {
       vrac_article_id: parseIdValue(vracArticleIds[index]),
       machine_fabrication_id: parseIdValue(machineFabricationIds[index]),
       machine_conditionnement_id: parseIdValue(machineConditionnementIds[index]),
-      machine_emballage_id: parseIdValue(machineEmballageIds[index]),
       duree_minutes: parseOptionalNumberValue(dureesMinutes[index]),
       qt_carton: parseOptionalNumberValue(qtCartons[index]) ?? 0,
       qt_vrac: parseOptionalNumberValue(qtVracs[index]) ?? 0,
-      qt_emballage: parseOptionalNumberValue(qtEmballages[index]) ?? 0,
       date_jour: dateJour,
       utilisateur: currentUser || null,
     }))
