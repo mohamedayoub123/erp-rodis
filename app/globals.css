@@ -124,6 +124,16 @@ body {
     display: block !important;
   }
 
+  /* Historique Programme Dispatcher (detail PD) : le bouton "Imprimer"
+     general (SimplePrintButton, data-print-mode="simple") doit imprimer
+     TOUTES les zones ensemble, contrairement aux boutons par zone
+     (ZonePrintButton) qui n'en montrent qu'une - sans cette regle, la
+     regle generale juste au-dessus cacherait toutes les sections (aucune
+     ne correspond a "simple"). */
+  html[data-print-mode="simple"] [data-print-zone] {
+    display: block !important;
+  }
+
   /* "overflow-hidden" + coins arrondis (pense pour l'ecran) coupaient le
      haut du tableau a l'impression : l'entete de zone (repetee sur chaque
      page via table-header-group) se redessine parfois hors de la zone de

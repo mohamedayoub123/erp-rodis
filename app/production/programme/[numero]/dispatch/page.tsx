@@ -7,6 +7,7 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { DispatcherRowEditor } from "@/app/ravitailleur-par-ligne/dispatcher-row-editor";
+import { ZonePrintButton } from "@/app/ravitailleur-par-ligne/zone-print-button";
 import { deleteProgrammeDispatchByGroupAction } from "./actions";
 import { DispatchSaveButton } from "./dispatch-save-button";
 
@@ -160,38 +161,23 @@ export default async function ProgrammeDispatchPage({
   const dates = uniqueDatesFrom(dataRows);
   const missingCodeCount = dataRows.filter((row) => !row.code || !row.code.trim()).length;
 
-  const hasArticleFlag = (flag: keyof ArticleProductionInfo) =>
-    dataRows.some((row) => (row.article_id ? articlesInfo.get(row.article_id)?.[flag] : false));
-  const showFlaconPot = hasArticleFlag("besoin_pot_flacon");
-  const showCapsulePompe = hasArticleFlag("besoin_capsule");
-  const showSleeve = hasArticleFlag("besoin_sleeve");
-  const showCarton = hasArticleFlag("besoin_carton");
-  const showEtiquette = hasArticleFlag("besoin_etiquette");
-  const showEtui = hasArticleFlag("besoin_etui");
-  const showDispenseur = hasArticleFlag("besoin_dispenseur");
-
-  const visibleColumns = [
-    "DATE",
-    "ZONE",
-    "CHAINE",
-    "MACHINE FAB",
-    "PRODUIT",
-    "CODE",
-    "QT CARTON",
-    "QT VRAC",
-    ...(showFlaconPot ? ["FLACON/POT"] : []),
-    ...(showCapsulePompe ? ["CAPSULE/POMPE"] : []),
-    ...(showSleeve ? ["SLEEVE"] : []),
-    ...(showCarton ? ["CARTON"] : []),
-    ...(showEtiquette ? ["ETIQUETE"] : []),
-    ...(showEtui ? ["NB ETUIT"] : []),
-    ...(showDispenseur ? ["DISPENSEUR"] : []),
-  ];
+  // Groupe par zone (une section par zone, comme Ravitailleur "Toutes les
+  // zones") - seulement les zones reellement touchees par ce programme, pas
+  // les 6 zones fixes (contrairement a "tout", qui est un tableau de bord
+  // permanent voulant toujours tout montrer).
+  const zonesInView = [...new Set(dataRows.map((row) => row.zone))].sort((a, b) =>
+    a.localeCompare(b, "fr", { numeric: true })
+  );
+  const rowsByZone = new Map<string, DispatcherRow[]>();
+  for (const zone of zonesInView) rowsByZone.set(zone, []);
+  for (const row of dataRows) {
+    rowsByZone.get(row.zone)?.push(row);
+  }
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
-        <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+        <section className="no-print rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
@@ -223,105 +209,151 @@ export default async function ProgrammeDispatchPage({
         </section>
 
         {missingCodeCount > 0 ? (
-          <section className="rounded-[1.75rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-800">
+          <section className="no-print rounded-[1.75rem] border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-800">
             {missingCodeCount} ligne{missingCodeCount > 1 ? "s" : ""} sans code (surlignee
             {missingCodeCount > 1 ? "s" : ""} en rouge ci-dessous) - tape le 1er code toi-meme dans la
             case CODE.
           </section>
         ) : null}
 
-        <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <div className="overflow-x-auto">
-            <table className="min-w-full border-collapse text-left text-sm">
-              <thead>
-                <tr>
-                  {visibleColumns.map((column) => (
-                    <th
-                      key={column}
-                      className="border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900"
-                    >
-                      {column}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {dataRows.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={visibleColumns.length}
-                      className="border border-slate-300 bg-white px-3 py-4 text-center text-slate-400"
-                    >
-                      Aucune ligne dispatchee - clique &quot;Dispatch&quot; depuis la page du programme.
-                    </td>
-                  </tr>
-                ) : (
-                  dataRows.map((row) => {
-                    const article = row.article_id ? articlesInfo.get(row.article_id) : undefined;
-                    const pieces = computePieces(row.qt_carton, article?.piece_par_carton);
-                    const machineFab = row.article_id ? machineFabricationByArticleId.get(row.article_id) : undefined;
+        {zonesInView.length === 0 ? (
+          <section className="rounded-[1.75rem] border border-black/5 bg-white px-5 py-8 text-center text-sm text-slate-400 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            Aucune ligne dispatchee - clique &quot;Dispatch&quot; depuis la page du programme.
+          </section>
+        ) : (
+          zonesInView.map((zone) => {
+            const zoneRows = rowsByZone.get(zone) ?? [];
 
-                    return (
-                      <tr key={row.id}>
-                        <td className="border border-slate-300 bg-white px-3 py-3">
-                          {row.date_jour ? formatDate(row.date_jour) : ""}
-                        </td>
-                        <td className="border border-slate-300 bg-white px-3 py-3">{row.zone || ""}</td>
-                        <td className="border border-slate-300 bg-white px-3 py-3">{row.chaine || ""}</td>
-                        <td className="border border-slate-300 bg-white px-3 py-3">{machineFab || "-"}</td>
-                        <td className="border border-slate-300 bg-white px-3 py-3">{row.produit || ""}</td>
-                        <DispatcherRowEditor
-                          id={row.id}
-                          initialCode={row.code || ""}
-                          initialQtCarton={row.qt_carton}
-                          initialQtVrac={row.qt_vrac}
-                          canEdit={canEdit}
-                        />
-                        {showFlaconPot ? (
-                          <td className="border border-slate-300 bg-white px-3 py-3">
-                            {article?.besoin_pot_flacon ? formatCell(pieces) : ""}
-                          </td>
-                        ) : null}
-                        {showCapsulePompe ? (
-                          <td className="border border-slate-300 bg-white px-3 py-3">
-                            {article?.besoin_capsule ? formatCell(pieces) : ""}
-                          </td>
-                        ) : null}
-                        {showSleeve ? (
-                          <td className="border border-slate-300 bg-white px-3 py-3">
-                            {article?.besoin_sleeve ? formatCell(pieces) : ""}
-                          </td>
-                        ) : null}
-                        {showCarton ? (
-                          <td className="border border-slate-300 bg-white px-3 py-3">
-                            {article?.besoin_carton ? formatCell(row.qt_carton) : ""}
-                          </td>
-                        ) : null}
-                        {showEtiquette ? (
-                          <td className="border border-slate-300 bg-white px-3 py-3">
-                            {article?.besoin_etiquette ? formatCell(pieces) : ""}
-                          </td>
-                        ) : null}
-                        {showEtui ? (
-                          <td className="border border-slate-300 bg-white px-3 py-3">
-                            {article?.besoin_etui ? formatCell(pieces) : ""}
-                          </td>
-                        ) : null}
-                        {showDispenseur ? (
-                          <td className="border border-slate-300 bg-white px-3 py-3">
-                            {article?.besoin_dispenseur
-                              ? formatCell(computeDispenseur(row.qt_carton, article?.dispenseur_pcs_carton))
-                              : ""}
-                          </td>
-                        ) : null}
+            const hasArticleFlag = (flag: keyof ArticleProductionInfo) =>
+              zoneRows.some((row) => (row.article_id ? articlesInfo.get(row.article_id)?.[flag] : false));
+            const showFlaconPot = hasArticleFlag("besoin_pot_flacon");
+            const showCapsulePompe = hasArticleFlag("besoin_capsule");
+            const showSleeve = hasArticleFlag("besoin_sleeve");
+            const showCarton = hasArticleFlag("besoin_carton");
+            const showEtiquette = hasArticleFlag("besoin_etiquette");
+            const showEtui = hasArticleFlag("besoin_etui");
+            const showDispenseur = hasArticleFlag("besoin_dispenseur");
+
+            const visibleColumns = [
+              "DATE",
+              "CHAINE",
+              "MACHINE FAB",
+              "PRODUIT",
+              "CODE",
+              "QT CARTON",
+              "QT VRAC",
+              ...(showFlaconPot ? ["FLACON/POT"] : []),
+              ...(showCapsulePompe ? ["CAPSULE/POMPE"] : []),
+              ...(showSleeve ? ["SLEEVE"] : []),
+              ...(showCarton ? ["CARTON"] : []),
+              ...(showEtiquette ? ["ETIQUETE"] : []),
+              ...(showEtui ? ["NB ETUIT"] : []),
+              ...(showDispenseur ? ["DISPENSEUR"] : []),
+            ];
+
+            return (
+              <section
+                key={zone}
+                data-print-zone={zone}
+                className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]"
+              >
+                <div className="no-print flex items-center justify-between border-b border-slate-100 px-5 py-3">
+                  <h2 className="text-lg font-bold text-slate-900">{zone}</h2>
+                  <ZonePrintButton zone={zone} />
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border-collapse text-left text-sm">
+                    <thead>
+                      <tr>
+                        <th
+                          colSpan={visibleColumns.length}
+                          className="border border-slate-300 bg-slate-300 px-3 py-2 text-center font-bold text-slate-900"
+                        >
+                          {zone}
+                        </th>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                      <tr>
+                        {visibleColumns.map((column) => (
+                          <th
+                            key={column}
+                            className="border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900"
+                          >
+                            {column}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {zoneRows.map((row) => {
+                        const article = row.article_id ? articlesInfo.get(row.article_id) : undefined;
+                        const pieces = computePieces(row.qt_carton, article?.piece_par_carton);
+                        const machineFab = row.article_id
+                          ? machineFabricationByArticleId.get(row.article_id)
+                          : undefined;
+
+                        return (
+                          <tr key={row.id}>
+                            <td className="border border-slate-300 bg-white px-3 py-3">
+                              {row.date_jour ? formatDate(row.date_jour) : ""}
+                            </td>
+                            <td className="border border-slate-300 bg-white px-3 py-3">{row.chaine || ""}</td>
+                            <td className="border border-slate-300 bg-white px-3 py-3">{machineFab || "-"}</td>
+                            <td className="border border-slate-300 bg-white px-3 py-3">{row.produit || ""}</td>
+                            <DispatcherRowEditor
+                              id={row.id}
+                              initialCode={row.code || ""}
+                              initialQtCarton={row.qt_carton}
+                              initialQtVrac={row.qt_vrac}
+                              canEdit={canEdit}
+                            />
+                            {showFlaconPot ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_pot_flacon ? formatCell(pieces) : ""}
+                              </td>
+                            ) : null}
+                            {showCapsulePompe ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_capsule ? formatCell(pieces) : ""}
+                              </td>
+                            ) : null}
+                            {showSleeve ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_sleeve ? formatCell(pieces) : ""}
+                              </td>
+                            ) : null}
+                            {showCarton ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_carton ? formatCell(row.qt_carton) : ""}
+                              </td>
+                            ) : null}
+                            {showEtiquette ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_etiquette ? formatCell(pieces) : ""}
+                              </td>
+                            ) : null}
+                            {showEtui ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_etui ? formatCell(pieces) : ""}
+                              </td>
+                            ) : null}
+                            {showDispenseur ? (
+                              <td className="border border-slate-300 bg-white px-3 py-3">
+                                {article?.besoin_dispenseur
+                                  ? formatCell(computeDispenseur(row.qt_carton, article?.dispenseur_pcs_carton))
+                                  : ""}
+                              </td>
+                            ) : null}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            );
+          })
+        )}
 
         {dataRows.length > 0 ? <DispatchSaveButton numeroProgramme={numeroProgramme} /> : null}
       </div>
