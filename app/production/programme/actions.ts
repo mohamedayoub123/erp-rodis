@@ -368,7 +368,29 @@ async function syncProgrammeLignesMirror(
   }
 
   const existingGroupeIds = existingRows.map((row) => row.groupe_id).filter((id): id is number => id !== null);
-  const groupeId = existingGroupeIds.length > 0 ? Math.min(...existingGroupeIds) : Math.min(...mirrorRowIds);
+  let groupeId: number;
+  if (existingGroupeIds.length > 0) {
+    groupeId = Math.min(...existingGroupeIds);
+  } else {
+    // Math.min(mirrorRowIds) (convention de "Programme par ligne") n'est PAS
+    // sur pour un groupe fraichement cree ici : les lignes migrees depuis V1
+    // ont garde leur groupe_id ET leur id d'origine tels quels, donc un id de
+    // ligne miroir tout juste insere (bas, juste apres la reinitialisation
+    // de la sequence post-migration) peut coincider avec un groupe_id DEJA
+    // utilise par une ligne migree totalement sans rapport - ce qui melait 2
+    // programmes distincts sous le meme groupe_id (confirme_production de
+    // l'un affectait l'autre). max(groupe_id)+1 sur toute la table garantit
+    // une valeur jamais utilisee, quelle que soit l'origine des ids.
+    const { data: maxGroupeRow } = await supabaseServer
+      .from("programme_lignes")
+      .select("groupe_id")
+      .not("groupe_id", "is", null)
+      .order("groupe_id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const maxGroupeId = (maxGroupeRow as { groupe_id: number } | null)?.groupe_id ?? 0;
+    groupeId = maxGroupeId + 1;
+  }
 
   const { error: groupUpdateError } = await supabaseServer
     .from("programme_lignes")
