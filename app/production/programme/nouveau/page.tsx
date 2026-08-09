@@ -13,7 +13,7 @@ type ArticleRow = {
   piece_par_carton: number | null;
 };
 
-type MachineRow = { id: number; nom: string; type: string | null };
+type MachineRow = { id: number; nom: string; type: string | null; zone: string | null };
 
 type MachineProduitRow = {
   machine_id: number;
@@ -54,7 +54,7 @@ async function fetchAllMachines() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("machines")
-      .select("id, nom, type")
+      .select("id, nom, type, zone")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -117,11 +117,11 @@ export default async function NouveauProgrammePage() {
 
   const machinesFabrication = machines
     .filter((machine) => machine.type === "Fabrication")
-    .map((machine) => ({ id: machine.id, label: machine.nom }))
+    .map((machine) => ({ id: machine.id, label: `${machine.nom} (${machine.zone || "sans zone"})` }))
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
   const machinesConditionnement = machines
     .filter((machine) => machine.type === "Conditionnement")
-    .map((machine) => ({ id: machine.id, label: machine.nom }))
+    .map((machine) => ({ id: machine.id, label: `${machine.nom} (${machine.zone || "sans zone"})` }))
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
 
   const capaciteParMachineArticle: Record<

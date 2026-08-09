@@ -40,7 +40,7 @@ type ArticleRow = {
   piece_par_carton: number | null;
 };
 
-type MachineRow = { id: number; nom: string; type: string | null };
+type MachineRow = { id: number; nom: string; type: string | null; zone: string | null };
 
 type MachineProduitRow = {
   machine_id: number;
@@ -100,7 +100,7 @@ export default async function ProgrammeDetailPage({
       .eq("numero_programme", numeroProgramme)
       .order("id", { ascending: true }),
     fetchAll<ArticleRow>("articles", "id, nom_article, vrac_article_id, contenance, piece_par_carton"),
-    fetchAll<MachineRow>("machines", "id, nom, type"),
+    fetchAll<MachineRow>("machines", "id, nom, type, zone"),
     fetchAll<MachineProduitRow>("machine_produits", "machine_id, article_id, capacite, capacite_min, capacite_max, temps_minutes"),
   ]);
 
@@ -128,11 +128,11 @@ export default async function ProgrammeDetailPage({
 
   const machinesFabrication = machines
     .filter((machine) => machine.type === "Fabrication")
-    .map((machine) => ({ id: machine.id, label: machine.nom }))
+    .map((machine) => ({ id: machine.id, label: `${machine.nom} (${machine.zone || "sans zone"})` }))
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
   const machinesConditionnement = machines
     .filter((machine) => machine.type === "Conditionnement")
-    .map((machine) => ({ id: machine.id, label: machine.nom }))
+    .map((machine) => ({ id: machine.id, label: `${machine.nom} (${machine.zone || "sans zone"})` }))
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
 
   const capaciteParMachineArticle: Record<
