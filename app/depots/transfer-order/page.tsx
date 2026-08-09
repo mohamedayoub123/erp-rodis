@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
-import { createTransferOrderAction } from "./actions";
+import { createTransferOrderAction, deleteTransferOrderAction } from "./actions";
 import { TransferOrderLinesForm } from "./transfer-order-lines-form";
 
 type DepotRow = { id: number; nom: string };
@@ -67,6 +68,7 @@ export default async function TransferOrderListPage() {
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "depots");
+  const canDelete = await canDeletePageUser(currentUser, "depots");
 
   const [{ rows: depots }, { rows: transferOrders, error }, { rows: articlesMpRows }, { rows: articlesPfRows }] =
     await Promise.all([
@@ -164,6 +166,7 @@ export default async function TransferOrderListPage() {
                     <th className="px-6 py-4 font-semibold">De</th>
                     <th className="px-6 py-4 font-semibold">Vers</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
+                    {canDelete ? <th className="px-6 py-4 font-semibold"></th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -182,6 +185,14 @@ export default async function TransferOrderListPage() {
                           {STATUT_LABELS[row.statut] ?? row.statut}
                         </span>
                       </td>
+                      {canDelete ? (
+                        <td className="px-6 py-4">
+                          <form action={deleteTransferOrderAction}>
+                            <input type="hidden" name="transfer_order_id" value={row.id} />
+                            <DeleteIconButton label={`Supprimer ${codeById.get(row.id)}`} />
+                          </form>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>

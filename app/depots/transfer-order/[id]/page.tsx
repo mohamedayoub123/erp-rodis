@@ -2,12 +2,18 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { fetchLotsInDepot, type ArticleType } from "../stock-lots";
-import { approveTransferOrderAction, postToInvoiceOrderAction, updateLigneLotsAction } from "../actions";
+import {
+  approveTransferOrderAction,
+  deleteTransferOrderAction,
+  postToInvoiceOrderAction,
+  updateLigneLotsAction,
+} from "../actions";
 
 type TransferOrderRow = {
   id: number;
@@ -42,6 +48,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "depots");
+  const canDelete = await canDeletePageUser(currentUser, "depots");
 
   const [{ data: transferOrderData }, { data: lignesData }, { data: depotsData }, { data: invoiceOrderData }] =
     await Promise.all([
@@ -155,6 +162,12 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                 >
                   Voir le Transfer Invoice
                 </Link>
+              ) : null}
+              {canDelete ? (
+                <form action={deleteTransferOrderAction}>
+                  <input type="hidden" name="transfer_order_id" value={transferOrderId} />
+                  <DeleteIconButton label="Supprimer ce Transfer Order" />
+                </form>
               ) : null}
             </div>
           </div>

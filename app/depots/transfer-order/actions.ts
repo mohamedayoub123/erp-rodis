@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { type ArticleType, fetchLotsInDepot, totalAvailable, allocateFefo } from "./stock-lots";
 
 // Appelee directement depuis TransferArticlePicker (pas liee a un <form>) -
@@ -294,4 +294,92 @@ export async function postToInvoiceOrderAction(formData: FormData) {
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
   revalidatePath("/depots/invoice-order");
   redirect(`/depots/invoice-order/${(inserted as { id: number }).id}`);
+}
+
+// Refuse de supprimer si le Transfer Invoice lie a deja ete valide - a ce
+// stade le stock a deja reellement bouge (voir invoice-order/actions.ts),
+// supprimer le Transfer Order effacerait la trace de ce mouvement sans
+// l'annuler. Avant validation (pas encore poste, ou poste mais Transfer
+// Invoice encore en draft), rien n'a touche au stock : suppression sure,
+// avec ses lignes/lots et son eventuel Transfer Invoice draft associe.
+export async function deleteTransferOrderAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canDeletePageUser(currentUser, "depots"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer de Transfer Order.");
+  }
+
+  const transferOrderId = Number(formData.get("transfer_order_id") || "0");
+  if (!transferOrderId) {
+    throw new Error("Transfer Order invalide.");
+  }
+
+  const { data: invoiceOrderData, error: invoiceOrderError } = await supabaseServer
+    .from("invoice_orders")
+    .select("id, statut")
+    .eq("transfer_order_id", transferOrderId)
+    .maybeSingle();
+
+  if (invoiceOrderError) {
+    throw new Error(invoiceOrderError.message);
+  }
+
+  const invoiceOrder = invoiceOrderData as { id: number; statut: string } | null;
+
+  if (invoiceOrder?.statut === "valide") {
+    throw new Error(
+      "Impossible de supprimer : le Transfer Invoice lie a deja ete valide, le stock a deja bouge."
+    );
+  }
+
+  if (invoiceOrder) {
+    const { error: deleteInvoiceError } = await supabaseServer
+      .from("invoice_orders")
+      .delete()
+      .eq("id", invoiceOrder.id);
+    if (deleteInvoiceError) {
+      throw new Error(deleteInvoiceError.message);
+    }
+  }
+
+  const { data: lignesData, error: lignesError } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("id")
+    .eq("transfer_order_id", transferOrderId);
+
+  if (lignesError) {
+    throw new Error(lignesError.message);
+  }
+
+  const ligneIds = ((lignesData ?? []) as { id: number }[]).map((l) => l.id);
+
+  if (ligneIds.length > 0) {
+    const { error: deleteLigneLotsError } = await supabaseServer
+      .from("transfer_order_ligne_lots")
+      .delete()
+      .in("transfer_order_ligne_id", ligneIds);
+    if (deleteLigneLotsError) {
+      throw new Error(deleteLigneLotsError.message);
+    }
+  }
+
+  const { error: deleteLignesError } = await supabaseServer
+    .from("transfer_order_lignes")
+    .delete()
+    .eq("transfer_order_id", transferOrderId);
+  if (deleteLignesError) {
+    throw new Error(deleteLignesError.message);
+  }
+
+  const { error: deleteTransferOrderError } = await supabaseServer
+    .from("transfer_orders")
+    .delete()
+    .eq("id", transferOrderId);
+  if (deleteTransferOrderError) {
+    throw new Error(deleteTransferOrderError.message);
+  }
+
+  revalidatePath("/depots/transfer-order");
+  revalidatePath("/depots/invoice-order");
+  redirect("/depots/transfer-order");
 }

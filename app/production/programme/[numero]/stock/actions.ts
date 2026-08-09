@@ -33,17 +33,18 @@ function mapTypeArticleToGroupe(typeArticle: string | null): string {
   return "Autre";
 }
 
-// COLORANT PLAS. / Col_Cosm / Col_cosm dans les donnees reelles - toujours
-// une categorie a part, jamais melangee avec le reste de la MP d'un meme
-// groupe. "BASE" (categorie exacte) recoit le meme traitement - une TO a
-// part elle aussi, jamais melangee avec le reste.
+// Colorant (COLORANT PLAS. / Col_Cosm / Col_cosm dans les donnees reelles)
+// et Base (categorie exacte "BASE") vont TOUJOURS ensemble dans la MEME
+// Transfer Order, separee du reste ("Autre") - 2 groupes au total, pas 3.
 function categorieSousGroupe(categorie: string | null): string {
   const normalized = (categorie || "").trim().toUpperCase();
-  if (normalized.includes("COLORANT") || normalized.includes("COL_COSM") || normalized.includes("COL COSM")) {
-    return "Colorant";
-  }
-  if (normalized === "BASE") {
-    return "Base";
+  if (
+    normalized.includes("COLORANT") ||
+    normalized.includes("COL_COSM") ||
+    normalized.includes("COL COSM") ||
+    normalized === "BASE"
+  ) {
+    return "Colorant-Base";
   }
   return "Autre";
 }
@@ -54,8 +55,8 @@ function round(value: number, decimals = 3) {
 }
 
 // Cree automatiquement un Transfer Order par famille de produit fini
-// (Clarifiant, Hydratant...), avec la MP Colorant et la MP Base chacune
-// dans leur propre TO a part du reste - vers "Depot B", a partir du depot par defaut de
+// (Clarifiant, Hydratant...), avec la MP Colorant+Base ensemble dans une TO
+// a part du reste ("Autre") - vers "Depot B", a partir du depot par defaut de
 // chaque article MP. Quantite plafonnee au stock reellement disponible
 // (jamais plus) ; un article sans aucun stock disponible est simplement
 // exclu (pas d'echec global pour un seul article en rupture).
@@ -160,9 +161,9 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
   const skipped: { articleId: number; besoin: number; disponible: number }[] = [];
 
   for (const [groupe, besoinMap] of besoinParGroupeMp.entries()) {
-    // Colorant et Base toujours a part du reste (et l'un de l'autre), meme
-    // groupe de type - et par depot source (rare que ca varie, mais un
-    // Transfer Order n'a qu'un seul depot source).
+    // Colorant+Base (ensemble) toujours a part du reste, meme groupe de
+    // type - et par depot source (rare que ca varie, mais un Transfer Order
+    // n'a qu'un seul depot source).
     const buckets = new Map<string, { mpArticleId: number; quantite: number; depotSourceId: number }[]>();
 
     for (const [mpArticleId, besoin] of besoinMap.entries()) {
