@@ -84,11 +84,13 @@ type CodeRow = {
   emballageRestant: number;
 };
 
-type ArticleOption = { id: number; nom_article: string; gamme: string | null };
+type ArticleOption = { id: number; nom_article: string; gamme: string | null; vrac_article_id: number | null };
 
 // Utilise pour le menu du filtre Produit (liste complete, pas les
-// suggestions "deja saisies" du navigateur) et pour resoudre la gamme d'une
-// ligne (via son article_id) pour le filtre Gamme.
+// suggestions "deja saisies" du navigateur), pour resoudre la gamme d'une
+// ligne (via son article_id) pour le filtre Gamme, et pour retrouver
+// l'article Vrac (nature "Vrac") d'un article conditionne pour la colonne
+// "Salle de pesage".
 async function fetchAllArticlesForFilters(): Promise<ArticleOption[]> {
   const rows: ArticleOption[] = [];
   let from = 0;
@@ -97,7 +99,7 @@ async function fetchAllArticlesForFilters(): Promise<ArticleOption[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles")
-      .select("id, nom_article, gamme")
+      .select("id, nom_article, gamme, vrac_article_id")
       .order("nom_article", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -171,6 +173,7 @@ export default async function PlanningDashboardPage({
   ]);
 
   const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
+  const articleById = new Map(articles.map((article) => [article.id, article]));
   const distinctGammes = [...new Set(articles.map((article) => article.gamme).filter(Boolean))].sort(
     (a, b) => (a as string).localeCompare(b as string)
   ) as string[];
@@ -348,6 +351,34 @@ export default async function PlanningDashboardPage({
   const totalVracProduit = vracRows.reduce((sum, row) => sum + row.vracProduit, 0);
   const totalCartonPrevu = cartonRows.reduce((sum, row) => sum + row.cartonPrevu, 0);
   const totalCartonProduit = cartonRows.reduce((sum, row) => sum + row.cartonProduit, 0);
+
+  // Salle de pesage : article Vrac (via articles.vrac_article_id sur
+  // l'article conditionne de la ligne) + quantite vrac a peser - clic ouvre
+  // sa formule MP (recette-fabrication, exige nature "Vrac").
+  const pesageRows = vracRows.map((row) => {
+    const article = row.ligne.article_id ? articleById.get(row.ligne.article_id) : null;
+    const vracArticleId = article?.vrac_article_id ?? null;
+    const vracArticle = vracArticleId ? articleById.get(vracArticleId) : null;
+    return {
+      key: `${row.ligne.id}-${row.code}`,
+      date: row.ligne.date_jour,
+      label: vracArticle?.nom_article || vracLabelFromName(row.ligne.produit) || "-",
+      qt: row.vracPrevu,
+      href: vracArticleId ? `/production/recette-fabrication/${vracArticleId}` : null,
+    };
+  });
+
+  // Salle de conditionnement : article conditionne + quantite carton a
+  // conditionner - clic ouvre sa formule d'emballage (recette-conditionnement,
+  // exige nature different de "Vrac", donc directement l'article de la
+  // ligne).
+  const conditionnementRows = cartonRows.map((row) => ({
+    key: `${row.ligne.id}-${row.code}`,
+    date: row.ligne.date_jour,
+    label: row.ligne.produit || "-",
+    qt: row.cartonPrevu,
+    href: row.ligne.article_id ? `/production/recette-conditionnement/${row.ligne.article_id}` : null,
+  }));
   const totalEmballagePrevu = emballageRows.reduce((sum, row) => sum + row.emballagePrevu, 0);
   const totalEmballageProduit = emballageRows.reduce((sum, row) => sum + row.emballageProduit, 0);
 
@@ -665,6 +696,102 @@ export default async function PlanningDashboardPage({
                         </td>
                       </tr>
                     ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-2">
+          <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <h2 className="text-lg font-bold text-slate-900">Salle de pesage</h2>
+              <p className="text-xs text-slate-500">Clique un article pour ouvrir sa formule MP</p>
+            </div>
+            <div className="max-h-[50vh] overflow-y-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="sticky top-0 bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">Date</th>
+                    <th className="px-4 py-3 font-semibold">Article</th>
+                    <th className="px-4 py-3 font-semibold">Qt vrac</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pesageRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-6 text-center text-sm text-slate-500">
+                        Rien en cours.
+                      </td>
+                    </tr>
+                  ) : (
+                    pesageRows.map((row) =>
+                      row.href ? (
+                        <tr key={row.key} className="border-t border-slate-100">
+                          <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
+                          <td className="px-4 py-3">
+                            <Link href={row.href} className="font-medium text-sky-700 underline">
+                              {row.label}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
+                        </tr>
+                      ) : (
+                        <tr key={row.key} className="border-t border-slate-100">
+                          <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
+                          <td className="px-4 py-3 font-medium text-slate-900">{row.label}</td>
+                          <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
+                        </tr>
+                      )
+                    )
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <h2 className="text-lg font-bold text-slate-900">Salle de conditionnement</h2>
+              <p className="text-xs text-slate-500">Clique un article pour ouvrir sa formule</p>
+            </div>
+            <div className="max-h-[50vh] overflow-y-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="sticky top-0 bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">Date</th>
+                    <th className="px-4 py-3 font-semibold">Article</th>
+                    <th className="px-4 py-3 font-semibold">Qt conditionnement</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {conditionnementRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-6 text-center text-sm text-slate-500">
+                        Rien en cours.
+                      </td>
+                    </tr>
+                  ) : (
+                    conditionnementRows.map((row) =>
+                      row.href ? (
+                        <tr key={row.key} className="border-t border-slate-100">
+                          <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
+                          <td className="px-4 py-3">
+                            <Link href={row.href} className="font-medium text-sky-700 underline">
+                              {row.label}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
+                        </tr>
+                      ) : (
+                        <tr key={row.key} className="border-t border-slate-100">
+                          <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
+                          <td className="px-4 py-3 font-medium text-slate-900">{row.label}</td>
+                          <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
+                        </tr>
+                      )
+                    )
                   )}
                 </tbody>
               </table>
