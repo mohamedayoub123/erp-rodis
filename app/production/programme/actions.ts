@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { assignDispatcherCodesAndInsert } from "@/app/programe-par-ligne/actions";
+import { assignDispatcherCodesAndInsert } from "./dispatch-engine";
 import { type DispatchSourceRow } from "@/lib/dispatcher-shared";
 
 async function requireProgrammeWriteAccess() {
@@ -404,11 +404,10 @@ async function syncProgrammeLignesMirror(
 }
 
 // Dispatche un programme (MB) vers programme_dispatcher_lignes ET vers des
-// lignes miroir dans programme_lignes (voir syncProgrammeLignesMirror),
-// exactement comme le bouton "Dispatch" de "Programme par ligne" (meme
-// decoupage en lots, meme generation de code, meme ecriture numero_lot) -
-// assignDispatcherCodesAndInsert (app/programe-par-ligne/actions.ts) est
-// reutilisee telle quelle pour eviter toute divergence entre les 2 pages.
+// lignes miroir dans programme_lignes (voir syncProgrammeLignesMirror) -
+// assignDispatcherCodesAndInsert (./dispatch-engine.ts, moteur partage issu
+// de l'ancienne page "Programme par ligne" avant sa suppression) fait le
+// decoupage en lots, la generation de code et l'ecriture numero_lot.
 //
 // La zone/chaine viennent de la machine Conditionnement de chaque ligne
 // (machines.zone / machines.nom - "chaine 1" etc.), pas d'une liste fixe
@@ -525,7 +524,6 @@ export async function dispatchProgrammeAction(formData: FormData) {
   revalidatePath("/production/programme");
   revalidatePath(`/production/programme/${numeroProgramme}`);
   revalidatePath(`/production/programme/${numeroProgramme}/dispatch`);
-  revalidatePath("/ravitailleur-par-ligne");
   revalidatePath("/production/suivi/dashboard");
   revalidatePath("/production/suivi/calendrier");
 

@@ -455,25 +455,6 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     defaultWrite: false,
   },
   {
-    key: "programeParLigne",
-    module: "Production",
-    label: "Programme par ligne",
-    pathPrefixes: ["/programe-par-ligne"],
-  },
-  {
-    key: "historiqueProgramme",
-    module: "Production",
-    label: "Historique programme (MB) - supprimer",
-    pathPrefixes: ["/historique-programme"],
-    legacyWrite: "editProduction",
-  },
-  {
-    key: "ravitailleurParLigne",
-    module: "Production",
-    label: "Ravitailleur par ligne (Dispatcher, Save, Supprimer, Imprimer)",
-    pathPrefixes: ["/ravitailleur-par-ligne"],
-  },
-  {
     key: "historiqueProgrammeDispatcher",
     module: "Production",
     label: "Historique Programme Dispatcher (PD) - supprimer",

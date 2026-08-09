@@ -6,8 +6,8 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { DispatcherRowEditor } from "@/app/ravitailleur-par-ligne/dispatcher-row-editor";
-import { ZonePrintButton } from "@/app/ravitailleur-par-ligne/zone-print-button";
+import { DispatcherRowEditor } from "@/app/_components/dispatcher-row-editor";
+import { ZonePrintButton } from "@/app/_components/zone-print-button";
 import { deleteProgrammeDispatchByGroupAction } from "./actions";
 import { DispatchSaveButton } from "./dispatch-save-button";
 
@@ -164,8 +164,8 @@ export default async function ProgrammeDispatchPage({
   }
 
   const currentUser = await getCurrentStockUser();
-  const canDelete = await canDeletePageUser(currentUser, "ravitailleurParLigne");
-  const canEdit = await canWritePageUser(currentUser, "ravitailleurParLigne");
+  const canDelete = await canDeletePageUser(currentUser, "programme");
+  const canEdit = await canWritePageUser(currentUser, "programme");
 
   const groupeId = await resolveGroupeId(numeroProgramme);
 

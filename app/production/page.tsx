@@ -26,27 +26,6 @@ const TILES = [
     description: "Rapports de poste : equipe, dechets, arrets, cadence, poids reel.",
   },
   {
-    label: "Programme par ligne",
-    href: "/programe-par-ligne",
-    pageKey: "programeParLigne",
-    icon: "\u{1F5D3}\u{FE0F}",
-    description: "Planning du jour par zone/chaine : produit, qt carton, vrac a fabriquer, plateforme.",
-  },
-  {
-    label: "Historique programme",
-    href: "/historique-programme",
-    pageKey: "historiqueProgramme",
-    icon: "\u{1F4DC}",
-    description: "Retrouve les programmes deja enregistres (MB1, MB2...).",
-  },
-  {
-    label: "Ravitailleur par ligne",
-    href: "/ravitailleur-par-ligne",
-    pageKey: "ravitailleurParLigne",
-    icon: "\u{1F9CD}",
-    description: "Assigne la personne qui approvisionne chaque zone/chaine.",
-  },
-  {
     label: "Historique Programme Dispatcher",
     href: "/historique-programme-dispatcher",
     pageKey: "historiqueProgrammeDispatcher",

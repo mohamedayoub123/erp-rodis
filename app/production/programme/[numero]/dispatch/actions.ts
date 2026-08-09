@@ -26,8 +26,7 @@ async function resolveGroupeId(numeroProgramme: number): Promise<number | null> 
   return (data as { groupe_id: number } | null)?.groupe_id ?? null;
 }
 
-// Meme principe que saveProgrammeDispatcherSnapshotAction (app/ravitailleur-par-ligne/
-// dispatcher-actions.ts), mais filtre par groupe_id plutot que par zone -
+// Confirme les lignes de dispatch de ce programme, filtre par groupe_id -
 // cette page ne montre QUE les lignes de dispatch de ce programme (MB)
 // precis, jamais melangees aux autres chaines/zones reelles. La confirmation
 // confirme_production=true sur programme_lignes (meme groupe_id) est ce qui
@@ -95,7 +94,7 @@ async function applyPendingArticleCodeUpdates(groupeIds: number[]): Promise<void
 export async function saveProgrammeDispatchByGroupAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "ravitailleurParLigne"))) {
+  if (!(await canWritePageUser(currentUser, "programme"))) {
     throw new Error("Cet utilisateur ne peut pas enregistrer.");
   }
 
@@ -198,7 +197,7 @@ export async function saveProgrammeDispatchByGroupAction(formData: FormData) {
 export async function deleteProgrammeDispatchByGroupAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canDeletePageUser(currentUser, "ravitailleurParLigne"))) {
+  if (!(await canDeletePageUser(currentUser, "programme"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer.");
   }
 

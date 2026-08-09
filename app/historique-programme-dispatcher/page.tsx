@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
-import { deleteProgrammeDispatcherHistoryGroupAction } from "../ravitailleur-par-ligne/dispatcher-actions";
+import { deleteProgrammeDispatcherHistoryGroupAction } from "./actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";

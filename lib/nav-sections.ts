@@ -86,10 +86,7 @@ export const navItems: NavItem[] = [
     pageKey: "productionHub",
     matchPrefixes: [
       "/production",
-      "/programe-par-ligne",
-      "/historique-programme",
       "/historique-programme-dispatcher",
-      "/ravitailleur-par-ligne",
       "/code-par-article",
     ],
     subLinks: [
@@ -98,13 +95,6 @@ export const navItems: NavItem[] = [
         href: "/production/suivi-production",
         label: "Suivi Production",
         pageKey: "productionSuiviProductionListe",
-      },
-      { href: "/programe-par-ligne", label: "Programme par ligne", pageKey: "programeParLigne" },
-      { href: "/historique-programme", label: "Historique programme", pageKey: "historiqueProgramme" },
-      {
-        href: "/ravitailleur-par-ligne",
-        label: "Ravitailleur par ligne",
-        pageKey: "ravitailleurParLigne",
       },
       {
         href: "/historique-programme-dispatcher",

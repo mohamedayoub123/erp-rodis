@@ -1,12 +1,12 @@
 import { notFound } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { deleteProgrammeDispatcherHistoryGroupAction } from "../../ravitailleur-par-ligne/dispatcher-actions";
+import { deleteProgrammeDispatcherHistoryGroupAction } from "../actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
-import { ZonePrintButton } from "@/app/ravitailleur-par-ligne/zone-print-button";
+import { ZonePrintButton } from "@/app/_components/zone-print-button";
 
 type HistoryRow = {
   id: number;
