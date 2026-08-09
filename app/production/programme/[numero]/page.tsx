@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -165,6 +166,12 @@ export default async function ProgrammeDetailPage({
 
           <div className="flex items-center gap-3">
             <BackButton href="/production/programme" label="Retour" />
+            <Link
+              href={`/production/programme/${numeroProgramme}/stock`}
+              className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+            >
+              Verifier stock
+            </Link>
             <RefreshButton />
           </div>
         </div>
