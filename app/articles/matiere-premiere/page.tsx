@@ -17,6 +17,7 @@ type ArticleMpRow = {
   unite: string | null;
   gamme: string | null;
   utilisation: string | null;
+  depot_id: number | null;
   min_stock: number | null;
   max_stock: number | null;
 };
@@ -29,7 +30,7 @@ async function fetchAllArticlesMp() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite, gamme, utilisation, min_stock, max_stock")
+      .select("id, nom_article, categorie, unite, gamme, utilisation, depot_id, min_stock, max_stock")
       .order("nom_article", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -69,6 +70,10 @@ export default async function ArticlesMatierePremierePage({
   const categorie = (params.categorie || "").trim();
   const from = (currentPage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
+
+  const { data: depotsData } = await supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true });
+  const depots = (depotsData as { id: number; nom: string }[] | null) ?? [];
+  const depotNomById = new Map(depots.map((d) => [d.id, d.nom]));
 
   const { rows: allArticles, error: fetchError } = await fetchAllArticlesMp();
 
@@ -183,6 +188,7 @@ export default async function ArticlesMatierePremierePage({
                       <th className="px-6 py-4 font-semibold">Unite</th>
                       <th className="px-6 py-4 font-semibold">Gamme</th>
                       <th className="px-6 py-4 font-semibold">Utilisation</th>
+                      <th className="px-6 py-4 font-semibold">Depot</th>
                       <th className="px-6 py-4 font-semibold">Stock min</th>
                       <th className="px-6 py-4 font-semibold">Stock max</th>
                       {canEditArticles ? <th className="px-6 py-4 font-semibold">Modifier</th> : null}
@@ -199,6 +205,9 @@ export default async function ArticlesMatierePremierePage({
                         <td className="px-6 py-4 text-slate-600">{article.unite || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.gamme || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.utilisation || "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {article.depot_id ? depotNomById.get(article.depot_id) ?? "-" : "-"}
+                        </td>
                         <td className="px-6 py-4 text-slate-600">{article.min_stock ?? "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.max_stock ?? "-"}</td>
                         {canEditArticles ? (
@@ -245,6 +254,21 @@ export default async function ArticlesMatierePremierePage({
                                   placeholder="Utilisation"
                                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                                 />
+                                <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                                  Depot
+                                  <select
+                                    name="depot_id"
+                                    defaultValue={article.depot_id ?? ""}
+                                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                                  >
+                                    <option value="">Aucun</option>
+                                    {depots.map((d) => (
+                                      <option key={d.id} value={d.id}>
+                                        {d.nom}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
                                 <div className="grid gap-3 sm:grid-cols-2">
                                   <input
                                     type="number"

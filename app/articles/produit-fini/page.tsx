@@ -13,7 +13,7 @@ import { matchesArticleSearch } from "@/lib/article-search";
 const PAGE_SIZE = 100;
 
 const ARTICLE_SELECT_FIELDS =
-  "id, nom_article, type_article, marque, gamme, nature, min_stock, max_stock, volume_unitaire, volume_stockage, cadence, nb_carton_par_vrac, max_production_vrac_8h, contenance, nb_piece_par_max_vrac, piece_par_carton, min_vrac, max_vrac_auto, vrac_max_manuel, dispenseur_pcs_carton, besoin_pot_flacon, besoin_capsule, besoin_sleeve, besoin_dispenseur, besoin_carton, besoin_etiquette, besoin_etui, code_auto, code_manu";
+  "id, nom_article, type_article, marque, gamme, nature, depot_id, min_stock, max_stock, volume_unitaire, volume_stockage, cadence, nb_carton_par_vrac, max_production_vrac_8h, contenance, nb_piece_par_max_vrac, piece_par_carton, min_vrac, max_vrac_auto, vrac_max_manuel, dispenseur_pcs_carton, besoin_pot_flacon, besoin_capsule, besoin_sleeve, besoin_dispenseur, besoin_carton, besoin_etiquette, besoin_etui, code_auto, code_manu";
 
 type ArticleRow = {
   id: number;
@@ -22,6 +22,7 @@ type ArticleRow = {
   marque: string | null;
   gamme: string | null;
   nature: string | null;
+  depot_id: number | null;
   min_stock: number | null;
   max_stock: number | null;
   volume_unitaire: number | null;
@@ -109,6 +110,10 @@ export default async function ArticlesProduitFiniPage({
     .select("nom_article, type_article, gamme")
     .order("nom_article", { ascending: true })
     .limit(5000);
+
+  const { data: depotsData } = await supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true });
+  const depots = (depotsData as { id: number; nom: string }[] | null) ?? [];
+  const depotNomById = new Map(depots.map((d) => [d.id, d.nom]));
 
   const { rows: allArticles, error: fetchError } = await fetchAllArticles();
 
@@ -227,6 +232,7 @@ export default async function ArticlesProduitFiniPage({
                       <th className="px-6 py-4 font-semibold">Marque</th>
                       <th className="px-6 py-4 font-semibold">Gamme</th>
                       <th className="px-6 py-4 font-semibold">Nature</th>
+                      <th className="px-6 py-4 font-semibold">Depot</th>
                       <th className="px-6 py-4 font-semibold">Min</th>
                       <th className="px-6 py-4 font-semibold">Max</th>
                       <th className="px-6 py-4 font-semibold">Volume unitaire</th>
@@ -268,6 +274,9 @@ export default async function ArticlesProduitFiniPage({
                           >
                             {article.nature === "vrac" ? "Vrac" : "Fini"}
                           </span>
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {article.depot_id ? depotNomById.get(article.depot_id) ?? "-" : "-"}
                         </td>
                         <td className="px-6 py-4 text-slate-600">{article.min_stock ?? 0}</td>
                         <td className="px-6 py-4 text-slate-600">{article.max_stock ?? 0}</td>
@@ -336,6 +345,21 @@ export default async function ArticlesProduitFiniPage({
                                   >
                                     <option value="fini">Produit fini (conditionnement)</option>
                                     <option value="vrac">Vrac (fabrication)</option>
+                                  </select>
+                                </label>
+                                <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                                  Depot
+                                  <select
+                                    name="depot_id"
+                                    defaultValue={article.depot_id ?? ""}
+                                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                                  >
+                                    <option value="">Aucun</option>
+                                    {depots.map((d) => (
+                                      <option key={d.id} value={d.id}>
+                                        {d.nom}
+                                      </option>
+                                    ))}
                                   </select>
                                 </label>
                                 <div className="grid gap-3 md:grid-cols-2">

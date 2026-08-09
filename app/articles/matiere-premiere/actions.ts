@@ -130,6 +130,8 @@ export async function updateArticleMpAction(formData: FormData) {
   const unite = String(formData.get("unite") || "").trim();
   const gamme = String(formData.get("gamme") || "").trim();
   const utilisation = String(formData.get("utilisation") || "").trim();
+  const depotIdRaw = String(formData.get("depot_id") || "").trim();
+  const depotId = depotIdRaw ? Number(depotIdRaw) : null;
   const minStock = parseOptionalNumber(formData, "min_stock");
   const maxStock = parseOptionalNumber(formData, "max_stock");
 
@@ -159,6 +161,7 @@ export async function updateArticleMpAction(formData: FormData) {
       unite: unite || null,
       gamme: gamme || null,
       utilisation: utilisation || null,
+      depot_id: depotId,
       min_stock: minStock,
       max_stock: maxStock,
     })

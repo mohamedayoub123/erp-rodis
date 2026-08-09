@@ -1,14 +1,14 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { DepotArticlePicker } from "../depot-article-picker";
-import { addDepotStockAction, transferDepotStockAction } from "../actions";
 
 type DepotRow = { id: number; nom: string };
-type MouvementRow = { depot_id: number; article_type: string; article_id: number; type: string; quantite: number };
+type ArticlePfRow = { id: number; nom_article: string; nature: string | null };
+type ArticleMpRow = { id: number; nom_article: string; unite: string | null };
+type MouvementRow = { article_id: number | null; qte_entree: number; qte_sortie: number };
 
 async function fetchAll<T>(table: string, select: string) {
   const rows: T[] = [];
@@ -30,6 +30,19 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 }
 
+// Solde reel par article (entree - sortie) a partir des mouvements de stock
+// deja existants (lots_stock pour le PF, lots_stock_matiere_premiere pour
+// la MP) - le depot n'ajoute rien lui-meme, il classe juste quel article va
+// dans quel depot (voir articles.depot_id / articles_matiere_premiere.depot_id).
+function computeSoldeByArticleId(mouvements: MouvementRow[]): Map<number, number> {
+  const map = new Map<number, number>();
+  for (const mv of mouvements) {
+    if (!mv.article_id) continue;
+    map.set(mv.article_id, (map.get(mv.article_id) ?? 0) + Number(mv.qte_entree ?? 0) - Number(mv.qte_sortie ?? 0));
+  }
+  return map;
+}
+
 export default async function DepotDetailPage({ params }: { params: Promise<{ id: string }> }) {
   noStore();
   const { id } = await params;
@@ -38,21 +51,24 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
     notFound();
   }
 
-  const currentUser = await getCurrentStockUser();
-  const canEdit = await canWritePageUser(currentUser, "depots");
-
   const [
     { data: depotData },
-    { rows: mouvements, error: mouvementsError },
-    { rows: autresDepots },
-    { rows: articlesMpRows },
-    { rows: articlesPfRows },
+    { rows: articlesPf },
+    { rows: articlesMp },
+    { rows: mouvementsPf },
+    { rows: mouvementsMp },
   ] = await Promise.all([
     supabaseServer.from("depots").select("id, nom").eq("id", depotId).maybeSingle(),
-    fetchAll<MouvementRow>("depot_mouvements", "depot_id, article_type, article_id, type, quantite"),
-    fetchAll<DepotRow>("depots", "id, nom"),
-    fetchAll<{ id: number; nom_article: string }>("articles_matiere_premiere", "id, nom_article"),
-    fetchAll<{ id: number; nom_article: string }>("articles", "id, nom_article"),
+    fetchAll<ArticlePfRow>("articles", "id, nom_article, nature, depot_id").then((res) => ({
+      ...res,
+      rows: (res.rows as (ArticlePfRow & { depot_id: number | null })[]).filter((a) => a.depot_id === depotId),
+    })),
+    fetchAll<ArticleMpRow>("articles_matiere_premiere", "id, nom_article, unite, depot_id").then((res) => ({
+      ...res,
+      rows: (res.rows as (ArticleMpRow & { depot_id: number | null })[]).filter((a) => a.depot_id === depotId),
+    })),
+    fetchAll<MouvementRow>("lots_stock", "article_id, qte_entree, qte_sortie"),
+    fetchAll<MouvementRow>("lots_stock_matiere_premiere", "article_id, qte_entree, qte_sortie"),
   ]);
 
   const depot = depotData as DepotRow | null;
@@ -60,43 +76,15 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
     notFound();
   }
 
-  const articlesMp = articlesMpRows
-    .map((a) => ({ id: a.id, label: a.nom_article }))
-    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
-  const articlesPf = articlesPfRows
-    .map((a) => ({ id: a.id, label: a.nom_article }))
-    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
-  const nomById = new Map<string, string>([
-    ...articlesMpRows.map((a): [string, string] => [`MP::${a.id}`, a.nom_article]),
-    ...articlesPfRows.map((a): [string, string] => [`PF::${a.id}`, a.nom_article]),
-  ]);
+  const soldePfById = computeSoldeByArticleId(mouvementsPf);
+  const soldeMpById = computeSoldeByArticleId(mouvementsMp);
 
-  // Filtre sur CE depot (le fetch ci-dessus ramene toute la table, filtree
-  // ici plutot que via .eq() pour reutiliser fetchAll<T> tel quel).
-  const mouvementsDuDepot = mouvements.filter((row) => row.depot_id === depotId);
-
-  const soldeParArticle = new Map<string, number>();
-  for (const row of mouvementsDuDepot) {
-    const key = `${row.article_type}::${row.article_id}`;
-    const current = soldeParArticle.get(key) ?? 0;
-    soldeParArticle.set(key, current + (row.type === "entree" ? row.quantite : -row.quantite));
-  }
-
-  const stockRows = [...soldeParArticle.entries()]
-    .map(([key, solde]) => {
-      const [articleType, articleIdRaw] = key.split("::");
-      return {
-        key,
-        articleType,
-        articleId: Number(articleIdRaw),
-        nom: nomById.get(key) ?? `#${articleIdRaw}`,
-        solde,
-      };
-    })
-    .filter((row) => Math.abs(row.solde) > 1e-6)
+  const stockPf = articlesPf
+    .map((a) => ({ id: a.id, nom: a.nom_article, nature: a.nature, solde: soldePfById.get(a.id) ?? 0 }))
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
-
-  const autresDepotsOptions = autresDepots.filter((d) => d.id !== depotId);
+  const stockMp = articlesMp
+    .map((a) => ({ id: a.id, nom: a.nom_article, unite: a.unite, solde: soldeMpById.get(a.id) ?? 0 }))
+    .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -108,6 +96,18 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                 Depot
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">{depot.nom}</h1>
+              <p className="mt-2 text-sm text-slate-600">
+                Stock reel des articles rattaches a ce depot - pour changer le depot d&apos;un
+                article, modifie-le depuis{" "}
+                <Link href="/articles/produit-fini" className="text-sky-700 underline">
+                  Articles Produit Fini
+                </Link>{" "}
+                ou{" "}
+                <Link href="/articles/matiere-premiere" className="text-sky-700 underline">
+                  Articles Matiere Premiere
+                </Link>
+                .
+              </p>
             </div>
 
             <div className="flex items-center gap-3">
@@ -119,29 +119,25 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <h2 className="border-b border-slate-100 px-6 py-4 text-sm font-bold uppercase tracking-wide text-slate-500">
-            Stock actuel
+            Produit fini
           </h2>
-          {mouvementsError ? (
-            <p className="px-6 py-6 text-sm font-medium text-red-700">{mouvementsError.message}</p>
-          ) : stockRows.length === 0 ? (
-            <p className="px-6 py-6 text-sm text-slate-500">Aucun stock dans ce depot pour le moment.</p>
+          {stockPf.length === 0 ? (
+            <p className="px-6 py-6 text-sm text-slate-500">Aucun article produit fini dans ce depot.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Article</th>
-                    <th className="px-6 py-4 font-semibold">Type</th>
-                    <th className="px-6 py-4 font-semibold">Quantite</th>
+                    <th className="px-6 py-4 font-semibold">Nature</th>
+                    <th className="px-6 py-4 font-semibold">Stock</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {stockRows.map((row) => (
-                    <tr key={row.key} className="border-t border-slate-100">
+                  {stockPf.map((row) => (
+                    <tr key={row.id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {row.articleType === "MP" ? "Matiere premiere" : "Produit fini"}
-                      </td>
+                      <td className="px-6 py-4 text-slate-600">{row.nature === "vrac" ? "Vrac" : "Fini"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.solde)}</td>
                     </tr>
                   ))}
@@ -151,101 +147,35 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
           )}
         </section>
 
-        {canEdit ? (
-          <div className="grid gap-6 lg:grid-cols-2">
-            <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-              <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">
-                Ajouter du stock
-              </h2>
-              <form action={addDepotStockAction} className="grid gap-4">
-                <input type="hidden" name="depot_id" value={depotId} />
-                <DepotArticlePicker articlesMp={articlesMp} articlesPf={articlesPf} />
-                <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                  Quantite
-                  <input
-                    type="number"
-                    step="0.001"
-                    min="0"
-                    name="quantite"
-                    required
-                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-                <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                  Note
-                  <input
-                    type="text"
-                    name="note"
-                    placeholder="Optionnel"
-                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-                <button
-                  type="submit"
-                  className="rounded-full bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
-                >
-                  Ajouter
-                </button>
-              </form>
-            </section>
-
-            <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-              <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">
-                Transferer vers un autre depot
-              </h2>
-              {autresDepotsOptions.length === 0 ? (
-                <p className="text-sm text-slate-500">
-                  Cree au moins un autre depot pour pouvoir y transferer du stock.
-                </p>
-              ) : (
-                <form action={transferDepotStockAction} className="grid gap-4">
-                  <input type="hidden" name="depot_id" value={depotId} />
-                  <DepotArticlePicker articlesMp={articlesMp} articlesPf={articlesPf} />
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Vers le depot
-                    <select
-                      name="depot_destination_id"
-                      required
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                    >
-                      {autresDepotsOptions.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.nom}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Quantite
-                    <input
-                      type="number"
-                      step="0.001"
-                      min="0"
-                      name="quantite"
-                      required
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Note
-                    <input
-                      type="text"
-                      name="note"
-                      placeholder="Optionnel"
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    className="rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500"
-                  >
-                    Transferer
-                  </button>
-                </form>
-              )}
-            </section>
-          </div>
-        ) : null}
+        <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <h2 className="border-b border-slate-100 px-6 py-4 text-sm font-bold uppercase tracking-wide text-slate-500">
+            Matiere premiere
+          </h2>
+          {stockMp.length === 0 ? (
+            <p className="px-6 py-6 text-sm text-slate-500">Aucun article matiere premiere dans ce depot.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-6 py-4 font-semibold">Article</th>
+                    <th className="px-6 py-4 font-semibold">Unite</th>
+                    <th className="px-6 py-4 font-semibold">Stock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stockMp.map((row) => (
+                    <tr key={row.id} className="border-t border-slate-100">
+                      <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.solde)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );
