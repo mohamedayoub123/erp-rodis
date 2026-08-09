@@ -28,6 +28,24 @@ function parseArticleType(raw: FormDataEntryValue | undefined): ArticleType {
   return raw === "PF" ? "PF" : "MP";
 }
 
+// TO1.2026, TO2.2026... est fige a la creation (colonne numero) - jamais
+// recalcule au rang comme avant, pour qu'une suppression ne decale plus les
+// numeros des autres (meme principe deja utilise pour "MB" sur
+// programmes.numero_programme) : le plus grand numero existant cette
+// annee-la + 1.
+async function nextTransferOrderNumero(dateJour: string): Promise<number> {
+  const year = dateJour.slice(0, 4);
+  const { data } = await supabaseServer
+    .from("transfer_orders")
+    .select("numero")
+    .gte("date_jour", `${year}-01-01`)
+    .lte("date_jour", `${year}-12-31`)
+    .order("numero", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return ((data as { numero: number | null } | null)?.numero ?? 0) + 1;
+}
+
 // Une ligne par article demande (article_type[], article_id[],
 // quantite_demandee[] - meme convention getAll() indexee que Programme). La
 // quantite demandee ne peut pas depasser ce qui existe reellement dans le
@@ -82,6 +100,7 @@ export async function createTransferOrderAction(formData: FormData) {
       depot_destination_id: depotDestinationId,
       date_jour: dateJour,
       cree_par: currentUser,
+      numero: await nextTransferOrderNumero(dateJour),
     })
     .select("id")
     .single();
@@ -361,9 +380,21 @@ export async function postToInvoiceOrderAction(formData: FormData) {
     throw new Error("Aucun lot en attente sur ce Transfer Order.");
   }
 
+  const dateJour = new Date().toISOString().slice(0, 10);
+  const year = dateJour.slice(0, 4);
+  const { data: lastInvoiceOrder } = await supabaseServer
+    .from("invoice_orders")
+    .select("numero")
+    .gte("date_jour", `${year}-01-01`)
+    .lte("date_jour", `${year}-12-31`)
+    .order("numero", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const numero = ((lastInvoiceOrder as { numero: number | null } | null)?.numero ?? 0) + 1;
+
   const { data: inserted, error: insertError } = await supabaseServer
     .from("invoice_orders")
-    .insert({ transfer_order_id: transferOrderId, cree_par: currentUser })
+    .insert({ transfer_order_id: transferOrderId, cree_par: currentUser, date_jour: dateJour, numero })
     .select("id")
     .single();
 

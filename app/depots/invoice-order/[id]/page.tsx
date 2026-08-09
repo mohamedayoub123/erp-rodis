@@ -15,7 +15,14 @@ import {
   validateInvoiceOrderAction,
 } from "../actions";
 
-type InvoiceOrderRow = { id: number; transfer_order_id: number; statut: string; date_jour: string; created_at: string };
+type InvoiceOrderRow = {
+  id: number;
+  transfer_order_id: number;
+  statut: string;
+  date_jour: string;
+  created_at: string;
+  numero: number | null;
+};
 type TransferOrderRow = { id: number; depot_source_id: number; depot_destination_id: number };
 type LigneRow = { id: number; article_type: ArticleType; article_id: number };
 type InvoiceLigneRow = { id: number; transfer_order_ligne_id: number; numero_lot: string | null; quantite: number };
@@ -40,7 +47,7 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
 
   const { data: invoiceOrderData } = await supabaseServer
     .from("invoice_orders")
-    .select("id, transfer_order_id, statut, date_jour, created_at")
+    .select("id, transfer_order_id, statut, date_jour, created_at, numero")
     .eq("id", invoiceOrderId)
     .maybeSingle();
 
@@ -87,14 +94,8 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
     })
   );
 
-  const { data: allSameYearData } = await supabaseServer
-    .from("invoice_orders")
-    .select("id, created_at")
-    .gte("date_jour", `${invoiceOrder.date_jour.slice(0, 4)}-01-01`)
-    .lte("date_jour", `${invoiceOrder.date_jour.slice(0, 4)}-12-31`)
-    .order("created_at", { ascending: true });
-  const rank = ((allSameYearData ?? []) as { id: number }[]).findIndex((row) => row.id === invoiceOrderId);
-  const code = `TI${rank + 1}.${invoiceOrder.date_jour.slice(0, 4)}`;
+  // TI1.2026, TI2.2026... fige a la creation (colonne numero) - stable.
+  const code = `TI${invoiceOrder.numero ?? invoiceOrder.id}.${invoiceOrder.date_jour.slice(0, 4)}`;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">

@@ -24,6 +24,7 @@ type TransferOrderRow = {
   created_at: string;
   famille_produit: string | null;
   type_mp: string | null;
+  numero: number | null;
 };
 type LigneRow = { id: number; article_type: ArticleType; article_id: number; quantite_demandee: number };
 type LigneLotRow = { transfer_order_ligne_id: number; numero_lot: string | null; quantite: number };
@@ -57,7 +58,9 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
     await Promise.all([
       supabaseServer
         .from("transfer_orders")
-        .select("id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp")
+        .select(
+          "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp, numero"
+        )
         .eq("id", transferOrderId)
         .maybeSingle(),
       supabaseServer
@@ -68,7 +71,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
       supabaseServer.from("depots").select("id, nom"),
       supabaseServer
         .from("invoice_orders")
-        .select("id, statut, date_jour, created_at")
+        .select("id, statut, date_jour, created_at, numero")
         .eq("transfer_order_id", transferOrderId)
         .order("created_at", { ascending: true }),
     ]);
@@ -91,32 +94,13 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
     statut: string;
     date_jour: string;
     created_at: string;
+    numero: number | null;
   }[];
 
-  // Code TI1.2026, TI2.2026... calcule au rang parmi TOUS les Transfer
-  // Invoice de la meme annee (meme principe que TO/PL/PD) - jamais stocke.
+  // Code TI1.2026, TI2.2026... fige a la creation (colonne numero) - stable.
   const invoiceOrderCodeById = new Map<number, string>();
-  if (invoiceOrders.length > 0) {
-    const years = [...new Set(invoiceOrders.map((io) => io.date_jour.slice(0, 4)))];
-    const { data: sameYearInvoiceOrdersData } = await supabaseServer
-      .from("invoice_orders")
-      .select("id, date_jour, created_at")
-      .gte("date_jour", `${years[0]}-01-01`)
-      .lte("date_jour", `${years[years.length - 1]}-12-31`)
-      .order("created_at", { ascending: true });
-    const byYear = new Map<string, { id: number; created_at: string }[]>();
-    for (const row of (sameYearInvoiceOrdersData ?? []) as { id: number; date_jour: string; created_at: string }[]) {
-      const year = row.date_jour.slice(0, 4);
-      const list = byYear.get(year) ?? [];
-      list.push(row);
-      byYear.set(year, list);
-    }
-    for (const [year, yearRows] of byYear.entries()) {
-      const sorted = [...yearRows].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      sorted.forEach((row, index) => {
-        invoiceOrderCodeById.set(row.id, `TI${index + 1}.${year}`);
-      });
-    }
+  for (const io of invoiceOrders) {
+    invoiceOrderCodeById.set(io.id, `TI${io.numero ?? io.id}.${io.date_jour.slice(0, 4)}`);
   }
 
   const { data: ligneLotsData } = await supabaseServer
@@ -134,16 +118,8 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
     lotsByLigneId.set(lot.transfer_order_ligne_id, list);
   }
 
-  // TO1.2026, TO2.2026... calcule au rang parmi les transfer orders de la
-  // meme annee.
-  const { data: allSameYearData } = await supabaseServer
-    .from("transfer_orders")
-    .select("id, created_at")
-    .gte("date_jour", `${transferOrder.date_jour.slice(0, 4)}-01-01`)
-    .lte("date_jour", `${transferOrder.date_jour.slice(0, 4)}-12-31`)
-    .order("created_at", { ascending: true });
-  const rank = ((allSameYearData ?? []) as { id: number }[]).findIndex((row) => row.id === transferOrderId);
-  const code = `TO${rank + 1}.${transferOrder.date_jour.slice(0, 4)}`;
+  // TO1.2026, TO2.2026... fige a la creation (colonne numero) - stable.
+  const code = `TO${transferOrder.numero ?? transferOrder.id}.${transferOrder.date_jour.slice(0, 4)}`;
 
   const lignesEnrichies = await Promise.all(
     lignes.map(async (ligne) => {

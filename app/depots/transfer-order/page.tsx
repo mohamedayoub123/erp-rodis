@@ -19,6 +19,7 @@ type TransferOrderRow = {
   created_at: string;
   famille_produit: string | null;
   type_mp: string | null;
+  numero: number | null;
 };
 
 async function fetchAll<T>(table: string, select: string) {
@@ -37,25 +38,13 @@ async function fetchAll<T>(table: string, select: string) {
   return { rows, error: null };
 }
 
-// Code TO1.2026, TO2.2026... calcule au rang du transfer order PARMI CEUX
-// DE LA MEME ANNEE (meme principe que PL1.2026/PD1) - jamais stocke.
+// Code TO1.2026, TO2.2026... fige a la creation (colonne numero) - stable
+// pour toujours, une suppression ne decale plus les numeros des autres.
 function computeCodes(rows: TransferOrderRow[]): Map<number, string> {
-  const byYear = new Map<string, TransferOrderRow[]>();
-  for (const row of rows) {
-    const year = row.date_jour.slice(0, 4);
-    const list = byYear.get(year) ?? [];
-    list.push(row);
-    byYear.set(year, list);
-  }
-
   const codeById = new Map<number, string>();
-  for (const [year, yearRows] of byYear.entries()) {
-    const sorted = [...yearRows].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    sorted.forEach((row, index) => {
-      codeById.set(row.id, `TO${index + 1}.${year}`);
-    });
+  for (const row of rows) {
+    codeById.set(row.id, `TO${row.numero ?? row.id}.${row.date_jour.slice(0, 4)}`);
   }
-
   return codeById;
 }
 
@@ -77,7 +66,7 @@ export default async function TransferOrderListPage() {
       fetchAll<DepotRow>("depots", "id, nom"),
       fetchAll<TransferOrderRow>(
         "transfer_orders",
-        "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp"
+        "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp, numero"
       ),
       fetchAll<{ id: number; nom_article: string }>("articles_matiere_premiere", "id, nom_article"),
       fetchAll<{ id: number; nom_article: string }>("articles", "id, nom_article"),

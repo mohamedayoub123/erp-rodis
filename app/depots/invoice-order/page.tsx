@@ -14,6 +14,7 @@ type InvoiceOrderRow = {
   statut: string;
   date_jour: string;
   created_at: string;
+  numero: number | null;
 };
 type TransferOrderRow = { id: number; depot_source_id: number; depot_destination_id: number };
 type DepotRow = { id: number; nom: string };
@@ -34,23 +35,13 @@ async function fetchAll<T>(table: string, select: string) {
   return { rows, error: null };
 }
 
+// Code TI1.2026, TI2.2026... fige a la creation (colonne numero) - stable,
+// une suppression ne decale plus les numeros des autres.
 function computeCodes(rows: InvoiceOrderRow[]): Map<number, string> {
-  const byYear = new Map<string, InvoiceOrderRow[]>();
-  for (const row of rows) {
-    const year = row.date_jour.slice(0, 4);
-    const list = byYear.get(year) ?? [];
-    list.push(row);
-    byYear.set(year, list);
-  }
-
   const codeById = new Map<number, string>();
-  for (const [year, yearRows] of byYear.entries()) {
-    const sorted = [...yearRows].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    sorted.forEach((row, index) => {
-      codeById.set(row.id, `TI${index + 1}.${year}`);
-    });
+  for (const row of rows) {
+    codeById.set(row.id, `TI${row.numero ?? row.id}.${row.date_jour.slice(0, 4)}`);
   }
-
   return codeById;
 }
 
@@ -61,7 +52,7 @@ export default async function InvoiceOrderListPage() {
   const canDelete = await canDeletePageUser(currentUser, "depots");
 
   const [{ rows: invoiceOrders, error }, { rows: transferOrders }, { rows: depots }] = await Promise.all([
-    fetchAll<InvoiceOrderRow>("invoice_orders", "id, transfer_order_id, statut, date_jour, created_at"),
+    fetchAll<InvoiceOrderRow>("invoice_orders", "id, transfer_order_id, statut, date_jour, created_at, numero"),
     fetchAll<TransferOrderRow>("transfer_orders", "id, depot_source_id, depot_destination_id"),
     fetchAll<DepotRow>("depots", "id, nom"),
   ]);

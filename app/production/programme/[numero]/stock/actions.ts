@@ -163,6 +163,21 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
   const createdCodes: string[] = [];
   const skipped: { articleId: number; besoin: number; disponible: number }[] = [];
 
+  // TO1.2026, TO2.2026... fige a la creation (colonne numero, jamais
+  // recalcule au rang) - le plus grand numero existant cette annee-la + 1,
+  // incremente localement pour chaque Transfer Order cree dans cette meme
+  // rafale (plusieurs peuvent etre crees d'un coup ici).
+  const year = dateJour.slice(0, 4);
+  const { data: lastTransferOrder } = await supabaseServer
+    .from("transfer_orders")
+    .select("numero")
+    .gte("date_jour", `${year}-01-01`)
+    .lte("date_jour", `${year}-12-31`)
+    .order("numero", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  let nextNumero = ((lastTransferOrder as { numero: number | null } | null)?.numero ?? 0) + 1;
+
   for (const [groupe, besoinMap] of besoinParGroupeMp.entries()) {
     // Colorant+Base (ensemble) toujours a part du reste, meme groupe de
     // type - et par depot source (rare que ca varie, mais un Transfer Order
@@ -212,6 +227,7 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
           cree_par: currentUser,
           famille_produit: groupe,
           type_mp: sousGroupe === "Colorant-Base" ? "MP" : "Conditionnement",
+          numero: nextNumero,
         })
         .select("id")
         .single();
@@ -220,6 +236,7 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
         throw new Error(transferOrderError.message);
       }
 
+      nextNumero += 1;
       const transferOrderId = (transferOrder as { id: number }).id;
 
       const { error: lignesInsertError } = await supabaseServer.from("transfer_order_lignes").insert(
