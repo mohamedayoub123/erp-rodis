@@ -12,7 +12,7 @@ import {
   approveTransferOrderAction,
   deleteTransferOrderAction,
   postToInvoiceOrderAction,
-  updateLigneLotsAction,
+  updateAllLigneLotsAction,
 } from "../actions";
 
 type TransferOrderRow = {
@@ -70,6 +70,8 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
   if (!transferOrder) {
     notFound();
   }
+
+  const canEditLots = canEdit && transferOrder.statut === "approuve";
 
   const lignes = (lignesData ?? []) as LigneRow[];
   const depots = (depotsData as { id: number; nom: string }[] | null) ?? [];
@@ -201,95 +203,87 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
             </div>
           </section>
         ) : (
-        <section className="space-y-4">
-          {lignesEnrichies.map((ligne) => {
-            const lotsChoisis = lotsByLigneId.get(ligne.id) ?? [];
-            const totalChoisi = lotsChoisis.reduce((sum, lot) => sum + lot.quantite, 0);
+        <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <form action={updateAllLigneLotsAction} className="grid gap-4 p-6">
+            <input type="hidden" name="transfer_order_id" value={transferOrderId} />
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-6 py-4 font-semibold">Article</th>
+                    <th className="px-6 py-4 font-semibold">Demande</th>
+                    <th className="px-6 py-4 font-semibold">Numero de lot</th>
+                    <th className="px-6 py-4 font-semibold">Disponible</th>
+                    <th className="px-6 py-4 font-semibold">Quantite a transferer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lignesEnrichies.flatMap((ligne) => {
+                    const lotsChoisis = lotsByLigneId.get(ligne.id) ?? [];
 
-            return (
-              <div
-                key={ligne.id}
-                className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-6 py-4">
-                  <div>
-                    <p className="font-semibold text-slate-900">{ligne.nom}</p>
-                    <p className="text-xs text-slate-500">
-                      {ligne.article_type === "MP" ? "Matiere premiere" : "Produit fini"} - Demande :{" "}
-                      {ligne.quantite_demandee.toLocaleString("fr-FR")}
-                    </p>
-                  </div>
-                  {lotsChoisis.length > 0 ? (
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        Math.abs(totalChoisi - ligne.quantite_demandee) < 1e-6
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-amber-50 text-amber-700"
-                      }`}
-                    >
-                      Choisi : {totalChoisi.toLocaleString("fr-FR")}
-                    </span>
-                  ) : null}
-                </div>
+                    if (ligne.lotsDisponibles.length === 0) {
+                      return [
+                        <tr key={`${ligne.id}-vide`} className="border-t border-slate-100">
+                          <td className="px-6 py-4 font-medium text-slate-900">{ligne.nom}</td>
+                          <td className="px-6 py-4 text-slate-600">
+                            {ligne.quantite_demandee.toLocaleString("fr-FR")}
+                          </td>
+                          <td className="px-6 py-4 text-slate-400" colSpan={3}>
+                            Aucun lot disponible dans le depot source.
+                          </td>
+                        </tr>,
+                      ];
+                    }
 
-                {ligne.lotsDisponibles.length === 0 ? (
-                  <p className="px-6 py-4 text-sm text-slate-500">Aucun lot disponible dans le depot source.</p>
-                ) : (
-                  <form action={updateLigneLotsAction} className="grid gap-3 px-6 py-4">
-                    <input type="hidden" name="ligne_id" value={ligne.id} />
-                    <input type="hidden" name="transfer_order_id" value={transferOrderId} />
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full text-left text-sm">
-                        <thead className="text-slate-500">
-                          <tr>
-                            <th className="py-2 pr-4 font-semibold">Numero de lot</th>
-                            <th className="py-2 pr-4 font-semibold">Disponible</th>
-                            <th className="py-2 font-semibold">Quantite a transferer</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ligne.lotsDisponibles.map((lot) => {
-                            const choisi = lotsChoisis.find((l) => (l.numero_lot || "") === lot.numeroLot);
-                            return (
-                              <tr key={lot.numeroLot} className="border-t border-slate-100">
-                                <td className="py-2 pr-4">
-                                  {lot.numeroLot || "-"}
-                                  <input type="hidden" name="numero_lot" value={lot.numeroLot} />
-                                </td>
-                                <td className="py-2 pr-4 text-slate-600">{lot.solde.toLocaleString("fr-FR")}</td>
-                                <td className="py-2">
-                                  <input
-                                    type="number"
-                                    step="0.001"
-                                    min="0"
-                                    max={lot.solde}
-                                    name="quantite"
-                                    defaultValue={choisi?.quantite ?? 0}
-                                    disabled={!canEdit}
-                                    className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    {canEdit && transferOrder.statut === "approuve" ? (
-                      <div>
-                        <button
-                          type="submit"
-                          className="rounded-full bg-slate-900 px-5 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
-                        >
-                          Enregistrer la repartition
-                        </button>
-                      </div>
-                    ) : null}
-                  </form>
-                )}
+                    return ligne.lotsDisponibles.map((lot, index) => {
+                      const choisi = lotsChoisis.find((l) => (l.numero_lot || "") === lot.numeroLot);
+                      return (
+                        <tr key={`${ligne.id}-${lot.numeroLot}`} className="border-t border-slate-100">
+                          <td className="px-6 py-4 font-medium text-slate-900">{index === 0 ? ligne.nom : ""}</td>
+                          <td className="px-6 py-4 text-slate-600">
+                            {index === 0 ? ligne.quantite_demandee.toLocaleString("fr-FR") : ""}
+                          </td>
+                          <td className="px-6 py-4">
+                            <input type="hidden" name="ligne_id" value={ligne.id} />
+                            <input
+                              type="text"
+                              name="numero_lot"
+                              defaultValue={choisi?.numero_lot ?? lot.numeroLot}
+                              disabled={!canEditLots}
+                              className="w-40 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
+                            />
+                          </td>
+                          <td className="px-6 py-4 text-slate-600">{lot.solde.toLocaleString("fr-FR")}</td>
+                          <td className="px-6 py-4">
+                            <input
+                              type="number"
+                              step="0.001"
+                              min="0"
+                              max={lot.solde}
+                              name="quantite"
+                              defaultValue={choisi?.quantite ?? 0}
+                              disabled={!canEditLots}
+                              className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {canEditLots ? (
+              <div>
+                <button
+                  type="submit"
+                  className="rounded-full bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                >
+                  Enregistrer
+                </button>
               </div>
-            );
-          })}
+            ) : null}
+          </form>
         </section>
         )}
       </div>

@@ -199,43 +199,51 @@ export async function approveTransferOrderAction(formData: FormData) {
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
 }
 
-// Remplace la repartition par lot d'UNE ligne par celle saisie a la main -
-// une case par lot disponible dans le depot source (voir le formulaire),
-// seules les quantites non nulles sont gardees.
-export async function updateLigneLotsAction(formData: FormData) {
+// Remplace la repartition par lot de TOUTES les lignes d'un coup, depuis un
+// seul tableau/un seul bouton "Enregistrer" (ligne_id[], numero_lot[],
+// quantite[] - meme convention getAll() indexee que partout ailleurs dans
+// l'appli) - le numero de lot reste modifiable a la main (pas fige aux lots
+// deja connus), seules les quantites non nulles sont gardees.
+export async function updateAllLigneLotsAction(formData: FormData) {
   await requireWriteAccess();
 
-  const ligneId = Number(formData.get("ligne_id") || "0");
   const transferOrderId = Number(formData.get("transfer_order_id") || "0");
-  if (!ligneId || !transferOrderId) {
-    throw new Error("Ligne invalide.");
+  if (!transferOrderId) {
+    throw new Error("Transfer Order invalide.");
   }
 
+  const ligneIdsRaw = formData.getAll("ligne_id");
   const numeroLots = formData.getAll("numero_lot");
   const quantites = formData.getAll("quantite");
 
-  const allocations = numeroLots
-    .map((numeroLot, index) => ({
-      numero_lot: String(numeroLot || "") || null,
-      quantite: Number(String(quantites[index] || "0").replace(",", ".")),
-    }))
-    .filter((allocation) => allocation.quantite > 0);
+  const rows = ligneIdsRaw.map((ligneIdRaw, index) => ({
+    ligneId: Number(ligneIdRaw || "0"),
+    numeroLot: String(numeroLots[index] || "").trim() || null,
+    quantite: Number(String(quantites[index] || "0").replace(",", ".")),
+  }));
+
+  const ligneIds = [...new Set(rows.map((r) => r.ligneId).filter((id) => id > 0))];
+  if (ligneIds.length === 0) {
+    throw new Error("Aucune ligne a enregistrer.");
+  }
 
   const { error: deleteError } = await supabaseServer
     .from("transfer_order_ligne_lots")
     .delete()
-    .eq("transfer_order_ligne_id", ligneId);
+    .in("transfer_order_ligne_id", ligneIds);
 
   if (deleteError) {
     throw new Error(deleteError.message);
   }
 
+  const allocations = rows.filter((r) => r.ligneId > 0 && r.quantite > 0);
+
   if (allocations.length > 0) {
     const { error: insertError } = await supabaseServer.from("transfer_order_ligne_lots").insert(
-      allocations.map((allocation) => ({
-        transfer_order_ligne_id: ligneId,
-        numero_lot: allocation.numero_lot,
-        quantite: allocation.quantite,
+      allocations.map((r) => ({
+        transfer_order_ligne_id: r.ligneId,
+        numero_lot: r.numeroLot,
+        quantite: r.quantite,
       }))
     );
 
