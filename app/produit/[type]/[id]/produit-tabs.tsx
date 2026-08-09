@@ -8,6 +8,7 @@ export function ProduitTabs({ type, id }: { type: string; id: number }) {
   const base = `/produit/${type}/${id}`;
   const tabs = [
     { href: base, label: "Stock" },
+    { href: `${base}/mouvement`, label: "Mouvement" },
     { href: `${base}/statistique`, label: "Statistique" },
   ];
 
