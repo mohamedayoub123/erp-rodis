@@ -10,6 +10,7 @@ import { ProgrammeFormulaire } from "../programme-formulaire";
 import {
   addLignesProgrammeAction,
   deleteProgrammeAction,
+  dispatchProgrammeAction,
   updateProgrammeGroupeAction,
   updateProgrammeLigneAction,
 } from "../actions";
@@ -24,6 +25,7 @@ type ProgrammeRow = {
   duree_minutes: number | null;
   qt_carton: number;
   qt_vrac: number;
+  plateforme: string | null;
   date_jour: string;
   remarque: string | null;
   statut: string;
@@ -93,7 +95,7 @@ export default async function ProgrammeDetailPage({
     supabaseServer
       .from("programmes")
       .select(
-        "id, article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, date_jour, remarque, statut, utilisateur"
+        "id, article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, plateforme, date_jour, remarque, statut, utilisateur"
       )
       .eq("numero_programme", numeroProgramme)
       .order("id", { ascending: true }),
@@ -172,6 +174,17 @@ export default async function ProgrammeDetailPage({
             >
               Verifier stock
             </Link>
+            {canWrite ? (
+              <form action={dispatchProgrammeAction}>
+                <input type="hidden" name="numero_programme" value={numeroProgramme} />
+                <button
+                  type="submit"
+                  className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+                >
+                  Dispatch
+                </button>
+              </form>
+            ) : null}
             <RefreshButton />
           </div>
         </div>
@@ -235,6 +248,7 @@ export default async function ProgrammeDetailPage({
                       <th className="px-6 py-4 font-semibold">Machine Fabrication</th>
                       <th className="px-6 py-4 font-semibold">Machine Conditionnement</th>
                       <th className="px-6 py-4 font-semibold">Duree (min)</th>
+                      <th className="px-6 py-4 font-semibold">Plateforme</th>
                       <th className="px-6 py-4 font-semibold">Qt carton</th>
                       <th className="px-6 py-4 font-semibold">Qt vrac</th>
                       <th className="px-6 py-4 font-semibold"></th>
@@ -260,6 +274,9 @@ export default async function ProgrammeDetailPage({
                             : "-"}
                         </td>
                         <td className="px-6 py-4 text-slate-600">{ligne.duree_minutes ?? "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {ligne.plateforme === "A" ? "Auto" : "Manuel"}
+                        </td>
                         {canWrite ? (
                           <>
                             <td className="px-6 py-4">

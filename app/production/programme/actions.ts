@@ -4,6 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import {
+  fetchArticleInfoMap,
+  fetchAllArticleCodeRows,
+  generateAutoCodes,
+  upsertPendingArticleCodeUpdates,
+} from "@/app/programe-par-ligne/actions";
+import { buildDispatcherDraftRows, type DispatchSourceRow } from "@/lib/dispatcher-shared";
 
 async function requireProgrammeWriteAccess() {
   const currentUser = await getCurrentStockUser();
@@ -56,6 +63,7 @@ export async function createProgrammeAction(formData: FormData) {
   const dureesMinutes = formData.getAll("duree_minutes");
   const qtCartons = formData.getAll("qt_carton");
   const qtVracs = formData.getAll("qt_vrac");
+  const plateformes = formData.getAll("plateforme");
 
   const lignes = articleIds
     .map((rawArticleId, index) => ({
@@ -66,6 +74,7 @@ export async function createProgrammeAction(formData: FormData) {
       duree_minutes: parseOptionalNumberValue(dureesMinutes[index]),
       qt_carton: parseOptionalNumberValue(qtCartons[index]) ?? 0,
       qt_vrac: parseOptionalNumberValue(qtVracs[index]) ?? 0,
+      plateforme: plateformes[index] === "A" ? "A" : "M",
       date_jour: dateJour,
       numero_programme: numeroProgramme,
       remarque,
@@ -139,6 +148,7 @@ export async function addLignesProgrammeAction(formData: FormData) {
   const dureesMinutes = formData.getAll("duree_minutes");
   const qtCartons = formData.getAll("qt_carton");
   const qtVracs = formData.getAll("qt_vrac");
+  const plateformes = formData.getAll("plateforme");
 
   const lignes = articleIds
     .map((rawArticleId, index) => ({
@@ -149,6 +159,7 @@ export async function addLignesProgrammeAction(formData: FormData) {
       duree_minutes: parseOptionalNumberValue(dureesMinutes[index]),
       qt_carton: parseOptionalNumberValue(qtCartons[index]) ?? 0,
       qt_vrac: parseOptionalNumberValue(qtVracs[index]) ?? 0,
+      plateforme: plateformes[index] === "A" ? "A" : "M",
       date_jour: (existant as { date_jour: string }).date_jour,
       numero_programme: numeroProgramme,
       remarque: (existant as { remarque: string | null }).remarque,
@@ -223,4 +234,194 @@ export async function updateProgrammeGroupeAction(formData: FormData) {
 
   revalidatePath("/production/programme");
   revalidatePath(`/production/programme/${numeroProgramme}`);
+}
+
+// Dispatche un programme (MB) vers programme_dispatcher_lignes, exactement
+// comme le bouton "Dispatch" de "Programme par ligne" (meme decoupage en
+// lots, meme generation de code) - voir buildDispatcherDraftRows/
+// generateAutoCodes (lib/dispatcher-shared.ts et
+// app/programe-par-ligne/actions.ts, reutilisees telles quelles pour eviter
+// toute divergence entre les 2 pages).
+//
+// La zone/chaine viennent de la machine Conditionnement de chaque ligne
+// (machines.zone / machines.nom - "chaine 1" etc.), pas d'une liste fixe
+// comme sur Programme par ligne. groupe_id est negatif (-numero_programme)
+// pour ne jamais entrer en collision avec un vrai groupe_id de
+// programme_lignes (toujours positif) : ce programme n'a pas de
+// numero_lot/confirme_production a mettre a jour en retour (colonnes qui
+// n'existent que sur programme_lignes), seul le Dispatcher + le code
+// article en attente sont ecrits ici.
+export async function dispatchProgrammeAction(formData: FormData) {
+  await requireProgrammeWriteAccess();
+
+  const numeroProgramme = Number(formData.get("numero_programme") || "0");
+  if (!numeroProgramme) {
+    throw new Error("Programme invalide.");
+  }
+
+  const { data: lignesData, error: lignesError } = await supabaseServer
+    .from("programmes")
+    .select("article_id, machine_conditionnement_id, qt_vrac, plateforme, date_jour")
+    .eq("numero_programme", numeroProgramme);
+
+  if (lignesError) {
+    throw new Error(lignesError.message);
+  }
+
+  const lignes = (lignesData ?? []) as {
+    article_id: number;
+    machine_conditionnement_id: number | null;
+    qt_vrac: number;
+    plateforme: string | null;
+    date_jour: string;
+  }[];
+
+  if (lignes.length === 0) {
+    throw new Error("Programme introuvable.");
+  }
+
+  const machineIds = [...new Set(lignes.map((l) => l.machine_conditionnement_id).filter((id): id is number => !!id))];
+  const articleIds = [...new Set(lignes.map((l) => l.article_id))];
+
+  const [{ data: machinesData }, { data: articlesData }] = await Promise.all([
+    supabaseServer.from("machines").select("id, nom, zone").in("id", machineIds),
+    supabaseServer.from("articles").select("id, nom_article, type_article").in("id", articleIds),
+  ]);
+
+  const machineById = new Map(
+    ((machinesData ?? []) as { id: number; nom: string; zone: string | null }[]).map((m) => [m.id, m])
+  );
+  const articleById = new Map(
+    ((articlesData ?? []) as { id: number; nom_article: string; type_article: string | null }[]).map((a) => [a.id, a])
+  );
+
+  const dateJour = lignes[0].date_jour;
+  const filledRows: DispatchSourceRow[] = lignes.map((ligne) => {
+    const machine = ligne.machine_conditionnement_id ? machineById.get(ligne.machine_conditionnement_id) : null;
+    if (!machine || !machine.zone) {
+      const nomArticle = articleById.get(ligne.article_id)?.nom_article ?? `#${ligne.article_id}`;
+      throw new Error(
+        `${nomArticle} : la machine Conditionnement doit avoir une Zone configuree (page Machines) pour pouvoir dispatcher.`
+      );
+    }
+    const article = articleById.get(ligne.article_id);
+    return {
+      zone: machine.zone,
+      chaine: machine.nom,
+      article_id: ligne.article_id,
+      produit: article?.nom_article ?? "",
+      type_article: article?.type_article ?? "",
+      qt_carton: null,
+      vrac_a_fabriquer: ligne.qt_vrac || null,
+      plateforme: ligne.plateforme === "A" ? "A" : "M",
+      programe: `MB${numeroProgramme}`,
+    };
+  });
+
+  const affectedZoneChaine = [
+    ...new Map(filledRows.map((row) => [`${row.zone}::${row.chaine}`, { zone: row.zone, chaine: row.chaine }])).values(),
+  ];
+
+  // Negatif = vient de Programme (MB), jamais d'un vrai groupe_id
+  // programme_lignes (toujours positif, = min(id) des lignes inserees).
+  const groupeId = -numeroProgramme;
+
+  const articleIdsForInfo = [...new Set(filledRows.map((row) => row.article_id as number))];
+  const [articleInfoById, allArticleCodeRows] = await Promise.all([
+    fetchArticleInfoMap(articleIdsForInfo),
+    fetchAllArticleCodeRows(),
+  ]);
+
+  const MAX_CODE_ATTEMPTS = 6;
+  let finalCodeUpdatesByArticleId = new Map<number, { code_manu?: string; code_auto?: string }>();
+  let dispatcherSucceeded = false;
+
+  for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
+    const draftRows = buildDispatcherDraftRows(filledRows, articleInfoById);
+    const articleCodeRowsForAttempt = attempt === 1 ? allArticleCodeRows : await fetchAllArticleCodeRows();
+    const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(
+      draftRows,
+      articleInfoById,
+      articleCodeRowsForAttempt
+    );
+
+    const rawDispatcherPayload = draftRows.map((row, index) => ({
+      zone: row.zone,
+      article_id: row.articleId,
+      chaine: row.chaine,
+      produit: row.produit || null,
+      code: codesByRowIndex.get(index) || null,
+      date_jour: dateJour,
+      qt_carton: row.qtCarton,
+      qt_vrac: row.qtVrac,
+      groupe_id: groupeId,
+    }));
+
+    // Meme fusion que Programme par ligne : 2 lignes qui partagent
+    // exactement (code, zone, chaine, article_id) sont un vrai doublon
+    // physique (le meme lot decoupe 2 fois) plutot que 2 lignes reelles.
+    const dispatcherPayload: typeof rawDispatcherPayload = [];
+    const mergedIndexByKey = new Map<string, number>();
+    for (const row of rawDispatcherPayload) {
+      if (!row.code) {
+        dispatcherPayload.push(row);
+        continue;
+      }
+      const key = `${row.code}::${row.zone}::${row.chaine}::${row.article_id}`;
+      const existingIndex = mergedIndexByKey.get(key);
+      if (existingIndex === undefined) {
+        mergedIndexByKey.set(key, dispatcherPayload.length);
+        dispatcherPayload.push(row);
+        continue;
+      }
+      const existing = dispatcherPayload[existingIndex];
+      dispatcherPayload[existingIndex] = {
+        ...existing,
+        qt_carton: (existing.qt_carton ?? 0) + (row.qt_carton ?? 0),
+        qt_vrac: (existing.qt_vrac ?? 0) + (row.qt_vrac ?? 0),
+      };
+    }
+
+    if (affectedZoneChaine.length > 0) {
+      const { error: clearZonesError } = await supabaseServer.rpc("programme_dispatcher_clear_zones", {
+        p_pairs: affectedZoneChaine,
+      });
+      if (clearZonesError) {
+        throw new Error(clearZonesError.message);
+      }
+    }
+
+    const { error: dispatcherError } = await supabaseServer.from("programme_dispatcher_lignes").insert(dispatcherPayload);
+
+    if (!dispatcherError) {
+      finalCodeUpdatesByArticleId = codeUpdatesByArticleId;
+      dispatcherSucceeded = true;
+      break;
+    }
+
+    if (dispatcherError.code !== "23505") {
+      throw new Error(dispatcherError.message);
+    }
+
+    if (attempt === MAX_CODE_ATTEMPTS) {
+      throw new Error(
+        `Un autre enregistrement a genere le meme code de lot au meme moment. Reessaie. Detail : ${dispatcherError.message}`
+      );
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 350));
+  }
+
+  if (!dispatcherSucceeded) {
+    throw new Error("Impossible de generer un code de lot unique apres plusieurs tentatives - reessaie.");
+  }
+
+  if (finalCodeUpdatesByArticleId.size > 0) {
+    await upsertPendingArticleCodeUpdates(groupeId, finalCodeUpdatesByArticleId);
+  }
+
+  revalidatePath("/production/programme");
+  revalidatePath(`/production/programme/${numeroProgramme}`);
+  revalidatePath("/ravitailleur-par-ligne");
+  redirect("/ravitailleur-par-ligne");
 }

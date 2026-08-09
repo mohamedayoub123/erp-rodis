@@ -29,6 +29,7 @@ type Ligne = {
   dureeMinutes: string;
   qtCarton: string;
   qtVrac: string;
+  plateforme: "M" | "A";
   autoCalcule: boolean;
 };
 
@@ -46,6 +47,7 @@ function ligneVide(key: number): Ligne {
     dureeMinutes: "",
     qtCarton: "",
     qtVrac: "",
+    plateforme: "M",
     autoCalcule: false,
   };
 }
@@ -177,6 +179,7 @@ export function ProgrammeFormulaire({
               <th className="px-3 py-3 font-semibold">Machine Fabrication</th>
               <th className="px-3 py-3 font-semibold">Machine Conditionnement</th>
               <th className="px-3 py-3 font-semibold">Duree (min)</th>
+              <th className="px-3 py-3 font-semibold">Plateforme</th>
               <th className="px-3 py-3 font-semibold"></th>
               <th className="px-3 py-3 font-semibold">Qt carton</th>
               <th className="px-3 py-3 font-semibold">Qt vrac</th>
@@ -250,6 +253,25 @@ export function ProgrammeFormulaire({
                       placeholder="Ex: 480"
                       className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                     />
+                  </td>
+                  <td className="px-3 py-3">
+                    <input type="hidden" name="plateforme" value={ligne.plateforme} />
+                    <div className="flex gap-1">
+                      {(["M", "A"] as const).map((valeur) => (
+                        <button
+                          key={valeur}
+                          type="button"
+                          onClick={() => updateLigne(ligne.key, { plateforme: valeur })}
+                          className={`rounded-2xl px-3 py-2 text-xs font-semibold transition ${
+                            ligne.plateforme === valeur
+                              ? "bg-slate-900 text-white"
+                              : "border border-slate-200 text-slate-700 hover:border-slate-400"
+                          }`}
+                        >
+                          {valeur === "M" ? "Manuel" : "Auto"}
+                        </button>
+                      ))}
+                    </div>
                   </td>
                   <td className="px-3 py-3">
                     <button
