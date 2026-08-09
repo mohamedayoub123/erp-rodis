@@ -7,12 +7,12 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
 import { type ArticleType } from "../../transfer-order/stock-lots";
-import { validateInvoiceOrderAction } from "../actions";
+import { updateInvoiceOrderLignesAction, validateInvoiceOrderAction } from "../actions";
 
 type InvoiceOrderRow = { id: number; transfer_order_id: number; statut: string; date_jour: string; created_at: string };
 type TransferOrderRow = { id: number; depot_source_id: number; depot_destination_id: number };
-type LigneRow = { id: number; article_type: ArticleType; article_id: number; quantite_demandee: number };
-type LigneLotRow = { transfer_order_ligne_id: number; numero_lot: string | null; quantite: number };
+type LigneRow = { id: number; article_type: ArticleType; article_id: number };
+type InvoiceLigneRow = { id: number; transfer_order_ligne_id: number; numero_lot: string | null; quantite: number };
 
 async function fetchNomArticle(articleType: ArticleType, articleId: number): Promise<string> {
   const table = articleType === "MP" ? "articles_matiere_premiere" : "articles";
@@ -57,25 +57,28 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
 
   const { data: lignesData } = await supabaseServer
     .from("transfer_order_lignes")
-    .select("id, article_type, article_id, quantite_demandee")
+    .select("id, article_type, article_id")
     .eq("transfer_order_id", invoiceOrder.transfer_order_id)
     .order("id", { ascending: true });
   const lignes = (lignesData ?? []) as LigneRow[];
+  const ligneById = new Map(lignes.map((ligne) => [ligne.id, ligne]));
 
-  const { data: ligneLotsData } = await supabaseServer
-    .from("transfer_order_ligne_lots")
-    .select("transfer_order_ligne_id, numero_lot, quantite")
-    .in(
-      "transfer_order_ligne_id",
-      lignes.map((ligne) => ligne.id)
-    );
-  const ligneLots = (ligneLotsData ?? []) as LigneLotRow[];
-  const lotsByLigneId = new Map<number, LigneLotRow[]>();
-  for (const lot of ligneLots) {
-    const list = lotsByLigneId.get(lot.transfer_order_ligne_id) ?? [];
-    list.push(lot);
-    lotsByLigneId.set(lot.transfer_order_ligne_id, list);
-  }
+  const { data: invoiceLignesData } = await supabaseServer
+    .from("invoice_order_lignes")
+    .select("id, transfer_order_ligne_id, numero_lot, quantite")
+    .eq("invoice_order_id", invoiceOrderId)
+    .order("id", { ascending: true });
+  const invoiceLignes = (invoiceLignesData ?? []) as InvoiceLigneRow[];
+
+  const canEditLignes = canEdit && invoiceOrder.statut === "draft";
+
+  const invoiceLignesEnrichies = await Promise.all(
+    invoiceLignes.map(async (invoiceLigne) => {
+      const ligne = ligneById.get(invoiceLigne.transfer_order_ligne_id);
+      const nom = ligne ? await fetchNomArticle(ligne.article_type, ligne.article_id) : `#${invoiceLigne.transfer_order_ligne_id}`;
+      return { ...invoiceLigne, nom, articleType: ligne?.article_type ?? null };
+    })
+  );
 
   const { data: allSameYearData } = await supabaseServer
     .from("invoice_orders")
@@ -85,10 +88,6 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
     .order("created_at", { ascending: true });
   const rank = ((allSameYearData ?? []) as { id: number }[]).findIndex((row) => row.id === invoiceOrderId);
   const code = `TI${rank + 1}.${invoiceOrder.date_jour.slice(0, 4)}`;
-
-  const lignesEnrichies = await Promise.all(
-    lignes.map(async (ligne) => ({ ...ligne, nom: await fetchNomArticle(ligne.article_type, ligne.article_id) }))
-  );
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -123,6 +122,15 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
               >
                 Voir le Transfer Order
               </Link>
+              {canEditLignes ? (
+                <button
+                  type="submit"
+                  form="invoice-lignes-form"
+                  className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                >
+                  Enregistrer
+                </button>
+              ) : null}
               {canEdit && invoiceOrder.statut === "draft" ? (
                 <form action={validateInvoiceOrderAction}>
                   <input type="hidden" name="invoice_order_id" value={invoiceOrderId} />
@@ -139,45 +147,64 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
         </section>
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-6 py-4 font-semibold">Article</th>
-                  <th className="px-6 py-4 font-semibold">Type</th>
-                  <th className="px-6 py-4 font-semibold">Lot</th>
-                  <th className="px-6 py-4 font-semibold">Quantite</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lignesEnrichies.flatMap((ligne) => {
-                  const lots = lotsByLigneId.get(ligne.id) ?? [];
-                  if (lots.length === 0) {
-                    return (
+          <form id="invoice-lignes-form" action={updateInvoiceOrderLignesAction} className="p-6">
+            <input type="hidden" name="invoice_order_id" value={invoiceOrderId} />
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-6 py-4 font-semibold">Article</th>
+                    <th className="px-6 py-4 font-semibold">Type</th>
+                    <th className="px-6 py-4 font-semibold">Lot</th>
+                    <th className="px-6 py-4 font-semibold">Quantite</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoiceLignesEnrichies.length === 0 ? (
+                    <tr>
+                      <td className="px-6 py-4 text-slate-400" colSpan={4}>
+                        Aucune ligne - tout a deja ete livre ou efface.
+                      </td>
+                    </tr>
+                  ) : (
+                    invoiceLignesEnrichies.map((ligne) => (
                       <tr key={ligne.id} className="border-t border-slate-100">
                         <td className="px-6 py-4 font-medium text-slate-900">{ligne.nom}</td>
                         <td className="px-6 py-4 text-slate-600">
-                          {ligne.article_type === "MP" ? "Matiere premiere" : "Produit fini"}
+                          {ligne.articleType === "MP" ? "Matiere premiere" : "Produit fini"}
                         </td>
-                        <td className="px-6 py-4 text-slate-400">Aucun lot choisi</td>
-                        <td className="px-6 py-4 text-slate-600">-</td>
+                        <td className="px-6 py-4 text-slate-600">{ligne.numero_lot || "-"}</td>
+                        <td className="px-6 py-4">
+                          {canEditLignes ? (
+                            <>
+                              <input type="hidden" name="invoice_order_ligne_id" value={ligne.id} />
+                              <input
+                                type="number"
+                                step="0.001"
+                                min="0"
+                                max={ligne.quantite}
+                                name="quantite"
+                                defaultValue={ligne.quantite}
+                                className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                              />
+                            </>
+                          ) : (
+                            ligne.quantite.toLocaleString("fr-FR")
+                          )}
+                        </td>
                       </tr>
-                    );
-                  }
-                  return lots.map((lot, index) => (
-                    <tr key={`${ligne.id}-${index}`} className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium text-slate-900">{ligne.nom}</td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {ligne.article_type === "MP" ? "Matiere premiere" : "Produit fini"}
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">{lot.numero_lot || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{lot.quantite.toLocaleString("fr-FR")}</td>
-                    </tr>
-                  ));
-                })}
-              </tbody>
-            </table>
-          </div>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {canEditLignes ? (
+              <p className="mt-3 px-1 text-xs text-slate-500">
+                La quantite ne peut etre que diminuee (jamais augmentee). Mets 0 pour ne pas livrer une ligne - elle
+                repart automatiquement sur le Transfer Order.
+              </p>
+            ) : null}
+          </form>
         </section>
       </div>
     </main>

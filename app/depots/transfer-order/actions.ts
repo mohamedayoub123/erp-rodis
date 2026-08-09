@@ -255,9 +255,13 @@ export async function updateAllLigneLotsAction(formData: FormData) {
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
 }
 
-// Cree le Transfer Invoice a partir de ce Transfer Order approuve - le
-// mouvement de stock reel n'a lieu qu'a sa validation (voir
-// app/depots/invoice-order/actions.ts).
+// Cree un Transfer Invoice a partir de ce Transfer Order (approuve, ou
+// partiellement fini si un Transfer Invoice precedent n'a livre qu'une
+// partie) - reprend une photo des lots/quantites actuellement en attente sur
+// le Transfer Order (transfer_order_ligne_lots) dans les propres lignes du
+// Transfer Invoice (invoice_order_lignes), modifiables ensuite a la baisse
+// avant validation. Le mouvement de stock reel n'a lieu qu'a la validation
+// (voir app/depots/invoice-order/actions.ts).
 export async function postToInvoiceOrderAction(formData: FormData) {
   const currentUser = await requireWriteAccess();
 
@@ -276,8 +280,37 @@ export async function postToInvoiceOrderAction(formData: FormData) {
     throw new Error("Transfer Order introuvable.");
   }
 
-  if ((transferOrderData as { statut: string }).statut !== "approuve") {
+  const transferOrderStatut = (transferOrderData as { statut: string }).statut;
+  if (transferOrderStatut !== "approuve" && transferOrderStatut !== "partiellement_fini") {
     throw new Error("Le Transfer Order doit etre approuve avant d'etre poste.");
+  }
+
+  const { data: lignesData, error: lignesError } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("id")
+    .eq("transfer_order_id", transferOrderId);
+
+  if (lignesError) {
+    throw new Error(lignesError.message);
+  }
+
+  const ligneIds = ((lignesData ?? []) as { id: number }[]).map((l) => l.id);
+
+  const { data: ligneLotsData, error: ligneLotsError } = await supabaseServer
+    .from("transfer_order_ligne_lots")
+    .select("transfer_order_ligne_id, numero_lot, quantite")
+    .in("transfer_order_ligne_id", ligneIds);
+
+  if (ligneLotsError) {
+    throw new Error(ligneLotsError.message);
+  }
+
+  const ligneLots = ((ligneLotsData ?? []) as { transfer_order_ligne_id: number; numero_lot: string | null; quantite: number }[]).filter(
+    (l) => l.quantite > 0
+  );
+
+  if (ligneLots.length === 0) {
+    throw new Error("Aucun lot en attente sur ce Transfer Order.");
   }
 
   const { data: inserted, error: insertError } = await supabaseServer
@@ -290,6 +323,27 @@ export async function postToInvoiceOrderAction(formData: FormData) {
     throw new Error(insertError.message);
   }
 
+  const invoiceOrderId = (inserted as { id: number }).id;
+
+  const { error: lignesInsertError } = await supabaseServer.from("invoice_order_lignes").insert(
+    ligneLots.map((l) => ({
+      invoice_order_id: invoiceOrderId,
+      transfer_order_ligne_id: l.transfer_order_ligne_id,
+      numero_lot: l.numero_lot,
+      quantite: l.quantite,
+    }))
+  );
+
+  if (lignesInsertError) {
+    throw new Error(lignesInsertError.message);
+  }
+
+  // Verrouille le Transfer Order (plus editable, plus re-postable) tant que
+  // ce Transfer Invoice est en attente - evite qu'une modification des lots
+  // pendant ce temps ne desynchronise la photo deja prise dans
+  // invoice_order_lignes. Redevient editable (statut "partiellement_fini")
+  // seulement si la validation de ce Transfer Invoice laisse un reste (voir
+  // validateInvoiceOrderAction).
   const { error: statutError } = await supabaseServer
     .from("transfer_orders")
     .update({ statut: "poste" })
@@ -301,7 +355,7 @@ export async function postToInvoiceOrderAction(formData: FormData) {
 
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
   revalidatePath("/depots/invoice-order");
-  redirect(`/depots/invoice-order/${(inserted as { id: number }).id}`);
+  redirect(`/depots/invoice-order/${invoiceOrderId}`);
 }
 
 // Refuse de supprimer si le Transfer Invoice lie a deja ete valide - a ce
@@ -322,29 +376,28 @@ export async function deleteTransferOrderAction(formData: FormData) {
     throw new Error("Transfer Order invalide.");
   }
 
-  const { data: invoiceOrderData, error: invoiceOrderError } = await supabaseServer
+  const { data: invoiceOrdersData, error: invoiceOrdersError } = await supabaseServer
     .from("invoice_orders")
     .select("id, statut")
-    .eq("transfer_order_id", transferOrderId)
-    .maybeSingle();
+    .eq("transfer_order_id", transferOrderId);
 
-  if (invoiceOrderError) {
-    throw new Error(invoiceOrderError.message);
+  if (invoiceOrdersError) {
+    throw new Error(invoiceOrdersError.message);
   }
 
-  const invoiceOrder = invoiceOrderData as { id: number; statut: string } | null;
+  const invoiceOrders = (invoiceOrdersData ?? []) as { id: number; statut: string }[];
 
-  if (invoiceOrder?.statut === "valide") {
+  if (invoiceOrders.some((io) => io.statut === "valide")) {
     throw new Error(
-      "Impossible de supprimer : le Transfer Invoice lie a deja ete valide, le stock a deja bouge."
+      "Impossible de supprimer : un Transfer Invoice lie a deja ete valide, le stock a deja bouge."
     );
   }
 
-  if (invoiceOrder) {
+  if (invoiceOrders.length > 0) {
     const { error: deleteInvoiceError } = await supabaseServer
       .from("invoice_orders")
       .delete()
-      .eq("id", invoiceOrder.id);
+      .in("id", invoiceOrders.map((io) => io.id));
     if (deleteInvoiceError) {
       throw new Error(deleteInvoiceError.message);
     }

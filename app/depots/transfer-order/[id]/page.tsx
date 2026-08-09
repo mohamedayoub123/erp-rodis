@@ -29,6 +29,7 @@ type LigneLotRow = { transfer_order_ligne_id: number; numero_lot: string | null;
 const STATUT_LABELS: Record<string, string> = {
   en_attente: "En attente",
   approuve: "Approuve",
+  partiellement_fini: "Partiellement fini",
   poste: "Poste",
 };
 
@@ -50,7 +51,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
   const canEdit = await canWritePageUser(currentUser, "depots");
   const canDelete = await canDeletePageUser(currentUser, "depots");
 
-  const [{ data: transferOrderData }, { data: lignesData }, { data: depotsData }, { data: invoiceOrderData }] =
+  const [{ data: transferOrderData }, { data: lignesData }, { data: depotsData }, { data: invoiceOrdersData }] =
     await Promise.all([
       supabaseServer
         .from("transfer_orders")
@@ -63,7 +64,11 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
         .eq("transfer_order_id", transferOrderId)
         .order("id", { ascending: true }),
       supabaseServer.from("depots").select("id, nom"),
-      supabaseServer.from("invoice_orders").select("id").eq("transfer_order_id", transferOrderId).maybeSingle(),
+      supabaseServer
+        .from("invoice_orders")
+        .select("id, statut, date_jour, created_at")
+        .eq("transfer_order_id", transferOrderId)
+        .order("created_at", { ascending: true }),
     ]);
 
   const transferOrder = transferOrderData as TransferOrderRow | null;
@@ -71,12 +76,46 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
     notFound();
   }
 
-  const canEditLots = canEdit && transferOrder.statut === "approuve";
+  const canEditLots =
+    canEdit && (transferOrder.statut === "approuve" || transferOrder.statut === "partiellement_fini");
+  const canPoster =
+    canEdit && (transferOrder.statut === "approuve" || transferOrder.statut === "partiellement_fini");
 
   const lignes = (lignesData ?? []) as LigneRow[];
   const depots = (depotsData as { id: number; nom: string }[] | null) ?? [];
   const depotNomById = new Map(depots.map((d) => [d.id, d.nom]));
-  const invoiceOrderId = (invoiceOrderData as { id: number } | null)?.id ?? null;
+  const invoiceOrders = (invoiceOrdersData ?? []) as {
+    id: number;
+    statut: string;
+    date_jour: string;
+    created_at: string;
+  }[];
+
+  // Code TI1.2026, TI2.2026... calcule au rang parmi TOUS les Transfer
+  // Invoice de la meme annee (meme principe que TO/PL/PD) - jamais stocke.
+  const invoiceOrderCodeById = new Map<number, string>();
+  if (invoiceOrders.length > 0) {
+    const years = [...new Set(invoiceOrders.map((io) => io.date_jour.slice(0, 4)))];
+    const { data: sameYearInvoiceOrdersData } = await supabaseServer
+      .from("invoice_orders")
+      .select("id, date_jour, created_at")
+      .gte("date_jour", `${years[0]}-01-01`)
+      .lte("date_jour", `${years[years.length - 1]}-12-31`)
+      .order("created_at", { ascending: true });
+    const byYear = new Map<string, { id: number; created_at: string }[]>();
+    for (const row of (sameYearInvoiceOrdersData ?? []) as { id: number; date_jour: string; created_at: string }[]) {
+      const year = row.date_jour.slice(0, 4);
+      const list = byYear.get(year) ?? [];
+      list.push(row);
+      byYear.set(year, list);
+    }
+    for (const [year, yearRows] of byYear.entries()) {
+      const sorted = [...yearRows].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      sorted.forEach((row, index) => {
+        invoiceOrderCodeById.set(row.id, `TI${index + 1}.${year}`);
+      });
+    }
+  }
 
   const { data: ligneLotsData } = await supabaseServer
     .from("transfer_order_ligne_lots")
@@ -146,7 +185,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                   </button>
                 </form>
               ) : null}
-              {canEdit && transferOrder.statut === "approuve" ? (
+              {canPoster ? (
                 <form action={postToInvoiceOrderAction}>
                   <input type="hidden" name="transfer_order_id" value={transferOrderId} />
                   <button
@@ -157,14 +196,15 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                   </button>
                 </form>
               ) : null}
-              {transferOrder.statut === "poste" && invoiceOrderId ? (
+              {invoiceOrders.map((io) => (
                 <Link
-                  href={`/depots/invoice-order/${invoiceOrderId}`}
+                  key={io.id}
+                  href={`/depots/invoice-order/${io.id}`}
                   className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
                 >
-                  Voir le Transfer Invoice
+                  Voir {invoiceOrderCodeById.get(io.id) ?? `TI${io.id}`}
                 </Link>
-              ) : null}
+              ))}
               {canEditLots ? (
                 <button
                   type="submit"
