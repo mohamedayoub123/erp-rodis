@@ -185,6 +185,23 @@ export async function deleteInvoiceOrderAction(formData: FormData) {
   const invoiceOrder = invoiceOrderData as { id: number; transfer_order_id: number; statut: string };
 
   if (invoiceOrder.statut === "valide") {
+    const { data: transferOrderData, error: transferOrderError } = await supabaseServer
+      .from("transfer_orders")
+      .select("id, depot_source_id, depot_destination_id, date_jour")
+      .eq("id", invoiceOrder.transfer_order_id)
+      .maybeSingle();
+
+    if (transferOrderError || !transferOrderData) {
+      throw new Error("Transfer Order source introuvable.");
+    }
+
+    const transferOrder = transferOrderData as {
+      id: number;
+      depot_source_id: number;
+      depot_destination_id: number;
+      date_jour: string;
+    };
+
     const { data: invoiceLignesData, error: invoiceLignesError } = await supabaseServer
       .from("invoice_order_lignes")
       .select("id, transfer_order_ligne_id, numero_lot, quantite, sortie_lot_id, entree_lot_id")
@@ -205,22 +222,64 @@ export async function deleteInvoiceOrderAction(formData: FormData) {
 
     const { data: allLignesData, error: allLignesError } = await supabaseServer
       .from("transfer_order_lignes")
-      .select("id, article_type")
+      .select("id, article_type, article_id")
       .eq("transfer_order_id", invoiceOrder.transfer_order_id);
 
     if (allLignesError) {
       throw new Error(allLignesError.message);
     }
 
-    const articleTypeByLigneId = new Map(
-      ((allLignesData ?? []) as { id: number; article_type: ArticleType }[]).map((l) => [l.id, l.article_type])
+    const ligneInfoById = new Map(
+      ((allLignesData ?? []) as { id: number; article_type: ArticleType; article_id: number }[]).map((l) => [
+        l.id,
+        l,
+      ])
     );
 
     for (const ligne of invoiceLignes) {
-      const articleType = articleTypeByLigneId.get(ligne.transfer_order_ligne_id);
-      if (articleType) {
-        const table = stockTableFor(articleType);
-        const lotIds = [ligne.sortie_lot_id, ligne.entree_lot_id].filter((id): id is number => id !== null);
+      const ligneInfo = ligneInfoById.get(ligne.transfer_order_ligne_id);
+      if (ligneInfo) {
+        const table = stockTableFor(ligneInfo.article_type);
+        let lotIds = [ligne.sortie_lot_id, ligne.entree_lot_id].filter((id): id is number => id !== null);
+
+        if (lotIds.length === 0) {
+          // Ligne validee avant l'ajout du suivi sortie_lot_id/entree_lot_id
+          // (TI plus ancien) - on retrouve les 2 lignes de stock par
+          // correspondance exacte (article/lot/depot/quantite/date/note),
+          // mais seulement si le match est unique, pour ne jamais supprimer
+          // la mauvaise ligne de stock.
+          let sortieQuery = supabaseServer
+            .from(table)
+            .select("id")
+            .eq("article_id", ligneInfo.article_id)
+            .eq("depot_id", transferOrder.depot_source_id)
+            .eq("qte_sortie", ligne.quantite)
+            .eq("qte_entree", 0)
+            .eq("date_jour", transferOrder.date_jour)
+            .eq("note", "Transfer Order");
+          sortieQuery =
+            ligne.numero_lot === null ? sortieQuery.is("numero_lot", null) : sortieQuery.eq("numero_lot", ligne.numero_lot);
+          const { data: sortieMatches } = await sortieQuery;
+
+          let entreeQuery = supabaseServer
+            .from(table)
+            .select("id")
+            .eq("article_id", ligneInfo.article_id)
+            .eq("depot_id", transferOrder.depot_destination_id)
+            .eq("qte_entree", ligne.quantite)
+            .eq("qte_sortie", 0)
+            .eq("date_jour", transferOrder.date_jour)
+            .eq("note", "Transfer Order");
+          entreeQuery =
+            ligne.numero_lot === null ? entreeQuery.is("numero_lot", null) : entreeQuery.eq("numero_lot", ligne.numero_lot);
+          const { data: entreeMatches } = await entreeQuery;
+
+          lotIds = [
+            ...((sortieMatches ?? []) as { id: number }[]).length === 1 ? [(sortieMatches as { id: number }[])[0].id] : [],
+            ...((entreeMatches ?? []) as { id: number }[]).length === 1 ? [(entreeMatches as { id: number }[])[0].id] : [],
+          ];
+        }
+
         if (lotIds.length > 0) {
           const { error } = await supabaseServer.from(table).delete().in("id", lotIds);
           if (error) throw new Error(error.message);
