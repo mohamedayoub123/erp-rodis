@@ -279,7 +279,7 @@ export async function upsertPendingArticleCodeUpdates(
 // enregistre (dispatchExistingProgrammeLigneGroupAction) - la gestion
 // d'erreur (faut-il annuler programme_lignes ?) reste a la charge de
 // l'appelant, differente dans les 2 cas.
-async function assignDispatcherCodesAndInsert(
+export async function assignDispatcherCodesAndInsert(
   filledRows: PendingProgrammeRow[],
   dateJour: string,
   groupeId: number,

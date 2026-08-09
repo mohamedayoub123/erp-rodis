@@ -5,16 +5,34 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { extractTrailingNumber } from "@/lib/article-code-family";
 
+// Le groupe_id est desormais un vrai groupe_id programme_lignes (positif,
+// voir syncProgrammeLignesMirror dans app/production/programme/actions.ts),
+// pas une formule fixe - retrouve ici via source_numero_programme, le lien
+// stable pose au Dispatch. Retourne null si ce programme n'a jamais ete
+// dispatche.
+async function resolveGroupeId(numeroProgramme: number): Promise<number | null> {
+  const { data, error } = await supabaseServer
+    .from("programme_lignes")
+    .select("groupe_id")
+    .eq("source_numero_programme", numeroProgramme)
+    .not("groupe_id", "is", null)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data as { groupe_id: number } | null)?.groupe_id ?? null;
+}
+
 // Meme principe que saveProgrammeDispatcherSnapshotAction (app/ravitailleur-par-ligne/
-// dispatcher-actions.ts), mais filtre par groupe_id (= -numero_programme, voir
-// dispatchProgrammeAction) plutot que par zone - cette page ne montre QUE les
-// lignes de dispatch de ce programme (MB) precis, jamais melangees aux autres
-// chaines/zones reelles. sourceGroupeIds ici sera toujours vide (aucune ligne
-// programme_lignes n'a de groupe_id negatif) : la confirmation
-// confirme_production ne touche donc jamais programme_lignes pour ce chemin,
-// mais applyPendingArticleCodeUpdates reste necessaire pour transformer les
-// codes en attente (pending_article_code_updates, ecrits au Dispatch) en
-// codes definitifs sur les articles.
+// dispatcher-actions.ts), mais filtre par groupe_id plutot que par zone -
+// cette page ne montre QUE les lignes de dispatch de ce programme (MB)
+// precis, jamais melangees aux autres chaines/zones reelles. La confirmation
+// confirme_production=true sur programme_lignes (meme groupe_id) est ce qui
+// rend ce programme visible sur Dashboard/Calendrier Production - exactement
+// comme le Save de Ravitailleur par ligne le fait pour Programme par ligne.
 async function applyPendingArticleCodeUpdates(groupeIds: number[]): Promise<void> {
   if (groupeIds.length === 0) return;
 
@@ -85,7 +103,10 @@ export async function saveProgrammeDispatchByGroupAction(formData: FormData) {
   if (!numeroProgramme) {
     throw new Error("Programme invalide.");
   }
-  const groupeId = -numeroProgramme;
+  const groupeId = await resolveGroupeId(numeroProgramme);
+  if (!groupeId) {
+    throw new Error("Rien a enregistrer pour ce programme.");
+  }
 
   const { data: currentRows, error: fetchError } = await supabaseServer
     .from("programme_dispatcher_lignes")
@@ -150,6 +171,19 @@ export async function saveProgrammeDispatchByGroupAction(formData: FormData) {
     throw new Error(groupUpdateError.message);
   }
 
+  // Confirme les lignes miroir programme_lignes de ce groupe pour le
+  // Dashboard/Calendrier Production - sans ca, un programme (MB) reste
+  // invisible partout meme apres ce Save (voir syncProgrammeLignesMirror,
+  // app/production/programme/actions.ts).
+  const { error: confirmError } = await supabaseServer
+    .from("programme_lignes")
+    .update({ confirme_production: true })
+    .eq("groupe_id", groupeId);
+
+  if (confirmError) {
+    throw new Error(confirmError.message);
+  }
+
   await applyPendingArticleCodeUpdates([groupeId]);
 
   revalidatePath(`/production/programme/${numeroProgramme}/dispatch`);
@@ -172,11 +206,15 @@ export async function deleteProgrammeDispatchByGroupAction(formData: FormData) {
   if (!numeroProgramme) {
     throw new Error("Programme invalide.");
   }
+  const groupeId = await resolveGroupeId(numeroProgramme);
+  if (!groupeId) {
+    return;
+  }
 
   const { error } = await supabaseServer
     .from("programme_dispatcher_lignes")
     .delete()
-    .eq("groupe_id", -numeroProgramme);
+    .eq("groupe_id", groupeId);
 
   if (error) {
     throw new Error(error.message);

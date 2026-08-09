@@ -35,6 +35,24 @@ type ArticleProductionInfo = {
   besoin_dispenseur: boolean | null;
 };
 
+// Le groupe_id est desormais un vrai groupe_id programme_lignes (positif),
+// pas une formule fixe - retrouve via source_numero_programme (voir
+// syncProgrammeLignesMirror, app/production/programme/actions.ts). Null si
+// ce programme n'a jamais ete dispatche.
+async function resolveGroupeId(numeroProgramme: number): Promise<number | null> {
+  const { data, error } = await supabaseServer
+    .from("programme_lignes")
+    .select("groupe_id")
+    .eq("source_numero_programme", numeroProgramme)
+    .not("groupe_id", "is", null)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return null;
+
+  return (data as { groupe_id: number } | null)?.groupe_id ?? null;
+}
+
 async function fetchDispatchRows(groupeId: number): Promise<DispatcherRow[]> {
   const rows: DispatcherRow[] = [];
   let from = 0;
@@ -149,10 +167,10 @@ export default async function ProgrammeDispatchPage({
   const canDelete = await canDeletePageUser(currentUser, "ravitailleurParLigne");
   const canEdit = await canWritePageUser(currentUser, "ravitailleurParLigne");
 
-  const groupeId = -numeroProgramme;
+  const groupeId = await resolveGroupeId(numeroProgramme);
 
   const [dataRows, machineFabricationByArticleId] = await Promise.all([
-    fetchDispatchRows(groupeId),
+    groupeId ? fetchDispatchRows(groupeId) : Promise.resolve([]),
     fetchMachineFabricationByArticleId(numeroProgramme),
   ]);
 

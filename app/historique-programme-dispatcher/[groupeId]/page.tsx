@@ -79,14 +79,27 @@ function formatCell(value: number | null) {
 }
 
 // Machine Fabrication n'existe que pour les programmes issus de "Programme"
-// (MB) - reconnaissables a leur source_groupe_id NEGATIF (= -numero_programme,
-// voir dispatchProgrammeAction) - jamais pour "Programme par ligne", qui n'a
-// pas cette notion. Retrouvee via les lignes source (programmes.
-// machine_fabrication_id), associee par article_id, comme sur la page
-// Dispatch en direct.
+// (MB) - reconnaissables via programme_lignes.source_numero_programme (non
+// nul uniquement pour les lignes miroir creees par syncProgrammeLignesMirror,
+// voir app/production/programme/actions.ts) - jamais pour "Programme par
+// ligne", qui n'a pas cette notion. Retrouvee via les lignes source
+// (programmes.machine_fabrication_id), associee par article_id, comme sur
+// la page Dispatch en direct.
 async function fetchMachineFabricationByArticleId(sourceGroupeIds: number[]): Promise<Map<number, string>> {
   const map = new Map<number, string>();
-  const numerosProgramme = [...new Set(sourceGroupeIds.filter((id) => id < 0).map((id) => -id))];
+  if (sourceGroupeIds.length === 0) return map;
+
+  const { data: mirrorLignesData } = await supabaseServer
+    .from("programme_lignes")
+    .select("groupe_id, source_numero_programme")
+    .in("groupe_id", sourceGroupeIds)
+    .not("source_numero_programme", "is", null);
+
+  const numerosProgramme = [
+    ...new Set(
+      ((mirrorLignesData ?? []) as { source_numero_programme: number }[]).map((row) => row.source_numero_programme)
+    ),
+  ];
   if (numerosProgramme.length === 0) return map;
 
   const { data: lignesData } = await supabaseServer
