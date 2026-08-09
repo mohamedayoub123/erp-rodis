@@ -34,7 +34,7 @@ function formatNumber(value: number) {
 // vide (jamais transfere) est considere dans le depot par DEFAUT de son
 // article (voir articles.depot_id) - un article MP par defaut "Depot E"
 // peut donc quand meme avoir du stock affiche ici sur un AUTRE depot, une
-// fois qu'un Transfer Order/Invoice Order valide l'a deplace.
+// fois qu'un Transfer Order/Transfer Invoice valide l'a deplace.
 function computeSoldeByArticleId(
   lots: LotRow[],
   depotIdByArticleId: Map<number, number | null>,

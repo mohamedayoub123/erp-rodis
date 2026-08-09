@@ -6,6 +6,14 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { type ArticleType, fetchLotsInDepot, totalAvailable, allocateFefo } from "./stock-lots";
 
+// Appelee directement depuis TransferArticlePicker (pas liee a un <form>) -
+// affiche en direct les lots/quantites reellement disponibles dans le
+// depot source pendant la saisie, avant meme de creer le Transfer Order.
+export async function fetchAvailableLotsAction(articleType: ArticleType, articleId: number, depotId: number) {
+  if (!articleId || !depotId) return [];
+  return fetchLotsInDepot(articleType, articleId, depotId);
+}
+
 async function requireWriteAccess() {
   const currentUser = await getCurrentStockUser();
 
@@ -127,7 +135,7 @@ export async function approveTransferOrderAction(formData: FormData) {
   const transferOrder = transferOrderData as { id: number; depot_source_id: number; statut: string };
 
   if (transferOrder.statut === "poste") {
-    throw new Error("Ce Transfer Order est deja poste vers un Invoice Order.");
+    throw new Error("Ce Transfer Order est deja poste vers un Transfer Invoice.");
   }
 
   const { data: lignesData, error: lignesError } = await supabaseServer
@@ -239,7 +247,7 @@ export async function updateLigneLotsAction(formData: FormData) {
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
 }
 
-// Cree l'Invoice Order a partir de ce Transfer Order approuve - le
+// Cree le Transfer Invoice a partir de ce Transfer Order approuve - le
 // mouvement de stock reel n'a lieu qu'a sa validation (voir
 // app/depots/invoice-order/actions.ts).
 export async function postToInvoiceOrderAction(formData: FormData) {

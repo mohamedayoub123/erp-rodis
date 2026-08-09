@@ -44,7 +44,7 @@ function computeCodes(rows: InvoiceOrderRow[]): Map<number, string> {
   for (const [year, yearRows] of byYear.entries()) {
     const sorted = [...yearRows].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     sorted.forEach((row, index) => {
-      codeById.set(row.id, `IO${index + 1}.${year}`);
+      codeById.set(row.id, `TI${index + 1}.${year}`);
     });
   }
 
@@ -76,7 +76,7 @@ export default async function InvoiceOrderListPage() {
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
                 Entrepot
               </p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Invoice Order</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Transfer Invoice</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Cree depuis un Transfer Order approuve - la validation deplace reellement le stock du
                 depot source vers le depot destination.
@@ -98,7 +98,7 @@ export default async function InvoiceOrderListPage() {
               </p>
             </div>
           ) : sorted.length === 0 ? (
-            <div className="px-6 py-8 text-sm text-slate-500">Aucun Invoice Order pour le moment.</div>
+            <div className="px-6 py-8 text-sm text-slate-500">Aucun Transfer Invoice pour le moment.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">

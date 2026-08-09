@@ -167,7 +167,7 @@ export default async function DepotsPage() {
             href="/depots/invoice-order"
             className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:-translate-y-1 hover:shadow-[0_22px_44px_rgba(15,23,42,0.12)]"
           >
-            <span className="text-lg font-bold text-slate-900">Invoice Order</span>
+            <span className="text-lg font-bold text-slate-900">Transfer Invoice</span>
             <p className="mt-1 text-sm text-slate-600">
               Valide un Transfer Order approuve - deplace reellement le stock.
             </p>

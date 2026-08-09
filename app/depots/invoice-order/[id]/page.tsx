@@ -84,7 +84,7 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
     .lte("date_jour", `${invoiceOrder.date_jour.slice(0, 4)}-12-31`)
     .order("created_at", { ascending: true });
   const rank = ((allSameYearData ?? []) as { id: number }[]).findIndex((row) => row.id === invoiceOrderId);
-  const code = `IO${rank + 1}.${invoiceOrder.date_jour.slice(0, 4)}`;
+  const code = `TI${rank + 1}.${invoiceOrder.date_jour.slice(0, 4)}`;
 
   const lignesEnrichies = await Promise.all(
     lignes.map(async (ligne) => ({ ...ligne, nom: await fetchNomArticle(ligne.article_type, ligne.article_id) }))
@@ -97,7 +97,7 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
-                Invoice Order
+                Transfer Invoice
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">{code}</h1>
               <p className="mt-2 text-sm text-slate-600">

@@ -144,7 +144,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                     type="submit"
                     className="rounded-full bg-sky-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-sky-500"
                   >
-                    Poster a Invoice Order
+                    Poster a Transfer Invoice
                   </button>
                 </form>
               ) : null}
@@ -153,7 +153,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                   href={`/depots/invoice-order/${invoiceOrderId}`}
                   className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
                 >
-                  Voir l&apos;Invoice Order
+                  Voir le Transfer Invoice
                 </Link>
               ) : null}
             </div>

@@ -104,7 +104,7 @@ export default async function TransferOrderListPage() {
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Transfer Order</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Demande de transfert entre 2 depots. Approuve pour choisir automatiquement les lots
-                (date d&apos;expiration la plus proche en premier), puis poste vers un Invoice Order.
+                (date d&apos;expiration la plus proche en premier), puis poste vers un Transfer Invoice.
               </p>
             </div>
 
@@ -121,49 +121,17 @@ export default async function TransferOrderListPage() {
               + Nouveau Transfer Order
             </summary>
             <form action={createTransferOrderAction} className="grid gap-4 border-t border-slate-100 px-5 py-4">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                  Date
-                  <input
-                    type="date"
-                    name="date_jour"
-                    defaultValue={new Date().toISOString().slice(0, 10)}
-                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                  />
-                </label>
-                <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                  Depot source
-                  <select
-                    name="depot_source_id"
-                    required
-                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                  >
-                    <option value="">Choisir...</option>
-                    {depots.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.nom}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                  Depot destination
-                  <select
-                    name="depot_destination_id"
-                    required
-                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                  >
-                    <option value="">Choisir...</option>
-                    {depots.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.nom}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+              <label className="grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
+                Date
+                <input
+                  type="date"
+                  name="date_jour"
+                  defaultValue={new Date().toISOString().slice(0, 10)}
+                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                />
+              </label>
 
-              <TransferOrderLinesForm articlesMp={articlesMp} articlesPf={articlesPf} />
+              <TransferOrderLinesForm depots={depots} articlesMp={articlesMp} articlesPf={articlesPf} />
 
               <div>
                 <button

@@ -15,12 +15,12 @@ export async function validateInvoiceOrderAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
   if (!(await canWritePageUser(currentUser, "depots"))) {
-    throw new Error("Cet utilisateur ne peut pas valider les Invoice Order.");
+    throw new Error("Cet utilisateur ne peut pas valider les Transfer Invoice.");
   }
 
   const invoiceOrderId = Number(formData.get("invoice_order_id") || "0");
   if (!invoiceOrderId) {
-    throw new Error("Invoice Order invalide.");
+    throw new Error("Transfer Invoice invalide.");
   }
 
   const { data: invoiceOrderData, error: invoiceOrderError } = await supabaseServer
@@ -30,13 +30,13 @@ export async function validateInvoiceOrderAction(formData: FormData) {
     .maybeSingle();
 
   if (invoiceOrderError || !invoiceOrderData) {
-    throw new Error("Invoice Order introuvable.");
+    throw new Error("Transfer Invoice introuvable.");
   }
 
   const invoiceOrder = invoiceOrderData as { id: number; transfer_order_id: number; statut: string };
 
   if (invoiceOrder.statut === "valide") {
-    throw new Error("Cet Invoice Order est deja valide.");
+    throw new Error("Cet Transfer Invoice est deja valide.");
   }
 
   const { data: transferOrderData, error: transferOrderError } = await supabaseServer
