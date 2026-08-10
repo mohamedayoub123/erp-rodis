@@ -381,7 +381,7 @@ export default async function CommandesPage({
                             return (
                               <div key={row.id} className="flex flex-nowrap gap-3 whitespace-nowrap text-xs leading-5">
                                 <span>
-                                  <span className="text-slate-400">Stand:</span> {formatDate(standDate || null)}
+                                  <span className="text-slate-400">En cours:</span> {formatDate(standDate || null)}
                                 </span>
                                 <span>
                                   <span className="text-slate-400">BL:</span> {formatDate(blDate || null)}
