@@ -112,15 +112,32 @@ export default async function BesoinBatchPage({
   const { data: depotBData } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
   const depotBId = (depotBData as { id: number } | null)?.id ?? null;
 
+  // Deja reserve par un AUTRE batch valide (voir validerBatchAction) - a
+  // deduire du stock reel Depot B, meme si ce stock n'a pas encore
+  // physiquement bouge (aucun Transfer Invoice valide pour cette reservation).
+  const reserveParMp = new Map<number, number>();
+  if (depotBId && mpIds.length > 0) {
+    const { data: reserveData } = await supabaseServer
+      .from("production_mp_reserve")
+      .select("article_mp_id, quantite")
+      .eq("depot_id", depotBId)
+      .in("article_mp_id", mpIds);
+    for (const r of (reserveData ?? []) as { article_mp_id: number; quantite: number }[]) {
+      reserveParMp.set(r.article_mp_id, (reserveParMp.get(r.article_mp_id) ?? 0) + Number(r.quantite));
+    }
+  }
+
   const rows = await Promise.all(
     mpIds.map(async (mpId) => {
       const lots = depotBId ? await fetchLotsInDepot("MP", mpId, depotBId) : [];
+      const stockReel = totalAvailable(lots);
+      const reserve = reserveParMp.get(mpId) ?? 0;
       return {
         id: mpId,
         nom: articleMpById.get(mpId)?.nom_article ?? `#${mpId}`,
         unite: articleMpById.get(mpId)?.unite ?? "-",
         besoin: round(besoinParMp.get(mpId) ?? 0),
-        stock: round(totalAvailable(lots)),
+        stock: round(Math.max(0, stockReel - reserve)),
       };
     })
   );
@@ -214,6 +231,12 @@ export default async function BesoinBatchPage({
               <input type="hidden" name="ligne_id" value={ligneIdNumber} />
               <input type="hidden" name="code" value={code} />
               <input type="hidden" name="stage" value={stage} />
+              {rows.map((row) => (
+                <span key={row.id}>
+                  <input type="hidden" name="article_mp_id" value={row.id} />
+                  <input type="hidden" name="besoin" value={row.besoin} />
+                </span>
+              ))}
               <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Numero de lot
                 <input

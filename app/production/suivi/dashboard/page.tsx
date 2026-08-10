@@ -115,7 +115,8 @@ async function fetchAllArticlesForFilters(): Promise<ArticleOption[]> {
   return rows;
 }
 
-type CodeTermineRow = { programme_ligne_id: number; code: string; stage: "vrac" | "carton" | "emballage" };
+type CodeTermineStage = "vrac" | "carton" | "emballage" | "pesage" | "salle_conditionnement";
+type CodeTermineRow = { programme_ligne_id: number; code: string; stage: CodeTermineStage };
 
 async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeTermineRow[]> {
   if (ligneIds.length === 0) return [];
@@ -199,7 +200,7 @@ export default async function PlanningDashboardPage({
   function isCodeTerminated(
     ligneId: number,
     code: string,
-    stage: "vrac" | "carton" | "emballage",
+    stage: CodeTermineStage,
     codeCount: number,
     legacyLigneFlag: boolean
   ): boolean {
@@ -352,33 +353,45 @@ export default async function PlanningDashboardPage({
   const totalCartonPrevu = cartonRows.reduce((sum, row) => sum + row.cartonPrevu, 0);
   const totalCartonProduit = cartonRows.reduce((sum, row) => sum + row.cartonProduit, 0);
 
-  // Salle de pesage : article Vrac (via articles.vrac_article_id sur
-  // l'article conditionne de la ligne) + quantite vrac a peser - clic ouvre
-  // le besoin MP (vs stock Depot B) + Valider + numero de lot pour CE code
-  // precis (pas la formule brute).
-  const pesageRows = vracRows.map((row) => {
-    const article = row.ligne.article_id ? articleById.get(row.ligne.article_id) : null;
-    const vracArticleId = article?.vrac_article_id ?? null;
-    const vracArticle = vracArticleId ? articleById.get(vracArticleId) : null;
-    return {
+  // Salle de pesage / Salle de conditionnement : suivi INDEPENDANT de
+  // Fabrication/Conditionnement (stage "pesage"/"salle_conditionnement",
+  // jamais "vrac"/"carton" - sinon Valider ici ferait aussi disparaitre la
+  // ligne de Fabrication/Conditionnement, qui ont leur propre "Fin
+  // programme"). Construit directement depuis codeRows (pas vracRows/
+  // cartonRows) pour ne pas heriter de leur propre filtre "vrac"/"carton".
+  const pesageRows = codeRows
+    .filter(
+      (row) =>
+        row.vracPrevu > 0 && !isCodeTerminated(row.ligne.id, row.code, "pesage", row.codeCount, false)
+    )
+    .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter))
+    .map((row) => {
+      const article = row.ligne.article_id ? articleById.get(row.ligne.article_id) : null;
+      const vracArticleId = article?.vrac_article_id ?? null;
+      const vracArticle = vracArticleId ? articleById.get(vracArticleId) : null;
+      return {
+        key: `${row.ligne.id}-${row.code}`,
+        date: row.ligne.date_jour,
+        label: vracArticle?.nom_article || vracLabelFromName(row.ligne.produit) || "-",
+        qt: row.vracPrevu,
+        href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=vrac&qt=${row.vracPrevu}`,
+      };
+    });
+
+  const conditionnementRows = codeRows
+    .filter(
+      (row) =>
+        row.cartonPrevu > 0 &&
+        !isCodeTerminated(row.ligne.id, row.code, "salle_conditionnement", row.codeCount, false)
+    )
+    .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter))
+    .map((row) => ({
       key: `${row.ligne.id}-${row.code}`,
       date: row.ligne.date_jour,
-      label: vracArticle?.nom_article || vracLabelFromName(row.ligne.produit) || "-",
-      qt: row.vracPrevu,
-      href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=vrac&qt=${row.vracPrevu}`,
-    };
-  });
-
-  // Salle de conditionnement : article conditionne + quantite carton a
-  // conditionner - meme principe, besoin MP pour la formule de conditionnement
-  // de CE code precis.
-  const conditionnementRows = cartonRows.map((row) => ({
-    key: `${row.ligne.id}-${row.code}`,
-    date: row.ligne.date_jour,
-    label: row.ligne.produit || "-",
-    qt: row.cartonPrevu,
-    href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=carton&qt=${row.cartonPrevu}`,
-  }));
+      label: row.ligne.produit || "-",
+      qt: row.cartonPrevu,
+      href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=carton&qt=${row.cartonPrevu}`,
+    }));
   const totalEmballagePrevu = emballageRows.reduce((sum, row) => sum + row.emballagePrevu, 0);
   const totalEmballageProduit = emballageRows.reduce((sum, row) => sum + row.emballageProduit, 0);
 
