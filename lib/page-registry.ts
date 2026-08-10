@@ -500,6 +500,12 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     legacyWrite: "editProduction",
   },
   {
+    key: "historiqueDestruction",
+    module: "Production",
+    label: "Historique destruction (Test labo)",
+    pathPrefixes: ["/production/historique-destruction"],
+  },
+  {
     key: "codeParArticle",
     module: "Production",
     label: "Code par article",

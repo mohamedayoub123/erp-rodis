@@ -28,6 +28,7 @@ type RapportInfo = {
   temperature_test: number | null;
   odeur: string | null;
   remarque: string | null;
+  disposition_qualite: string | null;
   utilisateur_test_labo: string | null;
 };
 
@@ -45,7 +46,7 @@ type SpecInfo = {
 };
 
 const RAPPORT_FIELDS =
-  "ph, densite, viscosite, degre_alcool, stabilite, couleur, temperature_test, odeur, remarque, utilisateur_test_labo";
+  "ph, densite, viscosite, degre_alcool, stabilite, couleur, temperature_test, odeur, remarque, disposition_qualite, utilisateur_test_labo";
 
 type SearchParams = Promise<{ code?: string; erreur?: string; enregistre?: string; ajuste?: string }>;
 

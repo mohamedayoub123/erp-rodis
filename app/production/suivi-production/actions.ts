@@ -101,7 +101,8 @@ async function crediterVracFabrique(
   ancienVracFabrique: number,
   nouveauVracFabrique: number,
   currentUser: string | null,
-  dateFabrication: string | null
+  dateFabrication: string | null,
+  note: string = "Fabrication vrac"
 ) {
   if (!code) return;
   if (!(await ligneVientDunPogramme(ligneId))) return;
@@ -128,7 +129,35 @@ async function crediterVracFabrique(
     date_jour: dateJour,
     date_fabrication: dateFabrication || dateJour,
     utilisateur: currentUser,
-    note: "Fabrication vrac",
+    note,
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+// Vrac dont le Test labo a juge la fabrication "A detruire" - ne credite
+// JAMAIS le stock reel (contrairement a "A recuperer", qui credite quand
+// meme avec une note distincte) - trace uniquement dans l'historique de
+// destruction pour rester consultable, meme si la matiere premiere
+// pesee, elle, a bien ete reellement consommee (voir consommerReservationMp,
+// appele indifferemment du statut qualite).
+async function enregistrerDestructionVrac(
+  ligneId: number,
+  code: string,
+  quantite: number,
+  currentUser: string | null
+) {
+  if (!code || quantite <= 1e-6) return;
+
+  const vracArticleId = await fetchVracArticleId(ligneId);
+
+  const { error } = await supabaseServer.from("production_destruction_history").insert({
+    programme_ligne_id: ligneId,
+    code,
+    article_vrac_id: vracArticleId,
+    quantite,
+    utilisateur: currentUser,
   });
   if (error) {
     throw new Error(error.message);
@@ -650,11 +679,16 @@ export async function saveFabricationRapportAction(formData: FormData) {
 
   const { data: existingFabricationRapport } = await supabaseServer
     .from("production_rapports")
-    .select("vrac_fabrique")
+    .select("vrac_fabrique, disposition_qualite")
     .eq("programme_ligne_id", ligneId)
     .eq("code", code)
     .maybeSingle();
   const ancienVracFabrique = Number((existingFabricationRapport as { vrac_fabrique: number | null } | null)?.vrac_fabrique ?? 0);
+  // Statut decide au Test labo (Conforme/A recuperer/A detruire) - "A
+  // detruire" ne credite jamais le stock reel (voir enregistrerDestructionVrac),
+  // "A recuperer" credite quand meme mais avec une note distincte.
+  const dispositionQualite =
+    (existingFabricationRapport as { disposition_qualite: string | null } | null)?.disposition_qualite ?? null;
 
   await upsertRapport(ligneId, code, {
     machine: parseOptionalText(formData, "machine"),
@@ -708,14 +742,19 @@ export async function saveFabricationRapportAction(formData: FormData) {
   if (vracFabrique && vracFabrique > 0) {
     await consommerReservationMp(ligneId, code, "pesage", vracFabrique, currentUser);
     try {
-      await crediterVracFabrique(
-        ligneId,
-        code,
-        ancienVracFabrique,
-        vracFabrique,
-        currentUser,
-        dateFabricationConditionnement
-      );
+      if (dispositionQualite === "a_detruire") {
+        await enregistrerDestructionVrac(ligneId, code, round3(vracFabrique - ancienVracFabrique), currentUser);
+      } else {
+        await crediterVracFabrique(
+          ligneId,
+          code,
+          ancienVracFabrique,
+          vracFabrique,
+          currentUser,
+          dateFabricationConditionnement,
+          dispositionQualite === "a_recuperer" ? "Fabrication vrac (A recuperer)" : "Fabrication vrac"
+        );
+      }
     } catch (error) {
       const erreurVracFabrique = error instanceof Error ? error.message : "Erreur lors du credit du vrac fabrique.";
       redirect(
@@ -765,6 +804,7 @@ export async function saveTestLaboAction(formData: FormData) {
     temperature_test: parseOptionalNumber(formData, "temperature_test"),
     odeur: parseOptionalText(formData, "odeur"),
     remarque: parseOptionalText(formData, "remarque"),
+    disposition_qualite: parseOptionalText(formData, "disposition_qualite"),
     utilisateur_test_labo: currentUser,
     date_saisie_test_labo: new Date().toISOString(),
   });

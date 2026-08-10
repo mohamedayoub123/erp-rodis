@@ -54,6 +54,13 @@ const TILES = [
     description: "Retrouve les enregistrements pris depuis Programme Dispatcher (PD1, PD2...).",
   },
   {
+    label: "Historique destruction",
+    href: "/production/historique-destruction",
+    pageKey: "historiqueDestruction",
+    icon: "\u{1F5D1}\u{FE0F}",
+    description: "Codes dont le vrac a ete detruit au Test labo (jamais entre dans le stock).",
+  },
+  {
     label: "Code par article",
     href: "/code-par-article",
     pageKey: "codeParArticle",

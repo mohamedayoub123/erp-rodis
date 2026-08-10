@@ -107,6 +107,11 @@ export const navItems: NavItem[] = [
         label: "Historique Programme Dispatcher",
         pageKey: "historiqueProgrammeDispatcher",
       },
+      {
+        href: "/production/historique-destruction",
+        label: "Historique destruction",
+        pageKey: "historiqueDestruction",
+      },
       { href: "/code-par-article", label: "Code par article", pageKey: "codeParArticle" },
       { href: "/production/rapport", label: "Rapport", pageKey: "productionRapportHub" },
       { href: "/production/machines", label: "Machines", pageKey: "machines" },

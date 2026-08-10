@@ -15,6 +15,7 @@ type RapportInfo = {
   temperature_test: number | null;
   odeur: string | null;
   remarque: string | null;
+  disposition_qualite: string | null;
 };
 
 type SpecInfo = {
@@ -95,6 +96,7 @@ export function TestLaboForm({
   const [stabilite, setStabilite] = useState(rapport?.stabilite || "");
   const [couleur, setCouleur] = useState(rapport?.couleur || "");
   const [odeur, setOdeur] = useState(rapport?.odeur || "");
+  const [dispositionQualite, setDispositionQualite] = useState(rapport?.disposition_qualite || "");
   const [showAjustement, setShowAjustement] = useState(false);
   const [mpArticleId, setMpArticleId] = useState<number | null>(null);
   const [mpLots, setMpLots] = useState<{ numeroLot: string; solde: number }[]>([]);
@@ -208,6 +210,31 @@ export function TestLaboForm({
               {odeurNonConforme ? <span className="text-[11px] font-semibold text-red-600">Non conforme</span> : null}
             </label>
           </div>
+        </div>
+
+        <div>
+          <h2 className="mb-1 text-lg font-bold text-slate-900">Statut qualite</h2>
+          <p className="mb-3 text-xs text-slate-500">
+            Si la fabrication n&apos;est pas bonne, choisis ce qu&apos;il faut en faire. &quot;A recuperer&quot;
+            credite quand meme le stock (avec un statut visible dessus). &quot;A detruire&quot; ne credite
+            jamais le stock - la quantite part dans l&apos;historique de destruction.
+          </p>
+          <select
+            name="disposition_qualite"
+            value={dispositionQualite}
+            onChange={(e) => setDispositionQualite(e.target.value)}
+            className={
+              dispositionQualite === "a_detruire"
+                ? inputClassNonConforme
+                : dispositionQualite === "a_recuperer"
+                  ? "rounded-2xl border-2 border-amber-400 bg-amber-50 px-4 py-3 text-sm font-normal text-amber-900 outline-none"
+                  : inputClass
+            }
+          >
+            <option value="">Conforme</option>
+            <option value="a_recuperer">A recuperer</option>
+            <option value="a_detruire">A detruire</option>
+          </select>
         </div>
 
         <div>
