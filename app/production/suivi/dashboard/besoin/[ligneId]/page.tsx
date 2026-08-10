@@ -20,7 +20,7 @@ function round(value: number, decimals = 3) {
   return Math.round(value * factor) / factor;
 }
 
-type SearchParams = Promise<{ code?: string; stage?: string; qt?: string }>;
+type SearchParams = Promise<{ code?: string; stage?: string; qt?: string; erreur?: string }>;
 
 // Besoin en MP pour UN SEUL code (pas tout le programme, contrairement a
 // "Verifier Stock") - accessible depuis Salle de pesage (stage=vrac, formule
@@ -38,7 +38,7 @@ export default async function BesoinBatchPage({
   noStore();
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
-  const { code: codeParam, stage: stageParam, qt: qtParam } = await searchParams;
+  const { code: codeParam, stage: stageParam, qt: qtParam, erreur } = await searchParams;
   const code = (codeParam || "").trim();
   const stage: "vrac" | "carton" = stageParam === "carton" ? "carton" : "vrac";
   const qt = Number(qtParam || "0");
@@ -225,34 +225,52 @@ export default async function BesoinBatchPage({
           )}
         </section>
 
+        {erreur ? (
+          <section className="no-print rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
+            {erreur}
+          </section>
+        ) : null}
+
         {canWrite ? (
           <section className="no-print rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <form action={validerBatchAction} className="flex flex-wrap items-end gap-4">
-              <input type="hidden" name="ligne_id" value={ligneIdNumber} />
-              <input type="hidden" name="code" value={code} />
-              <input type="hidden" name="stage" value={stage} />
-              {rows.map((row) => (
-                <span key={row.id}>
-                  <input type="hidden" name="article_mp_id" value={row.id} />
-                  <input type="hidden" name="besoin" value={row.besoin} />
-                </span>
-              ))}
-              <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Numero de lot
-                <input
-                  type="text"
-                  name="numero_lot"
-                  placeholder="Numero de lot reel"
-                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal normal-case text-slate-900 outline-none"
-                />
-              </label>
-              <button
-                type="submit"
-                className="rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500"
-              >
-                Valider - le batch est fait
-              </button>
-            </form>
+            {(() => {
+              const anyInsuffisant = rows.some((row) => row.besoin > row.stock);
+              return (
+                <form action={validerBatchAction} className="flex flex-wrap items-end gap-4">
+                  <input type="hidden" name="ligne_id" value={ligneIdNumber} />
+                  <input type="hidden" name="code" value={code} />
+                  <input type="hidden" name="stage" value={stage} />
+                  <input type="hidden" name="qt" value={qt} />
+                  {rows.map((row) => (
+                    <span key={row.id}>
+                      <input type="hidden" name="article_mp_id" value={row.id} />
+                      <input type="hidden" name="besoin" value={row.besoin} />
+                    </span>
+                  ))}
+                  <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Numero de lot
+                    <input
+                      type="text"
+                      name="numero_lot"
+                      placeholder="Numero de lot reel"
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal normal-case text-slate-900 outline-none"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={anyInsuffisant}
+                    className="rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    Valider - le batch est fait
+                  </button>
+                  {anyInsuffisant ? (
+                    <p className="w-full text-xs font-semibold text-red-700">
+                      Stock Depot B insuffisant pour au moins une matiere premiere - validation impossible.
+                    </p>
+                  ) : null}
+                </form>
+              );
+            })()}
           </section>
         ) : null}
       </div>
