@@ -720,7 +720,15 @@ export default async function PlanningDashboardPage({
           <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <h2 className="text-lg font-bold text-slate-900">Salle de pesage</h2>
-              <p className="text-xs text-slate-500">Clique un article pour ouvrir sa formule MP</p>
+              <div className="flex items-center gap-3">
+                <p className="text-xs text-slate-500">Clique un article pour ouvrir sa formule MP</p>
+                <Link
+                  href="/production/suivi/dashboard/validations/pesage"
+                  className="text-xs font-semibold text-sky-700 underline"
+                >
+                  Historique
+                </Link>
+              </div>
             </div>
             <div className="max-h-[50vh] overflow-y-auto">
               <table className="w-full text-left text-sm">
@@ -767,7 +775,15 @@ export default async function PlanningDashboardPage({
           <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <h2 className="text-lg font-bold text-slate-900">Salle de conditionnement</h2>
-              <p className="text-xs text-slate-500">Clique un article pour ouvrir sa formule</p>
+              <div className="flex items-center gap-3">
+                <p className="text-xs text-slate-500">Clique un article pour ouvrir sa formule</p>
+                <Link
+                  href="/production/suivi/dashboard/validations/conditionnement"
+                  className="text-xs font-semibold text-sky-700 underline"
+                >
+                  Historique
+                </Link>
+              </div>
             </div>
             <div className="max-h-[50vh] overflow-y-auto">
               <table className="w-full text-left text-sm">
