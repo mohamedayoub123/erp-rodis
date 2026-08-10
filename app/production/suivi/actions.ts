@@ -52,15 +52,60 @@ async function markCodeTermine(formData: FormData, stage: CodeTermineStage): Pro
   return (data as { id: number }).id;
 }
 
+// "Fin programme" declare qu'aucune autre production ne viendra pour ce
+// code sur cette etape - la part de reservation MP jamais consommee (ex:
+// production arretee a 2950 sur 3000 prevus, 5kg encore "reserves" sans
+// jamais avoir ete sortis du stock reel, voir consommerReservationMp)
+// doit alors disparaitre completement du Depot B au lieu de rester
+// indefiniment bloquee pour rien.
+async function releaseRemainingMpReserve(
+  ligneId: number,
+  code: string,
+  stage: "pesage" | "salle_conditionnement"
+) {
+  const { data: codeTermineData } = await supabaseServer
+    .from("production_code_termine")
+    .select("id")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", stage)
+    .maybeSingle();
+  const codeTermineId = (codeTermineData as { id: number } | null)?.id;
+  if (!codeTermineId) return;
+
+  const { error } = await supabaseServer
+    .from("production_mp_reserve")
+    .update({ quantite: 0 })
+    .eq("production_code_termine_id", codeTermineId)
+    .gt("quantite", 0);
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 export async function markVracTermineAction(formData: FormData) {
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+
   await markCodeTermine(formData, "vrac");
+
+  if (ligneId && code) {
+    await releaseRemainingMpReserve(ligneId, code, "pesage");
+  }
 }
 
 // Fin programme independante par colonne du Dashboard : fermer Fabrication
 // ne ferme plus Conditionnement/Emballage (et inversement) - chaque etape a
 // son propre flag "termine".
 export async function markCartonTermineAction(formData: FormData) {
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+
   await markCodeTermine(formData, "carton");
+
+  if (ligneId && code) {
+    await releaseRemainingMpReserve(ligneId, code, "salle_conditionnement");
+  }
 }
 
 // Utilise depuis la page "Besoin" (Salle de pesage/conditionnement,
