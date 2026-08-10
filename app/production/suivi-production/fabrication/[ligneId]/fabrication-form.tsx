@@ -141,10 +141,12 @@ export function FabricationForm({
   ligneId,
   code,
   rapport,
+  vracRecupereLots,
 }: {
   ligneId: number;
   code: string;
   rapport: RapportInfo | null;
+  vracRecupereLots: { numeroLot: string; solde: number }[];
 }) {
   const [cuvesPoids, setCuvesPoids] = useState({
     cuve_1_poids: rapport?.cuve_1_poids ?? "0",
@@ -405,13 +407,25 @@ export function FabricationForm({
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Code vrac recupere
-            <input
-              type="text"
-              name="code_vrac_recupere"
-              defaultValue={rapport?.code_vrac_recupere || ""}
-              required
-              className={inputClass}
-            />
+            {vracRecupereLots.length === 0 ? (
+              <span className="text-xs font-semibold text-red-700">Aucun lot vrac au Depot B</span>
+            ) : (
+              <select
+                name="code_vrac_recupere"
+                defaultValue={rapport?.code_vrac_recupere || ""}
+                required
+                className={inputClass}
+              >
+                <option value="" disabled>
+                  Choisis un lot
+                </option>
+                {vracRecupereLots.map((lot) => (
+                  <option key={lot.numeroLot} value={lot.numeroLot}>
+                    {lot.numeroLot || "(sans numero)"} - dispo {lot.solde.toLocaleString("fr-FR")}
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
         </div>
       </div>

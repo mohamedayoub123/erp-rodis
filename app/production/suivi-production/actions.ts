@@ -164,6 +164,46 @@ async function enregistrerDestructionVrac(
   }
 }
 
+// Vrac recupere (lot deja au Depot B, ex: credite via Test labo "A
+// recuperer") reintroduit dans un nouveau batch - sort reellement ce lot
+// precis du stock, au meme titre que n'importe quelle consommation. Delta
+// entre ancienne et nouvelle quantite saisie pour ne jamais sortir deux
+// fois la meme part si le rapport est resauvegarde a l'identique.
+async function consommerVracRecupere(
+  ligneId: number,
+  ancienneQuantite: number,
+  nouvelleQuantite: number,
+  numeroLot: string,
+  dateFabrication: string | null,
+  currentUser: string | null
+) {
+  if (!numeroLot) return;
+
+  const delta = round3(nouvelleQuantite - ancienneQuantite);
+  if (delta <= 1e-6) return;
+
+  const [depotBId, vracArticleId] = await Promise.all([fetchDepotBId(), fetchVracArticleId(ligneId)]);
+  if (!depotBId || !vracArticleId) return;
+
+  const dateJour = new Date().toISOString().slice(0, 10);
+
+  const { error } = await supabaseServer.from("lots_stock").insert({
+    article_id: vracArticleId,
+    numero_lot: numeroLot,
+    code_normalise: numeroLot.toUpperCase(),
+    qte_entree: 0,
+    qte_sortie: delta,
+    depot_id: depotBId,
+    date_jour: dateJour,
+    date_fabrication: dateFabrication || dateJour,
+    utilisateur: currentUser,
+    note: "Recuperation vrac",
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 // Vrac consomme par le Conditionnement, AU PRORATA des cartons reellement
 // produits pour ce code (meme principe que consommerReservationMp) - sort
 // du stock reel Depot B seulement la part pas encore sortie lors d'une
@@ -676,14 +716,19 @@ export async function saveFabricationRapportAction(formData: FormData) {
 
   const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
+  const qtVracRecupere = parseOptionalNumber(formData, "qt_vrac_recupere");
+  const codeVracRecupere = parseOptionalText(formData, "code_vrac_recupere");
 
   const { data: existingFabricationRapport } = await supabaseServer
     .from("production_rapports")
-    .select("vrac_fabrique, disposition_qualite")
+    .select("vrac_fabrique, disposition_qualite, qt_vrac_recupere")
     .eq("programme_ligne_id", ligneId)
     .eq("code", code)
     .maybeSingle();
   const ancienVracFabrique = Number((existingFabricationRapport as { vrac_fabrique: number | null } | null)?.vrac_fabrique ?? 0);
+  const ancienQtVracRecupere = Number(
+    (existingFabricationRapport as { qt_vrac_recupere: number | null } | null)?.qt_vrac_recupere ?? 0
+  );
   // Statut decide au Test labo (Conforme/A recuperer/A detruire) - "A
   // detruire" ne credite jamais le stock reel (voir enregistrerDestructionVrac),
   // "A recuperer" credite quand meme mais avec une note distincte.
@@ -707,8 +752,8 @@ export async function saveFabricationRapportAction(formData: FormData) {
     temps_fin_test: parseOptionalText(formData, "temps_fin_test"),
     temps_vidange: parseOptionalText(formData, "temps_vidange"),
     vrac_fabrique: vracFabrique,
-    qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
-    code_vrac_recupere: parseOptionalText(formData, "code_vrac_recupere"),
+    qt_vrac_recupere: qtVracRecupere,
+    code_vrac_recupere: codeVracRecupere,
     fabrication_arret_absence_air: parseOptionalNumber(formData, "fabrication_arret_absence_air"),
     fabrication_arret_absence_vapeur: parseOptionalNumber(formData, "fabrication_arret_absence_vapeur"),
     fabrication_arret_attente_aspiration_aqueuse: parseOptionalNumber(
@@ -773,6 +818,25 @@ export async function saveFabricationRapportAction(formData: FormData) {
 
     if (vracError) {
       throw new Error(vracError.message);
+    }
+  }
+
+  if (qtVracRecupere && qtVracRecupere > 0 && codeVracRecupere) {
+    try {
+      await consommerVracRecupere(
+        ligneId,
+        ancienQtVracRecupere,
+        qtVracRecupere,
+        codeVracRecupere,
+        dateFabricationConditionnement,
+        currentUser
+      );
+    } catch (error) {
+      const erreurVracRecupere =
+        error instanceof Error ? error.message : "Erreur lors de la sortie du vrac recupere.";
+      redirect(
+        `/production/suivi-production/fabrication/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurVracRecupere)}`
+      );
     }
   }
 
