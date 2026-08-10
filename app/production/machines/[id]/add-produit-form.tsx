@@ -56,6 +56,9 @@ export function AddProduitForm({
           }}
           onFocus={() => setShowDropdown(true)}
           onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.preventDefault();
+          }}
           placeholder="Ecris puis choisis un produit..."
           autoComplete="off"
           className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"

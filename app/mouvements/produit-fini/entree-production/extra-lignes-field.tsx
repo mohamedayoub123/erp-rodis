@@ -81,8 +81,19 @@ export function ExtraLignesField({ articleOptions }: { articleOptions: ArticleOp
     setLignes((current) => current.filter((_, i) => i !== index));
   }
 
+  // Ce composant n'a pas son propre <form> : il est rendu a l'interieur du
+  // <form> "Valider cette entree" du groupe parent. Sans ce garde, la touche
+  // Entree dans un champ (ex: recherche article) declenche la soumission du
+  // formulaire parent au lieu de juste faire la recherche.
+  function preventEnterSubmit(event: React.KeyboardEvent<HTMLDivElement>) {
+    const tag = (event.target as HTMLElement).tagName;
+    if (event.key === "Enter" && (tag === "INPUT" || tag === "SELECT")) {
+      event.preventDefault();
+    }
+  }
+
   return (
-    <div className="border-t border-slate-100 px-5 py-4">
+    <div className="border-t border-slate-100 px-5 py-4" onKeyDown={preventEnterSubmit}>
       <input type="hidden" name="extra_lignes" value={JSON.stringify(lignes)} />
 
       {lignes.length > 0 ? (

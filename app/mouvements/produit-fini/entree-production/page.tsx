@@ -1,15 +1,9 @@
-import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { DeleteIconButton } from "@/app/_components/delete-icon-button";
-import { formatDate } from "@/lib/format-date";
-import { DateJmaFormField } from "@/app/_components/date-jma-input";
-import { matchesArticleSearch } from "@/lib/article-search";
 import { fetchWebMouvementSourceRows } from "../../shared";
-import { createEntreeProductionBatchAction, deletePendingEmballageEntriesAction } from "./actions";
-import { ExtraLignesField } from "./extra-lignes-field";
+import { EntreeProductionBoard, type EntreeDateGroup, type EntreeDateGroupLigne } from "./entree-production-board";
 
 type EmballageEntryRow = {
   id: number;
@@ -33,15 +27,7 @@ type RapportInfo = {
   date_peremption: string | null;
 };
 
-type DateGroupLigne = {
-  entryIds: number[];
-  produit: string;
-  numeroLot: string;
-  quantite: number;
-  dateFabrication: string;
-  datePeremption: string;
-  hasArticle: boolean;
-};
+type DateGroupLigne = EntreeDateGroupLigne;
 
 type DateGroup = {
   date: string;
@@ -145,18 +131,8 @@ async function fetchArticleOptions(): Promise<{ id: number; label: string }[]> {
   return options;
 }
 
-type SearchParams = Promise<{ article?: string; code?: string }>;
-
-export default async function EntreeProductionPage({
-  searchParams,
-}: {
-  searchParams: SearchParams;
-}) {
+export default async function EntreeProductionPage() {
   noStore();
-  const params = await searchParams;
-  const articleFilter = (params.article || "").trim();
-  const codeFilter = (params.code || "").trim().toLowerCase();
-  const hasFilters = Boolean(articleFilter || codeFilter);
 
   const [pendingEntries, existingCount, articleOptions] = await Promise.all([
     fetchPendingEmballageEntries(),
@@ -248,20 +224,12 @@ export default async function EntreeProductionPage({
     group.datesEntree.sort();
   });
 
-  // Filtre sur les LIGNES (pas sur les groupes) - le numero "Entree
-  // Production N" reste celui du groupe complet, pas d'une numerotation qui
-  // changerait selon le filtre. Un groupe sans plus aucune ligne apres
-  // filtre disparait de l'affichage.
-  const visibleGroups = dateGroups
-    .map((group) => ({
-      ...group,
-      lignes: group.lignes.filter((ligne) => {
-        if (articleFilter && !matchesArticleSearch(ligne.produit, articleFilter)) return false;
-        if (codeFilter && !ligne.numeroLot.toLowerCase().includes(codeFilter)) return false;
-        return true;
-      }),
-    }))
-    .filter((group) => group.lignes.length > 0);
+  const groupsForClient: EntreeDateGroup[] = dateGroups.map((group) => ({
+    date: group.date,
+    datesEntree: group.datesEntree,
+    previewNumber: group.previewNumber,
+    lignes: group.lignes,
+  }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -288,195 +256,7 @@ export default async function EntreeProductionPage({
           </div>
         </section>
 
-        <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]">
-            <input
-              type="text"
-              name="article"
-              defaultValue={params.article || ""}
-              placeholder="Article"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-            />
-            <input
-              type="text"
-              name="code"
-              defaultValue={params.code || ""}
-              placeholder="Code"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-            />
-            <button
-              type="submit"
-              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
-            >
-              Filtrer
-            </button>
-            {hasFilters ? (
-              <Link
-                href="/mouvements/produit-fini/entree-production"
-                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
-              >
-                Effacer
-              </Link>
-            ) : null}
-          </form>
-        </section>
-
-        {dateGroups.length === 0 ? (
-          <div className="rounded-[1.75rem] border border-black/5 bg-white p-8 text-center text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            Rien a transferer pour le moment - aucune quantite emballee non encore entree en stock.
-          </div>
-        ) : visibleGroups.length === 0 ? (
-          <div className="rounded-[1.75rem] border border-black/5 bg-white p-8 text-center text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            Aucun resultat pour ce filtre.
-          </div>
-        ) : (
-          visibleGroups.map((group) => {
-            const allValid = group.lignes.every((ligne) => ligne.hasArticle);
-            const totalQuantite = group.lignes.reduce((sum, ligne) => sum + Number(ligne.quantite), 0);
-
-            return (
-              <section
-                key={group.date}
-                className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]"
-              >
-                <form action={createEntreeProductionBatchAction}>
-                  <input
-                    type="hidden"
-                    name="entry_ids"
-                    value={group.lignes.flatMap((ligne) => ligne.entryIds).join(",")}
-                  />
-                  {group.lignes.map((ligne) => (
-                    <input
-                      key={ligne.entryIds[0]}
-                      type="hidden"
-                      name="merge_group"
-                      value={`${ligne.entryIds[0]}:${ligne.entryIds.join(",")}`}
-                    />
-                  ))}
-
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-                    <div>
-                      <h2 className="text-lg font-bold text-slate-900">
-                        Entree Production {group.previewNumber}
-                        <span className="ml-2 text-sm font-semibold text-emerald-700">
-                          Total Qt : {totalQuantite}
-                        </span>
-                      </h2>
-                      <p className="text-xs text-slate-500">
-                        Date d&apos;aujourd&apos;hui : {formatDate(group.date)}
-                        <span className="mx-2 text-slate-300">|</span>
-                        Date d&apos;entrer :{" "}
-                        {group.datesEntree.length > 0
-                          ? group.datesEntree.map((d) => formatDate(d)).join(", ")
-                          : "-"}
-                      </p>
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={!allValid}
-                      className="rounded-full bg-emerald-700 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Valider cette entree
-                    </button>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-left text-sm">
-                      <thead className="bg-slate-50 text-slate-500">
-                        <tr>
-                          <th className="px-4 py-3 font-semibold">Article</th>
-                          <th className="px-4 py-3 font-semibold">Code</th>
-                          <th className="px-4 py-3 font-semibold">Quantite</th>
-                          <th className="px-4 py-3 font-semibold">Date fabrication</th>
-                          <th className="px-4 py-3 font-semibold">Date peremption</th>
-                          <th className="px-4 py-3 font-semibold">Chambre</th>
-                          <th className="px-4 py-3 font-semibold">Code pays</th>
-                          <th className="px-4 py-3 font-semibold">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.lignes.map((ligne) => {
-                          const representativeId = ligne.entryIds[0];
-                          return (
-                          <tr key={representativeId} className="border-t border-slate-100 align-top">
-                            <td className="px-4 py-3 text-slate-900">{ligne.produit}</td>
-                            <td className="px-4 py-3">
-                              <input
-                                type="text"
-                                name={`code_${representativeId}`}
-                                defaultValue={ligne.numeroLot === "-" ? "" : ligne.numeroLot}
-                                className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                              />
-                            </td>
-                            <td className="px-4 py-3">
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0.01"
-                                name={`qty_${representativeId}`}
-                                defaultValue={ligne.quantite}
-                                className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                              />
-                              {ligne.entryIds.length > 1 ? (
-                                <p className="mt-1 text-[11px] font-semibold text-slate-400">
-                                  Total de {ligne.entryIds.length} saisies fusionnees
-                                </p>
-                              ) : null}
-                            </td>
-                            <td className="px-4 py-3">
-                              <DateJmaFormField
-                                name={`datefab_${representativeId}`}
-                                defaultValue={ligne.dateFabrication}
-                                required
-                              />
-                            </td>
-                            <td className="px-4 py-3">
-                              <DateJmaFormField
-                                name={`dateperemption_${representativeId}`}
-                                defaultValue={ligne.datePeremption}
-                              />
-                            </td>
-                            <td className="px-4 py-3">
-                              <input
-                                type="text"
-                                name={`chambre_${representativeId}`}
-                                placeholder="Chambre"
-                                className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                              />
-                            </td>
-                            <td className="px-4 py-3">
-                              <input
-                                type="text"
-                                name={`codepays_${representativeId}`}
-                                placeholder="Code pays"
-                                className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                              />
-                            </td>
-                            <td className="px-4 py-3">
-                              <DeleteIconButton
-                                label="Supprimer cette ligne (annule la quantite emballee correspondante)"
-                                formAction={deletePendingEmballageEntriesAction.bind(null, ligne.entryIds)}
-                                formNoValidate
-                              />
-                            </td>
-                          </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  {!allValid ? (
-                    <p className="border-t border-red-100 bg-red-50 px-5 py-3 text-xs font-semibold text-red-700">
-                      Une ou plusieurs lignes n&apos;ont pas d&apos;article associe - corrige la ligne
-                      de programme avant de valider.
-                    </p>
-                  ) : null}
-                  <ExtraLignesField articleOptions={articleOptions} />
-                </form>
-              </section>
-            );
-          })
-        )}
+        <EntreeProductionBoard dateGroups={groupsForClient} articleOptions={articleOptions} />
       </div>
     </main>
   );
