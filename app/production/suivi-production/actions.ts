@@ -204,12 +204,13 @@ async function consommerVracRecupere(
   }
 }
 
-// Vrac consomme par le Conditionnement, AU PRORATA des cartons reellement
-// produits pour ce code (meme principe que consommerReservationMp) - sort
-// du stock reel Depot B seulement la part pas encore sortie lors d'une
-// saisie precedente. ancienVracConsomme/nouveauVracConsomme (colonne
-// production_rapports.vrac_consomme) gardent la trace de ce qui a deja ete
-// sorti pour ce code, pour ne jamais sortir deux fois la meme part.
+// Vrac consomme par le Conditionnement : des que le Conditionnement est
+// saisi pour ce code (qtFabriquer > 0), TOUT le vrac prevu pour ce code
+// part - jamais au prorata du nombre de cartons reellement produits,
+// meme si le nombre de cartons prevu n'est pas atteint. ancienVracConsomme/
+// nouveauVracConsomme (colonne production_rapports.vrac_consomme) gardent
+// la trace de ce qui a deja ete sorti pour ce code, pour ne jamais sortir
+// deux fois la meme part.
 async function consommerVracConditionnement(
   ligneId: number,
   code: string,
@@ -220,15 +221,12 @@ async function consommerVracConditionnement(
 ): Promise<number> {
   if (!code) return ancienVracConsomme;
   if (!(await ligneVientDunPogramme(ligneId))) return ancienVracConsomme;
+  if (qtFabriquer <= 0) return ancienVracConsomme;
 
-  const [cartonPrevu, vracPrevu] = await Promise.all([
-    fetchQuantitePrevuePourCode(ligneId, code, "carton"),
-    fetchQuantitePrevuePourCode(ligneId, code, "vrac"),
-  ]);
-  if (cartonPrevu <= 0 || vracPrevu <= 0) return ancienVracConsomme;
+  const vracPrevu = await fetchQuantitePrevuePourCode(ligneId, code, "vrac");
+  if (vracPrevu <= 0) return ancienVracConsomme;
 
-  const ratio = Math.min(1, qtFabriquer / cartonPrevu);
-  const nouveauVracConsomme = round3(ratio * vracPrevu);
+  const nouveauVracConsomme = vracPrevu;
   const delta = round3(nouveauVracConsomme - ancienVracConsomme);
   if (delta <= 1e-6) return ancienVracConsomme;
 
