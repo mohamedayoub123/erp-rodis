@@ -314,12 +314,14 @@ async function fetchQuantitePrevuePourCode(
 // donne exactement la part a liberer maintenant (jamais deux fois la meme
 // part, correctement recalcule si la quantite saisie est corrigee/montee).
 //
-// Seul le stage "pesage" (Fabrication) fait sortir reellement le stock
-// Depot B (lots_stock_matiere_premiere) - la matiere premiere pesee est
-// physiquement consommee dans la cuve. Le stage "salle_conditionnement"
-// (Conditionnement) libere la reservation SANS toucher au stock reel : la
-// matiere (carton, sleeve...) reste disponible au Depot B, seule sa
-// reservation disparait.
+// Fabrication (stage "pesage") ET Conditionnement (stage
+// "salle_conditionnement") font sortir reellement le stock Depot B a
+// chaque "Entrer" - la matiere premiere pesee est consommee dans la cuve,
+// le carton/sleeve est consomme a l'emballage. Seule la part JAMAIS
+// consommee (production arretee avant la quantite prevue) reste
+// "reservee" sans stock deplace - elle est liberee par "Fin programme"
+// (voir releaseRemainingMpReserve, app/production/suivi/actions.ts) au
+// lieu d'ici.
 async function consommerReservationMp(
   ligneId: number,
   code: string,
@@ -369,20 +371,18 @@ async function consommerReservationMp(
     const delta = round3(cibleConsommee - dejaConsommee);
     if (delta <= 1e-6) continue;
 
-    if (stage === "pesage") {
-      const { error: insertError } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
-        article_id: reserve.article_mp_id,
-        numero_lot: reserve.numero_lot || codeTermine.numero_lot,
-        qte_entree: 0,
-        qte_sortie: delta,
-        depot_id: reserve.depot_id,
-        date_jour: dateJour,
-        utilisateur: currentUser,
-        note: "Consommation production",
-      });
-      if (insertError) {
-        throw new Error(insertError.message);
-      }
+    const { error: insertError } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
+      article_id: reserve.article_mp_id,
+      numero_lot: reserve.numero_lot || codeTermine.numero_lot,
+      qte_entree: 0,
+      qte_sortie: delta,
+      depot_id: reserve.depot_id,
+      date_jour: dateJour,
+      utilisateur: currentUser,
+      note: "Consommation production",
+    });
+    if (insertError) {
+      throw new Error(insertError.message);
     }
 
     const { error: updateError } = await supabaseServer
