@@ -11,6 +11,7 @@ type ProgrammeRow = {
   vrac_article_id: number | null;
   qt_carton: number;
   qt_vrac: number;
+  date_jour: string;
 };
 
 type ArticleRow = {
@@ -75,13 +76,14 @@ export default async function ProgrammeVerifierStockPage({
 
   const { data: lignesData, error } = await supabaseServer
     .from("programmes")
-    .select("article_id, vrac_article_id, qt_carton, qt_vrac")
+    .select("article_id, vrac_article_id, qt_carton, qt_vrac, date_jour")
     .eq("numero_programme", numeroProgramme);
 
   const lignes = (lignesData ?? []) as ProgrammeRow[];
   if (!error && lignes.length === 0) {
     notFound();
   }
+  const anneeProgramme = lignes[0]?.date_jour?.slice(0, 4) || "----";
 
   const articleIds = [...new Set(lignes.flatMap((l) => [l.article_id, l.vrac_article_id]).filter((id): id is number => !!id))];
 
@@ -186,7 +188,7 @@ export default async function ProgrammeVerifierStockPage({
               Programme
             </p>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
-              Verifier stock - MB{numeroProgramme}
+              Verifier stock - MB.{anneeProgramme}.{numeroProgramme}
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
               Tous les articles MP des recettes utilisees dans ce programme, avec le besoin

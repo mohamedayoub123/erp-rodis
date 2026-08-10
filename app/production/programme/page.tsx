@@ -101,7 +101,7 @@ export default async function ProgrammePage() {
               Programme
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Un programme par ligne (MB1, MB2...). Clique &quot;Voir&quot; pour le detail :
+              Un programme par ligne (MB.2026.1, MB.2026.2...). Clique &quot;Voir&quot; pour le detail :
               articles, machines et quantites.
             </p>
           </div>
@@ -149,7 +149,9 @@ export default async function ProgrammePage() {
                 <tbody>
                   {groupes.map((groupe) => (
                     <tr key={groupe.numero} className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-semibold text-slate-900">MB{groupe.numero}</td>
+                      <td className="px-6 py-4 font-semibold text-slate-900">
+                        MB.{groupe.date.slice(0, 4)}.{groupe.numero}
+                      </td>
                       <td className="px-6 py-4 text-slate-600">{formatDate(groupe.date)}</td>
                       <td className="px-6 py-4 text-slate-600">{groupe.remarque || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{groupe.statut}</td>

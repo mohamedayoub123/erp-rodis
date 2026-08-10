@@ -202,7 +202,7 @@ export default async function ProgrammeDispatchPage({
                 ERP Rodis
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
-                Dispatch - MB{numeroProgramme}
+                Dispatch - MB.{(dates[0] || "").slice(0, 4) || "----"}.{numeroProgramme}
               </h1>
               <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm font-semibold text-slate-600">
                 {dates.length > 0 ? (

@@ -9,6 +9,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { ProgrammeFormulaire } from "../programme-formulaire";
 import {
   addLignesProgrammeAction,
+  copyProgrammeAction,
   deleteProgrammeAction,
   dispatchProgrammeAction,
   updateProgrammeGroupeAction,
@@ -159,7 +160,7 @@ export default async function ProgrammeDetailPage({
               Programme
             </p>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
-              MB{numeroProgramme}
+              MB.{(premiere?.date_jour ?? "").slice(0, 4) || "----"}.{numeroProgramme}
             </h1>
             {premiere ? (
               <p className="mt-1 text-sm text-slate-600">{formatDate(premiere.date_jour)}</p>
@@ -180,6 +181,17 @@ export default async function ProgrammeDetailPage({
             >
               Voir dispatch
             </Link>
+            {canWrite ? (
+              <form action={copyProgrammeAction}>
+                <input type="hidden" name="numero_programme" value={numeroProgramme} />
+                <button
+                  type="submit"
+                  className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                >
+                  Copier ce programme
+                </button>
+              </form>
+            ) : null}
             {canWrite ? (
               <form action={dispatchProgrammeAction}>
                 <input type="hidden" name="numero_programme" value={numeroProgramme} />

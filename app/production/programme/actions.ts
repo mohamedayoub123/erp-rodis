@@ -6,6 +6,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { assignDispatcherCodesAndInsert } from "./dispatch-engine";
 import { type DispatchSourceRow } from "@/lib/dispatcher-shared";
+import { STATUT_PROGRAMME_OPTIONS } from "./constants";
 
 async function requireProgrammeWriteAccess() {
   const currentUser = await getCurrentStockUser();
@@ -81,6 +82,83 @@ export async function createProgrammeAction(formData: FormData) {
   if (lignes.length === 0) {
     throw new Error("Ajoute au moins un article au programme.");
   }
+
+  const { error } = await supabaseServer.from("programmes").insert(lignes);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/production/programme");
+  redirect(`/production/programme/${numeroProgramme}`);
+}
+
+// Duplique toutes les lignes d'un programme (MB) existant vers un NOUVEAU
+// numero_programme (le plus grand existant + 1, meme convention que
+// createProgrammeAction), date du jour, statut remis a "En attente" (repart
+// a zero, meme si l'original etait deja Fini) - articles/machines/quantites/
+// remarque copies tels quels, prets a etre ajustes sur la page du nouveau
+// programme.
+export async function copyProgrammeAction(formData: FormData) {
+  const currentUser = await requireProgrammeWriteAccess();
+
+  const sourceNumeroProgramme = Number(formData.get("numero_programme") || "0");
+  if (!sourceNumeroProgramme) {
+    throw new Error("Programme invalide.");
+  }
+
+  const { data: sourceLignesData, error: sourceError } = await supabaseServer
+    .from("programmes")
+    .select(
+      "article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, plateforme, remarque"
+    )
+    .eq("numero_programme", sourceNumeroProgramme);
+
+  if (sourceError) {
+    throw new Error(sourceError.message);
+  }
+
+  const sourceLignes = (sourceLignesData ?? []) as {
+    article_id: number;
+    vrac_article_id: number | null;
+    machine_fabrication_id: number | null;
+    machine_conditionnement_id: number | null;
+    duree_minutes: number | null;
+    qt_carton: number;
+    qt_vrac: number;
+    plateforme: string | null;
+    remarque: string | null;
+  }[];
+
+  if (sourceLignes.length === 0) {
+    throw new Error("Programme introuvable.");
+  }
+
+  const { data: dernierProgramme } = await supabaseServer
+    .from("programmes")
+    .select("numero_programme")
+    .order("numero_programme", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const numeroProgramme = ((dernierProgramme as { numero_programme: number | null } | null)?.numero_programme ?? 0) + 1;
+
+  const dateJour = new Date().toISOString().slice(0, 10);
+
+  const lignes = sourceLignes.map((ligne) => ({
+    article_id: ligne.article_id,
+    vrac_article_id: ligne.vrac_article_id,
+    machine_fabrication_id: ligne.machine_fabrication_id,
+    machine_conditionnement_id: ligne.machine_conditionnement_id,
+    duree_minutes: ligne.duree_minutes,
+    qt_carton: ligne.qt_carton,
+    qt_vrac: ligne.qt_vrac,
+    plateforme: ligne.plateforme === "A" ? "A" : "M",
+    date_jour: dateJour,
+    numero_programme: numeroProgramme,
+    remarque: ligne.remarque,
+    statut: STATUT_PROGRAMME_OPTIONS[0],
+    utilisateur: currentUser || null,
+  }));
 
   const { error } = await supabaseServer.from("programmes").insert(lignes);
 
@@ -317,7 +395,7 @@ async function syncProgrammeLignesMirror(
       qt_carton: ligne.qtCarton,
       vrac_a_fabriquer: ligne.qtVrac,
       plateforme: ligne.plateforme,
-      programe: `MB${numeroProgramme}`,
+      programe: `MB.${ligne.dateJour.slice(0, 4)}.${numeroProgramme}`,
       date_jour: ligne.dateJour,
       cree_par: currentUser,
       confirme_production: false,
@@ -495,7 +573,7 @@ export async function dispatchProgrammeAction(formData: FormData) {
     qt_carton: null,
     vrac_a_fabriquer: ligne.qtVrac || null,
     plateforme: ligne.plateforme,
-    programe: `MB${numeroProgramme}`,
+    programe: `MB.${ligne.dateJour.slice(0, 4)}.${numeroProgramme}`,
   }));
 
   const affectedZoneChaine = [
