@@ -7,7 +7,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { formatDate } from "@/lib/format-date";
 import { vracLabelFromName } from "@/lib/gamme-families";
-import { fetchLotsInDepot, totalAvailable } from "@/app/depots/transfer-order/stock-lots";
+import { fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
 import { validerBatchAction } from "../../../actions";
 
 type LigneRow = { id: number; article_id: number | null; produit: string | null; date_jour: string };
@@ -129,8 +129,7 @@ export default async function BesoinBatchPage({
 
   const rows = await Promise.all(
     mpIds.map(async (mpId) => {
-      const lots = depotBId ? await fetchLotsInDepot("MP", mpId, depotBId) : [];
-      const stockReel = totalAvailable(lots);
+      const stockReel = depotBId ? await fetchTotalStockInDepot("MP", mpId, depotBId) : 0;
       const reserve = reserveParMp.get(mpId) ?? 0;
       return {
         id: mpId,

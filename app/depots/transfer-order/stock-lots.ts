@@ -182,6 +182,49 @@ export function totalAvailable(lots: { solde: number }[]) {
   return lots.reduce((sum, lot) => sum + lot.solde, 0);
 }
 
+// Total reel au depot, TOUS lots confondus (pas de regroupement par
+// numero_lot) moins deja reserve - contrairement a fetchLotsInDepot (qui
+// regroupe par lot et exclut les lots au solde negatif, pense pour choisir
+// un lot precis a transferer), celle-ci repond juste a "y a-t-il assez au
+// total", peu importe le lot. Necessaire car une sortie peut arriver sans
+// numero_lot precis (ex: consommation production automatique) - avec
+// fetchLotsInDepot, une telle sortie se retrouve isolee dans son propre
+// groupe "lot vide", qui devient negatif et se fait filtrer, faisant
+// paraitre disponible un stock qui ne l'est plus (le solde du/des VRAIS
+// lots reste affiche seul, sans jamais voir cette sortie).
+export async function fetchTotalStockInDepot(
+  articleType: ArticleType,
+  articleId: number,
+  depotId: number,
+  excludeTransferOrderId?: number
+): Promise<number> {
+  const table = stockTableFor(articleType);
+
+  const [rows, defaultDepotId, reservedByLot] = await Promise.all([
+    fetchAllRows<{ qte_entree: number; qte_sortie: number; depot_id: number | null }>(
+      table,
+      "qte_entree, qte_sortie, depot_id",
+      articleId
+    ),
+    fetchArticleDefaultDepotId(articleType, articleId),
+    fetchReservedByLot(articleType, articleId, depotId, excludeTransferOrderId),
+  ]);
+
+  let total = 0;
+  for (const row of rows) {
+    const effectiveDepotId = row.depot_id ?? defaultDepotId;
+    if (effectiveDepotId !== depotId) continue;
+    total += Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
+  }
+
+  let totalReserved = 0;
+  for (const reserved of reservedByLot.values()) {
+    totalReserved += reserved;
+  }
+
+  return total - totalReserved;
+}
+
 // Repartit une quantite demandee sur les lots disponibles, dans l'ORDRE
 // deja trie FEFO par fetchLotsInDepot - vide en premier le lot avec la date
 // d'expiration/fabrication la plus proche.

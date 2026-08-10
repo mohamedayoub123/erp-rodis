@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { fetchLotsInDepot, totalAvailable } from "@/app/depots/transfer-order/stock-lots";
+import { fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
 
 function revalidateSuiviPages() {
   revalidatePath("/production/suivi");
@@ -122,8 +122,7 @@ export async function validerBatchAction(formData: FormData) {
     // article MP est en rupture.
     if (depotBId) {
       for (const r of reservations) {
-        const lots = await fetchLotsInDepot("MP", r.articleMpId, depotBId);
-        const stockReel = totalAvailable(lots);
+        const stockReel = await fetchTotalStockInDepot("MP", r.articleMpId, depotBId);
 
         const { data: reserveData } = await supabaseServer
           .from("production_mp_reserve")
