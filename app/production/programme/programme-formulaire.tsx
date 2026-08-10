@@ -38,6 +38,13 @@ function round(value: number, decimals = 3) {
   return Math.round(value * factor) / factor;
 }
 
+// Un nombre de carton ne prend jamais de virgule - un carton entame compte
+// comme un carton entier, toujours arrondi au SUPERIEUR (jamais commander
+// moins que necessaire pour le conditionnement).
+function roundUpCarton(value: number) {
+  return Math.ceil(value);
+}
+
 function ligneVide(key: number): Ligne {
   return {
     key,
@@ -116,7 +123,7 @@ export function ProgrammeFormulaire({
         const vracParCarton = vracParCartonDe(ligne);
         if (!vracParCarton) return { ...ligne, qtVrac: rawVrac };
         const vrac = Number(rawVrac);
-        const qtCarton = rawVrac && !Number.isNaN(vrac) ? String(round(vrac / vracParCarton)) : "";
+        const qtCarton = rawVrac && !Number.isNaN(vrac) ? String(roundUpCarton(vrac / vracParCarton)) : "";
         return { ...ligne, qtVrac: rawVrac, qtCarton };
       })
     );
@@ -154,11 +161,11 @@ export function ProgrammeFormulaire({
     if (cartonMaxConditionnement !== null) {
       // La chaine de conditionnement decide toujours du qt carton - le vrac
       // necessaire en decoule, jamais l'inverse.
-      carton = round(cartonMaxConditionnement);
+      carton = roundUpCarton(cartonMaxConditionnement);
       vrac = vracParCarton ? round(carton * vracParCarton) : null;
     } else if (vracDisponibleFabrication !== null && vracParCarton) {
       vrac = round(vracDisponibleFabrication);
-      carton = round(vracDisponibleFabrication / vracParCarton);
+      carton = roundUpCarton(vracDisponibleFabrication / vracParCarton);
     }
 
     updateLigne(ligne.key, {

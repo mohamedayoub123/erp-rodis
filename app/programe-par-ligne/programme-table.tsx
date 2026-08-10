@@ -188,7 +188,9 @@ function computeQtCarton(vrac: number, article: ArticleOption | null) {
   if (!article.piecePerCarton || article.piecePerCarton <= 0) return null;
 
   const nbPieces = vrac / article.contenance;
-  return nbPieces / article.piecePerCarton;
+  // Toujours arrondi au carton SUPERIEUR (jamais de virgule) - un carton
+  // entame compte comme un carton entier.
+  return Math.ceil(nbPieces / article.piecePerCarton);
 }
 
 function LigneRowCells({

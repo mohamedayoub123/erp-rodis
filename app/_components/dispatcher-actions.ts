@@ -51,7 +51,10 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
     const article = articleData as { contenance: number | null; piece_par_carton: number | null } | null;
 
     if (article?.contenance && article.piece_par_carton) {
-      qtCarton = qtVrac / article.contenance / article.piece_par_carton;
+      // Toujours arrondi au carton SUPERIEUR (jamais de virgule) - un carton
+      // entame compte comme un carton entier, jamais commander moins que
+      // necessaire pour le conditionnement.
+      qtCarton = Math.ceil(qtVrac / article.contenance / article.piece_par_carton);
     }
   }
 
