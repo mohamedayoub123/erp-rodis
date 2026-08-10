@@ -100,6 +100,8 @@ export default async function StockParCodePfPage({ searchParams }: { searchParam
       return (a.dateFabrication || "").localeCompare(b.dateFabrication || "");
     });
 
+  const totalQuantite = codeRows.reduce((sum, row) => sum + row.quantite, 0);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#eef5f0_0%,#f8fbf8_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -119,6 +121,15 @@ export default async function StockParCodePfPage({ searchParams }: { searchParam
             <BackButton href="/stock/rapport" label="Retour rapport" />
             <RefreshButton />
           </div>
+        </div>
+
+        <div className="rounded-[2rem] border border-black/5 bg-emerald-700 p-6 text-white shadow-[0_18px_50px_rgba(15,23,42,0.12)]">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-100">
+            Quantite totale {hasFilters ? "(filtre)" : "(tous les codes)"}
+          </p>
+          <p className="mt-2 text-4xl font-black tracking-tight">
+            {totalQuantite.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}
+          </p>
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
