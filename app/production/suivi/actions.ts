@@ -56,41 +56,100 @@ async function markCodeTermine(formData: FormData, stage: CodeTermineStage): Pro
 // code sur cette etape - la part de reservation MP jamais consommee (ex:
 // production arretee a 2950 sur 3000 prevus, 5kg encore "reserves" sans
 // jamais avoir ete sortis du stock reel, voir consommerReservationMp)
-// doit alors disparaitre completement du Depot B au lieu de rester
-// indefiniment bloquee pour rien.
+// est traitee differemment selon l'etape :
+//  - Salle de conditionnement (carton/sleeve...) : jamais physiquement
+//    consommee si non utilisee, elle redevient simplement disponible.
+//  - Salle de pesage (matiere premiere Fabrication) : une fois pesee,
+//    elle est physiquement sortie de l'entrepot (emmenee vers la cuve)
+//    meme si le vrac produit est finalement moindre que prevu - elle ne
+//    revient jamais au stock, elle doit etre reellement deduite.
+async function fetchReservesRestantes(ligneId: number, code: string, stage: "pesage" | "salle_conditionnement") {
+  const { data: codeTermineData } = await supabaseServer
+    .from("production_code_termine")
+    .select("id, numero_lot")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", stage)
+    .maybeSingle();
+  const codeTermine = codeTermineData as { id: number; numero_lot: string | null } | null;
+  if (!codeTermine) return null;
+
+  const { data: reserveData } = await supabaseServer
+    .from("production_mp_reserve")
+    .select("id, article_mp_id, depot_id, quantite, numero_lot")
+    .eq("production_code_termine_id", codeTermine.id)
+    .gt("quantite", 0);
+  const reserves = (reserveData ?? []) as {
+    id: number;
+    article_mp_id: number;
+    depot_id: number;
+    quantite: number;
+    numero_lot: string | null;
+  }[];
+
+  return { codeTermine, reserves };
+}
+
 async function releaseRemainingMpReserve(
   ligneId: number,
   code: string,
   stage: "pesage" | "salle_conditionnement"
 ) {
-  const { data: codeTermineData } = await supabaseServer
-    .from("production_code_termine")
-    .select("id")
-    .eq("programme_ligne_id", ligneId)
-    .eq("code", code)
-    .eq("stage", stage)
-    .maybeSingle();
-  const codeTermineId = (codeTermineData as { id: number } | null)?.id;
-  if (!codeTermineId) return;
+  const found = await fetchReservesRestantes(ligneId, code, stage);
+  if (!found || found.reserves.length === 0) return;
 
   const { error } = await supabaseServer
     .from("production_mp_reserve")
     .update({ quantite: 0 })
-    .eq("production_code_termine_id", codeTermineId)
-    .gt("quantite", 0);
+    .in(
+      "id",
+      found.reserves.map((r) => r.id)
+    );
   if (error) {
     throw new Error(error.message);
   }
 }
 
+async function consommerRemainingMpReserve(ligneId: number, code: string, currentUser: string | null) {
+  const found = await fetchReservesRestantes(ligneId, code, "pesage");
+  if (!found || found.reserves.length === 0) return;
+
+  const dateJour = new Date().toISOString().slice(0, 10);
+
+  for (const reserve of found.reserves) {
+    const { error: insertError } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
+      article_id: reserve.article_mp_id,
+      numero_lot: reserve.numero_lot || found.codeTermine.numero_lot,
+      qte_entree: 0,
+      qte_sortie: reserve.quantite,
+      depot_id: reserve.depot_id,
+      date_jour: dateJour,
+      utilisateur: currentUser,
+      note: "Consommation production",
+    });
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    const { error: updateError } = await supabaseServer
+      .from("production_mp_reserve")
+      .update({ quantite: 0 })
+      .eq("id", reserve.id);
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+  }
+}
+
 export async function markVracTermineAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();
 
   await markCodeTermine(formData, "vrac");
 
   if (ligneId && code) {
-    await releaseRemainingMpReserve(ligneId, code, "pesage");
+    await consommerRemainingMpReserve(ligneId, code, currentUser);
   }
 }
 
