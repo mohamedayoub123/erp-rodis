@@ -10,6 +10,7 @@ import { formatDate } from "@/lib/format-date";
 import { fetchLotsInDepot, type ArticleType } from "../stock-lots";
 import {
   approveTransferOrderAction,
+  copyTransferOrderAction,
   deleteTransferOrderAction,
   postToInvoiceOrderAction,
   updateAllLigneLotsAction,
@@ -152,6 +153,17 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
             <div className="flex flex-wrap items-center gap-3">
               <BackButton href="/depots/transfer-order" label="Retour" />
               <RefreshButton />
+              {canEdit ? (
+                <form action={copyTransferOrderAction}>
+                  <input type="hidden" name="transfer_order_id" value={transferOrderId} />
+                  <button
+                    type="submit"
+                    className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                  >
+                    Copier ce Transfer Order
+                  </button>
+                </form>
+              ) : null}
               {canEdit && transferOrder.statut === "en_attente" ? (
                 <form action={approveTransferOrderAction}>
                   <input type="hidden" name="transfer_order_id" value={transferOrderId} />

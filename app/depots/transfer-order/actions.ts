@@ -128,6 +128,87 @@ export async function createTransferOrderAction(formData: FormData) {
   redirect(`/depots/transfer-order/${transferOrderId}`);
 }
 
+// Meme principe que "Copier ce programme" (Programme MB) : reprend depot
+// source/destination + toutes les lignes (article/quantite) d'un Transfer
+// Order existant dans un TOUT NOUVEAU Transfer Order (nouveau numero,
+// aujourd'hui, statut "en_attente" repart de zero) - pratique pour un
+// transfert qui se repete regulierement, sans jamais modifier l'original.
+export async function copyTransferOrderAction(formData: FormData) {
+  const currentUser = await requireWriteAccess();
+
+  const sourceTransferOrderId = Number(formData.get("transfer_order_id") || "0");
+  if (!sourceTransferOrderId) {
+    throw new Error("Transfer Order invalide.");
+  }
+
+  const { data: sourceData, error: sourceError } = await supabaseServer
+    .from("transfer_orders")
+    .select("depot_source_id, depot_destination_id")
+    .eq("id", sourceTransferOrderId)
+    .maybeSingle();
+
+  if (sourceError || !sourceData) {
+    throw new Error("Transfer Order introuvable.");
+  }
+
+  const source = sourceData as { depot_source_id: number; depot_destination_id: number };
+
+  const { data: sourceLignesData, error: sourceLignesError } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("article_type, article_id, quantite_demandee")
+    .eq("transfer_order_id", sourceTransferOrderId);
+
+  if (sourceLignesError) {
+    throw new Error(sourceLignesError.message);
+  }
+
+  const sourceLignes = (sourceLignesData ?? []) as {
+    article_type: ArticleType;
+    article_id: number;
+    quantite_demandee: number;
+  }[];
+
+  if (sourceLignes.length === 0) {
+    throw new Error("Ce Transfer Order n'a aucune ligne a copier.");
+  }
+
+  const dateJour = new Date().toISOString().slice(0, 10);
+
+  const { data: newTransferOrder, error: newTransferOrderError } = await supabaseServer
+    .from("transfer_orders")
+    .insert({
+      depot_source_id: source.depot_source_id,
+      depot_destination_id: source.depot_destination_id,
+      date_jour: dateJour,
+      cree_par: currentUser,
+      numero: await nextTransferOrderNumero(dateJour),
+    })
+    .select("id")
+    .single();
+
+  if (newTransferOrderError) {
+    throw new Error(newTransferOrderError.message);
+  }
+
+  const newTransferOrderId = (newTransferOrder as { id: number }).id;
+
+  const { error: lignesError } = await supabaseServer.from("transfer_order_lignes").insert(
+    sourceLignes.map((ligne) => ({
+      transfer_order_id: newTransferOrderId,
+      article_type: ligne.article_type,
+      article_id: ligne.article_id,
+      quantite_demandee: ligne.quantite_demandee,
+    }))
+  );
+
+  if (lignesError) {
+    throw new Error(lignesError.message);
+  }
+
+  revalidatePath("/depots/transfer-order");
+  redirect(`/depots/transfer-order/${newTransferOrderId}`);
+}
+
 // L'approbation choisit automatiquement quel(s) lot(s) couvrent chaque
 // ligne, en commencant par le lot dont la date d'expiration (MP) ou de
 // fabrication (PF, a defaut) est la plus proche (FEFO) - voir allocateFefo.
