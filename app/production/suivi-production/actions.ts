@@ -53,6 +53,134 @@ async function codeTermineExiste(
   return Boolean(data);
 }
 
+async function fetchDepotBId(): Promise<number | null> {
+  const { data } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
+  return (data as { id: number } | null)?.id ?? null;
+}
+
+async function fetchVracArticleId(ligneId: number): Promise<number | null> {
+  const { data: ligneData } = await supabaseServer
+    .from("programme_lignes")
+    .select("article_id")
+    .eq("id", ligneId)
+    .maybeSingle();
+  const articleId = (ligneData as { article_id: number | null } | null)?.article_id ?? null;
+  if (!articleId) return null;
+
+  const { data: articleData } = await supabaseServer
+    .from("articles")
+    .select("vrac_article_id")
+    .eq("id", articleId)
+    .maybeSingle();
+  return (articleData as { vrac_article_id: number | null } | null)?.vrac_article_id ?? null;
+}
+
+async function fetchNumeroLotCodeTermine(
+  ligneId: number,
+  code: string,
+  stage: "pesage" | "salle_conditionnement"
+): Promise<string | null> {
+  const { data } = await supabaseServer
+    .from("production_code_termine")
+    .select("numero_lot")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", stage)
+    .maybeSingle();
+  return (data as { numero_lot: string | null } | null)?.numero_lot ?? null;
+}
+
+// Vrac fabrique reellement produit : entre en stock reel Depot B des que la
+// quantite saisie augmente (seule la DIFFERENCE avec ce qui etait deja
+// enregistre avant cette saisie, jamais deux fois la meme part sur une
+// correction/re-saisie). numero_lot vient de celui saisi a la validation
+// Salle de pesage.
+async function crediterVracFabrique(
+  ligneId: number,
+  code: string,
+  ancienVracFabrique: number,
+  nouveauVracFabrique: number,
+  currentUser: string | null
+) {
+  if (!code) return;
+  if (!(await ligneVientDunPogramme(ligneId))) return;
+
+  const delta = round3(nouveauVracFabrique - ancienVracFabrique);
+  if (delta <= 1e-6) return;
+
+  const [depotBId, vracArticleId, numeroLot] = await Promise.all([
+    fetchDepotBId(),
+    fetchVracArticleId(ligneId),
+    fetchNumeroLotCodeTermine(ligneId, code, "pesage"),
+  ]);
+  if (!depotBId || !vracArticleId) return;
+
+  const { error } = await supabaseServer.from("lots_stock").insert({
+    article_id: vracArticleId,
+    numero_lot: numeroLot,
+    qte_entree: delta,
+    qte_sortie: 0,
+    depot_id: depotBId,
+    date_jour: new Date().toISOString().slice(0, 10),
+    utilisateur: currentUser,
+    note: "Fabrication vrac",
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+// Vrac consomme par le Conditionnement, AU PRORATA des cartons reellement
+// produits pour ce code (meme principe que consommerReservationMp) - sort
+// du stock reel Depot B seulement la part pas encore sortie lors d'une
+// saisie precedente. ancienVracConsomme/nouveauVracConsomme (colonne
+// production_rapports.vrac_consomme) gardent la trace de ce qui a deja ete
+// sorti pour ce code, pour ne jamais sortir deux fois la meme part.
+async function consommerVracConditionnement(
+  ligneId: number,
+  code: string,
+  qtFabriquer: number,
+  ancienVracConsomme: number,
+  currentUser: string | null
+): Promise<number> {
+  if (!code) return ancienVracConsomme;
+  if (!(await ligneVientDunPogramme(ligneId))) return ancienVracConsomme;
+
+  const [cartonPrevu, vracPrevu] = await Promise.all([
+    fetchQuantitePrevuePourCode(ligneId, code, "carton"),
+    fetchQuantitePrevuePourCode(ligneId, code, "vrac"),
+  ]);
+  if (cartonPrevu <= 0 || vracPrevu <= 0) return ancienVracConsomme;
+
+  const ratio = Math.min(1, qtFabriquer / cartonPrevu);
+  const nouveauVracConsomme = round3(ratio * vracPrevu);
+  const delta = round3(nouveauVracConsomme - ancienVracConsomme);
+  if (delta <= 1e-6) return ancienVracConsomme;
+
+  const [depotBId, vracArticleId, numeroLot] = await Promise.all([
+    fetchDepotBId(),
+    fetchVracArticleId(ligneId),
+    fetchNumeroLotCodeTermine(ligneId, code, "salle_conditionnement"),
+  ]);
+  if (!depotBId || !vracArticleId) return ancienVracConsomme;
+
+  const { error } = await supabaseServer.from("lots_stock").insert({
+    article_id: vracArticleId,
+    numero_lot: numeroLot,
+    qte_entree: 0,
+    qte_sortie: delta,
+    depot_id: depotBId,
+    date_jour: new Date().toISOString().slice(0, 10),
+    utilisateur: currentUser,
+    note: "Consommation conditionnement",
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return nouveauVracConsomme;
+}
+
 async function fabricationDejaProduite(ligneId: number, code: string): Promise<boolean> {
   const { data, error } = await supabaseServer
     .from("production_vrac_entries")
@@ -342,6 +470,18 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
+  const { data: existingRapportData } = await supabaseServer
+    .from("production_rapports")
+    .select("vrac_consomme")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .maybeSingle();
+  const ancienVracConsomme = Number((existingRapportData as { vrac_consomme: number | null } | null)?.vrac_consomme ?? 0);
+  const nouveauVracConsomme =
+    qtFabriquer && qtFabriquer > 0
+      ? await consommerVracConditionnement(ligneId, code, qtFabriquer, ancienVracConsomme, currentUser)
+      : ancienVracConsomme;
+
   await upsertRapport(ligneId, code, {
     chef_zone: parseOptionalText(formData, "chef_zone"),
     chef_ligne: parseOptionalText(formData, "chef_ligne"),
@@ -349,6 +489,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     tireur: parseOptionalText(formData, "tireur"),
     nb_journaliers_conditionnement: parseOptionalNumber(formData, "nb_journaliers_conditionnement"),
     qt_fabriquer: qtFabriquer,
+    vrac_consomme: nouveauVracConsomme,
     cadence: parseOptionalNumber(formData, "cadence"),
     poids_reel: parseOptionalNumber(formData, "poids_reel"),
     dechet_sleeve: parseOptionalNumber(formData, "dechet_sleeve"),
@@ -430,6 +571,14 @@ export async function saveFabricationRapportAction(formData: FormData) {
   const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
+  const { data: existingFabricationRapport } = await supabaseServer
+    .from("production_rapports")
+    .select("vrac_fabrique")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .maybeSingle();
+  const ancienVracFabrique = Number((existingFabricationRapport as { vrac_fabrique: number | null } | null)?.vrac_fabrique ?? 0);
+
   await upsertRapport(ligneId, code, {
     machine: parseOptionalText(formData, "machine"),
     type_fabrication: parseOptionalText(formData, "type_fabrication"),
@@ -486,6 +635,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
   // qui alimente la colonne "Date fabrication" de Suivi Production.
   if (vracFabrique && vracFabrique > 0) {
     await consommerReservationMp(ligneId, code, "pesage", vracFabrique, currentUser);
+    await crediterVracFabrique(ligneId, code, ancienVracFabrique, vracFabrique, currentUser);
 
     const { error: vracError } = await supabaseServer.from("production_vrac_entries").insert([
       {
