@@ -4,12 +4,18 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { fetchReservedTotalsByDepot } from "../transfer-order/stock-lots";
+import { fetchReservedByLot } from "../transfer-order/stock-lots";
 
 type DepotRow = { id: number; nom: string };
 type ArticlePfRow = { id: number; nom_article: string; nature: string | null; depot_id: number | null };
 type ArticleMpRow = { id: number; nom_article: string; unite: string | null; depot_id: number | null };
-type LotRow = { article_id: number | null; qte_entree: number; qte_sortie: number; depot_id: number | null };
+type LotRow = {
+  article_id: number | null;
+  numero_lot: string | null;
+  qte_entree: number;
+  qte_sortie: number;
+  depot_id: number | null;
+};
 
 async function fetchAll<T>(table: string, select: string) {
   const rows: T[] = [];
@@ -31,24 +37,35 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 }
 
-// Solde par article DANS CE DEPOT precis - un lot dont depot_id est encore
-// vide (jamais transfere) est considere dans le depot par DEFAUT de son
-// article (voir articles.depot_id) - un article MP par defaut "Depot E"
-// peut donc quand meme avoir du stock affiche ici sur un AUTRE depot, une
-// fois qu'un Transfer Order/Transfer Invoice valide l'a deplace.
-function computeSoldeByArticleId(
+type LotBalance = { articleId: number; numeroLot: string; solde: number };
+
+// Solde par article ET par numero de lot DANS CE DEPOT precis - un lot dont
+// depot_id est encore vide (jamais transfere) est considere dans le depot
+// par DEFAUT de son article (voir articles.depot_id) - un article MP par
+// defaut "Depot E" peut donc quand meme avoir du stock affiche ici sur un
+// AUTRE depot, une fois qu'un Transfer Order/Transfer Invoice valide l'a
+// deplace.
+function computeSoldeByArticleLot(
   lots: LotRow[],
   depotIdByArticleId: Map<number, number | null>,
   depotId: number
-): Map<number, number> {
-  const map = new Map<number, number>();
+): LotBalance[] {
+  const map = new Map<string, LotBalance>();
   for (const lot of lots) {
     if (!lot.article_id) continue;
     const effectiveDepotId = lot.depot_id ?? depotIdByArticleId.get(lot.article_id) ?? null;
     if (effectiveDepotId !== depotId) continue;
-    map.set(lot.article_id, (map.get(lot.article_id) ?? 0) + Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0));
+    const numeroLot = (lot.numero_lot || "").trim();
+    const key = `${lot.article_id}::${numeroLot}`;
+    const existing = map.get(key);
+    const delta = Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0);
+    if (existing) {
+      existing.solde += delta;
+    } else {
+      map.set(key, { articleId: lot.article_id, numeroLot, solde: delta });
+    }
   }
-  return map;
+  return [...map.values()];
 }
 
 export default async function DepotDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -69,8 +86,8 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
     supabaseServer.from("depots").select("id, nom").eq("id", depotId).maybeSingle(),
     fetchAll<ArticlePfRow>("articles", "id, nom_article, nature, depot_id"),
     fetchAll<ArticleMpRow>("articles_matiere_premiere", "id, nom_article, unite, depot_id"),
-    fetchAll<LotRow>("lots_stock", "article_id, qte_entree, qte_sortie, depot_id"),
-    fetchAll<LotRow>("lots_stock_matiere_premiere", "article_id, qte_entree, qte_sortie, depot_id"),
+    fetchAll<LotRow>("lots_stock", "article_id, numero_lot, qte_entree, qte_sortie, depot_id"),
+    fetchAll<LotRow>("lots_stock_matiere_premiere", "article_id, numero_lot, qte_entree, qte_sortie, depot_id"),
   ]);
 
   const depot = depotData as DepotRow | null;
@@ -83,81 +100,93 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
   const depotIdByArticlePfId = new Map(articlesPf.map((a) => [a.id, a.depot_id]));
   const depotIdByArticleMpId = new Map(articlesMp.map((a) => [a.id, a.depot_id]));
 
-  const soldePfById = computeSoldeByArticleId(lotsPf, depotIdByArticlePfId, depotId);
-  const soldeMpById = computeSoldeByArticleId(lotsMp, depotIdByArticleMpId, depotId);
+  const soldePfByLot = computeSoldeByArticleLot(lotsPf, depotIdByArticlePfId, depotId);
+  const soldeMpByLot = computeSoldeByArticleLot(lotsMp, depotIdByArticleMpId, depotId);
 
-  // Deja reserve par un Transfer Order approuve (PF et MP) - a deduire du
-  // solde reel pour afficher ce qui reste vraiment libre, meme principe
-  // que la page Produit (fetchReservedTotalsByDepot).
-  const pfArticleIds = [...soldePfById.keys()];
-  const mpArticleIds = [...soldeMpById.keys()];
+  // Deja reserve par un Transfer Order approuve (PF et MP), PAR NUMERO DE
+  // LOT precis - a deduire du solde reel de ce meme lot pour afficher ce
+  // qui reste vraiment libre, meme principe que la page Produit
+  // (fetchReservedByLot).
+  const pfArticleIds = [...new Set(soldePfByLot.map((row) => row.articleId))];
+  const mpArticleIds = [...new Set(soldeMpByLot.map((row) => row.articleId))];
 
-  const [reservedPfEntries, reservedMpTransferEntries] = await Promise.all([
+  const [reservedPfByLotEntries, reservedMpTransferByLotEntries] = await Promise.all([
     Promise.all(
       pfArticleIds.map(async (articleId) => {
-        const map = await fetchReservedTotalsByDepot("PF", articleId);
-        return [articleId, map.get(depotId) ?? 0] as const;
+        const map = await fetchReservedByLot("PF", articleId, depotId);
+        return [articleId, map] as const;
       })
     ),
     Promise.all(
       mpArticleIds.map(async (articleId) => {
-        const map = await fetchReservedTotalsByDepot("MP", articleId);
-        return [articleId, map.get(depotId) ?? 0] as const;
+        const map = await fetchReservedByLot("MP", articleId, depotId);
+        return [articleId, map] as const;
       })
     ),
   ]);
-  const reservedPfById = new Map(reservedPfEntries);
-  const reservedMpTransferById = new Map(reservedMpTransferEntries);
+  const reservedPfByLotByArticle = new Map(reservedPfByLotEntries);
+  const reservedMpTransferByLotByArticle = new Map(reservedMpTransferByLotEntries);
 
   // En plus des Transfer Order, une MP peut aussi etre reservee par une
-  // validation Salle de pesage/conditionnement (production_mp_reserve) -
-  // pas de reservation equivalente pour le PF (le stock PF n'est jamais
-  // "reserve" par la production, seulement consomme directement).
-  const reservedMpProductionById = new Map<number, number>();
+  // validation Salle de pesage/conditionnement (production_mp_reserve, avec
+  // son propre numero_lot par article) - pas de reservation equivalente
+  // pour le PF (le stock PF n'est jamais "reserve" par la production,
+  // seulement consomme directement).
+  const reservedMpProductionByArticleLot = new Map<string, number>();
   if (mpArticleIds.length > 0) {
     const { data: reserveData } = await supabaseServer
       .from("production_mp_reserve")
-      .select("article_mp_id, quantite")
+      .select("article_mp_id, numero_lot, quantite")
       .eq("depot_id", depotId)
       .in("article_mp_id", mpArticleIds);
-    for (const row of (reserveData as { article_mp_id: number; quantite: number }[] | null) ?? []) {
-      reservedMpProductionById.set(
-        row.article_mp_id,
-        (reservedMpProductionById.get(row.article_mp_id) ?? 0) + Number(row.quantite ?? 0)
+    for (const row of (reserveData as { article_mp_id: number; numero_lot: string | null; quantite: number }[] | null) ?? []) {
+      const key = `${row.article_mp_id}::${(row.numero_lot || "").trim()}`;
+      reservedMpProductionByArticleLot.set(
+        key,
+        (reservedMpProductionByArticleLot.get(key) ?? 0) + Number(row.quantite ?? 0)
       );
     }
   }
 
-  const stockPf = [...soldePfById.entries()]
-    .map(([articleId, solde]) => {
-      const article = articlePfById.get(articleId);
-      const reserve = reservedPfById.get(articleId) ?? 0;
+  const stockPf = soldePfByLot
+    .map((row) => {
+      const article = articlePfById.get(row.articleId);
+      const reserve = reservedPfByLotByArticle.get(row.articleId)?.get(row.numeroLot) ?? 0;
       return {
-        id: articleId,
-        nom: article?.nom_article ?? `#${articleId}`,
+        id: `${row.articleId}::${row.numeroLot}`,
+        nom: article?.nom_article ?? `#${row.articleId}`,
+        numeroLot: row.numeroLot,
         nature: article?.nature ?? null,
-        solde,
+        solde: row.solde,
         reserve,
-        disponible: solde - reserve,
+        disponible: row.solde - reserve,
       };
     })
     .filter((row) => Math.abs(row.solde) > 1e-6)
-    .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
-  const stockMp = [...soldeMpById.entries()]
-    .map(([articleId, solde]) => {
-      const article = articleMpById.get(articleId);
-      const reserve = (reservedMpTransferById.get(articleId) ?? 0) + (reservedMpProductionById.get(articleId) ?? 0);
+    .sort(
+      (a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }) || a.numeroLot.localeCompare(b.numeroLot)
+    );
+  const stockMp = soldeMpByLot
+    .map((row) => {
+      const article = articleMpById.get(row.articleId);
+      const key = `${row.articleId}::${row.numeroLot}`;
+      const reserve =
+        (reservedMpTransferByLotByArticle.get(row.articleId)?.get(row.numeroLot) ?? 0) +
+        (reservedMpProductionByArticleLot.get(key) ?? 0);
       return {
-        id: articleId,
-        nom: article?.nom_article ?? `#${articleId}`,
+        id: key,
+        nom: article?.nom_article ?? `#${row.articleId}`,
+        numeroLot: row.numeroLot,
         unite: article?.unite ?? null,
-        solde,
+        solde: row.solde,
         reserve,
-        disponible: solde - reserve,
+        disponible: row.solde - reserve,
       };
     })
     .filter((row) => Math.abs(row.solde) > 1e-6)
-    .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
+    .sort(
+      (a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }) || a.numeroLot.localeCompare(b.numeroLot)
+    );
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -205,6 +234,7 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Article</th>
+                    <th className="px-6 py-4 font-semibold">Numero de lot</th>
                     <th className="px-6 py-4 font-semibold">Nature</th>
                     <th className="px-6 py-4 font-semibold">Stock</th>
                     <th className="px-6 py-4 font-semibold">Reserve</th>
@@ -215,6 +245,7 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                   {stockPf.map((row) => (
                     <tr key={row.id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.numeroLot || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.nature === "vrac" ? "Vrac" : "Fini"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.solde)}</td>
                       <td className="px-6 py-4 text-slate-600">
@@ -241,6 +272,7 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Article</th>
+                    <th className="px-6 py-4 font-semibold">Numero de lot</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Stock</th>
                     <th className="px-6 py-4 font-semibold">Reserve</th>
@@ -251,6 +283,7 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                   {stockMp.map((row) => (
                     <tr key={row.id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.numeroLot || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.solde)}</td>
                       <td className="px-6 py-4 text-slate-600">
