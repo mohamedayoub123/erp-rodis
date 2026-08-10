@@ -401,7 +401,7 @@ export async function validateInvoiceOrderAction(formData: FormData) {
 
   const { data: invoiceLignesData, error: invoiceLignesError } = await supabaseServer
     .from("invoice_order_lignes")
-    .select("id, transfer_order_ligne_id, numero_lot, quantite")
+    .select("id, transfer_order_ligne_id, numero_lot, quantite, sortie_lot_id, entree_lot_id")
     .eq("invoice_order_id", invoiceOrderId);
 
   if (invoiceLignesError) {
@@ -414,6 +414,8 @@ export async function validateInvoiceOrderAction(formData: FormData) {
       transfer_order_ligne_id: number;
       numero_lot: string | null;
       quantite: number;
+      sortie_lot_id: number | null;
+      entree_lot_id: number | null;
     }[]
   ).filter((l) => l.quantite > 0);
 
@@ -435,6 +437,12 @@ export async function validateInvoiceOrderAction(formData: FormData) {
   );
 
   for (const invoiceLigne of invoiceLignes) {
+    // Deja traitee (relance apres une premiere tentative qui a echoue en
+    // cours de route, ex: collision de sequence id sur lots_stock*) - ne
+    // jamais rejouer une ligne deja liee a ses 2 mouvements de stock reels,
+    // sinon Approuver a nouveau doublerait le stock deplace pour elle.
+    if (invoiceLigne.sortie_lot_id && invoiceLigne.entree_lot_id) continue;
+
     const ligne = ligneById.get(invoiceLigne.transfer_order_ligne_id);
     if (!ligne) continue;
 
