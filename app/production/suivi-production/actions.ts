@@ -94,6 +94,64 @@ async function messageSiConditionnementInvalide(ligneId: number, code: string): 
   return null;
 }
 
+// Transforme la reservation MP faite a la validation (Salle de pesage ou
+// Salle de conditionnement, voir validerBatchAction) en vraie sortie de
+// stock Depot B des que le travail reel correspondant est enregistre - tant
+// que ca reste juste "reserve", le stock n'a pas vraiment bouge (visible
+// dans le "Reserve" de la page Produit, jamais dans le stock reel). Efface
+// la reservation ensuite : sans effet si rejoue (deja consommee au premier
+// vrai enregistrement), jamais de double sortie.
+async function consommerReservationMp(
+  ligneId: number,
+  code: string,
+  stage: "pesage" | "salle_conditionnement",
+  currentUser: string | null
+) {
+  if (!code) return;
+
+  const { data: codeTermineData } = await supabaseServer
+    .from("production_code_termine")
+    .select("id, numero_lot")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", stage)
+    .maybeSingle();
+  const codeTermine = codeTermineData as { id: number; numero_lot: string | null } | null;
+  if (!codeTermine) return;
+
+  const { data: reserveData } = await supabaseServer
+    .from("production_mp_reserve")
+    .select("id, article_mp_id, depot_id, quantite")
+    .eq("production_code_termine_id", codeTermine.id);
+  const reserves = (reserveData ?? []) as { id: number; article_mp_id: number; depot_id: number; quantite: number }[];
+  if (reserves.length === 0) return;
+
+  const dateJour = new Date().toISOString().slice(0, 10);
+  const { error: insertError } = await supabaseServer.from("lots_stock_matiere_premiere").insert(
+    reserves.map((r) => ({
+      article_id: r.article_mp_id,
+      numero_lot: codeTermine.numero_lot,
+      qte_entree: 0,
+      qte_sortie: r.quantite,
+      depot_id: r.depot_id,
+      date_jour: dateJour,
+      utilisateur: currentUser,
+      note: "Consommation production",
+    }))
+  );
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  const { error: deleteError } = await supabaseServer
+    .from("production_mp_reserve")
+    .delete()
+    .in("id", reserves.map((r) => r.id));
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+}
+
 // Une ligne "Programme par ligne" decoupee en plusieurs lots (voir
 // buildDispatcherDraftRows) donne plusieurs codes physiques distincts
 // (ex: 9000 -> 3x3000) - Conditionnement/Emballage se font par code (chaque
@@ -260,6 +318,8 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
   // qui alimente la colonne "Date conditionnement" de Suivi Production.
   if (qtFabriquer && qtFabriquer > 0) {
+    await consommerReservationMp(ligneId, code, "salle_conditionnement", currentUser);
+
     const { error: cartonError } = await supabaseServer.from("production_carton_entries").insert([
       {
         programme_ligne_id: ligneId,
@@ -361,6 +421,8 @@ export async function saveFabricationRapportAction(formData: FormData) {
   // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
   // qui alimente la colonne "Date fabrication" de Suivi Production.
   if (vracFabrique && vracFabrique > 0) {
+    await consommerReservationMp(ligneId, code, "pesage", currentUser);
+
     const { error: vracError } = await supabaseServer.from("production_vrac_entries").insert([
       {
         programme_ligne_id: ligneId,

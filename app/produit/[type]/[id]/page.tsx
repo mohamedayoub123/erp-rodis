@@ -33,6 +33,35 @@ async function fetchAllLots(table: string, articleId: number): Promise<LotRow[]>
   return rows;
 }
 
+// Reserve par une validation Salle de pesage/conditionnement pas encore
+// consommee (voir consommerReservationMp, app/production/suivi-production/
+// actions.ts) - s'ajoute a la reservation Transfer Order, MP uniquement.
+async function fetchProductionReserveByDepot(articleId: number): Promise<Map<number, number>> {
+  const map = new Map<number, number>();
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("production_mp_reserve")
+      .select("depot_id, quantite")
+      .eq("article_mp_id", articleId)
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as { depot_id: number; quantite: number }[];
+    for (const row of chunk) {
+      map.set(row.depot_id, (map.get(row.depot_id) ?? 0) + Number(row.quantite ?? 0));
+    }
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return map;
+}
+
 export default async function ProduitStockPage({ params }: { params: Promise<{ type: string; id: string }> }) {
   noStore();
   const { type, id } = await params;
@@ -47,12 +76,14 @@ export default async function ProduitStockPage({ params }: { params: Promise<{ t
   const table = type === "mp" ? "lots_stock_matiere_premiere" : "lots_stock";
   const articlesTable = type === "mp" ? "articles_matiere_premiere" : "articles";
 
-  const [{ data: articleData }, { data: depotsData }, lots, reservedByDepotId] = await Promise.all([
-    supabaseServer.from(articlesTable).select("depot_id").eq("id", articleId).maybeSingle(),
-    supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
-    fetchAllLots(table, articleId),
-    fetchReservedTotalsByDepot(type === "mp" ? "MP" : "PF", articleId),
-  ]);
+  const [{ data: articleData }, { data: depotsData }, lots, reservedTransferByDepotId, reservedProductionByDepotId] =
+    await Promise.all([
+      supabaseServer.from(articlesTable).select("depot_id").eq("id", articleId).maybeSingle(),
+      supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
+      fetchAllLots(table, articleId),
+      fetchReservedTotalsByDepot(type === "mp" ? "MP" : "PF", articleId),
+      type === "mp" ? fetchProductionReserveByDepot(articleId) : Promise.resolve(new Map<number, number>()),
+    ]);
 
   const defaultDepotId = (articleData as { depot_id: number | null } | null)?.depot_id ?? null;
   const depots = (depotsData as DepotRow[] | null) ?? [];
@@ -70,7 +101,7 @@ export default async function ProduitStockPage({ params }: { params: Promise<{ t
 
   const rows = [...soldeByDepotId.entries()]
     .map(([depotId, solde]) => {
-      const reserve = reservedByDepotId.get(depotId) ?? 0;
+      const reserve = (reservedTransferByDepotId.get(depotId) ?? 0) + (reservedProductionByDepotId.get(depotId) ?? 0);
       return {
         depotId,
         nom: depotNomById.get(depotId) ?? `#${depotId}`,
