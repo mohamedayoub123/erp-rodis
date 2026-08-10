@@ -118,6 +118,7 @@ async function crediterVracFabrique(
   const { error } = await supabaseServer.from("lots_stock").insert({
     article_id: vracArticleId,
     numero_lot: numeroLot,
+    code_normalise: numeroLot ? numeroLot.toUpperCase() : null,
     qte_entree: delta,
     qte_sortie: 0,
     depot_id: depotBId,
@@ -176,6 +177,7 @@ async function consommerVracConditionnement(
   const { error } = await supabaseServer.from("lots_stock").insert({
     article_id: vracArticleId,
     numero_lot: numeroLot,
+    code_normalise: numeroLot.toUpperCase(),
     qte_entree: 0,
     qte_sortie: delta,
     depot_id: depotBId,

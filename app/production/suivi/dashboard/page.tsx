@@ -406,6 +406,7 @@ export default async function PlanningDashboardPage({
       return {
         key: `${row.ligne.id}-${row.code}`,
         date: row.ligne.date_jour,
+        code: row.code,
         label: vracArticle?.nom_article || vracLabelFromName(row.ligne.produit) || "-",
         qt: row.vracPrevu,
         href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=vrac&qt=${row.vracPrevu}`,
@@ -422,6 +423,7 @@ export default async function PlanningDashboardPage({
     .map((row) => ({
       key: `${row.ligne.id}-${row.code}`,
       date: row.ligne.date_jour,
+      code: row.code,
       label: row.ligne.produit || "-",
       qt: row.cartonPrevu,
       href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=carton&qt=${row.cartonPrevu}`,
@@ -782,13 +784,14 @@ export default async function PlanningDashboardPage({
                   <tr>
                     <th className="px-4 py-3 font-semibold">Date</th>
                     <th className="px-4 py-3 font-semibold">Article</th>
+                    <th className="px-4 py-3 font-semibold">N lot</th>
                     <th className="px-4 py-3 font-semibold">Qt vrac</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pesageRows.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="px-4 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">
                         Rien en cours.
                       </td>
                     </tr>
@@ -802,12 +805,14 @@ export default async function PlanningDashboardPage({
                               {row.label}
                             </Link>
                           </td>
+                          <td className="px-4 py-3 text-slate-700">{row.code}</td>
                           <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
                         </tr>
                       ) : (
                         <tr key={row.key} className="border-t border-slate-100">
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
                           <td className="px-4 py-3 font-medium text-slate-900">{row.label}</td>
+                          <td className="px-4 py-3 text-slate-700">{row.code}</td>
                           <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
                         </tr>
                       )
@@ -837,13 +842,14 @@ export default async function PlanningDashboardPage({
                   <tr>
                     <th className="px-4 py-3 font-semibold">Date</th>
                     <th className="px-4 py-3 font-semibold">Article</th>
+                    <th className="px-4 py-3 font-semibold">N lot</th>
                     <th className="px-4 py-3 font-semibold">Qt conditionnement</th>
                   </tr>
                 </thead>
                 <tbody>
                   {conditionnementRows.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="px-4 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">
                         Rien en cours.
                       </td>
                     </tr>
@@ -857,12 +863,14 @@ export default async function PlanningDashboardPage({
                               {row.label}
                             </Link>
                           </td>
+                          <td className="px-4 py-3 text-slate-700">{row.code}</td>
                           <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
                         </tr>
                       ) : (
                         <tr key={row.key} className="border-t border-slate-100">
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
                           <td className="px-4 py-3 font-medium text-slate-900">{row.label}</td>
+                          <td className="px-4 py-3 text-slate-700">{row.code}</td>
                           <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
                         </tr>
                       )
