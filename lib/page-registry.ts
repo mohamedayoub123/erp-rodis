@@ -16,6 +16,7 @@ export type ModuleKey =
   | "Planning"
   | "Mouvements"
   | "Production"
+  | "Qualite"
   | "Statistique"
   | "Clients"
   | "General";
@@ -42,6 +43,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   Planning: "Planning",
   Mouvements: "Mouvements",
   Production: "Production",
+  Qualite: "Qualite",
   Statistique: "Statistique",
   Clients: "Client",
   General: "General",
@@ -540,6 +542,15 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
 
+  // Qualite
+  {
+    key: "qualiteHub",
+    module: "Qualite",
+    label: "Accueil Qualite",
+    pathPrefixes: ["/qualite"],
+    hasWrite: false,
+  },
+
   // Statistique
   {
     key: "statistiqueHub",
@@ -621,12 +632,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
 // premiere" partagent le meme module que leur equivalent produit fini
 // (ex: stockMatierePremiere est module "Stock" comme "stock") mais doivent
 // apparaitre sous Gestion Stock MP, pas Gestion Stock PF.
-export type AdminSection = "GestionStockPf" | "GestionStockMp" | "Production" | "Autre";
+export type AdminSection = "GestionStockPf" | "GestionStockMp" | "Production" | "Qualite" | "Autre";
 
 export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   GestionStockPf: "Gestion Stock PF",
   GestionStockMp: "Gestion Stock MP",
   Production: "Production",
+  Qualite: "Qualite",
   Autre: "Autre",
 };
 
@@ -634,6 +646,7 @@ export const ADMIN_SECTION_ORDER: AdminSection[] = [
   "GestionStockPf",
   "GestionStockMp",
   "Production",
+  "Qualite",
   "Autre",
 ];
 
@@ -666,6 +679,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
 export function sectionForPage(page: PageDefinition): AdminSection {
   if (MATIERE_PREMIERE_PAGE_KEYS.has(page.key)) return "GestionStockMp";
   if (page.module === "Production") return "Production";
+  if (page.module === "Qualite") return "Qualite";
   if (page.module === "Planning" || page.module === "General") return "Autre";
   return "GestionStockPf";
 }

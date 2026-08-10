@@ -116,6 +116,13 @@ export const navItems: NavItem[] = [
       { href: "/production/machines", label: "Machines", pageKey: "machines" },
     ],
   },
+  {
+    href: "/qualite",
+    label: "Qualite",
+    pageKey: "qualiteHub",
+    matchPrefixes: ["/qualite"],
+    subLinks: [],
+  },
   { href: "/admin", label: "Admin", adminOnly: true },
 ];
 
