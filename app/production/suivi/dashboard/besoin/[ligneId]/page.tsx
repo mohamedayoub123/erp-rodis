@@ -188,6 +188,7 @@ export default async function BesoinBatchPage({
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Besoin</th>
                     <th className="px-6 py-4 font-semibold">Disponible Depot B</th>
+                    <th className="px-6 py-4 font-semibold">Numero de lot</th>
                     <th className="px-6 py-4 font-semibold"></th>
                   </tr>
                 </thead>
@@ -203,6 +204,20 @@ export default async function BesoinBatchPage({
                         </td>
                         <td className="px-6 py-4 text-slate-600">
                           {row.stock.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
+                        </td>
+                        <td className="px-6 py-4">
+                          {canWrite ? (
+                            <input
+                              type="text"
+                              form="valider-form"
+                              name="numero_lot_mp"
+                              placeholder="Lot de cette MP"
+                              required
+                              className="w-40 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-normal normal-case text-slate-900 outline-none"
+                            />
+                          ) : (
+                            "-"
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           {insuffisant ? (
@@ -235,7 +250,7 @@ export default async function BesoinBatchPage({
             {(() => {
               const anyInsuffisant = rows.some((row) => row.besoin > row.stock);
               return (
-                <form action={validerBatchAction} className="flex flex-wrap items-end gap-4">
+                <form id="valider-form" action={validerBatchAction} className="flex flex-wrap items-end gap-4">
                   <input type="hidden" name="ligne_id" value={ligneIdNumber} />
                   <input type="hidden" name="code" value={code} />
                   <input type="hidden" name="stage" value={stage} />

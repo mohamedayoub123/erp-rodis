@@ -97,12 +97,27 @@ export async function validerBatchAction(formData: FormData) {
 
   const articleMpIds = formData.getAll("article_mp_id");
   const besoins = formData.getAll("besoin");
+  const numeroLotsMp = formData.getAll("numero_lot_mp");
   const reservations = articleMpIds
     .map((raw, index) => ({
       articleMpId: Number(raw || "0"),
       quantite: Number(String(besoins[index] || "0").replace(",", ".")),
+      numeroLot: String(numeroLotsMp[index] || "").trim(),
     }))
     .filter((r) => r.articleMpId > 0 && r.quantite > 0);
+
+  // Chaque MP reservee doit avoir SON PROPRE numero de lot, distinct du
+  // numero de lot du produit fini (code/batch) saisi plus haut - sinon
+  // consommerReservationMp (Fabrication/Conditionnement) enregistrait a
+  // tort la meme sortie de stock MP pour toutes les MP d'un code, alors
+  // qu'elles proviennent chacune d'un lot physique different.
+  if (reservations.some((r) => !r.numeroLot)) {
+    redirect(
+      `/production/suivi/dashboard/besoin/${ligneId}?code=${encodeURIComponent(code)}&stage=${besoinStage}&qt=${encodeURIComponent(qt)}&erreur=${encodeURIComponent(
+        "Le numero de lot est obligatoire pour chaque matiere premiere."
+      )}`
+    );
+  }
 
   let depotBId: number | null = null;
 
@@ -156,6 +171,7 @@ export async function validerBatchAction(formData: FormData) {
         depot_id: depotBId,
         quantite: r.quantite,
         quantite_initiale: r.quantite,
+        numero_lot: r.numeroLot,
       }))
     );
     if (reserveError) {

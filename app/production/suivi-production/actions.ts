@@ -332,7 +332,7 @@ async function consommerReservationMp(
 
   const { data: reserveData } = await supabaseServer
     .from("production_mp_reserve")
-    .select("id, article_mp_id, depot_id, quantite, quantite_initiale")
+    .select("id, article_mp_id, depot_id, quantite, quantite_initiale, numero_lot")
     .eq("production_code_termine_id", codeTermine.id);
   const reserves = (reserveData ?? []) as {
     id: number;
@@ -340,6 +340,7 @@ async function consommerReservationMp(
     depot_id: number;
     quantite: number;
     quantite_initiale: number;
+    numero_lot: string | null;
   }[];
   if (reserves.length === 0) return;
 
@@ -353,7 +354,7 @@ async function consommerReservationMp(
 
     const { error: insertError } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
       article_id: reserve.article_mp_id,
-      numero_lot: codeTermine.numero_lot,
+      numero_lot: reserve.numero_lot || codeTermine.numero_lot,
       qte_entree: 0,
       qte_sortie: delta,
       depot_id: reserve.depot_id,
