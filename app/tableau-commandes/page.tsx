@@ -229,11 +229,18 @@ const WHITE_SECRET_SUMMARY_COLUMNS = [
   "TOTAL",
   "STOCK",
   "RESTE",
+  "Qt en cours de fabrication",
   "STOCK ALERTE PROD",
   "PREVISION SERVICE COMERC",
   "stock moin de 4 mois",
   "stock moin de 2 mois",
 ];
+
+// Index (dans WHITE_SECRET_SUMMARY_COLUMNS) a partir duquel les colonnes
+// sont figees a droite (sticky) - seulement les colonnes reservees/pas
+// encore utilisees, pas TOTAL/STOCK/RESTE/Qt en cours qui ont deja une
+// vraie valeur calculee et doivent rester juste apres RESTE.
+const WHITE_SECRET_STICKY_SUMMARY_INDEX = 4;
 
 function normalizeArticle(value: string) {
   return (value || "").replace(/\u00a0/g, "").trim().toUpperCase();
@@ -566,6 +573,7 @@ function renderArticleManquantInsideTableau(
   selectedFamille: string,
   commandColumns: CommandColumn[],
   sections: ManquantFamilySection[],
+  qtEnCoursFabricationByArticleKey: Map<string, number>,
   hideStand: boolean = false
 ) {
   const visibleCommandColumns = commandColumns.filter(
@@ -711,6 +719,7 @@ function renderArticleManquantInsideTableau(
                     <col style={{ width: "64px" }} />
                     <col style={{ width: "64px" }} />
                     <col style={{ width: "64px" }} />
+                    <col style={{ width: "84px" }} />
                   </colgroup>
                   <thead className="sticky top-0 z-30">
                     <tr>
@@ -733,6 +742,9 @@ function renderArticleManquantInsideTableau(
                       </th>
                       <th rowSpan={3} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         RESTE
+                      </th>
+                      <th rowSpan={3} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
+                        Qt en cours de fabrication
                       </th>
                     </tr>
                     <tr>
@@ -760,7 +772,7 @@ function renderArticleManquantInsideTableau(
                     {visibleSections.flatMap(({ family, rows }) => [
                       <tr key={`banner-${family}`}>
                         <td
-                          colSpan={1 + visibleCommandColumns.length + 3}
+                          colSpan={1 + visibleCommandColumns.length + 4}
                           className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-4 py-2 text-left text-lg font-medium text-slate-950`}
                         >
                           {family}
@@ -768,6 +780,9 @@ function renderArticleManquantInsideTableau(
                       </tr>,
                       ...rows.map((row) => {
                         const { totalCommande, reste } = row;
+                        const qtEnCoursFabrication = Number(
+                          qtEnCoursFabricationByArticleKey.get(normalizeArticle(row.article)) ?? 0
+                        );
                         const isGreenRow = row.article.toLowerCase().includes("bl transforme");
                         const articleCellClass =
                           reste < 0
@@ -808,6 +823,9 @@ function renderArticleManquantInsideTableau(
                             </td>
                             <td className={`border border-slate-700 px-2 py-1 text-center font-medium ${summaryFillClass}`}>
                               {formatQuantity(reste)}
+                            </td>
+                            <td className={`border border-slate-700 px-2 py-1 text-center font-medium ${summaryFillClass}`}>
+                              {qtEnCoursFabrication > 0 ? formatQuantity(qtEnCoursFabrication) : ""}
                             </td>
                           </tr>
                         );
@@ -870,6 +888,7 @@ function renderWhiteSecretEmptyTemplate(
   commandColumns: CommandColumn[],
   quantitiesByArticle: Map<string, Map<string, number>>,
   stockByArticle: Map<string, number>,
+  qtEnCoursFabricationByArticleKey: Map<string, number>,
   hideStand: boolean
 ) {
   const visibleCommandColumns = commandColumns.filter(
@@ -954,6 +973,7 @@ function renderWhiteSecretEmptyTemplate(
                 <col style={{ width: "64px" }} />
                 <col style={{ width: "64px" }} />
                 <col style={{ width: "64px" }} />
+                <col style={{ width: "84px" }} />
                 <col style={{ width: "76px" }} />
                 <col style={{ width: "76px" }} />
                 <col style={{ width: "76px" }} />
@@ -1031,7 +1051,7 @@ function renderWhiteSecretEmptyTemplate(
                     <th
                       key={`white-secret-summary-header-${column}`}
                         className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950 ${
-                          index >= 3 ? "sticky right-0 z-20" : ""
+                          index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky right-0 z-20" : ""
                         }`}
                     >
                       {column}
@@ -1053,7 +1073,7 @@ function renderWhiteSecretEmptyTemplate(
                   {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
                     <th
                       key={`white-secret-summary-camions-${column}`}
-                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= 3 ? "sticky right-0 z-20" : ""}`}
+                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky right-0 z-20" : ""}`}
                     />
                   ))}
                 </tr>
@@ -1072,7 +1092,7 @@ function renderWhiteSecretEmptyTemplate(
                   {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
                     <th
                       key={`white-secret-summary-tc-${column}`}
-                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= 3 ? "sticky right-0 z-20" : ""}`}
+                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky right-0 z-20" : ""}`}
                     />
                   ))}
                 </tr>
@@ -1091,7 +1111,7 @@ function renderWhiteSecretEmptyTemplate(
                   {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
                     <th
                       key={`white-secret-summary-proforma-${column}`}
-                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= 3 ? "sticky right-0 z-20" : ""}`}
+                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky right-0 z-20" : ""}`}
                     />
                   ))}
                 </tr>
@@ -1109,6 +1129,9 @@ function renderWhiteSecretEmptyTemplate(
                   }, 0);
                   const articleStock = Number(stockByArticle.get(articleKey) ?? 0);
                   const articleReste = articleStock - rowTotal;
+                  const qtEnCoursFabrication = Number(
+                    qtEnCoursFabricationByArticleKey.get(articleKey) ?? 0
+                  );
                   const lineFillClass = articleReste < 0 ? "bg-[#fff59d] text-slate-950" : "bg-white";
                   const articleCellClass = articleReste < 0
                     ? "bg-[#fff59d] text-slate-950"
@@ -1146,7 +1169,7 @@ function renderWhiteSecretEmptyTemplate(
                       {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
                         <td
                           key={`white-secret-empty-summary-${rowIndex}-${column}`}
-                          className={`border border-slate-700 px-2 py-1 font-medium ${summaryFillClass} ${index >= 3 ? "sticky right-0 z-10" : ""}`}
+                          className={`border border-slate-700 px-2 py-1 font-medium ${summaryFillClass} ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky right-0 z-10" : ""}`}
                         >
                           {index === 0 && rowTotal > 0
                             ? formatQuantity(rowTotal)
@@ -1154,7 +1177,9 @@ function renderWhiteSecretEmptyTemplate(
                               ? formatQuantity(articleStock)
                               : index === 2
                                 ? formatQuantity(articleReste)
-                                : ""}
+                                : index === 3 && qtEnCoursFabrication > 0
+                                  ? formatQuantity(qtEnCoursFabrication)
+                                  : ""}
                         </td>
                       ))}
                     </tr>
@@ -1176,6 +1201,7 @@ function renderGenericFamilyTemplate(
   commandColumns: CommandColumn[],
   quantitiesByArticle: Map<string, Map<string, number>>,
   stockByArticle: Map<string, number>,
+  qtEnCoursFabricationByArticleKey: Map<string, number>,
   subGammeByArticleKey?: Map<string, { label: string; bannerClass: string }>,
   hideStand: boolean = false
 ) {
@@ -1261,6 +1287,7 @@ function renderGenericFamilyTemplate(
                 <col style={{ width: "64px" }} />
                 <col style={{ width: "64px" }} />
                 <col style={{ width: "64px" }} />
+                <col style={{ width: "84px" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -1268,7 +1295,7 @@ function renderGenericFamilyTemplate(
                     {formatDateCell(new Date())}
                   </th>
                   <th
-                    colSpan={Math.max(commandColumns.length, 1) + 3}
+                    colSpan={Math.max(commandColumns.length, 1) + 4}
                     className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-center text-lg font-medium text-slate-950`}
                   >
                     {selectedFamille}
@@ -1299,6 +1326,7 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
                 </tr>
                 <tr>
                   <th className={`sticky left-0 z-30 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-3 font-medium text-slate-950`}>
@@ -1325,6 +1353,9 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
                     RESTE
                   </th>
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
+                    Qt en cours de fabrication
+                  </th>
                 </tr>
                 <tr>
                   <th className={`sticky left-0 z-30 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
@@ -1342,6 +1373,7 @@ function renderGenericFamilyTemplate(
                   ) : (
                     <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
@@ -1365,6 +1397,7 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                 </tr>
                 <tr>
                   <th className={`sticky left-0 z-30 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
@@ -1385,6 +1418,7 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                 </tr>
               </thead>
               <tbody>
@@ -1397,6 +1431,9 @@ function renderGenericFamilyTemplate(
                   );
                   const stock = Number(stockByArticle.get(articleKey) ?? 0);
                   const reste = stock - totalCommande;
+                  const qtEnCoursFabrication = Number(
+                    qtEnCoursFabricationByArticleKey.get(articleKey) ?? 0
+                  );
                   const isGreenRow = article.toLowerCase().includes("bl transforme");
                   const articleCellClass =
                     reste < 0
@@ -1416,7 +1453,7 @@ function renderGenericFamilyTemplate(
                     rows.push(
                       <tr key={`subgamme-${subGamme.label}`}>
                         <td
-                          colSpan={1 + visibleCommandColumns.length + 3}
+                          colSpan={1 + visibleCommandColumns.length + 4}
                           className={`border border-slate-700 px-4 py-2 text-center text-base font-bold uppercase italic ${subGamme.bannerClass}`}
                         >
                           {subGamme.label}
@@ -1459,6 +1496,9 @@ function renderGenericFamilyTemplate(
                       <td className={`border border-slate-700 px-2 py-1 font-medium ${summaryFillClass}`}>
                         {formatQuantity(reste)}
                       </td>
+                      <td className={`border border-slate-700 px-2 py-1 font-medium ${summaryFillClass}`}>
+                        {qtEnCoursFabrication > 0 ? formatQuantity(qtEnCoursFabrication) : ""}
+                      </td>
                     </tr>
                   );
 
@@ -1500,6 +1540,65 @@ async function fetchAllArticlesForMissingReport() {
   return rows;
 }
 
+// Quantite deja emballee (Suivi Production) mais pas encore validee dans
+// le stock (meme liste que "Entree Production" - transfere_stock=false) -
+// cle par nom d'article normalise pour matcher les autres maps de cette
+// page (stockByArticle, quantitiesByArticle...).
+async function fetchQtEnCoursFabricationByArticle() {
+  const map = new Map<string, number>();
+
+  const { data: pendingData, error: pendingError } = await supabaseServer
+    .from("production_emballage_entries")
+    .select("programme_ligne_id, quantite")
+    .eq("transfere_stock", false)
+    .limit(10000);
+
+  if (pendingError) return map;
+
+  const pendingRows =
+    (pendingData as { programme_ligne_id: number | null; quantite: number | null }[] | null) ?? [];
+
+  const ligneIds = [
+    ...new Set(pendingRows.map((row) => Number(row.programme_ligne_id ?? 0)).filter((id) => id > 0)),
+  ];
+
+  if (ligneIds.length === 0) return map;
+
+  const { data: lignesData } = await supabaseServer
+    .from("programme_lignes")
+    .select("id, article_id")
+    .in("id", ligneIds);
+
+  const lignes = (lignesData as { id: number; article_id: number | null }[] | null) ?? [];
+  const articleIdByLigneId = new Map(lignes.map((ligne) => [ligne.id, ligne.article_id]));
+
+  const articleIds = [
+    ...new Set(lignes.map((ligne) => Number(ligne.article_id ?? 0)).filter((id) => id > 0)),
+  ];
+
+  if (articleIds.length === 0) return map;
+
+  const { data: articlesData } = await supabaseServer
+    .from("articles")
+    .select("id, nom_article")
+    .in("id", articleIds);
+
+  const articles = (articlesData as { id: number; nom_article: string | null }[] | null) ?? [];
+  const articleNameById = new Map(articles.map((article) => [article.id, article.nom_article || ""]));
+
+  for (const row of pendingRows) {
+    const articleId = articleIdByLigneId.get(Number(row.programme_ligne_id ?? 0));
+    if (!articleId) continue;
+
+    const articleKey = normalizeArticle(articleNameById.get(articleId) || "");
+    if (!articleKey) continue;
+
+    map.set(articleKey, Number(map.get(articleKey) ?? 0) + Number(row.quantite ?? 0));
+  }
+
+  return map;
+}
+
 export default async function TableauCommandesPage({
   searchParams,
 }: {
@@ -1511,6 +1610,7 @@ export default async function TableauCommandesPage({
   const hideStand = String(params.hideStand || "").trim() === "1";
   const viewQuery = String(params.vue || "").trim().toLowerCase();
   const showMissingView = viewQuery === "manquant";
+  const qtEnCoursFabricationByArticle = await fetchQtEnCoursFabricationByArticle();
 
   if (showMissingView) {
     const selectedFamille = familleQuery || "";
@@ -1744,6 +1844,7 @@ export default async function TableauCommandesPage({
       selectedFamille,
       sharedCommandColumns,
       sections,
+      qtEnCoursFabricationByArticle,
       hideStand
     );
   }
@@ -2388,6 +2489,7 @@ export default async function TableauCommandesPage({
         allActiveCommandColumns,
         whiteSecretQuantitiesByArticle,
         whiteSecretStockByArticle,
+        qtEnCoursFabricationByArticle,
         hideStand
       );
     }
@@ -2400,6 +2502,7 @@ export default async function TableauCommandesPage({
         allActiveCommandColumns,
         genericFamilyQuantitiesByArticle,
         genericFamilyStockByArticle,
+        qtEnCoursFabricationByArticle,
         genericFamilySubGammeByArticleKey,
         hideStand
       );
@@ -2464,6 +2567,7 @@ export default async function TableauCommandesPage({
       allActiveCommandColumns,
       whiteSecretQuantitiesByArticle,
       whiteSecretStockByArticle,
+      qtEnCoursFabricationByArticle,
       hideStand
     );
   }
@@ -2476,6 +2580,7 @@ export default async function TableauCommandesPage({
       allActiveCommandColumns,
       genericFamilyQuantitiesByArticle,
       genericFamilyStockByArticle,
+      qtEnCoursFabricationByArticle,
       genericFamilySubGammeByArticleKey
     );
   }
