@@ -413,8 +413,13 @@ export async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeT
   return rows;
 }
 
+// Meme normalisation que normalizeArticle (app/tableau-commandes/page.tsx) -
+// doit produire EXACTEMENT les memes cles que ce que le Tableau de commande
+// utilise pour retrouver un article dans la Map retournee ici, sinon le
+// "Restant Conditionnement/Emballage" se perd silencieusement (cle absente
+// = 0 par defaut) au lieu de s'additionner a la quantite deja emballee.
 function normalizeArticleNameForRestant(value: string | null) {
-  return (value || "").replace(/ /g, "").trim().toUpperCase();
+  return (value || "").replace(/\u00a0/g, "").trim().toUpperCase();
 }
 
 // Quantite encore a produire (Conditionnement + Emballage cumules, codes
