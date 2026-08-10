@@ -41,7 +41,12 @@ export default async function BesoinBatchPage({
   const { code: codeParam, stage: stageParam, qt: qtParam, erreur } = await searchParams;
   const code = (codeParam || "").trim();
   const stage: "vrac" | "carton" = stageParam === "carton" ? "carton" : "vrac";
-  const qt = Number(qtParam || "0");
+  // Un nombre de carton n'a jamais de virgule - certaines lignes decoupees
+  // avant cette regle ont encore un qt_carton fractionnaire en base (ex:
+  // 312.5), toujours arrondi au SUPERIEUR ici pour que le besoin en
+  // matiere premiere ne soit jamais sous-estime.
+  const qtRaw = Number(qtParam || "0");
+  const qt = stage === "carton" ? Math.ceil(qtRaw) : qtRaw;
 
   if (!ligneIdNumber || !code) {
     notFound();

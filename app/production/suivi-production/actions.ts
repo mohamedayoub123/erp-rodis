@@ -771,7 +771,7 @@ export async function saveTestLaboAction(formData: FormData) {
 
   revalidateRapportPages();
   revalidatePath(`/production/suivi-production/fabrication/${ligneId}/test-labo`);
-  redirect(`/production/suivi-production/fabrication/${ligneId}/test-labo?code=${encodeURIComponent(code)}&enregistre=1`);
+  redirect("/production/suivi/dashboard");
 }
 
 // Ajout ponctuel de matiere premiere pour corriger un parametre non
