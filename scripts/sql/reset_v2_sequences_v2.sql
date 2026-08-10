@@ -46,12 +46,12 @@ begin
   end loop;
 end $do$;
 
--- Verification - toutes les valeurs "ecart" doivent etre proches de 0 (la
--- sequence est juste au niveau du max id reel, pas en dessous).
+-- Verification - une ligne par table listee ci-dessus qui a une sequence,
+-- avec sa valeur actuelle apres correction.
 select
   c.relname as table_name,
-  s.seqrelid::regclass::text as sequence_name,
-  pg_sequence_last_value(s.seqrelid::regclass) as valeur_sequence
+  s.oid::regclass::text as sequence_name,
+  pg_sequence_last_value(s.oid::regclass) as valeur_sequence
 from pg_class c
 join pg_depend d on d.refobjid = c.oid and d.deptype = 'a'
 join pg_class s on s.oid = d.objid and s.relkind = 'S'
