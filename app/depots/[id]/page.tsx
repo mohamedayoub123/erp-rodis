@@ -4,6 +4,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { fetchReservedTotalsByDepot } from "../transfer-order/stock-lots";
 
 type DepotRow = { id: number; nom: string };
 type ArticlePfRow = { id: number; nom_article: string; nature: string | null; depot_id: number | null };
@@ -85,17 +86,75 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
   const soldePfById = computeSoldeByArticleId(lotsPf, depotIdByArticlePfId, depotId);
   const soldeMpById = computeSoldeByArticleId(lotsMp, depotIdByArticleMpId, depotId);
 
+  // Deja reserve par un Transfer Order approuve (PF et MP) - a deduire du
+  // solde reel pour afficher ce qui reste vraiment libre, meme principe
+  // que la page Produit (fetchReservedTotalsByDepot).
+  const pfArticleIds = [...soldePfById.keys()];
+  const mpArticleIds = [...soldeMpById.keys()];
+
+  const [reservedPfEntries, reservedMpTransferEntries] = await Promise.all([
+    Promise.all(
+      pfArticleIds.map(async (articleId) => {
+        const map = await fetchReservedTotalsByDepot("PF", articleId);
+        return [articleId, map.get(depotId) ?? 0] as const;
+      })
+    ),
+    Promise.all(
+      mpArticleIds.map(async (articleId) => {
+        const map = await fetchReservedTotalsByDepot("MP", articleId);
+        return [articleId, map.get(depotId) ?? 0] as const;
+      })
+    ),
+  ]);
+  const reservedPfById = new Map(reservedPfEntries);
+  const reservedMpTransferById = new Map(reservedMpTransferEntries);
+
+  // En plus des Transfer Order, une MP peut aussi etre reservee par une
+  // validation Salle de pesage/conditionnement (production_mp_reserve) -
+  // pas de reservation equivalente pour le PF (le stock PF n'est jamais
+  // "reserve" par la production, seulement consomme directement).
+  const reservedMpProductionById = new Map<number, number>();
+  if (mpArticleIds.length > 0) {
+    const { data: reserveData } = await supabaseServer
+      .from("production_mp_reserve")
+      .select("article_mp_id, quantite")
+      .eq("depot_id", depotId)
+      .in("article_mp_id", mpArticleIds);
+    for (const row of (reserveData as { article_mp_id: number; quantite: number }[] | null) ?? []) {
+      reservedMpProductionById.set(
+        row.article_mp_id,
+        (reservedMpProductionById.get(row.article_mp_id) ?? 0) + Number(row.quantite ?? 0)
+      );
+    }
+  }
+
   const stockPf = [...soldePfById.entries()]
     .map(([articleId, solde]) => {
       const article = articlePfById.get(articleId);
-      return { id: articleId, nom: article?.nom_article ?? `#${articleId}`, nature: article?.nature ?? null, solde };
+      const reserve = reservedPfById.get(articleId) ?? 0;
+      return {
+        id: articleId,
+        nom: article?.nom_article ?? `#${articleId}`,
+        nature: article?.nature ?? null,
+        solde,
+        reserve,
+        disponible: solde - reserve,
+      };
     })
     .filter((row) => Math.abs(row.solde) > 1e-6)
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
   const stockMp = [...soldeMpById.entries()]
     .map(([articleId, solde]) => {
       const article = articleMpById.get(articleId);
-      return { id: articleId, nom: article?.nom_article ?? `#${articleId}`, unite: article?.unite ?? null, solde };
+      const reserve = (reservedMpTransferById.get(articleId) ?? 0) + (reservedMpProductionById.get(articleId) ?? 0);
+      return {
+        id: articleId,
+        nom: article?.nom_article ?? `#${articleId}`,
+        unite: article?.unite ?? null,
+        solde,
+        reserve,
+        disponible: solde - reserve,
+      };
     })
     .filter((row) => Math.abs(row.solde) > 1e-6)
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
@@ -148,6 +207,8 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                     <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Nature</th>
                     <th className="px-6 py-4 font-semibold">Stock</th>
+                    <th className="px-6 py-4 font-semibold">Reserve</th>
+                    <th className="px-6 py-4 font-semibold">Disponible</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -156,6 +217,10 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
                       <td className="px-6 py-4 text-slate-600">{row.nature === "vrac" ? "Vrac" : "Fini"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.solde)}</td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {row.reserve > 1e-6 ? formatNumber(row.reserve) : "-"}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.disponible)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -178,6 +243,8 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                     <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Stock</th>
+                    <th className="px-6 py-4 font-semibold">Reserve</th>
+                    <th className="px-6 py-4 font-semibold">Disponible</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -186,6 +253,10 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.solde)}</td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {row.reserve > 1e-6 ? formatNumber(row.reserve) : "-"}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.disponible)}</td>
                     </tr>
                   ))}
                 </tbody>
