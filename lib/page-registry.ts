@@ -113,6 +113,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "stockCodePf",
+    module: "Stock",
+    label: "Stock par Code PF",
+    pathPrefixes: ["/stock/rapport/code"],
+    hasWrite: false,
+  },
+  {
     key: "stockMatierePremiere",
     module: "Stock",
     label: "Stock Matiere Premiere",
