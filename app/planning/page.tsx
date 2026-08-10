@@ -3,6 +3,7 @@ import { readPlanning } from "@/lib/excel-live";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 const PAGE_SIZE = 100;
 
@@ -30,6 +31,13 @@ export default async function PlanningPage({
   const q = (params.q || "").trim().toLowerCase();
   const famille = (params.famille || "").trim().toLowerCase();
   const rows = readPlanning() as PlanningRow[];
+
+  // Reutilise les lignes deja lues depuis Excel (rows couvre tout le
+  // classeur) pour la liste d'options du menu de recherche famille, plutot
+  // que de refaire une lecture dediee.
+  const familleOptions = [...new Set(rows.map((row) => (row.famille || "").trim()).filter(Boolean))].map(
+    (label, index) => ({ id: index, label })
+  );
 
   const filteredRows = rows.filter((row) => {
     const matchesQ =
@@ -236,12 +244,11 @@ export default async function PlanningPage({
               placeholder="Chercher client, proforma, article..."
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="famille"
               defaultValue={params.famille || ""}
+              options={familleOptions}
               placeholder="Filtrer famille..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
               type="submit"

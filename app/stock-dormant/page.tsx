@@ -243,12 +243,19 @@ export default async function StockDormantPage({
   const allTypeOptions = [...new Set(allDormantRows.map((ligne) => ligne.type_article).filter(Boolean))].sort(
     (a, b) => String(a).localeCompare(String(b))
   ) as string[];
-  const articleOptions = [...new Set(allDormantRows.map((ligne) => ligne.nom_article).filter(Boolean))].sort(
-    (a, b) => a.localeCompare(b, "fr")
-  );
-  const gammeOptions = [...new Set(allDormantRows.map((ligne) => ligne.gamme).filter(Boolean))].sort(
-    (a, b) => String(a).localeCompare(String(b), "fr")
-  ) as string[];
+  const articleOptions = [...new Set(allDormantRows.map((ligne) => ligne.nom_article).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "fr"))
+    .map((label, id) => ({ id, label }));
+  const gammeOptions = (
+    [...new Set(allDormantRows.map((ligne) => ligne.gamme).filter(Boolean))].sort((a, b) =>
+      String(a).localeCompare(String(b), "fr")
+    ) as string[]
+  ).map((label, id) => ({ id, label }));
+  const couleurOptions = (
+    [...new Set(allDormantRows.map((ligne) => ligne.couleur).filter(Boolean))].sort((a, b) =>
+      String(a).localeCompare(String(b), "fr")
+    ) as string[]
+  ).map((label, id) => ({ id, label }));
 
   let filteredRows = allDormantRows;
 
@@ -340,6 +347,7 @@ export default async function StockDormantPage({
             defaultCouleur={couleur}
             articleOptions={articleOptions}
             gammeOptions={gammeOptions}
+            couleurOptions={couleurOptions}
             allTypeOptions={allTypeOptions}
             selectedTypes={selectedTypes}
           />

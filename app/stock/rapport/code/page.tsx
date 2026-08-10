@@ -4,6 +4,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 type LotRow = {
   article_id: number | null;
@@ -88,7 +89,9 @@ export default async function StockParCodePfPage({ searchParams }: { searchParam
     }
   }
 
-  const articleOptions = [...new Set(lots.map((row) => articleName(row)).filter(Boolean))] as string[];
+  const articleOptions = (
+    [...new Set(lots.map((row) => articleName(row)).filter(Boolean))] as string[]
+  ).map((label, index) => ({ id: index, label }));
 
   const codeRows = [...groups.values()]
     .filter((row) => row.quantite > 0)
@@ -134,20 +137,12 @@ export default async function StockParCodePfPage({ searchParams }: { searchParam
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-3">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="article"
-              list="stock-code-pf-articles"
-              autoComplete="off"
               defaultValue={articleFilter}
+              options={articleOptions}
               placeholder="Article..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="stock-code-pf-articles">
-              {articleOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
             <input
               type="text"
               name="code"

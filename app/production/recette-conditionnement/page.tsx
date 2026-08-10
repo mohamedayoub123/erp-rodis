@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 
 type ArticlePfRow = {
@@ -91,6 +92,10 @@ export default async function RecetteConditionnementListPage({ searchParams }: {
     .filter((article) => !qLower || matchesArticleSearch(article.nom_article, qLower))
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
+  const qOptions = [...new Set(articles.map((article) => article.nom_article))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
@@ -122,14 +127,14 @@ export default async function RecetteConditionnementListPage({ searchParams }: {
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="flex gap-3">
-            <input
-              type="text"
-              name="q"
-              autoComplete="off"
-              defaultValue={q}
-              placeholder="Rechercher un produit fini..."
-              className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-            />
+            <div className="flex-1">
+              <SearchableFilterInput
+                name="q"
+                defaultValue={q}
+                options={qOptions}
+                placeholder="Rechercher un produit fini..."
+              />
+            </div>
             <button
               type="submit"
               className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"

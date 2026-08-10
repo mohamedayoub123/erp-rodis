@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 type ArticlePfRow = {
   id: number;
@@ -123,8 +124,12 @@ export default async function StockActuelPfPage({ searchParams }: { searchParams
     .filter((row) => !categorieFilter || (row.type_article || "").toLowerCase().includes(categorieFilter))
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
-  const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
-  const categorieOptions = [...new Set(articles.map((article) => article.type_article).filter(Boolean))] as string[];
+  const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map(
+    (label, index) => ({ id: index, label })
+  );
+  const categorieOptions = (
+    [...new Set(articles.map((article) => article.type_article).filter(Boolean))] as string[]
+  ).map((label, index) => ({ id: index, label }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#eef5f0_0%,#f8fbf8_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -151,20 +156,12 @@ export default async function StockActuelPfPage({ searchParams }: { searchParams
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-4">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="article"
-              list="stock-actuel-pf-articles"
-              autoComplete="off"
               defaultValue={articleFilter}
+              options={articleOptions}
               placeholder="Article..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="stock-actuel-pf-articles">
-              {articleOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
             <input
               type="text"
               name="code"
@@ -172,20 +169,12 @@ export default async function StockActuelPfPage({ searchParams }: { searchParams
               placeholder="Code (numero de lot)"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="categorie"
-              list="stock-actuel-pf-categories"
-              autoComplete="off"
               defaultValue={params.categorie || ""}
+              options={categorieOptions}
               placeholder="Categorie..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="stock-actuel-pf-categories">
-              {categorieOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
             <div className="flex gap-3">
               <button
                 type="submit"

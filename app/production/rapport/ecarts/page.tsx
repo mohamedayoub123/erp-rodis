@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   buildPdLabelByCode,
@@ -384,6 +385,13 @@ export default async function RapportEcartsPage({
     })
   );
 
+  const codeOptions = [...new Set(allRows.map((row) => row.code))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
+  const pdOptions = [...new Set(allRows.map((row) => row.pd).filter((pd) => pd && pd !== "-"))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
+
   const rows = allRows.filter((row) => {
     if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
     if (pdFilter && !row.pd.toLowerCase().includes(pdFilter)) return false;
@@ -445,19 +453,17 @@ export default async function RapportEcartsPage({
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="code"
               defaultValue={params.code || ""}
+              options={codeOptions}
               placeholder="Code (N Lot)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="pd"
               defaultValue={params.pd || ""}
+              options={pdOptions}
               placeholder="N programme (PD1, PD2...)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
               type="submit"

@@ -4,6 +4,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDate } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
 
@@ -259,8 +260,13 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
       return b.age_mois - a.age_mois;
     });
 
-  const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
-  const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
+  const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map((label, id) => ({
+    id,
+    label,
+  }));
+  const categorieOptions = ([...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]).map(
+    (label, id) => ({ id, label })
+  );
 
   const exportColumns = [
     { label: "Statut", key: "statut" },
@@ -328,34 +334,18 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
           </div>
 
           <form className="grid gap-3 sm:grid-cols-4">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="article"
-              list="dormant-mp-articles"
-              autoComplete="off"
               defaultValue={articleFilter}
+              options={articleOptions}
               placeholder="Article..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="dormant-mp-articles">
-              {articleOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
-            <input
-              type="text"
+            <SearchableFilterInput
               name="categorie"
-              list="dormant-mp-categories"
-              autoComplete="off"
               defaultValue={params.categorie || ""}
+              options={categorieOptions}
               placeholder="Categorie..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="dormant-mp-categories">
-              {categorieOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
             <input type="hidden" name="couleur" value={couleurFilter} />
             <div className="flex gap-3">
               <button

@@ -6,6 +6,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 type HistoryRow = {
   id: number;
@@ -93,6 +94,20 @@ export default async function HistoriqueProgrammeDispatcherPage({
 
   const allGroups = groupsByAge.map((group, index) => ({ ...group, code: `PD${index + 1}` }));
 
+  // Reutilise les lignes deja chargees (fetchAllHistoryRows recupere toute
+  // la table) pour construire les listes d'options des menus de recherche,
+  // plutot que de refaire des requetes DB dediees.
+  const pdOptions = allGroups.map((group, index) => ({ id: index, label: group.code }));
+  const codeOptions = [...new Set(allRows.map((row) => (row.code || "").trim()).filter(Boolean))].map(
+    (label, index) => ({ id: index, label })
+  );
+  const produitOptions = [...new Set(allRows.map((row) => (row.produit || "").trim()).filter(Boolean))].map(
+    (label, index) => ({ id: index, label })
+  );
+  const creeParOptions = [
+    ...new Set(allGroups.map((group) => (group.creePar || "").trim()).filter(Boolean)),
+  ].map((label, index) => ({ id: index, label }));
+
   const groups = allGroups
     .filter((group) => {
       if (pdFilter && !group.code.toLowerCase().includes(pdFilter)) return false;
@@ -135,33 +150,29 @@ export default async function HistoriqueProgrammeDispatcherPage({
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="pd"
               defaultValue={params.pd || ""}
+              options={pdOptions}
               placeholder="N programme (PD1, PD2...)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="code"
               defaultValue={params.code || ""}
+              options={codeOptions}
               placeholder="Code"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="produit"
               defaultValue={params.produit || ""}
+              options={produitOptions}
               placeholder="Produit"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="cree_par"
               defaultValue={params.cree_par || ""}
+              options={creeParOptions}
               placeholder="Cree par"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
               type="submit"

@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDate } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
 import {
@@ -167,6 +168,10 @@ export default async function StockMatierePremiereStockPage({
   const articleSuggestions = ((articleSuggestionsData as { nom_article: string }[] | null) ?? []).map(
     (article) => article.nom_article
   );
+  const articleOptions = articleSuggestions.map((label, id) => ({ id, label }));
+  const codeOptions = [...new Set(rawRows.map((row) => (row.numero_lot || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
 
   // Code TE/TS (meme numerotation que la page Mouvements MP) par
   // mouvement_groupe_id, pour pouvoir renvoyer directement vers le
@@ -325,27 +330,17 @@ export default async function StockMatierePremiereStockPage({
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 lg:grid-cols-4 xl:grid-cols-5">
-            <input
-              type="text"
-              list="stock-mp-articles-list"
+            <SearchableFilterInput
               name="q"
               defaultValue={q}
+              options={articleOptions}
               placeholder="Ecrire article..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-              autoComplete="off"
             />
-            <datalist id="stock-mp-articles-list">
-              {articleSuggestions.map((articleName) => (
-                <option key={articleName} value={articleName} />
-              ))}
-            </datalist>
-            <input
-              type="text"
+            <SearchableFilterInput
               name="code_q"
               defaultValue={codeQ}
+              options={codeOptions}
               placeholder="Ecrire numero de lot..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-              autoComplete="off"
             />
             <input
               type="date"

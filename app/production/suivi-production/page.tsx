@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDate } from "../suivi/data";
 import { DeleteRowButton } from "./delete-row-button";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
@@ -532,6 +533,13 @@ export default async function SuiviProductionListPage({
     emballageResult.rows
   );
 
+  const codeOptions = [...new Set(allRows.map((row) => row.displayCode))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
+  const produitOptions = [...new Set(allRows.map((row) => row.ligne.produit).filter((p): p is string => Boolean(p)))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
+
   const rows = allRows.filter((row) => {
     if (codeFilter && !row.displayCode.toLowerCase().includes(codeFilter)) {
       return false;
@@ -600,19 +608,17 @@ export default async function SuiviProductionListPage({
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="code"
               defaultValue={params.code || ""}
+              options={codeOptions}
               placeholder="Code (N Lot)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="produit"
               defaultValue={params.produit || ""}
+              options={produitOptions}
               placeholder="Produit"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <input
               type="date"

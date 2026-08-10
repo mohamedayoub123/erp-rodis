@@ -6,6 +6,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 
 const PAGE_SIZE = 100;
@@ -88,10 +89,12 @@ export default async function ArticlesMatierePremierePage({
   const totalArticles = filteredArticles.length;
   const totalPages = Math.max(1, Math.ceil(totalArticles / PAGE_SIZE));
   const articles = filteredArticles.slice(from, to + 1);
-  const categorieOptions = [
-    ...new Set(allArticles.map((article) => article.categorie).filter(Boolean)),
-  ] as string[];
-  const articleOptions = [...new Set(allArticles.map((article) => article.nom_article))];
+  const categorieOptions = (
+    [...new Set(allArticles.map((article) => article.categorie).filter(Boolean))] as string[]
+  ).map((label, index) => ({ id: index, label }));
+  const articleOptions = [...new Set(allArticles.map((article) => article.nom_article))].map(
+    (label, index) => ({ id: index, label })
+  );
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -126,34 +129,18 @@ export default async function ArticlesMatierePremierePage({
 
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 border-b border-slate-100 p-6 md:grid-cols-3">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="q"
-              list="article-mp-options"
-              autoComplete="off"
               defaultValue={q}
+              options={articleOptions}
               placeholder="Rechercher un article..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="article-mp-options">
-              {articleOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
-            <input
-              type="text"
+            <SearchableFilterInput
               name="categorie"
-              list="categorie-options"
-              autoComplete="off"
               defaultValue={categorie}
+              options={categorieOptions}
               placeholder="Categorie..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="categorie-options">
-              {categorieOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
             <button
               type="submit"
               className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"

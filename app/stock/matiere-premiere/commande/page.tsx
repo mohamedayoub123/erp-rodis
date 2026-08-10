@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDate } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { matchesArticleSearch } from "@/lib/article-search";
@@ -207,6 +208,19 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
     })
     .sort((a, b) => (b.dateRecente ?? "").localeCompare(a.dateRecente ?? ""));
 
+  const articleOptions = [
+    ...new Set(
+      bcLigneRows
+        .map((row) => row.article_label)
+        .filter((label): label is string => Boolean(label))
+    ),
+  ].map((label, index) => ({ id: index, label }));
+
+  const codeOptions = [...new Set(bcLigneRows.map((row) => row.code))].map((label, index) => ({
+    id: index,
+    label,
+  }));
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
@@ -230,19 +244,17 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-3">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="article"
               defaultValue={params.article || ""}
+              options={articleOptions}
               placeholder="Article"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="code"
               defaultValue={params.code || ""}
+              options={codeOptions}
               placeholder="N commande (BC...)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <select
               name="statut"
