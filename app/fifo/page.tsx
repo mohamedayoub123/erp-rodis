@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDate } from "@/lib/format-date";
 
 const PAGE_SIZE = 100;
@@ -78,6 +79,25 @@ export default async function FifoPage({
     countQuery = countQuery.ilike("commandes.numero_proforma", `%${proforma}%`);
   }
 
+  const proformaOptionsRows: { numero_proforma: string }[] = [];
+  {
+    let optFrom = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data } = await supabaseServer
+        .from("commandes")
+        .select("numero_proforma")
+        .range(optFrom, optFrom + pageSize - 1);
+      const chunk = (data as { numero_proforma: string }[] | null) ?? [];
+      proformaOptionsRows.push(...chunk);
+      if (chunk.length < pageSize) break;
+      optFrom += pageSize;
+    }
+  }
+  const proformaOptions = [...new Set(proformaOptionsRows.map((r) => r.numero_proforma).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
+
   const [{ data, error }, { count, error: countError }] = await Promise.all([
     fifoQuery.range(from, to),
     countQuery,
@@ -125,12 +145,11 @@ export default async function FifoPage({
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 md:grid-cols-[2fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="proforma"
               defaultValue={proforma}
+              options={proformaOptions}
               placeholder="Chercher numero proforma..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
               type="submit"

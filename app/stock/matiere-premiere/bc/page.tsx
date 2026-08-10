@@ -9,6 +9,7 @@ import { formatDate } from "@/lib/format-date";
 import { deleteCommandeBcGroupAction } from "./actions";
 import { computeStatutBc, statutBcBadgeClass, STATUT_BC_OPTIONS, type StatutBc } from "./constants";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 type CommandeBcRow = {
   id: number;
@@ -142,6 +143,10 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
   const { rows: importRows } = await fetchAllImportEvenements();
   const { rows: dossierRows } = await fetchAllImportDossiers();
 
+  const produitOptions = [...new Set(rows.map((row) => row.article_label).filter((a): a is string => !!a))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
+
   const importeeParLigne = new Map<number, number>();
   for (const imp of importRows) {
     const current = importeeParLigne.get(imp.bc_ligne_id) ?? 0;
@@ -273,12 +278,11 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
               placeholder="N Dossier ERP"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="produit"
               defaultValue={params.produit || ""}
+              options={produitOptions}
               placeholder="Produit"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <select
               name="statut"

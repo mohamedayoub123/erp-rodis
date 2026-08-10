@@ -7,6 +7,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { updateLotMpNoteAction } from "./actions";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 const FENETRE_JOURS = 90; // ~3 mois avant peremption
 
@@ -123,6 +124,10 @@ export default async function StockPerimeMpPage({
   // Fenetre d'alerte : articles deja perimes OU qui vont perimer dans les
   // ~3 mois qui viennent - le filtre "perime" permet ensuite de ne garder
   // que ceux vraiment depasses.
+  const articleOptions = [...new Set(allLots.map((lot) => lot.nom_article).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
+
   const withJours = allLots
     .filter((lot) => Boolean(lot.date_expiration))
     .map((lot) => ({ ...lot, jours: joursRestants(lot.date_expiration as string) }))
@@ -206,13 +211,14 @@ export default async function StockPerimeMpPage({
 
             <form className="flex gap-2">
               <input type="hidden" name="statut" value={statut} />
-              <input
-                type="text"
-                name="q"
-                defaultValue={q}
-                placeholder="Rechercher un article..."
-                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm outline-none"
-              />
+              <div className="w-64">
+                <SearchableFilterInput
+                  name="q"
+                  defaultValue={q}
+                  options={articleOptions}
+                  placeholder="Rechercher un article..."
+                />
+              </div>
               <button
                 type="submit"
                 className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"

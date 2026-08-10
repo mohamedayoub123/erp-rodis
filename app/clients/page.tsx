@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 const TRANSPORT_OPTIONS = ["CAMION", "CONTINAIR", "TC", "TC20", "TC40"];
 
@@ -69,6 +70,34 @@ export default async function ClientsPage({
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
+
+  // Toujours la liste COMPLETE (pas "clients", deja retreci par le filtre
+  // en cours) - sinon la liste deroulante ne proposerait que les clients du
+  // dernier filtre soumis, jamais les autres tant qu'on tape.
+  const allClientNames: string[] = [];
+  const allPaysNames = new Set<string>();
+  {
+    let namesFrom = 0;
+    while (true) {
+      const { data } = await supabaseServer
+        .from("clients")
+        .select("nom_client, pays")
+        .range(namesFrom, namesFrom + pageSize - 1);
+      const chunk = (data as { nom_client: string; pays: string | null }[] | null) ?? [];
+      for (const row of chunk) {
+        allClientNames.push(row.nom_client);
+        if (row.pays) allPaysNames.add(row.pays);
+      }
+      if (chunk.length < pageSize) break;
+      namesFrom += pageSize;
+    }
+  }
+  const clientOptions = [...new Set(allClientNames)]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
+  const paysOptions = [...allPaysNames]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#eef6ff_0%,#f8fbff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -141,19 +170,17 @@ export default async function ClientsPage({
           </div>
 
           <form className="grid gap-3 border-b border-slate-100 px-6 py-5 md:grid-cols-[1fr_1fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="q"
               defaultValue={q}
+              options={clientOptions}
               placeholder="Rechercher par client..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="pays"
               defaultValue={pays}
+              options={paysOptions}
               placeholder="Rechercher par pays..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
               type="submit"

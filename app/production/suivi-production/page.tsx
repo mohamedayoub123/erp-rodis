@@ -7,6 +7,7 @@ import { formatDate } from "../suivi/data";
 import { DeleteRowButton } from "./delete-row-button";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 // Meme calcul que Historique programme (PL1.2026, PL2.2026... remis a 1
 // chaque nouvelle annee de date_jour, rang par ordre de creation) - permet
@@ -523,6 +524,9 @@ export default async function SuiviProductionListPage({
     lignesResult.error || rapportsResult.error || vracResult.error || cartonResult.error || emballageResult.error;
 
   const plCodeByGroupeId = computePlCodesByGroupeId(lignesResult.rows);
+  const produitOptions = [...new Set(lignesResult.rows.map((l) => l.produit).filter((p): p is string => !!p))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
 
   const allRows = buildDisplayRows(
     lignesResult.rows,
@@ -607,12 +611,11 @@ export default async function SuiviProductionListPage({
               placeholder="Code (N Lot)"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="produit"
               defaultValue={params.produit || ""}
+              options={produitOptions}
               placeholder="Produit"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <input
               type="date"

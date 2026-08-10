@@ -6,6 +6,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 type HistoryRow = {
   id: number;
@@ -67,6 +68,9 @@ export default async function HistoriqueProgrammeDispatcherPage({
   const creeParFilter = (params.cree_par || "").trim().toLowerCase();
 
   const allRows = await fetchAllHistoryRows();
+  const produitOptions = [...new Set(allRows.map((r) => r.produit).filter((p): p is string => !!p))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
 
   const groupsMap = new Map<number, HistoryRow[]>();
   for (const row of allRows) {
@@ -149,12 +153,11 @@ export default async function HistoriqueProgrammeDispatcherPage({
               placeholder="Code"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="produit"
               defaultValue={params.produit || ""}
+              options={produitOptions}
               placeholder="Produit"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <input
               type="text"

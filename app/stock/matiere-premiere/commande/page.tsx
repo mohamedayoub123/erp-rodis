@@ -8,6 +8,7 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDate } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { encodeDossierId } from "./dossier-id";
 import { deleteDossierImportsAction, updateDossierMpStatutAction } from "./actions";
 import { STATUT_DOSSIER_MP_OPTIONS, statutDossierMpBadgeClass } from "./constants";
@@ -152,6 +153,9 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
   ]);
 
   const bcLigneById = new Map(bcLigneRows.map((row) => [row.id, row]));
+  const articleOptions = [...new Set(bcLigneRows.map((row) => row.article_label).filter((a): a is string => !!a))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
 
   const statutByDossier = new Map(
     statutRows.map((row) => [
@@ -230,12 +234,11 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-3">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="article"
               defaultValue={params.article || ""}
+              options={articleOptions}
               placeholder="Article"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <input
               type="text"

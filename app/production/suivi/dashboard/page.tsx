@@ -9,7 +9,7 @@ import { vracLabelFromName } from "@/lib/gamme-families";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { deleteCodeProgressAction } from "../../suivi-production/actions";
 import { markCartonTermineAction, markEmballageTermineAction, markVracTermineAction } from "../actions";
-import { ProduitFilterInput } from "./produit-filter-input";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import {
   buildPdLabelByCode,
   computeProduitParCode,
@@ -436,10 +436,10 @@ export default async function PlanningDashboardPage({
               placeholder="Code"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <ProduitFilterInput
+            <SearchableFilterInput
               name="produit"
               defaultValue={params.produit || ""}
-              articles={articleOptions}
+              options={articleOptions}
               placeholder="Produit"
             />
             <select

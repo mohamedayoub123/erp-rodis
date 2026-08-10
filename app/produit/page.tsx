@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { computeStockByArticleDepot, stockKey } from "@/lib/depot-stock";
 
@@ -117,12 +118,11 @@ export default async function ProduitListPage({ searchParams }: { searchParams: 
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="q"
               defaultValue={q}
+              options={allRows.map((row, index) => ({ id: index, label: row.nom }))}
               placeholder="Rechercher un article..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <select
               name="type"

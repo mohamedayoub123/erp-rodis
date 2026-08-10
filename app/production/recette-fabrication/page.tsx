@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 
 type ArticlePfRow = {
@@ -86,8 +87,8 @@ export default async function RecetteFabricationListPage({ searchParams }: { sea
   // pour creer une nouvelle recette on passe par "Ajouter une recette", pas
   // par ce tableau (qui contiendrait sinon tous les produits vrac existants,
   // recette ou pas).
-  const filteredArticles = articles
-    .filter((article) => (countByArticle.get(article.id) ?? 0) > 0)
+  const articlesAvecRecette = articles.filter((article) => (countByArticle.get(article.id) ?? 0) > 0);
+  const filteredArticles = articlesAvecRecette
     .filter((article) => !qLower || matchesArticleSearch(article.nom_article, qLower))
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
@@ -122,14 +123,14 @@ export default async function RecetteFabricationListPage({ searchParams }: { sea
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="flex gap-3">
-            <input
-              type="text"
-              name="q"
-              autoComplete="off"
-              defaultValue={q}
-              placeholder="Rechercher un produit vrac..."
-              className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-            />
+            <div className="flex-1">
+              <SearchableFilterInput
+                name="q"
+                defaultValue={q}
+                options={articlesAvecRecette.map((a) => ({ id: a.id, label: a.nom_article }))}
+                placeholder="Rechercher un produit vrac..."
+              />
+            </div>
             <button
               type="submit"
               className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"

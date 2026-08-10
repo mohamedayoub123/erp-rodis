@@ -6,7 +6,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { matchesArticleSearch } from "@/lib/article-search";
-import { ProduitFilterInput } from "../../produit-filter-input";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 type CodeTermineRow = {
   id: number;
@@ -178,10 +178,10 @@ export default async function ValidationsHistoriquePage({
           </div>
 
           <form className="mt-4 max-w-sm">
-            <ProduitFilterInput
+            <SearchableFilterInput
               name="produit"
               defaultValue={produitParam || ""}
-              articles={articles.map((a) => ({ id: a.id, label: a.nom_article }))}
+              options={articles.map((a) => ({ id: a.id, label: a.nom_article }))}
               placeholder="Filtrer par article"
             />
           </form>
