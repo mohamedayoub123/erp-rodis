@@ -550,6 +550,12 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/qualite"],
     hasWrite: false,
   },
+  {
+    key: "qualiteSpecs",
+    module: "Qualite",
+    label: "Specs Labo Vrac (pH, viscosite, densite, degre alcool, stabilite, couleur)",
+    pathPrefixes: ["/qualite/specs"],
+  },
 
   // Statistique
   {

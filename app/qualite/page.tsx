@@ -11,7 +11,16 @@ type Tile = {
   description: string;
 };
 
-const TILES: Tile[] = [];
+const TILES: Tile[] = [
+  {
+    label: "Specs Labo (Vrac)",
+    href: "/qualite/specs",
+    pageKey: "qualiteSpecs",
+    icon: "\u{1F9EA}",
+    description:
+      "Choisis un article vrac : intervalle pH, viscosite, densite, degre alcool, stabilite, couleur.",
+  },
+];
 
 export default async function QualitePage() {
   const currentUser = await getCurrentStockUser();
