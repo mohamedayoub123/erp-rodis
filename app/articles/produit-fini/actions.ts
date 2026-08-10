@@ -79,6 +79,7 @@ export async function createArticleAction(formData: FormData) {
   const typeArticle = String(formData.get("type_article") || "").trim();
   const marque = String(formData.get("marque") || "").trim();
   const gamme = String(formData.get("gamme") || "").trim();
+  const nature = String(formData.get("nature") || "fini").trim();
   const minStock = Number(String(formData.get("min_stock") || "0").replace(",", "."));
   const maxStock = Number(String(formData.get("max_stock") || "0").replace(",", "."));
 
@@ -105,6 +106,7 @@ export async function createArticleAction(formData: FormData) {
       type_article: typeArticle || null,
       marque: marque || null,
       gamme: gamme || null,
+      nature: nature === "vrac" ? "vrac" : "fini",
       min_stock: Number.isNaN(minStock) ? 0 : minStock,
       max_stock: Number.isNaN(maxStock) ? 0 : maxStock,
       actif: true,
@@ -121,6 +123,8 @@ export async function createArticleAction(formData: FormData) {
   revalidatePath("/");
   revalidatePath("/admin");
   revalidatePath("/tableau-commandes");
+  revalidatePath("/production/recette-fabrication");
+  revalidatePath("/production/recette-conditionnement");
   redirect("/articles/produit-fini");
 }
 
@@ -132,6 +136,7 @@ export async function updateArticleAction(formData: FormData) {
   const typeArticle = String(formData.get("type_article") || "").trim();
   const marque = String(formData.get("marque") || "").trim();
   const gamme = String(formData.get("gamme") || "").trim();
+  const nature = String(formData.get("nature") || "fini").trim();
   const minStock = Number(String(formData.get("min_stock") || "0").replace(",", "."));
   const maxStock = Number(String(formData.get("max_stock") || "0").replace(",", "."));
 
@@ -160,6 +165,7 @@ export async function updateArticleAction(formData: FormData) {
       type_article: typeArticle || null,
       marque: marque || null,
       gamme: gamme || null,
+      nature: nature === "vrac" ? "vrac" : "fini",
       min_stock: Number.isNaN(minStock) ? 0 : minStock,
       max_stock: Number.isNaN(maxStock) ? 0 : maxStock,
       ...parseProductionFields(formData),
@@ -175,6 +181,8 @@ export async function updateArticleAction(formData: FormData) {
   revalidatePath("/");
   revalidatePath("/admin");
   revalidatePath("/tableau-commandes");
+  revalidatePath("/production/recette-fabrication");
+  revalidatePath("/production/recette-conditionnement");
 }
 
 // Refuse (contrainte de cle etrangere) si l'article a deja des lots/

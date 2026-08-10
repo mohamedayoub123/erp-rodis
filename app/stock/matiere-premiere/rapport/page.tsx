@@ -12,6 +12,27 @@ const TILES = [
     description: "Tous les articles avec leur stock actuel, filtre Article/Code/Categorie, BC et import.",
   },
   {
+    label: "Stock Alert",
+    href: "/stock/matiere-premiere/alerte",
+    pageKey: "stockAlerteMp",
+    icon: "\u{26A0}\u{FE0F}",
+    description: "Articles sous le seuil d'alerte.",
+  },
+  {
+    label: "Stock Dormant",
+    href: "/stock/matiere-premiere/dormant",
+    pageKey: "stockDormantMp",
+    icon: "\u{23F3}",
+    description: "Articles avec du stock mais sans sortie significative depuis 3, 6 ou 12 mois.",
+  },
+  {
+    label: "Stock Perime",
+    href: "/stock/matiere-premiere/perime",
+    pageKey: "stockPerimeMp",
+    icon: "\u{1F6D1}",
+    description: "Lots perimes et actifs par article.",
+  },
+  {
     label: "Rotation de Stock",
     href: "/stock/matiere-premiere/rotation",
     pageKey: "stockRotationMp",
@@ -31,6 +52,20 @@ const TILES = [
     pageKey: "stockBesoinCommandeMp",
     icon: "\u{1F6D2}",
     description: "Consommation moyenne mensuelle et quantite a commander pour couvrir 6 mois, par article.",
+  },
+  {
+    label: "Proposition de Commande",
+    href: "/stock/matiere-premiere/rapport/proposition",
+    pageKey: "stockPropositionCommandeMp",
+    icon: "\u{2705}",
+    description: "Choisis le mois : liste des articles ou le stock actuel ne suffit pas, avec la quantite a commander.",
+  },
+  {
+    label: "Surstock",
+    href: "/stock/matiere-premiere/rapport/surstock",
+    pageKey: "stockSurstockMp",
+    icon: "\u{1F4E6}",
+    description: "Articles avec plus de 6 mois de stock actuel : le surplus par rapport au besoin reel.",
   },
 ] as const;
 

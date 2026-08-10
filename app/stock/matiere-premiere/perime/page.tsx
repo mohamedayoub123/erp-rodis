@@ -4,6 +4,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { updateLotMpNoteAction } from "./actions";
 import { matchesArticleSearch } from "@/lib/article-search";
 
@@ -140,6 +141,24 @@ export default async function StockPerimeMpPage({
     { key: "proche", label: "Bientot perime" },
   ];
 
+  const exportColumns = [
+    { label: "Article", key: "article" },
+    { label: "Qte", key: "qte" },
+    { label: "Code", key: "code" },
+    { label: "Categorie", key: "categorie" },
+    { label: "Reste", key: "reste" },
+    { label: "Note", key: "note" },
+  ];
+
+  const exportRows = filtered.map((lot) => ({
+    article: lot.nom_article,
+    qte: lot.stock_actuel === null || lot.stock_actuel === undefined ? "-" : lot.stock_actuel,
+    code: lot.numero_lot || "-",
+    categorie: categorieByArticle.get(lot.article_normalise) || "-",
+    reste: formatJoursRestants(lot.jours),
+    note: lot.note || "-",
+  }));
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fef2f2_0%,#fffafa_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
@@ -157,7 +176,12 @@ export default async function StockPerimeMpPage({
           </div>
 
           <div className="flex items-center gap-3">
-            <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
+            <BackButton href="/stock/matiere-premiere/rapport" label="Retour rapport" />
+            <ExportExcelButton
+              rows={exportRows}
+              columns={exportColumns}
+              filename={`stock-perime-mp-${new Date().toISOString().slice(0, 10)}.xlsx`}
+            />
             <RefreshButton />
           </div>
         </div>
@@ -209,7 +233,7 @@ export default async function StockPerimeMpPage({
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Qte</th>

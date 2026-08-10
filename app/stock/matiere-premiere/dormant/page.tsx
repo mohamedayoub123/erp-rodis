@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { formatDate } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
 
@@ -261,6 +262,22 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
   const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
 
+  const exportColumns = [
+    { label: "Statut", key: "statut" },
+    { label: "Categorie", key: "categorie" },
+    { label: "Article", key: "article" },
+    { label: "Stock", key: "stock" },
+    { label: "Derniere sortie", key: "derniereSortie" },
+  ];
+
+  const exportRows = filteredRows.map((row) => ({
+    statut: row.couleur,
+    categorie: row.categorie || "-",
+    article: row.nom_article,
+    stock: row.stock_actuel,
+    derniereSortie: row.derniere_sortie ? formatDate(row.derniere_sortie) : "Jamais",
+  }));
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#fffaf3_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
@@ -281,7 +298,12 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
           </div>
 
           <div className="flex items-center gap-3">
-            <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
+            <BackButton href="/stock/matiere-premiere/rapport" label="Retour rapport" />
+            <ExportExcelButton
+              rows={exportRows}
+              columns={exportColumns}
+              filename={`stock-dormant-mp-${new Date().toISOString().slice(0, 10)}.xlsx`}
+            />
             <RefreshButton />
           </div>
         </div>
@@ -368,7 +390,7 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Statut</th>
                     <th className="px-6 py-4 font-semibold">Categorie</th>

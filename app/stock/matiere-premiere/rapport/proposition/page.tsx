@@ -15,6 +15,7 @@ type ArticleMpRow = {
 
 type MouvementRow = {
   article_id: number | null;
+  qte_entree: number;
   qte_sortie: number;
   date_jour: string | null;
 };
@@ -31,47 +32,37 @@ type ImportEvenementRow = {
   lot_stock_id: number | null;
 };
 
-type BesoinRow = {
+type PropositionRow = {
   article_id: number;
   nom_article: string;
   categorie: string | null;
   unite: string | null;
   min_stock: number | null;
-  consommation_12_mois: number;
-  consommation_par_mois: number;
+  stock_actuel: number;
   deja_en_commande: number;
-  commande_par_mois_depart: number[];
+  objectif: number;
+  a_commander: number;
 };
 
-const MOIS_COURT = [
-  "Jan", "Fév", "Mar", "Avr", "Mai", "Juin",
-  "Juil", "Aoû", "Sep", "Oct", "Nov", "Déc",
-];
 const MOIS_LONG = [
   "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
 
-// Delai de livraison d'une commande MP : environ 3 mois entre la commande
-// et l'arrivee reelle en stock. Le stock a avoir en entrant dans un mois
-// doit donc couvrir ce delai (3 mois, le temps que la commande arrive) PLUS
-// les 6 mois de fonctionnement normal entre deux commandes - 9 mois de
-// consommation au total, pas seulement 6.
+// Meme calcul que Besoin Commande MP : objectif pour un mois de depart =
+// somme de la consommation reelle de ce mois-la et des 8 suivants (3 mois
+// de delai de livraison + 6 mois de cycle de commande, sur les 12 derniers
+// mois, un seul passage par mois calendaire - la consommation varie selon
+// le mois, ce n'est pas une moyenne fixe).
 const DELAI_LIVRAISON_MOIS = 3;
 const CYCLE_COMMANDE_MOIS = 6;
 
-// Consommation glissante sur 9 mois (3 de delai + 6 de cycle) a partir du
-// mois de depart (index 0=Janvier..11=Decembre), en bouclant sur l'annee :
-// commandeParMoisDepart[i] = conso du mois i + conso des 8 mois suivants
-// (avec retour a Janvier apres Decembre).
-function commandeGlissanteParMois(consommationParMoisCalendaire: number[]): number[] {
-  return consommationParMoisCalendaire.map((_, moisDepart) => {
-    let total = 0;
-    for (let decalage = 0; decalage < DELAI_LIVRAISON_MOIS + CYCLE_COMMANDE_MOIS; decalage++) {
-      total += consommationParMoisCalendaire[(moisDepart + decalage) % 12];
-    }
-    return Math.round(total * 100) / 100;
-  });
+function objectifGlissant(consommationParMoisCalendaire: number[], moisDepart: number) {
+  let total = 0;
+  for (let decalage = 0; decalage < DELAI_LIVRAISON_MOIS + CYCLE_COMMANDE_MOIS; decalage++) {
+    total += consommationParMoisCalendaire[(moisDepart + decalage) % 12];
+  }
+  return Math.round(total * 100) / 100;
 }
 
 async function fetchAllArticlesMp() {
@@ -97,7 +88,7 @@ async function fetchAllArticlesMp() {
   return { rows, error: null };
 }
 
-async function fetchMouvementsSince(sinceDate: string) {
+async function fetchAllMouvements() {
   const rows: MouvementRow[] = [];
   let from = 0;
   const pageSize = 1000;
@@ -105,8 +96,7 @@ async function fetchMouvementsSince(sinceDate: string) {
   while (true) {
     const { data, error } = await supabaseServer
       .from("lots_stock_matiere_premiere")
-      .select("article_id, qte_sortie, date_jour")
-      .gte("date_jour", sinceDate)
+      .select("article_id, qte_entree, qte_sortie, date_jour")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -171,15 +161,19 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ article?: string; categorie?: string; hide_low_conso?: string }>;
+type SearchParams = Promise<{ mois?: string; article?: string; categorie?: string }>;
 
-export default async function RapportBesoinCommandeMpPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function PropositionCommandeMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
   const params = await searchParams;
   const articleFilter = (params.article || "").trim();
   const categorieFilter = (params.categorie || "").trim().toLowerCase();
-  const hideLowConso = (params.hide_low_conso || "").trim() === "1";
-  const hasFilters = Boolean(articleFilter || categorieFilter || hideLowConso);
+
+  const moisParam = Number(params.mois);
+  const moisIdx =
+    Number.isInteger(moisParam) && moisParam >= 1 && moisParam <= 12
+      ? moisParam - 1
+      : new Date().getMonth();
 
   const twelveMonthsAgo = new Date();
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
@@ -192,21 +186,18 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
     { rows: importEvenements, error: importError },
   ] = await Promise.all([
     fetchAllArticlesMp(),
-    fetchMouvementsSince(sinceDate),
+    fetchAllMouvements(),
     fetchAllBcLignes(),
     fetchAllImportEvenements(),
   ]);
 
   const error = articlesError || mouvementsError || bcError || importError;
 
-  // Quantite deja en commande/import pas encore receptionnee (donc pas
-  // encore dans le stock actuel) : par ligne de BC, ce qui reste = quantite
-  // commandee - ce qui a deja ete receptionne pour cette ligne (evenements
-  // avec lot_stock_id renseigne = vraie reception qui a credite le stock ;
-  // lot_stock_id vide = juste declare importe, pas encore receptionne, donc
-  // toujours en attente). On soustrait cette quantite deja en attente de
-  // l'objectif : pas la peine de proposer une commande pour ce qui arrive
-  // deja.
+  // Quantite deja en commande/import pas encore receptionnee, par ligne de
+  // BC : quantite commandee - ce qui a deja ete receptionne pour cette
+  // ligne (evenements avec lot_stock_id renseigne = vraie reception qui a
+  // credite le stock). On la retire de l'objectif : pas la peine de
+  // proposer une commande pour ce qui arrive deja.
   const receptionneParLigne = new Map<number, number>();
   for (const evenement of importEvenements) {
     if (evenement.lot_stock_id === null) continue;
@@ -227,85 +218,82 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
     );
   }
 
-  // Consommation moyenne/mois = sortie des 12 derniers mois / 12 (chiffre
-  // de reference global). Mais la consommation reelle varie selon le mois
-  // calendaire (saisonnalite) : on calcule donc aussi, pour chaque article,
-  // la sortie de chaque mois calendaire (Janvier, Fevrier...) sur les 12
-  // derniers mois - une seule occurrence de chaque mois dans cette fenetre,
-  // donc pas de moyenne a faire. La quantite a avoir en stock en entrant
-  // dans un mois donne = somme de la conso de ce mois-la et des 8 suivants
-  // (3 mois de delai de livraison + 6 mois de cycle de commande, meme
-  // rythme que le fonctionnement reel). Stock min (3 mois, deja sur
-  // l'article) reste affiche a cote pour comparaison.
-  const consommationByArticle = new Map<number, number>();
+  // Stock actuel = somme entree-sortie de TOUS les mouvements (meme calcul
+  // que Stock MP). Consommation par mois calendaire = sortie des 12
+  // derniers mois seulement, regroupee par mois (Janvier, Fevrier...).
+  // Objectif du mois choisi = besoin des 9 mois a partir de ce mois-la (3
+  // de delai de livraison + 6 de cycle de commande, meme formule que
+  // Besoin Commande MP). A commander = objectif moins ce
+  // qu'il reste deja en stock ET moins ce qui est deja en commande/import
+  // (jamais negatif - si stock + deja-commande couvrent deja l'objectif,
+  // rien a commander, l'article n'apparait pas).
+  const stockByArticle = new Map<number, number>();
   const consommationByArticleAndMois = new Map<number, number[]>();
-  for (const row of mouvements) {
-    if (!row.article_id || !row.date_jour) continue;
-    const qteSortie = Number(row.qte_sortie ?? 0);
-    consommationByArticle.set(row.article_id, (consommationByArticle.get(row.article_id) ?? 0) + qteSortie);
 
-    const moisIdx = Number(row.date_jour.slice(5, 7)) - 1;
-    if (moisIdx < 0 || moisIdx > 11) continue;
+  for (const row of mouvements) {
+    if (!row.article_id) continue;
+    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
+    stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
+
+    if (!row.date_jour || row.date_jour < sinceDate) continue;
+    const idx = Number(row.date_jour.slice(5, 7)) - 1;
+    if (idx < 0 || idx > 11) continue;
     if (!consommationByArticleAndMois.has(row.article_id)) {
       consommationByArticleAndMois.set(row.article_id, new Array(12).fill(0));
     }
-    consommationByArticleAndMois.get(row.article_id)![moisIdx] += qteSortie;
+    consommationByArticleAndMois.get(row.article_id)![idx] += Number(row.qte_sortie ?? 0);
   }
 
-  const besoinRows: BesoinRow[] = articles.map((article) => {
-    const consommation12Mois = consommationByArticle.get(article.id) ?? 0;
-    const consommationParMois = consommation12Mois / 12;
-    const consommationParMoisCalendaire = consommationByArticleAndMois.get(article.id) ?? new Array(12).fill(0);
-    const dejaEnCommande = dejaEnCommandeByArticle.get(article.id) ?? 0;
-    const commandeBrute = commandeGlissanteParMois(consommationParMoisCalendaire);
-    const commandeNette = commandeBrute.map((valeur) => Math.max(0, Math.round((valeur - dejaEnCommande) * 100) / 100));
+  const propositionRows: PropositionRow[] = articles
+    .map((article) => {
+      const stockActuel = stockByArticle.get(article.id) ?? 0;
+      const dejaEnCommande = dejaEnCommandeByArticle.get(article.id) ?? 0;
+      const consommationParMoisCalendaire = consommationByArticleAndMois.get(article.id) ?? new Array(12).fill(0);
+      const objectif = objectifGlissant(consommationParMoisCalendaire, moisIdx);
+      const aCommander = Math.max(0, Math.round((objectif - stockActuel - dejaEnCommande) * 100) / 100);
 
-    return {
-      article_id: article.id,
-      nom_article: article.nom_article,
-      categorie: article.categorie,
-      unite: article.unite,
-      min_stock: article.min_stock,
-      consommation_12_mois: consommation12Mois,
-      consommation_par_mois: Math.round(consommationParMois * 100) / 100,
-      deja_en_commande: dejaEnCommande,
-      commande_par_mois_depart: commandeNette,
-    };
-  });
-
-  const filteredRows = besoinRows
+      return {
+        article_id: article.id,
+        nom_article: article.nom_article,
+        categorie: article.categorie,
+        unite: article.unite,
+        min_stock: article.min_stock,
+        stock_actuel: stockActuel,
+        deja_en_commande: dejaEnCommande,
+        objectif,
+        a_commander: aCommander,
+      };
+    })
+    .filter((row) => row.a_commander > 0)
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
     .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
-    .filter((row) => !hideLowConso || row.consommation_par_mois > 1)
-    .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
+    .sort((a, b) => b.a_commander - a.a_commander);
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
   const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
+  const hasFilters = Boolean(articleFilter || categorieFilter);
 
   const exportColumns = [
     { label: "Article", key: "article" },
     { label: "Categorie", key: "categorie" },
     { label: "Unite", key: "unite" },
-    { label: "Conso. moyenne/mois", key: "consommationParMois" },
-    { label: "Stock min (3 mois)", key: "minStock" },
+    { label: "Stock actuel", key: "stockActuel" },
     { label: "Deja en commande/import", key: "dejaEnCommande" },
-    ...MOIS_LONG.map((mois, idx) => ({ label: mois, key: `mois${idx}` })),
+    { label: `Objectif (${MOIS_LONG[moisIdx]}, 9 mois)`, key: "objectif" },
+    { label: "Stock min (3 mois)", key: "minStock" },
+    { label: "A commander", key: "aCommander" },
   ];
 
-  const exportRows = filteredRows.map((row) => {
-    const moisColumns = Object.fromEntries(
-      row.commande_par_mois_depart.map((valeur, idx) => [`mois${idx}`, valeur])
-    );
-    return {
-      article: row.nom_article,
-      categorie: row.categorie || "-",
-      unite: row.unite || "-",
-      consommationParMois: row.consommation_par_mois,
-      minStock: row.min_stock === null ? "-" : row.min_stock,
-      dejaEnCommande: row.deja_en_commande,
-      ...moisColumns,
-    };
-  });
+  const exportRows = propositionRows.map((row) => ({
+    article: row.nom_article,
+    categorie: row.categorie || "-",
+    unite: row.unite || "-",
+    stockActuel: row.stock_actuel,
+    dejaEnCommande: row.deja_en_commande,
+    objectif: row.objectif,
+    minStock: row.min_stock === null ? "-" : row.min_stock,
+    aCommander: row.a_commander,
+  }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#fffaf3_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -316,15 +304,15 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
               ERP Rodis
             </p>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
-              Besoin Commande MP
+              Proposition de Commande MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Pour chaque article : consommation moyenne mensuelle (sortie des 12 derniers mois /
-              12), le Stock min actuel (3 mois) pour comparaison, ce qui est deja en commande/import
-              et pas encore receptionne, et pour chacun des 12 mois de l&apos;annee, la quantite a
-              commander en plus (objectif 9 mois - 3 mois de delai de livraison + 6 mois de cycle de
-              commande - moins ce qui est deja en commande/import - la consommation change selon le
-              mois, ce n&apos;est pas juste la moyenne x 9).
+              Choisis le mois de la commande : pour chaque article, l&apos;objectif (besoin reel
+              des 9 mois a partir de ce mois - 3 mois de delai de livraison + 6 mois de cycle de
+              commande, meme calcul que Besoin Commande MP) est compare au
+              stock actuel et a ce qui est deja en commande/import (pas encore receptionne). Seuls
+              les articles ou stock + deja-commande ne suffisent pas apparaissent, avec la quantite
+              a commander proposee (objectif moins stock actuel moins deja en commande/import).
             </p>
           </div>
 
@@ -333,7 +321,7 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
             <ExportExcelButton
               rows={exportRows}
               columns={exportColumns}
-              filename={`besoin-commande-mp-${new Date().toISOString().slice(0, 10)}.xlsx`}
+              filename={`proposition-commande-mp-${new Date().toISOString().slice(0, 10)}.xlsx`}
             />
             <RefreshButton />
           </div>
@@ -341,16 +329,27 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-4">
+            <select
+              name="mois"
+              defaultValue={String(moisIdx + 1)}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              {MOIS_LONG.map((nom, idx) => (
+                <option key={nom} value={idx + 1}>
+                  Commander en {nom}
+                </option>
+              ))}
+            </select>
             <input
               type="text"
               name="article"
-              list="besoin-commande-mp-articles"
+              list="proposition-commande-mp-articles"
               autoComplete="off"
               defaultValue={articleFilter}
               placeholder="Article..."
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="besoin-commande-mp-articles">
+            <datalist id="proposition-commande-mp-articles">
               {articleOptions.map((option) => (
                 <option key={option} value={option} />
               ))}
@@ -358,27 +357,17 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
             <input
               type="text"
               name="categorie"
-              list="besoin-commande-mp-categories"
+              list="proposition-commande-mp-categories"
               autoComplete="off"
               defaultValue={params.categorie || ""}
               placeholder="Categorie..."
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="besoin-commande-mp-categories">
+            <datalist id="proposition-commande-mp-categories">
               {categorieOptions.map((option) => (
                 <option key={option} value={option} />
               ))}
             </datalist>
-            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                name="hide_low_conso"
-                value="1"
-                defaultChecked={hideLowConso}
-                className="h-4 w-4"
-              />
-              Cacher consommation/mois a 1 ou moins
-            </label>
             <div className="flex gap-3">
               <button
                 type="submit"
@@ -388,7 +377,7 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
               </button>
               {hasFilters ? (
                 <a
-                  href="/stock/matiere-premiere/rapport/commande"
+                  href={`/stock/matiere-premiere/rapport/proposition?mois=${moisIdx + 1}`}
                   className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
                 >
                   Effacer
@@ -405,9 +394,11 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
                 {error.message}
               </p>
             </div>
-          ) : filteredRows.length === 0 ? (
+          ) : propositionRows.length === 0 ? (
             <div className="px-6 py-8 text-sm text-slate-500">
-              {hasFilters ? "Aucun resultat pour ce filtre." : "Aucun article pour le moment."}
+              {hasFilters
+                ? "Aucun resultat pour ce filtre."
+                : `Aucun article a commander pour ${MOIS_LONG[moisIdx]} : le stock actuel couvre deja l'objectif partout.`}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -417,38 +408,30 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
                     <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Categorie</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
-                    <th className="px-6 py-4 font-semibold">Conso. moyenne/mois</th>
-                    <th className="px-6 py-4 font-semibold">Stock min (3 mois)</th>
+                    <th className="px-6 py-4 font-semibold">Stock actuel</th>
                     <th className="px-6 py-4 font-semibold">Deja en commande/import</th>
-                    {MOIS_COURT.map((mois, idx) => (
-                      <th
-                        key={mois}
-                        className="px-4 py-4 text-center font-semibold"
-                        title={`A avoir en stock en entrant dans ${MOIS_LONG[idx]} (3 mois de delai + 6 mois de cycle = 9 mois)`}
-                      >
-                        {mois}
-                      </th>
-                    ))}
+                    <th className="px-6 py-4 font-semibold">Objectif ({MOIS_LONG[moisIdx]}, 9 mois)</th>
+                    <th className="px-6 py-4 font-semibold">Stock min (3 mois)</th>
+                    <th className="px-6 py-4 font-semibold">A commander</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.map((row) => (
+                  {propositionRows.map((row) => (
                     <tr key={row.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.consommation_par_mois)}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_actuel)}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.deja_en_commande)}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.objectif)}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.min_stock === null ? "-" : formatNumber(row.min_stock)}
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.deja_en_commande)}</td>
-                      {row.commande_par_mois_depart.map((valeur, idx) => (
-                        <td key={idx} className="px-4 py-4 text-center">
-                          <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-900">
-                            {formatNumber(valeur)}
-                          </span>
-                        </td>
-                      ))}
+                      <td className="px-6 py-4">
+                        <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
+                          {formatNumber(row.a_commander)}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

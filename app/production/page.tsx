@@ -5,6 +5,13 @@ import { getCurrentStockUser, getPageViewMap } from "@/lib/stock-auth";
 
 const TILES = [
   {
+    label: "Programme",
+    href: "/production/programme",
+    pageKey: "programme",
+    icon: "\u{1F4C5}",
+    description: "Article + machines Fabrication/Conditionnement/Emballage : qt carton et vrac calculees automatiquement selon la capacite machine.",
+  },
+  {
     label: "Planning Production",
     href: "/production/suivi",
     pageKey: "productionSuiviHub",
@@ -66,6 +73,20 @@ const TILES = [
     pageKey: "machines",
     icon: "\u{2699}\u{FE0F}",
     description: "Liste des machines de production : zone, type, capacite.",
+  },
+  {
+    label: "Recette Fabrication",
+    href: "/production/recette-fabrication",
+    pageKey: "recetteFabrication",
+    icon: "\u{1F9EA}",
+    description: "Pour chaque produit vrac, la formule : quels articles MP et en quelle quantite.",
+  },
+  {
+    label: "Recette Conditionnement",
+    href: "/production/recette-conditionnement",
+    pageKey: "recetteConditionnement",
+    icon: "\u{1F4E6}",
+    description: "Pour chaque produit fini, la formule : quels articles MP et en quelle quantite.",
   },
 ] as const;
 

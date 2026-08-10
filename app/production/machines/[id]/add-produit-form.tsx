@@ -28,11 +28,11 @@ export function AddProduitForm({
     });
   }, [value, articles]);
 
-  // Fabrication raisonne en min/max de vrac par lot (comme min_vrac/
-  // max_vrac_auto sur les articles) + temps de fabrication. Emballage et
-  // Conditionnement raisonnent en cadence (capacite, en piece/min pour
-  // Conditionnement) - pas de min/max de lot ni de temps, non pertinents
-  // pour une cadence.
+  // Fabrication raisonne en min/max de vrac PAR HEURE (cadence horaire,
+  // multipliee par la duree prevue dans Programme) + temps de fabrication.
+  // Emballage et Conditionnement raisonnent en cadence (capacite, en
+  // piece/min pour Conditionnement) - pas de min/max ni de temps, non
+  // pertinents pour une cadence.
   const isFabrication = machineType === "Fabrication";
   const showCapacite = machineType === "Conditionnement" || machineType === "Emballage";
   const capaciteLabel = machineType === "Conditionnement" ? "Capacite (piece/min)" : "Capacite";
@@ -86,13 +86,13 @@ export function AddProduitForm({
           <input
             type="number"
             name="capacite_min"
-            placeholder="Min"
+            placeholder="Min (par heure)"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
           <input
             type="number"
             name="capacite_max"
-            placeholder="Max"
+            placeholder="Max (par heure)"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
           <input
