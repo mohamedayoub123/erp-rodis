@@ -595,11 +595,6 @@ export async function saveFabricationRapportAction(formData: FormData) {
     temps_envoi_echantillon_labo: parseOptionalText(formData, "temps_envoi_echantillon_labo"),
     temps_fin_test: parseOptionalText(formData, "temps_fin_test"),
     temps_vidange: parseOptionalText(formData, "temps_vidange"),
-    ph: parseOptionalNumber(formData, "ph"),
-    densite: parseOptionalNumber(formData, "densite"),
-    viscosite: parseOptionalNumber(formData, "viscosite"),
-    degre_alcool: parseOptionalNumber(formData, "degre_alcool"),
-    stabilite: parseOptionalText(formData, "stabilite"),
     vrac_fabrique: vracFabrique,
     qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
     code_vrac_recupere: parseOptionalText(formData, "code_vrac_recupere"),
@@ -653,6 +648,84 @@ export async function saveFabricationRapportAction(formData: FormData) {
 
   revalidateRapportPages();
   redirect("/production/suivi/dashboard");
+}
+
+export async function saveTestLaboAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionFabrication"))) {
+    throw new Error("Cet utilisateur ne peut pas enregistrer de test labo.");
+  }
+
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+
+  if (!ligneId) {
+    throw new Error("Ligne invalide.");
+  }
+
+  await upsertRapport(ligneId, code, {
+    ph: parseOptionalNumber(formData, "ph"),
+    densite: parseOptionalNumber(formData, "densite"),
+    viscosite: parseOptionalNumber(formData, "viscosite"),
+    degre_alcool: parseOptionalNumber(formData, "degre_alcool"),
+    stabilite: parseOptionalText(formData, "stabilite"),
+    couleur: parseOptionalText(formData, "couleur"),
+    remarque: parseOptionalText(formData, "remarque"),
+    utilisateur_test_labo: currentUser,
+    date_saisie_test_labo: new Date().toISOString(),
+  });
+
+  revalidateRapportPages();
+  revalidatePath(`/production/suivi-production/fabrication/${ligneId}/test-labo`);
+  redirect(`/production/suivi-production/fabrication/${ligneId}/test-labo?code=${encodeURIComponent(code)}&enregistre=1`);
+}
+
+// Ajout ponctuel de matiere premiere pour corriger un parametre non
+// conforme constate au Test labo (ex: ajuster le pH) - action separee du
+// Save du test (pas un champ a re-upserter a l'identique a chaque
+// correction de couleur/remarque) : chaque clic est une VRAIE sortie de
+// stock physique, jamais reversible/idempotente comme le reste du rapport.
+export async function ajouterAjustementMpTestLaboAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionFabrication"))) {
+    throw new Error("Cet utilisateur ne peut pas enregistrer d'ajustement.");
+  }
+
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+  const articleId = Number(String(formData.get("article_id") || "0"));
+  const numeroLot = parseOptionalText(formData, "numero_lot");
+  const quantite = parseOptionalNumber(formData, "quantite");
+  const note = parseOptionalText(formData, "note");
+
+  if (!ligneId || !articleId || !numeroLot || !quantite || quantite <= 0) {
+    throw new Error("Ajustement matiere premiere invalide.");
+  }
+
+  const depotId = await fetchDepotBId();
+
+  const { error } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
+    article_id: articleId,
+    numero_lot: numeroLot,
+    code_normalise: numeroLot.toUpperCase(),
+    qte_entree: 0,
+    qte_sortie: quantite,
+    depot_id: depotId,
+    date_jour: new Date().toISOString().slice(0, 10),
+    utilisateur: currentUser,
+    note: note ? `Ajustement qualite fabrication - ${note}` : "Ajustement qualite fabrication",
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath(`/production/suivi-production/fabrication/${ligneId}/test-labo`);
+  revalidatePath("/stock/matiere-premiere/stock-actuel");
+  revalidatePath("/produit");
+  redirect(`/production/suivi-production/fabrication/${ligneId}/test-labo?code=${encodeURIComponent(code)}&ajuste=1`);
 }
 
 export async function saveEmballageRapportAction(formData: FormData) {

@@ -550,12 +550,20 @@ export default async function PlanningDashboardPage({
                           <RestantBadge restant={row.vracRestant} />
                         </td>
                         <td className="px-4 py-3">
-                          <Link
-                            href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
-                            className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
-                          >
-                            Entrer
-                          </Link>
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
+                              className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
+                            >
+                              Entrer
+                            </Link>
+                            <Link
+                              href={`/production/suivi-production/fabrication/${row.ligne.id}/test-labo?code=${encodeURIComponent(row.code)}`}
+                              className="rounded-full bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white"
+                            >
+                              Test labo
+                            </Link>
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markVracTermineAction} />
