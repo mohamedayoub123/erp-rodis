@@ -15,6 +15,7 @@ type LotRow = {
   qte_entree: number;
   qte_sortie: number;
   depot_id: number | null;
+  note: string | null;
 };
 
 async function fetchAll<T>(table: string, select: string) {
@@ -68,6 +69,22 @@ function computeSoldeByArticleLot(
   return [...map.values()];
 }
 
+// Statut qualite d'un lot de vrac (Conforme / A recuperer), derive de la
+// note posee au credit par crediterVracFabrique (voir app/production/
+// suivi-production/actions.ts) - "A detruire" ne credite JAMAIS le stock
+// (production_destruction_history a la place), donc un lot detruit
+// n'apparait structurellement jamais ici et ne peut pas etre choisi dans
+// le picker "Code vrac recupere" de la Fabrication.
+function deriveVracStatusByLot(lots: LotRow[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const lot of lots) {
+    if (!lot.article_id || !lot.note?.startsWith("Fabrication vrac")) continue;
+    const key = `${lot.article_id}::${(lot.numero_lot || "").trim()}`;
+    map.set(key, lot.note.includes("A recuperer") ? "A recuperer" : "Conforme");
+  }
+  return map;
+}
+
 export default async function DepotDetailPage({ params }: { params: Promise<{ id: string }> }) {
   noStore();
   const { id } = await params;
@@ -86,8 +103,8 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
     supabaseServer.from("depots").select("id, nom").eq("id", depotId).maybeSingle(),
     fetchAll<ArticlePfRow>("articles", "id, nom_article, nature, depot_id"),
     fetchAll<ArticleMpRow>("articles_matiere_premiere", "id, nom_article, unite, depot_id"),
-    fetchAll<LotRow>("lots_stock", "article_id, numero_lot, qte_entree, qte_sortie, depot_id"),
-    fetchAll<LotRow>("lots_stock_matiere_premiere", "article_id, numero_lot, qte_entree, qte_sortie, depot_id"),
+    fetchAll<LotRow>("lots_stock", "article_id, numero_lot, qte_entree, qte_sortie, depot_id, note"),
+    fetchAll<LotRow>("lots_stock_matiere_premiere", "article_id, numero_lot, qte_entree, qte_sortie, depot_id, note"),
   ]);
 
   const depot = depotData as DepotRow | null;
@@ -102,6 +119,7 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
 
   const soldePfByLot = computeSoldeByArticleLot(lotsPf, depotIdByArticlePfId, depotId);
   const soldeMpByLot = computeSoldeByArticleLot(lotsMp, depotIdByArticleMpId, depotId);
+  const vracStatusByLot = deriveVracStatusByLot(lotsPf);
 
   // Deja reserve par un Transfer Order approuve (PF et MP), PAR NUMERO DE
   // LOT precis - a deduire du solde reel de ce meme lot pour afficher ce
@@ -157,6 +175,7 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
         nom: article?.nom_article ?? `#${row.articleId}`,
         numeroLot: row.numeroLot,
         nature: article?.nature ?? null,
+        statut: vracStatusByLot.get(`${row.articleId}::${row.numeroLot}`) ?? "-",
         solde: row.solde,
         reserve,
         disponible: row.solde - reserve,
@@ -236,6 +255,7 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                     <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Numero de lot</th>
                     <th className="px-6 py-4 font-semibold">Nature</th>
+                    <th className="px-6 py-4 font-semibold">Statut</th>
                     <th className="px-6 py-4 font-semibold">Stock</th>
                     <th className="px-6 py-4 font-semibold">Reserve</th>
                     <th className="px-6 py-4 font-semibold">Disponible</th>
@@ -247,6 +267,19 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
                       <td className="px-6 py-4 text-slate-600">{row.numeroLot || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.nature === "vrac" ? "Vrac" : "Fini"}</td>
+                      <td className="px-6 py-4">
+                        {row.statut === "A recuperer" ? (
+                          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
+                            A recuperer
+                          </span>
+                        ) : row.statut === "Conforme" ? (
+                          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                            Conforme
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.solde)}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.reserve > 1e-6 ? formatNumber(row.reserve) : "-"}

@@ -322,6 +322,24 @@ export async function messageSiTestLaboInvalide(ligneId: number, code: string): 
 
 export async function messageSiConditionnementInvalide(ligneId: number, code: string): Promise<string | null> {
   if (!code) return null;
+
+  // Statut qualite decide au Test labo - s'applique a TOUT code (y compris
+  // une fiche manuelle), meme principe que testLaboEstFait : un vrac "A
+  // recuperer" ou "A detruire" ne peut jamais etre conditionne tel quel.
+  const { data: rapportData } = await supabaseServer
+    .from("production_rapports")
+    .select("disposition_qualite")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .maybeSingle();
+  const dispositionQualite = (rapportData as { disposition_qualite: string | null } | null)?.disposition_qualite;
+  if (dispositionQualite === "a_recuperer") {
+    return 'Ce vrac est marque "A recuperer" au Test labo - il ne peut pas etre conditionne tel quel.';
+  }
+  if (dispositionQualite === "a_detruire") {
+    return 'Ce vrac est marque "A detruire" au Test labo - il ne peut pas etre conditionne.';
+  }
+
   if (!(await ligneVientDunPogramme(ligneId))) return null;
   if (!(await fabricationDejaProduite(ligneId, code))) {
     return "La Fabrication doit etre faite (vrac produit) avant de pouvoir saisir le Conditionnement pour ce code.";
