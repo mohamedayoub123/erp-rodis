@@ -385,6 +385,148 @@ export function pdLabelsForNumeroLot(
   return labels.length > 0 ? labels.join(", ") : "-";
 }
 
+export type CodeTermineRow = { programme_ligne_id: number; code: string; stage: "vrac" | "carton" | "emballage" };
+
+export async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeTermineRow[]> {
+  if (ligneIds.length === 0) return [];
+
+  const rows: CodeTermineRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("production_code_termine")
+      .select("programme_ligne_id, code, stage")
+      .in("programme_ligne_id", ligneIds)
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as CodeTermineRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+function normalizeArticleNameForRestant(value: string | null) {
+  return (value || "").replace(/ /g, "").trim().toUpperCase();
+}
+
+// Quantite encore a produire (Conditionnement + Emballage cumules, codes
+// deja "Fin programme" exclus) par nom d'article normalise - meme calcul
+// que les colonnes "Restant" du Dashboard Production, mais agrege par
+// article pour les rapports qui n'ont pas besoin du detail par
+// ligne/code (ex: Tableau de commande).
+export async function fetchRestantConditionnementEmballageByArticle(): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+
+  const { rows: allLignes } = await fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true });
+  const activeLigneIds = allLignes.map((ligne) => ligne.id);
+
+  const [cartonEntries, emballageEntries, codeTermineRows] = await Promise.all([
+    fetchAllCartonEntries(activeLigneIds),
+    fetchAllEmballageEntries(activeLigneIds),
+    fetchAllCodeTermineRows(activeLigneIds),
+  ]);
+
+  const terminatedCodes = new Set(
+    codeTermineRows.map((row) => `${row.programme_ligne_id}::${row.code}::${row.stage}`)
+  );
+  function isCodeTerminated(
+    ligneId: number,
+    code: string,
+    stage: "carton" | "emballage",
+    codeCount: number,
+    legacyLigneFlag: boolean
+  ) {
+    if (terminatedCodes.has(`${ligneId}::${code}::${stage}`)) return true;
+    return codeCount <= 1 && legacyLigneFlag;
+  }
+
+  const cartonByLigne = groupCartonEntriesByLigne(cartonEntries) as Map<
+    number,
+    { code: string; quantite: number }[]
+  >;
+  const emballageByLigne = groupCartonEntriesByLigne(emballageEntries) as Map<
+    number,
+    { code: string; quantite: number }[]
+  >;
+
+  for (const ligne of allLignes) {
+    if (ligne.programme_termine) continue;
+
+    const articleKey = normalizeArticleNameForRestant(ligne.produit);
+    if (!articleKey) continue;
+
+    const rawCodes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    const detail = ligne.numero_lot_detail ?? [];
+    const hasDetail = rawCodes.length > 1 && detail.length === rawCodes.length;
+    const codes = rawCodes.length > 0 ? rawCodes : [ligne.numero_lot || "-"];
+
+    const cartonPrevuByCode = new Map<string, number>();
+    if (hasDetail) {
+      for (const entry of detail) {
+        cartonPrevuByCode.set(entry.code, Number(entry.qt_carton ?? 0));
+      }
+    } else {
+      for (const code of codes) {
+        cartonPrevuByCode.set(code, ligne.qt_carton ?? 0);
+      }
+    }
+
+    const cartonEntriesForLigne = cartonByLigne.get(ligne.id) ?? [];
+    const emballageEntriesForLigne = emballageByLigne.get(ligne.id) ?? [];
+
+    const cartonProduitByCode = computeProduitParCode(
+      cartonEntriesForLigne,
+      codes,
+      (code) => cartonPrevuByCode.get(code) ?? 0
+    );
+    const emballageProduitByCode = computeProduitParCode(
+      emballageEntriesForLigne,
+      codes,
+      (code) => cartonProduitByCode.get(code) ?? 0
+    );
+
+    for (const code of codes) {
+      const cartonPrevu = cartonPrevuByCode.get(code) ?? 0;
+      const cartonProduit = cartonProduitByCode.get(code) ?? 0;
+      const cartonRestant = cartonPrevu - cartonProduit;
+      const emballagePrevu = cartonProduit;
+      const emballageProduit = emballageProduitByCode.get(code) ?? 0;
+      const emballageRestant = emballagePrevu - emballageProduit;
+
+      let restant = 0;
+
+      if (
+        !isCodeTerminated(ligne.id, code, "carton", codes.length, ligne.carton_termine) &&
+        cartonRestant >= 1
+      ) {
+        restant += cartonRestant;
+      }
+
+      if (
+        !isCodeTerminated(ligne.id, code, "emballage", codes.length, ligne.emballage_termine) &&
+        emballagePrevu > 0 &&
+        emballageRestant >= 1
+      ) {
+        restant += emballageRestant;
+      }
+
+      if (restant > 0) {
+        result.set(articleKey, (result.get(articleKey) ?? 0) + restant);
+      }
+    }
+  }
+
+  return result;
+}
+
 export function formatDate(value: string | null) {
   if (!value) return "-";
   const date = new Date(value);

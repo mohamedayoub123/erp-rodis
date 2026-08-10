@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { fetchRestantConditionnementEmballageByArticle } from "../production/suivi/data";
 
 type SearchParams = Promise<{
   famille?: string;
@@ -229,7 +230,7 @@ const WHITE_SECRET_SUMMARY_COLUMNS = [
   "TOTAL",
   "STOCK",
   "RESTE",
-  "Qt en cours de fabrication",
+  "Qt en cours de Conditionnement",
   "STOCK ALERTE PROD",
   "PREVISION SERVICE COMERC",
   "stock moin de 4 mois",
@@ -573,7 +574,7 @@ function renderArticleManquantInsideTableau(
   selectedFamille: string,
   commandColumns: CommandColumn[],
   sections: ManquantFamilySection[],
-  qtEnCoursFabricationByArticleKey: Map<string, number>,
+  qtEnCoursConditionnementByArticleKey: Map<string, number>,
   hideStand: boolean = false
 ) {
   const visibleCommandColumns = commandColumns.filter(
@@ -744,7 +745,7 @@ function renderArticleManquantInsideTableau(
                         RESTE
                       </th>
                       <th rowSpan={3} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
-                        Qt en cours de fabrication
+                        Qt en cours de Conditionnement
                       </th>
                     </tr>
                     <tr>
@@ -780,8 +781,8 @@ function renderArticleManquantInsideTableau(
                       </tr>,
                       ...rows.map((row) => {
                         const { totalCommande, reste } = row;
-                        const qtEnCoursFabrication = Number(
-                          qtEnCoursFabricationByArticleKey.get(normalizeArticle(row.article)) ?? 0
+                        const qtEnCoursConditionnement = Number(
+                          qtEnCoursConditionnementByArticleKey.get(normalizeArticle(row.article)) ?? 0
                         );
                         const isGreenRow = row.article.toLowerCase().includes("bl transforme");
                         const articleCellClass =
@@ -825,7 +826,7 @@ function renderArticleManquantInsideTableau(
                               {formatQuantity(reste)}
                             </td>
                             <td className={`border border-slate-700 px-2 py-1 text-center font-medium ${summaryFillClass}`}>
-                              {qtEnCoursFabrication > 0 ? formatQuantity(qtEnCoursFabrication) : ""}
+                              {qtEnCoursConditionnement > 0 ? formatQuantity(qtEnCoursConditionnement) : ""}
                             </td>
                           </tr>
                         );
@@ -888,7 +889,7 @@ function renderWhiteSecretEmptyTemplate(
   commandColumns: CommandColumn[],
   quantitiesByArticle: Map<string, Map<string, number>>,
   stockByArticle: Map<string, number>,
-  qtEnCoursFabricationByArticleKey: Map<string, number>,
+  qtEnCoursConditionnementByArticleKey: Map<string, number>,
   hideStand: boolean
 ) {
   const visibleCommandColumns = commandColumns.filter(
@@ -1129,8 +1130,8 @@ function renderWhiteSecretEmptyTemplate(
                   }, 0);
                   const articleStock = Number(stockByArticle.get(articleKey) ?? 0);
                   const articleReste = articleStock - rowTotal;
-                  const qtEnCoursFabrication = Number(
-                    qtEnCoursFabricationByArticleKey.get(articleKey) ?? 0
+                  const qtEnCoursConditionnement = Number(
+                    qtEnCoursConditionnementByArticleKey.get(articleKey) ?? 0
                   );
                   const lineFillClass = articleReste < 0 ? "bg-[#fff59d] text-slate-950" : "bg-white";
                   const articleCellClass = articleReste < 0
@@ -1177,8 +1178,8 @@ function renderWhiteSecretEmptyTemplate(
                               ? formatQuantity(articleStock)
                               : index === 2
                                 ? formatQuantity(articleReste)
-                                : index === 3 && qtEnCoursFabrication > 0
-                                  ? formatQuantity(qtEnCoursFabrication)
+                                : index === 3 && qtEnCoursConditionnement > 0
+                                  ? formatQuantity(qtEnCoursConditionnement)
                                   : ""}
                         </td>
                       ))}
@@ -1201,7 +1202,7 @@ function renderGenericFamilyTemplate(
   commandColumns: CommandColumn[],
   quantitiesByArticle: Map<string, Map<string, number>>,
   stockByArticle: Map<string, number>,
-  qtEnCoursFabricationByArticleKey: Map<string, number>,
+  qtEnCoursConditionnementByArticleKey: Map<string, number>,
   subGammeByArticleKey?: Map<string, { label: string; bannerClass: string }>,
   hideStand: boolean = false
 ) {
@@ -1354,7 +1355,7 @@ function renderGenericFamilyTemplate(
                     RESTE
                   </th>
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
-                    Qt en cours de fabrication
+                    Qt en cours de Conditionnement
                   </th>
                 </tr>
                 <tr>
@@ -1431,8 +1432,8 @@ function renderGenericFamilyTemplate(
                   );
                   const stock = Number(stockByArticle.get(articleKey) ?? 0);
                   const reste = stock - totalCommande;
-                  const qtEnCoursFabrication = Number(
-                    qtEnCoursFabricationByArticleKey.get(articleKey) ?? 0
+                  const qtEnCoursConditionnement = Number(
+                    qtEnCoursConditionnementByArticleKey.get(articleKey) ?? 0
                   );
                   const isGreenRow = article.toLowerCase().includes("bl transforme");
                   const articleCellClass =
@@ -1497,7 +1498,7 @@ function renderGenericFamilyTemplate(
                         {formatQuantity(reste)}
                       </td>
                       <td className={`border border-slate-700 px-2 py-1 font-medium ${summaryFillClass}`}>
-                        {qtEnCoursFabrication > 0 ? formatQuantity(qtEnCoursFabrication) : ""}
+                        {qtEnCoursConditionnement > 0 ? formatQuantity(qtEnCoursConditionnement) : ""}
                       </td>
                     </tr>
                   );
@@ -1540,11 +1541,15 @@ async function fetchAllArticlesForMissingReport() {
   return rows;
 }
 
-// Quantite deja emballee (Suivi Production) mais pas encore validee dans
-// le stock (meme liste que "Entree Production" - transfere_stock=false) -
-// cle par nom d'article normalise pour matcher les autres maps de cette
-// page (stockByArticle, quantitiesByArticle...).
-async function fetchQtEnCoursFabricationByArticle() {
+// "Qt en cours de Conditionnement" par article, cle par nom d'article
+// normalise pour matcher les autres maps de cette page (stockByArticle,
+// quantitiesByArticle...) - deux morceaux additionnes :
+// 1. Deja emballe (Suivi Production) mais pas encore valide dans le stock
+//    (meme liste que "Entree Production" - transfere_stock=false).
+// 2. Encore a produire au Conditionnement/Emballage (meme calcul que les
+//    colonnes "Restant" du Dashboard Production), donc pas encore compte
+//    dans la liste "Entree Production" ci-dessus.
+async function fetchQtEnCoursConditionnementByArticle() {
   const map = new Map<string, number>();
 
   const { data: pendingData, error: pendingError } = await supabaseServer
@@ -1553,47 +1558,35 @@ async function fetchQtEnCoursFabricationByArticle() {
     .eq("transfere_stock", false)
     .limit(10000);
 
-  if (pendingError) return map;
-
   const pendingRows =
-    (pendingData as { programme_ligne_id: number | null; quantite: number | null }[] | null) ?? [];
+    !pendingError && pendingData
+      ? (pendingData as { programme_ligne_id: number | null; quantite: number | null }[])
+      : [];
 
   const ligneIds = [
     ...new Set(pendingRows.map((row) => Number(row.programme_ligne_id ?? 0)).filter((id) => id > 0)),
   ];
 
-  if (ligneIds.length === 0) return map;
+  if (ligneIds.length > 0) {
+    const { data: lignesData } = await supabaseServer
+      .from("programme_lignes")
+      .select("id, produit")
+      .in("id", ligneIds);
 
-  const { data: lignesData } = await supabaseServer
-    .from("programme_lignes")
-    .select("id, article_id")
-    .in("id", ligneIds);
+    const lignes = (lignesData as { id: number; produit: string | null }[] | null) ?? [];
+    const produitByLigneId = new Map(lignes.map((ligne) => [ligne.id, ligne.produit || ""]));
 
-  const lignes = (lignesData as { id: number; article_id: number | null }[] | null) ?? [];
-  const articleIdByLigneId = new Map(lignes.map((ligne) => [ligne.id, ligne.article_id]));
+    for (const row of pendingRows) {
+      const articleKey = normalizeArticle(produitByLigneId.get(Number(row.programme_ligne_id ?? 0)) || "");
+      if (!articleKey) continue;
 
-  const articleIds = [
-    ...new Set(lignes.map((ligne) => Number(ligne.article_id ?? 0)).filter((id) => id > 0)),
-  ];
+      map.set(articleKey, Number(map.get(articleKey) ?? 0) + Number(row.quantite ?? 0));
+    }
+  }
 
-  if (articleIds.length === 0) return map;
-
-  const { data: articlesData } = await supabaseServer
-    .from("articles")
-    .select("id, nom_article")
-    .in("id", articleIds);
-
-  const articles = (articlesData as { id: number; nom_article: string | null }[] | null) ?? [];
-  const articleNameById = new Map(articles.map((article) => [article.id, article.nom_article || ""]));
-
-  for (const row of pendingRows) {
-    const articleId = articleIdByLigneId.get(Number(row.programme_ligne_id ?? 0));
-    if (!articleId) continue;
-
-    const articleKey = normalizeArticle(articleNameById.get(articleId) || "");
-    if (!articleKey) continue;
-
-    map.set(articleKey, Number(map.get(articleKey) ?? 0) + Number(row.quantite ?? 0));
+  const restantConditionnementEmballage = await fetchRestantConditionnementEmballageByArticle();
+  for (const [articleKey, restant] of restantConditionnementEmballage) {
+    map.set(articleKey, Number(map.get(articleKey) ?? 0) + restant);
   }
 
   return map;
@@ -1610,7 +1603,7 @@ export default async function TableauCommandesPage({
   const hideStand = String(params.hideStand || "").trim() === "1";
   const viewQuery = String(params.vue || "").trim().toLowerCase();
   const showMissingView = viewQuery === "manquant";
-  const qtEnCoursFabricationByArticle = await fetchQtEnCoursFabricationByArticle();
+  const qtEnCoursConditionnementByArticle = await fetchQtEnCoursConditionnementByArticle();
 
   if (showMissingView) {
     const selectedFamille = familleQuery || "";
@@ -1844,7 +1837,7 @@ export default async function TableauCommandesPage({
       selectedFamille,
       sharedCommandColumns,
       sections,
-      qtEnCoursFabricationByArticle,
+      qtEnCoursConditionnementByArticle,
       hideStand
     );
   }
@@ -2489,7 +2482,7 @@ export default async function TableauCommandesPage({
         allActiveCommandColumns,
         whiteSecretQuantitiesByArticle,
         whiteSecretStockByArticle,
-        qtEnCoursFabricationByArticle,
+        qtEnCoursConditionnementByArticle,
         hideStand
       );
     }
@@ -2502,7 +2495,7 @@ export default async function TableauCommandesPage({
         allActiveCommandColumns,
         genericFamilyQuantitiesByArticle,
         genericFamilyStockByArticle,
-        qtEnCoursFabricationByArticle,
+        qtEnCoursConditionnementByArticle,
         genericFamilySubGammeByArticleKey,
         hideStand
       );
@@ -2567,7 +2560,7 @@ export default async function TableauCommandesPage({
       allActiveCommandColumns,
       whiteSecretQuantitiesByArticle,
       whiteSecretStockByArticle,
-      qtEnCoursFabricationByArticle,
+      qtEnCoursConditionnementByArticle,
       hideStand
     );
   }
@@ -2580,7 +2573,7 @@ export default async function TableauCommandesPage({
       allActiveCommandColumns,
       genericFamilyQuantitiesByArticle,
       genericFamilyStockByArticle,
-      qtEnCoursFabricationByArticle,
+      qtEnCoursConditionnementByArticle,
       genericFamilySubGammeByArticleKey
     );
   }
