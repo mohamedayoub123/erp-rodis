@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
+  canDeletePageUser,
   canWritePageUser,
   getCurrentStockUser,
 } from "@/lib/stock-auth";
@@ -60,6 +61,14 @@ async function requireArticlesEditAccess() {
 
   if (!(await canWritePageUser(currentUser, "articlesProduitFini"))) {
     throw new Error("Cet utilisateur ne peut pas modifier les articles.");
+  }
+}
+
+async function requireArticlesDeleteAccess() {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canDeletePageUser(currentUser, "articlesProduitFini"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer les articles.");
   }
 }
 
@@ -158,6 +167,36 @@ export async function updateArticleAction(formData: FormData) {
     .eq("id", articleId);
 
   if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/articles/produit-fini");
+  revalidatePath("/stock");
+  revalidatePath("/");
+  revalidatePath("/admin");
+  revalidatePath("/tableau-commandes");
+}
+
+// Refuse (contrainte de cle etrangere) si l'article a deja des lots/
+// mouvements de stock, des commandes, etc. lies - evite de supprimer
+// silencieusement un article encore utilise dans l'historique.
+export async function deleteArticleAction(formData: FormData) {
+  await requireArticlesDeleteAccess();
+
+  const articleId = Number(String(formData.get("article_id") || "0"));
+
+  if (!articleId) {
+    throw new Error("Article invalide.");
+  }
+
+  const { error } = await supabaseServer.from("articles").delete().eq("id", articleId);
+
+  if (error) {
+    if (error.code === "23503") {
+      throw new Error(
+        "Impossible de supprimer : cet article a deja des mouvements de stock ou des commandes enregistres."
+      );
+    }
     throw new Error(error.message);
   }
 

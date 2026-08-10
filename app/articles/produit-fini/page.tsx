@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { updateArticleAction } from "./actions";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { deleteArticleAction, updateArticleAction } from "./actions";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { ArticlesFilterForm } from "./filter-form";
 import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
 import { matchesArticleSearch } from "@/lib/article-search";
@@ -96,6 +97,7 @@ export default async function ArticlesProduitFiniPage({
   const currentStockUser = await getCurrentStockUser();
   const canWriteArticles = await canWritePageUser(currentStockUser, "articlesProduitFiniNouvelle");
   const canEditArticles = await canWritePageUser(currentStockUser, "articlesProduitFini");
+  const canDeleteArticles = await canDeletePageUser(currentStockUser, "articlesProduitFini");
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const q = (params.q || "").trim();
   const type = (params.type || "").trim();
@@ -247,6 +249,7 @@ export default async function ArticlesProduitFiniPage({
                       <th className="px-6 py-4 font-semibold">Etiquette</th>
                       <th className="px-6 py-4 font-semibold">Etui</th>
                       {canEditArticles ? <th className="px-6 py-4 font-semibold">Modifier</th> : null}
+                      {canDeleteArticles ? <th className="px-6 py-4 font-semibold">Supprimer</th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -495,6 +498,14 @@ export default async function ArticlesProduitFiniPage({
                                 </div>
                               </form>
                             </details>
+                          </td>
+                        ) : null}
+                        {canDeleteArticles ? (
+                          <td className="px-6 py-4">
+                            <form action={deleteArticleAction}>
+                              <input type="hidden" name="article_id" value={article.id} />
+                              <DeleteIconButton label="Supprimer article" />
+                            </form>
                           </td>
                         ) : null}
                       </tr>
