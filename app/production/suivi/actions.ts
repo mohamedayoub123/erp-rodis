@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
+import { fetchTotalStockInDepot, fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
 
 function revalidateSuiviPages() {
   revalidatePath("/production/suivi");
@@ -165,6 +165,39 @@ export async function markCartonTermineAction(formData: FormData) {
   if (ligneId && code) {
     await releaseRemainingMpReserve(ligneId, code, "salle_conditionnement");
   }
+}
+
+// Utilise par la page "Besoin" quand l'utilisateur choisit/change un
+// article MP sur une ligne (ligne auto-calculee depuis la recette ou
+// ligne ajoutee a la main) - renvoie l'unite, le disponible reel (stock -
+// deja reserve ailleurs, meme calcul que le chargement initial de la
+// page) et les lots existants au Depot B pour peupler le select.
+export async function fetchBesoinArticleInfoAction(articleMpId: number, depotId: number) {
+  if (!articleMpId || !depotId) {
+    return { unite: "-", disponible: 0, lots: [] as { numeroLot: string; solde: number }[] };
+  }
+
+  const [{ data: articleData }, stockReel, lots, { data: reserveData }] = await Promise.all([
+    supabaseServer.from("articles_matiere_premiere").select("unite").eq("id", articleMpId).maybeSingle(),
+    fetchTotalStockInDepot("MP", articleMpId, depotId),
+    fetchLotsInDepot("MP", articleMpId, depotId),
+    supabaseServer
+      .from("production_mp_reserve")
+      .select("quantite")
+      .eq("depot_id", depotId)
+      .eq("article_mp_id", articleMpId),
+  ]);
+
+  const dejaReserve = ((reserveData ?? []) as { quantite: number }[]).reduce(
+    (sum, r) => sum + Number(r.quantite ?? 0),
+    0
+  );
+
+  return {
+    unite: (articleData as { unite: string | null } | null)?.unite ?? "-",
+    disponible: Math.max(0, stockReel - dejaReserve),
+    lots: lots.map((l) => ({ numeroLot: l.numeroLot, solde: l.solde })),
+  };
 }
 
 // Utilise depuis la page "Besoin" (Salle de pesage/conditionnement,

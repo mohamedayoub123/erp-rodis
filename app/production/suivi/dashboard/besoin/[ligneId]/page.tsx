@@ -8,7 +8,7 @@ import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { formatDate } from "@/lib/format-date";
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { fetchLotsInDepot, fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
-import { validerBatchAction } from "../../../actions";
+import { BesoinRowsEditor } from "./besoin-rows-editor";
 
 type LigneRow = { id: number; article_id: number | null; produit: string | null; date_jour: string };
 type ArticleRow = { id: number; nom_article: string; quantite_recette_base: number | null; vrac_article_id: number | null };
@@ -155,6 +155,26 @@ export default async function BesoinBatchPage({
   );
   rows.sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
+  // Liste complete des matieres premieres pour le picker "Ajouter un
+  // article"/modifier un article existant - PostgREST plafonne a 1000
+  // lignes, pagine par securite meme si le catalogue MP actuel tient
+  // largement dans une seule page.
+  const mpArticleOptions: { id: number; label: string }[] = [];
+  let mpFromIndex = 0;
+  const mpPageSize = 1000;
+  while (true) {
+    const { data: mpData, error: mpListError } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("id, nom_article")
+      .order("nom_article", { ascending: true })
+      .range(mpFromIndex, mpFromIndex + mpPageSize - 1);
+    if (mpListError) break;
+    const chunk = (mpData as { id: number; nom_article: string }[] | null) ?? [];
+    mpArticleOptions.push(...chunk.map((a) => ({ id: a.id, label: a.nom_article })));
+    if (chunk.length < mpPageSize) break;
+    mpFromIndex += mpPageSize;
+  }
+
   const label =
     stage === "vrac" ? vracArticleNom || vracLabelFromName(ligne.produit) || "-" : ligne.produit || "-";
 
@@ -181,131 +201,32 @@ export default async function BesoinBatchPage({
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          {!depotBId ? (
-            <div className="px-6 py-8">
-              <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-                Aucun depot nomme &quot;Depot B&quot; - cree-le depuis Entrepot.
-              </p>
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="px-6 py-8 text-sm text-slate-500">
-              Aucune recette trouvee pour cet article.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-6 py-4 font-semibold">Article MP</th>
-                    <th className="px-6 py-4 font-semibold">Unite</th>
-                    <th className="px-6 py-4 font-semibold">Besoin</th>
-                    <th className="px-6 py-4 font-semibold">Disponible Depot B</th>
-                    <th className="px-6 py-4 font-semibold">Numero de lot</th>
-                    <th className="px-6 py-4 font-semibold"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    const insuffisant = row.besoin > row.stock;
-                    return (
-                      <tr key={row.id} className="border-t border-slate-100">
-                        <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
-                        <td className="px-6 py-4 text-slate-600">{row.unite}</td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {row.besoin.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {row.stock.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
-                        </td>
-                        <td className="px-6 py-4">
-                          {canWrite ? (
-                            row.lots.length === 0 ? (
-                              <span className="text-xs font-semibold text-red-700">Aucun lot au Depot B</span>
-                            ) : (
-                              <select
-                                form="valider-form"
-                                name="numero_lot_mp"
-                                required
-                                defaultValue=""
-                                className="w-52 rounded-2xl border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900 outline-none"
-                              >
-                                <option value="" disabled>
-                                  Choisis un lot
-                                </option>
-                                {row.lots.map((lot) => (
-                                  <option key={lot.numeroLot} value={lot.numeroLot}>
-                                    {lot.numeroLot || "(sans numero)"} - dispo {lot.solde.toLocaleString("fr-FR")}
-                                  </option>
-                                ))}
-                              </select>
-                            )
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          {insuffisant ? (
-                            <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
-                              Insuffisant
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                              OK
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        {erreur ? (
-          <section className="no-print rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
-            {erreur}
+        {!depotBId ? (
+          <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white p-8 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              Aucun depot nomme &quot;Depot B&quot; - cree-le depuis Entrepot.
+            </p>
           </section>
-        ) : null}
+        ) : (
+          <>
+            {erreur ? (
+              <section className="no-print rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
+                {erreur}
+              </section>
+            ) : null}
 
-        {canWrite ? (
-          <section className="no-print rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            {(() => {
-              const anyInsuffisant = rows.some((row) => row.besoin > row.stock);
-              return (
-                <form id="valider-form" action={validerBatchAction} className="flex flex-wrap items-end gap-4">
-                  <input type="hidden" name="ligne_id" value={ligneIdNumber} />
-                  <input type="hidden" name="code" value={code} />
-                  <input type="hidden" name="stage" value={stage} />
-                  <input type="hidden" name="qt" value={qt} />
-                  {rows.map((row) => (
-                    <span key={row.id}>
-                      <input type="hidden" name="article_mp_id" value={row.id} />
-                      <input type="hidden" name="besoin" value={row.besoin} />
-                    </span>
-                  ))}
-                  {/* Le numero de lot du produit fini EST le code (deja connu, voir
-                      l'entete de la page) - inutile de le refaire taper. */}
-                  <input type="hidden" name="numero_lot" value={code} />
-                  <button
-                    type="submit"
-                    disabled={anyInsuffisant}
-                    className="rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  >
-                    Valider - le batch est fait
-                  </button>
-                  {anyInsuffisant ? (
-                    <p className="w-full text-xs font-semibold text-red-700">
-                      Stock Depot B insuffisant pour au moins une matiere premiere - validation impossible.
-                    </p>
-                  ) : null}
-                </form>
-              );
-            })()}
-          </section>
-        ) : null}
+            <BesoinRowsEditor
+              ligneId={ligneIdNumber}
+              code={code}
+              stage={stage}
+              qt={qt}
+              depotBId={depotBId}
+              canWrite={canWrite}
+              initialRows={rows}
+              mpArticleOptions={mpArticleOptions}
+            />
+          </>
+        )}
       </div>
     </main>
   );
