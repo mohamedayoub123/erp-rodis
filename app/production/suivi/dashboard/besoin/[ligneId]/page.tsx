@@ -281,16 +281,9 @@ export default async function BesoinBatchPage({
                       <input type="hidden" name="besoin" value={row.besoin} />
                     </span>
                   ))}
-                  <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Numero de lot
-                    <input
-                      type="text"
-                      name="numero_lot"
-                      placeholder="Numero de lot reel"
-                      required
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal normal-case text-slate-900 outline-none"
-                    />
-                  </label>
+                  {/* Le numero de lot du produit fini EST le code (deja connu, voir
+                      l'entete de la page) - inutile de le refaire taper. */}
+                  <input type="hidden" name="numero_lot" value={code} />
                   <button
                     type="submit"
                     disabled={anyInsuffisant}
