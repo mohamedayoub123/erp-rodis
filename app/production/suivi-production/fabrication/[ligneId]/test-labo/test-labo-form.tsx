@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { saveTestLaboAction, ajouterAjustementMpTestLaboAction } from "../../../actions";
 import { ProduitPickerField } from "../../../produit-picker-field";
+import { fetchAvailableLotsAction } from "@/app/depots/transfer-order/actions";
 
 type RapportInfo = {
   ph: number | null;
@@ -80,16 +81,33 @@ export function TestLaboForm({
   rapport,
   spec,
   mpArticles,
+  depotBId,
 }: {
   ligneId: number;
   code: string;
   rapport: RapportInfo | null;
   spec: SpecInfo | null;
   mpArticles: { id: number; label: string }[];
+  depotBId: number | null;
 }) {
   const [stabilite, setStabilite] = useState(rapport?.stabilite || "");
   const [couleur, setCouleur] = useState(rapport?.couleur || "");
   const [showAjustement, setShowAjustement] = useState(false);
+  const [mpArticleId, setMpArticleId] = useState<number | null>(null);
+  const [mpLots, setMpLots] = useState<{ numeroLot: string; solde: number }[]>([]);
+  const [numeroLot, setNumeroLot] = useState("");
+  const [isLoadingLots, startLoadingLots] = useTransition();
+
+  function handleSelectMpArticle(articleId: number | null) {
+    setMpArticleId(articleId);
+    setNumeroLot("");
+    setMpLots([]);
+    if (!articleId || !depotBId) return;
+    startLoadingLots(async () => {
+      const lots = await fetchAvailableLotsAction("MP", articleId, depotBId);
+      setMpLots(lots.map((lot) => ({ numeroLot: lot.numeroLot, solde: lot.solde })));
+    });
+  }
 
   const stabiliteNonConforme = Boolean(spec?.stabilite) && stabilite !== "" && stabilite !== spec?.stabilite;
   const couleurNonConforme =
@@ -205,11 +223,38 @@ export function TestLaboForm({
             <div className="grid gap-4 md:grid-cols-4">
               <div className="md:col-span-2">
                 <span className="mb-1 block text-xs font-semibold text-slate-500">Matiere premiere</span>
-                <ProduitPickerField articles={mpArticles} hiddenName="article_id" textName="produit_mp" />
+                <ProduitPickerField
+                  articles={mpArticles}
+                  hiddenName="article_id"
+                  textName="produit_mp"
+                  onSelect={handleSelectMpArticle}
+                />
               </div>
               <label className="grid gap-1 text-xs font-semibold text-slate-500">
                 N lot
-                <input type="text" name="numero_lot" required className={inputClass} />
+                <select
+                  name="numero_lot"
+                  value={numeroLot}
+                  onChange={(e) => setNumeroLot(e.target.value)}
+                  required
+                  disabled={!mpArticleId || isLoadingLots}
+                  className={inputClass}
+                >
+                  <option value="">
+                    {!mpArticleId
+                      ? "Choisis d'abord un article"
+                      : isLoadingLots
+                        ? "Chargement..."
+                        : mpLots.length === 0
+                          ? "Aucun lot disponible"
+                          : "-"}
+                  </option>
+                  {mpLots.map((lot) => (
+                    <option key={lot.numeroLot} value={lot.numeroLot}>
+                      {lot.numeroLot} - disponible {lot.solde.toLocaleString("fr-FR")}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="grid gap-1 text-xs font-semibold text-slate-500">
                 Quantite

@@ -145,6 +145,17 @@ export default async function TestLaboPage({
     fromIndex += pageSize;
   }
 
+  // L'ajustement matiere premiere sort toujours du Depot B (meme depot que
+  // toute la consommation Fabrication) - transmis au formulaire pour lister
+  // uniquement les lots reellement disponibles a cet endroit, au lieu de
+  // laisser taper un numero de lot au hasard.
+  const { data: depotBData } = await supabaseServer
+    .from("depots")
+    .select("id")
+    .ilike("nom", "Depot B")
+    .maybeSingle();
+  const depotBId = (depotBData as { id: number } | null)?.id ?? null;
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f6f0ff_0%,#faf8ff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -207,6 +218,7 @@ export default async function TestLaboPage({
               rapport={rapport}
               spec={spec}
               mpArticles={mpArticles}
+              depotBId={depotBId}
             />
           )}
         </section>
