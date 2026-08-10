@@ -164,6 +164,15 @@ async function consommerVracConditionnement(
   ]);
   if (!depotBId || !vracArticleId) return ancienVracConsomme;
 
+  // lots_stock.numero_lot est NOT NULL - une Salle de conditionnement
+  // validee sans numero de lot saisi (champ optionnel jusqu'ici sur la page
+  // Besoin) faisait planter cet insert avec une erreur Postgres illisible.
+  if (!numeroLot) {
+    throw new Error(
+      "Le numero de lot de la Salle de conditionnement est manquant pour ce code - retourne le renseigner (Dashboard > Valider) avant de sauvegarder le Conditionnement."
+    );
+  }
+
   const { error } = await supabaseServer.from("lots_stock").insert({
     article_id: vracArticleId,
     numero_lot: numeroLot,
@@ -499,10 +508,22 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     .eq("code", code)
     .maybeSingle();
   const ancienVracConsomme = Number((existingRapportData as { vrac_consomme: number | null } | null)?.vrac_consomme ?? 0);
-  const nouveauVracConsomme =
-    qtFabriquer && qtFabriquer > 0
-      ? await consommerVracConditionnement(ligneId, code, qtFabriquer, ancienVracConsomme, currentUser)
-      : ancienVracConsomme;
+
+  let nouveauVracConsomme = ancienVracConsomme;
+  let erreurVracConsomme: string | null = null;
+  if (qtFabriquer && qtFabriquer > 0) {
+    try {
+      nouveauVracConsomme = await consommerVracConditionnement(ligneId, code, qtFabriquer, ancienVracConsomme, currentUser);
+    } catch (error) {
+      erreurVracConsomme = error instanceof Error ? error.message : "Erreur lors de la consommation du vrac.";
+    }
+  }
+
+  if (erreurVracConsomme) {
+    redirect(
+      `/production/suivi-production/conditionnement/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurVracConsomme)}`
+    );
+  }
 
   await upsertRapport(ligneId, code, {
     chef_zone: parseOptionalText(formData, "chef_zone"),

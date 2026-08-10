@@ -81,6 +81,19 @@ export async function validerBatchAction(formData: FormData) {
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();
   const qt = String(formData.get("qt") || "");
+  const numeroLot = String(formData.get("numero_lot") || "").trim();
+
+  // Ce numero de lot alimente ensuite lots_stock.numero_lot (NOT NULL) au
+  // credit Fabrication et a la consommation Conditionnement - le laisser
+  // vide ici faisait planter ces sauvegardes bien plus tard avec une
+  // erreur Postgres illisible au lieu d'etre bloque des la validation.
+  if (!numeroLot) {
+    redirect(
+      `/production/suivi/dashboard/besoin/${ligneId}?code=${encodeURIComponent(code)}&stage=${besoinStage}&qt=${encodeURIComponent(qt)}&erreur=${encodeURIComponent(
+        "Le numero de lot est obligatoire pour valider."
+      )}`
+    );
+  }
 
   const articleMpIds = formData.getAll("article_mp_id");
   const besoins = formData.getAll("besoin");

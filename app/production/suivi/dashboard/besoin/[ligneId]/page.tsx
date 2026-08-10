@@ -253,6 +253,7 @@ export default async function BesoinBatchPage({
                       type="text"
                       name="numero_lot"
                       placeholder="Numero de lot reel"
+                      required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal normal-case text-slate-900 outline-none"
                     />
                   </label>
