@@ -88,6 +88,9 @@ export const navItems: NavItem[] = [
       "/production",
       "/historique-programme-dispatcher",
       "/code-par-article",
+      "/programe-par-ligne",
+      "/historique-programme",
+      "/ravitailleur-par-ligne",
     ],
     subLinks: [
       { href: "/production/suivi", label: "Planning Production", pageKey: "productionSuiviHub" },
@@ -96,6 +99,9 @@ export const navItems: NavItem[] = [
         label: "Suivi Production",
         pageKey: "productionSuiviProductionListe",
       },
+      { href: "/programe-par-ligne", label: "Programme par ligne", pageKey: "programeParLigne" },
+      { href: "/historique-programme", label: "Historique programme", pageKey: "historiqueProgramme" },
+      { href: "/ravitailleur-par-ligne", label: "Ravitailleur par ligne", pageKey: "ravitailleurParLigne" },
       {
         href: "/historique-programme-dispatcher",
         label: "Historique Programme Dispatcher",

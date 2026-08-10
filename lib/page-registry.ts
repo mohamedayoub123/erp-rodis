@@ -423,6 +423,24 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "programeParLigne",
+    module: "Production",
+    label: "Programme par ligne (grille zone/chaine)",
+    pathPrefixes: ["/programe-par-ligne"],
+  },
+  {
+    key: "historiqueProgramme",
+    module: "Production",
+    label: "Historique programme (PL)",
+    pathPrefixes: ["/historique-programme"],
+  },
+  {
+    key: "ravitailleurParLigne",
+    module: "Production",
+    label: "Ravitailleur par ligne (vue live par zone)",
+    pathPrefixes: ["/ravitailleur-par-ligne"],
+  },
+  {
     key: "qualiteSpecs",
     module: "Production",
     label: "Specs Labo Vrac (pH, viscosite, densite, degre alcool, stabilite, couleur)",
