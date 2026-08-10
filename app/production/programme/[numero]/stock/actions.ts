@@ -228,6 +228,7 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
           famille_produit: groupe,
           type_mp: sousGroupe === "Colorant-Base" ? "MP" : "Conditionnement",
           numero: nextNumero,
+          source_numero_programme: numeroProgramme,
         })
         .select("id")
         .single();

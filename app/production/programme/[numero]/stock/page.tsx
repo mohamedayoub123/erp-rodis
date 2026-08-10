@@ -151,6 +151,32 @@ export default async function ProgrammeVerifierStockPage({
     }))
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
+  // "Creer les Transfer Order" bloque si ce programme est deja entierement
+  // couvert par des Transfer Order existants (source_numero_programme) -
+  // reste possible si aucun n'existe encore (jamais cree, ou tous
+  // supprimes), ou si un manque de stock au moment de leur creation n'a pas
+  // couvert tout le besoin (compare quantite_demandee cumulee vs besoin).
+  const { data: existingTransferOrdersData } = await supabaseServer
+    .from("transfer_orders")
+    .select("id")
+    .eq("source_numero_programme", numeroProgramme);
+  const existingTransferOrderIds = ((existingTransferOrdersData ?? []) as { id: number }[]).map((t) => t.id);
+
+  let dejaEntierementCouvert = false;
+  if (existingTransferOrderIds.length > 0) {
+    const { data: existingLignesData } = await supabaseServer
+      .from("transfer_order_lignes")
+      .select("article_id, quantite_demandee")
+      .in("transfer_order_id", existingTransferOrderIds)
+      .eq("article_type", "MP");
+    const couvertParMp = new Map<number, number>();
+    for (const l of (existingLignesData ?? []) as { article_id: number; quantite_demandee: number }[]) {
+      couvertParMp.set(l.article_id, (couvertParMp.get(l.article_id) ?? 0) + Number(l.quantite_demandee ?? 0));
+    }
+    dejaEntierementCouvert = mpIds.every((mpId) => (couvertParMp.get(mpId) ?? 0) + 1e-6 >= (besoinParMp.get(mpId) ?? 0));
+  }
+  const peutCreerTransferOrders = existingTransferOrderIds.length === 0 || !dejaEntierementCouvert;
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
@@ -171,7 +197,7 @@ export default async function ProgrammeVerifierStockPage({
           <div className="flex items-center gap-3">
             <BackButton href={`/production/programme/${numeroProgramme}`} label="Retour" />
             <RefreshButton />
-            {canCreateTransferOrders ? (
+            {canCreateTransferOrders && peutCreerTransferOrders ? (
               <form action={autoCreateTransferOrdersAction}>
                 <input type="hidden" name="numero_programme" value={numeroProgramme} />
                 <button
@@ -184,6 +210,13 @@ export default async function ProgrammeVerifierStockPage({
             ) : null}
           </div>
         </div>
+
+        {!peutCreerTransferOrders ? (
+          <div className="rounded-[2rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-medium text-amber-800">
+            Des Transfer Order couvrant tout le besoin de ce programme existent deja. Supprime-les
+            d&apos;abord (page Transfer Order) si tu veux en recreer.
+          </div>
+        ) : null}
 
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           {error || finalError ? (
