@@ -125,7 +125,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
     lignes.map(async (ligne) => {
       const [nom, lotsDisponibles] = await Promise.all([
         fetchNomArticle(ligne.article_type, ligne.article_id),
-        fetchLotsInDepot(ligne.article_type, ligne.article_id, transferOrder.depot_source_id),
+        fetchLotsInDepot(ligne.article_type, ligne.article_id, transferOrder.depot_source_id, transferOrder.id),
       ]);
       return { ...ligne, nom, lotsDisponibles };
     })

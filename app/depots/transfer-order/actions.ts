@@ -188,7 +188,12 @@ export async function approveTransferOrderAction(formData: FormData) {
   }
 
   for (const ligne of lignes) {
-    const lots = await fetchLotsInDepot(ligne.article_type, ligne.article_id, transferOrder.depot_source_id);
+    const lots = await fetchLotsInDepot(
+      ligne.article_type,
+      ligne.article_id,
+      transferOrder.depot_source_id,
+      transferOrderId
+    );
     const { allocations } = allocateFefo(lots, ligne.quantite_demandee);
 
     if (allocations.length === 0) continue;
@@ -285,7 +290,7 @@ export async function updateAllLigneLotsAction(formData: FormData) {
     const cacheKey = `${ligne.article_type}::${ligne.article_id}`;
     let lots = lotsCache.get(cacheKey);
     if (!lots) {
-      lots = await fetchLotsInDepot(ligne.article_type, ligne.article_id, depotSourceId);
+      lots = await fetchLotsInDepot(ligne.article_type, ligne.article_id, depotSourceId, transferOrderId);
       lotsCache.set(cacheKey, lots);
     }
 
