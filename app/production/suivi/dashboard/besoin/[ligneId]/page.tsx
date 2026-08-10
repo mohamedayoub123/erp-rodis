@@ -7,7 +7,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { formatDate } from "@/lib/format-date";
 import { vracLabelFromName } from "@/lib/gamme-families";
-import { fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
+import { fetchLotsInDepot, fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
 import { validerBatchAction } from "../../../actions";
 
 type LigneRow = { id: number; article_id: number | null; produit: string | null; date_jour: string };
@@ -129,7 +129,14 @@ export default async function BesoinBatchPage({
 
   const rows = await Promise.all(
     mpIds.map(async (mpId) => {
-      const stockReel = depotBId ? await fetchTotalStockInDepot("MP", mpId, depotBId) : 0;
+      const [stockReel, lots] = await Promise.all([
+        depotBId ? fetchTotalStockInDepot("MP", mpId, depotBId) : Promise.resolve(0),
+        // Lots reellement presents au Depot B pour cette MP (ceux amenes
+        // par un Transfer Order approuve/poste) - le numero de lot choisi
+        // ici doit venir de la, jamais tape librement, pour rester
+        // coherent avec ce qui existe deja physiquement au Depot B.
+        depotBId ? fetchLotsInDepot("MP", mpId, depotBId) : Promise.resolve([]),
+      ]);
       const reserve = reserveParMp.get(mpId) ?? 0;
       return {
         id: mpId,
@@ -137,6 +144,7 @@ export default async function BesoinBatchPage({
         unite: articleMpById.get(mpId)?.unite ?? "-",
         besoin: round(besoinParMp.get(mpId) ?? 0),
         stock: round(Math.max(0, stockReel - reserve)),
+        lots,
       };
     })
   );
@@ -207,14 +215,26 @@ export default async function BesoinBatchPage({
                         </td>
                         <td className="px-6 py-4">
                           {canWrite ? (
-                            <input
-                              type="text"
-                              form="valider-form"
-                              name="numero_lot_mp"
-                              placeholder="Lot de cette MP"
-                              required
-                              className="w-40 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-normal normal-case text-slate-900 outline-none"
-                            />
+                            row.lots.length === 0 ? (
+                              <span className="text-xs font-semibold text-red-700">Aucun lot au Depot B</span>
+                            ) : (
+                              <select
+                                form="valider-form"
+                                name="numero_lot_mp"
+                                required
+                                defaultValue=""
+                                className="w-52 rounded-2xl border border-slate-200 px-3 py-2 text-sm normal-case text-slate-900 outline-none"
+                              >
+                                <option value="" disabled>
+                                  Choisis un lot
+                                </option>
+                                {row.lots.map((lot) => (
+                                  <option key={lot.numeroLot} value={lot.numeroLot}>
+                                    {lot.numeroLot || "(sans numero)"} - dispo {lot.solde.toLocaleString("fr-FR")}
+                                  </option>
+                                ))}
+                              </select>
+                            )
                           ) : (
                             "-"
                           )}
