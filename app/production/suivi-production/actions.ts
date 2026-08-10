@@ -100,7 +100,8 @@ async function crediterVracFabrique(
   code: string,
   ancienVracFabrique: number,
   nouveauVracFabrique: number,
-  currentUser: string | null
+  currentUser: string | null,
+  dateFabrication: string | null
 ) {
   if (!code) return;
   if (!(await ligneVientDunPogramme(ligneId))) return;
@@ -115,6 +116,8 @@ async function crediterVracFabrique(
   ]);
   if (!depotBId || !vracArticleId) return;
 
+  const dateJour = new Date().toISOString().slice(0, 10);
+
   const { error } = await supabaseServer.from("lots_stock").insert({
     article_id: vracArticleId,
     numero_lot: numeroLot,
@@ -122,7 +125,8 @@ async function crediterVracFabrique(
     qte_entree: delta,
     qte_sortie: 0,
     depot_id: depotBId,
-    date_jour: new Date().toISOString().slice(0, 10),
+    date_jour: dateJour,
+    date_fabrication: dateFabrication || dateJour,
     utilisateur: currentUser,
     note: "Fabrication vrac",
   });
@@ -142,7 +146,8 @@ async function consommerVracConditionnement(
   code: string,
   qtFabriquer: number,
   ancienVracConsomme: number,
-  currentUser: string | null
+  currentUser: string | null,
+  dateFabrication: string | null
 ): Promise<number> {
   if (!code) return ancienVracConsomme;
   if (!(await ligneVientDunPogramme(ligneId))) return ancienVracConsomme;
@@ -174,6 +179,8 @@ async function consommerVracConditionnement(
     );
   }
 
+  const dateJour = new Date().toISOString().slice(0, 10);
+
   const { error } = await supabaseServer.from("lots_stock").insert({
     article_id: vracArticleId,
     numero_lot: numeroLot,
@@ -181,7 +188,8 @@ async function consommerVracConditionnement(
     qte_entree: 0,
     qte_sortie: delta,
     depot_id: depotBId,
-    date_jour: new Date().toISOString().slice(0, 10),
+    date_jour: dateJour,
+    date_fabrication: dateFabrication || dateJour,
     utilisateur: currentUser,
     note: "Consommation conditionnement",
   });
@@ -516,7 +524,14 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   let erreurVracConsomme: string | null = null;
   if (qtFabriquer && qtFabriquer > 0) {
     try {
-      nouveauVracConsomme = await consommerVracConditionnement(ligneId, code, qtFabriquer, ancienVracConsomme, currentUser);
+      nouveauVracConsomme = await consommerVracConditionnement(
+        ligneId,
+        code,
+        qtFabriquer,
+        ancienVracConsomme,
+        currentUser,
+        dateFabricationConditionnement
+      );
     } catch (error) {
       erreurVracConsomme = error instanceof Error ? error.message : "Erreur lors de la consommation du vrac.";
     }
@@ -683,7 +698,21 @@ export async function saveFabricationRapportAction(formData: FormData) {
   // qui alimente la colonne "Date fabrication" de Suivi Production.
   if (vracFabrique && vracFabrique > 0) {
     await consommerReservationMp(ligneId, code, "pesage", vracFabrique, currentUser);
-    await crediterVracFabrique(ligneId, code, ancienVracFabrique, vracFabrique, currentUser);
+    try {
+      await crediterVracFabrique(
+        ligneId,
+        code,
+        ancienVracFabrique,
+        vracFabrique,
+        currentUser,
+        dateFabricationConditionnement
+      );
+    } catch (error) {
+      const erreurVracFabrique = error instanceof Error ? error.message : "Erreur lors du credit du vrac fabrique.";
+      redirect(
+        `/production/suivi-production/fabrication/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurVracFabrique)}`
+      );
+    }
 
     const { error: vracError } = await supabaseServer.from("production_vrac_entries").insert([
       {
