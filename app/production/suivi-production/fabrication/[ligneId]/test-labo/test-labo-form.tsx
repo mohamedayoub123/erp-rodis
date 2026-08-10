@@ -12,6 +12,8 @@ type RapportInfo = {
   degre_alcool: number | null;
   stabilite: string | null;
   couleur: string | null;
+  temperature_test: number | null;
+  odeur: string | null;
   remarque: string | null;
 };
 
@@ -92,6 +94,7 @@ export function TestLaboForm({
 }) {
   const [stabilite, setStabilite] = useState(rapport?.stabilite || "");
   const [couleur, setCouleur] = useState(rapport?.couleur || "");
+  const [odeur, setOdeur] = useState(rapport?.odeur || "");
   const [showAjustement, setShowAjustement] = useState(false);
   const [mpArticleId, setMpArticleId] = useState<number | null>(null);
   const [mpLots, setMpLots] = useState<{ numeroLot: string; solde: number }[]>([]);
@@ -114,6 +117,7 @@ export function TestLaboForm({
     Boolean(spec?.couleur) &&
     couleur.trim() !== "" &&
     couleur.trim().toLowerCase() !== (spec?.couleur || "").trim().toLowerCase();
+  const odeurNonConforme = odeur === "Non OK";
 
   return (
     <div className="grid gap-8">
@@ -153,7 +157,7 @@ export function TestLaboForm({
               specMax={spec?.degre_alcool_max}
             />
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
-              Stabilite
+              Centrifuge
               {spec?.stabilite ? <span className="font-normal text-slate-400">Spec : {spec.stabilite}</span> : null}
               <select
                 name="stabilite"
@@ -178,6 +182,30 @@ export function TestLaboForm({
                 className={couleurNonConforme ? inputClassNonConforme : inputClass}
               />
               {couleurNonConforme ? <span className="text-[11px] font-semibold text-red-600">Hors spec</span> : null}
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Temperature de test
+              <input
+                type="number"
+                step="0.1"
+                name="temperature_test"
+                defaultValue={rapport?.temperature_test ?? ""}
+                className={inputClass}
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Odeur
+              <select
+                name="odeur"
+                value={odeur}
+                onChange={(e) => setOdeur(e.target.value)}
+                className={odeurNonConforme ? inputClassNonConforme : inputClass}
+              >
+                <option value="">-</option>
+                <option value="OK">OK</option>
+                <option value="Non OK">Non OK</option>
+              </select>
+              {odeurNonConforme ? <span className="text-[11px] font-semibold text-red-600">Non conforme</span> : null}
             </label>
           </div>
         </div>

@@ -201,7 +201,7 @@ async function fabricationDejaProduite(ligneId: number, code: string): Promise<b
 // fiche avec une erreur lisible plutot que de planter la page (Next.js
 // affiche un ecran d'erreur generique illisible sur une action qui "throw",
 // faute d'error.tsx dans ce projet).
-async function messageSiPesageInvalide(ligneId: number, code: string): Promise<string | null> {
+export async function messageSiPesageInvalide(ligneId: number, code: string): Promise<string | null> {
   if (!code) return null;
   if (!(await ligneVientDunPogramme(ligneId))) return null;
   if (!(await codeTermineExiste(ligneId, code, "pesage"))) {
@@ -210,7 +210,29 @@ async function messageSiPesageInvalide(ligneId: number, code: string): Promise<s
   return null;
 }
 
-async function messageSiConditionnementInvalide(ligneId: number, code: string): Promise<string | null> {
+// Le Test labo n'est pas reserve aux lignes issues d'un Programme (contrairement
+// a Pesage/Salle de conditionnement) - un controle qualite doit se faire sur
+// TOUT batch physiquement fabrique, y compris une fiche manuelle ("+" du
+// Dashboard), donc aucune exemption via ligneVientDunPogramme ici.
+async function testLaboEstFait(ligneId: number, code: string): Promise<boolean> {
+  const { data, error } = await supabaseServer
+    .from("production_rapports")
+    .select("utilisateur_test_labo")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean((data as { utilisateur_test_labo: string | null } | null)?.utilisateur_test_labo);
+}
+
+export async function messageSiTestLaboInvalide(ligneId: number, code: string): Promise<string | null> {
+  if (!(await testLaboEstFait(ligneId, code))) {
+    return "Le Test labo doit etre enregistre avant de pouvoir saisir la Fabrication pour ce code.";
+  }
+  return null;
+}
+
+export async function messageSiConditionnementInvalide(ligneId: number, code: string): Promise<string | null> {
   if (!code) return null;
   if (!(await ligneVientDunPogramme(ligneId))) return null;
   if (!(await fabricationDejaProduite(ligneId, code))) {
@@ -568,6 +590,13 @@ export async function saveFabricationRapportAction(formData: FormData) {
     );
   }
 
+  const erreurTestLabo = await messageSiTestLaboInvalide(ligneId, code);
+  if (erreurTestLabo) {
+    redirect(
+      `/production/suivi-production/fabrication/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurTestLabo)}`
+    );
+  }
+
   const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
@@ -671,6 +700,8 @@ export async function saveTestLaboAction(formData: FormData) {
     degre_alcool: parseOptionalNumber(formData, "degre_alcool"),
     stabilite: parseOptionalText(formData, "stabilite"),
     couleur: parseOptionalText(formData, "couleur"),
+    temperature_test: parseOptionalNumber(formData, "temperature_test"),
+    odeur: parseOptionalText(formData, "odeur"),
     remarque: parseOptionalText(formData, "remarque"),
     utilisateur_test_labo: currentUser,
     date_saisie_test_labo: new Date().toISOString(),

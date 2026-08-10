@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
@@ -7,6 +8,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { FabricationForm } from "./fabrication-form";
+import { messageSiTestLaboInvalide } from "../../actions";
 
 type LigneInfo = {
   id: number;
@@ -116,6 +118,8 @@ export default async function RapportFabricationPage({
     notFound();
   }
 
+  const erreurTestLabo = await messageSiTestLaboInvalide(ligne.id, code);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -158,6 +162,16 @@ export default async function RapportFabricationPage({
             <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-600">
               Lecture seule : saisie de rapport cachee pour cet utilisateur.
             </p>
+          ) : erreurTestLabo ? (
+            <div className="flex flex-col items-start gap-3 rounded-2xl bg-violet-50 px-4 py-4 text-sm font-medium text-violet-800">
+              <p>{erreurTestLabo}</p>
+              <Link
+                href={`/production/suivi-production/fabrication/${ligne.id}/test-labo?code=${encodeURIComponent(code)}`}
+                className="rounded-full bg-violet-700 px-4 py-2 text-xs font-semibold text-white"
+              >
+                Aller au Test labo
+              </Link>
+            </div>
           ) : (
             <FabricationForm ligneId={ligne.id} code={code} rapport={rapport} />
           )}

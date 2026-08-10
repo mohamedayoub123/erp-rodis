@@ -5,7 +5,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
-import { saveConditionnementRapportAction } from "../../actions";
+import { saveConditionnementRapportAction, messageSiConditionnementInvalide } from "../../actions";
 import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 import { LigneZoneChaineEditor } from "./zone-chaine-editor";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
@@ -135,6 +135,8 @@ export default async function RapportConditionnementPage({
     notFound();
   }
 
+  const erreurFabricationRequise = await messageSiConditionnementInvalide(ligne.id, code);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -190,6 +192,10 @@ export default async function RapportConditionnementPage({
           {!canWrite ? (
             <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-600">
               Lecture seule : saisie de rapport cachee pour cet utilisateur.
+            </p>
+          ) : erreurFabricationRequise ? (
+            <p className="rounded-2xl bg-amber-50 px-4 py-4 text-sm font-medium text-amber-800">
+              {erreurFabricationRequise}
             </p>
           ) : (
             <form action={saveConditionnementRapportAction} className="grid gap-6">
