@@ -157,7 +157,7 @@ export function TestLaboForm({
               specMax={spec?.degre_alcool_max}
             />
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
-              Centrifuge
+              Stabilite
               {spec?.stabilite ? <span className="font-normal text-slate-400">Spec : {spec.stabilite}</span> : null}
               <select
                 name="stabilite"

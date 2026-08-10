@@ -234,14 +234,16 @@ export function SpecsQualiteForm({
                 onMaxChange={(v) => updateField("degre_alcool_max", v)}
               />
               <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                Stabilite
-                <input
-                  type="text"
+                Centrifuge
+                <select
                   value={fields.stabilite}
                   onChange={(event) => updateField("stabilite", event.target.value)}
-                  placeholder="Ex: Stable a 40degC 24h"
                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                />
+                >
+                  <option value="">-</option>
+                  <option value="Stable">Stable</option>
+                  <option value="Non stable">Non stable</option>
+                </select>
               </label>
               <label className="grid gap-1 text-xs font-semibold text-slate-500">
                 Couleur
@@ -286,7 +288,7 @@ export function SpecsQualiteForm({
                   <th className="px-4 py-3 font-semibold">Viscosite</th>
                   <th className="px-4 py-3 font-semibold">Densite</th>
                   <th className="px-4 py-3 font-semibold">Degre alcool</th>
-                  <th className="px-4 py-3 font-semibold">Stabilite</th>
+                  <th className="px-4 py-3 font-semibold">Centrifuge</th>
                   <th className="px-4 py-3 font-semibold">Couleur</th>
                   {canWrite ? <th className="px-4 py-3 font-semibold">Modifier</th> : null}
                   {canDelete ? <th className="px-4 py-3 font-semibold">Supprimer</th> : null}
