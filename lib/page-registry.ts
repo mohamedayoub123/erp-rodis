@@ -106,6 +106,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "stockCodePf",
+    module: "Stock",
+    label: "Stock par Code PF",
+    pathPrefixes: ["/stock/rapport/code"],
+    hasWrite: false,
+  },
+  {
     key: "stockActuelPf",
     module: "Stock",
     label: "Stock Actuel PF",
@@ -407,6 +414,19 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Planning Production (accueil)",
     pathPrefixes: ["/production/suivi"],
     hasWrite: false,
+  },
+  {
+    key: "qualiteHub",
+    module: "Production",
+    label: "Accueil Qualite",
+    pathPrefixes: ["/qualite"],
+    hasWrite: false,
+  },
+  {
+    key: "qualiteSpecs",
+    module: "Production",
+    label: "Specs Labo Vrac (pH, viscosite, densite, degre alcool, stabilite, couleur)",
+    pathPrefixes: ["/qualite/specs"],
   },
   {
     key: "productionSuiviDashboard",

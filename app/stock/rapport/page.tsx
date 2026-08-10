@@ -11,6 +11,13 @@ const TILES = [
     icon: "\u{1F4CB}",
     description: "Tous les articles avec leur stock actuel, filtre Article/Code/Categorie.",
   },
+  {
+    label: "Stock par Code",
+    href: "/stock/rapport/code",
+    pageKey: "stockCodePf",
+    icon: "\u{1F3F7}\u{FE0F}",
+    description: "Ecris un article : tous ses codes avec stock > 0, la quantite et la date de fabrication.",
+  },
 ] as const;
 
 export default async function RapportPfPage() {

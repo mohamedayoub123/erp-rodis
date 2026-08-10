@@ -108,6 +108,13 @@ export const navItems: NavItem[] = [
   },
   { href: "/produit", label: "Produit", pageKey: "produit" },
   { href: "/depots", label: "Entrepot", pageKey: "depots" },
+  {
+    href: "/qualite",
+    label: "Qualite",
+    pageKey: "qualiteHub",
+    matchPrefixes: ["/qualite"],
+    subLinks: [{ href: "/qualite/specs", label: "Specs Labo (Vrac)", pageKey: "qualiteSpecs" }],
+  },
   { href: "/admin", label: "Admin", adminOnly: true },
 ];
 

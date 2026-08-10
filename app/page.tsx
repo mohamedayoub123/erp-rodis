@@ -51,6 +51,14 @@ const mainButtons = [
     pageKey: "depots" as const,
   },
   {
+    label: "Qualite",
+    href: "/qualite",
+    icon: "\u{1F9EA}",
+    accent: "from-purple-500 to-indigo-400",
+    panel: "bg-purple-50 text-purple-950 border-purple-200",
+    pageKey: "qualiteHub" as const,
+  },
+  {
     label: "Admin",
     href: "/admin",
     icon: "\u{1F6E0}\u{FE0F}",
