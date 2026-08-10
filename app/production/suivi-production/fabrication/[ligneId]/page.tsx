@@ -56,7 +56,7 @@ type RapportInfo = {
   utilisateur_fabrication: string | null;
 };
 
-type SearchParams = Promise<{ code?: string }>;
+type SearchParams = Promise<{ code?: string; erreur?: string }>;
 
 export default async function RapportFabricationPage({
   params,
@@ -68,7 +68,7 @@ export default async function RapportFabricationPage({
   noStore();
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
-  const { code: codeParam } = await searchParams;
+  const { code: codeParam, erreur } = await searchParams;
   // Comme Conditionnement/Emballage : code du lot precis pour cette saisie
   // (ex: "AA4141V" parmi les 3 codes d'une ligne decoupee en plusieurs lots)
   // - vide seulement pour un lien genere avant l'ajout du suivi par code.
@@ -151,6 +151,12 @@ export default async function RapportFabricationPage({
             </div>
           </div>
         </section>
+
+        {erreur ? (
+          <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
+            {erreur}
+          </div>
+        ) : null}
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           {!canWrite ? (

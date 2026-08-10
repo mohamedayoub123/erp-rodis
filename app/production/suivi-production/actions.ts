@@ -68,30 +68,30 @@ async function fabricationDejaProduite(ligneId: number, code: string): Promise<b
 // Chaine obligatoire : Salle de pesage valide -> Fabrication possible ->
 // Salle de conditionnement valide ET Fabrication reellement produite ->
 // Conditionnement possible. Un code sans lien vers un vrai Programme (fiche
-// manuelle) passe directement, voir ligneVientDunPogramme.
-async function requirePesageValide(ligneId: number, code: string) {
-  if (!code) return;
-  if (!(await ligneVientDunPogramme(ligneId))) return;
+// manuelle) passe directement, voir ligneVientDunPogramme. Renvoie un
+// message (au lieu de "throw") pour que l'appelant puisse rediriger vers la
+// fiche avec une erreur lisible plutot que de planter la page (Next.js
+// affiche un ecran d'erreur generique illisible sur une action qui "throw",
+// faute d'error.tsx dans ce projet).
+async function messageSiPesageInvalide(ligneId: number, code: string): Promise<string | null> {
+  if (!code) return null;
+  if (!(await ligneVientDunPogramme(ligneId))) return null;
   if (!(await codeTermineExiste(ligneId, code, "pesage"))) {
-    throw new Error(
-      "Le pesage (Salle de pesage) doit etre valide avant de pouvoir saisir la Fabrication pour ce code."
-    );
+    return "Le pesage (Salle de pesage) doit etre valide avant de pouvoir saisir la Fabrication pour ce code.";
   }
+  return null;
 }
 
-async function requireFabricationEtSalleConditionnementValides(ligneId: number, code: string) {
-  if (!code) return;
-  if (!(await ligneVientDunPogramme(ligneId))) return;
+async function messageSiConditionnementInvalide(ligneId: number, code: string): Promise<string | null> {
+  if (!code) return null;
+  if (!(await ligneVientDunPogramme(ligneId))) return null;
   if (!(await fabricationDejaProduite(ligneId, code))) {
-    throw new Error(
-      "La Fabrication doit etre faite (vrac produit) avant de pouvoir saisir le Conditionnement pour ce code."
-    );
+    return "La Fabrication doit etre faite (vrac produit) avant de pouvoir saisir le Conditionnement pour ce code.";
   }
   if (!(await codeTermineExiste(ligneId, code, "salle_conditionnement"))) {
-    throw new Error(
-      "La Salle de conditionnement doit etre validee avant de pouvoir saisir le Conditionnement pour ce code."
-    );
+    return "La Salle de conditionnement doit etre validee avant de pouvoir saisir le Conditionnement pour ce code.";
   }
+  return null;
 }
 
 // Une ligne "Programme par ligne" decoupee en plusieurs lots (voir
@@ -210,7 +210,12 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     throw new Error("Ligne invalide.");
   }
 
-  await requireFabricationEtSalleConditionnementValides(ligneId, code);
+  const erreurConditionnement = await messageSiConditionnementInvalide(ligneId, code);
+  if (erreurConditionnement) {
+    redirect(
+      `/production/suivi-production/conditionnement/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurConditionnement)}`
+    );
+  }
 
   const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
@@ -291,7 +296,12 @@ export async function saveFabricationRapportAction(formData: FormData) {
     throw new Error("Ligne invalide.");
   }
 
-  await requirePesageValide(ligneId, code);
+  const erreurPesage = await messageSiPesageInvalide(ligneId, code);
+  if (erreurPesage) {
+    redirect(
+      `/production/suivi-production/fabrication/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurPesage)}`
+    );
+  }
 
   const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
