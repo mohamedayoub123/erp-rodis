@@ -94,17 +94,61 @@ async function messageSiConditionnementInvalide(ligneId: number, code: string): 
   return null;
 }
 
+function round3(value: number) {
+  return Math.round(value * 1000) / 1000;
+}
+
+// Quantite PREVUE pour ce code precis (pas toute la ligne) - meme repli que
+// le Dashboard (voir vracPrevuByCode/cartonPrevuByCode, app/production/
+// suivi/dashboard/page.tsx) : le detail par code s'il existe (ligne
+// decoupee en plusieurs lots), sinon la quantite de la ligne entiere pour
+// un seul code.
+async function fetchQuantitePrevuePourCode(
+  ligneId: number,
+  code: string,
+  kind: "vrac" | "carton"
+): Promise<number> {
+  const { data } = await supabaseServer
+    .from("programme_lignes")
+    .select("numero_lot, numero_lot_detail, vrac_a_fabriquer, qt_carton")
+    .eq("id", ligneId)
+    .maybeSingle();
+  if (!data) return 0;
+
+  const ligne = data as {
+    numero_lot: string | null;
+    numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
+    vrac_a_fabriquer: number | null;
+    qt_carton: number | null;
+  };
+
+  const codes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+  const hasDetail = codes.length > 1 && ligne.numero_lot_detail && ligne.numero_lot_detail.length === codes.length;
+
+  if (hasDetail) {
+    const entry = ligne.numero_lot_detail!.find((e) => e.code === code);
+    return Number((kind === "vrac" ? entry?.qt_vrac : entry?.qt_carton) ?? 0);
+  }
+
+  return Number((kind === "vrac" ? ligne.vrac_a_fabriquer : ligne.qt_carton) ?? 0);
+}
+
 // Transforme la reservation MP faite a la validation (Salle de pesage ou
 // Salle de conditionnement, voir validerBatchAction) en vraie sortie de
-// stock Depot B des que le travail reel correspondant est enregistre - tant
-// que ca reste juste "reserve", le stock n'a pas vraiment bouge (visible
-// dans le "Reserve" de la page Produit, jamais dans le stock reel). Efface
-// la reservation ensuite : sans effet si rejoue (deja consommee au premier
-// vrai enregistrement), jamais de double sortie.
+// stock Depot B AU PRORATA de ce qui est reellement produit pour ce code -
+// tant que ca reste juste "reserve", le stock n'a pas vraiment bouge
+// (visible dans le "Reserve" de la page Produit, jamais dans le stock
+// reel). production_mp_reserve.quantite est le reste ENCORE reserve
+// (diminue a chaque saisie), quantite_initiale le besoin total fige a la
+// validation - le ratio produit/prevu de CETTE saisie determine combien
+// devrait etre consomme au total, la difference avec ce qui l'est deja
+// donne exactement la part a sortir maintenant (jamais deux fois la meme
+// part, correctement recalcule si la quantite saisie est corrigee/montee).
 async function consommerReservationMp(
   ligneId: number,
   code: string,
   stage: "pesage" | "salle_conditionnement",
+  quantiteProduite: number,
   currentUser: string | null
 ) {
   if (!code) return;
@@ -119,36 +163,56 @@ async function consommerReservationMp(
   const codeTermine = codeTermineData as { id: number; numero_lot: string | null } | null;
   if (!codeTermine) return;
 
+  const quantitePrevue = await fetchQuantitePrevuePourCode(
+    ligneId,
+    code,
+    stage === "pesage" ? "vrac" : "carton"
+  );
+  if (quantitePrevue <= 0) return;
+  const ratio = Math.min(1, quantiteProduite / quantitePrevue);
+
   const { data: reserveData } = await supabaseServer
     .from("production_mp_reserve")
-    .select("id, article_mp_id, depot_id, quantite")
+    .select("id, article_mp_id, depot_id, quantite, quantite_initiale")
     .eq("production_code_termine_id", codeTermine.id);
-  const reserves = (reserveData ?? []) as { id: number; article_mp_id: number; depot_id: number; quantite: number }[];
+  const reserves = (reserveData ?? []) as {
+    id: number;
+    article_mp_id: number;
+    depot_id: number;
+    quantite: number;
+    quantite_initiale: number;
+  }[];
   if (reserves.length === 0) return;
 
   const dateJour = new Date().toISOString().slice(0, 10);
-  const { error: insertError } = await supabaseServer.from("lots_stock_matiere_premiere").insert(
-    reserves.map((r) => ({
-      article_id: r.article_mp_id,
+
+  for (const reserve of reserves) {
+    const cibleConsommee = round3(ratio * reserve.quantite_initiale);
+    const dejaConsommee = round3(reserve.quantite_initiale - reserve.quantite);
+    const delta = round3(cibleConsommee - dejaConsommee);
+    if (delta <= 1e-6) continue;
+
+    const { error: insertError } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
+      article_id: reserve.article_mp_id,
       numero_lot: codeTermine.numero_lot,
       qte_entree: 0,
-      qte_sortie: r.quantite,
-      depot_id: r.depot_id,
+      qte_sortie: delta,
+      depot_id: reserve.depot_id,
       date_jour: dateJour,
       utilisateur: currentUser,
       note: "Consommation production",
-    }))
-  );
-  if (insertError) {
-    throw new Error(insertError.message);
-  }
+    });
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
 
-  const { error: deleteError } = await supabaseServer
-    .from("production_mp_reserve")
-    .delete()
-    .in("id", reserves.map((r) => r.id));
-  if (deleteError) {
-    throw new Error(deleteError.message);
+    const { error: updateError } = await supabaseServer
+      .from("production_mp_reserve")
+      .update({ quantite: Math.max(0, round3(reserve.quantite_initiale - cibleConsommee)) })
+      .eq("id", reserve.id);
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
   }
 }
 
@@ -318,7 +382,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
   // qui alimente la colonne "Date conditionnement" de Suivi Production.
   if (qtFabriquer && qtFabriquer > 0) {
-    await consommerReservationMp(ligneId, code, "salle_conditionnement", currentUser);
+    await consommerReservationMp(ligneId, code, "salle_conditionnement", qtFabriquer, currentUser);
 
     const { error: cartonError } = await supabaseServer.from("production_carton_entries").insert([
       {
@@ -421,7 +485,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
   // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
   // qui alimente la colonne "Date fabrication" de Suivi Production.
   if (vracFabrique && vracFabrique > 0) {
-    await consommerReservationMp(ligneId, code, "pesage", currentUser);
+    await consommerReservationMp(ligneId, code, "pesage", vracFabrique, currentUser);
 
     const { error: vracError } = await supabaseServer.from("production_vrac_entries").insert([
       {

@@ -103,6 +103,7 @@ export async function validerBatchAction(formData: FormData) {
           article_mp_id: r.articleMpId,
           depot_id: depotBId,
           quantite: r.quantite,
+          quantite_initiale: r.quantite,
         }))
       );
       if (reserveError) {
