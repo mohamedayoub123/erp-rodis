@@ -5,6 +5,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { updateLotMpNoteAction } from "./actions";
 import { matchesArticleSearch } from "@/lib/article-search";
 
@@ -72,6 +73,29 @@ async function fetchCategorieByArticle() {
   return map;
 }
 
+async function fetchAllArticleNoms() {
+  const noms: string[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("nom_article")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as { nom_article: string }[];
+    noms.push(...chunk.map((row) => row.nom_article));
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return noms;
+}
+
 function formatNumber(value: number | null) {
   if (value === null || value === undefined) return "-";
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
@@ -115,10 +139,13 @@ export default async function StockPerimeMpPage({
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "stockPerimeMp");
 
-  const [{ rows: allLots, error }, categorieByArticle] = await Promise.all([
+  const [{ rows: allLots, error }, categorieByArticle, articleNoms] = await Promise.all([
     fetchAllLots(),
     fetchCategorieByArticle(),
+    fetchAllArticleNoms(),
   ]);
+
+  const articleOptions = [...new Set(articleNoms)].map((label, index) => ({ id: index, label }));
 
   // Fenetre d'alerte : articles deja perimes OU qui vont perimer dans les
   // ~3 mois qui viennent - le filtre "perime" permet ensuite de ne garder
@@ -206,12 +233,11 @@ export default async function StockPerimeMpPage({
 
             <form className="flex gap-2">
               <input type="hidden" name="statut" value={statut} />
-              <input
-                type="text"
+              <SearchableFilterInput
                 name="q"
                 defaultValue={q}
+                options={articleOptions}
                 placeholder="Rechercher un article..."
-                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm outline-none"
               />
               <button
                 type="submit"

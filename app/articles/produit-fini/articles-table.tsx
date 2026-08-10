@@ -42,10 +42,10 @@ function formatRounded(value: number | null) {
   return Math.round(value).toString();
 }
 
-function preventEnterSubmit(event: React.KeyboardEvent<HTMLInputElement>) {
-  if (event.key === "Enter") event.preventDefault();
-}
-
+// Meme motif que SearchableFilterInput (app/_components/searchable-filter-input.tsx),
+// mais en filtrage EN DIRECT (state React, pas de formulaire GET/navigation) :
+// fleches haut/bas deplacent la selection dans la liste, Entree choisit
+// l'option en surbrillance (par defaut la premiere), Echap ferme le menu.
 function FilterField({
   value,
   onChange,
@@ -58,6 +58,7 @@ function FilterField({
   options: string[];
 }) {
   const [showDropdown, setShowDropdown] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(0);
 
   const suggestions = useMemo(() => {
     const words = value.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -68,6 +69,32 @@ function FilterField({
     });
   }, [options, value]);
 
+  function selectOption(option: string) {
+    onChange(option);
+    setShowDropdown(false);
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (!showDropdown || suggestions.length === 0) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlightIndex((i) => (i + 1) % suggestions.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlightIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
+    } else if (event.key === "Enter") {
+      // Choisit l'option en surbrillance plutot que de laisser Entree ne
+      // rien faire (comportement avant : preventDefault seul, sans effet).
+      event.preventDefault();
+      selectOption(suggestions[highlightIndex] ?? suggestions[0]);
+    } else if (event.key === "Escape") {
+      setShowDropdown(false);
+    }
+  }
+
   return (
     <div className="relative">
       <input
@@ -76,26 +103,27 @@ function FilterField({
         onChange={(event) => {
           onChange(event.target.value);
           setShowDropdown(true);
+          setHighlightIndex(0);
         }}
         onFocus={() => setShowDropdown(true)}
         onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
-        onKeyDown={preventEnterSubmit}
+        onKeyDown={handleKeyDown}
         placeholder={placeholder}
         autoComplete="off"
         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none ring-0 placeholder:text-slate-400"
       />
       {showDropdown && suggestions.length > 0 ? (
         <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-          {suggestions.map((option) => (
+          {suggestions.map((option, index) => (
             <button
               key={option}
               type="button"
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                onChange(option);
-                setShowDropdown(false);
-              }}
-              className="block w-full px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
+              onMouseEnter={() => setHighlightIndex(index)}
+              onClick={() => selectOption(option)}
+              className={`block w-full px-4 py-2 text-left text-sm ${
+                index === highlightIndex ? "bg-sky-50 text-sky-900" : "text-slate-800 hover:bg-slate-100"
+              }`}
             >
               {option}
             </button>

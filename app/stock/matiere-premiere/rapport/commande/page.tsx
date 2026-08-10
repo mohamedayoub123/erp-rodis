@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 
 type ArticleMpRow = {
@@ -279,8 +280,13 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
     .filter((row) => !hideLowConso || row.consommation_par_mois > 1)
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
-  const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
-  const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
+  const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map((label, id) => ({
+    id,
+    label,
+  }));
+  const categorieOptions = ([...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]).map(
+    (label, id) => ({ id, label })
+  );
 
   const exportColumns = [
     { label: "Article", key: "article" },
@@ -341,34 +347,18 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-4">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="article"
-              list="besoin-commande-mp-articles"
-              autoComplete="off"
               defaultValue={articleFilter}
+              options={articleOptions}
               placeholder="Article..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="besoin-commande-mp-articles">
-              {articleOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
-            <input
-              type="text"
+            <SearchableFilterInput
               name="categorie"
-              list="besoin-commande-mp-categories"
-              autoComplete="off"
               defaultValue={params.categorie || ""}
+              options={categorieOptions}
               placeholder="Categorie..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="besoin-commande-mp-categories">
-              {categorieOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
             <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
               <input
                 type="checkbox"

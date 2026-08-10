@@ -4,6 +4,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { encodeDossierId } from "../commande/dossier-id";
 
@@ -260,8 +261,16 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
     .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
-  const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
-  const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
+  const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map((label, id) => ({
+    id,
+    label,
+  }));
+  const categorieOptions = ([...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]).map(
+    (label, id) => ({ id, label })
+  );
+  const codeOptions = [...new Set(mouvements.map((row) => (row.numero_lot || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
 
   const exportColumns = [
     { label: "Article", key: "article" },
@@ -317,41 +326,24 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-4">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="article"
-              list="stock-actuel-mp-articles"
-              autoComplete="off"
               defaultValue={articleFilter}
+              options={articleOptions}
               placeholder="Article..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="stock-actuel-mp-articles">
-              {articleOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
-            <input
-              type="text"
+            <SearchableFilterInput
               name="code"
               defaultValue={params.code || ""}
+              options={codeOptions}
               placeholder="Code (numero de lot)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="categorie"
-              list="stock-actuel-mp-categories"
-              autoComplete="off"
               defaultValue={params.categorie || ""}
+              options={categorieOptions}
               placeholder="Categorie..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="stock-actuel-mp-categories">
-              {categorieOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
             <div className="flex gap-3">
               <button
                 type="submit"

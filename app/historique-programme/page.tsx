@@ -5,6 +5,7 @@ import { deleteProgrammeLigneGroupAction } from "../programe-par-ligne/actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 type ProgrammeLigneRow = {
   id: number;
@@ -106,6 +107,14 @@ export default async function HistoriqueProgrammePage({
     })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
+  // Reutilise les groupes deja calcules (allLignes couvre toute la table)
+  // pour construire les listes d'options des menus de recherche, plutot que
+  // de refaire des requetes DB dediees.
+  const codeOptions = groups.map((group, index) => ({ id: index, label: group.code }));
+  const creeParOptions = [
+    ...new Set(groups.map((group) => (group.creePar || "").trim()).filter(Boolean)),
+  ].map((label, index) => ({ id: index, label }));
+
   // Le code PLn.annee est calcule sur TOUS les groupes (rang par age dans
   // leur annee), mais on n'affiche/ne rend qu'une page a la fois - avec des
   // milliers de groupes, tout rendre d'un coup fait exploser le temps de
@@ -148,12 +157,11 @@ export default async function HistoriqueProgrammePage({
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="code"
               defaultValue={params.code || ""}
+              options={codeOptions}
               placeholder="Code PL (ex: PL1.2026)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <input
               type="date"
@@ -161,12 +169,11 @@ export default async function HistoriqueProgrammePage({
               defaultValue={params.date || ""}
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="cree_par"
               defaultValue={params.cree_par || ""}
+              options={creeParOptions}
               placeholder="Cree par"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
               type="submit"

@@ -93,10 +93,19 @@ export default async function CodeParArticlePage({
     return a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" });
   });
 
-  const articleOptions = [...new Set(allArticles.map((row) => row.nom_article))];
-  const gammeOptions = [...new Set(allArticles.map((row) => row.gamme).filter(Boolean))] as string[];
-  const codeAutoOptions = [...new Set(allArticles.map((row) => row.code_auto).filter(Boolean))] as string[];
-  const codeManuOptions = [...new Set(allArticles.map((row) => row.code_manu).filter(Boolean))] as string[];
+  const articleOptions = [...new Set(allArticles.map((row) => row.nom_article))].map((label, id) => ({
+    id,
+    label,
+  }));
+  const gammeOptions = ([...new Set(allArticles.map((row) => row.gamme).filter(Boolean))] as string[]).map(
+    (label, id) => ({ id, label })
+  );
+  const codeAutoOptions = (
+    [...new Set(allArticles.map((row) => row.code_auto).filter(Boolean))] as string[]
+  ).map((label, id) => ({ id, label }));
+  const codeManuOptions = (
+    [...new Set(allArticles.map((row) => row.code_manu).filter(Boolean))] as string[]
+  ).map((label, id) => ({ id, label }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">

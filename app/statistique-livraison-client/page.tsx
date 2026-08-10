@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 type SearchParams = Promise<{
   client?: string;
@@ -122,6 +123,9 @@ export default async function StatistiqueLivraisonClientPage({
   }
 
   const clients = [...statsByClient.values()].sort((a, b) => b.cree - a.cree);
+  const clientOptions = [
+    ...new Set(allCommandes.map((commande) => String(commande.client || "").trim()).filter(Boolean)),
+  ].map((label, index) => ({ id: index, label }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f9ff_0%,#fbfdff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -150,12 +154,11 @@ export default async function StatistiqueLivraisonClientPage({
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 sm:grid-cols-[2fr_1fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="client"
               defaultValue={clientQuery}
+              options={clientOptions}
               placeholder="Filtrer par client..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <input
               type="month"

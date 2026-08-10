@@ -8,6 +8,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 const PAGE_SIZE = 200;
 
@@ -216,6 +217,7 @@ export default async function StockPage({
     ((articleSuggestionsData as { id: number; nom_article: string }[] | null) ?? []).map(
       (article) => article.nom_article
     );
+  const articleOptions = [...new Set(articleSuggestions)].map((label, index) => ({ id: index, label }));
 
   const displaySourceRows = rawRows.flatMap((row) => {
     const rows: StockMovementRow[] = [];
@@ -412,20 +414,12 @@ export default async function StockPage({
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 lg:grid-cols-4 xl:grid-cols-5">
-            <input
-              type="text"
-              list="stock-articles-list"
+            <SearchableFilterInput
               name="article_q"
               defaultValue={articleQ}
+              options={articleOptions}
               placeholder="Ecrire article..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-              autoComplete="off"
             />
-            <datalist id="stock-articles-list">
-              {articleSuggestions.map((articleName) => (
-                <option key={articleName} value={articleName} />
-              ))}
-            </datalist>
             <input
               type="text"
               name="code_q"

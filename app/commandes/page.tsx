@@ -11,6 +11,7 @@ import {
   getCurrentStockUser,
 } from "@/lib/stock-auth";
 import { formatDate } from "@/lib/format-date";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 type SearchParams = Promise<{
   q?: string;
@@ -92,6 +93,36 @@ function getBaseProforma(numeroProforma: string) {
   return numeroProforma.replace(/-\d+$/, "");
 }
 
+// Liste complete (non filtree, non paginee) des valeurs distinctes de
+// numero_proforma / client - separee de la requete principale (limit 300,
+// filtree par q/statut) pour alimenter le menu de recherche avec toutes les
+// commandes existantes.
+async function fetchAllDistinctCommandeValues(column: "numero_proforma" | "client") {
+  const values = new Set<string>();
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("commandes")
+      .select(column)
+      .range(from, from + pageSize - 1);
+
+    if (error) return { values: [...values], error };
+
+    const chunk = (data ?? []) as Record<string, string | null>[];
+    for (const row of chunk) {
+      const value = row[column];
+      if (value) values.add(value);
+    }
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { values: [...values], error: null };
+}
+
 export default async function CommandesPage({
   searchParams,
 }: {
@@ -118,7 +149,15 @@ export default async function CommandesPage({
     commandesQuery = commandesQuery.eq("statut", statut);
   }
 
-  const { data, error } = await commandesQuery.limit(300);
+  const [{ data, error }, { values: proformaValues }, { values: clientValues }] = await Promise.all([
+    commandesQuery.limit(300),
+    fetchAllDistinctCommandeValues("numero_proforma"),
+    fetchAllDistinctCommandeValues("client"),
+  ]);
+  const searchOptions = [...new Set([...proformaValues, ...clientValues])].map((label, index) => ({
+    id: index,
+    label,
+  }));
   const commandeListRows = (data as CommandeListRow[] | null) ?? [];
   const commandeIds = commandeListRows.map((commande) => commande.id);
 
@@ -234,12 +273,11 @@ export default async function CommandesPage({
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 md:grid-cols-[2fr_1fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="q"
               defaultValue={q}
+              options={searchOptions}
               placeholder="Chercher proforma ou client..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <select
               name="statut"

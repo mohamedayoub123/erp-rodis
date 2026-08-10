@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 
 type ArticleMpRow = {
@@ -226,8 +227,12 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
     .filter((row) => !niveauFilter || row.niveau === niveauFilter)
     .sort((a, b) => (b.rotation ?? -1) - (a.rotation ?? -1));
 
-  const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
-  const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
+  const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map(
+    (label, index) => ({ id: index, label })
+  );
+  const categorieOptions = (
+    [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]
+  ).map((label, index) => ({ id: index, label }));
 
   const exportColumns = [
     { label: "Article", key: "article" },
@@ -309,34 +314,18 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
           </div>
 
           <form className="grid gap-3 sm:grid-cols-3">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="article"
-              list="rotation-mp-articles"
-              autoComplete="off"
               defaultValue={articleFilter}
+              options={articleOptions}
               placeholder="Article..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="rotation-mp-articles">
-              {articleOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
-            <input
-              type="text"
+            <SearchableFilterInput
               name="categorie"
-              list="rotation-mp-categories"
-              autoComplete="off"
               defaultValue={params.categorie || ""}
+              options={categorieOptions}
               placeholder="Categorie..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="rotation-mp-categories">
-              {categorieOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
             <input type="hidden" name="niveau" value={niveauFilter} />
             <div className="flex gap-3">
               <button

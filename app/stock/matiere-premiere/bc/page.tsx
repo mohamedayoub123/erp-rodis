@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDate } from "@/lib/format-date";
 import { deleteCommandeBcGroupAction } from "./actions";
 import { computeStatutBc, statutBcBadgeClass, STATUT_BC_OPTIONS, type StatutBc } from "./constants";
@@ -227,6 +228,20 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
       return numB - numA;
     });
 
+  const doss4dOptions = [
+    ...new Set(rows.map((row) => row.n_doss_4d).filter((value): value is string => Boolean(value))),
+  ].map((label, index) => ({ id: index, label }));
+
+  const dossErpOptions = [
+    ...new Set(rows.map((row) => row.n_doss_erp).filter((value): value is string => Boolean(value))),
+  ].map((label, index) => ({ id: index, label }));
+
+  const produitOptions = [
+    ...new Set(
+      rows.map((row) => row.article_label).filter((value): value is string => Boolean(value))
+    ),
+  ].map((label, index) => ({ id: index, label }));
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
@@ -259,26 +274,23 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="doss_4d"
               defaultValue={params.doss_4d || ""}
+              options={doss4dOptions}
               placeholder="N Dossier 4D"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="doss_erp"
               defaultValue={params.doss_erp || ""}
+              options={dossErpOptions}
               placeholder="N Dossier ERP"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="produit"
               defaultValue={params.produit || ""}
+              options={produitOptions}
               placeholder="Produit"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <select
               name="statut"

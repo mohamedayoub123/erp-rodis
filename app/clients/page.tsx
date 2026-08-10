@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 const TRANSPORT_OPTIONS = ["CAMION", "CONTINAIR", "TC", "TC20", "TC40"];
 
@@ -19,6 +20,35 @@ type SearchParams = Promise<{
   q?: string;
   pays?: string;
 }>;
+
+// Liste complete (non filtree, non paginee) des valeurs distinctes utilisees
+// pour peupler les menus de recherche - separee de la requete principale qui,
+// elle, applique les filtres q/pays et sert a l'affichage du tableau.
+async function fetchAllDistinctClientValues(column: "nom_client" | "pays") {
+  const values = new Set<string>();
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("clients")
+      .select(column)
+      .range(from, from + pageSize - 1);
+
+    if (error) return { values: [...values], error };
+
+    const chunk = (data ?? []) as Record<string, string | null>[];
+    for (const row of chunk) {
+      const value = row[column];
+      if (value) values.add(value);
+    }
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { values: [...values], error: null };
+}
 
 export default async function ClientsPage({
   searchParams,
@@ -69,6 +99,13 @@ export default async function ClientsPage({
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
+
+  const [{ values: allClientNames }, { values: allPaysValues }] = await Promise.all([
+    fetchAllDistinctClientValues("nom_client"),
+    fetchAllDistinctClientValues("pays"),
+  ]);
+  const clientNameOptions = allClientNames.map((label, index) => ({ id: index, label }));
+  const paysOptions = allPaysValues.map((label, index) => ({ id: index, label }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#eef6ff_0%,#f8fbff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -141,19 +178,17 @@ export default async function ClientsPage({
           </div>
 
           <form className="grid gap-3 border-b border-slate-100 px-6 py-5 md:grid-cols-[1fr_1fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="q"
               defaultValue={q}
+              options={clientNameOptions}
               placeholder="Rechercher par client..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="pays"
               defaultValue={pays}
+              options={paysOptions}
               placeholder="Rechercher par pays..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
               type="submit"

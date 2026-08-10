@@ -4,6 +4,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDate } from "@/lib/format-date";
 import { encodeDossierId } from "../commande/dossier-id";
 import { matchesArticleSearch } from "@/lib/article-search";
@@ -349,8 +350,12 @@ export default async function StockAlerteMpPage({
     .filter((row) => !hideLowThreshold || row.min_stock > 1)
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
-  const articleOptions = [...new Set(articles.map((article) => article.nom_article))];
-  const categorieOptions = [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[];
+  const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map(
+    (label, index) => ({ id: index, label })
+  );
+  const categorieOptions = (
+    [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]
+  ).map((label, index) => ({ id: index, label }));
 
   const exportColumns = [
     { label: "Categorie", key: "categorie" },
@@ -431,34 +436,18 @@ export default async function StockAlerteMpPage({
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-4">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="q"
-              list="alerte-mp-articles"
-              autoComplete="off"
               defaultValue={q}
+              options={articleOptions}
               placeholder="Rechercher un article..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="alerte-mp-articles">
-              {articleOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
-            <input
-              type="text"
+            <SearchableFilterInput
               name="categorie"
-              list="alerte-mp-categories"
-              autoComplete="off"
               defaultValue={categorieFilter}
+              options={categorieOptions}
               placeholder="Categorie..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <datalist id="alerte-mp-categories">
-              {categorieOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
             <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
               <input
                 type="checkbox"

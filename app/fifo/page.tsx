@@ -4,6 +4,7 @@ import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 const PAGE_SIZE = 100;
 
@@ -35,6 +36,31 @@ function getNomArticle(
   }
 
   return relation?.nom_article || "-";
+}
+
+async function fetchAllProformaNumbers() {
+  const values = new Set<string>();
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("commandes")
+      .select("numero_proforma")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { values: [...values], error };
+
+    const chunk = (data ?? []) as { numero_proforma: string | null }[];
+    for (const row of chunk) {
+      if (row.numero_proforma) values.add(row.numero_proforma);
+    }
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { values: [...values], error: null };
 }
 
 function getCommandeInfo(
@@ -78,14 +104,13 @@ export default async function FifoPage({
     countQuery = countQuery.ilike("commandes.numero_proforma", `%${proforma}%`);
   }
 
-  const [{ data, error }, { count, error: countError }] = await Promise.all([
-    fifoQuery.range(from, to),
-    countQuery,
-  ]);
+  const [{ data, error }, { count, error: countError }, { values: proformaValues }] =
+    await Promise.all([fifoQuery.range(from, to), countQuery, fetchAllProformaNumbers()]);
 
   const rows = (data as WebFifoRow[] | null) ?? [];
   const effectiveError = error ?? countError;
   const totalRows = count ?? 0;
+  const proformaOptions = proformaValues.map((label, index) => ({ id: index, label }));
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
   const totalChargee = rows.reduce((sum, row) => sum + Number(row.quantite_chargee || 0), 0);
   const lotsVisibles = new Set(rows.map((row) => row.numero_lot).filter(Boolean)).size;
@@ -125,12 +150,11 @@ export default async function FifoPage({
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 md:grid-cols-[2fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="proforma"
               defaultValue={proforma}
+              options={proformaOptions}
               placeholder="Chercher numero proforma..."
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
               type="submit"

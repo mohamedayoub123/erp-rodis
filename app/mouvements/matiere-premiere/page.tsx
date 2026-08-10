@@ -12,6 +12,7 @@ import {
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 type SearchParams = Promise<{ code?: string; date?: string; dossier?: string; saisi_par?: string }>;
 
@@ -39,6 +40,29 @@ export default async function MouvementsMatierePremierePage({
     if (dateB !== dateA) return dateB - dateA;
     return b.groupe_id - a.groupe_id;
   });
+
+  const codeOptions = [...new Set(allGroups.map((group) => group.code))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
+  const dossierOptions = [
+    ...new Set(
+      allGroups.flatMap((group) => {
+        const first = group.lignes[0];
+        return [first?.n_doss_4d, first?.n_doss_erp].filter((value): value is string => Boolean(value));
+      })
+    ),
+  ]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
+  const saisiParOptions = [
+    ...new Set(
+      allGroups
+        .map((group) => group.lignes[0]?.utilisateur)
+        .filter((value): value is string => Boolean(value))
+    ),
+  ]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
 
   // Dossier cherche dans Doss. 4D ET Doss. ERP - l'utilisateur ne sait pas
   // toujours lequel des deux il a en main.
@@ -114,12 +138,11 @@ export default async function MouvementsMatierePremierePage({
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto_auto]">
-            <input
-              type="text"
+            <SearchableFilterInput
               name="code"
               defaultValue={params.code || ""}
+              options={codeOptions}
               placeholder="Code (TE1, TS1...)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <input
               type="date"
@@ -127,19 +150,17 @@ export default async function MouvementsMatierePremierePage({
               defaultValue={params.date || ""}
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="dossier"
               defaultValue={params.dossier || ""}
+              options={dossierOptions}
               placeholder="Dossier (4D ou ERP)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
-            <input
-              type="text"
+            <SearchableFilterInput
               name="saisi_par"
               defaultValue={params.saisi_par || ""}
+              options={saisiParOptions}
               placeholder="Saisi par"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <button
               type="submit"
