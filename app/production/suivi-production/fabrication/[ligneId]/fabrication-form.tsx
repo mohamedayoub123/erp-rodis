@@ -413,12 +413,9 @@ export function FabricationForm({
               <select
                 name="code_vrac_recupere"
                 defaultValue={rapport?.code_vrac_recupere || ""}
-                required
                 className={inputClass}
               >
-                <option value="" disabled>
-                  Choisis un lot
-                </option>
+                <option value="">Aucun</option>
                 {vracRecupereLots.map((lot) => (
                   <option key={lot.numeroLot} value={lot.numeroLot}>
                     {lot.numeroLot || "(sans numero)"} - dispo {lot.solde.toLocaleString("fr-FR")}
