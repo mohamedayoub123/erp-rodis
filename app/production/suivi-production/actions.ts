@@ -22,6 +22,78 @@ function revalidateRapportPages() {
   revalidatePath("/production/suivi/dashboard");
 }
 
+// La ligne appartient a un vrai Programme (MB) dispatche des que
+// source_numero_programme est renseigne - une fiche "nouveau" (bouton "+" du
+// Dashboard, cree a la volee sans passer par aucun programme) reste null et
+// n'a donc jamais a passer par Salle de pesage/conditionnement, qui n'existe
+// que pour ce flux-la.
+async function ligneVientDunPogramme(ligneId: number): Promise<boolean> {
+  const { data, error } = await supabaseServer
+    .from("programme_lignes")
+    .select("source_numero_programme")
+    .eq("id", ligneId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as { source_numero_programme: number | null } | null)?.source_numero_programme !== null;
+}
+
+async function codeTermineExiste(
+  ligneId: number,
+  code: string,
+  stage: "pesage" | "salle_conditionnement"
+): Promise<boolean> {
+  const { data, error } = await supabaseServer
+    .from("production_code_termine")
+    .select("id")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", stage)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data);
+}
+
+async function fabricationDejaProduite(ligneId: number, code: string): Promise<boolean> {
+  const { data, error } = await supabaseServer
+    .from("production_vrac_entries")
+    .select("id")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data);
+}
+
+// Chaine obligatoire : Salle de pesage valide -> Fabrication possible ->
+// Salle de conditionnement valide ET Fabrication reellement produite ->
+// Conditionnement possible. Un code sans lien vers un vrai Programme (fiche
+// manuelle) passe directement, voir ligneVientDunPogramme.
+async function requirePesageValide(ligneId: number, code: string) {
+  if (!code) return;
+  if (!(await ligneVientDunPogramme(ligneId))) return;
+  if (!(await codeTermineExiste(ligneId, code, "pesage"))) {
+    throw new Error(
+      "Le pesage (Salle de pesage) doit etre valide avant de pouvoir saisir la Fabrication pour ce code."
+    );
+  }
+}
+
+async function requireFabricationEtSalleConditionnementValides(ligneId: number, code: string) {
+  if (!code) return;
+  if (!(await ligneVientDunPogramme(ligneId))) return;
+  if (!(await fabricationDejaProduite(ligneId, code))) {
+    throw new Error(
+      "La Fabrication doit etre faite (vrac produit) avant de pouvoir saisir le Conditionnement pour ce code."
+    );
+  }
+  if (!(await codeTermineExiste(ligneId, code, "salle_conditionnement"))) {
+    throw new Error(
+      "La Salle de conditionnement doit etre validee avant de pouvoir saisir le Conditionnement pour ce code."
+    );
+  }
+}
+
 // Une ligne "Programme par ligne" decoupee en plusieurs lots (voir
 // buildDispatcherDraftRows) donne plusieurs codes physiques distincts
 // (ex: 9000 -> 3x3000) - Conditionnement/Emballage se font par code (chaque
@@ -138,6 +210,8 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     throw new Error("Ligne invalide.");
   }
 
+  await requireFabricationEtSalleConditionnementValides(ligneId, code);
+
   const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
@@ -216,6 +290,8 @@ export async function saveFabricationRapportAction(formData: FormData) {
   if (!ligneId) {
     throw new Error("Ligne invalide.");
   }
+
+  await requirePesageValide(ligneId, code);
 
   const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
