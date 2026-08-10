@@ -184,7 +184,33 @@ export async function deleteInvoiceOrderAction(formData: FormData) {
 
   const invoiceOrder = invoiceOrderData as { id: number; transfer_order_id: number; statut: string };
 
-  if (invoiceOrder.statut === "valide") {
+  const { data: invoiceLignesData, error: invoiceLignesError } = await supabaseServer
+    .from("invoice_order_lignes")
+    .select("id, transfer_order_ligne_id, numero_lot, quantite, sortie_lot_id, entree_lot_id")
+    .eq("invoice_order_id", invoiceOrderId);
+
+  if (invoiceLignesError) {
+    throw new Error(invoiceLignesError.message);
+  }
+
+  const invoiceLignes = (invoiceLignesData ?? []) as {
+    id: number;
+    transfer_order_ligne_id: number;
+    numero_lot: string | null;
+    quantite: number;
+    sortie_lot_id: number | null;
+    entree_lot_id: number | null;
+  }[];
+
+  // Une ligne "En attente" (draft) peut deja avoir un mouvement de stock
+  // REEL si une precedente tentative d'Approuver a echoue en cours de route
+  // (ex: collision de sequence id) apres avoir traite cette ligne mais avant
+  // de finir les autres - jamais rejoue depuis (voir validateInvoiceOrderAction).
+  // Il faut annuler CE mouvement reel meme si le Transfer Invoice entier
+  // n'est jamais passe "valide".
+  const aUneLigneDejaTraitee = invoiceLignes.some((l) => l.sortie_lot_id && l.entree_lot_id);
+
+  if (invoiceOrder.statut === "valide" || aUneLigneDejaTraitee) {
     const { data: transferOrderData, error: transferOrderError } = await supabaseServer
       .from("transfer_orders")
       .select("id, depot_source_id, depot_destination_id, date_jour")
@@ -201,24 +227,6 @@ export async function deleteInvoiceOrderAction(formData: FormData) {
       depot_destination_id: number;
       date_jour: string;
     };
-
-    const { data: invoiceLignesData, error: invoiceLignesError } = await supabaseServer
-      .from("invoice_order_lignes")
-      .select("id, transfer_order_ligne_id, numero_lot, quantite, sortie_lot_id, entree_lot_id")
-      .eq("invoice_order_id", invoiceOrderId);
-
-    if (invoiceLignesError) {
-      throw new Error(invoiceLignesError.message);
-    }
-
-    const invoiceLignes = (invoiceLignesData ?? []) as {
-      id: number;
-      transfer_order_ligne_id: number;
-      numero_lot: string | null;
-      quantite: number;
-      sortie_lot_id: number | null;
-      entree_lot_id: number | null;
-    }[];
 
     const { data: allLignesData, error: allLignesError } = await supabaseServer
       .from("transfer_order_lignes")
@@ -237,12 +245,21 @@ export async function deleteInvoiceOrderAction(formData: FormData) {
     );
 
     for (const ligne of invoiceLignes) {
+      // Deja reellement traitee (sortie_lot_id/entree_lot_id connus) - a
+      // annuler dans tous les cas (valide ou draft avec reste partiel).
+      // Sinon, jamais reellement expediee - rien a annuler cote stock pour
+      // une ligne encore draft (aucun mouvement n'a jamais existe pour
+      // elle) ; pour une ligne d'un TI valide ancien (avant ce suivi), on
+      // tente quand meme le rattrapage par correspondance exacte.
+      const dejaTraitee = ligne.sortie_lot_id !== null && ligne.entree_lot_id !== null;
+      const rattrapageLegacyPossible = invoiceOrder.statut === "valide" && !dejaTraitee;
+
       const ligneInfo = ligneInfoById.get(ligne.transfer_order_ligne_id);
-      if (ligneInfo) {
+      if (ligneInfo && (dejaTraitee || rattrapageLegacyPossible)) {
         const table = stockTableFor(ligneInfo.article_type);
         let lotIds = [ligne.sortie_lot_id, ligne.entree_lot_id].filter((id): id is number => id !== null);
 
-        if (lotIds.length === 0) {
+        if (lotIds.length === 0 && rattrapageLegacyPossible) {
           // Ligne validee avant l'ajout du suivi sortie_lot_id/entree_lot_id
           // (TI plus ancien) - on retrouve les 2 lignes de stock par
           // correspondance exacte (article/lot/depot/quantite/date/note),
@@ -285,6 +302,15 @@ export async function deleteInvoiceOrderAction(formData: FormData) {
           if (error) throw new Error(error.message);
         }
       }
+
+      // Le Transfer Order n'est reconcilie (sa quantite reduite/effacee)
+      // qu'a la toute fin d'un Approuver reussi (voir validateInvoiceOrderAction)
+      // - jamais pour un Transfer Invoice reste "En attente", meme si une de
+      // ses lignes a deja un mouvement reel (la reconciliation n'a jamais
+      // tourne pour elle). Ne rendre la quantite au Transfer Order que si ce
+      // Transfer Invoice etait "valide" - sinon le Transfer Order affiche
+      // deja la bonne quantite non livree, la modifier la doublerait.
+      if (invoiceOrder.statut !== "valide") continue;
 
       let existingQuery = supabaseServer
         .from("transfer_order_ligne_lots")
