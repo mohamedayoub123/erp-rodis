@@ -24,6 +24,8 @@ type SpecQueryRow = {
   pression_atmospherique_min: number | null;
   pression_atmospherique_max: number | null;
   texture: string | null;
+  temperature_min: number | null;
+  temperature_max: number | null;
   articles: { nom_article: string } | { nom_article: string }[] | null;
 };
 
@@ -46,7 +48,7 @@ export default async function QualiteSpecsPage() {
     supabaseServer
       .from("articles_specs_qualite")
       .select(
-        "article_id, ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture, articles!inner(nom_article)"
+        "article_id, ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture, temperature_min, temperature_max, articles!inner(nom_article)"
       ),
   ]);
 
@@ -76,6 +78,8 @@ export default async function QualiteSpecsPage() {
       pression_atmospherique_min: row.pression_atmospherique_min,
       pression_atmospherique_max: row.pression_atmospherique_max,
       texture: row.texture,
+      temperature_min: row.temperature_min,
+      temperature_max: row.temperature_max,
     }))
     .sort((a, b) => a.article_label.localeCompare(b.article_label, "fr", { sensitivity: "base" }));
 

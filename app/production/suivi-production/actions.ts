@@ -336,6 +336,7 @@ async function messageSiHorsSpecSansDerogation(
     tauxHumidite: number | null;
     pressionAtmospherique: number | null;
     texture: string | null;
+    temperatureTest: number | null;
     sousDerogation: boolean;
   }
 ): Promise<string | null> {
@@ -360,7 +361,7 @@ async function messageSiHorsSpecSansDerogation(
   const { data: specData } = await supabaseServer
     .from("articles_specs_qualite")
     .select(
-      "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture"
+      "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture, temperature_min, temperature_max"
     )
     .eq("article_id", vracArticleId)
     .maybeSingle();
@@ -380,6 +381,8 @@ async function messageSiHorsSpecSansDerogation(
     pression_atmospherique_min: number | null;
     pression_atmospherique_max: number | null;
     texture: string | null;
+    temperature_min: number | null;
+    temperature_max: number | null;
   } | null;
   if (!spec) return null;
 
@@ -395,6 +398,7 @@ async function messageSiHorsSpecSansDerogation(
     horsRange(values.degreAlcool, spec.degre_alcool_min, spec.degre_alcool_max) ||
     horsRange(values.tauxHumidite, spec.taux_humidite_min, spec.taux_humidite_max) ||
     horsRange(values.pressionAtmospherique, spec.pression_atmospherique_min, spec.pression_atmospherique_max) ||
+    horsRange(values.temperatureTest, spec.temperature_min, spec.temperature_max) ||
     (Boolean(spec.stabilite) && values.stabilite !== "" && values.stabilite !== null && values.stabilite !== spec.stabilite) ||
     (Boolean(spec.couleur) &&
       values.couleur !== null &&
@@ -978,6 +982,7 @@ export async function saveTestLaboAction(formData: FormData) {
   const tauxHumidite = parseOptionalNumber(formData, "taux_humidite");
   const pressionAtmospherique = parseOptionalNumber(formData, "pression_atmospherique");
   const texture = parseOptionalText(formData, "texture");
+  const temperatureTest = parseOptionalNumber(formData, "temperature_test");
   const sousDerogation = formData.get("sous_derogation") === "on";
   const motifDerogation = parseOptionalText(formData, "motif_derogation");
 
@@ -996,6 +1001,7 @@ export async function saveTestLaboAction(formData: FormData) {
     tauxHumidite,
     pressionAtmospherique,
     texture,
+    temperatureTest,
     sousDerogation,
   });
   if (erreurHorsSpec) {
@@ -1011,7 +1017,7 @@ export async function saveTestLaboAction(formData: FormData) {
     degre_alcool: degreAlcool,
     stabilite,
     couleur,
-    temperature_test: parseOptionalNumber(formData, "temperature_test"),
+    temperature_test: temperatureTest,
     odeur,
     taux_humidite: tauxHumidite,
     pression_atmospherique: pressionAtmospherique,

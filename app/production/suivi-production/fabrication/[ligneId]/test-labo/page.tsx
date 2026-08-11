@@ -58,6 +58,8 @@ type SpecInfo = {
   texture: string | null;
   stabilite: string | null;
   couleur: string | null;
+  temperature_min: number | null;
+  temperature_max: number | null;
 };
 
 const RAPPORT_FIELDS =
@@ -137,7 +139,7 @@ export default async function TestLaboPage({
       const { data: specData } = await supabaseServer
         .from("articles_specs_qualite")
         .select(
-          "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture"
+          "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture, temperature_min, temperature_max"
         )
         .eq("article_id", vracArticleId)
         .maybeSingle();

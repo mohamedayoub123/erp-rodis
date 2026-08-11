@@ -44,6 +44,8 @@ type SpecInfo = {
   texture: string | null;
   stabilite: string | null;
   couleur: string | null;
+  temperature_min: number | null;
+  temperature_max: number | null;
 };
 
 const inputClass =
@@ -225,16 +227,14 @@ export function TestLaboForm({
               />
               {couleurNonConforme ? <span className="text-[11px] font-semibold text-red-600">Hors spec</span> : null}
             </label>
-            <label className="grid gap-1 text-xs font-semibold text-slate-500">
-              Temperature de test
-              <input
-                type="number"
-                step="0.1"
-                name="temperature_test"
-                defaultValue={rapport?.temperature_test ?? ""}
-                className={inputClass}
-              />
-            </label>
+            <NumericSpecField
+              label="Temperature de test"
+              name="temperature_test"
+              defaultValue={rapport?.temperature_test}
+              specMin={spec?.temperature_min}
+              specMax={spec?.temperature_max}
+              onNonConformeChange={(v) => setNumericHorsSpec((prev) => ({ ...prev, temperature_test: v }))}
+            />
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Odeur
               <select
