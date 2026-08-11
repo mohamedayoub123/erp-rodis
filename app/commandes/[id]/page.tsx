@@ -518,7 +518,12 @@ async function fetchAvailableCodesByArticle(
 
   for (const row of rows) {
     const code = (row.code_normalise || row.numero_lot || "").trim();
-    if (!row.article_id || !code) continue;
+    // Les codes purement numeriques ("1", "2", "3"...) sont d'anciens
+    // compteurs de solde d'ouverture importes en vrac avant que le systeme
+    // ne suive les vrais numeros de lot un par un (voir les lignes
+    // "SORTIEIMPORT" dans lots_stock.note) - jamais un vrai code de lot
+    // (qui contient toujours au moins une lettre), donc jamais selectionnable.
+    if (!row.article_id || !code || /^\d+$/.test(code)) continue;
 
     const key = `${row.article_id}::${code.toUpperCase()}`;
     let group = groups.get(key);
