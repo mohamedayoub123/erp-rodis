@@ -22,7 +22,7 @@ export function FifoAddLigneForm({
   articles: ArticleOption[];
   codesByArticle: Record<number, CodeOption[]>;
   defaultPreparateur: string;
-  addAction: (formData: FormData) => void | Promise<void>;
+  addAction: (formData: FormData) => Promise<{ error: string } | void>;
 }) {
   const codeListId = useId();
   const [articleInput, setArticleInput] = useState("");
@@ -84,10 +84,15 @@ export function FifoAddLigneForm({
     formData.set("quantite_chargee", String(qty));
 
     startTransition(async () => {
+      let result: { error: string } | void;
       try {
-        await addAction(formData);
+        result = await addAction(formData);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur inconnue.");
+        return;
+      }
+      if (result?.error) {
+        setError(result.error);
         return;
       }
       setArticleInput("");

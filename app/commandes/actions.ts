@@ -1269,6 +1269,19 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
   revalidateCommandeDependentPages(commandeId);
 }
 
+// Les erreurs "throw new Error(...)" d'une Server Action appelee
+// directement depuis du JS client (pas via <form action>, ex: dans
+// startTransition) sont redigees en un message generique par Next.js en
+// production, MEME pour un message propre ecrit a la main - confirme en
+// comparant le texte affiche cote client aux vrais logs Vercel (le digest
+// montrait le vrai message, le client un texte generique). Une valeur de
+// retour normale ({ error: "..." }) n'est elle jamais redigee (ce n'est
+// pas une exception), donc updateAllFifoResultsAction et
+// addFifoLigneForNewArticleAction renvoient desormais leurs erreurs au
+// lieu de les lancer, pour que le vrai message arrive enfin jusqu'a
+// l'utilisateur sans avoir besoin de checker les logs Vercel a chaque fois.
+export type FifoActionResult = { error: string } | undefined;
+
 // Ajoute manuellement un lot propose (hors fenetre <= 2 mois pour un
 // article clarifiant/container) comme ligne FIFO supplementaire, quand
 // l'utilisateur clique "Confirmer" sur une des dates les plus proches
@@ -1696,8 +1709,13 @@ async function deleteOneFifoResult(fifoId: number, commandeId: number) {
 // Sequentiel (pas Promise.all) : chaque appel relit/reecrit
 // commandes.commentaire (valeur de secours), un envoi en parallele
 // risquerait de faire perdre l'ecriture d'un appel par un autre.
-export async function updateAllFifoResultsAction(formData: FormData) {
-  await requireCommandesEditAccess();
+export async function updateAllFifoResultsAction(formData: FormData): Promise<FifoActionResult> {
+  try {
+    await requireCommandesEditAccess();
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Erreur inconnue." };
+  }
+
   const commandeId = Number(String(formData.get("commande_id") || "0"));
   const fifoIds = formData
     .getAll("fifo_ids")
@@ -1709,39 +1727,43 @@ export async function updateAllFifoResultsAction(formData: FormData) {
     .filter(Boolean);
 
   if (!commandeId || (fifoIds.length === 0 && deletedFifoIds.length === 0)) {
-    throw new Error("Commande invalide.");
+    return { error: "Commande invalide." };
   }
 
-  for (const fifoId of deletedFifoIds) {
-    await deleteOneFifoResult(fifoId, commandeId);
-  }
-
-  for (const fifoId of fifoIds) {
-    const numeroLot = String(formData.get(`numero_lot_${fifoId}`) || "").trim();
-    const preparateur = String(formData.get(`preparateur_${fifoId}`) || "").trim();
-    const quantiteChargee = Number(
-      String(formData.get(`quantite_chargee_${fifoId}`) || "0").replace(",", ".")
-    );
-
-    if (!numeroLot) {
-      throw new Error("Le code / numero de lot est obligatoire sur chaque ligne.");
+  try {
+    for (const fifoId of deletedFifoIds) {
+      await deleteOneFifoResult(fifoId, commandeId);
     }
 
-    if (Number.isNaN(quantiteChargee) || quantiteChargee <= 0) {
-      throw new Error("La quantite chargee doit etre superieure a zero sur chaque ligne.");
-    }
+    for (const fifoId of fifoIds) {
+      const numeroLot = String(formData.get(`numero_lot_${fifoId}`) || "").trim();
+      const preparateur = String(formData.get(`preparateur_${fifoId}`) || "").trim();
+      const quantiteChargee = Number(
+        String(formData.get(`quantite_chargee_${fifoId}`) || "0").replace(",", ".")
+      );
 
-    const { error: rpcError } = await supabaseServer.rpc("stock_override_fifo_result", {
-      p_fifo_id: fifoId,
-      p_commande_id: commandeId,
-      p_numero_lot: numeroLot,
-      p_preparateur: preparateur,
-      p_quantite_chargee: quantiteChargee,
-    });
+      if (!numeroLot) {
+        return { error: "Le code / numero de lot est obligatoire sur chaque ligne." };
+      }
 
-    if (rpcError) {
-      throw new Error(rpcError.message);
+      if (Number.isNaN(quantiteChargee) || quantiteChargee <= 0) {
+        return { error: "La quantite chargee doit etre superieure a zero sur chaque ligne." };
+      }
+
+      const { error: rpcError } = await supabaseServer.rpc("stock_override_fifo_result", {
+        p_fifo_id: fifoId,
+        p_commande_id: commandeId,
+        p_numero_lot: numeroLot,
+        p_preparateur: preparateur,
+        p_quantite_chargee: quantiteChargee,
+      });
+
+      if (rpcError) {
+        return { error: rpcError.message };
+      }
     }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Erreur inconnue." };
   }
 
   revalidateCommandeDependentPages(commandeId);
@@ -1754,8 +1776,15 @@ export async function updateAllFifoResultsAction(formData: FormData) {
 // produit se comporte normalement partout ailleurs : manque, impression...)
 // puis un resultat FIFO qu'on resout immediatement via le meme RPC que le
 // Save normal, pour ne pas dupliquer sa logique de validation du lot/stock.
-export async function addFifoLigneForNewArticleAction(formData: FormData) {
-  await requireCommandesEditAccess();
+export async function addFifoLigneForNewArticleAction(
+  formData: FormData
+): Promise<FifoActionResult> {
+  try {
+    await requireCommandesEditAccess();
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Erreur inconnue." };
+  }
+
   const commandeId = Number(String(formData.get("commande_id") || "0"));
   const articleId = Number(String(formData.get("article_id") || "0"));
   const numeroLot = String(formData.get("numero_lot") || "").trim();
@@ -1763,15 +1792,60 @@ export async function addFifoLigneForNewArticleAction(formData: FormData) {
   const quantiteChargee = Number(String(formData.get("quantite_chargee") || "0").replace(",", "."));
 
   if (!commandeId || !articleId) {
-    throw new Error("Commande ou article invalide.");
+    return { error: "Commande ou article invalide." };
   }
 
   if (!numeroLot) {
-    throw new Error("Le code / numero de lot est obligatoire.");
+    return { error: "Le code / numero de lot est obligatoire." };
   }
 
   if (Number.isNaN(quantiteChargee) || quantiteChargee <= 0) {
-    throw new Error("La quantite doit etre superieure a zero.");
+    return { error: "La quantite doit etre superieure a zero." };
+  }
+
+  // Verifie le stock reel AVANT de creer quoi que ce soit : le picker
+  // affiche parfois un chiffre perime (page ouverte depuis un moment,
+  // stock change entretemps par une autre commande/tentative) - sans ce
+  // garde-fou, la ligne de commande + la ligne FIFO etaient creees quand
+  // meme puis abandonnees en l'etat (orphelines) des que le RPC rejetait
+  // le code juste apres, faute de stock reel (voir commande_lignes 9180 /
+  // fifo_resultats 3880, nettoyees manuellement le 2026-08-11).
+  const { data: stockRows, error: stockError } = await supabaseServer
+    .from("lots_stock")
+    .select("qte_entree, qte_sortie")
+    .eq("article_id", articleId)
+    .or(`numero_lot.eq.${numeroLot},code_normalise.eq.${numeroLot}`);
+
+  if (stockError) {
+    return { error: stockError.message };
+  }
+
+  const rawStock = (stockRows ?? []).reduce(
+    (sum, row) => sum + Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0),
+    0
+  );
+
+  const { data: reservedRows, error: reservedError } = await supabaseServer
+    .from("fifo_resultats")
+    .select("quantite_chargee")
+    .eq("article_id", articleId)
+    .eq("numero_lot", numeroLot);
+
+  if (reservedError) {
+    return { error: reservedError.message };
+  }
+
+  const alreadyReserved = (reservedRows ?? []).reduce(
+    (sum, row) => sum + Number(row.quantite_chargee ?? 0),
+    0
+  );
+
+  const reallyAvailable = rawStock - alreadyReserved;
+
+  if (reallyAvailable < quantiteChargee) {
+    return {
+      error: `Stock insuffisant pour le code ${numeroLot} : ${Math.max(0, reallyAvailable)} disponible reellement (la page affichait peut-etre un chiffre perime - recharge la page pour voir le stock a jour).`,
+    };
   }
 
   const { data: newLigne, error: ligneError } = await supabaseServer
@@ -1781,7 +1855,7 @@ export async function addFifoLigneForNewArticleAction(formData: FormData) {
     .single();
 
   if (ligneError || !newLigne) {
-    throw new Error(ligneError?.message || "Erreur pendant la creation de la ligne.");
+    return { error: ligneError?.message || "Erreur pendant la creation de la ligne." };
   }
 
   const { data: maxOrdreRow } = await supabaseServer
@@ -1817,7 +1891,10 @@ export async function addFifoLigneForNewArticleAction(formData: FormData) {
     .single();
 
   if (fifoError || !newFifo) {
-    throw new Error(fifoError?.message || "Erreur pendant la creation de la ligne FIFO.");
+    // La ligne de commande a deja ete creee juste au-dessus - la retirer
+    // pour ne pas laisser une demande fantome sans resultat FIFO associe.
+    await supabaseServer.from("commande_lignes").delete().eq("id", newLigne.id);
+    return { error: fifoError?.message || "Erreur pendant la creation de la ligne FIFO." };
   }
 
   const { error: rpcError } = await supabaseServer.rpc("stock_override_fifo_result", {
@@ -1829,7 +1906,12 @@ export async function addFifoLigneForNewArticleAction(formData: FormData) {
   });
 
   if (rpcError) {
-    throw new Error(rpcError.message);
+    // Le RPC a rejete le code (ex: plus de stock reel) - la ligne de
+    // commande et le resultat FIFO crees juste avant sont retires pour ne
+    // pas laisser de donnees orphelines pointant vers un code sans stock.
+    await supabaseServer.from("fifo_resultats").delete().eq("id", newFifo.id);
+    await supabaseServer.from("commande_lignes").delete().eq("id", newLigne.id);
+    return { error: rpcError.message };
   }
 
   revalidateCommandeDependentPages(commandeId);

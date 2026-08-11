@@ -32,7 +32,7 @@ export function FifoResultsTable({
   initialRows: FifoResultRowData[];
   availableCodesByArticle: Record<number, CodeOption[]>;
   canEdit: boolean;
-  saveAction: (formData: FormData) => Promise<void>;
+  saveAction: (formData: FormData) => Promise<{ error: string } | void>;
 }) {
   const [deletedIds, setDeletedIds] = useState<number[]>([]);
   const [fields, setFields] = useState<
@@ -80,7 +80,10 @@ export function FifoResultsTable({
 
     startTransition(async () => {
       try {
-        await saveAction(formData);
+        const result = await saveAction(formData);
+        if (result?.error) {
+          setError(result.error);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur inconnue.");
       }
