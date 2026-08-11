@@ -7,6 +7,7 @@ import {
   calculateFifoForCommandeAction,
   cancelFifoBatchAction,
   deleteCommandeTruckAction,
+  deleteFifoResultAction,
   deliverCommandeAction,
   updateAllFifoResultsAction,
   updateManualCommandeAction,
@@ -18,6 +19,7 @@ import { formatDate } from "@/lib/format-date";
 import { SearchableSelect } from "@/app/_components/searchable-select";
 import { LignesCommandeField } from "./lignes-commande-field";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { FifoCodePicker, type CodeOption } from "./fifo-code-picker";
 
 type CommandeDetailRow = {
   id: number;
@@ -468,6 +470,80 @@ async function fetchAllArticlesForCommandeDetail() {
   return rows.map((article) => ({ value: String(article.id), label: article.nom_article }));
 }
 
+// Codes (lots) avec un stock > 0 pour chaque article deja dispatche sur
+// cette commande - meme regroupement que stock_override_fifo_result cote
+// SQL (code_normalise ou numero_lot, somme entree-sortie > 0), pour que le
+// menu de code ne propose jamais un code qui echouerait a la validation.
+async function fetchAvailableCodesByArticle(
+  articleIds: number[]
+): Promise<Record<number, CodeOption[]>> {
+  const result: Record<number, CodeOption[]> = {};
+  if (articleIds.length === 0) return result;
+
+  const rows: {
+    article_id: number | null;
+    numero_lot: string | null;
+    code_normalise: string | null;
+    date_fabrication: string | null;
+    qte_entree: number | null;
+    qte_sortie: number | null;
+  }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("lots_stock")
+      .select("article_id, numero_lot, code_normalise, date_fabrication, qte_entree, qte_sortie")
+      .in("article_id", articleIds)
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as typeof rows;
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const groups = new Map<
+    string,
+    { articleId: number; code: string; quantite: number; dateFabrication: string | null }
+  >();
+
+  for (const row of rows) {
+    const code = (row.code_normalise || row.numero_lot || "").trim();
+    if (!row.article_id || !code) continue;
+
+    const key = `${row.article_id}::${code.toUpperCase()}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        articleId: row.article_id,
+        code: (row.numero_lot || code).trim(),
+        quantite: 0,
+        dateFabrication: null,
+      };
+      groups.set(key, group);
+    }
+
+    group.quantite += Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
+    if (!group.dateFabrication && Number(row.qte_entree ?? 0) > 0 && row.date_fabrication) {
+      group.dateFabrication = row.date_fabrication;
+    }
+  }
+
+  for (const group of groups.values()) {
+    if (group.quantite <= 0) continue;
+    const list = result[group.articleId] ?? [];
+    list.push({ code: group.code, quantite: group.quantite, dateFabrication: group.dateFabrication });
+    result[group.articleId] = list;
+  }
+
+  return result;
+}
+
 export default async function CommandeDetailPage({
   params,
 }: {
@@ -520,6 +596,10 @@ export default async function CommandeDetailPage({
   }
 
   const fifoResults: FifoResultRow[] = (fifoData as FifoResultRow[] | null) ?? [];
+
+  const availableCodesByArticle = await fetchAvailableCodesByArticle([
+    ...new Set(fifoResults.map((ligne) => ligne.article_id).filter((id): id is number => Boolean(id))),
+  ]);
 
   // Chaque camion d'une commande "Nb de camion > 1" est une commande a part
   // entiere partageant la meme numero_proforma de base (suffixe -2, -3... -
@@ -811,22 +891,22 @@ export default async function CommandeDetailPage({
                   <table className="min-w-full table-fixed text-left text-sm">
                     <colgroup>
                       <col className="w-[20%]" />
+                      <col className="w-[18%]" />
+                      <col className="w-[11%]" />
                       <col className="w-[16%]" />
+                      <col className="w-[13%]" />
                       <col className="w-[12%]" />
                       <col className="w-[10%]" />
-                      <col className="w-[16%]" />
-                      <col className="w-[12%]" />
-                      <col className="w-[14%]" />
                     </colgroup>
                     <thead className="bg-slate-50 text-slate-500">
                       <tr>
                         <th className="px-4 py-3 font-semibold">Article</th>
-                        <th className="px-4 py-3 font-semibold">Numero lot</th>
-                        <th className="px-4 py-3 font-semibold">Date fab.</th>
+                        <th className="px-4 py-3 font-semibold">Code (stock &gt; 0)</th>
                         <th className="px-4 py-3 font-semibold">Chambre</th>
                         <th className="px-4 py-3 font-semibold">Preparateur</th>
                         <th className="px-4 py-3 font-semibold">Qt chargee</th>
                         <th className="no-print px-4 py-3 font-semibold">Regle FIFO</th>
+                        <th className="no-print px-4 py-3 font-semibold">Supprimer</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -838,18 +918,19 @@ export default async function CommandeDetailPage({
                           </td>
                           <td className="px-4 py-3 align-middle">
                             {canEditCommandes ? (
-                              <input
-                                type="text"
-                                name={`numero_lot_${ligne.id}`}
-                                defaultValue={ligne.numero_lot || ""}
-                                className="w-full max-w-[140px] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                              <FifoCodePicker
+                                fieldName={`numero_lot_${ligne.id}`}
+                                defaultCode={ligne.numero_lot || ""}
+                                codes={availableCodesByArticle[ligne.article_id] ?? []}
                               />
                             ) : (
-                              <span className="text-slate-700">{ligne.numero_lot || "-"}</span>
+                              <>
+                                <span className="text-slate-700">{ligne.numero_lot || "-"}</span>
+                                <p className="text-xs text-slate-500">
+                                  Date fab. : {formatDate(ligne.date_fabrication)}
+                                </p>
+                              </>
                             )}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700 align-middle">
-                            {formatDate(ligne.date_fabrication)}
                           </td>
                           <td className="px-4 py-3 text-slate-700 align-middle">{ligne.chambre || "-"}</td>
                           <td className="px-4 py-3 align-middle">
@@ -883,6 +964,36 @@ export default async function CommandeDetailPage({
                           </td>
                           <td className="no-print px-4 py-3 text-slate-600 align-middle">
                             {ligne.regle_appliquee || "-"}
+                          </td>
+                          <td className="no-print px-4 py-3 align-middle">
+                            {canEditCommandes ? (
+                              <button
+                                type="submit"
+                                name="fifo_id"
+                                value={ligne.id}
+                                formAction={deleteFifoResultAction}
+                                formNoValidate
+                                aria-label="Supprimer cette ligne du dispatch"
+                                title="Supprimer cette ligne du dispatch"
+                                className="flex h-9 w-9 items-center justify-center rounded-full border border-red-200 text-red-700 transition hover:bg-red-50"
+                              >
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  className="h-4 w-4"
+                                >
+                                  <path d="M3 6h18" />
+                                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                                  <path d="M10 11v6" />
+                                  <path d="M14 11v6" />
+                                </svg>
+                              </button>
+                            ) : null}
                           </td>
                         </tr>
                       ))}

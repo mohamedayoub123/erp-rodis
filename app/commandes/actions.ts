@@ -1681,6 +1681,68 @@ export async function updateAllFifoResultsAction(formData: FormData) {
   revalidateCommandeDependentPages(commandeId);
 }
 
+// Supprime une ligne du dispatch FIFO (sans toucher au stock - le lot
+// n'a jamais ete sorti tant que la commande n'est pas Livree). Recalcule
+// ensuite le manque de la ligne de commande touchee, meme logique que la
+// fin de stock_override_fifo_result.
+export async function deleteFifoResultAction(formData: FormData) {
+  await requireCommandesEditAccess();
+  const fifoId = Number(String(formData.get("fifo_id") || "0"));
+  const commandeId = Number(String(formData.get("commande_id") || "0"));
+
+  if (!fifoId || !commandeId) {
+    throw new Error("Ligne FIFO invalide.");
+  }
+
+  const { data: fifoRow, error: fifoRowError } = await supabaseServer
+    .from("fifo_resultats")
+    .select("commande_ligne_id")
+    .eq("id", fifoId)
+    .eq("commande_id", commandeId)
+    .single();
+
+  if (fifoRowError || !fifoRow) {
+    throw new Error(fifoRowError?.message || "Ligne FIFO introuvable.");
+  }
+
+  const { error: deleteError } = await supabaseServer.from("fifo_resultats").delete().eq("id", fifoId);
+
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+
+  if (fifoRow.commande_ligne_id) {
+    const [{ data: ligneData }, { data: remainingFifo }] = await Promise.all([
+      supabaseServer
+        .from("commande_lignes")
+        .select("quantite_demandee")
+        .eq("id", fifoRow.commande_ligne_id)
+        .single(),
+      supabaseServer
+        .from("fifo_resultats")
+        .select("quantite_chargee")
+        .eq("commande_ligne_id", fifoRow.commande_ligne_id),
+    ]);
+
+    const charged = ((remainingFifo as { quantite_chargee: number | null }[] | null) ?? []).reduce(
+      (sum, row) => sum + Number(row.quantite_chargee ?? 0),
+      0
+    );
+    const shortage = Math.max(0, Number(ligneData?.quantite_demandee ?? 0) - charged);
+
+    const { error: shortageError } = await supabaseServer
+      .from("commande_lignes")
+      .update({ qt_non_dispo_total: shortage })
+      .eq("id", fifoRow.commande_ligne_id);
+
+    if (shortageError) {
+      throw new Error(shortageError.message);
+    }
+  }
+
+  revalidateCommandeDependentPages(commandeId);
+}
+
 // "Ajouter une ligne" sur le Resultat FIFO : dispatcher un produit qui
 // n'a jamais ete demande dans cette commande (contrairement a
 // addManualFifoLotAction, qui ne fait que combler le manque d'une ligne
