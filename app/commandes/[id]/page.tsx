@@ -843,8 +843,14 @@ export default async function CommandeDetailPage({
               ) : null}
               {canEditCommandes ? (
                 <>
-                  <form action={deliverCommandeAction}>
+                  <form action={deliverCommandeAction} className="flex items-center gap-2">
                     <input type="hidden" name="commande_id" value={selectedCommande.id} />
+                    <input
+                      type="text"
+                      name="numero_bl"
+                      placeholder="Numero BL (optionnel)"
+                      className="w-40 rounded-full border border-slate-200 px-4 py-2 text-sm outline-none"
+                    />
                     <button
                       type="submit"
                       className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"

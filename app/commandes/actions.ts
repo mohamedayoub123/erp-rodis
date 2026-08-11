@@ -1701,10 +1701,12 @@ export async function deliverCommandeAction(formData: FormData) {
   }
 
   const currentUser = await getCurrentStockUser();
+  const numeroBl = String(formData.get("numero_bl") || "").trim();
 
   const { error } = await supabaseServer.rpc("stock_deliver_commande", {
     p_commande_id: commandeId,
     p_utilisateur: currentUser || "",
+    p_numero_bl: numeroBl,
   });
 
   if (error) {

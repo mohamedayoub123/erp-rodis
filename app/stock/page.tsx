@@ -38,6 +38,7 @@ type StockMovementRow = {
   code_pays: string | null;
   note: string | null;
   created_at: string | null;
+  source_import: string | null;
   articles: {
     nom_article: string;
     type_article: string | null;
@@ -55,11 +56,20 @@ type DisplayStockRow = StockMovementRow & {
   livre_pour: string | null;
   numero_bl: string | null;
   preparateur: string | null;
+  numero_proforma: string | null;
 };
 
-function parseLatestSortieMeta(note: string | null) {
+function parseLatestSortieMeta(note: string | null, sourceImport: string | null) {
+  const empty = {
+    code_sortie: null,
+    livre_pour: null,
+    numero_bl: null,
+    preparateur: null,
+    numero_proforma: null,
+  };
+
   if (!note) {
-    return { code_sortie: null, livre_pour: null, numero_bl: null, preparateur: null };
+    return empty;
   }
 
   const lines = note
@@ -78,19 +88,29 @@ function parseLatestSortieMeta(note: string | null) {
     const parts = line.split("|");
     const code = parts[2] || "";
     const livrePour = parts[3] || "";
-    const numeroBl = parts[4] || "";
-    const preparateur =
-      parts.length >= 7 ? parts[5] || "" : "";
+    let numeroBl = parts[4] || "";
+    const preparateur = parts.length >= 7 ? parts[5] || "" : "";
+    let numeroProforma = parts.length >= 9 ? parts[8] || "" : "";
+
+    // Anciennes livraisons de commande (avant le 2026-08-11) : le numero de
+    // proforma etait glisse par erreur dans le champ BL - meme correctif
+    // que app/mouvements/shared.ts (parseSortieMeta), uniquement pour ces
+    // lignes historiques de livraison, jamais les sorties manuelles.
+    if (!numeroProforma && sourceImport === "web:sortie-commande" && numeroBl && numeroBl !== "-") {
+      numeroProforma = numeroBl;
+      numeroBl = "";
+    }
 
     return {
       code_sortie: code && code !== "-" ? code : null,
       livre_pour: livrePour && livrePour !== "-" ? livrePour : null,
       numero_bl: numeroBl && numeroBl !== "-" ? numeroBl : null,
       preparateur: preparateur && preparateur !== "-" ? preparateur : null,
+      numero_proforma: numeroProforma && numeroProforma !== "-" ? numeroProforma : null,
     };
   }
 
-  return { code_sortie: null, livre_pour: null, numero_bl: null, preparateur: null };
+  return empty;
 }
 
 function buildCodeKey(articleId: number | null, numeroLot: string | null | undefined) {
@@ -174,7 +194,7 @@ export default async function StockPage({
     let stockQuery = supabaseServer
       .from("lots_stock")
       .select(
-        "id, article_id, numero_lot, date_fabrication, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, created_at, articles!inner(nom_article, type_article, marque, gamme)"
+        "id, article_id, numero_lot, date_fabrication, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, created_at, source_import, articles!inner(nom_article, type_article, marque, gamme)"
       )
       .order("id", { ascending: false })
       .range(stockFrom, stockFrom + stockPageSize - 1);
@@ -293,7 +313,7 @@ export default async function StockPage({
         mouvement_type: Number(row.qte_entree ?? 0) > 0 ? "entree" : "sortie",
         stock_code: stockCode,
         stock_article: stockArticle,
-        ...parseLatestSortieMeta(row.note),
+        ...parseLatestSortieMeta(row.note, row.source_import),
       };
     })
     .sort((a, b) => {
@@ -580,6 +600,7 @@ export default async function StockPage({
                     <th className="px-4 py-3 font-semibold">Code pays</th>
                     <th className="px-4 py-3 font-semibold">Code sortie</th>
                     <th className="px-4 py-3 font-semibold">Client</th>
+                    <th className="px-4 py-3 font-semibold">Proforma</th>
                     <th className="px-4 py-3 font-semibold">Numero BL</th>
                     <th className="px-4 py-3 font-semibold">Preparateur</th>
                     <th className="px-4 py-3 font-semibold">Date de saisie</th>
@@ -609,6 +630,7 @@ export default async function StockPage({
                       <td className="px-4 py-3 text-slate-600">{row.code_pays || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.code_sortie || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.livre_pour || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{row.numero_proforma || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.numero_bl || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.preparateur || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{formatDateTime(row.created_at)}</td>
