@@ -1694,9 +1694,13 @@ export async function updateAllFifoResultsAction(formData: FormData) {
 // n'a jamais ete sorti tant que la commande n'est pas Livree). Recalcule
 // ensuite le manque de la ligne de commande touchee, meme logique que la
 // fin de stock_override_fifo_result.
-export async function deleteFifoResultAction(formData: FormData) {
+// fifoId est lie via .bind() (voir le bouton Supprimer dans page.tsx), pas
+// lu depuis un champ du formulaire : un name/value pose directement sur un
+// <button formAction={...}> n'est pas fiablement transmis a l'action par
+// React lors d'un submit via Server Action - c'etait la cause du crash
+// "Ligne FIFO invalide." meme sur une ligne valide.
+export async function deleteFifoResultAction(fifoId: number, formData: FormData) {
   await requireCommandesEditAccess();
-  const fifoId = Number(String(formData.get("fifo_id") || "0"));
   const commandeId = Number(String(formData.get("commande_id") || "0"));
 
   if (!fifoId || !commandeId) {

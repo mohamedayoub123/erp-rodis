@@ -1015,9 +1015,7 @@ export default async function CommandeDetailPage({
                             {canEditCommandes ? (
                               <button
                                 type="submit"
-                                name="fifo_id"
-                                value={ligne.id}
-                                formAction={deleteFifoResultAction}
+                                formAction={deleteFifoResultAction.bind(null, ligne.id)}
                                 formNoValidate
                                 aria-label="Supprimer cette ligne du dispatch"
                                 title="Supprimer cette ligne du dispatch"
