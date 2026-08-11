@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { changeCommandeStatusAction, deleteProformaGroupAction } from "./actions";
+import { cancelFifoBatchAction, changeCommandeStatusAction, deleteProformaGroupAction } from "./actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -123,6 +123,39 @@ async function fetchAllDistinctCommandeValues(column: "numero_proforma" | "clien
   return { values: [...values], error: null };
 }
 
+// Pour savoir sur quelles commandes montrer "Annuler dispatch" directement
+// depuis la liste (sans devoir ouvrir chaque commande) - une commande est
+// "dispatchee" des qu'elle a au moins une ligne fifo_resultats.
+async function fetchDispatchedCommandeIds(commandeIds: number[]): Promise<Set<number>> {
+  const dispatched = new Set<number>();
+  if (commandeIds.length === 0) return dispatched;
+
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("fifo_resultats")
+      .select("commande_id")
+      .in("commande_id", commandeIds)
+      // Meme correctif d'ordre stable que sur la page detail (voir
+      // fetchStockGroupsByArticle) - evite de sauter des lignes entre 2
+      // pages sur une table active.
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { commande_id: number }[] | null) ?? [];
+    for (const row of chunk) dispatched.add(row.commande_id);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return dispatched;
+}
+
 export default async function CommandesPage({
   searchParams,
 }: {
@@ -130,6 +163,10 @@ export default async function CommandesPage({
 }) {
   const currentStockUser = await getCurrentStockUser();
   const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesNouvelle");
+  // Meme permission que le bouton "Annuler batch" de la page detail
+  // (requireCommandesEditAccess verifie "commandesDetail", pas
+  // "commandesNouvelle" utilise juste au-dessus pour "Ajouter commande").
+  const canEditCommandeDetail = await canWritePageUser(currentStockUser, "commandesDetail");
   const canDeleteCommandes = await canDeleteCommandesUser(currentStockUser);
   const canChangeStatusCommandes = await canChangeStatusCommandesUser(currentStockUser);
   const params = await searchParams;
@@ -164,13 +201,15 @@ export default async function CommandesPage({
   // The list only ever displays a line COUNT + total carton per order, so
   // fetch just commande_id/quantite_demandee here instead of embedding full
   // lines + article joins for all 300 orders on every page load.
-  const { data: lignesCountData } =
+  const [{ data: lignesCountData }, dispatchedCommandeIds] = await Promise.all([
     commandeIds.length > 0
-      ? await supabaseServer
+      ? supabaseServer
           .from("commande_lignes")
           .select("commande_id, quantite_demandee")
           .in("commande_id", commandeIds)
-      : { data: [] as { commande_id: number; quantite_demandee: number | null }[] };
+      : Promise.resolve({ data: [] as { commande_id: number; quantite_demandee: number | null }[] }),
+    fetchDispatchedCommandeIds(commandeIds),
+  ]);
 
   const lignesCountByCommande = new Map<number, number>();
   const cartonTotalByCommande = new Map<number, number>();
@@ -405,6 +444,19 @@ export default async function CommandesPage({
                                     </form>
                                   );
                                 })()
+                              ) : null}
+                              {canEditCommandeDetail &&
+                              (row.statut || "").toUpperCase() !== "LIVREE" &&
+                              dispatchedCommandeIds.has(row.id) ? (
+                                <form action={cancelFifoBatchAction}>
+                                  <input type="hidden" name="commande_id" value={row.id} />
+                                  <button
+                                    type="submit"
+                                    className="shrink-0 rounded-full border border-red-300 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800"
+                                  >
+                                    Annuler dispatch
+                                  </button>
+                                </form>
                               ) : null}
                             </div>
                           ))}
