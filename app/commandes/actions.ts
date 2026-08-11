@@ -14,6 +14,18 @@ function normalizeArticle(value: string) {
   return value.replace(/\u00a0/g, "").trim().toUpperCase();
 }
 
+// Le <select> de statut ne propose que 4 choix (En cours/Stand/BL
+// transforme/Livree) - un statut "technique" (FIFO_PARTIEL/FIFO_CALCULE/
+// SAISIE_WEB) se range dans "En cours" pour l'affichage, comme partout
+// ailleurs dans l'app (voir formatStatus). Sert a detecter si le Save
+// represente un VRAI changement de statut (l'utilisateur a choisi un autre
+// bouton) ou juste un Save sans y toucher - dans ce 2e cas, on ne doit pas
+// ecraser la valeur technique precise avec "EN_COURS".
+function statutBucket(value: string | null | undefined) {
+  const v = (value || "").toUpperCase();
+  return v === "STAND" || v === "BL_TRANSFORME" || v === "LIVREE" ? v : "EN_COURS";
+}
+
 // Toute creation/modification/suppression de commande peut changer ce que
 // montrent les pages statistique, tableau-commandes et stock dormant sans
 // commande (elles lisent toutes les commandes/leur statut) - sans ca, une
@@ -937,6 +949,14 @@ export async function updateManualCommandeAction(formData: FormData) {
     throw new Error(`La proforma ${numeroProforma} existe deja sur une autre commande.`);
   }
 
+  // Save sans avoir change le menu statut (meme bucket qu'avant) : garde le
+  // statut technique existant (FIFO_CALCULE...) au lieu de l'ecraser par
+  // "EN_COURS" juste parce que c'est ce que le select affichait.
+  const finalStatut =
+    statutBucket(statut) === statutBucket(existingCommande.statut)
+      ? existingCommande.statut || "EN_COURS"
+      : statut || "EN_COURS";
+
   const { error: updateCommandeError } = await supabaseServer
     .from("commandes")
     .update({
@@ -944,10 +964,10 @@ export async function updateManualCommandeAction(formData: FormData) {
       client,
       mode_chargement: modeChargement || null,
       type_tc: typeTc || null,
-      statut: statut || "EN_COURS",
+      statut: finalStatut,
       commentaire: applyTransitionDateComment(
-        applyStatusDateComment("Commande modifiee depuis la web", statut || "EN_COURS"),
-        statut || "EN_COURS"
+        applyStatusDateComment("Commande modifiee depuis la web", finalStatut),
+        finalStatut
       ),
     })
     .eq("id", commandeId);
@@ -1561,6 +1581,13 @@ export async function changeCommandeStatusAction(formData: FormData) {
   // deliverCommandeAction) creerait un decalage avec le stock reel.
   if ((commande.statut || "").toUpperCase() === "LIVREE") {
     throw new Error("Commande deja livree : le statut ne peut plus etre change.");
+  }
+
+  // Save sans avoir change le menu (meme bucket qu'avant) : ne touche a
+  // rien, pour ne jamais ecraser un statut technique (FIFO_CALCULE...) par
+  // "EN_COURS" juste parce que c'est ce que le select affichait.
+  if (statutBucket(statut) === statutBucket(commande.statut)) {
+    return;
   }
 
   const commentaire = applyTransitionDateComment(

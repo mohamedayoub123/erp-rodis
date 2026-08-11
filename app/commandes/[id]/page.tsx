@@ -1041,16 +1041,13 @@ export default async function CommandeDetailPage({
                   />
                   <select
                     name="statut"
-                    defaultValue={rawStatut}
+                    defaultValue={isRawStatutKnown ? rawStatut : "EN_COURS"}
                     className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                   >
                     <option value="EN_COURS">En cours</option>
                     <option value="STAND">Stand</option>
                     <option value="BL_TRANSFORME">BL transforme</option>
                     <option value="LIVREE">Livree</option>
-                    {!isRawStatutKnown ? (
-                      <option value={rawStatut}>{rawStatut} (technique)</option>
-                    ) : null}
                   </select>
                   <select
                     name="mode_chargement"

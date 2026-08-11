@@ -388,16 +388,13 @@ export default async function CommandesPage({
                                       <input type="hidden" name="commande_id" value={row.id} />
                                       <select
                                         name="statut"
-                                        defaultValue={rowStatut}
+                                        defaultValue={knownStatuts.includes(rowStatut) ? rowStatut : "EN_COURS"}
                                         className="w-[140px] shrink-0 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 outline-none"
                                       >
                                         <option value="EN_COURS">En cours</option>
                                         <option value="STAND">Stand</option>
                                         <option value="BL_TRANSFORME">BL transforme</option>
                                         <option value="LIVREE">Livree</option>
-                                        {!knownStatuts.includes(rowStatut) ? (
-                                          <option value={rowStatut}>{rowStatut} (technique)</option>
-                                        ) : null}
                                       </select>
                                       <button
                                         type="submit"
