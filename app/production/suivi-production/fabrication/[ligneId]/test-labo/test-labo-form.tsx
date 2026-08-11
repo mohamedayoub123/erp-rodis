@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { saveTestLaboAction, ajouterAjustementMpTestLaboAction } from "../../../actions";
 import { ProduitPickerField } from "../../../produit-picker-field";
 import { fetchAvailableLotsAction } from "@/app/depots/transfer-order/actions";
@@ -16,6 +16,8 @@ type RapportInfo = {
   odeur: string | null;
   remarque: string | null;
   disposition_qualite: string | null;
+  sous_derogation: boolean | null;
+  motif_derogation: string | null;
 };
 
 type SpecInfo = {
@@ -49,17 +51,24 @@ function NumericSpecField({
   defaultValue,
   specMin,
   specMax,
+  onNonConformeChange,
 }: {
   label: string;
   name: string;
   defaultValue: number | null | undefined;
   specMin: number | null | undefined;
   specMax: number | null | undefined;
+  onNonConformeChange?: (nonConforme: boolean) => void;
 }) {
   const [value, setValue] = useState(defaultValue !== null && defaultValue !== undefined ? String(defaultValue) : "");
   const parsed = parseNumber(value);
   const hasSpec = specMin !== null && specMin !== undefined && specMax !== null && specMax !== undefined;
   const nonConforme = hasSpec && parsed !== null && (parsed < specMin! || parsed > specMax!);
+
+  useEffect(() => {
+    onNonConformeChange?.(nonConforme);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nonConforme]);
 
   return (
     <label className="grid gap-1 text-xs font-semibold text-slate-500">
@@ -97,6 +106,9 @@ export function TestLaboForm({
   const [couleur, setCouleur] = useState(rapport?.couleur || "");
   const [odeur, setOdeur] = useState(rapport?.odeur || "");
   const [dispositionQualite, setDispositionQualite] = useState(rapport?.disposition_qualite || "");
+  const [numericHorsSpec, setNumericHorsSpec] = useState<Record<string, boolean>>({});
+  const [sousDerogation, setSousDerogation] = useState(rapport?.sous_derogation ?? false);
+  const [motifDerogation, setMotifDerogation] = useState(rapport?.motif_derogation || "");
   const [showAjustement, setShowAjustement] = useState(false);
   const [mpArticleId, setMpArticleId] = useState<number | null>(null);
   const [mpLots, setMpLots] = useState<{ numeroLot: string; solde: number }[]>([]);
@@ -120,6 +132,11 @@ export function TestLaboForm({
     couleur.trim() !== "" &&
     couleur.trim().toLowerCase() !== (spec?.couleur || "").trim().toLowerCase();
   const odeurNonConforme = odeur === "Non OK";
+  const anyHorsSpec =
+    stabiliteNonConforme ||
+    couleurNonConforme ||
+    odeurNonConforme ||
+    Object.values(numericHorsSpec).some(Boolean);
 
   return (
     <div className="grid gap-8">
@@ -136,6 +153,7 @@ export function TestLaboForm({
               defaultValue={rapport?.ph}
               specMin={spec?.ph_min}
               specMax={spec?.ph_max}
+              onNonConformeChange={(v) => setNumericHorsSpec((prev) => ({ ...prev, ph: v }))}
             />
             <NumericSpecField
               label="Densite"
@@ -143,6 +161,7 @@ export function TestLaboForm({
               defaultValue={rapport?.densite}
               specMin={spec?.densite_min}
               specMax={spec?.densite_max}
+              onNonConformeChange={(v) => setNumericHorsSpec((prev) => ({ ...prev, densite: v }))}
             />
             <NumericSpecField
               label="Viscosite"
@@ -150,6 +169,7 @@ export function TestLaboForm({
               defaultValue={rapport?.viscosite}
               specMin={spec?.viscosite_min}
               specMax={spec?.viscosite_max}
+              onNonConformeChange={(v) => setNumericHorsSpec((prev) => ({ ...prev, viscosite: v }))}
             />
             <NumericSpecField
               label="Degre d'alcool"
@@ -157,6 +177,7 @@ export function TestLaboForm({
               defaultValue={rapport?.degre_alcool}
               specMin={spec?.degre_alcool_min}
               specMax={spec?.degre_alcool_max}
+              onNonConformeChange={(v) => setNumericHorsSpec((prev) => ({ ...prev, degre_alcool: v }))}
             />
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Stabilite
@@ -247,13 +268,52 @@ export function TestLaboForm({
           />
         </div>
 
+        {anyHorsSpec ? (
+          <div className="rounded-2xl border-2 border-red-300 bg-red-50 p-4">
+            <p className="text-sm font-bold text-red-800">
+              Au moins un parametre est hors spec - impossible d&apos;enregistrer sans passer sous
+              derogation.
+            </p>
+            <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-red-800">
+              <input
+                type="checkbox"
+                name="sous_derogation"
+                checked={sousDerogation}
+                onChange={(e) => setSousDerogation(e.target.checked)}
+              />
+              Je valide sous derogation
+            </label>
+            {sousDerogation ? (
+              <label className="mt-3 grid gap-1 text-xs font-semibold text-red-800">
+                Motif de la derogation
+                <textarea
+                  name="motif_derogation"
+                  value={motifDerogation}
+                  onChange={(e) => setMotifDerogation(e.target.value)}
+                  rows={2}
+                  required
+                  className="rounded-2xl border border-red-300 bg-white px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                />
+              </label>
+            ) : null}
+          </div>
+        ) : (
+          <input type="hidden" name="sous_derogation" value="" />
+        )}
+
         <div>
           <button
             type="submit"
-            className="rounded-full bg-violet-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-violet-600"
+            disabled={anyHorsSpec && !sousDerogation}
+            className="rounded-full bg-violet-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-violet-600 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             Enregistrer le test labo
           </button>
+          {anyHorsSpec && !sousDerogation ? (
+            <p className="mt-2 text-xs font-semibold text-red-700">
+              Coche &quot;Je valide sous derogation&quot; pour pouvoir enregistrer malgre le hors spec.
+            </p>
+          ) : null}
         </div>
       </form>
 

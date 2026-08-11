@@ -318,6 +318,86 @@ export async function messageSiTestLaboInvalide(ligneId: number, code: string): 
   return null;
 }
 
+// Recalcule le hors-spec cote serveur (meme logique que NumericSpecField/
+// stabilite/couleur/odeur du formulaire Test labo) - jamais confiance au
+// seul calcul client pour decider si l'enregistrement doit etre bloque.
+// sousDerogation debloque volontairement l'enregistrement malgre un hors
+// spec, le motif etant trace separement sur le rapport.
+async function messageSiHorsSpecSansDerogation(
+  ligneId: number,
+  values: {
+    ph: number | null;
+    densite: number | null;
+    viscosite: number | null;
+    degreAlcool: number | null;
+    stabilite: string | null;
+    couleur: string | null;
+    odeur: string | null;
+    sousDerogation: boolean;
+  }
+): Promise<string | null> {
+  if (values.sousDerogation) return null;
+
+  const { data: ligneData } = await supabaseServer
+    .from("programme_lignes")
+    .select("article_id")
+    .eq("id", ligneId)
+    .maybeSingle();
+  const articleId = (ligneData as { article_id: number | null } | null)?.article_id ?? null;
+  if (!articleId) return null;
+
+  const { data: articleData } = await supabaseServer
+    .from("articles")
+    .select("vrac_article_id")
+    .eq("id", articleId)
+    .maybeSingle();
+  const vracArticleId = (articleData as { vrac_article_id: number | null } | null)?.vrac_article_id ?? null;
+  if (!vracArticleId) return null;
+
+  const { data: specData } = await supabaseServer
+    .from("articles_specs_qualite")
+    .select(
+      "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur"
+    )
+    .eq("article_id", vracArticleId)
+    .maybeSingle();
+  const spec = specData as {
+    ph_min: number | null;
+    ph_max: number | null;
+    viscosite_min: number | null;
+    viscosite_max: number | null;
+    densite_min: number | null;
+    densite_max: number | null;
+    degre_alcool_min: number | null;
+    degre_alcool_max: number | null;
+    stabilite: string | null;
+    couleur: string | null;
+  } | null;
+  if (!spec) return null;
+
+  function horsRange(value: number | null, min: number | null, max: number | null): boolean {
+    if (value === null || min === null || max === null) return false;
+    return value < min || value > max;
+  }
+
+  const horsSpec =
+    horsRange(values.ph, spec.ph_min, spec.ph_max) ||
+    horsRange(values.densite, spec.densite_min, spec.densite_max) ||
+    horsRange(values.viscosite, spec.viscosite_min, spec.viscosite_max) ||
+    horsRange(values.degreAlcool, spec.degre_alcool_min, spec.degre_alcool_max) ||
+    (Boolean(spec.stabilite) && values.stabilite !== "" && values.stabilite !== null && values.stabilite !== spec.stabilite) ||
+    (Boolean(spec.couleur) &&
+      values.couleur !== null &&
+      values.couleur.trim() !== "" &&
+      values.couleur.trim().toLowerCase() !== (spec.couleur || "").trim().toLowerCase()) ||
+    values.odeur === "Non OK";
+
+  if (horsSpec) {
+    return 'Au moins un parametre est hors spec - coche "Je valide sous derogation" pour enregistrer quand meme.';
+  }
+  return null;
+}
+
 export async function messageSiConditionnementInvalide(ligneId: number, code: string): Promise<string | null> {
   if (!code) return null;
 
@@ -874,17 +954,49 @@ export async function saveTestLaboAction(formData: FormData) {
     throw new Error("Ligne invalide.");
   }
 
+  const ph = parseOptionalNumber(formData, "ph");
+  const densite = parseOptionalNumber(formData, "densite");
+  const viscosite = parseOptionalNumber(formData, "viscosite");
+  const degreAlcool = parseOptionalNumber(formData, "degre_alcool");
+  const stabilite = parseOptionalText(formData, "stabilite");
+  const couleur = parseOptionalText(formData, "couleur");
+  const odeur = parseOptionalText(formData, "odeur");
+  const sousDerogation = formData.get("sous_derogation") === "on";
+  const motifDerogation = parseOptionalText(formData, "motif_derogation");
+
+  // Recalcule le hors-spec cote serveur (meme logique que le formulaire) -
+  // jamais confiance au seul calcul client pour bloquer l'enregistrement.
+  // Odeur "Non OK" compte aussi comme hors-spec meme si elle n'a pas de
+  // borne min/max dans articles_specs_qualite.
+  const erreurHorsSpec = await messageSiHorsSpecSansDerogation(ligneId, {
+    ph,
+    densite,
+    viscosite,
+    degreAlcool,
+    stabilite,
+    couleur,
+    odeur,
+    sousDerogation,
+  });
+  if (erreurHorsSpec) {
+    redirect(
+      `/production/suivi-production/fabrication/${ligneId}/test-labo?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurHorsSpec)}`
+    );
+  }
+
   await upsertRapport(ligneId, code, {
-    ph: parseOptionalNumber(formData, "ph"),
-    densite: parseOptionalNumber(formData, "densite"),
-    viscosite: parseOptionalNumber(formData, "viscosite"),
-    degre_alcool: parseOptionalNumber(formData, "degre_alcool"),
-    stabilite: parseOptionalText(formData, "stabilite"),
-    couleur: parseOptionalText(formData, "couleur"),
+    ph,
+    densite,
+    viscosite,
+    degre_alcool: degreAlcool,
+    stabilite,
+    couleur,
     temperature_test: parseOptionalNumber(formData, "temperature_test"),
-    odeur: parseOptionalText(formData, "odeur"),
+    odeur,
     remarque: parseOptionalText(formData, "remarque"),
     disposition_qualite: parseOptionalText(formData, "disposition_qualite"),
+    sous_derogation: sousDerogation,
+    motif_derogation: motifDerogation,
     utilisateur_test_labo: currentUser,
     date_saisie_test_labo: new Date().toISOString(),
   });
