@@ -625,11 +625,14 @@ async function computeAvailableCodesByArticle(
 
 export default async function CommandeDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ erreur?: string }>;
 }) {
   const { id } = await params;
   const commandeId = Number(id);
+  const { erreur } = await searchParams;
 
   const currentStockUser = await getCurrentStockUser();
   const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
@@ -786,6 +789,12 @@ export default async function CommandeDetailPage({
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#eef6ff_0%,#f8fbff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
+        {erreur ? (
+          <div className="rounded-[1.5rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
+            {erreur}
+          </div>
+        ) : null}
+
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex flex-col gap-2">

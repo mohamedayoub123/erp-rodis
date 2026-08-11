@@ -891,8 +891,9 @@ async function fetchAllArticlesForUpdateManualCommande() {
 }
 
 export async function updateManualCommandeAction(formData: FormData) {
-  await requireCommandesEditAccess();
   const commandeId = Number(String(formData.get("commande_id") || "0"));
+  try {
+  await requireCommandesEditAccess();
   const numeroProforma = String(formData.get("numero_proforma") || "").trim();
   const client = String(formData.get("client") || "").trim();
   const statut = String(formData.get("statut") || "").trim().toUpperCase();
@@ -1029,6 +1030,9 @@ export async function updateManualCommandeAction(formData: FormData) {
   }
 
   revalidateCommandeDependentPages(commandeId);
+  } catch (err) {
+    commandeErreurRedirect(commandeId, err);
+  }
 }
 
 async function fetchAllReservedLotsExcludingCommande(commandeId: number) {
@@ -1064,8 +1068,9 @@ async function fetchAllReservedLotsExcludingCommande(commandeId: number) {
 }
 
 export async function calculateFifoForCommandeAction(formData: FormData) {
-  await requireCommandesEditAccess();
   const commandeId = Number(String(formData.get("commande_id") || "0"));
+  try {
+  await requireCommandesEditAccess();
 
   if (!commandeId) {
     throw new Error("Commande invalide.");
@@ -1277,6 +1282,9 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
   }
 
   revalidateCommandeDependentPages(commandeId);
+  } catch (err) {
+    commandeErreurRedirect(commandeId, err);
+  }
 }
 
 // Les erreurs "throw new Error(...)" d'une Server Action appelee
@@ -1292,13 +1300,26 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
 // l'utilisateur sans avoir besoin de checker les logs Vercel a chaque fois.
 export type FifoActionResult = { error: string } | undefined;
 
+// Pour les actions encore appelees via <form action={...}> classique (pas
+// de JS client autour pour attraper l'erreur) : au lieu de laisser
+// l'exception remonter jusqu'a app/error.tsx (page de crash complete,
+// message toujours redige en production - meme constat que ci-dessus),
+// on redirige vers la meme page avec le vrai message en query string,
+// exactement comme le fait deja saveTestLaboAction. La page le lit et
+// l'affiche dans un bandeau rouge au lieu de planter.
+function commandeErreurRedirect(commandeId: number, err: unknown): never {
+  const message = err instanceof Error ? err.message : "Erreur inconnue.";
+  redirect(`/commandes/${commandeId || ""}?erreur=${encodeURIComponent(message)}`);
+}
+
 // Ajoute manuellement un lot propose (hors fenetre <= 2 mois pour un
 // article clarifiant/container) comme ligne FIFO supplementaire, quand
 // l'utilisateur clique "Confirmer" sur une des dates les plus proches
 // proposees dans "Articles manquants".
 export async function addManualFifoLotAction(formData: FormData) {
-  await requireCommandesEditAccess();
   const commandeId = Number(String(formData.get("commande_id") || "0"));
+  try {
+  await requireCommandesEditAccess();
   const commandeLigneId = Number(String(formData.get("commande_ligne_id") || "0"));
   const lotStockId = Number(String(formData.get("lot_stock_id") || "0"));
 
@@ -1409,6 +1430,9 @@ export async function addManualFifoLotAction(formData: FormData) {
   }
 
   revalidateCommandeDependentPages(commandeId);
+  } catch (err) {
+    commandeErreurRedirect(commandeId, err);
+  }
 }
 
 // Annule un batch FIFO deja despatche : supprime la reservation
@@ -1416,8 +1440,9 @@ export async function addManualFifoLotAction(formData: FormData) {
 // Impossible une fois LIVREE - a ce stade le stock a deja ete physiquement
 // sorti, annuler la reservation n'a plus de sens.
 export async function cancelFifoBatchAction(formData: FormData) {
-  await requireCommandesEditAccess();
   const commandeId = Number(String(formData.get("commande_id") || "0"));
+  try {
+  await requireCommandesEditAccess();
 
   if (!commandeId) {
     throw new Error("Commande invalide.");
@@ -1472,6 +1497,9 @@ export async function cancelFifoBatchAction(formData: FormData) {
   }
 
   revalidateCommandeDependentPages(commandeId);
+  } catch (err) {
+    commandeErreurRedirect(commandeId, err);
+  }
 }
 
 export async function deleteCommandeAction(formData: FormData) {
@@ -1499,9 +1527,12 @@ export async function deleteCommandeAction(formData: FormData) {
 // de base (voir createManualCommandeAction) - jamais la derniere, sinon
 // utilise "Supprimer" sur la liste pour effacer toute la commande.
 export async function deleteCommandeTruckAction(formData: FormData) {
-  await requireCommandesDeleteAccess();
   const commandeId = Number(String(formData.get("commande_id") || "0"));
   const currentViewedId = Number(String(formData.get("current_viewed_id") || "0"));
+  let nextRedirectTarget: string | null = null;
+
+  try {
+  await requireCommandesDeleteAccess();
 
   if (!commandeId) {
     throw new Error("Commande invalide.");
@@ -1548,7 +1579,14 @@ export async function deleteCommandeTruckAction(formData: FormData) {
 
   if (currentViewedId && currentViewedId === commandeId) {
     const nextId = siblings?.find((row) => row.id !== commandeId)?.id;
-    redirect(nextId ? `/commandes/${nextId}` : "/commandes");
+    nextRedirectTarget = nextId ? `/commandes/${nextId}` : "/commandes";
+  }
+  } catch (err) {
+    commandeErreurRedirect(commandeId, err);
+  }
+
+  if (nextRedirectTarget) {
+    redirect(nextRedirectTarget);
   }
 }
 
@@ -1634,8 +1672,9 @@ export async function changeCommandeStatusAction(formData: FormData) {
 }
 
 export async function deliverCommandeAction(formData: FormData) {
-  await requireCommandesEditAccess();
   const commandeId = Number(String(formData.get("commande_id") || "0"));
+  try {
+  await requireCommandesEditAccess();
 
   if (!commandeId) {
     throw new Error("Commande invalide.");
@@ -1652,6 +1691,9 @@ export async function deliverCommandeAction(formData: FormData) {
   revalidateCommandeDependentPages(commandeId);
   revalidatePath("/stock");
   revalidatePath("/stock-dormant");
+  } catch (err) {
+    commandeErreurRedirect(commandeId, err);
+  }
 }
 
 // Supprime une ligne du dispatch FIFO (sans toucher au stock - le lot
