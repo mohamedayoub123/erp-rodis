@@ -25,6 +25,8 @@ export type SpecRow = {
   pression_atmospherique_min: number | null;
   pression_atmospherique_max: number | null;
   texture: string | null;
+  temperature_min: number | null;
+  temperature_max: number | null;
 };
 
 const EMPTY_FIELDS = {
@@ -43,6 +45,8 @@ const EMPTY_FIELDS = {
   pression_atmospherique_min: "",
   pression_atmospherique_max: "",
   texture: "",
+  temperature_min: "",
+  temperature_max: "",
 };
 
 type Fields = typeof EMPTY_FIELDS;
@@ -69,6 +73,8 @@ function fieldsFromSpec(spec: SpecRow | undefined): Fields {
     pression_atmospherique_min: numToField(spec.pression_atmospherique_min),
     pression_atmospherique_max: numToField(spec.pression_atmospherique_max),
     texture: spec.texture ?? "",
+    temperature_min: numToField(spec.temperature_min),
+    temperature_max: numToField(spec.temperature_max),
   };
 }
 
@@ -293,6 +299,13 @@ export function SpecsQualiteForm({
                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                 />
               </label>
+              <NumberRange
+                label="Temperature"
+                minValue={fields.temperature_min}
+                maxValue={fields.temperature_max}
+                onMinChange={(v) => updateField("temperature_min", v)}
+                onMaxChange={(v) => updateField("temperature_max", v)}
+              />
             </div>
           ) : null}
 
@@ -331,6 +344,7 @@ export function SpecsQualiteForm({
                   <th className="px-4 py-3 font-semibold">Taux humidite</th>
                   <th className="px-4 py-3 font-semibold">Pression atmospherique</th>
                   <th className="px-4 py-3 font-semibold">Texture</th>
+                  <th className="px-4 py-3 font-semibold">Temperature</th>
                   {canWrite ? <th className="px-4 py-3 font-semibold">Modifier</th> : null}
                   {canDelete ? <th className="px-4 py-3 font-semibold">Supprimer</th> : null}
                 </tr>
@@ -360,6 +374,9 @@ export function SpecsQualiteForm({
                       {spec.pression_atmospherique_min ?? "-"} - {spec.pression_atmospherique_max ?? "-"}
                     </td>
                     <td className="px-4 py-3 text-slate-600">{spec.texture || "-"}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {spec.temperature_min ?? "-"} - {spec.temperature_max ?? "-"}
+                    </td>
                     {canWrite ? (
                       <td className="px-4 py-3">
                         <button

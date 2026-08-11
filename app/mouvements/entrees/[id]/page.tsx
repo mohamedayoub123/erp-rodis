@@ -1,7 +1,12 @@
 import { notFound } from "next/navigation";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteLotFromEntreeDetailAction } from "@/app/mouvements/actions";
-import { buildEntreeRows, fetchWebMouvementSourceRows, formatMouvementDate } from "../../shared";
+import {
+  buildEntreeRows,
+  fetchWebMouvementSourceRows,
+  formatMouvementDate,
+  formatMouvementDateTime,
+} from "../../shared";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -56,6 +61,7 @@ export default async function EntreeDetailPage({
                   <th className="px-4 py-3 font-semibold">Chambre</th>
                   <th className="px-4 py-3 font-semibold">Pays</th>
                   <th className="px-4 py-3 font-semibold">Saisi par</th>
+                  <th className="px-4 py-3 font-semibold">Date de saisie</th>
                   {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                 </tr>
               </thead>
@@ -69,6 +75,9 @@ export default async function EntreeDetailPage({
                     <td className="px-4 py-3 text-slate-600">{ligne.chambre || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.code_pays || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.utilisateur || "-"}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {formatMouvementDateTime(ligne.created_at)}
+                    </td>
                     {canEditStock ? (
                       <td className="px-4 py-3">
                         <form action={deleteLotFromEntreeDetailAction}>

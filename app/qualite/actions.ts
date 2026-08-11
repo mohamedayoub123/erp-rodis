@@ -47,6 +47,8 @@ export async function upsertArticleSpecQualiteAction(formData: FormData) {
       pression_atmospherique_min: parseOptionalNumber(formData, "pression_atmospherique_min"),
       pression_atmospherique_max: parseOptionalNumber(formData, "pression_atmospherique_max"),
       texture: parseOptionalText(formData, "texture"),
+      temperature_min: parseOptionalNumber(formData, "temperature_min"),
+      temperature_max: parseOptionalNumber(formData, "temperature_max"),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "article_id" }

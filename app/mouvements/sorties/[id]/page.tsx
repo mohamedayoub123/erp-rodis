@@ -5,6 +5,7 @@ import {
   buildSortieRows,
   fetchWebMouvementSourceRows,
   formatMouvementDate,
+  formatMouvementDateTime,
   parseSortieMeta,
 } from "../../shared";
 import { BackButton } from "@/app/_components/back-button";
@@ -63,12 +64,13 @@ export default async function SortieDetailPage({
                   <th className="px-4 py-3 font-semibold">Preparateur</th>
                   <th className="px-4 py-3 font-semibold">Remarque</th>
                   <th className="px-4 py-3 font-semibold">Saisi par</th>
+                  <th className="px-4 py-3 font-semibold">Date de saisie</th>
                   {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                 </tr>
               </thead>
               <tbody>
                 {group.lignes.map((ligne) => {
-                  const meta = parseSortieMeta(ligne.note);
+                  const meta = parseSortieMeta(ligne.note, ligne.source_import);
                   return (
                     <tr key={ligne.id} className="border-t border-slate-100 align-top">
                       <td className="px-4 py-3 font-medium text-slate-900">{ligne.article_label}</td>
@@ -80,6 +82,9 @@ export default async function SortieDetailPage({
                       <td className="px-4 py-3 text-slate-600">{meta.preparateur || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{meta.remarque || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{ligne.utilisateur || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {formatMouvementDateTime(ligne.created_at)}
+                      </td>
                       {canEditStock ? (
                         <td className="px-4 py-3">
                           <form action={deleteLotFromSortieDetailAction}>

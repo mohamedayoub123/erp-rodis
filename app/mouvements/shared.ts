@@ -17,6 +17,7 @@ export type MouvementSourceRow = {
   source_import: string | null;
   mouvement_groupe_id: number | null;
   utilisateur: string | null;
+  created_at: string | null;
   articles: { nom_article: string } | null;
 };
 
@@ -31,7 +32,9 @@ export type MouvementLigne = {
   code_pays: string | null;
   date_fabrication: string | null;
   note: string | null;
+  source_import: string | null;
   utilisateur: string | null;
+  created_at: string | null;
 };
 
 export type MouvementGroup = {
@@ -44,7 +47,7 @@ export type MouvementGroup = {
 };
 
 const SOURCE_COLUMNS =
-  "id, article_id, numero_lot, code_normalise, date_fabrication, date_peremption, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, source_import, mouvement_groupe_id, utilisateur, articles(nom_article)";
+  "id, article_id, numero_lot, code_normalise, date_fabrication, date_peremption, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, source_import, mouvement_groupe_id, utilisateur, created_at, articles(nom_article)";
 
 export async function fetchMouvementSourceRows() {
   // PostgREST plafonne chaque requete a son max-rows interne (~1000) peu
@@ -195,7 +198,9 @@ function buildGroups(
         code_pays: row.code_pays,
         date_fabrication: row.date_fabrication,
         note: row.note,
+        source_import: row.source_import,
         utilisateur: row.utilisateur,
+        created_at: row.created_at,
       })),
     };
   });
@@ -294,7 +299,7 @@ export function computeAvailableLots(rows: MouvementSourceRow[]): AvailableLotOp
   return result;
 }
 
-export function parseSortieMeta(note: string | null) {
+export function parseSortieMeta(note: string | null, sourceImport?: string | null) {
   const empty = {
     code_sortie: null,
     livre_pour: null,
@@ -322,10 +327,21 @@ export function parseSortieMeta(note: string | null) {
     const parts = line.split("|");
     const code = parts[2] || "";
     const livrePour = parts[3] || "";
-    const numeroBl = parts[4] || "";
+    let numeroBl = parts[4] || "";
     const preparateur = parts.length >= 7 ? parts[5] || "" : "";
     const remarque = parts.length >= 8 ? parts[7] || "" : "";
-    const numeroProforma = parts.length >= 9 ? parts[8] || "" : "";
+    let numeroProforma = parts.length >= 9 ? parts[8] || "" : "";
+
+    // Anciennes livraisons de commande (avant le 2026-08-11) : le numero de
+    // proforma etait glisse par erreur dans le champ BL, faute d'avoir son
+    // propre emplacement dans la ligne SORTIEWEB. Uniquement pour ces
+    // lignes historiques de livraison (jamais les sorties manuelles, dont
+    // le BL est un vrai numero de BL), on recupere quand meme le numero de
+    // proforma depuis ce champ, et on vide le faux "BL".
+    if (!numeroProforma && sourceImport === "web:sortie-commande" && numeroBl && numeroBl !== "-") {
+      numeroProforma = numeroBl;
+      numeroBl = "";
+    }
 
     return {
       code_sortie: code && code !== "-" ? code : null,
@@ -342,4 +358,20 @@ export function parseSortieMeta(note: string | null) {
 
 export function formatMouvementDate(value: string | null) {
   return formatDate(value);
+}
+
+// Distinct de formatMouvementDate : date_jour est une date CHOISIE par
+// l'utilisateur (peut etre dans le passe, sans heure reelle), alors que
+// created_at est l'horodatage reel de l'enregistrement en base - c'est ce
+// qu'on veut pour "quand exactement cette saisie a-t-elle ete faite".
+export function formatMouvementDateTime(value: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${day}-${month}-${year} ${hours}:${minutes}`;
 }

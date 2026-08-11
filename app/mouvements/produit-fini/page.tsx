@@ -6,6 +6,7 @@ import {
   buildSortieRows,
   fetchWebMouvementSourceRows,
   formatMouvementDate,
+  formatMouvementDateTime,
   parseSortieMeta,
   type MouvementGroup,
 } from "../shared";
@@ -84,6 +85,7 @@ export default async function MouvementsProduitFiniPage() {
                     <th className="px-4 py-3 font-semibold">Quantite totale</th>
                     <th className="px-4 py-3 font-semibold">Proforma</th>
                     <th className="px-4 py-3 font-semibold">Saisi par</th>
+                    <th className="px-4 py-3 font-semibold">Date de saisie</th>
                     {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
@@ -92,7 +94,8 @@ export default async function MouvementsProduitFiniPage() {
                     const first = group.lignes[0];
                     const numeroProforma =
                       group.mouvement_type === "sortie"
-                        ? parseSortieMeta(first?.note ?? null).numero_proforma
+                        ? parseSortieMeta(first?.note ?? null, first?.source_import ?? null)
+                            .numero_proforma
                         : null;
 
                     return (
@@ -114,6 +117,9 @@ export default async function MouvementsProduitFiniPage() {
                       <td className="px-4 py-3 text-slate-900">{group.quantite_totale}</td>
                       <td className="px-4 py-3 text-slate-600">{numeroProforma || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{first?.utilisateur || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {formatMouvementDateTime(first?.created_at ?? null)}
+                      </td>
                       {canEditStock ? (
                         <td className="px-4 py-3">
                           <form action={deleteMouvementGroupAction}>
