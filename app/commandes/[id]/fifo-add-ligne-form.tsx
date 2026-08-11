@@ -84,7 +84,12 @@ export function FifoAddLigneForm({
     formData.set("quantite_chargee", String(qty));
 
     startTransition(async () => {
-      await addAction(formData);
+      try {
+        await addAction(formData);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur inconnue.");
+        return;
+      }
       setArticleInput("");
       setSelectedArticle(null);
       setCode("");
