@@ -8,6 +8,7 @@ import {
   buildSortieMpRows,
   fetchWebMouvementMpSourceRows,
   formatMouvementMpDate,
+  formatMouvementMpDateTime,
 } from "../../shared";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -67,6 +68,7 @@ export default async function SortieMpDetailPage({
                   <th className="px-4 py-3 font-semibold">Doss. 4D</th>
                   <th className="px-4 py-3 font-semibold">Note</th>
                   <th className="px-4 py-3 font-semibold">Saisi par</th>
+                  <th className="px-4 py-3 font-semibold">Date de saisie</th>
                   {canEditStock || canDeleteStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                 </tr>
               </thead>
@@ -83,6 +85,9 @@ export default async function SortieMpDetailPage({
                     <td className="px-4 py-3 text-slate-600">{ligne.n_doss_4d || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.note || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.utilisateur || "-"}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {formatMouvementMpDateTime(ligne.created_at)}
+                    </td>
                     {canEditStock || canDeleteStock ? (
                       <td className="px-4 py-3">
                         <div className="flex items-start gap-2">

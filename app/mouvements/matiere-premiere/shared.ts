@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { formatDate } from "@/lib/format-date";
+import { formatDate, formatDateTime } from "@/lib/format-date";
 
 export type MouvementMpSourceRow = {
   id: number;
@@ -22,6 +22,7 @@ export type MouvementMpSourceRow = {
   note: string | null;
   source_import: string | null;
   mouvement_groupe_id: number | null;
+  created_at: string | null;
   articles_matiere_premiere: { nom_article: string } | null;
 };
 
@@ -46,6 +47,7 @@ export type MouvementMpLigne = {
   utilisateur: string | null;
   note: string | null;
   source_import: string | null;
+  created_at: string | null;
 };
 
 export type MouvementMpGroup = {
@@ -58,7 +60,7 @@ export type MouvementMpGroup = {
 };
 
 const SOURCE_COLUMNS =
-  "id, article_id, numero_lot, code_normalise, date_reception, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, emplacement, utilisateur, note, source_import, mouvement_groupe_id, articles_matiere_premiere(nom_article)";
+  "id, article_id, numero_lot, code_normalise, date_reception, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, emplacement, utilisateur, note, source_import, mouvement_groupe_id, created_at, articles_matiere_premiere(nom_article)";
 
 const ENTREE_SOURCE = "web:entree-mp";
 const RECEPTION_SOURCE = "web:reception-mp";
@@ -206,6 +208,7 @@ function buildGroups(
         utilisateur: row.utilisateur,
         note: row.note,
         source_import: row.source_import,
+        created_at: row.created_at,
       })),
     };
   });
@@ -228,4 +231,8 @@ export function buildSortieMpRows(rows: MouvementMpSourceRow[]): MouvementMpGrou
 
 export function formatMouvementMpDate(value: string | null) {
   return formatDate(value);
+}
+
+export function formatMouvementMpDateTime(value: string | null) {
+  return formatDateTime(value);
 }

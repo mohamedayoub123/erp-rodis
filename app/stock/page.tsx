@@ -6,7 +6,7 @@ import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { formatDate } from "@/lib/format-date";
+import { formatDate, formatDateTime } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
@@ -37,6 +37,7 @@ type StockMovementRow = {
   chambre: string | null;
   code_pays: string | null;
   note: string | null;
+  created_at: string | null;
   articles: {
     nom_article: string;
     type_article: string | null;
@@ -173,7 +174,7 @@ export default async function StockPage({
     let stockQuery = supabaseServer
       .from("lots_stock")
       .select(
-        "id, article_id, numero_lot, date_fabrication, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, articles!inner(nom_article, type_article, marque, gamme)"
+        "id, article_id, numero_lot, date_fabrication, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, created_at, articles!inner(nom_article, type_article, marque, gamme)"
       )
       .order("id", { ascending: false })
       .range(stockFrom, stockFrom + stockPageSize - 1);
@@ -581,6 +582,7 @@ export default async function StockPage({
                     <th className="px-4 py-3 font-semibold">Client</th>
                     <th className="px-4 py-3 font-semibold">Numero BL</th>
                     <th className="px-4 py-3 font-semibold">Preparateur</th>
+                    <th className="px-4 py-3 font-semibold">Date de saisie</th>
                     {canEditStock || canDeleteStock ? <th className="px-4 py-3 font-semibold">Modifier</th> : null}
                   </tr>
                 </thead>
@@ -609,6 +611,7 @@ export default async function StockPage({
                       <td className="px-4 py-3 text-slate-600">{row.livre_pour || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.numero_bl || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.preparateur || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{formatDateTime(row.created_at)}</td>
                       {canEditStock || canDeleteStock ? (
                         <td className="px-4 py-3">
                           <details className="min-w-[20rem] rounded-2xl border border-slate-200 bg-slate-50 p-3">

@@ -6,6 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
+import { formatDateTime } from "@/lib/format-date";
 
 type HistoryRow = {
   id: number;
@@ -102,7 +103,9 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">{code}</h1>
               <p className="mt-2 text-sm text-slate-600">
                 {formatDate(dateJour)} - {rows.length} ligne{rows.length > 1 ? "s" : ""}
-                {rows[0]?.cree_par ? ` - Cree par ${rows[0].cree_par}` : ""}
+                {rows[0]?.cree_par
+                  ? ` - Cree par ${rows[0].cree_par} (${formatDateTime(rows[0].created_at)})`
+                  : ""}
               </p>
             </div>
 

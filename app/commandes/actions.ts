@@ -1717,6 +1717,14 @@ export async function deliverCommandeAction(formData: FormData) {
   } catch (err) {
     commandeErreurRedirect(commandeId, err);
   }
+
+  // Retourne sur la liste des commandes une fois la livraison reussie -
+  // rester sur le detail n'avait plus grand interet, le stock vient de
+  // sortir. Place APRES le try/catch (jamais dedans) : redirect() lance
+  // en interne une exception speciale que Next.js reconnait pour naviguer
+  // - si elle etait a l'interieur du try, le catch juste au-dessus
+  // l'attraperait par erreur et la traiterait comme un vrai echec.
+  redirect("/commandes");
 }
 
 // Supprime une ligne du dispatch FIFO (sans toucher au stock - le lot

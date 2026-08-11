@@ -7,6 +7,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
 import { saveEmballageRapportAction } from "../../actions";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
+import { formatDateTime } from "@/lib/format-date";
 
 const ARRET_CAUSES = [
   { field: "emballage_arret_changement_bobine", label: "ARRET CHANGEMENT BOBINE" },
@@ -41,6 +42,7 @@ type RapportInfo = {
   date_emballage: string | null;
   date_peremption: string | null;
   utilisateur_emballage: string | null;
+  date_saisie_emballage: string | null;
 };
 
 type SearchParams = Promise<{ code?: string }>;
@@ -66,7 +68,7 @@ export default async function RapportEmballagePage({
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionEmballage");
 
   const RAPPORT_FIELDS =
-    "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_chef_zone, nb_journaliers_emballage, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, date_emballage, date_peremption, utilisateur_emballage";
+    "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_chef_zone, nb_journaliers_emballage, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, date_emballage, date_peremption, utilisateur_emballage, date_saisie_emballage";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
@@ -124,6 +126,9 @@ export default async function RapportEmballagePage({
               {rapport?.utilisateur_emballage ? (
                 <p className="mt-1 text-xs text-slate-500">
                   Derniere saisie par {rapport.utilisateur_emballage}
+                  {rapport.date_saisie_emballage
+                    ? ` (${formatDateTime(rapport.date_saisie_emballage)})`
+                    : ""}
                 </p>
               ) : null}
             </div>

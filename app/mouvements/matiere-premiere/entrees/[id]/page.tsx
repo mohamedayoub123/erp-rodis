@@ -8,6 +8,7 @@ import {
   buildEntreeMpRows,
   fetchWebMouvementMpSourceRows,
   formatMouvementMpDate,
+  formatMouvementMpDateTime,
   mouvementMpSourceLabel,
 } from "../../shared";
 import { BackButton } from "@/app/_components/back-button";
@@ -72,6 +73,7 @@ export default async function EntreeMpDetailPage({
                   <th className="px-4 py-3 font-semibold">Note</th>
                   <th className="px-4 py-3 font-semibold">Source</th>
                   <th className="px-4 py-3 font-semibold">Saisi par</th>
+                  <th className="px-4 py-3 font-semibold">Date de saisie</th>
                   {canEditStock || canDeleteStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                 </tr>
               </thead>
@@ -92,6 +94,9 @@ export default async function EntreeMpDetailPage({
                     <td className="px-4 py-3 text-slate-600">{ligne.note || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{mouvementMpSourceLabel(ligne.source_import)}</td>
                     <td className="px-4 py-3 text-slate-600">{ligne.utilisateur || "-"}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {formatMouvementMpDateTime(ligne.created_at)}
+                    </td>
                     {canEditStock || canDeleteStock ? (
                       <td className="px-4 py-3">
                         <div className="flex items-start gap-2">

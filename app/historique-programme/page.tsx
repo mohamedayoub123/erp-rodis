@@ -6,6 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { formatDateTime } from "@/lib/format-date";
 
 type ProgrammeLigneRow = {
   id: number;
@@ -221,6 +222,7 @@ export default async function HistoriqueProgrammePage({
                     {formatDate(group.dateJour)} - {group.count} ligne
                     {group.count > 1 ? "s" : ""}
                     {group.creePar ? ` - Cree par ${group.creePar}` : ""}
+                    {group.creePar ? ` (${formatDateTime(group.createdAt)})` : ""}
                   </span>
                 </Link>
                 <div className="flex items-center gap-2">

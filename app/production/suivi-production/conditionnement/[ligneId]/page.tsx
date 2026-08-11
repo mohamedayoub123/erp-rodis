@@ -9,6 +9,7 @@ import { saveConditionnementRapportAction } from "../../actions";
 import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 import { LigneZoneChaineEditor } from "./zone-chaine-editor";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
+import { formatDateTime } from "@/lib/format-date";
 
 const ARRET_CAUSES = [
   { field: "arret_depot", label: "ARRET CAUSE DE DEPOT" },
@@ -66,6 +67,7 @@ type RapportInfo = {
   date_fabrication_conditionnement: string | null;
   date_peremption: string | null;
   utilisateur_conditionnement: string | null;
+  date_saisie_conditionnement: string | null;
 };
 
 type SearchParams = Promise<{ code?: string }>;
@@ -94,7 +96,7 @@ export default async function RapportConditionnementPage({
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
 
   const RAPPORT_FIELDS =
-    "chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, utilisateur_conditionnement";
+    "chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, utilisateur_conditionnement, date_saisie_conditionnement";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
@@ -169,6 +171,9 @@ export default async function RapportConditionnementPage({
               {rapport?.utilisateur_conditionnement ? (
                 <p className="mt-1 text-xs text-slate-500">
                   Derniere saisie par {rapport.utilisateur_conditionnement}
+                  {rapport.date_saisie_conditionnement
+                    ? ` (${formatDateTime(rapport.date_saisie_conditionnement)})`
+                    : ""}
                 </p>
               ) : null}
             </div>

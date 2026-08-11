@@ -6,6 +6,7 @@ import {
   buildSortieMpRows,
   fetchWebMouvementMpSourceRows,
   formatMouvementMpDate,
+  formatMouvementMpDateTime,
   mouvementMpSourceLabel,
   type MouvementMpGroup,
 } from "./shared";
@@ -197,6 +198,7 @@ export default async function MouvementsMatierePremierePage({
                     <th className="px-4 py-3 font-semibold">Doss. 4D</th>
                     <th className="px-4 py-3 font-semibold">Doss. ERP</th>
                     <th className="px-4 py-3 font-semibold">Saisi par</th>
+                    <th className="px-4 py-3 font-semibold">Date de saisie</th>
                     {canDeleteStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
@@ -227,6 +229,9 @@ export default async function MouvementsMatierePremierePage({
                       <td className="px-4 py-3 text-slate-600">{first?.n_doss_4d || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{first?.n_doss_erp || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{first?.utilisateur || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {formatMouvementMpDateTime(first?.created_at ?? null)}
+                      </td>
                       {canDeleteStock ? (
                         <td className="px-4 py-3">
                           <form action={deleteMouvementMpGroupAction}>

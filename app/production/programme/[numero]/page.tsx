@@ -3,7 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { formatDate } from "@/lib/format-date";
+import { formatDate, formatDateTime } from "@/lib/format-date";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { ProgrammeFormulaire } from "../programme-formulaire";
 import {
@@ -27,6 +27,7 @@ type ProgrammeRow = {
   remarque: string | null;
   statut: string;
   utilisateur: string | null;
+  created_at: string | null;
 };
 
 type ArticleRow = {
@@ -92,7 +93,7 @@ export default async function ProgrammeDetailPage({
     supabaseServer
       .from("programmes")
       .select(
-        "id, article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, date_jour, remarque, statut, utilisateur"
+        "id, article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, date_jour, remarque, statut, utilisateur, created_at"
       )
       .eq("numero_programme", numeroProgramme)
       .order("id", { ascending: true }),
@@ -232,6 +233,7 @@ export default async function ProgrammeDetailPage({
                       <th className="px-6 py-4 font-semibold">Qt vrac</th>
                       <th className="px-6 py-4 font-semibold"></th>
                       <th className="px-6 py-4 font-semibold">Saisi par</th>
+                      <th className="px-6 py-4 font-semibold">Date de saisie</th>
                       {canWrite ? <th className="px-6 py-4 font-semibold"></th> : null}
                     </tr>
                   </thead>
@@ -298,6 +300,7 @@ export default async function ProgrammeDetailPage({
                           </>
                         )}
                         <td className="px-6 py-4 text-slate-600">{ligne.utilisateur || "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{formatDateTime(ligne.created_at)}</td>
                         {canWrite ? (
                           <td className="px-6 py-4">
                             <form action={deleteProgrammeAction}>

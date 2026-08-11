@@ -5,6 +5,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
+import { formatDateTime } from "@/lib/format-date";
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { FabricationForm } from "./fabrication-form";
 
@@ -54,6 +55,7 @@ type RapportInfo = {
   fabrication_arret_probleme_technique: number | null;
   date_fabrication_conditionnement: string | null;
   utilisateur_fabrication: string | null;
+  date_saisie_fabrication: string | null;
 };
 
 type SearchParams = Promise<{ code?: string }>;
@@ -82,7 +84,7 @@ export default async function RapportFabricationPage({
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionFabrication");
 
   const RAPPORT_FIELDS =
-    "machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, degre_alcool, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, date_fabrication_conditionnement, utilisateur_fabrication";
+    "machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, degre_alcool, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, date_fabrication_conditionnement, utilisateur_fabrication, date_saisie_fabrication";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
@@ -141,6 +143,9 @@ export default async function RapportFabricationPage({
               {rapport?.utilisateur_fabrication ? (
                 <p className="mt-1 text-xs text-slate-500">
                   Derniere saisie par {rapport.utilisateur_fabrication}
+                  {rapport.date_saisie_fabrication
+                    ? ` (${formatDateTime(rapport.date_saisie_fabrication)})`
+                    : ""}
                 </p>
               ) : null}
             </div>

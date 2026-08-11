@@ -7,6 +7,7 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { formatDateTime } from "@/lib/format-date";
 
 type HistoryRow = {
   id: number;
@@ -211,6 +212,7 @@ export default async function HistoriqueProgrammeDispatcherPage({
                     {formatDate(group.dateJour)} - {group.count} ligne
                     {group.count > 1 ? "s" : ""}
                     {group.creePar ? ` - Cree par ${group.creePar}` : ""}
+                    {group.creePar ? ` (${formatDateTime(group.createdAt)})` : ""}
                   </span>
                 </Link>
                 {canDelete ? (

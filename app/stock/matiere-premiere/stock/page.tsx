@@ -6,7 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
-import { formatDate } from "@/lib/format-date";
+import { formatDate, formatDateTime } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
 import {
   deleteLotFromEntreeMpDetailAction,
@@ -41,6 +41,7 @@ type MouvementRow = {
   utilisateur: string | null;
   note: string | null;
   mouvement_groupe_id: number | null;
+  created_at: string | null;
   articles_matiere_premiere: {
     nom_article: string;
     gamme: string | null;
@@ -56,7 +57,7 @@ type DisplayRow = MouvementRow & {
 };
 
 const MOUVEMENTS_MP_COLUMNS =
-  "id, article_id, numero_lot, code_normalise, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, utilisateur, note, mouvement_groupe_id, articles_matiere_premiere(nom_article, gamme, categorie)";
+  "id, article_id, numero_lot, code_normalise, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, utilisateur, note, mouvement_groupe_id, created_at, articles_matiere_premiere(nom_article, gamme, categorie)";
 
 // La table complete (~40 000 lignes avec l'historique Excel) etait
 // rapatriee via une boucle .range() SEQUENTIELLE (une requete attend la
@@ -456,6 +457,7 @@ export default async function StockMatierePremiereStockPage({
                     <th className="px-4 py-3 font-semibold">Import</th>
                     <th className="px-4 py-3 font-semibold">Note</th>
                     <th className="px-4 py-3 font-semibold">Saisi par</th>
+                    <th className="px-4 py-3 font-semibold">Date de saisie</th>
                     <th className="px-4 py-3 font-semibold">Action</th>
                   </tr>
                 </thead>
@@ -529,6 +531,7 @@ export default async function StockMatierePremiereStockPage({
                       </td>
                       <td className="px-4 py-3 text-slate-600">{row.note || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.utilisateur || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{formatDateTime(row.created_at)}</td>
                       <td className="px-4 py-3">
                         {row.mouvement_type === "entree" && (canEditEntree || canDeleteEntree) ? (
                           <div className="flex items-start gap-2">

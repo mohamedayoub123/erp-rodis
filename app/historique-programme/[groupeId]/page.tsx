@@ -10,6 +10,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
+import { formatDateTime } from "@/lib/format-date";
 
 type ProgrammeLigneRow = {
   id: number;
@@ -126,7 +127,9 @@ export default async function HistoriqueProgrammeDetailPage({
               </h1>
               <p className="mt-2 text-sm text-slate-600">
                 {formatDate(dateJour)} - {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
-                {lignes[0]?.cree_par ? ` - Cree par ${lignes[0].cree_par}` : ""}
+                {lignes[0]?.cree_par
+                  ? ` - Cree par ${lignes[0].cree_par} (${formatDateTime(lignes[0].created_at)})`
+                  : ""}
               </p>
               {lignes[0]?.remarque ? (
                 <p className="mt-2 text-base font-semibold text-sky-700">{lignes[0].remarque}</p>
