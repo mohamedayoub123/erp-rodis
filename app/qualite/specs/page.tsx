@@ -19,6 +19,11 @@ type SpecQueryRow = {
   degre_alcool_max: number | null;
   stabilite: string | null;
   couleur: string | null;
+  taux_humidite_min: number | null;
+  taux_humidite_max: number | null;
+  pression_atmospherique_min: number | null;
+  pression_atmospherique_max: number | null;
+  texture: string | null;
   articles: { nom_article: string } | { nom_article: string }[] | null;
 };
 
@@ -41,7 +46,7 @@ export default async function QualiteSpecsPage() {
     supabaseServer
       .from("articles_specs_qualite")
       .select(
-        "article_id, ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, articles!inner(nom_article)"
+        "article_id, ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture, articles!inner(nom_article)"
       ),
   ]);
 
@@ -66,6 +71,11 @@ export default async function QualiteSpecsPage() {
       degre_alcool_max: row.degre_alcool_max,
       stabilite: row.stabilite,
       couleur: row.couleur,
+      taux_humidite_min: row.taux_humidite_min,
+      taux_humidite_max: row.taux_humidite_max,
+      pression_atmospherique_min: row.pression_atmospherique_min,
+      pression_atmospherique_max: row.pression_atmospherique_max,
+      texture: row.texture,
     }))
     .sort((a, b) => a.article_label.localeCompare(b.article_label, "fr", { sensitivity: "base" }));
 

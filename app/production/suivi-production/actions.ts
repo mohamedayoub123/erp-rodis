@@ -333,6 +333,9 @@ async function messageSiHorsSpecSansDerogation(
     stabilite: string | null;
     couleur: string | null;
     odeur: string | null;
+    tauxHumidite: number | null;
+    pressionAtmospherique: number | null;
+    texture: string | null;
     sousDerogation: boolean;
   }
 ): Promise<string | null> {
@@ -357,7 +360,7 @@ async function messageSiHorsSpecSansDerogation(
   const { data: specData } = await supabaseServer
     .from("articles_specs_qualite")
     .select(
-      "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur"
+      "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture"
     )
     .eq("article_id", vracArticleId)
     .maybeSingle();
@@ -372,6 +375,11 @@ async function messageSiHorsSpecSansDerogation(
     degre_alcool_max: number | null;
     stabilite: string | null;
     couleur: string | null;
+    taux_humidite_min: number | null;
+    taux_humidite_max: number | null;
+    pression_atmospherique_min: number | null;
+    pression_atmospherique_max: number | null;
+    texture: string | null;
   } | null;
   if (!spec) return null;
 
@@ -385,11 +393,17 @@ async function messageSiHorsSpecSansDerogation(
     horsRange(values.densite, spec.densite_min, spec.densite_max) ||
     horsRange(values.viscosite, spec.viscosite_min, spec.viscosite_max) ||
     horsRange(values.degreAlcool, spec.degre_alcool_min, spec.degre_alcool_max) ||
+    horsRange(values.tauxHumidite, spec.taux_humidite_min, spec.taux_humidite_max) ||
+    horsRange(values.pressionAtmospherique, spec.pression_atmospherique_min, spec.pression_atmospherique_max) ||
     (Boolean(spec.stabilite) && values.stabilite !== "" && values.stabilite !== null && values.stabilite !== spec.stabilite) ||
     (Boolean(spec.couleur) &&
       values.couleur !== null &&
       values.couleur.trim() !== "" &&
       values.couleur.trim().toLowerCase() !== (spec.couleur || "").trim().toLowerCase()) ||
+    (Boolean(spec.texture) &&
+      values.texture !== null &&
+      values.texture.trim() !== "" &&
+      values.texture.trim().toLowerCase() !== (spec.texture || "").trim().toLowerCase()) ||
     values.odeur === "Non OK";
 
   if (horsSpec) {
@@ -961,6 +975,9 @@ export async function saveTestLaboAction(formData: FormData) {
   const stabilite = parseOptionalText(formData, "stabilite");
   const couleur = parseOptionalText(formData, "couleur");
   const odeur = parseOptionalText(formData, "odeur");
+  const tauxHumidite = parseOptionalNumber(formData, "taux_humidite");
+  const pressionAtmospherique = parseOptionalNumber(formData, "pression_atmospherique");
+  const texture = parseOptionalText(formData, "texture");
   const sousDerogation = formData.get("sous_derogation") === "on";
   const motifDerogation = parseOptionalText(formData, "motif_derogation");
 
@@ -976,6 +993,9 @@ export async function saveTestLaboAction(formData: FormData) {
     stabilite,
     couleur,
     odeur,
+    tauxHumidite,
+    pressionAtmospherique,
+    texture,
     sousDerogation,
   });
   if (erreurHorsSpec) {
@@ -993,10 +1013,20 @@ export async function saveTestLaboAction(formData: FormData) {
     couleur,
     temperature_test: parseOptionalNumber(formData, "temperature_test"),
     odeur,
+    taux_humidite: tauxHumidite,
+    pression_atmospherique: pressionAtmospherique,
+    texture,
     remarque: parseOptionalText(formData, "remarque"),
     disposition_qualite: parseOptionalText(formData, "disposition_qualite"),
     sous_derogation: sousDerogation,
     motif_derogation: motifDerogation,
+    date_prise_echantillon: parseOptionalText(formData, "date_prise_echantillon"),
+    heure_prise_echantillon: parseOptionalText(formData, "heure_prise_echantillon"),
+    heure_debut_analyse: parseOptionalText(formData, "heure_debut_analyse"),
+    heure_fin_analyse: parseOptionalText(formData, "heure_fin_analyse"),
+    // Jamais tape a la main, meme principe que utilisateur_test_labo -
+    // constant tant qu'il n'existe qu'un seul labo.
+    nom_labo: "Laboratoire Rodis",
     utilisateur_test_labo: currentUser,
     date_saisie_test_labo: new Date().toISOString(),
   });

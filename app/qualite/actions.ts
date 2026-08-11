@@ -42,6 +42,11 @@ export async function upsertArticleSpecQualiteAction(formData: FormData) {
       degre_alcool_max: parseOptionalNumber(formData, "degre_alcool_max"),
       stabilite: parseOptionalText(formData, "stabilite"),
       couleur: parseOptionalText(formData, "couleur"),
+      taux_humidite_min: parseOptionalNumber(formData, "taux_humidite_min"),
+      taux_humidite_max: parseOptionalNumber(formData, "taux_humidite_max"),
+      pression_atmospherique_min: parseOptionalNumber(formData, "pression_atmospherique_min"),
+      pression_atmospherique_max: parseOptionalNumber(formData, "pression_atmospherique_max"),
+      texture: parseOptionalText(formData, "texture"),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "article_id" }

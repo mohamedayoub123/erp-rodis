@@ -27,10 +27,18 @@ type RapportInfo = {
   couleur: string | null;
   temperature_test: number | null;
   odeur: string | null;
+  taux_humidite: number | null;
+  pression_atmospherique: number | null;
+  texture: string | null;
   remarque: string | null;
   disposition_qualite: string | null;
   sous_derogation: boolean | null;
   motif_derogation: string | null;
+  nom_labo: string | null;
+  date_prise_echantillon: string | null;
+  heure_prise_echantillon: string | null;
+  heure_debut_analyse: string | null;
+  heure_fin_analyse: string | null;
   utilisateur_test_labo: string | null;
 };
 
@@ -43,12 +51,17 @@ type SpecInfo = {
   densite_max: number | null;
   degre_alcool_min: number | null;
   degre_alcool_max: number | null;
+  taux_humidite_min: number | null;
+  taux_humidite_max: number | null;
+  pression_atmospherique_min: number | null;
+  pression_atmospherique_max: number | null;
+  texture: string | null;
   stabilite: string | null;
   couleur: string | null;
 };
 
 const RAPPORT_FIELDS =
-  "ph, densite, viscosite, degre_alcool, stabilite, couleur, temperature_test, odeur, remarque, disposition_qualite, sous_derogation, motif_derogation, utilisateur_test_labo";
+  "ph, densite, viscosite, degre_alcool, stabilite, couleur, temperature_test, odeur, taux_humidite, pression_atmospherique, texture, remarque, disposition_qualite, sous_derogation, motif_derogation, nom_labo, date_prise_echantillon, heure_prise_echantillon, heure_debut_analyse, heure_fin_analyse, utilisateur_test_labo";
 
 type SearchParams = Promise<{ code?: string; erreur?: string; enregistre?: string; ajuste?: string }>;
 
@@ -124,7 +137,7 @@ export default async function TestLaboPage({
       const { data: specData } = await supabaseServer
         .from("articles_specs_qualite")
         .select(
-          "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur"
+          "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture"
         )
         .eq("article_id", vracArticleId)
         .maybeSingle();
@@ -179,9 +192,11 @@ export default async function TestLaboPage({
               </p>
               {rapport?.utilisateur_test_labo ? (
                 <p className="mt-1 text-xs text-slate-500">
-                  Derniere saisie par {rapport.utilisateur_test_labo}
+                  {rapport.nom_labo || "Laboratoire Rodis"} - Derniere saisie par {rapport.utilisateur_test_labo}
                 </p>
-              ) : null}
+              ) : (
+                <p className="mt-1 text-xs text-slate-500">Laboratoire Rodis</p>
+              )}
               {!spec ? (
                 <p className="mt-1 text-xs text-amber-600">
                   Aucune spec labo enregistree pour cet article (voir module Qualite).

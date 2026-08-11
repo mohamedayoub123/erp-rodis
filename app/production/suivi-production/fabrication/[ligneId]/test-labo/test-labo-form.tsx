@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { saveTestLaboAction, ajouterAjustementMpTestLaboAction } from "../../../actions";
 import { ProduitPickerField } from "../../../produit-picker-field";
 import { fetchAvailableLotsAction } from "@/app/depots/transfer-order/actions";
+import { DateJmaFormField } from "@/app/_components/date-jma-input";
 
 type RapportInfo = {
   ph: number | null;
@@ -14,10 +15,17 @@ type RapportInfo = {
   couleur: string | null;
   temperature_test: number | null;
   odeur: string | null;
+  taux_humidite: number | null;
+  pression_atmospherique: number | null;
+  texture: string | null;
   remarque: string | null;
   disposition_qualite: string | null;
   sous_derogation: boolean | null;
   motif_derogation: string | null;
+  date_prise_echantillon: string | null;
+  heure_prise_echantillon: string | null;
+  heure_debut_analyse: string | null;
+  heure_fin_analyse: string | null;
 };
 
 type SpecInfo = {
@@ -29,6 +37,11 @@ type SpecInfo = {
   densite_max: number | null;
   degre_alcool_min: number | null;
   degre_alcool_max: number | null;
+  taux_humidite_min: number | null;
+  taux_humidite_max: number | null;
+  pression_atmospherique_min: number | null;
+  pression_atmospherique_max: number | null;
+  texture: string | null;
   stabilite: string | null;
   couleur: string | null;
 };
@@ -104,6 +117,7 @@ export function TestLaboForm({
 }) {
   const [stabilite, setStabilite] = useState(rapport?.stabilite || "");
   const [couleur, setCouleur] = useState(rapport?.couleur || "");
+  const [texture, setTexture] = useState(rapport?.texture || "");
   const [odeur, setOdeur] = useState(rapport?.odeur || "");
   const [dispositionQualite, setDispositionQualite] = useState(rapport?.disposition_qualite || "");
   const [numericHorsSpec, setNumericHorsSpec] = useState<Record<string, boolean>>({});
@@ -132,10 +146,15 @@ export function TestLaboForm({
     couleur.trim() !== "" &&
     couleur.trim().toLowerCase() !== (spec?.couleur || "").trim().toLowerCase();
   const odeurNonConforme = odeur === "Non OK";
+  const textureNonConforme =
+    Boolean(spec?.texture) &&
+    texture.trim() !== "" &&
+    texture.trim().toLowerCase() !== (spec?.texture || "").trim().toLowerCase();
   const anyHorsSpec =
     stabiliteNonConforme ||
     couleurNonConforme ||
     odeurNonConforme ||
+    textureNonConforme ||
     Object.values(numericHorsSpec).some(Boolean);
 
   return (
@@ -229,6 +248,74 @@ export function TestLaboForm({
                 <option value="Non OK">Non OK</option>
               </select>
               {odeurNonConforme ? <span className="text-[11px] font-semibold text-red-600">Non conforme</span> : null}
+            </label>
+            <NumericSpecField
+              label="Taux d'humidite"
+              name="taux_humidite"
+              defaultValue={rapport?.taux_humidite}
+              specMin={spec?.taux_humidite_min}
+              specMax={spec?.taux_humidite_max}
+              onNonConformeChange={(v) => setNumericHorsSpec((prev) => ({ ...prev, taux_humidite: v }))}
+            />
+            <NumericSpecField
+              label="Pression atmospherique"
+              name="pression_atmospherique"
+              defaultValue={rapport?.pression_atmospherique}
+              specMin={spec?.pression_atmospherique_min}
+              specMax={spec?.pression_atmospherique_max}
+              onNonConformeChange={(v) => setNumericHorsSpec((prev) => ({ ...prev, pression_atmospherique: v }))}
+            />
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Texture
+              {spec?.texture ? <span className="font-normal text-slate-400">Spec : {spec.texture}</span> : null}
+              <input
+                type="text"
+                name="texture"
+                value={texture}
+                onChange={(e) => setTexture(e.target.value)}
+                className={textureNonConforme ? inputClassNonConforme : inputClass}
+              />
+              {textureNonConforme ? <span className="text-[11px] font-semibold text-red-600">Hors spec</span> : null}
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <h2 className="mb-1 text-lg font-bold text-slate-900">Prelevement et analyse</h2>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Date prise echantillon
+              <DateJmaFormField
+                name="date_prise_echantillon"
+                defaultValue={rapport?.date_prise_echantillon}
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Heure prise echantillon
+              <input
+                type="time"
+                name="heure_prise_echantillon"
+                defaultValue={rapport?.heure_prise_echantillon || ""}
+                className={inputClass}
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Heure debut analyse
+              <input
+                type="time"
+                name="heure_debut_analyse"
+                defaultValue={rapport?.heure_debut_analyse || ""}
+                className={inputClass}
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Heure fin analyse
+              <input
+                type="time"
+                name="heure_fin_analyse"
+                defaultValue={rapport?.heure_fin_analyse || ""}
+                className={inputClass}
+              />
             </label>
           </div>
         </div>
