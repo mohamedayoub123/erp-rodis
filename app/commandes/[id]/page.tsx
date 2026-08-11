@@ -217,6 +217,17 @@ async function getArticleAvailabilityMap(articleIds: number[]) {
       .from("lots_stock")
       .select("id, article_id, numero_lot, code_normalise, date_fabrication, qte_entree, qte_sortie")
       .in("article_id", articleIds)
+      // Sans ordre explicite, Postgres ne garantit pas un ordre stable
+      // entre 2 appels .range() successifs - sur une table aussi grosse et
+      // active que lots_stock (ecritures concurrentes constantes par
+      // d'autres commandes pendant que cette boucle tourne), des lignes
+      // pouvaient silencieusement passer entre 2 pages et ne jamais etre
+      // comptees. Confirme concretement sur le code AA3776 : ses 2 lignes
+      // de SORTIE (26 + 297 = 323) disparaissaient, laissant seulement les
+      // 2 lignes d'ENTREE (26 + 297 = 323 aussi) - d'ou un "323 disponible"
+      // affiche alors que le stock reel net etait 0. order("id") donne un
+      // tri stable et unique, donc une pagination toujours complete.
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) {
@@ -505,6 +516,12 @@ async function fetchStockGroupsByArticle(articleIds: number[]): Promise<Map<stri
       .from("lots_stock")
       .select("article_id, numero_lot, code_normalise, date_fabrication, qte_entree, qte_sortie")
       .in("article_id", articleIds)
+      // Meme correctif que fetchAllClientNamesForCommandeDetail plus haut :
+      // sans ordre stable, la pagination range() peut sauter des lignes
+      // entre 2 pages sur une table active - c'est CE bug precis qui
+      // causait le "323 disponible" pour AA3776 alors que le stock reel
+      // net etait 0 (les lignes de sortie tombaient entre 2 pages).
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) break;
@@ -571,6 +588,11 @@ async function computeAvailableCodesByArticle(
       .select("commande_id, quantite_chargee, numero_lot, article_id")
       .in("article_id", articleIds)
       .neq("commande_id", excludeCommandeId)
+      // Meme correctif d'ordre stable que fetchStockGroupsByArticle
+      // ci-dessus - sans ca, des reservations pouvaient etre ignorees
+      // entre 2 pages, faisant apparaitre un code comme plus disponible
+      // qu'il ne l'est reellement.
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) break;

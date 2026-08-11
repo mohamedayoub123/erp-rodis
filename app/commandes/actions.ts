@@ -305,6 +305,12 @@ async function getReservedByArticle(excludeCommandeId?: number) {
       .from("fifo_resultats")
       .select("article_id, quantite_chargee, commandes!inner(statut)")
       .neq("commandes.statut", "LIVREE")
+      // Sans ordre explicite, la pagination range() peut sauter des lignes
+      // entre 2 pages sur une table active (meme correctif que dans
+      // app/commandes/[id]/page.tsx, confirme responsable d'un stock
+      // "disponible" affiche a tort) - ici ca pourrait faire calculer un
+      // stock reserve trop bas et donc surallouer du stock au dispatch FIFO.
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (excludeCommandeId) {
@@ -1038,6 +1044,10 @@ async function fetchAllReservedLotsExcludingCommande(commandeId: number) {
       .from("fifo_resultats")
       .select("lot_stock_id, quantite_chargee")
       .neq("commande_id", commandeId)
+      // Meme correctif d'ordre stable que getReservedByArticle plus haut -
+      // sans ca, le calcul FIFO ("Despatcher") pouvait sous-compter des
+      // reservations existantes et donc surallouer le meme lot 2 fois.
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { data: rows, error };
