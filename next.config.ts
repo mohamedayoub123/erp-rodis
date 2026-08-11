@@ -16,6 +16,13 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
       bodySizeLimit: "50mb",
+      // Next.js compare l'Origin de la requete au Host attendu avant
+      // d'executer une Server Action (protection anti-CSRF) - sans domaine
+      // explicite ici, ce controle repose entierement sur la detection
+      // automatique du Host, qui peut echouer selon comment Vercel
+      // presente ce domaine (X-Forwarded-Host, alias git-branch, etc.),
+      // rejetant silencieusement l'action avec un ecran generique.
+      allowedOrigins: ["erp-rodis.vercel.app"],
     },
   },
 };
