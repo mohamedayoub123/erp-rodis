@@ -20,6 +20,11 @@ export type SpecRow = {
   degre_alcool_max: number | null;
   stabilite: string | null;
   couleur: string | null;
+  taux_humidite_min: number | null;
+  taux_humidite_max: number | null;
+  pression_atmospherique_min: number | null;
+  pression_atmospherique_max: number | null;
+  texture: string | null;
 };
 
 const EMPTY_FIELDS = {
@@ -33,6 +38,11 @@ const EMPTY_FIELDS = {
   degre_alcool_max: "",
   stabilite: "",
   couleur: "",
+  taux_humidite_min: "",
+  taux_humidite_max: "",
+  pression_atmospherique_min: "",
+  pression_atmospherique_max: "",
+  texture: "",
 };
 
 type Fields = typeof EMPTY_FIELDS;
@@ -54,6 +64,11 @@ function fieldsFromSpec(spec: SpecRow | undefined): Fields {
     degre_alcool_max: numToField(spec.degre_alcool_max),
     stabilite: spec.stabilite ?? "",
     couleur: spec.couleur ?? "",
+    taux_humidite_min: numToField(spec.taux_humidite_min),
+    taux_humidite_max: numToField(spec.taux_humidite_max),
+    pression_atmospherique_min: numToField(spec.pression_atmospherique_min),
+    pression_atmospherique_max: numToField(spec.pression_atmospherique_max),
+    texture: spec.texture ?? "",
   };
 }
 
@@ -253,6 +268,29 @@ export function SpecsQualiteForm({
                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                 />
               </label>
+              <NumberRange
+                label="Taux d'humidite"
+                minValue={fields.taux_humidite_min}
+                maxValue={fields.taux_humidite_max}
+                onMinChange={(v) => updateField("taux_humidite_min", v)}
+                onMaxChange={(v) => updateField("taux_humidite_max", v)}
+              />
+              <NumberRange
+                label="Pression atmospherique"
+                minValue={fields.pression_atmospherique_min}
+                maxValue={fields.pression_atmospherique_max}
+                onMinChange={(v) => updateField("pression_atmospherique_min", v)}
+                onMaxChange={(v) => updateField("pression_atmospherique_max", v)}
+              />
+              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                Texture
+                <input
+                  type="text"
+                  value={fields.texture}
+                  onChange={(event) => updateField("texture", event.target.value)}
+                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                />
+              </label>
             </div>
           ) : null}
 
@@ -288,6 +326,9 @@ export function SpecsQualiteForm({
                   <th className="px-4 py-3 font-semibold">Degre alcool</th>
                   <th className="px-4 py-3 font-semibold">Stabilite</th>
                   <th className="px-4 py-3 font-semibold">Couleur</th>
+                  <th className="px-4 py-3 font-semibold">Taux humidite</th>
+                  <th className="px-4 py-3 font-semibold">Pression atmospherique</th>
+                  <th className="px-4 py-3 font-semibold">Texture</th>
                   {canWrite ? <th className="px-4 py-3 font-semibold">Modifier</th> : null}
                   {canDelete ? <th className="px-4 py-3 font-semibold">Supprimer</th> : null}
                 </tr>
@@ -310,6 +351,13 @@ export function SpecsQualiteForm({
                     </td>
                     <td className="px-4 py-3 text-slate-600">{spec.stabilite || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">{spec.couleur || "-"}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {spec.taux_humidite_min ?? "-"} - {spec.taux_humidite_max ?? "-"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {spec.pression_atmospherique_min ?? "-"} - {spec.pression_atmospherique_max ?? "-"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{spec.texture || "-"}</td>
                     {canWrite ? (
                       <td className="px-4 py-3">
                         <button
