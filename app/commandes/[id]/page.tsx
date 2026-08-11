@@ -477,12 +477,17 @@ async function fetchAllArticlesForCommandeDetail() {
 // different de celle-ci) - un code deja entierement pris par une autre
 // commande ne doit pas apparaitre comme "disponible" ici, meme si son stock
 // physique brut est encore positif. Reste > 0 uniquement.
-async function fetchAvailableCodesByArticle(
-  articleIds: number[],
-  excludeCommandeId: number
-): Promise<Record<number, CodeOption[]>> {
-  const result: Record<number, CodeOption[]> = {};
-  if (articleIds.length === 0) return result;
+type StockGroup = { articleId: number; code: string; quantite: number; dateFabrication: string | null };
+
+// Lit le stock brut UNE SEULE FOIS (independamment de excludeCommandeId,
+// qui n'affecte que la partie reservations) - avant, calculer les 2 listes
+// "modifier ligne existante" et "ajouter une ligne" appelait cette requete
+// 2 fois en parallele, ce qui doublait chaque quantite affichee (un meme
+// code additionne 2 fois dans des groupes distincts crees par 2 executions
+// concurrentes de la meme fonction).
+async function fetchStockGroupsByArticle(articleIds: number[]): Promise<Map<string, StockGroup>> {
+  const groups = new Map<string, StockGroup>();
+  if (articleIds.length === 0) return groups;
 
   const rows: {
     article_id: number | null;
@@ -511,11 +516,6 @@ async function fetchAvailableCodesByArticle(
     from += pageSize;
   }
 
-  const groups = new Map<
-    string,
-    { articleId: number; code: string; quantite: number; dateFabrication: string | null }
-  >();
-
   for (const row of rows) {
     const code = (row.code_normalise || row.numero_lot || "").trim();
     // Les codes purement numeriques ("1", "2", "3"...) sont d'anciens
@@ -543,6 +543,17 @@ async function fetchAvailableCodesByArticle(
     }
   }
 
+  return groups;
+}
+
+async function computeAvailableCodesByArticle(
+  stockGroups: Map<string, StockGroup>,
+  articleIds: number[],
+  excludeCommandeId: number
+): Promise<Record<number, CodeOption[]>> {
+  const result: Record<number, CodeOption[]> = {};
+  if (articleIds.length === 0) return result;
+
   // Reservations d'AUTRES commandes (non livrees) sur ces memes articles,
   // regroupees par le meme code que ci-dessus - a deduire du stock brut.
   const reservedRows: {
@@ -551,7 +562,8 @@ async function fetchAvailableCodesByArticle(
     numero_lot: string | null;
     article_id: number | null;
   }[] = [];
-  from = 0;
+  let from = 0;
+  const pageSize = 1000;
 
   while (true) {
     const { data, error } = await supabaseServer
@@ -578,7 +590,7 @@ async function fetchAvailableCodesByArticle(
     reservedByKey.set(key, (reservedByKey.get(key) ?? 0) + Number(row.quantite_chargee ?? 0));
   }
 
-  for (const [key, group] of groups.entries()) {
+  for (const [key, group] of stockGroups.entries()) {
     const disponible = group.quantite - (reservedByKey.get(key) ?? 0);
     if (disponible <= 0) continue;
     const list = result[group.articleId] ?? [];
@@ -649,16 +661,18 @@ export default async function CommandeDetailPage({
     ]),
   ];
 
-  // Deux calculs distincts : modifier une ligne DEJA dispatchee ne doit pas
-  // compter sa propre reservation comme "prise" (sinon son propre code
+  // Stock lu UNE SEULE FOIS, puis 2 calculs de disponibilite distincts a
+  // partir des memes donnees : modifier une ligne DEJA dispatchee ne doit
+  // pas compter sa propre reservation comme "prise" (sinon son propre code
   // disparaitrait de la liste), mais ajouter une NOUVELLE ligne doit bien
   // compter TOUTES les reservations existantes, y compris celles de cette
   // meme commande - sinon un code deja entierement utilise par une autre
   // ligne de cette commande semblait encore disponible et permettait de le
   // reserver une 2e fois en double.
+  const stockGroups = await fetchStockGroupsByArticle(relevantArticleIds);
   const [availableCodesByArticle, availableCodesByArticleForNewLines] = await Promise.all([
-    fetchAvailableCodesByArticle(relevantArticleIds, commandeId),
-    fetchAvailableCodesByArticle(relevantArticleIds, 0),
+    computeAvailableCodesByArticle(stockGroups, relevantArticleIds, commandeId),
+    computeAvailableCodesByArticle(stockGroups, relevantArticleIds, 0),
   ]);
 
   // Chaque camion d'une commande "Nb de camion > 1" est une commande a part
@@ -940,6 +954,13 @@ export default async function CommandeDetailPage({
             </div>
 
             <FifoResultsTable
+              // Force un vrai remontage (et donc un state local frais) des
+              // qu'un Despatcher/Ajouter/Enregistrer change le JEU de lignes
+              // FIFO (nouveaux ids en base a chaque recalcul complet) -
+              // sinon useState garde son etat initial et les lignes
+              // remontees avec de nouveaux ids ne trouvent plus leur code/
+              // quantite/preparateur dans le state (tout semble "vide").
+              key={fifoResults.map((ligne) => ligne.id).join("-")}
               commandeId={selectedCommande.id}
               initialRows={fifoResults.map(
                 (ligne): FifoResultRowData => ({
