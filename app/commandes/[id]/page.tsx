@@ -571,7 +571,15 @@ export default async function CommandeDetailPage({
   const availabilityMap = await getArticleAvailabilityMap(selectedArticleIds);
 
   const isContainer = isContainerMode(selectedCommande.mode_chargement);
-  const isCommandeLivree = (selectedCommande.statut || "").toUpperCase() === "LIVREE";
+  const rawStatut = (selectedCommande.statut || "EN_COURS").toUpperCase();
+  const isCommandeLivree = rawStatut === "LIVREE";
+  // FIFO_PARTIEL/FIFO_CALCULE/SAISIE_WEB sont des statuts "techniques"
+  // affiches comme "En cours" partout ailleurs (voir formatStatus) - avant,
+  // le <select> ci-dessous ne connaissait que EN_COURS/STAND/BL_TRANSFORME/
+  // LIVREE et retombait silencieusement sur EN_COURS pour ces statuts,
+  // les ECRASANT des le premier Save meme sans y toucher.
+  const KNOWN_STATUTS = ["EN_COURS", "STAND", "BL_TRANSFORME", "LIVREE"];
+  const isRawStatutKnown = KNOWN_STATUTS.includes(rawStatut);
 
   const lignesAvecManque = (selectedCommande.commande_lignes ?? [])
     .map((ligne) => ({ ligne, manque: Number(ligne.qt_non_dispo_total ?? 0) }))
@@ -1004,7 +1012,7 @@ export default async function CommandeDetailPage({
             </div>
           ) : null}
 
-          {canEditCommandes ? (
+          {canEditCommandes && !isCommandeLivree ? (
             <details className="no-print mt-5 rounded-[1.5rem] border border-slate-200 bg-white p-4">
               <summary className="cursor-pointer text-sm font-semibold text-slate-800">
                 Modifier cette commande
@@ -1033,21 +1041,16 @@ export default async function CommandeDetailPage({
                   />
                   <select
                     name="statut"
-                    defaultValue={
-                      selectedCommande.statut === "STAND"
-                        ? "STAND"
-                        : selectedCommande.statut === "BL_TRANSFORME"
-                          ? "BL_TRANSFORME"
-                          : selectedCommande.statut === "LIVREE"
-                            ? "LIVREE"
-                            : "EN_COURS"
-                    }
+                    defaultValue={rawStatut}
                     className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                   >
                     <option value="EN_COURS">En cours</option>
                     <option value="STAND">Stand</option>
                     <option value="BL_TRANSFORME">BL transforme</option>
                     <option value="LIVREE">Livree</option>
+                    {!isRawStatutKnown ? (
+                      <option value={rawStatut}>{rawStatut} (technique)</option>
+                    ) : null}
                   </select>
                   <select
                     name="mode_chargement"
@@ -1101,6 +1104,10 @@ export default async function CommandeDetailPage({
                 </div>
               </form>
             </details>
+          ) : isCommandeLivree ? (
+            <p className="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+              Commande livree : modification desactivee (le stock a deja ete sorti).
+            </p>
           ) : (
             <p className="mt-5 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-600">
               Lecture seule : modification de commande cachee pour cet utilisateur.

@@ -886,6 +886,22 @@ export async function updateManualCommandeAction(formData: FormData) {
     throw new Error("Commande, numero proforma, client et lignes sont obligatoires.");
   }
 
+  const { data: existingCommande, error: existingCommandeError } = await supabaseServer
+    .from("commandes")
+    .select("statut")
+    .eq("id", commandeId)
+    .single();
+
+  if (existingCommandeError || !existingCommande) {
+    throw new Error(existingCommandeError?.message || "Commande introuvable.");
+  }
+
+  // Une fois livree, le stock est deja sorti - la modifier (lignes,
+  // statut...) apres coup creerait un decalage avec le stock reel.
+  if ((existingCommande.statut || "").toUpperCase() === "LIVREE") {
+    throw new Error("Commande deja livree : modification desactivee.");
+  }
+
   const lignes = parseLines(rawLines);
 
   const { data: articlesData, error: articlesError } = await fetchAllArticlesForUpdateManualCommande();
@@ -1532,12 +1548,19 @@ export async function changeCommandeStatusAction(formData: FormData) {
 
   const { data: commande, error: commandeError } = await supabaseServer
     .from("commandes")
-    .select("id, commentaire")
+    .select("id, statut, commentaire")
     .eq("id", commandeId)
     .single();
 
   if (commandeError || !commande) {
     throw new Error(commandeError?.message || "Commande introuvable.");
+  }
+
+  // Une fois livree, le stock est deja sorti - changer le statut ensuite
+  // (y compris re-selectionner "Livree" par erreur, ce qui redeclencherait
+  // deliverCommandeAction) creerait un decalage avec le stock reel.
+  if ((commande.statut || "").toUpperCase() === "LIVREE") {
+    throw new Error("Commande deja livree : le statut ne peut plus etre change.");
   }
 
   const commentaire = applyTransitionDateComment(

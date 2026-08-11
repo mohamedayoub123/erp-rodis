@@ -376,34 +376,38 @@ export default async function CommandesPage({
                               >
                                 {formatStatus(row.statut)}
                               </span>
-                              {canChangeStatusCommandes ? (
-                                <form action={changeCommandeStatusAction} className="flex flex-nowrap items-center gap-2">
-                                  <input type="hidden" name="commande_id" value={row.id} />
-                                  <select
-                                    name="statut"
-                                    defaultValue={
-                                      row.statut === "STAND"
-                                        ? "STAND"
-                                        : row.statut === "BL_TRANSFORME"
-                                          ? "BL_TRANSFORME"
-                                          : row.statut === "LIVREE"
-                                            ? "LIVREE"
-                                            : "EN_COURS"
-                                    }
-                                    className="w-[140px] shrink-0 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 outline-none"
-                                  >
-                                    <option value="EN_COURS">En cours</option>
-                                    <option value="STAND">Stand</option>
-                                    <option value="BL_TRANSFORME">BL transforme</option>
-                                    <option value="LIVREE">Livree</option>
-                                  </select>
-                                  <button
-                                    type="submit"
-                                    className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800"
-                                  >
-                                    OK
-                                  </button>
-                                </form>
+                              {canChangeStatusCommandes && (row.statut || "").toUpperCase() !== "LIVREE" ? (
+                                (() => {
+                                  const rowStatut = (row.statut || "EN_COURS").toUpperCase();
+                                  const knownStatuts = ["EN_COURS", "STAND", "BL_TRANSFORME", "LIVREE"];
+                                  return (
+                                    <form
+                                      action={changeCommandeStatusAction}
+                                      className="flex flex-nowrap items-center gap-2"
+                                    >
+                                      <input type="hidden" name="commande_id" value={row.id} />
+                                      <select
+                                        name="statut"
+                                        defaultValue={rowStatut}
+                                        className="w-[140px] shrink-0 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 outline-none"
+                                      >
+                                        <option value="EN_COURS">En cours</option>
+                                        <option value="STAND">Stand</option>
+                                        <option value="BL_TRANSFORME">BL transforme</option>
+                                        <option value="LIVREE">Livree</option>
+                                        {!knownStatuts.includes(rowStatut) ? (
+                                          <option value={rowStatut}>{rowStatut} (technique)</option>
+                                        ) : null}
+                                      </select>
+                                      <button
+                                        type="submit"
+                                        className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800"
+                                      >
+                                        OK
+                                      </button>
+                                    </form>
+                                  );
+                                })()
                               ) : null}
                             </div>
                           ))}
