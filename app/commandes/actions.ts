@@ -605,9 +605,15 @@ async function isClientFromCountry(clientName: string, countryKeyword: string) {
   return false;
 }
 
+// Le formulaire commande n'offre que 3 valeurs pour mode_chargement :
+// "CAMION", "TC20", "TC40" (voir app/commandes/nouvelle/page.tsx) - jamais
+// le mot "conteneur"/"container" en toutes lettres. Les anciens tests sur
+// ces mots ne matchaient donc jamais aucune vraie commande, empechant la
+// regle FIFO conteneur de se declencher.
 function isContainerMode(modeChargement: string | null | undefined) {
   const value = (modeChargement || "").toUpperCase();
   return (
+    value.startsWith("TC") ||
     value.includes("CONTINAIR") ||
     value.includes("CONTENAIR") ||
     value.includes("CONTENEUR") ||

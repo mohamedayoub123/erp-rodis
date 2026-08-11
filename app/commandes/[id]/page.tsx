@@ -144,9 +144,13 @@ async function findClientPays(clientName: string) {
   return "";
 }
 
+// mode_chargement peut valoir "CAMION", "CONTINAIR", "TC", "TC20" ou
+// "TC40" (voir le <select> plus bas) - les anciens tests ne reconnaissaient
+// pas "TC"/"TC20"/"TC40" comme conteneur.
 function isContainerMode(modeChargement: string | null | undefined) {
   const value = (modeChargement || "").toUpperCase();
   return (
+    value.startsWith("TC") ||
     value.includes("CONTINAIR") ||
     value.includes("CONTENAIR") ||
     value.includes("CONTENEUR") ||
