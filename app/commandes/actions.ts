@@ -1796,6 +1796,11 @@ export async function addFifoLigneForNewArticleAction(formData: FormData) {
       commande_id: commandeId,
       commande_ligne_id: newLigne.id,
       article_id: articleId,
+      // numero_lot est NOT NULL en base - mis au code choisi tout de suite
+      // (le RPC juste apres le remplace de toute facon par la valeur exacte
+      // du lot trouve). Sans ca, cet insert echouait toujours (constraint
+      // violation), avant meme d'atteindre le RPC.
+      numero_lot: numeroLot,
       quantite_chargee: 0,
       ordre_ligne: nextOrdre,
     })
