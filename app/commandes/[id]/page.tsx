@@ -16,10 +16,10 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeleteCommandesUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { PrintButton } from "./print-button";
 import { formatDate } from "@/lib/format-date";
-import { SearchableSelect } from "@/app/_components/searchable-select";
 import { LignesCommandeField } from "./lignes-commande-field";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { FifoCodePicker, type CodeOption } from "./fifo-code-picker";
+import { FifoAddLigneForm } from "./fifo-add-ligne-form";
 
 type CommandeDetailRow = {
   id: number;
@@ -598,7 +598,10 @@ export default async function CommandeDetailPage({
   const fifoResults: FifoResultRow[] = (fifoData as FifoResultRow[] | null) ?? [];
 
   const availableCodesByArticle = await fetchAvailableCodesByArticle([
-    ...new Set(fifoResults.map((ligne) => ligne.article_id).filter((id): id is number => Boolean(id))),
+    ...new Set([
+      ...fifoResults.map((ligne) => ligne.article_id),
+      ...articleOptions.map((option) => Number(option.value)),
+    ]),
   ]);
 
   // Chaque camion d'une commande "Nb de camion > 1" est une commande a part
@@ -1020,51 +1023,13 @@ export default async function CommandeDetailPage({
                   Ajouter une ligne (produit qui n&apos;est pas dans cette commande)
                 </summary>
 
-                <form action={addFifoLigneForNewArticleAction} className="mt-4 grid gap-4 sm:grid-cols-4">
-                  <input type="hidden" name="commande_id" value={selectedCommande.id} />
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500 sm:col-span-2">
-                    Produit
-                    <SearchableSelect name="article_id" options={articleOptions} placeholder="Chercher un produit..." required />
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Numero lot
-                    <input
-                      type="text"
-                      name="numero_lot"
-                      required
-                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Qt chargee
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      name="quantite_chargee"
-                      required
-                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-sky-700 outline-none"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Preparateur
-                    <input
-                      type="text"
-                      name="preparateur"
-                      defaultValue={selectedPreparateur}
-                      placeholder="Preparateur"
-                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                    />
-                  </label>
-                  <div className="sm:col-span-4">
-                    <button
-                      type="submit"
-                      className="rounded-full bg-sky-700 px-6 py-2.5 text-sm font-semibold text-white"
-                    >
-                      Ajouter la ligne
-                    </button>
-                  </div>
-                </form>
+                <FifoAddLigneForm
+                  commandeId={selectedCommande.id}
+                  articles={articleOptions}
+                  codesByArticle={availableCodesByArticle}
+                  defaultPreparateur={selectedPreparateur}
+                  addAction={addFifoLigneForNewArticleAction}
+                />
               </details>
             ) : null}
           </div>
