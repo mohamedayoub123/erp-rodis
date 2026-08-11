@@ -6,12 +6,18 @@ import Link from "next/link";
 // de page affichait l'ecran generique Next.js "This page couldn't load /
 // A server error occurred" - aucun message, impossible de savoir quoi
 // corriger. Ce boundary affiche le vrai message d'erreur a la place.
+//
+// unstable_retry (pas reset) pour le bouton "Reessayer" : sur cette version
+// de Next.js, reset() se contente de reafficher le meme arbre deja en
+// memoire SANS recontacter le serveur - le bouton semblait ne jamais rien
+// faire (meme message a l'infini). unstable_retry() refait vraiment la
+// requete.
 export default function Error({
   error,
-  reset,
+  unstable_retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  unstable_retry: () => void;
 }) {
   return (
     <main className="flex min-h-[60vh] items-center justify-center px-6 py-10">
@@ -28,7 +34,7 @@ export default function Error({
         <div className="mt-6 flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={reset}
+            onClick={unstable_retry}
             className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
           >
             Reessayer
