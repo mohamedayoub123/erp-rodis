@@ -1805,7 +1805,12 @@ export async function addFifoLigneForNewArticleAction(formData: FormData) {
       // du lot trouve). Sans ca, cet insert echouait toujours (constraint
       // violation), avant meme d'atteindre le RPC.
       numero_lot: numeroLot,
-      quantite_chargee: 0,
+      // Idem pour quantite_chargee : la contrainte ck_fifo_quantite_chargee
+      // interdit 0 en base - mis a la quantite reellement demandee tout de
+      // suite (deja validee > 0 plus haut), le RPC la recalcule de toute
+      // facon juste apres avec la valeur exacte validee. Sans ca, cet
+      // insert echouait toujours (meme constraint violation).
+      quantite_chargee: quantiteChargee,
       ordre_ligne: nextOrdre,
     })
     .select("id")
