@@ -637,15 +637,24 @@ export default async function CommandeDetailPage({
 
   const fifoResults: FifoResultRow[] = (fifoData as FifoResultRow[] | null) ?? [];
 
-  const availableCodesByArticle = await fetchAvailableCodesByArticle(
-    [
-      ...new Set([
-        ...fifoResults.map((ligne) => ligne.article_id),
-        ...articleOptions.map((option) => Number(option.value)),
-      ]),
-    ],
-    commandeId
-  );
+  const relevantArticleIds = [
+    ...new Set([
+      ...fifoResults.map((ligne) => ligne.article_id),
+      ...articleOptions.map((option) => Number(option.value)),
+    ]),
+  ];
+
+  // Deux calculs distincts : modifier une ligne DEJA dispatchee ne doit pas
+  // compter sa propre reservation comme "prise" (sinon son propre code
+  // disparaitrait de la liste), mais ajouter une NOUVELLE ligne doit bien
+  // compter TOUTES les reservations existantes, y compris celles de cette
+  // meme commande - sinon un code deja entierement utilise par une autre
+  // ligne de cette commande semblait encore disponible et permettait de le
+  // reserver une 2e fois en double.
+  const [availableCodesByArticle, availableCodesByArticleForNewLines] = await Promise.all([
+    fetchAvailableCodesByArticle(relevantArticleIds, commandeId),
+    fetchAvailableCodesByArticle(relevantArticleIds, 0),
+  ]);
 
   // Chaque camion d'une commande "Nb de camion > 1" est une commande a part
   // entiere partageant la meme numero_proforma de base (suffixe -2, -3... -
@@ -954,7 +963,7 @@ export default async function CommandeDetailPage({
                 <FifoAddLigneForm
                   commandeId={selectedCommande.id}
                   articles={articleOptions}
-                  codesByArticle={availableCodesByArticle}
+                  codesByArticle={availableCodesByArticleForNewLines}
                   defaultPreparateur={selectedPreparateur}
                   addAction={addFifoLigneForNewArticleAction}
                 />
