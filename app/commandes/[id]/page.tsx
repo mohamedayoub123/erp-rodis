@@ -470,12 +470,16 @@ async function fetchAllArticlesForCommandeDetail() {
   return rows.map((article) => ({ value: String(article.id), label: article.nom_article }));
 }
 
-// Codes (lots) avec un stock > 0 pour chaque article deja dispatche sur
-// cette commande - meme regroupement que stock_override_fifo_result cote
-// SQL (code_normalise ou numero_lot, somme entree-sortie > 0), pour que le
-// menu de code ne propose jamais un code qui echouerait a la validation.
+// Codes (lots) avec un stock ACTUELLEMENT disponible pour chaque article -
+// meme regroupement que stock_override_fifo_result cote SQL (code_normalise
+// ou numero_lot, somme entree-sortie), MOINS ce que d'AUTRES commandes ont
+// deja reserve dessus (fifo_resultats.quantite_chargee, commande_id
+// different de celle-ci) - un code deja entierement pris par une autre
+// commande ne doit pas apparaitre comme "disponible" ici, meme si son stock
+// physique brut est encore positif. Reste > 0 uniquement.
 async function fetchAvailableCodesByArticle(
-  articleIds: number[]
+  articleIds: number[],
+  excludeCommandeId: number
 ): Promise<Record<number, CodeOption[]>> {
   const result: Record<number, CodeOption[]> = {};
   if (articleIds.length === 0) return result;
@@ -534,10 +538,46 @@ async function fetchAvailableCodesByArticle(
     }
   }
 
-  for (const group of groups.values()) {
-    if (group.quantite <= 0) continue;
+  // Reservations d'AUTRES commandes (non livrees) sur ces memes articles,
+  // regroupees par le meme code que ci-dessus - a deduire du stock brut.
+  const reservedRows: {
+    commande_id: number | null;
+    quantite_chargee: number | null;
+    numero_lot: string | null;
+    article_id: number | null;
+  }[] = [];
+  from = 0;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("fifo_resultats")
+      .select("commande_id, quantite_chargee, numero_lot, article_id")
+      .in("article_id", articleIds)
+      .neq("commande_id", excludeCommandeId)
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as typeof reservedRows;
+    reservedRows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const reservedByKey = new Map<string, number>();
+  for (const row of reservedRows) {
+    const code = (row.numero_lot || "").trim();
+    if (!row.article_id || !code) continue;
+    const key = `${row.article_id}::${code.toUpperCase()}`;
+    reservedByKey.set(key, (reservedByKey.get(key) ?? 0) + Number(row.quantite_chargee ?? 0));
+  }
+
+  for (const [key, group] of groups.entries()) {
+    const disponible = group.quantite - (reservedByKey.get(key) ?? 0);
+    if (disponible <= 0) continue;
     const list = result[group.articleId] ?? [];
-    list.push({ code: group.code, quantite: group.quantite, dateFabrication: group.dateFabrication });
+    list.push({ code: group.code, quantite: disponible, dateFabrication: group.dateFabrication });
     result[group.articleId] = list;
   }
 
@@ -597,12 +637,15 @@ export default async function CommandeDetailPage({
 
   const fifoResults: FifoResultRow[] = (fifoData as FifoResultRow[] | null) ?? [];
 
-  const availableCodesByArticle = await fetchAvailableCodesByArticle([
-    ...new Set([
-      ...fifoResults.map((ligne) => ligne.article_id),
-      ...articleOptions.map((option) => Number(option.value)),
-    ]),
-  ]);
+  const availableCodesByArticle = await fetchAvailableCodesByArticle(
+    [
+      ...new Set([
+        ...fifoResults.map((ligne) => ligne.article_id),
+        ...articleOptions.map((option) => Number(option.value)),
+      ]),
+    ],
+    commandeId
+  );
 
   // Chaque camion d'une commande "Nb de camion > 1" est une commande a part
   // entiere partageant la meme numero_proforma de base (suffixe -2, -3... -
