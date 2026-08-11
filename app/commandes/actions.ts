@@ -1498,10 +1498,16 @@ export async function cancelFifoBatchAction(formData: FormData) {
     })
   );
 
+  // Ne pas faire regresser un statut deja avance (Stand/BL transforme) vers
+  // "En cours" juste parce que le batch FIFO est annule - meme principe que
+  // calculateFifoForCommandeAction/updateManualCommandeAction (statutBucket).
+  const finalStatus =
+    statutBucket(commande.statut) === "EN_COURS" ? "EN_COURS" : commande.statut || "EN_COURS";
+
   const { error: updateError } = await supabaseServer
     .from("commandes")
     .update({
-      statut: "EN_COURS",
+      statut: finalStatus,
       commentaire: `${commande.commentaire ? `${commande.commentaire} | ` : ""}Batch FIFO annule manuellement`,
     })
     .eq("id", commandeId);
