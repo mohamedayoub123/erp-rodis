@@ -1650,32 +1650,41 @@ export async function updateAllFifoResultsAction(formData: FormData) {
     throw new Error("Commande invalide.");
   }
 
-  for (const fifoId of fifoIds) {
-    const numeroLot = String(formData.get(`numero_lot_${fifoId}`) || "").trim();
-    const preparateur = String(formData.get(`preparateur_${fifoId}`) || "").trim();
-    const quantiteChargee = Number(
-      String(formData.get(`quantite_chargee_${fifoId}`) || "0").replace(",", ".")
-    );
+  // Une erreur ici (ex: stock insuffisant sur le code choisi) est une vraie
+  // validation metier, pas un bug - sans ce try/catch, elle remontait
+  // jusqu'au boundary d'erreur global (app/error.tsx) qui fait planter
+  // toute la page au lieu d'afficher juste un message a cote du formulaire.
+  try {
+    for (const fifoId of fifoIds) {
+      const numeroLot = String(formData.get(`numero_lot_${fifoId}`) || "").trim();
+      const preparateur = String(formData.get(`preparateur_${fifoId}`) || "").trim();
+      const quantiteChargee = Number(
+        String(formData.get(`quantite_chargee_${fifoId}`) || "0").replace(",", ".")
+      );
 
-    if (!numeroLot) {
-      throw new Error("Le code / numero de lot est obligatoire sur chaque ligne.");
+      if (!numeroLot) {
+        throw new Error("Le code / numero de lot est obligatoire sur chaque ligne.");
+      }
+
+      if (Number.isNaN(quantiteChargee) || quantiteChargee <= 0) {
+        throw new Error("La quantite chargee doit etre superieure a zero sur chaque ligne.");
+      }
+
+      const { error: rpcError } = await supabaseServer.rpc("stock_override_fifo_result", {
+        p_fifo_id: fifoId,
+        p_commande_id: commandeId,
+        p_numero_lot: numeroLot,
+        p_preparateur: preparateur,
+        p_quantite_chargee: quantiteChargee,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
     }
-
-    if (Number.isNaN(quantiteChargee) || quantiteChargee <= 0) {
-      throw new Error("La quantite chargee doit etre superieure a zero sur chaque ligne.");
-    }
-
-    const { error: rpcError } = await supabaseServer.rpc("stock_override_fifo_result", {
-      p_fifo_id: fifoId,
-      p_commande_id: commandeId,
-      p_numero_lot: numeroLot,
-      p_preparateur: preparateur,
-      p_quantite_chargee: quantiteChargee,
-    });
-
-    if (rpcError) {
-      throw new Error(rpcError.message);
-    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Erreur inconnue.";
+    redirect(`/commandes/${commandeId}?erreur=${encodeURIComponent(message)}`);
   }
 
   revalidateCommandeDependentPages(commandeId);
@@ -1694,50 +1703,58 @@ export async function deleteFifoResultAction(formData: FormData) {
     throw new Error("Ligne FIFO invalide.");
   }
 
-  const { data: fifoRow, error: fifoRowError } = await supabaseServer
-    .from("fifo_resultats")
-    .select("commande_ligne_id")
-    .eq("id", fifoId)
-    .eq("commande_id", commandeId)
-    .single();
+  // Meme raison que updateAllFifoResultsAction : une ligne FIFO deja
+  // supprimee (double-clic, page restee ouverte trop longtemps...) ne doit
+  // pas faire planter toute la page, juste afficher un message.
+  try {
+    const { data: fifoRow, error: fifoRowError } = await supabaseServer
+      .from("fifo_resultats")
+      .select("commande_ligne_id")
+      .eq("id", fifoId)
+      .eq("commande_id", commandeId)
+      .single();
 
-  if (fifoRowError || !fifoRow) {
-    throw new Error(fifoRowError?.message || "Ligne FIFO introuvable.");
-  }
-
-  const { error: deleteError } = await supabaseServer.from("fifo_resultats").delete().eq("id", fifoId);
-
-  if (deleteError) {
-    throw new Error(deleteError.message);
-  }
-
-  if (fifoRow.commande_ligne_id) {
-    const [{ data: ligneData }, { data: remainingFifo }] = await Promise.all([
-      supabaseServer
-        .from("commande_lignes")
-        .select("quantite_demandee")
-        .eq("id", fifoRow.commande_ligne_id)
-        .single(),
-      supabaseServer
-        .from("fifo_resultats")
-        .select("quantite_chargee")
-        .eq("commande_ligne_id", fifoRow.commande_ligne_id),
-    ]);
-
-    const charged = ((remainingFifo as { quantite_chargee: number | null }[] | null) ?? []).reduce(
-      (sum, row) => sum + Number(row.quantite_chargee ?? 0),
-      0
-    );
-    const shortage = Math.max(0, Number(ligneData?.quantite_demandee ?? 0) - charged);
-
-    const { error: shortageError } = await supabaseServer
-      .from("commande_lignes")
-      .update({ qt_non_dispo_total: shortage })
-      .eq("id", fifoRow.commande_ligne_id);
-
-    if (shortageError) {
-      throw new Error(shortageError.message);
+    if (fifoRowError || !fifoRow) {
+      throw new Error(fifoRowError?.message || "Ligne FIFO introuvable.");
     }
+
+    const { error: deleteError } = await supabaseServer.from("fifo_resultats").delete().eq("id", fifoId);
+
+    if (deleteError) {
+      throw new Error(deleteError.message);
+    }
+
+    if (fifoRow.commande_ligne_id) {
+      const [{ data: ligneData }, { data: remainingFifo }] = await Promise.all([
+        supabaseServer
+          .from("commande_lignes")
+          .select("quantite_demandee")
+          .eq("id", fifoRow.commande_ligne_id)
+          .single(),
+        supabaseServer
+          .from("fifo_resultats")
+          .select("quantite_chargee")
+          .eq("commande_ligne_id", fifoRow.commande_ligne_id),
+      ]);
+
+      const charged = ((remainingFifo as { quantite_chargee: number | null }[] | null) ?? []).reduce(
+        (sum, row) => sum + Number(row.quantite_chargee ?? 0),
+        0
+      );
+      const shortage = Math.max(0, Number(ligneData?.quantite_demandee ?? 0) - charged);
+
+      const { error: shortageError } = await supabaseServer
+        .from("commande_lignes")
+        .update({ qt_non_dispo_total: shortage })
+        .eq("id", fifoRow.commande_ligne_id);
+
+      if (shortageError) {
+        throw new Error(shortageError.message);
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Erreur inconnue.";
+    redirect(`/commandes/${commandeId}?erreur=${encodeURIComponent(message)}`);
   }
 
   revalidateCommandeDependentPages(commandeId);

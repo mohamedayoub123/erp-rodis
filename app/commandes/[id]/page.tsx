@@ -586,11 +586,14 @@ async function fetchAvailableCodesByArticle(
 
 export default async function CommandeDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ erreur?: string }>;
 }) {
   const { id } = await params;
   const commandeId = Number(id);
+  const { erreur } = await searchParams;
 
   const currentStockUser = await getCurrentStockUser();
   const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
@@ -797,6 +800,12 @@ export default async function CommandeDetailPage({
               ) : null}
             </div>
           </div>
+
+          {erreur ? (
+            <p className="no-print mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
+              {erreur}
+            </p>
+          ) : null}
 
           <div className="print-section-commande mt-5 overflow-hidden rounded-[1.5rem] border border-slate-200 bg-slate-50">
             <table className="min-w-full text-left text-sm">
