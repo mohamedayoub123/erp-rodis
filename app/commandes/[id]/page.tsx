@@ -7,7 +7,6 @@ import {
   calculateFifoForCommandeAction,
   cancelFifoBatchAction,
   deleteCommandeTruckAction,
-  deleteFifoResultAction,
   deliverCommandeAction,
   updateAllFifoResultsAction,
   updateManualCommandeAction,
@@ -18,7 +17,8 @@ import { PrintButton } from "./print-button";
 import { formatDate } from "@/lib/format-date";
 import { LignesCommandeField } from "./lignes-commande-field";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
-import { FifoCodePicker, type CodeOption } from "./fifo-code-picker";
+import type { CodeOption } from "./fifo-code-picker";
+import { FifoResultsTable, type FifoResultRowData } from "./fifo-results-table";
 import { FifoAddLigneForm } from "./fifo-add-ligne-form";
 
 type CommandeDetailRow = {
@@ -925,138 +925,25 @@ export default async function CommandeDetailPage({
               </p>
             </div>
 
-            {fifoResults.length === 0 ? (
-              <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                Aucun resultat FIFO encore. Clique sur &quot;Despatcher&quot;.
-              </p>
-            ) : (
-              <form action={updateAllFifoResultsAction} className="mt-4">
-                <input type="hidden" name="commande_id" value={selectedCommande.id} />
-
-                <div className="overflow-x-auto">
-                  <table className="min-w-full table-fixed text-left text-sm">
-                    <colgroup>
-                      <col className="w-[20%]" />
-                      <col className="w-[18%]" />
-                      <col className="w-[11%]" />
-                      <col className="w-[16%]" />
-                      <col className="w-[13%]" />
-                      <col className="w-[12%]" />
-                      <col className="w-[10%]" />
-                    </colgroup>
-                    <thead className="bg-slate-50 text-slate-500">
-                      <tr>
-                        <th className="px-4 py-3 font-semibold">Article</th>
-                        <th className="px-4 py-3 font-semibold">Code (stock &gt; 0)</th>
-                        <th className="px-4 py-3 font-semibold">Chambre</th>
-                        <th className="px-4 py-3 font-semibold">Preparateur</th>
-                        <th className="px-4 py-3 font-semibold">Qt chargee</th>
-                        <th className="no-print px-4 py-3 font-semibold">Regle FIFO</th>
-                        <th className="no-print px-4 py-3 font-semibold">Supprimer</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fifoResults.map((ligne) => (
-                        <tr key={ligne.id} className="border-t border-slate-100">
-                          <td className="px-4 py-3 font-medium text-slate-900 align-middle">
-                            <input type="hidden" name="fifo_ids" value={ligne.id} />
-                            {getArticleName(ligne.articles)}
-                          </td>
-                          <td className="px-4 py-3 align-middle">
-                            {canEditCommandes ? (
-                              <FifoCodePicker
-                                fieldName={`numero_lot_${ligne.id}`}
-                                defaultCode={ligne.numero_lot || ""}
-                                codes={availableCodesByArticle[ligne.article_id] ?? []}
-                              />
-                            ) : (
-                              <>
-                                <span className="text-slate-700">{ligne.numero_lot || "-"}</span>
-                                <p className="text-xs text-slate-500">
-                                  Date fab. : {formatDate(ligne.date_fabrication)}
-                                </p>
-                              </>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700 align-middle">{ligne.chambre || "-"}</td>
-                          <td className="px-4 py-3 align-middle">
-                            {canEditCommandes ? (
-                              <input
-                                type="text"
-                                name={`preparateur_${ligne.id}`}
-                                defaultValue={ligne.preparateur || selectedPreparateur}
-                                placeholder="Preparateur"
-                                className="w-full max-w-[140px] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                              />
-                            ) : (
-                              <span className="text-slate-700">
-                                {ligne.preparateur || selectedPreparateur || "-"}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 align-middle">
-                            {canEditCommandes ? (
-                              <input
-                                type="number"
-                                min="1"
-                                step="1"
-                                name={`quantite_chargee_${ligne.id}`}
-                                defaultValue={ligne.quantite_chargee}
-                                className="w-full max-w-[110px] rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-sky-700 outline-none"
-                              />
-                            ) : (
-                              <span className="font-semibold text-sky-700">{ligne.quantite_chargee}</span>
-                            )}
-                          </td>
-                          <td className="no-print px-4 py-3 text-slate-600 align-middle">
-                            {ligne.regle_appliquee || "-"}
-                          </td>
-                          <td className="no-print px-4 py-3 align-middle">
-                            {canEditCommandes ? (
-                              <button
-                                type="submit"
-                                formAction={deleteFifoResultAction.bind(null, ligne.id)}
-                                formNoValidate
-                                aria-label="Supprimer cette ligne du dispatch"
-                                title="Supprimer cette ligne du dispatch"
-                                className="flex h-9 w-9 items-center justify-center rounded-full border border-red-200 text-red-700 transition hover:bg-red-50"
-                              >
-                                <svg
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  className="h-4 w-4"
-                                >
-                                  <path d="M3 6h18" />
-                                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                                  <path d="M10 11v6" />
-                                  <path d="M14 11v6" />
-                                </svg>
-                              </button>
-                            ) : null}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {canEditCommandes ? (
-                  <div className="no-print mt-4">
-                    <button
-                      type="submit"
-                      className="rounded-full bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white"
-                    >
-                      Enregistrer tout
-                    </button>
-                  </div>
-                ) : null}
-              </form>
-            )}
+            <FifoResultsTable
+              commandeId={selectedCommande.id}
+              initialRows={fifoResults.map(
+                (ligne): FifoResultRowData => ({
+                  id: ligne.id,
+                  articleId: ligne.article_id,
+                  articleName: getArticleName(ligne.articles),
+                  numeroLot: ligne.numero_lot || "",
+                  dateFabrication: ligne.date_fabrication,
+                  chambre: ligne.chambre,
+                  preparateur: ligne.preparateur || selectedPreparateur,
+                  quantiteChargee: ligne.quantite_chargee,
+                  regleAppliquee: ligne.regle_appliquee,
+                })
+              )}
+              availableCodesByArticle={availableCodesByArticle}
+              canEdit={canEditCommandes}
+              saveAction={updateAllFifoResultsAction}
+            />
 
             {canEditCommandes ? (
               <details className="no-print mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">

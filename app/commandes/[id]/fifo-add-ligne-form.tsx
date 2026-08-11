@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useId, useMemo, useState, useTransition } from "react";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { formatDate } from "@/lib/format-date";
 import type { CodeOption } from "./fifo-code-picker";
@@ -24,6 +24,7 @@ export function FifoAddLigneForm({
   defaultPreparateur: string;
   addAction: (formData: FormData) => void | Promise<void>;
 }) {
+  const codeListId = useId();
   const [articleInput, setArticleInput] = useState("");
   const [selectedArticle, setSelectedArticle] = useState<ArticleOption | null>(null);
   const [showOptions, setShowOptions] = useState(false);
@@ -40,6 +41,11 @@ export function FifoAddLigneForm({
 
   const codes = selectedArticle ? codesByArticle[Number(selectedArticle.value)] ?? [] : [];
   const selectedCodeOption = codes.find((option) => option.code.toUpperCase() === code.toUpperCase());
+  const filteredCodes = useMemo(() => {
+    const query = code.trim();
+    if (!query) return codes;
+    return codes.filter((option) => matchesArticleSearch(option.code, query));
+  }, [code, codes]);
 
   function preventEnterSubmit(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter") event.preventDefault();
@@ -128,25 +134,31 @@ export function FifoAddLigneForm({
 
       <label className="grid gap-1 text-xs font-semibold text-slate-500">
         Code (stock &gt; 0)
-        <select
+        <input
+          list={codeListId}
           value={code}
           onChange={(event) => setCode(event.target.value)}
+          onKeyDown={preventEnterSubmit}
           disabled={!selectedArticle}
+          placeholder="Taper le code..."
+          autoComplete="off"
           className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
-        >
-          <option value="">-- choisir --</option>
-          {codes.map((option) => (
+        />
+        <datalist id={codeListId}>
+          {filteredCodes.map((option) => (
             <option key={option.code} value={option.code}>
-              {option.code} ({option.quantite})
+              {`${option.quantite} disponible`}
             </option>
           ))}
-        </select>
+        </datalist>
         <span className="text-xs text-slate-500">
           {!selectedArticle
             ? ""
             : codes.length === 0
               ? "Aucun code en stock pour ce produit."
-              : `Date fab. : ${selectedCodeOption ? formatDate(selectedCodeOption.dateFabrication) : "-"}`}
+              : selectedCodeOption
+                ? `${selectedCodeOption.quantite} dispo - Date fab. : ${formatDate(selectedCodeOption.dateFabrication)}`
+                : "Code inconnu ou stock epuise."}
         </span>
       </label>
 
