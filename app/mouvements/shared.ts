@@ -295,7 +295,14 @@ export function computeAvailableLots(rows: MouvementSourceRow[]): AvailableLotOp
 }
 
 export function parseSortieMeta(note: string | null) {
-  const empty = { code_sortie: null, livre_pour: null, numero_bl: null, preparateur: null, remarque: null };
+  const empty = {
+    code_sortie: null,
+    livre_pour: null,
+    numero_bl: null,
+    preparateur: null,
+    remarque: null,
+    numero_proforma: null,
+  };
 
   if (!note) {
     return empty;
@@ -318,6 +325,7 @@ export function parseSortieMeta(note: string | null) {
     const numeroBl = parts[4] || "";
     const preparateur = parts.length >= 7 ? parts[5] || "" : "";
     const remarque = parts.length >= 8 ? parts[7] || "" : "";
+    const numeroProforma = parts.length >= 9 ? parts[8] || "" : "";
 
     return {
       code_sortie: code && code !== "-" ? code : null,
@@ -325,6 +333,7 @@ export function parseSortieMeta(note: string | null) {
       numero_bl: numeroBl && numeroBl !== "-" ? numeroBl : null,
       preparateur: preparateur && preparateur !== "-" ? preparateur : null,
       remarque: remarque && remarque !== "-" ? remarque : null,
+      numero_proforma: numeroProforma && numeroProforma !== "-" ? numeroProforma : null,
     };
   }
 

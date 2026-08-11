@@ -24,6 +24,7 @@ type PendingSortieRow = {
   numero_bl?: string;
   preparateur?: string;
   remarque?: string;
+  numero_proforma?: string;
 };
 
 async function requireMouvementsEntreeWriteAccess() {
@@ -86,6 +87,7 @@ export async function createSortieStockAction(formData: FormData) {
         numero_bl: String(formData.get("numero_bl") || "").trim(),
         preparateur: String(formData.get("preparateur") || "").trim(),
         remarque: String(formData.get("remarque") || "").trim(),
+        numero_proforma: String(formData.get("numero_proforma") || "").trim(),
       },
     ])
   );
@@ -205,6 +207,7 @@ export async function createSortieStockBatchAction(formData: FormData) {
       numero_bl: String(row.numero_bl || "").trim(),
       preparateur: String(row.preparateur || "").trim(),
       remarque: String(row.remarque || "").trim(),
+      numero_proforma: String(row.numero_proforma || "").trim(),
       utilisateur: currentUser || "",
     };
   });

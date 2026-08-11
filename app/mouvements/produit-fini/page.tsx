@@ -6,6 +6,7 @@ import {
   buildSortieRows,
   fetchWebMouvementSourceRows,
   formatMouvementDate,
+  parseSortieMeta,
   type MouvementGroup,
 } from "../shared";
 import { BackButton } from "@/app/_components/back-button";
@@ -81,6 +82,7 @@ export default async function MouvementsProduitFiniPage() {
                     <th className="px-4 py-3 font-semibold">Date</th>
                     <th className="px-4 py-3 font-semibold">Nb articles</th>
                     <th className="px-4 py-3 font-semibold">Quantite totale</th>
+                    <th className="px-4 py-3 font-semibold">Proforma</th>
                     <th className="px-4 py-3 font-semibold">Saisi par</th>
                     {canEditStock ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                   </tr>
@@ -88,6 +90,10 @@ export default async function MouvementsProduitFiniPage() {
                 <tbody>
                   {groups.map((group) => {
                     const first = group.lignes[0];
+                    const numeroProforma =
+                      group.mouvement_type === "sortie"
+                        ? parseSortieMeta(first?.note ?? null).numero_proforma
+                        : null;
 
                     return (
                     <tr key={`${group.mouvement_type}-${group.groupe_id}`} className="border-t border-slate-100">
@@ -106,6 +112,7 @@ export default async function MouvementsProduitFiniPage() {
                       <td className="px-4 py-3 text-slate-600">{formatMouvementDate(group.date_jour)}</td>
                       <td className="px-4 py-3 text-slate-600">{group.lignes.length}</td>
                       <td className="px-4 py-3 text-slate-900">{group.quantite_totale}</td>
+                      <td className="px-4 py-3 text-slate-600">{numeroProforma || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{first?.utilisateur || "-"}</td>
                       {canEditStock ? (
                         <td className="px-4 py-3">

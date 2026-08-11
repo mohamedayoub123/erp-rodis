@@ -1079,13 +1079,19 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
   const { data: commande, error: commandeError } = await supabaseServer
     .from("commandes")
     .select(
-      "id, numero_proforma, client, mode_chargement, commande_lignes(id, article_id, quantite_demandee, articles(type_article)), commentaire"
+      "id, numero_proforma, client, statut, mode_chargement, commande_lignes(id, article_id, quantite_demandee, articles(type_article)), commentaire"
     )
     .eq("id", commandeId)
     .single();
 
   if (commandeError || !commande) {
     throw new Error(commandeError?.message || "Commande introuvable.");
+  }
+
+  // Une fois livree, le stock est deja reellement sorti - redispatcher
+  // recalculerait des reservations sur un stock deja consomme.
+  if ((commande.statut || "").toUpperCase() === "LIVREE") {
+    throw new Error("Cette commande est deja livree, impossible de redispatcher.");
   }
 
   const lignes = commande.commande_lignes ?? [];
@@ -1267,10 +1273,18 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
     commentWithStatusDate,
     "EN_COURS"
   );
+  // Ne pas faire regresser un statut deja avance (Stand/BL transforme) vers
+  // "En cours" juste parce qu'on a redispatche - meme principe que
+  // updateManualCommandeAction/changeCommandeStatusAction (statutBucket) :
+  // le recalcul FIFO reste une operation technique, pas un vrai changement
+  // de statut voulu par l'utilisateur.
+  const finalStatus =
+    statutBucket(commande.statut) === "EN_COURS" ? newStatus : commande.statut || newStatus;
+
   const { error: updateError } = await supabaseServer
     .from("commandes")
     .update({
-      statut: newStatus,
+      statut: finalStatus,
       commentaire:
         `${commentWithTransitionDate}${commentWithTransitionDate ? " | " : ""}FIFO web calcule automatiquement` +
         (totalShortage > 0 ? ` | Reste a charger: ${totalShortage}` : ""),
@@ -1680,8 +1694,11 @@ export async function deliverCommandeAction(formData: FormData) {
     throw new Error("Commande invalide.");
   }
 
+  const currentUser = await getCurrentStockUser();
+
   const { error } = await supabaseServer.rpc("stock_deliver_commande", {
     p_commande_id: commandeId,
+    p_utilisateur: currentUser || "",
   });
 
   if (error) {

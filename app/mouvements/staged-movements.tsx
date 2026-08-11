@@ -53,6 +53,7 @@ type PendingSortie = {
   numero_bl: string;
   preparateur: string;
   remarque: string;
+  numero_proforma: string;
 };
 
 export function EntreePanel({
@@ -388,6 +389,7 @@ export function SortiePanel({
   const [numeroBl, setNumeroBl] = useState("");
   const [preparateur, setPreparateur] = useState("");
   const [remarque, setRemarque] = useState("");
+  const [numeroProforma, setNumeroProforma] = useState("");
   const [rows, setRows] = useState<PendingSortie[]>([]);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -471,6 +473,7 @@ export function SortiePanel({
         numero_bl: numeroBl.trim(),
         preparateur: preparateur.trim(),
         remarque: remarque.trim(),
+        numero_proforma: numeroProforma.trim(),
       },
     ]);
 
@@ -483,6 +486,7 @@ export function SortiePanel({
     setNumeroBl("");
     setPreparateur("");
     setRemarque("");
+    setNumeroProforma("");
   }
 
   function removeRow(index: number) {
@@ -546,6 +550,7 @@ export function SortiePanel({
       numero_bl: row.numero_bl,
       preparateur: row.preparateur,
       remarque: row.remarque,
+      numero_proforma: row.numero_proforma,
     }))
   );
 
@@ -672,6 +677,13 @@ export function SortiePanel({
           />
           <input
             type="text"
+            value={numeroProforma}
+            onChange={(event) => setNumeroProforma(event.target.value)}
+            placeholder="Numero proforma"
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+          />
+          <input
+            type="text"
             value={preparateur}
             onChange={(event) => setPreparateur(event.target.value)}
             placeholder="Preparateur"
@@ -715,6 +727,7 @@ export function SortiePanel({
                 <p className="text-slate-500">
                   {row.code || "-"} {row.livre_pour ? `| ${row.livre_pour}` : ""}{" "}
                   {row.numero_bl ? `| BL ${row.numero_bl}` : ""}{" "}
+                  {row.numero_proforma ? `| Proforma ${row.numero_proforma}` : ""}{" "}
                   {row.preparateur ? `| Prep ${row.preparateur}` : ""}
                 </p>
                 {row.remarque ? <p className="text-slate-500">Remarque : {row.remarque}</p> : null}

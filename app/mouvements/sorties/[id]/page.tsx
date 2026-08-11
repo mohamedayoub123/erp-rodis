@@ -58,6 +58,7 @@ export default async function SortieDetailPage({
                   <th className="px-4 py-3 font-semibold">Lot</th>
                   <th className="px-4 py-3 font-semibold">Quantite</th>
                   <th className="px-4 py-3 font-semibold">Livre pour</th>
+                  <th className="px-4 py-3 font-semibold">Proforma</th>
                   <th className="px-4 py-3 font-semibold">BL</th>
                   <th className="px-4 py-3 font-semibold">Preparateur</th>
                   <th className="px-4 py-3 font-semibold">Remarque</th>
@@ -74,6 +75,7 @@ export default async function SortieDetailPage({
                       <td className="px-4 py-3 text-slate-600">{ligne.numero_lot || "-"}</td>
                       <td className="px-4 py-3 text-slate-900">{ligne.quantite}</td>
                       <td className="px-4 py-3 text-slate-600">{meta.livre_pour || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{meta.numero_proforma || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{meta.numero_bl || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{meta.preparateur || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{meta.remarque || "-"}</td>
