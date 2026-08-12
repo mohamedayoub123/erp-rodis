@@ -48,6 +48,26 @@ const CATEGORIE_STYLES: Record<string, { bg: string; text: string }> = {
   "NEW PROJECT": { bg: "#E2F0D9", text: "#0f172a" },
 };
 
+// Notes/legende complete en bas du fichier Excel source (lignes 200-209 de
+// "1 INV MP COSMETIQUE.xlsx") - copie fidele du texte et de la couleur de
+// fond de chaque ligne.
+const NOTES_LEGEND: { text: string; bg: string; textColor?: string; bold?: boolean }[] = [
+  { text: "Stock inférieur à 3 mois de conso", bg: "#FFC7CE", textColor: "#C00000", bold: true },
+  { text: "Urgent mettre pression sur rimex  STOCK INFERIEUR A CONSO 4 MOIS", bg: "#FFFF00", bold: true },
+  {
+    text: "Urgent : verifier la date sur le dossier STOCK INFERIEUR A CONSO 4 MOIS/ CHARBEL",
+    bg: "#00B050",
+    bold: true,
+  },
+  { text: "stock dormant", bg: "#BDD7EE", bold: true },
+  { text: "article important", bg: "#C55A11", bold: true },
+  { text: "Stat 6 mois à mettre (nouveaux produits)", bg: "#FFC000" },
+  { text: "BC ayant dépassé 3mois sans retour", bg: "#FF5050" },
+  { text: "STAT A METTRE A JOUR", bg: "#FFC000", textColor: "#C00000", bold: true },
+  { text: "A FAIRE OBLIGATOIREMENT L'INVENTAIRE TOURNANT CHAQ MOIS", bg: "#00B0F0", bold: true },
+  { text: "E.T.D : Estimated Time of Departure (Heure estimée de départ)", bg: "transparent" },
+];
+
 type RapportRow = {
   id: number;
   ordre: number;
@@ -289,6 +309,26 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
                         })}
                       </tbody>
                     </table>
+                  </div>
+                </section>
+
+                <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Notes
+                  </p>
+                  <div className="overflow-hidden rounded-2xl ring-1 ring-black/5">
+                    {NOTES_LEGEND.map((note, index) => (
+                      <div
+                        key={index}
+                        className={`px-4 py-2 text-center text-sm ${note.bold ? "font-bold" : "font-medium"}`}
+                        style={{
+                          backgroundColor: note.bg,
+                          color: note.textColor || "#0f172a",
+                        }}
+                      >
+                        {note.text}
+                      </div>
+                    ))}
                   </div>
                 </section>
               </>
