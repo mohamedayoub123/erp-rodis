@@ -20,6 +20,7 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import type { CodeOption } from "./fifo-code-picker";
 import { FifoResultsTable, type FifoResultRowData } from "./fifo-results-table";
 import { FifoAddLigneForm } from "./fifo-add-ligne-form";
+import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
 
 type CommandeDetailRow = {
   id: number;
@@ -40,12 +41,48 @@ type CommandeDetailRow = {
         qt_non_dispo_4_mois: number | null;
         qt_non_dispo_6_mois: number | null;
         articles:
-          | { nom_article: string | null; type_article: string | null }
-          | { nom_article: string | null; type_article: string | null }[]
+          | { nom_article: string | null; type_article: string | null; gamme: string | null }
+          | { nom_article: string | null; type_article: string | null; gamme: string | null }[]
           | null;
       }[]
     | null;
 };
+
+// Meme ordre que /articles/produit-fini et /tableau-commandes : familles
+// (White Secret en premier), puis a l'interieur d'une famille l'ordre par
+// type d'article (Lait, Creme, DSR...), puis par contenance decroissante,
+// puis alphabetique - pour que la commande se lise et se dispatche dans le
+// meme ordre partout, au lieu de l'ordre de creation des lignes.
+function sortCommandeLignesByFamily<
+  T extends { articles: { nom_article: string | null; gamme: string | null } | { nom_article: string | null; gamme: string | null }[] | null }
+>(lignes: T[]): T[] {
+  function resolveArticle(ligne: T) {
+    const relation = ligne.articles;
+    return Array.isArray(relation) ? relation[0] : relation;
+  }
+
+  return [...lignes].sort((a, b) => {
+    const articleA = resolveArticle(a);
+    const articleB = resolveArticle(b);
+
+    const rankA = familyRank(articleA?.gamme ?? null);
+    const rankB = familyRank(articleB?.gamme ?? null);
+    if (rankA !== rankB) return rankA - rankB;
+
+    const typeRankA = articleTypeRank(articleA?.nom_article ?? null);
+    const typeRankB = articleTypeRank(articleB?.nom_article ?? null);
+    if (typeRankA !== typeRankB) return typeRankA - typeRankB;
+
+    const contenanceDiff =
+      articleContenanceFromName(articleB?.nom_article ?? null) -
+      articleContenanceFromName(articleA?.nom_article ?? null);
+    if (contenanceDiff !== 0) return contenanceDiff;
+
+    return String(articleA?.nom_article ?? "").localeCompare(String(articleB?.nom_article ?? ""), "fr", {
+      sensitivity: "base",
+    });
+  });
+}
 
 type FifoResultRow = {
   id: number;
@@ -644,7 +681,7 @@ export default async function CommandeDetailPage({
       supabaseServer
         .from("commandes")
         .select(
-          "id, numero_proforma, client, statut, commentaire, mode_chargement, type_tc, created_at, commande_lignes(id, article_id, quantite_demandee, qt_non_dispo_total, qt_non_dispo_2_mois, qt_non_dispo_4_mois, qt_non_dispo_6_mois, articles(nom_article, type_article))"
+          "id, numero_proforma, client, statut, commentaire, mode_chargement, type_tc, created_at, commande_lignes(id, article_id, quantite_demandee, qt_non_dispo_total, qt_non_dispo_2_mois, qt_non_dispo_4_mois, qt_non_dispo_6_mois, articles(nom_article, type_article, gamme))"
         )
         .eq("id", commandeId)
         .maybeSingle(),
@@ -676,6 +713,12 @@ export default async function CommandeDetailPage({
       </main>
     );
   }
+
+  // Meme ordre partout sur cette page (affichage, manques, impression) - et
+  // le Despatcher traite les lignes dans ce meme ordre (voir
+  // calculateFifoForCommandeAction), pour que "1ere ligne de la commande" =
+  // "1ere ligne dispatchee".
+  const sortedCommandeLignes = sortCommandeLignesByFamily(selectedCommande.commande_lignes ?? []);
 
   const fifoResults: FifoResultRow[] = (fifoData as FifoResultRow[] | null) ?? [];
 
@@ -735,16 +778,11 @@ export default async function CommandeDetailPage({
   const cartonTotalProforma = siblingTrucks.reduce((sum, truck) => sum + truck.cartonTotal, 0);
   const totalCartonCommande =
     siblingTrucks.find((truck) => truck.id === selectedCommande.id)?.cartonTotal ??
-    (selectedCommande.commande_lignes ?? []).reduce(
-      (sum, ligne) => sum + Number(ligne.quantite_demandee ?? 0),
-      0
-    );
+    sortedCommandeLignes.reduce((sum, ligne) => sum + Number(ligne.quantite_demandee ?? 0), 0);
 
   const selectedArticleIds = [
     ...new Set(
-      (selectedCommande.commande_lignes ?? [])
-        .map((ligne) => Number(ligne.article_id))
-        .filter((value) => value > 0)
+      sortedCommandeLignes.map((ligne) => Number(ligne.article_id)).filter((value) => value > 0)
     ),
   ];
   const availabilityMap = await getArticleAvailabilityMap(selectedArticleIds);
@@ -760,7 +798,7 @@ export default async function CommandeDetailPage({
   const KNOWN_STATUTS = ["EN_COURS", "STAND", "BL_TRANSFORME", "LIVREE"];
   const isRawStatutKnown = KNOWN_STATUTS.includes(rawStatut);
 
-  const lignesAvecManque = (selectedCommande.commande_lignes ?? [])
+  const lignesAvecManque = sortedCommandeLignes
     .map((ligne) => ({ ligne, manque: Number(ligne.qt_non_dispo_total ?? 0) }))
     .filter((entry) => entry.manque > 0);
 
@@ -877,7 +915,7 @@ export default async function CommandeDetailPage({
                 </tr>
               </thead>
               <tbody>
-                {(selectedCommande.commande_lignes ?? []).map((ligne) => {
+                {sortedCommandeLignes.map((ligne) => {
                   const articleAvailability = availabilityMap.get(Number(ligne.article_id)) ?? {
                     total: 0,
                     twoMonths: 0,
@@ -1156,7 +1194,7 @@ export default async function CommandeDetailPage({
 
                 <LignesCommandeField
                   articles={articleOptions}
-                  defaultValue={(selectedCommande.commande_lignes ?? [])
+                  defaultValue={sortedCommandeLignes
                     .map((ligne) => `${getArticleName(ligne.articles)} | ${ligne.quantite_demandee}`)
                     .join("\n")}
                 />

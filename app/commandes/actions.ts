@@ -9,6 +9,48 @@ import {
   canWritePageUser,
   getCurrentStockUser,
 } from "@/lib/stock-auth";
+import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
+
+// Meme ordre que /articles/produit-fini et la page detail de la commande
+// (voir sortCommandeLignesByFamily dans [id]/page.tsx) - le Despatcher doit
+// traiter les lignes dans le meme ordre que celui affiche sur la commande,
+// pour que "1ere ligne de la commande" = "1ere ligne dispatchee" (ordre_ligne
+// des resultats FIFO qui en decoule).
+function sortLignesByFamily<
+  T extends {
+    articles:
+      | { nom_article?: string | null; gamme?: string | null }
+      | { nom_article?: string | null; gamme?: string | null }[]
+      | null;
+  }
+>(lignes: T[]): T[] {
+  function resolveArticle(ligne: T) {
+    const relation = ligne.articles;
+    return Array.isArray(relation) ? relation[0] : relation;
+  }
+
+  return [...lignes].sort((a, b) => {
+    const articleA = resolveArticle(a);
+    const articleB = resolveArticle(b);
+
+    const rankA = familyRank(articleA?.gamme ?? null);
+    const rankB = familyRank(articleB?.gamme ?? null);
+    if (rankA !== rankB) return rankA - rankB;
+
+    const typeRankA = articleTypeRank(articleA?.nom_article ?? null);
+    const typeRankB = articleTypeRank(articleB?.nom_article ?? null);
+    if (typeRankA !== typeRankB) return typeRankA - typeRankB;
+
+    const contenanceDiff =
+      articleContenanceFromName(articleB?.nom_article ?? null) -
+      articleContenanceFromName(articleA?.nom_article ?? null);
+    if (contenanceDiff !== 0) return contenanceDiff;
+
+    return String(articleA?.nom_article ?? "").localeCompare(String(articleB?.nom_article ?? ""), "fr", {
+      sensitivity: "base",
+    });
+  });
+}
 
 function normalizeArticle(value: string) {
   return value.replace(/\u00a0/g, "").trim().toUpperCase();
@@ -1079,7 +1121,7 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
   const { data: commande, error: commandeError } = await supabaseServer
     .from("commandes")
     .select(
-      "id, numero_proforma, client, statut, mode_chargement, commande_lignes(id, article_id, quantite_demandee, articles(type_article)), commentaire"
+      "id, numero_proforma, client, statut, mode_chargement, commande_lignes(id, article_id, quantite_demandee, articles(type_article, nom_article, gamme)), commentaire"
     )
     .eq("id", commandeId)
     .single();
@@ -1094,7 +1136,10 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
     throw new Error("Cette commande est deja livree, impossible de redispatcher.");
   }
 
-  const lignes = commande.commande_lignes ?? [];
+  // Meme ordre que la page detail de la commande (sortCommandeLignesByFamily)
+  // - le Despatcher traite desormais les lignes dans cet ordre, donc
+  // ordre_ligne des resultats FIFO qui en decoule suit le meme ordre.
+  const lignes = sortLignesByFamily(commande.commande_lignes ?? []);
 
   if (lignes.length === 0) {
     throw new Error("Cette commande ne contient aucune ligne.");
