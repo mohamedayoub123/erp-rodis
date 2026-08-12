@@ -8,7 +8,7 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { createDepotAction, deleteDepotAction } from "./actions";
 
 type DepotRow = { id: number; nom: string };
-type MouvementCountRow = { depot_id: number };
+type ArticleDepotRow = { depot_id: number };
 
 async function fetchDepots(): Promise<{ rows: DepotRow[]; error: { message: string } | null }> {
   const { data, error } = await supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true });
@@ -16,36 +16,43 @@ async function fetchDepots(): Promise<{ rows: DepotRow[]; error: { message: stri
   return { rows: (data ?? []) as DepotRow[], error: null };
 }
 
-// Nombre d'articles distincts par depot (toutes lignes confondues, pas le
-// solde) - juste pour donner un apercu sur la liste, le detail par depot
-// affiche le vrai stock.
-async function fetchArticleCountByDepot(): Promise<Map<number, number>> {
-  const map = new Map<number, number>();
-  const seen = new Map<number, Set<string>>();
+async function fetchArticlesByDepot(table: string): Promise<ArticleDepotRow[]> {
+  const rows: ArticleDepotRow[] = [];
   let from = 0;
   const pageSize = 1000;
 
   while (true) {
     const { data, error } = await supabaseServer
-      .from("depot_mouvements")
-      .select("depot_id, article_type, article_id")
+      .from(table)
+      .select("depot_id")
+      .not("depot_id", "is", null)
       .range(from, from + pageSize - 1);
 
     if (error) break;
 
-    const chunk = (data ?? []) as { depot_id: number; article_type: string; article_id: number }[];
-    for (const row of chunk) {
-      const set = seen.get(row.depot_id) ?? new Set<string>();
-      set.add(`${row.article_type}::${row.article_id}`);
-      seen.set(row.depot_id, set);
-    }
-
+    const chunk = (data ?? []) as ArticleDepotRow[];
+    rows.push(...chunk);
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
 
-  for (const [depotId, set] of seen.entries()) {
-    map.set(depotId, set.size);
+  return rows;
+}
+
+// Nombre d'articles distincts par depot - compte les articles PF et MP dont
+// le depot par defaut (articles.depot_id / articles_matiere_premiere.depot_id)
+// est ce depot, meme regle que lib/depot-stock.ts. Juste un apercu sur la
+// liste, le detail par depot affiche le vrai stock (app/depots/[id]/page.tsx).
+async function fetchArticleCountByDepot(): Promise<Map<number, number>> {
+  const map = new Map<number, number>();
+
+  const [articlesPf, articlesMp] = await Promise.all([
+    fetchArticlesByDepot("articles"),
+    fetchArticlesByDepot("articles_matiere_premiere"),
+  ]);
+
+  for (const row of [...articlesPf, ...articlesMp]) {
+    map.set(row.depot_id, (map.get(row.depot_id) ?? 0) + 1);
   }
 
   return map;
