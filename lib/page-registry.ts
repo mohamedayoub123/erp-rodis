@@ -202,7 +202,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     module: "Stock",
     label: "Statistique MP",
     pathPrefixes: ["/stock/matiere-premiere/statistique"],
-    hasWrite: false,
+    hasWrite: true,
   },
   {
     key: "commandeMp",
