@@ -1088,8 +1088,17 @@ async function fetchAllReservedLotsExcludingCommande(commandeId: number) {
   while (true) {
     const { data, error } = await supabaseServer
       .from("fifo_resultats")
-      .select("lot_stock_id, quantite_chargee")
+      .select("lot_stock_id, quantite_chargee, commandes!inner(statut)")
       .neq("commande_id", commandeId)
+      // fifo_resultats n'est jamais nettoye apres une livraison (garde
+      // comme historique) - une commande LIVREE ne represente donc plus une
+      // vraie reservation "en attente" (sa consommation est deja reelle,
+      // deja deduite du stock brut via qte_sortie au moment de la
+      // livraison). Sans ce filtre (meme principe que getReservedByArticle
+      // plus haut), elle etait comptee en plus et double-comptait cette
+      // quantite, faisant paraitre un lot comme deja pris alors qu'il etait
+      // encore reellement disponible pour une nouvelle commande.
+      .neq("commandes.statut", "LIVREE")
       // Meme correctif d'ordre stable que getReservedByArticle plus haut -
       // sans ca, le calcul FIFO ("Despatcher") pouvait sous-compter des
       // reservations existantes et donc surallouer le meme lot 2 fois.

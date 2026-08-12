@@ -608,10 +608,20 @@ async function computeAvailableCodesByArticle(
   const result: Record<number, CodeOption[]> = {};
   if (articleIds.length === 0) return result;
 
-  // Reservations d'AUTRES commandes (non livrees) sur ces memes articles,
-  // regroupees par le meme code que ci-dessus - a deduire du stock brut.
+  // Reservations d'AUTRES commandes NON LIVREES sur ces memes articles,
+  // regroupees par le meme code que ci-dessus - a deduire du stock brut. Le
+  // commentaire disait deja "non livrees" depuis toujours, mais rien ne le
+  // garantissait reellement (pas de filtre sur commandes.statut) :
+  // fifo_resultats n'est jamais nettoye apres une livraison (garde comme
+  // historique), donc une commande LIVREE continuait a compter comme
+  // "reservation en attente" ici - en plus de la vraie sortie deja deduite
+  // du stock brut (qte_sortie) au moment de la livraison. Ce double comptage
+  // faisait paraitre un code comme "epuise" (Code inconnu ou stock epuise.)
+  // alors qu'il restait du stock reel (ex: AA4070 : 88 net reellement
+  // disponible, affiche comme indisponible car une ancienne commande LIVREE
+  // avait encore sa reservation de 117 comptee en plus). Meme principe que
+  // getReservedByArticle plus haut dans actions.ts.
   const reservedRows: {
-    commande_id: number | null;
     quantite_chargee: number | null;
     numero_lot: string | null;
     article_id: number | null;
@@ -622,9 +632,10 @@ async function computeAvailableCodesByArticle(
   while (true) {
     const { data, error } = await supabaseServer
       .from("fifo_resultats")
-      .select("commande_id, quantite_chargee, numero_lot, article_id")
+      .select("quantite_chargee, numero_lot, article_id, commandes!inner(statut)")
       .in("article_id", articleIds)
       .neq("commande_id", excludeCommandeId)
+      .neq("commandes.statut", "LIVREE")
       // Meme correctif d'ordre stable que fetchStockGroupsByArticle
       // ci-dessus - sans ca, des reservations pouvaient etre ignorees
       // entre 2 pages, faisant apparaitre un code comme plus disponible
