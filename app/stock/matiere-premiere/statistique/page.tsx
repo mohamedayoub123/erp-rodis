@@ -9,7 +9,23 @@ import { computeStatutBc } from "@/app/stock/matiere-premiere/bc/constants";
 // 4 colonnes calculees en direct depuis les vraies donnees de l'appli
 // (stock actuel, BC en cours), pas depuis le fichier Excel fige - sinon
 // elles deviennent fausses des le lendemain de l'import.
-const LIVE_COLUMNS = new Set(["Gamme", "stock", "en cours d'achat BC", "Qte BC et Date"]);
+const LIVE_COLUMNS = new Set([
+  "Gamme",
+  "stock",
+  "en cours d'achat BC",
+  "Qte BC et Date",
+  "en cour d'achat 4D",
+  "date le livraison prevu ds 4d",
+]);
+
+// Meme regle que la page Import MP (app/stock/matiere-premiere/commande) :
+// un dossier reste "en cours d'achat 4D" tant qu'il n'a pas atteint le
+// dernier statut de suivi.
+const STATUT_DOSSIER_MP_TERMINE = "Receptionne Rodis";
+
+function dossierKey(nDoss4d: string | null, nDossErp: string | null) {
+  return `${nDoss4d ?? ""}|||${nDossErp ?? ""}`;
+}
 
 function normalizeArticleNameLoose(value: string | null | undefined): string {
   return String(value || "")
@@ -178,7 +194,14 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
   // (donnees[...]), qui devient faux des le lendemain de l'import.
   const liveDataByRapportRowId = new Map<
     number,
-    { gamme: string | null; stock: number; enCoursBc: number; qteBcEtDate: string }
+    {
+      gamme: string | null;
+      stock: number;
+      enCoursBc: number;
+      qteBcEtDate: string;
+      enCours4d: number;
+      date4d: string;
+    }
   >();
   if (rapportRows.length > 0) {
     const articleByNormalizedName = new Map<string, ArticleMpRow>();
@@ -228,14 +251,26 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
       }
 
       const bcLigneIds = bcLignes.map((ligne) => ligne.id);
-      const importData =
+      const [importData, statutRows] = await Promise.all([
         bcLigneIds.length > 0
-          ? await fetchAllRows<{ bc_ligne_id: number; quantite_importee: number }>(
+          ? fetchAllRows<{
+              bc_ligne_id: number;
+              quantite_importee: number;
+              n_doss_4d_import: string | null;
+              n_doss_erp_import: string | null;
+            }>(
               "bons_commande_mp_imports",
-              "bc_ligne_id, quantite_importee",
+              "bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import",
               (query) => query.is("lot_stock_id", null).in("bc_ligne_id", bcLigneIds)
             )
-          : [];
+          : Promise.resolve([]),
+        fetchAllRows<{
+          n_doss_4d: string | null;
+          n_doss_erp: string | null;
+          statut: string;
+          date_prevue_reception: string | null;
+        }>("dossiers_import_mp_statut", "n_doss_4d, n_doss_erp, statut, date_prevue_reception"),
+      ]);
 
       const importeeByLigneId = new Map<number, number>();
       for (const evenement of importData) {
@@ -243,6 +278,52 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
           evenement.bc_ligne_id,
           (importeeByLigneId.get(evenement.bc_ligne_id) ?? 0) + Number(evenement.quantite_importee ?? 0)
         );
+      }
+
+      // "En cours d'achat 4D" : les evenements d'import (dossier 4D/ERP) pas
+      // encore au statut final "Receptionne Rodis" - suivi independant du
+      // statut de la ligne BC elle-meme (meme logique que la page Import MP).
+      const statutByDossier = new Map(
+        statutRows.map((row) => [
+          dossierKey(row.n_doss_4d, row.n_doss_erp),
+          { statut: row.statut, datePrevueReception: row.date_prevue_reception },
+        ])
+      );
+      const articleIdByBcLigneId = new Map<number, number>();
+      for (const ligne of bcLignes) {
+        if (ligne.article_id) articleIdByBcLigneId.set(ligne.id, ligne.article_id);
+      }
+      const open4dByArticleAndDossier = new Map<
+        string,
+        { articleId: number; quantite: number; nDoss4d: string | null; datePrevueReception: string | null }
+      >();
+      for (const evenement of importData) {
+        const articleId = articleIdByBcLigneId.get(evenement.bc_ligne_id);
+        if (!articleId) continue;
+        const key = dossierKey(evenement.n_doss_4d_import, evenement.n_doss_erp_import);
+        const dossierInfo = statutByDossier.get(key);
+        if (dossierInfo?.statut === STATUT_DOSSIER_MP_TERMINE) continue;
+        const mapKey = `${articleId}::${key}`;
+        const existing = open4dByArticleAndDossier.get(mapKey);
+        if (existing) {
+          existing.quantite += Number(evenement.quantite_importee ?? 0);
+        } else {
+          open4dByArticleAndDossier.set(mapKey, {
+            articleId,
+            quantite: Number(evenement.quantite_importee ?? 0),
+            nDoss4d: evenement.n_doss_4d_import,
+            datePrevueReception: dossierInfo?.datePrevueReception ?? null,
+          });
+        }
+      }
+      const open4dByArticleId = new Map<
+        number,
+        { quantite: number; nDoss4d: string | null; datePrevueReception: string | null }[]
+      >();
+      for (const entry of open4dByArticleAndDossier.values()) {
+        const list = open4dByArticleId.get(entry.articleId) ?? [];
+        list.push(entry);
+        open4dByArticleId.set(entry.articleId, list);
       }
 
       const openBcLignesByArticleId = new Map<
@@ -265,12 +346,22 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
         if (!articleId) continue;
         const article = allArticles.find((candidate) => candidate.id === articleId);
         const openLignes = openBcLignesByArticleId.get(articleId) ?? [];
+        const open4dLignes = open4dByArticleId.get(articleId) ?? [];
         liveDataByRapportRowId.set(row.id, {
           gamme: article?.gamme ?? null,
           stock: stockByArticleId.get(articleId) ?? 0,
           enCoursBc: openLignes.reduce((sum, ligne) => sum + ligne.quantite, 0),
           qteBcEtDate: openLignes
             .map((ligne) => `${ligne.quantite} ${ligne.code} du ${formatDate(ligne.date_jour)}`)
+            .join(" / "),
+          enCours4d: open4dLignes.reduce((sum, ligne) => sum + ligne.quantite, 0),
+          date4d: open4dLignes
+            .map(
+              (ligne) =>
+                `${ligne.quantite} ${ligne.nDoss4d || ""} ${
+                  ligne.datePrevueReception ? formatDate(ligne.datePrevueReception) : "date prevue non saisie"
+                }`
+            )
             .join(" / "),
         });
       }
@@ -421,13 +512,16 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
                     <table className="min-w-full border-collapse text-left text-sm">
                       <thead className="bg-slate-50 text-slate-500">
                         <tr>
-                          <th className="px-4 py-4 font-semibold">ORDRE</th>
-                          <th className="px-4 py-4 font-semibold">DESIGNATION</th>
+                          <th className="border border-slate-200 px-4 py-4 font-semibold">ORDRE</th>
+                          <th className="border border-slate-200 px-4 py-4 font-semibold">DESIGNATION</th>
                           {rapportColumns.map((col) =>
                             col === "__SPACER__" ? (
-                              <th key={col} className="w-6 bg-white p-0" />
+                              <th key={col} className="w-6 border-0 bg-white p-0" />
                             ) : (
-                              <th key={col} className="whitespace-nowrap px-4 py-4 font-semibold">
+                              <th
+                                key={col}
+                                className="whitespace-nowrap border border-slate-200 px-4 py-4 font-semibold"
+                              >
                                 {col}
                               </th>
                             )
@@ -439,30 +533,36 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
                           const style = row.categorie ? CATEGORIE_STYLES[row.categorie] : null;
                           const live = liveDataByRapportRowId.get(row.id);
                           return (
-                            <tr key={row.id} className="border-t border-slate-100">
+                            <tr key={row.id}>
                               <td
-                                className="px-4 py-3 text-center font-semibold"
+                                className="border border-slate-200 px-4 py-3 text-center font-semibold"
                                 style={style ? { backgroundColor: style.bg, color: style.text } : undefined}
                               >
                                 {row.ordre}
                               </td>
-                              <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
+                              <td className="whitespace-nowrap border border-slate-200 px-4 py-3 font-medium text-slate-900">
                                 {row.designation}
                               </td>
                               {rapportColumns.map((col) => {
                                 if (col === "__SPACER__") {
-                                  return <td key={col} className="w-6 bg-white p-0" />;
+                                  return <td key={col} className="w-6 border-0 bg-white p-0" />;
                                 }
                                 if (!LIVE_COLUMNS.has(col)) {
                                   return (
-                                    <td key={col} className="whitespace-nowrap px-4 py-3 text-slate-600">
+                                    <td
+                                      key={col}
+                                      className="whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600"
+                                    >
                                       {formatCellValue(row.donnees?.[col])}
                                     </td>
                                   );
                                 }
                                 if (!live) {
                                   return (
-                                    <td key={col} className="whitespace-nowrap px-4 py-3 text-amber-700">
+                                    <td
+                                      key={col}
+                                      className="whitespace-nowrap border border-slate-200 px-4 py-3 text-amber-700"
+                                    >
                                       article introuvable
                                     </td>
                                   );
@@ -472,8 +572,13 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
                                 if (col === "stock") value = live.stock;
                                 if (col === "en cours d'achat BC") value = live.enCoursBc || "-";
                                 if (col === "Qte BC et Date") value = live.qteBcEtDate || "-";
+                                if (col === "en cour d'achat 4D") value = live.enCours4d || "-";
+                                if (col === "date le livraison prevu ds 4d") value = live.date4d || "-";
                                 return (
-                                  <td key={col} className="whitespace-nowrap px-4 py-3 text-slate-600">
+                                  <td
+                                    key={col}
+                                    className="whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600"
+                                  >
                                     {formatCellValue(value)}
                                   </td>
                                 );
