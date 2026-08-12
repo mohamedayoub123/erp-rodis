@@ -9,7 +9,14 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { deleteCodeProgressAction } from "../../suivi-production/actions";
-import { markCartonTermineAction, markEmballageTermineAction, markVracTermineAction } from "../actions";
+import {
+  markCartonTermineAction,
+  markEmballageTermineAction,
+  markVracTermineAction,
+  renameLotCodeAction,
+} from "../actions";
+import { getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { LotCodeCell } from "./lot-code-cell";
 import {
   buildPdLabelByCode,
   computeProduitParCode,
@@ -164,11 +171,13 @@ export default async function PlanningDashboardPage({
   const dateDebutFilter = (params.date_debut || "").trim();
   const dateFinFilter = (params.date_fin || "").trim();
 
-  const [{ rows: allLignes }, pdLabelByCode, articles] = await Promise.all([
+  const [currentUser, { rows: allLignes }, pdLabelByCode, articles] = await Promise.all([
+    getCurrentStockUser(),
     fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true }),
     buildPdLabelByCode(),
     fetchAllArticlesForFilters(),
   ]);
+  const canEditLotCode = isAdminUser(currentUser);
 
   const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
   const distinctGammes = [...new Set(articles.map((article) => article.gamme).filter(Boolean))].sort(
@@ -519,7 +528,14 @@ export default async function PlanningDashboardPage({
                         <td className="px-4 py-3 text-slate-600">
                           {vracLabelFromName(row.ligne.produit) || "-"}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          <LotCodeCell
+                            ligneId={row.ligne.id}
+                            code={row.code}
+                            canEdit={canEditLotCode}
+                            action={renameLotCodeAction}
+                          />
+                        </td>
                         <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                         <td className="px-4 py-3">
                           <RestantBadge restant={row.vracRestant} />
@@ -591,7 +607,14 @@ export default async function PlanningDashboardPage({
                           {row.ligne.zone} / {row.ligne.chaine}
                         </td>
                         <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          <LotCodeCell
+                            ligneId={row.ligne.id}
+                            code={row.code}
+                            canEdit={canEditLotCode}
+                            action={renameLotCodeAction}
+                          />
+                        </td>
                         <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                         <td className="px-4 py-3 text-slate-900">{Math.round(row.cartonPrevu)}</td>
                         <td className="px-4 py-3">
@@ -658,7 +681,14 @@ export default async function PlanningDashboardPage({
                       <tr key={`${row.ligne.id}-${row.code}`} className="border-t border-slate-100">
                         <td className="px-4 py-3 text-slate-600">{formatDate(row.ligne.date_jour)}</td>
                         <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          <LotCodeCell
+                            ligneId={row.ligne.id}
+                            code={row.code}
+                            canEdit={canEditLotCode}
+                            action={renameLotCodeAction}
+                          />
+                        </td>
                         <td className="px-4 py-3">
                           <RestantBadge restant={row.emballageRestant} />
                         </td>
