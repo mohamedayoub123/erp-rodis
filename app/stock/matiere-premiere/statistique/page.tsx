@@ -16,6 +16,7 @@ const LIVE_COLUMNS = new Set([
   "Qte BC et Date",
   "en cour d'achat 4D",
   "date le livraison prevu ds 4d",
+  "A COMMANDER",
 ]);
 
 // Meme regle que la page Import MP (app/stock/matiere-premiere/commande) :
@@ -574,6 +575,16 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
                                 if (col === "Qte BC et Date") value = live.qteBcEtDate || "-";
                                 if (col === "en cour d'achat 4D") value = live.enCours4d || "-";
                                 if (col === "date le livraison prevu ds 4d") value = live.date4d || "-";
+                                if (col === "A COMMANDER") {
+                                  // Meme formule que le fichier Excel source, sur
+                                  // toutes les lignes : (stock + en cours d'achat
+                                  // BC + en cour d'achat 4D) - statistique 4D 6
+                                  // mois (colonne "statistique 4D 6 mois", laissee
+                                  // telle quelle - saisie/calculee ailleurs, pas
+                                  // une donnee live de cette page).
+                                  const statistique4d6Mois = Number(row.donnees?.["statistique 4D 6 mois"] ?? 0);
+                                  value = live.stock + live.enCoursBc + live.enCours4d - statistique4d6Mois;
+                                }
                                 return (
                                   <td
                                     key={col}
