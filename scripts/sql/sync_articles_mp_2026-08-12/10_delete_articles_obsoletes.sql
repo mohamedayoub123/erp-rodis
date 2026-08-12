@@ -1,10 +1,10 @@
--- Derniere etape : supprime 50 articles presents en base
+-- Derniere etape : supprime 33 articles presents en base
 -- mais absents du nouveau fichier Excel ET qui n'ont AUCUNE donnee liee
 -- nulle part (verifie : aucun lot de stock, aucun bon de commande, aucune
 -- recette). A executer UNIQUEMENT apres que toutes les parties "upsert"
 -- ci-dessus ont affiche "Success".
 --
--- 20 autres articles sont aussi absents du nouveau fichier Excel
+-- 37 autres articles sont aussi absents du nouveau fichier Excel
 -- mais ont un historique de stock reel (lots_stock_matiere_premiere) - ils
 -- sont volontairement CONSERVES tels quels, pas touches par ce script :
 --   - ALOE VERA EXTRACT POWDER (id 17)
@@ -27,6 +27,23 @@
 --   - CETYLPYDINIKUM CHLORIDE (id 273)
 --   - COLORANT BLEU COVARINE W6795 WS 6797 (id 279)
 --   - COLORANT JAUNE AU GRAS W1205 COSM (id 286)
+--   - COLORANT JAUNE COVARINE W1793 WS1797 COSM (id 287)
+--   - COLORANT MARRON A EAU TG2000 (id 289)
+--   - COLORANT MARRON AU GRAS TG5000 (id 290)
+--   - COLORANT ORANGE AOR7 (id 291)
+--   - COLORANT POWDER BLEU CI 42090 (id 295)
+--   - COLORANT ROUGE A EAU // NOUROU (id 297)
+--   - COLORANT ROUGE COVARINE W3799 COSM WS 3797 (id 302)
+--   - COLORANT VERT COVARINE W7792 WS 7793 (id 308)
+--   - ETHANOL 96(XTRA NAT ALCOHOL DENATURATED (id 329)
+--   - IBC EAU PARFUMEE (id 359)
+--   - OPTAMINT CŒUR 761616 (id 379)
+--   - POLYQUATERNIUM-10(SENSOMER TM 10M POLYMER) (id 389)
+--   - POTASSIUM HYDROXIDE 90% (id 392)
+--   - SODIUM FLUORIDE 99,5% (id 405)
+--   - SODIUM TRIPOLYPHOSPHATE (STPP)-(CARFOSEL tm 996) (id 410)
+--   - AMIDON DE MAIS (id 808)
+--   - ETIQUETTE Aza Global Impex B.V (id 1840)
 
 delete from public.articles_matiere_premiere
-where id in (11, 14, 103, 239, 266, 285, 287, 289, 290, 291, 295, 297, 302, 308, 329, 359, 379, 389, 392, 405, 410, 808, 1104, 1177, 1178, 1226, 1646, 1647, 1648, 1840, 3771, 3793, 3942, 3950, 3951, 3952, 3983, 3986, 3987, 3988, 3989, 3990, 3991, 3995, 3997, 4001, 4008, 4009, 4010, 4011);
+where id in (11, 14, 103, 239, 266, 285, 1104, 1177, 1178, 1226, 1646, 1647, 1648, 3771, 3793, 3942, 3950, 3951, 3952, 3983, 3986, 3987, 3988, 3989, 3990, 3991, 3995, 3997, 4001, 4008, 4009, 4010, 4011);
