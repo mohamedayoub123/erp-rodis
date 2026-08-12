@@ -8,10 +8,12 @@ import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDateTime } from "@/lib/format-date";
+import { computePdCodesFromRows, fetchPlCodeByGroupeId } from "@/lib/programme-numbering";
 
 type HistoryRow = {
   id: number;
   groupe_id: number | null;
+  source_groupe_id: number | null;
   zone: string;
   chaine: string | null;
   produit: string | null;
@@ -29,8 +31,8 @@ async function fetchAllHistoryRows(): Promise<HistoryRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("programme_dispatcher_history")
-      .select("id, groupe_id, zone, chaine, produit, code, date_jour, created_at, cree_par")
-      .order("created_at", { ascending: false })
+      .select("id, groupe_id, source_groupe_id, zone, chaine, produit, code, date_jour, created_at, cree_par")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) break;
@@ -70,6 +72,12 @@ export default async function HistoriqueProgrammeDispatcherPage({
 
   const allRows = await fetchAllHistoryRows();
 
+  // Meme calcul que la page detail (voir lib/programme-numbering.ts) - avant,
+  // chaque page recalculait son propre rang independamment, ce qui pouvait
+  // afficher un code PD different entre la liste et le detail.
+  const pdCodeByGroupeId = computePdCodesFromRows(allRows);
+  const plCodeByGroupeId = await fetchPlCodeByGroupeId();
+
   const groupsMap = new Map<number, HistoryRow[]>();
   for (const row of allRows) {
     if (row.groupe_id === null) continue;
@@ -81,19 +89,23 @@ export default async function HistoriqueProgrammeDispatcherPage({
     }
   }
 
-  const groupsByAge = [...groupsMap.entries()]
-    .map(([groupeId, rows]) => ({
-      groupeId,
-      zone: rows[0]?.zone,
-      dateJour: rows[0]?.date_jour,
-      createdAt: rows[0]?.created_at,
-      count: rows.length,
-      creePar: rows[0]?.cree_par ?? null,
-      rows,
-    }))
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-  const allGroups = groupsByAge.map((group, index) => ({ ...group, code: `PD${index + 1}` }));
+  const allGroups = [...groupsMap.entries()]
+    .map(([groupeId, rows]) => {
+      const sourceGroupeId = rows.find((row) => row.source_groupe_id !== null)?.source_groupe_id ?? null;
+      return {
+        groupeId,
+        zone: rows[0]?.zone,
+        dateJour: rows[0]?.date_jour,
+        createdAt: rows[0]?.created_at,
+        count: rows.length,
+        creePar: rows[0]?.cree_par ?? null,
+        rows,
+        code: pdCodeByGroupeId.get(groupeId) ?? `PD-${groupeId}`,
+        sourceGroupeId,
+        plCode: sourceGroupeId !== null ? plCodeByGroupeId.get(sourceGroupeId) ?? null : null,
+      };
+    })
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   // Reutilise les lignes deja chargees (fetchAllHistoryRows recupere toute
   // la table) pour construire les listes d'options des menus de recherche,
@@ -215,6 +227,16 @@ export default async function HistoriqueProgrammeDispatcherPage({
                     {group.creePar ? ` (${formatDateTime(group.createdAt)})` : ""}
                   </span>
                 </Link>
+                {group.sourceGroupeId !== null ? (
+                  <Link
+                    href={`/historique-programme/${group.sourceGroupeId}`}
+                    className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
+                  >
+                    {group.plCode ?? `PL-${group.sourceGroupeId}`}
+                  </Link>
+                ) : (
+                  <span className="text-xs text-slate-400">Programme source inconnu</span>
+                )}
                 {canDelete ? (
                   <form action={deleteProgrammeDispatcherHistoryGroupAction}>
                     <input type="hidden" name="groupe_id" value={group.groupeId} />

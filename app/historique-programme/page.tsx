@@ -7,6 +7,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDateTime } from "@/lib/format-date";
+import { computePlCodesFromRows, fetchPdRefsBySourceGroupeId } from "@/lib/programme-numbering";
 
 type ProgrammeLigneRow = {
   id: number;
@@ -71,6 +72,14 @@ export default async function HistoriqueProgrammePage({
 
   const allLignes = await fetchAllProgrammeLignes();
 
+  // Meme calcul que la page detail (voir lib/programme-numbering.ts) - avant,
+  // chaque page recalculait son propre rang independamment (la liste
+  // prenait a tort la ligne la plus RECENTE de chaque groupe comme
+  // representative au lieu de la plus ANCIENNE), ce qui pouvait afficher un
+  // code PL different entre la liste et le detail pour le meme groupe.
+  const plCodeByGroupeId = computePlCodesFromRows(allLignes);
+  const pdRefsBySourceGroupeId = await fetchPdRefsBySourceGroupeId();
+
   // Les lignes sans groupe_id (jamais rattachees a un lot au moment de leur
   // creation) ne doivent jamais etre fusionnees ensemble juste parce
   // qu'elles partagent toutes la valeur JS "null" - chacune devient son
@@ -88,13 +97,9 @@ export default async function HistoriqueProgrammePage({
     }
   }
 
-  // Le code PL1.2026, PL2.2026... n'est pas stocke en base - il est
-  // recalcule ici selon le rang du groupe PARMI CEUX DE LA MEME ANNEE (le
-  // plus ancien de l'annee = PL1.<annee>), remis a 1 a chaque nouvelle
-  // annee de date_jour - meme principe que TE1/TS1 dans Mouvements. La
-  // colonne "programe" reste un champ libre tape par l'utilisateur,
-  // independant de ce code.
-  const groupsByAge = [...groupsMap.entries()]
+  // La colonne "programe" reste un champ libre tape par l'utilisateur,
+  // independant du code PL calcule ci-dessus.
+  const groups = [...groupsMap.entries()]
     .map(([groupeId, lignes]) => ({
       groupeId,
       dateJour: lignes[0]?.date_jour,
@@ -102,17 +107,9 @@ export default async function HistoriqueProgrammePage({
       count: lignes.length,
       creePar: lignes[0]?.cree_par ?? null,
       remarque: lignes[0]?.remarque ?? null,
+      code: plCodeByGroupeId.get(groupeId) ?? `PL-${groupeId}`,
+      pdRefs: pdRefsBySourceGroupeId.get(groupeId) ?? [],
     }))
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-  const rankByYear = new Map<number, number>();
-  const groups = groupsByAge
-    .map((group) => {
-      const annee = new Date(group.dateJour).getFullYear();
-      const rank = (rankByYear.get(annee) ?? 0) + 1;
-      rankByYear.set(annee, rank);
-      return { ...group, annee, code: `PL${rank}.${annee}` };
-    })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   // Reutilise les groupes deja calcules (allLignes couvre toute la table)
@@ -233,6 +230,21 @@ export default async function HistoriqueProgrammePage({
                   </span>
                 </Link>
                 <div className="flex items-center gap-2">
+                  {group.pdRefs.length > 0 ? (
+                    <span className="flex flex-wrap items-center gap-1">
+                      {group.pdRefs.map((ref) => (
+                        <Link
+                          key={ref.groupeId}
+                          href={`/historique-programme-dispatcher/${ref.groupeId}`}
+                          className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
+                        >
+                          {ref.code}
+                        </Link>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400">Pas encore dispatche</span>
+                  )}
                   {canRelaunch ? (
                     <Link
                       href={`/programe-par-ligne?groupe_id=${group.groupeId}`}

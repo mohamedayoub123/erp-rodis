@@ -11,6 +11,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { formatDateTime } from "@/lib/format-date";
+import { fetchPlCodeByGroupeId, fetchPdRefsBySourceGroupeId } from "@/lib/programme-numbering";
 
 type ProgrammeLigneRow = {
   id: number;
@@ -70,52 +71,15 @@ export default async function HistoriqueProgrammeDetailPage({
     notFound();
   }
 
-  // Le code PL1.2026, PL2.2026... n'est pas stocke en base - il depend du
-  // rang de ce groupe PARMI CEUX DE LA MEME ANNEE (le plus ancien de
-  // l'annee = PL1.<annee>), remis a 1 a chaque nouvelle annee de date_jour -
-  // meme principe que TE1/TS1 dans Mouvements. La colonne "Programme" reste
-  // un champ libre tape par l'utilisateur, independant de ce code.
-  const allGroupRows: { id: number; groupe_id: number | null; created_at: string; date_jour: string }[] = [];
-  let fromIndex = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data: groupRows } = await supabaseServer
-      .from("programme_lignes")
-      .select("id, groupe_id, created_at, date_jour")
-      .order("id", { ascending: true })
-      .range(fromIndex, fromIndex + pageSize - 1);
-
-    const chunk =
-      (groupRows as { id: number; groupe_id: number | null; created_at: string; date_jour: string }[] | null) ?? [];
-    allGroupRows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    fromIndex += pageSize;
-  }
-
-  const earliestByGroup = new Map<number, { createdAt: string; dateJourForYear: string }>();
-  for (const row of allGroupRows) {
-    const key = row.groupe_id ?? row.id;
-    const current = earliestByGroup.get(key);
-    if (!current || new Date(row.created_at).getTime() < new Date(current.createdAt).getTime()) {
-      earliestByGroup.set(key, { createdAt: row.created_at, dateJourForYear: row.date_jour });
-    }
-  }
-
-  const orderedGroupIds = [...earliestByGroup.entries()]
-    .sort((a, b) => new Date(a[1].createdAt).getTime() - new Date(b[1].createdAt).getTime())
-    .map(([groupeId, info]) => ({ groupeId, annee: new Date(info.dateJourForYear).getFullYear() }));
-
-  const rankByYear = new Map<number, number>();
-  let code = `PL-${groupeIdNumber}`;
-  for (const entry of orderedGroupIds) {
-    const rank = (rankByYear.get(entry.annee) ?? 0) + 1;
-    rankByYear.set(entry.annee, rank);
-    if (entry.groupeId === groupeIdNumber) {
-      code = `PL${rank}.${entry.annee}`;
-    }
-  }
+  // Le code PL1.2026, PL2.2026... n'est pas stocke en base - meme calcul que
+  // la page liste (voir lib/programme-numbering.ts), pour ne plus jamais
+  // afficher un numero different entre les 2 pages pour le meme groupe.
+  const [plCodeByGroupeId, pdRefsBySourceGroupeId] = await Promise.all([
+    fetchPlCodeByGroupeId(),
+    fetchPdRefsBySourceGroupeId(),
+  ]);
+  const code = plCodeByGroupeId.get(groupeIdNumber) ?? `PL-${groupeIdNumber}`;
+  const pdRefs = pdRefsBySourceGroupeId.get(groupeIdNumber) ?? [];
 
   const dateJour = lignes[0]?.date_jour;
 
@@ -140,6 +104,22 @@ export default async function HistoriqueProgrammeDetailPage({
               {lignes[0]?.remarque ? (
                 <p className="mt-2 text-base font-semibold text-sky-700">{lignes[0].remarque}</p>
               ) : null}
+              <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                Dispatche dans :
+                {pdRefs.length > 0 ? (
+                  pdRefs.map((ref) => (
+                    <Link
+                      key={ref.groupeId}
+                      href={`/historique-programme-dispatcher/${ref.groupeId}`}
+                      className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
+                    >
+                      {ref.code}
+                    </Link>
+                  ))
+                ) : (
+                  <span className="text-slate-400">pas encore dispatche</span>
+                )}
+              </p>
             </div>
 
             <div className="no-print flex flex-wrap items-center gap-3">
