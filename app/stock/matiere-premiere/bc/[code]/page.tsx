@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { formatDate } from "@/lib/format-date";
 import {
   createImportEvenementAction,
@@ -382,12 +383,12 @@ export default async function CommandeBcMpDetailPage({
                                           className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                         />
                                       </label>
-                                      <button
-                                        type="submit"
-                                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                      <SubmitButton
+                                        pendingLabel="Enregistrement..."
+                                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                                       >
                                         Enregistrer
-                                      </button>
+                                      </SubmitButton>
                                     </form>
                                   </details>
                                 ) : null}
