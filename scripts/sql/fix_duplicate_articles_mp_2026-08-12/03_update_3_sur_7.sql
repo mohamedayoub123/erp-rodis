@@ -1,0 +1,276 @@
+-- REPARATION : la premiere synchronisation (fichiers upsert 01-09 puis
+-- le patch de rattrapage) a cree 1540 lignes EN DOUBLE au lieu de
+-- mettre a jour les articles existants. Cause : la colonne
+-- article_normalise deja en base garde les espaces (ex: "ACIDE CITRIQUE"),
+-- alors que le script de sync generait une cle sans espaces (ex:
+-- "ACIDECITRIQUE") - Postgres ne reconnaissait donc jamais l'article
+-- existant et en creait un nouveau a chaque fois.
+--
+-- Ce script repare en gardant TOUJOURS la ligne d'origine (celle qui a
+-- l'historique de stock/BC/recette, ou a defaut la plus ancienne),
+-- copie les valeurs categorie/unite/gamme/gamme_statistique/stock min-max
+-- de la ligne la plus recente (donnees Excel les plus a jour) sur cette
+-- ligne d'origine, PUIS supprime les lignes en double. "utilisation"
+-- (champ manuel, jamais dans le fichier Excel) n'est jamais touche.
+--
+-- 3 groupes ont ete exclus car 2 lignes ou plus ont chacune un vrai
+-- historique de stock (fusion automatique risquee - a traiter a la main) :
+--   - id 110 "BASE BAM 61034 (SWEET SCENT PEACH PARADISE)" (4 refs) vs id 6400 "BASE BAM 61034 (SWEET SCENT PEACH PARADISE)" (1 refs)
+--   - id 219 "BASE SAV 41126" (40 refs) vs id 6477 "BASE SAV 41126" (1 refs)
+--   - id 222 "BASE SAV 41433" (28 refs) vs id 6479 "BASE SAV 41433" (1 refs)
+--
+-- A executer DANS L'ORDRE : les fichiers 01 a 0N (update), PUIS le fichier
+-- delete en dernier.
+--
+-- Partie 3 / 7 (update) : 250 articles.
+
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'BABY', min_stock = 12000, max_stock = 24000 where id = 750;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY', min_stock = 36000, max_stock = 72000 where id = 751;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY', min_stock = 24000, max_stock = 48000 where id = 752;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY', min_stock = 12000, max_stock = 24000 where id = 753;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'MEN', min_stock = 18000, max_stock = 36000 where id = 754;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'MEN', min_stock = 12000, max_stock = 24000 where id = 755;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'MEN', min_stock = 6000, max_stock = 12000 where id = 756;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'AQUA BELLA', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 757;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'AQUA BELLA', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 758;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 759;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BODY SPLASH', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 760;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BODY SPLASH', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 761;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BODY SPLASH', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 762;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 763;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 764;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 765;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 766;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 767;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 768;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 769;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 770;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 771;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 772;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 773;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 774;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 775;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 776;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 777;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 778;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 779;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 780;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 781;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'EXELLENCE MAN', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 782;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 784;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 785;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 786;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 787;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 788;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 789;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 790;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 791;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 792;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 793;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'ANGE BB', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 794;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 795;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 796;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 797;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 798;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 799;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 800;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 801;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 802;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'BB D''AMPOUR', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 803;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 804;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 805;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 806;
+update public.articles_matiere_premiere set categorie = 'SLEEVE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'SLEEVE', min_stock = 0, max_stock = 0 where id = 807;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 809;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'DR JOHNSON', min_stock = 1080000, max_stock = 2160000 where id = 811;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 0, max_stock = 0 where id = 812;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 0, max_stock = 0 where id = 813;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BIO PERFECT', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 814;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 24000, max_stock = 48000 where id = 815;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 48000, max_stock = 96000 where id = 816;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 24000, max_stock = 48000 where id = 817;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 48000, max_stock = 96000 where id = 818;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 24000, max_stock = 48000 where id = 819;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 48000, max_stock = 96000 where id = 820;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 24000, max_stock = 48000 where id = 821;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 48000, max_stock = 96000 where id = 822;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 24000, max_stock = 48000 where id = 823;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 48000, max_stock = 96000 where id = 824;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 24000, max_stock = 48000 where id = 825;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 48000, max_stock = 96000 where id = 826;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'CŒUR DE VASELINE', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 827;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'CONTRÔLE', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 832;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'CONTRÔLE', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 833;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'CONTRÔLE', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 834;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'CONTRÔLE', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 835;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'CONTRÔLE', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 836;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BIO PERFECT', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 837;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BIO PERFECT', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 838;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BIO PERFECT', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 839;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'DR JOHNSON', min_stock = 324000, max_stock = 648000 where id = 840;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 5000, max_stock = 10000 where id = 842;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 25000, max_stock = 50000 where id = 843;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 300000, max_stock = 600000 where id = 844;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 845;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 846;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 847;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 850;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 851;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 852;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 853;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 854;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 855;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 856;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MY FAMILY CARE', gamme_statistique = 'CITRON', min_stock = 12000, max_stock = 24000 where id = 863;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MY FAMILY CARE', gamme_statistique = 'CITRON', min_stock = 6000, max_stock = 12000 where id = 864;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MY FAMILY CARE', gamme_statistique = 'CITRON', min_stock = 3000, max_stock = 6000 where id = 865;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'O ETERNEL', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 869;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'O ETERNEL', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 870;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'O ETERNEL', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 871;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'BABY', min_stock = 0, max_stock = 0 where id = 872;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'BABY', min_stock = 0, max_stock = 0 where id = 873;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'BABY', min_stock = 9000, max_stock = 18000 where id = 874;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ROYAL', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 875;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ROYAL', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 876;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ROYAL', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 877;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'EDEN FLEURS', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 886;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'EDEN FLEURS', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 887;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'EDEN FLEURS', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 888;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'EDEN FLEURS', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 889;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 890;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 15000, max_stock = 30000 where id = 913;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 90000, max_stock = 180000 where id = 914;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 90000, max_stock = 180000 where id = 915;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 15000, max_stock = 30000 where id = 916;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 15000, max_stock = 30000 where id = 917;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 15000, max_stock = 30000 where id = 918;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 7500, max_stock = 15000 where id = 919;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 7500, max_stock = 15000 where id = 920;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'COCO CLEAR', gamme_statistique = 'COCO CLEAR', min_stock = 1500, max_stock = 3000 where id = 921;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'COCO CLEAR', gamme_statistique = 'COCO CLEAR', min_stock = 3000, max_stock = 6000 where id = 922;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'COCO CLEAR', gamme_statistique = 'COCO CLEAR', min_stock = 3000, max_stock = 6000 where id = 923;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 6000, max_stock = 12000 where id = 928;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 12000, max_stock = 24000 where id = 929;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 6000, max_stock = 12000 where id = 930;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 12000, max_stock = 24000 where id = 931;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'EFFICACITE', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = null where id = 933;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 18000, max_stock = 36000 where id = 936;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 18000, max_stock = 36000 where id = 937;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 12000, max_stock = 24000 where id = 938;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 12000, max_stock = 24000 where id = 939;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 48000, max_stock = 96000 where id = 940;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 48000, max_stock = 96000 where id = 941;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 96000, max_stock = 192000 where id = 942;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 96000, max_stock = 192000 where id = 943;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 24000, max_stock = 48000 where id = 944;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 24000, max_stock = 48000 where id = 945;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 48000, max_stock = 96000 where id = 946;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 48000, max_stock = 96000 where id = 947;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MY FAMILY CARE', gamme_statistique = 'CITRON', min_stock = 0, max_stock = 0 where id = 956;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MY FAMILY CARE', gamme_statistique = 'CITRON', min_stock = 0, max_stock = 0 where id = 957;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MY FAMILY CARE', gamme_statistique = 'CITRON', min_stock = 0, max_stock = 0 where id = 958;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MY FAMILY CARE', gamme_statistique = 'CITRON', min_stock = 12000, max_stock = 24000 where id = 959;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 30000, max_stock = 60000 where id = 968;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 15000, max_stock = 30000 where id = 969;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 18000, max_stock = 36000 where id = 970;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 36000, max_stock = 72000 where id = 971;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 36000, max_stock = 72000 where id = 972;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 48000, max_stock = 96000 where id = 973;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 12000, max_stock = 24000 where id = 974;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 12000, max_stock = 24000 where id = 975;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 12000, max_stock = 24000 where id = 976;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 36000, max_stock = 72000 where id = 977;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 36000, max_stock = 72000 where id = 978;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 12000, max_stock = 24000 where id = 979;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 12000, max_stock = 24000 where id = 980;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 42000, max_stock = 84000 where id = 981;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 42000, max_stock = 84000 where id = 982;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'BABY', min_stock = 0, max_stock = 0 where id = 983;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'BABY', min_stock = 0, max_stock = 0 where id = 984;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'BABY', min_stock = 24000, max_stock = 48000 where id = 985;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY', min_stock = 0, max_stock = 0 where id = 986;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY', min_stock = 0, max_stock = 0 where id = 987;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY', min_stock = 24000, max_stock = 48000 where id = 988;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'MEN', min_stock = 0, max_stock = 0 where id = 989;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'MEN', min_stock = 0, max_stock = 0 where id = 990;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'MEN', min_stock = 24000, max_stock = 48000 where id = 991;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 240000, max_stock = 480000 where id = 1020;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 36000, max_stock = 72000 where id = 1021;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'HYDRO', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1022;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'HYDRO', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1023;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'HYDRO', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1024;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'HYDRO', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1025;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'HYDRO', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1026;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1028;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1029;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BIO PERFECT', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1038;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BIO PERFECT', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1039;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1051;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1052;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1053;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1054;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'LAVE VITRE', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1055;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1056;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'TEINT D''OR', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1057;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - 1001 NIGHT', min_stock = 24000, max_stock = 48000 where id = 1058;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - 1001 NIGHT', min_stock = 24000, max_stock = 48000 where id = 1059;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - 1001 NIGHT', min_stock = 24000, max_stock = 48000 where id = 1060;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - 1001 NIGHT', min_stock = 24000, max_stock = 48000 where id = 1061;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - 1001 NIGHT', min_stock = 24000, max_stock = 48000 where id = 1062;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - 6TH SCENT - ARCANA', min_stock = 24000, max_stock = 48000 where id = 1063;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - 6TH SCENT - DANGER', min_stock = 24000, max_stock = 48000 where id = 1064;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - 6TH SCENT - INSIGHT', min_stock = 24000, max_stock = 48000 where id = 1065;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - 6TH SCENT - INTUITION', min_stock = 24000, max_stock = 48000 where id = 1066;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - 6TH SCENT - INTUITION', min_stock = 24000, max_stock = 48000 where id = 1067;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - ENCHANTED', min_stock = 24000, max_stock = 48000 where id = 1068;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - ENCHANTED', min_stock = 24000, max_stock = 48000 where id = 1069;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - ENCHANTED', min_stock = 24000, max_stock = 48000 where id = 1070;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - ENCHANTED', min_stock = 24000, max_stock = 48000 where id = 1071;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - ENCHANTED', min_stock = 24000, max_stock = 48000 where id = 1072;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - GODDESS', min_stock = 24000, max_stock = 48000 where id = 1073;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - GODDESS', min_stock = 24000, max_stock = 48000 where id = 1074;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - GODDESS', min_stock = 24000, max_stock = 48000 where id = 1075;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - GODDESS', min_stock = 24000, max_stock = 48000 where id = 1076;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - GODDESS', min_stock = 24000, max_stock = 48000 where id = 1077;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - PRETTY - DAHLIA', min_stock = 24000, max_stock = 48000 where id = 1078;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - PRETTY - LOTUS', min_stock = 24000, max_stock = 48000 where id = 1079;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - PRETTY - ROSE', min_stock = 24000, max_stock = 48000 where id = 1080;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - PRETTY - TULIP', min_stock = 24000, max_stock = 48000 where id = 1081;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - PRETTY - WATER LILY', min_stock = 24000, max_stock = 48000 where id = 1082;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'BODY MIST - NUIT D''ORIENT - AMBER', min_stock = 24000, max_stock = 48000 where id = 1083;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'BODY MIST - NUIT D''ORIENT - BLACK MUSK', min_stock = 24000, max_stock = 48000 where id = 1084;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'BODY MIST - NUIT D''ORIENT - JASMINE', min_stock = 24000, max_stock = 48000 where id = 1085;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'BODY MIST - NUIT D''ORIENT - ORIENTAL OUD', min_stock = 24000, max_stock = 48000 where id = 1086;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'BODY MIST - NUIT D''ORIENT - SANDAL WOOD', min_stock = 24000, max_stock = 48000 where id = 1087;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'BODY MIST - NUIT D''ORIENT - WHITE MUSK', min_stock = 24000, max_stock = 48000 where id = 1088;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'O DE FEMME', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1089;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 6000, max_stock = 12000 where id = 1092;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 48000, max_stock = 96000 where id = 1093;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 6000, max_stock = 12000 where id = 1094;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 48000, max_stock = 96000 where id = 1095;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 6000, max_stock = 12000 where id = 1096;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 48000, max_stock = 96000 where id = 1097;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 6000, max_stock = 12000 where id = 1098;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 48000, max_stock = 96000 where id = 1099;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 6000, max_stock = 12000 where id = 1100;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 48000, max_stock = 96000 where id = 1101;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 6000, max_stock = 12000 where id = 1102;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 48000, max_stock = 96000 where id = 1103;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1107;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1108;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MENTHOLE', min_stock = 15000, max_stock = 30000 where id = 1109;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'POMMADE ET DIVERS', gamme_statistique = 'CŒUR DE VASELINE', min_stock = 0, max_stock = 0 where id = 1112;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1118;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'FRESH LEMON', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1119;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'FRESH LEMON', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1120;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1121;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1122;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MENTHOLE', min_stock = 72000, max_stock = 144000 where id = 1123;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1126;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1127;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1128;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1129;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1130;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1131;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1132;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 1133;

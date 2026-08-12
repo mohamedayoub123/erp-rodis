@@ -15,6 +15,55 @@ type ArticleMpRow = {
   max_stock: number | null;
 };
 
+// Colonnes du rapport riche (copie fidele des fichiers "INV <gamme>.xlsx"
+// fournis par l'utilisateur), dans l'ordre exact du fichier source - pas
+// d'ordre garanti cote jsonb, donc l'ordre d'affichage est fixe ici.
+const RAPPORT_COLUMNS_BY_GAMME: Record<string, string[]> = {
+  "MP COSM": [
+    "Gamme",
+    "stock",
+    "en cours d'achat BC",
+    "Qte BC et Date",
+    "en cour d'achat 4D",
+    "date le livraison prevu ds 4d",
+    "avis",
+    "statistique 4D 6 mois",
+    "Statistique 6mois calculé",
+    "A COMMANDER",
+    "2025",
+    "CONSO 2024",
+    "tonnage 1 tc",
+    "conso 1mois",
+    "Conso reelle 12mois",
+    "conso 9Mois",
+    "conso 4mois",
+  ],
+};
+
+// Meme legende que le fichier Excel source (couleur de la cellule ORDRE).
+const CATEGORIE_STYLES: Record<string, { bg: string; text: string }> = {
+  "FORTE ROTATION": { bg: "#C55A11", text: "#ffffff" },
+  "MOYENNE ROTATION": { bg: "#ffffff", text: "#0f172a" },
+  DORMANT: { bg: "#BDD7EE", text: "#0f172a" },
+  "NEW PROJECT": { bg: "#E2F0D9", text: "#0f172a" },
+};
+
+type RapportRow = {
+  id: number;
+  ordre: number;
+  designation: string;
+  categorie: string | null;
+  donnees: Record<string, string | number | null>;
+};
+
+function formatCellValue(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "number") {
+    return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+  }
+  return value;
+}
+
 async function fetchAllArticlesMp() {
   const rows: ArticleMpRow[] = [];
   let from = 0;
@@ -51,6 +100,17 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
   const gammeStatistique = (params.gammeStatistique || "").trim();
 
   const { rows: allArticles, error: fetchError } = await fetchAllArticlesMp();
+
+  let rapportRows: RapportRow[] = [];
+  if (gammeStatistique) {
+    const { data } = await supabaseServer
+      .from("rapport_gamme_statistique_mp")
+      .select("id, ordre, designation, categorie, donnees")
+      .eq("gamme_statistique", gammeStatistique)
+      .order("ordre", { ascending: true });
+    rapportRows = (data ?? []) as RapportRow[];
+  }
+  const rapportColumns = RAPPORT_COLUMNS_BY_GAMME[gammeStatistique] || [];
 
   // Boutons de raccourci par Gamme Statistique, meme principe que les
   // boutons de famille du Tableau de Commande PF : un bouton genere pour
@@ -172,6 +232,66 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
                   </table>
                 </div>
               </section>
+            ) : rapportRows.length > 0 ? (
+              <>
+                <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Legende (rotation)
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(CATEGORIE_STYLES).map(([label, style]) => (
+                      <span
+                        key={label}
+                        className="rounded-full px-4 py-1.5 text-xs font-semibold ring-1 ring-black/10"
+                        style={{ backgroundColor: style.bg, color: style.text }}
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-collapse text-left text-sm">
+                      <thead className="bg-slate-50 text-slate-500">
+                        <tr>
+                          <th className="px-4 py-4 font-semibold">ORDRE</th>
+                          <th className="px-4 py-4 font-semibold">DESIGNATION</th>
+                          {rapportColumns.map((col) => (
+                            <th key={col} className="whitespace-nowrap px-4 py-4 font-semibold">
+                              {col}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rapportRows.map((row) => {
+                          const style = row.categorie ? CATEGORIE_STYLES[row.categorie] : null;
+                          return (
+                            <tr key={row.id} className="border-t border-slate-100">
+                              <td
+                                className="px-4 py-3 text-center font-semibold"
+                                style={style ? { backgroundColor: style.bg, color: style.text } : undefined}
+                              >
+                                {row.ordre}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
+                                {row.designation}
+                              </td>
+                              {rapportColumns.map((col) => (
+                                <td key={col} className="whitespace-nowrap px-4 py-3 text-slate-600">
+                                  {formatCellValue(row.donnees?.[col])}
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </>
             ) : (
               <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
                 <div className="overflow-x-auto">

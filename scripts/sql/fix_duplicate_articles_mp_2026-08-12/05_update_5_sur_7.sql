@@ -1,0 +1,276 @@
+-- REPARATION : la premiere synchronisation (fichiers upsert 01-09 puis
+-- le patch de rattrapage) a cree 1540 lignes EN DOUBLE au lieu de
+-- mettre a jour les articles existants. Cause : la colonne
+-- article_normalise deja en base garde les espaces (ex: "ACIDE CITRIQUE"),
+-- alors que le script de sync generait une cle sans espaces (ex:
+-- "ACIDECITRIQUE") - Postgres ne reconnaissait donc jamais l'article
+-- existant et en creait un nouveau a chaque fois.
+--
+-- Ce script repare en gardant TOUJOURS la ligne d'origine (celle qui a
+-- l'historique de stock/BC/recette, ou a defaut la plus ancienne),
+-- copie les valeurs categorie/unite/gamme/gamme_statistique/stock min-max
+-- de la ligne la plus recente (donnees Excel les plus a jour) sur cette
+-- ligne d'origine, PUIS supprime les lignes en double. "utilisation"
+-- (champ manuel, jamais dans le fichier Excel) n'est jamais touche.
+--
+-- 3 groupes ont ete exclus car 2 lignes ou plus ont chacune un vrai
+-- historique de stock (fusion automatique risquee - a traiter a la main) :
+--   - id 110 "BASE BAM 61034 (SWEET SCENT PEACH PARADISE)" (4 refs) vs id 6400 "BASE BAM 61034 (SWEET SCENT PEACH PARADISE)" (1 refs)
+--   - id 219 "BASE SAV 41126" (40 refs) vs id 6477 "BASE SAV 41126" (1 refs)
+--   - id 222 "BASE SAV 41433" (28 refs) vs id 6479 "BASE SAV 41433" (1 refs)
+--
+-- A executer DANS L'ORDRE : les fichiers 01 a 0N (update), PUIS le fichier
+-- delete en dernier.
+--
+-- Partie 5 / 7 (update) : 250 articles.
+
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'VIT FEE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1520;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'MAMAN ET MOI', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1521;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 0, max_stock = 0 where id = 1522;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 200, max_stock = 400 where id = 1523;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 300, max_stock = 600 where id = 1524;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - 1001 NIGHT', min_stock = 2500, max_stock = 5000 where id = 1525;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - 6TH SCENT', min_stock = 2500, max_stock = 5000 where id = 1526;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - ENCHANTED', min_stock = 2500, max_stock = 5000 where id = 1527;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - GODDESS', min_stock = 2500, max_stock = 5000 where id = 1528;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'MINI PARFUM - PRETTY', min_stock = 2500, max_stock = 5000 where id = 1529;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'NEOVA', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1530;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'O ETERNEL', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1531;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PARFUM', gamme_statistique = 'TARGET', min_stock = 4000, max_stock = 8000 where id = 1532;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BABY FACE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1533;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'COCOA BUTTER', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1535;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'CŒUR DE VASELINE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1538;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'SOOPURE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1541;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'ROYAL', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1544;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1545;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 2500, max_stock = 5000 where id = 1551;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 500, max_stock = 1000 where id = 1552;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 0, max_stock = 0 where id = 1553;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 500, max_stock = 1000 where id = 1554;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'COCO CLEAR', gamme_statistique = 'COCO CLEAR', min_stock = 125, max_stock = 250 where id = 1555;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'COCOA SKIN', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1556;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 500, max_stock = 1000 where id = 1557;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'DR JOHNSON', min_stock = 0, max_stock = 0 where id = 1558;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 1000, max_stock = 2000 where id = 1559;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 2000, max_stock = 4000 where id = 1560;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'SOOPURE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1562;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'SOOPURE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1563;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 220, max_stock = 440 where id = 1566;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 1000, max_stock = 2000 where id = 1567;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 1000, max_stock = 2000 where id = 1569;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 1500, max_stock = 3000 where id = 1570;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 0, max_stock = 0 where id = 1571;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 1750, max_stock = 3500 where id = 1572;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 1000, max_stock = 2000 where id = 1573;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY - BABY - MEN', min_stock = 1000, max_stock = 2000 where id = 1574;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PINK LADIES', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1577;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 5000, max_stock = 10000 where id = 1578;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 1500, max_stock = 3000 where id = 1579;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 1500, max_stock = 3000 where id = 1580;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 1500, max_stock = 3000 where id = 1585;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 500, max_stock = 1000 where id = 1586;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'COCO CLEAR', gamme_statistique = 'COCO CLEAR', min_stock = 125, max_stock = 250 where id = 1587;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 500, max_stock = 1000 where id = 1588;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 1000, max_stock = 2000 where id = 1589;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 500, max_stock = 1000 where id = 1590;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 1000, max_stock = 2000 where id = 1593;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 750, max_stock = 1500 where id = 1594;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 250, max_stock = 500 where id = 1595;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 500, max_stock = 1000 where id = 1596;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 3000, max_stock = 6000 where id = 1599;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'SHAMPONG ANGIE', gamme_statistique = 'SHAMPONG ANGIE', min_stock = 0, max_stock = 0 where id = 1600;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1605;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1606;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1607;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY - BABY - MEN', min_stock = 500, max_stock = 1000 where id = 1613;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY - BABY - MEN', min_stock = 500, max_stock = 1000 where id = 1614;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY - BABY - MEN', min_stock = 500, max_stock = 1000 where id = 1615;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 500, max_stock = 1000 where id = 1616;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 250, max_stock = 500 where id = 1617;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'COCO CLEAR', gamme_statistique = 'COCO CLEAR', min_stock = 125, max_stock = 250 where id = 1618;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 1000, max_stock = 2000 where id = 1619;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 500, max_stock = 1000 where id = 1620;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 500, max_stock = 1000 where id = 1621;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 0, max_stock = 0 where id = 1622;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 250, max_stock = 500 where id = 1623;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'SKIN LIGHT', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1624;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'VIT FEE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1625;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 1500, max_stock = 3000 where id = 1626;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'VASELINE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1628;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY - BABY - MEN', min_stock = 1750, max_stock = 3500 where id = 1633;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY - BABY - MEN', min_stock = 1750, max_stock = 3500 where id = 1634;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY - BABY - MEN', min_stock = 1750, max_stock = 3500 where id = 1635;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'AQUA BELLA', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1636;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'AQUA BELLA', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1637;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BABY FACE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1638;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BABY FACE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1639;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BIO PERFECT', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1640;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'EXELLENCE MEN', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1641;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'O ETERNEL', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1643;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BABY FACE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1644;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'BABY FACE', gamme_statistique = 'CARTON', min_stock = 0, max_stock = 0 where id = 1645;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 45000, max_stock = 90000 where id = 1653;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BIO PERFECT', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1654;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 0, max_stock = 0 where id = 1655;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 96000, max_stock = 192000 where id = 1656;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 48000, max_stock = 96000 where id = 1657;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 24000, max_stock = 48000 where id = 1658;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 0, max_stock = 0 where id = 1659;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 12000, max_stock = 24000 where id = 1660;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 24000, max_stock = 48000 where id = 1661;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 12000, max_stock = 24000 where id = 1662;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 48000, max_stock = 96000 where id = 1663;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 24000, max_stock = 48000 where id = 1664;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 18000, max_stock = 36000 where id = 1665;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 12000, max_stock = 24000 where id = 1666;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 6000, max_stock = 12000 where id = 1673;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 45000, max_stock = 90000 where id = 1674;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 4000, max_stock = 8000 where id = 1675;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 540000, max_stock = 1080000 where id = 1680;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 0, max_stock = 0 where id = 1681;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 0, max_stock = 0 where id = 1682;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'COCO CLEAR', gamme_statistique = 'COCO CLEAR', min_stock = 9000, max_stock = 18000 where id = 1683;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 36000, max_stock = 72000 where id = 1684;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 108000, max_stock = 216000 where id = 1685;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 540000, max_stock = 1080000 where id = 1686;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 72000, max_stock = 144000 where id = 1687;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 108000, max_stock = 216000 where id = 1688;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 72000, max_stock = 144000 where id = 1689;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 540000, max_stock = 1080000 where id = 1692;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 18000, max_stock = 36000 where id = 1694;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 24000, max_stock = 48000 where id = 1695;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 48000, max_stock = 96000 where id = 1696;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 12000, max_stock = 24000 where id = 1697;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 270000, max_stock = 540000 where id = 1700;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 120000, max_stock = 240000 where id = 1701;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 27000, max_stock = 54000 where id = 1702;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 24000, max_stock = 48000 where id = 1703;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 24000, max_stock = 48000 where id = 1704;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 36000, max_stock = 72000 where id = 1705;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 60000, max_stock = 120000 where id = 1706;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 30000, max_stock = 60000 where id = 1707;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1708;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1709;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1710;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1711;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 108000, max_stock = 216000 where id = 1712;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 84000, max_stock = 168000 where id = 1713;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 6000, max_stock = 12000 where id = 1720;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 90000, max_stock = 180000 where id = 1721;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PARFUM', gamme_statistique = 'LEGACY AUTHENTIC', min_stock = 5500, max_stock = 11000 where id = 1723;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PARFUM', gamme_statistique = 'PURE SENSATION', min_stock = 9000, max_stock = 18000 where id = 1726;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'PSA JANNA - AMBER', min_stock = 108000, max_stock = 216000 where id = 1733;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'PSA JANNA - BAKHOOR', min_stock = 108000, max_stock = 216000 where id = 1734;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'PSA JANNA - MUSK', min_stock = 108000, max_stock = 216000 where id = 1735;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'PSA JANNA - OUD', min_stock = 108000, max_stock = 216000 where id = 1736;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'PSA JANNA - ROSE', min_stock = 108000, max_stock = 216000 where id = 1737;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PARFUM RODIS', gamme_statistique = 'PSA JANNA - SANDAL WOOD', min_stock = 108000, max_stock = 216000 where id = 1738;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 9000, max_stock = 18000 where id = 1740;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 72000, max_stock = 144000 where id = 1741;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 72000, max_stock = 144000 where id = 1742;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 6000, max_stock = 12000 where id = 1743;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 72000, max_stock = 144000 where id = 1754;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 24000, max_stock = 48000 where id = 1755;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 36000, max_stock = 72000 where id = 1756;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 0, max_stock = 0 where id = 1757;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 6000, max_stock = 12000 where id = 1758;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 6000, max_stock = 12000 where id = 1759;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BIO PERFECT', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1760;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BIO PERFECT', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1761;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'COCO CLEAR', gamme_statistique = 'COCO CLEAR', min_stock = 6000, max_stock = 12000 where id = 1762;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'COCOA SKIN', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1763;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 24000, max_stock = 48000 where id = 1764;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'DR JOHNSON', min_stock = 0, max_stock = 0 where id = 1765;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 48000, max_stock = 96000 where id = 1766;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 96000, max_stock = 192000 where id = 1767;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'MY FAMILY CARE', gamme_statistique = 'CITRON', min_stock = 12000, max_stock = 24000 where id = 1770;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 0, max_stock = 0 where id = 1774;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 48000, max_stock = 96000 where id = 1775;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 72000, max_stock = 144000 where id = 1776;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 0, max_stock = 0 where id = 1777;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 36000, max_stock = 72000 where id = 1778;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 84000, max_stock = 168000 where id = 1779;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 48000, max_stock = 96000 where id = 1780;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'BABY', min_stock = 12000, max_stock = 24000 where id = 1781;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'FAMILY', min_stock = 12000, max_stock = 24000 where id = 1782;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'REAL CARE', gamme_statistique = 'MEN', min_stock = 12000, max_stock = 24000 where id = 1783;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SHEILA', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1784;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SHEILA', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1785;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SHEILA', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1786;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SHEILA', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1787;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SHEILA', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1788;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SHEILA', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1789;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SKIN LIGHT', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1790;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SKIN LIGHT', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1791;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'VIT FEE', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1794;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 240000, max_stock = 480000 where id = 1795;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 144000, max_stock = 288000 where id = 1796;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 96000, max_stock = 192000 where id = 1797;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SCANDAL HOMME', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1799;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 90000, max_stock = 180000 where id = 1804;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 30000, max_stock = 60000 where id = 1805;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'COCO CLEAR', gamme_statistique = 'COCO CLEAR', min_stock = 6000, max_stock = 12000 where id = 1806;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 24000, max_stock = 48000 where id = 1807;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 36000, max_stock = 72000 where id = 1808;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 48000, max_stock = 96000 where id = 1811;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 54000, max_stock = 108000 where id = 1812;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 12000, max_stock = 24000 where id = 1813;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 36000, max_stock = 72000 where id = 1814;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 216000, max_stock = 432000 where id = 1817;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SKIN LIGHT', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1818;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 36000, max_stock = 72000 where id = 1821;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'BB CLEAR VITAMINE-C', gamme_statistique = 'BB CLEAR VITAMINE-C', min_stock = 18000, max_stock = 36000 where id = 1822;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'COCO CLEAR', gamme_statistique = 'COCO CLEAR', min_stock = 0, max_stock = 0 where id = 1823;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 36000, max_stock = 72000 where id = 1824;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 36000, max_stock = 72000 where id = 1825;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 36000, max_stock = 72000 where id = 1826;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 0, max_stock = 0 where id = 1827;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'DR JOHNSON', min_stock = 0, max_stock = 0 where id = 1828;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'DR JOHNSON', min_stock = 288000, max_stock = 576000 where id = 1829;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'DR JOHNSON', min_stock = 54000, max_stock = 108000 where id = 1830;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'DR JOHNSON', min_stock = 144000, max_stock = 288000 where id = 1831;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 0, max_stock = 0 where id = 1832;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 0, max_stock = 0 where id = 1833;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 18000, max_stock = 36000 where id = 1834;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'PRO-WHITE', gamme_statistique = 'PRO-WHITE', min_stock = 18000, max_stock = 36000 where id = 1835;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SKIN LIGHT', gamme_statistique = 'SKIN LIGHT', min_stock = 0, max_stock = 0 where id = 1836;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'VIT FEE', gamme_statistique = 'ETUIS', min_stock = 0, max_stock = 0 where id = 1837;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 108000, max_stock = 216000 where id = 1838;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 45000, max_stock = 90000 where id = 1839;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 12000, max_stock = 24000 where id = 1841;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 8000, max_stock = 16000 where id = 1842;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 54000, max_stock = 108000 where id = 1843;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 45000, max_stock = 90000 where id = 1844;
+update public.articles_matiere_premiere set categorie = 'CARTON', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 9000, max_stock = 18000 where id = 1845;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 48000, max_stock = 96000 where id = 3710;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 288000, max_stock = 576000 where id = 3712;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - 1001 NIGHT', min_stock = 24000, max_stock = 48000 where id = 3713;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - 1001 NIGHT', min_stock = 24000, max_stock = 48000 where id = 3714;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - ENCHANTED', min_stock = 120000, max_stock = 240000 where id = 3715;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - 1001 NIGHT', min_stock = 24000, max_stock = 48000 where id = 3716;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'MINI PARFUM - GODDESS', min_stock = 144000, max_stock = 288000 where id = 3717;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - BOUQUET', min_stock = 144000, max_stock = 288000 where id = 3719;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PARFUM REALITY', gamme_statistique = 'BODY MIST - ORIENTAL SCENT', min_stock = 36000, max_stock = 72000 where id = 3720;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 18000, max_stock = 36000 where id = 3721;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'EGYPTIAN BEAUTY', gamme_statistique = 'EGYPTIAN BEAUTY', min_stock = 36000, max_stock = 72000 where id = 3722;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 48000, max_stock = 96000 where id = 3725;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'MOROCCO SKIN', gamme_statistique = 'MOROCCO SKIN', min_stock = 45000, max_stock = 90000 where id = 3726;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 48000, max_stock = 96000 where id = 3727;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'COCO CLEAR', gamme_statistique = 'COCO CLEAR', min_stock = 50000, max_stock = 100000 where id = 3729;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 36000, max_stock = 72000 where id = 3730;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 120000, max_stock = 240000 where id = 3731;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'SPRAY', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 3732;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'SPRAY', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 3733;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'SPRAY', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 3734;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'SPRAY', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 3735;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'SPRAY', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 3736;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 3737;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 3738;
+update public.articles_matiere_premiere set categorie = 'BASE', unite = 'kg', gamme = 'BASE', gamme_statistique = 'BASE', min_stock = 0, max_stock = 0 where id = 3739;
+update public.articles_matiere_premiere set categorie = 'BASE', unite = 'kg', gamme = 'MOSTDEFENCE', gamme_statistique = 'ROSMERY', min_stock = 0, max_stock = 0 where id = 3740;
+update public.articles_matiere_premiere set categorie = 'BASE', unite = 'kg', gamme = 'REAL CARE', gamme_statistique = 'MEN', min_stock = 150, max_stock = 300 where id = 3763;
+update public.articles_matiere_premiere set categorie = 'BASE', unite = 'kg', gamme = 'DERMA TONE', gamme_statistique = 'DERMA TONE', min_stock = 175, max_stock = 350 where id = 3764;
+update public.articles_matiere_premiere set categorie = 'BASE', unite = 'kg', gamme = 'BASE', gamme_statistique = 'BASE', min_stock = 0, max_stock = 0 where id = 3766;
+update public.articles_matiere_premiere set categorie = 'BASE', unite = 'kg', gamme = 'ANTI-MOSQUITO', gamme_statistique = 'FAMILY CITRONELLA', min_stock = 0, max_stock = 0 where id = 3767;
+update public.articles_matiere_premiere set categorie = 'BASE', unite = 'kg', gamme = 'BASE', gamme_statistique = 'BASE', min_stock = 0, max_stock = 0 where id = 3770;
+update public.articles_matiere_premiere set categorie = 'BASE', unite = 'kg', gamme = 'REAL CARE', gamme_statistique = 'BABY', min_stock = 175, max_stock = 350 where id = 3772;

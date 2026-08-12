@@ -1,0 +1,276 @@
+-- REPARATION : la premiere synchronisation (fichiers upsert 01-09 puis
+-- le patch de rattrapage) a cree 1540 lignes EN DOUBLE au lieu de
+-- mettre a jour les articles existants. Cause : la colonne
+-- article_normalise deja en base garde les espaces (ex: "ACIDE CITRIQUE"),
+-- alors que le script de sync generait une cle sans espaces (ex:
+-- "ACIDECITRIQUE") - Postgres ne reconnaissait donc jamais l'article
+-- existant et en creait un nouveau a chaque fois.
+--
+-- Ce script repare en gardant TOUJOURS la ligne d'origine (celle qui a
+-- l'historique de stock/BC/recette, ou a defaut la plus ancienne),
+-- copie les valeurs categorie/unite/gamme/gamme_statistique/stock min-max
+-- de la ligne la plus recente (donnees Excel les plus a jour) sur cette
+-- ligne d'origine, PUIS supprime les lignes en double. "utilisation"
+-- (champ manuel, jamais dans le fichier Excel) n'est jamais touche.
+--
+-- 3 groupes ont ete exclus car 2 lignes ou plus ont chacune un vrai
+-- historique de stock (fusion automatique risquee - a traiter a la main) :
+--   - id 110 "BASE BAM 61034 (SWEET SCENT PEACH PARADISE)" (4 refs) vs id 6400 "BASE BAM 61034 (SWEET SCENT PEACH PARADISE)" (1 refs)
+--   - id 219 "BASE SAV 41126" (40 refs) vs id 6477 "BASE SAV 41126" (1 refs)
+--   - id 222 "BASE SAV 41433" (28 refs) vs id 6479 "BASE SAV 41433" (1 refs)
+--
+-- A executer DANS L'ORDRE : les fichiers 01 a 0N (update), PUIS le fichier
+-- delete en dernier.
+--
+-- Partie 6 / 7 (update) : 250 articles.
+
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 3773;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3774;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3775;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3776;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3777;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3778;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3779;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3780;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3781;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3782;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3783;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3784;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3785;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3786;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3787;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3788;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3789;
+update public.articles_matiere_premiere set categorie = 'ETUIS', unite = 'pcs', gamme = 'SCANDAL HOMME', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 3792;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'PRECIOUS PERFECT', gamme_statistique = 'PRECIOUS PERFECT', min_stock = 24000, max_stock = 48000 where id = 3794;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 100, max_stock = 200 where id = 3795;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 450, max_stock = 900 where id = 3799;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 3800;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 3802;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 3803;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3804;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3805;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3806;
+update public.articles_matiere_premiere set categorie = 'Col_cosm', unite = 'Grs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 7500, max_stock = 15000 where id = 3807;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3808;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 150, max_stock = 300 where id = 3809;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3810;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3811;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 500, max_stock = 1000 where id = 3812;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 50, max_stock = 100 where id = 3813;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3814;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3815;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3816;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3817;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3818;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3819;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3820;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3822;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3823;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3824;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3825;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 175, max_stock = 350 where id = 3826;
+update public.articles_matiere_premiere set categorie = 'Col_cosm', unite = 'Grs', gamme = 'COLORANT COS.', gamme_statistique = 'COLORANT COS.', min_stock = 0.5, max_stock = 1 where id = 3827;
+update public.articles_matiere_premiere set categorie = 'Col_cosm', unite = 'Grs', gamme = 'COLORANT COS.', gamme_statistique = 'COLORANT COS.', min_stock = 0.5, max_stock = 1 where id = 3828;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3829;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 75, max_stock = 150 where id = 3830;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3831;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3832;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3833;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 1000, max_stock = 2000 where id = 3834;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 7500, max_stock = 15000 where id = 3835;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 1000, max_stock = 2000 where id = 3836;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3837;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3838;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3839;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3840;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3841;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3842;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3843;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3844;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3845;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 150, max_stock = 300 where id = 3846;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3847;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 100, max_stock = 200 where id = 3848;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3849;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3850;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 12.5, max_stock = 25 where id = 3851;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3852;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3853;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3854;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 300, max_stock = 600 where id = 3855;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3856;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 150, max_stock = 300 where id = 3857;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 62.5, max_stock = 125 where id = 3858;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3859;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3860;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3861;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 125, max_stock = 250 where id = 3862;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3863;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'pcs', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 200, max_stock = 400 where id = 3864;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3865;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 50, max_stock = 100 where id = 3866;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 12.5, max_stock = 25 where id = 3867;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3868;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 50, max_stock = 100 where id = 3869;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3870;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 2000, max_stock = 4000 where id = 3871;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'pcs', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3872;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3873;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3874;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 62.5, max_stock = 125 where id = 3875;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 62.5, max_stock = 125 where id = 3876;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 62.5, max_stock = 125 where id = 3877;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3878;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3879;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 5, max_stock = 10 where id = 3880;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3881;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3882;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 12.5, max_stock = 25 where id = 3883;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 12.5, max_stock = 25 where id = 3884;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3885;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 12.5, max_stock = 25 where id = 3886;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 300, max_stock = 600 where id = 3887;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 12.5, max_stock = 25 where id = 3888;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 50, max_stock = 100 where id = 3889;
+update public.articles_matiere_premiere set categorie = 'Col_cosm', unite = 'Grs', gamme = 'PERFECT GLOW', gamme_statistique = 'PERFECT GLOW', min_stock = 25000, max_stock = 50000 where id = 3890;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3891;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3892;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3893;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3894;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0.5, max_stock = 1 where id = 3895;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3896;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3897;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3898;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 250, max_stock = 500 where id = 3899;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3900;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3901;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3902;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3903;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3904;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 50, max_stock = 100 where id = 3905;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3906;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3907;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3908;
+update public.articles_matiere_premiere set categorie = 'Col_cosm', unite = 'Grs', gamme = 'COLORANT COS.', gamme_statistique = 'COLORANT COS.', min_stock = 0, max_stock = 0 where id = 3909;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 50, max_stock = 100 where id = 3910;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 37.5, max_stock = 75 where id = 3911;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3912;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3913;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3914;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3915;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3916;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'pcs', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3917;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 75, max_stock = 150 where id = 3918;
+update public.articles_matiere_premiere set categorie = 'Col_cosm', unite = 'Grs', gamme = 'COLORANT COS.', gamme_statistique = 'COLORANT COS.', min_stock = 1500, max_stock = 3000 where id = 3919;
+update public.articles_matiere_premiere set categorie = 'Col_cosm', unite = 'Grs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 75000, max_stock = 150000 where id = 3920;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3921;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 125, max_stock = 250 where id = 3922;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3923;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 25, max_stock = 50 where id = 3924;
+update public.articles_matiere_premiere set categorie = 'Col_cosm', unite = 'Grs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 17500, max_stock = 35000 where id = 3925;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 3926;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'pcs', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 3927;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 3931;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 65000, max_stock = 130000 where id = 3932;
+update public.articles_matiere_premiere set categorie = 'DIVERS', unite = 'pcs', gamme = 'ETIQUETTE', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 3937;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'ETIQUETTE', gamme_statistique = 'ETIQUETTE', min_stock = 125000, max_stock = 250000 where id = 3941;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3943;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3944;
+update public.articles_matiere_premiere set categorie = 'BOBINE FILM', unite = 'kg', gamme = 'BOBINE', gamme_statistique = 'BOBINE', min_stock = 0, max_stock = 0 where id = 3945;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 540000, max_stock = 1080000 where id = 3946;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 540000, max_stock = 1080000 where id = 3947;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 90000, max_stock = 180000 where id = 3948;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 216000, max_stock = 432000 where id = 3949;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'SCANDAL HOMME', gamme_statistique = 'GLASS BOTTLE', min_stock = 0, max_stock = 0 where id = 3970;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 325000, max_stock = 650000 where id = 3971;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 150000, max_stock = 300000 where id = 3972;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'ELIXIR', gamme_statistique = 'ELIXIR', min_stock = 48000, max_stock = 96000 where id = 3974;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'PARFUM', gamme_statistique = 'LEGACY AUTHENTIC', min_stock = 5500, max_stock = 11000 where id = 3977;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'PARFUM', gamme_statistique = 'TARGET', min_stock = 288000, max_stock = 576000 where id = 3981;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 7500, max_stock = 15000 where id = 3984;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 90000, max_stock = 180000 where id = 3985;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 3992;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 0, max_stock = 0 where id = 3996;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'BIO PERFECT', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 3998;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'SKIN LIGHT', gamme_statistique = 'ETIQUETTE', min_stock = 0, max_stock = 0 where id = 3999;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 4000;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 4002;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 4003;
+update public.articles_matiere_premiere set categorie = 'ETIQUETTE', unite = 'pcs', gamme = 'MY FAMILY CARE', gamme_statistique = 'CITRON', min_stock = 1500, max_stock = 3000 where id = 4006;
+update public.articles_matiere_premiere set categorie = 'FLACONS PET', unite = 'pcs', gamme = 'CAPITAL', gamme_statistique = 'GLASS BOTTLE', min_stock = 0, max_stock = 0 where id = 4012;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'WHITE SECRET', gamme_statistique = 'WHITE SECRET', min_stock = 375000, max_stock = 750000 where id = 4014;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 150000, max_stock = 300000 where id = 4015;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'SCANDAL HOMME', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4019;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PARFUM', gamme_statistique = 'PINK FLOWER', min_stock = 18000, max_stock = 36000 where id = 4020;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'PARFUM', gamme_statistique = 'LEGACY AUTHENTIC', min_stock = 288000, max_stock = 576000 where id = 4021;
+update public.articles_matiere_premiere set categorie = 'CAPSULES', unite = 'pcs', gamme = 'FAMILY CARE', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4026;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 250, max_stock = 500 where id = 4028;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 250, max_stock = 500 where id = 4029;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 15000, max_stock = 30000 where id = 4030;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 45000, max_stock = 90000 where id = 4031;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 5000, max_stock = 10000 where id = 4032;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 0, max_stock = 0 where id = 4033;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 175000, max_stock = 350000 where id = 4034;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 225000, max_stock = 450000 where id = 4035;
+update public.articles_matiere_premiere set categorie = 'COLORANT PLAS.', unite = 'kg', gamme = 'COLORANT PLAS.', gamme_statistique = 'COLORANT PLAS.', min_stock = 0, max_stock = 0 where id = 4036;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'SCANDAL HOMME', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4039;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'ANTI-MOSQUITO', gamme_statistique = 'FAMILY NIGHT SKY', min_stock = 0, max_stock = 0 where id = 4040;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'ANTI-MOSQUITO', gamme_statistique = 'FAMILY CITRONELLA', min_stock = 0, max_stock = 0 where id = 4042;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 4043;
+update public.articles_matiere_premiere set categorie = 'mp plastique', unite = 'kg', gamme = 'MP PLASTIQUE', gamme_statistique = 'MP PLASTIQUE', min_stock = 150000, max_stock = 300000 where id = 4044;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'O DE FEMME', gamme_statistique = 'GLASS BOTTLE', min_stock = 0, max_stock = 0 where id = 4047;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'O DE FEMME', gamme_statistique = 'GLASS BOTTLE', min_stock = 0, max_stock = 0 where id = 4048;
+update public.articles_matiere_premiere set categorie = 'FLACONS VERRE', unite = 'pcs', gamme = 'O DE FEMME', gamme_statistique = 'GLASS BOTTLE', min_stock = 0, max_stock = 0 where id = 4049;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4050;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4051;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4052;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4053;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4054;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4055;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4056;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4057;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4058;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4059;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4060;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4061;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4062;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4063;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4064;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4065;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4066;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4067;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4068;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4069;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'kg', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4070;
+update public.articles_matiere_premiere set categorie = 'SACHET EMB', unite = 'pcs', gamme = 'SACHET', gamme_statistique = 'SACHET', min_stock = 0, max_stock = 0 where id = 4071;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 4076;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 4077;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'ANTI-MOSQUITO', gamme_statistique = 'FAMILY NIGHT SKY', min_stock = 0, max_stock = 0 where id = 4078;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'MOSTDEFENCE', gamme_statistique = 'CITRONELLA', min_stock = 0, max_stock = 0 where id = 4079;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'MOSTDEFENCE', gamme_statistique = 'CITRONELLA', min_stock = 0, max_stock = 0 where id = 4080;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'MOSTDEFENCE', gamme_statistique = 'ROSMERY', min_stock = 0, max_stock = 0 where id = 4082;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'MOSTDEFENCE', gamme_statistique = 'ROSMERY', min_stock = 0, max_stock = 0 where id = 4083;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'ANTI-MOSQUITO', gamme_statistique = 'FAMILY CITRONELLA', min_stock = 0, max_stock = 0 where id = 4084;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'MOSTDEFENCE', gamme_statistique = 'BABY', min_stock = 0, max_stock = 0 where id = 4085;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'MOSTDEFENCE', gamme_statistique = 'BABY', min_stock = 0, max_stock = 0 where id = 4086;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'ANTI-MOSQUITO', gamme_statistique = 'FAMILY NIGHT SKY', min_stock = 0, max_stock = 0 where id = 4087;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'ANTI-MOSQUITO', gamme_statistique = 'FAMILY CITRONELLA', min_stock = 0, max_stock = 0 where id = 4089;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'CAPITAL', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4090;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'ROYAL', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4091;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'ROYAL', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4092;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'ROYAL', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4093;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'ROYAL', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4094;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'BODY SPLASH', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4095;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'BODY SPLASH', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4097;
+update public.articles_matiere_premiere set categorie = 'mp cosm', unite = 'kg', gamme = 'MP COSM', gamme_statistique = 'MP COSM', min_stock = 0, max_stock = 0 where id = 4098;
+update public.articles_matiere_premiere set categorie = 'TOPETTE', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4099;
+update public.articles_matiere_premiere set categorie = 'TOPETTE', unite = 'pcs', gamme = 'O DE FEMME', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4100;
+update public.articles_matiere_premiere set categorie = 'TOPETTE', unite = 'pcs', gamme = 'MAMASSITA', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4101;
+update public.articles_matiere_premiere set categorie = 'SPRAY', unite = 'pcs', gamme = 'LAVE VITRE', gamme_statistique = 'SPRAY', min_stock = 0, max_stock = 0 where id = 4102;
+update public.articles_matiere_premiere set categorie = 'TUBE', unite = 'pcs', gamme = 'SKIN LIGHT', gamme_statistique = 'TUBE VIDE', min_stock = 0, max_stock = 0 where id = 4103;
+update public.articles_matiere_premiere set categorie = 'TUBE', unite = 'pcs', gamme = 'VIT FEE', gamme_statistique = 'TUBE VIDE', min_stock = 0, max_stock = 0 where id = 4104;
+update public.articles_matiere_premiere set categorie = 'TUBE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'DR JOHNSON', min_stock = 12500, max_stock = 25000 where id = 4105;
+update public.articles_matiere_premiere set categorie = 'TUBE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 0, max_stock = 0 where id = 4106;
+update public.articles_matiere_premiere set categorie = 'TUBE', unite = 'pcs', gamme = 'Mentholée', gamme_statistique = 'MATRIX', min_stock = 0, max_stock = 0 where id = 4107;
+update public.articles_matiere_premiere set categorie = 'TUBE', unite = 'pcs', gamme = 'BB CLEAR', gamme_statistique = 'BB CLEAR', min_stock = 36000, max_stock = 72000 where id = 4108;
