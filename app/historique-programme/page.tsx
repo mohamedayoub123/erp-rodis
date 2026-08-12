@@ -25,10 +25,19 @@ async function fetchAllProgrammeLignes(): Promise<ProgrammeLigneRow[]> {
   const pageSize = 1000;
 
   while (true) {
+    // Un tri sur created_at seul n'est pas deterministe ici : la grande
+    // majorite des lignes de cette table partagent le meme created_at a la
+    // microseconde pres avec des dizaines d'autres (meme transaction
+    // d'insertion) - sans un 2eme critere de tri unique (id), la pagination
+    // par .range() peut sauter ou dupliquer des lignes d'une requete a
+    // l'autre selon l'ordre interne (non garanti) dans lequel Postgres
+    // renvoie les lignes ex-aequo, ce qui faussait ensuite le calcul du code
+    // PL (base sur la ligne la plus ancienne de chaque groupe).
     const { data, error } = await supabaseServer
       .from("programme_lignes")
       .select("id, groupe_id, date_jour, created_at, programe, cree_par, remarque")
       .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
 
     if (error) break;
