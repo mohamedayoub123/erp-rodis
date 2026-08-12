@@ -1933,15 +1933,45 @@ export async function addFifoLigneForNewArticleAction(
     };
   }
 
-  const { data: newLigne, error: ligneError } = await supabaseServer
+  // Cet article peut deja etre demande sur cette commande (ex: FIFO deja
+  // dispatche sur 2 codes qui couvrent tout le besoin, et on veut juste
+  // ajouter/remplacer un lot supplementaire) - dans ce cas, on rattache le
+  // nouveau resultat FIFO a la ligne EXISTANTE au lieu d'en creer une 2eme,
+  // sans jamais toucher a sa quantite_demandee (le "commande" doit rester
+  // ce qui a vraiment ete demande, quel que soit ce qui est ajoute ensuite
+  // en resultat FIFO - sinon 200 demandes + 100 ajoutes affichait a tort
+  // 300 de demande au lieu de 200 demandes / 300 charges).
+  const { data: existingLigne, error: existingLigneError } = await supabaseServer
     .from("commande_lignes")
-    .insert({ commande_id: commandeId, article_id: articleId, quantite_demandee: quantiteChargee })
     .select("id")
-    .single();
+    .eq("commande_id", commandeId)
+    .eq("article_id", articleId)
+    .maybeSingle();
 
-  if (ligneError || !newLigne) {
-    return { error: ligneError?.message || "Erreur pendant la creation de la ligne." };
+  if (existingLigneError) {
+    return { error: existingLigneError.message };
   }
+
+  let ligneId = existingLigne?.id as number | undefined;
+  // Le rollback plus bas ne doit jamais supprimer une ligne qui existait
+  // deja AVANT cet appel (elle appartient a la commande, pas a cet ajout).
+  const createdNewLigne = !ligneId;
+
+  if (!ligneId) {
+    const { data: newLigne, error: ligneError } = await supabaseServer
+      .from("commande_lignes")
+      .insert({ commande_id: commandeId, article_id: articleId, quantite_demandee: quantiteChargee })
+      .select("id")
+      .single();
+
+    if (ligneError || !newLigne) {
+      return { error: ligneError?.message || "Erreur pendant la creation de la ligne." };
+    }
+
+    ligneId = newLigne.id;
+  }
+
+  const newLigne = { id: ligneId };
 
   const { data: maxOrdreRow } = await supabaseServer
     .from("fifo_resultats")
@@ -1976,9 +2006,12 @@ export async function addFifoLigneForNewArticleAction(
     .single();
 
   if (fifoError || !newFifo) {
-    // La ligne de commande a deja ete creee juste au-dessus - la retirer
-    // pour ne pas laisser une demande fantome sans resultat FIFO associe.
-    await supabaseServer.from("commande_lignes").delete().eq("id", newLigne.id);
+    // La ligne de commande n'est retiree que si elle vient d'etre creee par
+    // CET appel (jamais une ligne qui existait deja avant, meme si l'ajout
+    // de son resultat FIFO supplementaire echoue).
+    if (createdNewLigne) {
+      await supabaseServer.from("commande_lignes").delete().eq("id", newLigne.id);
+    }
     return { error: fifoError?.message || "Erreur pendant la creation de la ligne FIFO." };
   }
 
@@ -1991,11 +2024,15 @@ export async function addFifoLigneForNewArticleAction(
   });
 
   if (rpcError) {
-    // Le RPC a rejete le code (ex: plus de stock reel) - la ligne de
-    // commande et le resultat FIFO crees juste avant sont retires pour ne
-    // pas laisser de donnees orphelines pointant vers un code sans stock.
+    // Le RPC a rejete le code (ex: plus de stock reel) - le resultat FIFO
+    // cree juste avant est retire pour ne pas laisser de donnee orpheline
+    // pointant vers un code sans stock. La ligne de commande n'est retiree
+    // que si elle vient d'etre creee par CET appel (jamais une ligne
+    // preexistante).
     await supabaseServer.from("fifo_resultats").delete().eq("id", newFifo.id);
-    await supabaseServer.from("commande_lignes").delete().eq("id", newLigne.id);
+    if (createdNewLigne) {
+      await supabaseServer.from("commande_lignes").delete().eq("id", newLigne.id);
+    }
     return { error: rpcError.message };
   }
 
