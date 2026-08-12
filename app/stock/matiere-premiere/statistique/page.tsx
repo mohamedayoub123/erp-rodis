@@ -194,8 +194,12 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
           quantite: number | null;
           date_jour: string | null;
           statut: string | null;
-        }>("bons_commande_matiere_premiere", "id, article_id, code, quantite, date_jour, statut", (query) =>
-          query.in("article_id", matchedArticleIds)
+          n_doss_4d: string | null;
+          n_doss_erp: string | null;
+        }>(
+          "bons_commande_matiere_premiere",
+          "id, article_id, code, quantite, date_jour, statut, n_doss_4d, n_doss_erp",
+          (query) => query.in("article_id", matchedArticleIds)
         ),
       ]);
 
@@ -284,7 +288,7 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
 
       const openBcLignesByArticleId = new Map<
         number,
-        { quantite: number; code: string; date_jour: string | null }[]
+        { quantite: number; nDoss4d: string | null; nDossErp: string | null; date_jour: string | null }[]
       >();
       for (const ligne of bcLignes) {
         if (!ligne.article_id) continue;
@@ -293,7 +297,12 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
         const statut = computeStatutBc(quantite, quantiteImportee, ligne.statut);
         if (statut === "Termine") continue;
         const list = openBcLignesByArticleId.get(ligne.article_id) ?? [];
-        list.push({ quantite, code: ligne.code, date_jour: ligne.date_jour });
+        list.push({
+          quantite,
+          nDoss4d: ligne.n_doss_4d,
+          nDossErp: ligne.n_doss_erp,
+          date_jour: ligne.date_jour,
+        });
         openBcLignesByArticleId.set(ligne.article_id, list);
       }
 
@@ -316,7 +325,10 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
           stock,
           enCoursBc,
           qteBcEtDate: openLignes
-            .map((ligne) => `${ligne.quantite} ${ligne.code} du ${formatDate(ligne.date_jour)}`)
+            .map((ligne) => {
+              const dossier = [ligne.nDoss4d, ligne.nDossErp].filter(Boolean).join(" / ");
+              return `${ligne.quantite}${dossier ? " " + dossier : ""} du ${formatDate(ligne.date_jour)}`;
+            })
             .join(" / "),
           enCours4d,
           date4d: open4dLignes

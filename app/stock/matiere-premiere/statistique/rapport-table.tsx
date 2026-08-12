@@ -141,7 +141,7 @@ export function RapportTable({
                 <th className="border border-slate-200 px-4 py-4 font-semibold">DESIGNATION</th>
                 {rapportColumns.map((col) =>
                   col === "__SPACER__" ? (
-                    <th key={col} className="w-6 border-0 bg-white p-0" />
+                    <th key={col} className="w-28 border-0 bg-white p-0" />
                   ) : (
                     <th key={col} className="whitespace-nowrap border border-slate-200 px-4 py-4 font-semibold">
                       {col}
@@ -167,7 +167,7 @@ export function RapportTable({
                     </td>
                     {rapportColumns.map((col) => {
                       if (col === "__SPACER__") {
-                        return <td key={col} className="w-6 border-0 bg-white p-0" />;
+                        return <td key={col} className="w-28 border-0 bg-white p-0" />;
                       }
 
                       if (col === "avis") {
