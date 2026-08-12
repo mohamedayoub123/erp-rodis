@@ -29,12 +29,20 @@ type Ligne = {
   dureeMinutes: string;
   qtCarton: string;
   qtVrac: string;
+  plateforme: "M" | "A";
   autoCalcule: boolean;
 };
 
 function round(value: number, decimals = 3) {
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
+}
+
+// Un nombre de carton ne prend jamais de virgule - un carton entame compte
+// comme un carton entier, toujours arrondi au SUPERIEUR (jamais commander
+// moins que necessaire pour le conditionnement).
+function roundUpCarton(value: number) {
+  return Math.ceil(value);
 }
 
 function ligneVide(key: number): Ligne {
@@ -46,6 +54,7 @@ function ligneVide(key: number): Ligne {
     dureeMinutes: "",
     qtCarton: "",
     qtVrac: "",
+    plateforme: "M",
     autoCalcule: false,
   };
 }
@@ -114,7 +123,7 @@ export function ProgrammeFormulaire({
         const vracParCarton = vracParCartonDe(ligne);
         if (!vracParCarton) return { ...ligne, qtVrac: rawVrac };
         const vrac = Number(rawVrac);
-        const qtCarton = rawVrac && !Number.isNaN(vrac) ? String(round(vrac / vracParCarton)) : "";
+        const qtCarton = rawVrac && !Number.isNaN(vrac) ? String(roundUpCarton(vrac / vracParCarton)) : "";
         return { ...ligne, qtVrac: rawVrac, qtCarton };
       })
     );
@@ -152,11 +161,11 @@ export function ProgrammeFormulaire({
     if (cartonMaxConditionnement !== null) {
       // La chaine de conditionnement decide toujours du qt carton - le vrac
       // necessaire en decoule, jamais l'inverse.
-      carton = round(cartonMaxConditionnement);
+      carton = roundUpCarton(cartonMaxConditionnement);
       vrac = vracParCarton ? round(carton * vracParCarton) : null;
     } else if (vracDisponibleFabrication !== null && vracParCarton) {
       vrac = round(vracDisponibleFabrication);
-      carton = round(vracDisponibleFabrication / vracParCarton);
+      carton = roundUpCarton(vracDisponibleFabrication / vracParCarton);
     }
 
     updateLigne(ligne.key, {
@@ -177,6 +186,7 @@ export function ProgrammeFormulaire({
               <th className="px-3 py-3 font-semibold">Machine Fabrication</th>
               <th className="px-3 py-3 font-semibold">Machine Conditionnement</th>
               <th className="px-3 py-3 font-semibold">Duree (min)</th>
+              <th className="px-3 py-3 font-semibold">Plateforme</th>
               <th className="px-3 py-3 font-semibold"></th>
               <th className="px-3 py-3 font-semibold">Qt carton</th>
               <th className="px-3 py-3 font-semibold">Qt vrac</th>
@@ -250,6 +260,25 @@ export function ProgrammeFormulaire({
                       placeholder="Ex: 480"
                       className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                     />
+                  </td>
+                  <td className="px-3 py-3">
+                    <input type="hidden" name="plateforme" value={ligne.plateforme} />
+                    <div className="flex gap-1">
+                      {(["M", "A"] as const).map((valeur) => (
+                        <button
+                          key={valeur}
+                          type="button"
+                          onClick={() => updateLigne(ligne.key, { plateforme: valeur })}
+                          className={`rounded-2xl px-3 py-2 text-xs font-semibold transition ${
+                            ligne.plateforme === valeur
+                              ? "bg-slate-900 text-white"
+                              : "border border-slate-200 text-slate-700 hover:border-slate-400"
+                          }`}
+                        >
+                          {valeur === "M" ? "Manuel" : "Auto"}
+                        </button>
+                      ))}
+                    </div>
                   </td>
                   <td className="px-3 py-3">
                     <button

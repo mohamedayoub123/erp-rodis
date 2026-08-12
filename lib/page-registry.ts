@@ -527,6 +527,25 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Machines",
     pathPrefixes: ["/production/machines"],
   },
+  // depots/produit : portes depuis V2, reserves au compte admin pour le
+  // moment (defaultView false) - aucun utilisateur existant n'avait deja
+  // acces a ces cles (brand new), donc rien n'est retire a personne. A
+  // ouvrir plus tard via l'ecran Admin (ou en repassant defaultView a true)
+  // quand le module aura ete valide.
+  {
+    key: "depots",
+    module: "Production",
+    label: "Entrepot (creer, stock, transferts) - reserve admin pour le moment",
+    pathPrefixes: ["/depots"],
+    defaultView: false,
+  },
+  {
+    key: "produit",
+    module: "Production",
+    label: "Produit (liste unifiee, stock par depot, statistique) - reserve admin pour le moment",
+    pathPrefixes: ["/produit"],
+    defaultView: false,
+  },
   {
     key: "productionRapportEcarts",
     module: "Production",

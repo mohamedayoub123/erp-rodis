@@ -4,7 +4,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { formatDate, formatDateTime } from "@/lib/format-date";
+import { formatDate } from "@/lib/format-date";
 
 type ProgrammeRow = {
   id: number;
@@ -15,7 +15,6 @@ type ProgrammeRow = {
   remarque: string | null;
   statut: string;
   utilisateur: string | null;
-  created_at: string | null;
 };
 
 type GroupeProgramme = {
@@ -24,7 +23,6 @@ type GroupeProgramme = {
   remarque: string | null;
   statut: string;
   utilisateur: string | null;
-  createdAt: string | null;
   qtCartonTotal: number;
   qtVracTotal: number;
 };
@@ -37,7 +35,7 @@ async function fetchAllProgrammes() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("programmes")
-      .select("id, numero_programme, qt_carton, qt_vrac, date_jour, remarque, statut, utilisateur, created_at")
+      .select("id, numero_programme, qt_carton, qt_vrac, date_jour, remarque, statut, utilisateur")
       .order("date_jour", { ascending: false })
       .order("numero_programme", { ascending: false })
       .range(from, from + pageSize - 1);
@@ -76,7 +74,6 @@ function regrouperParProgramme(rows: ProgrammeRow[]) {
       remarque: row.remarque,
       statut: row.statut,
       utilisateur: row.utilisateur,
-      createdAt: row.created_at,
       qtCartonTotal: row.qt_carton,
       qtVracTotal: row.qt_vrac,
     });
@@ -104,7 +101,7 @@ export default async function ProgrammePage() {
               Programme
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Un programme par ligne (MB1, MB2...). Clique &quot;Voir&quot; pour le detail :
+              Un programme par ligne (MB.2026.1, MB.2026.2...). Clique &quot;Voir&quot; pour le detail :
               articles, machines et quantites.
             </p>
           </div>
@@ -144,7 +141,6 @@ export default async function ProgrammePage() {
                     <th className="px-6 py-4 font-semibold">Remarque</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
                     <th className="px-6 py-4 font-semibold">Saisi par</th>
-                    <th className="px-6 py-4 font-semibold">Date de saisie</th>
                     <th className="px-6 py-4 font-semibold">Qt carton total</th>
                     <th className="px-6 py-4 font-semibold">Qt vrac total</th>
                     <th className="px-6 py-4 font-semibold"></th>
@@ -153,12 +149,13 @@ export default async function ProgrammePage() {
                 <tbody>
                   {groupes.map((groupe) => (
                     <tr key={groupe.numero} className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-semibold text-slate-900">MB{groupe.numero}</td>
+                      <td className="px-6 py-4 font-semibold text-slate-900">
+                        MB.{groupe.date.slice(0, 4)}.{groupe.numero}
+                      </td>
                       <td className="px-6 py-4 text-slate-600">{formatDate(groupe.date)}</td>
                       <td className="px-6 py-4 text-slate-600">{groupe.remarque || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{groupe.statut}</td>
                       <td className="px-6 py-4 text-slate-600">{groupe.utilisateur || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatDateTime(groupe.createdAt)}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(groupe.qtCartonTotal)}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(groupe.qtVracTotal)}</td>
                       <td className="px-6 py-4">

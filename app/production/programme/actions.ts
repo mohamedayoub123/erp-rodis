@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { assignDispatcherCodesAndInsert } from "./dispatch-engine";
+import { type DispatchSourceRow } from "@/lib/dispatcher-shared";
+import { STATUT_PROGRAMME_OPTIONS } from "./constants";
 
 async function requireProgrammeWriteAccess() {
   const currentUser = await getCurrentStockUser();
@@ -56,6 +59,7 @@ export async function createProgrammeAction(formData: FormData) {
   const dureesMinutes = formData.getAll("duree_minutes");
   const qtCartons = formData.getAll("qt_carton");
   const qtVracs = formData.getAll("qt_vrac");
+  const plateformes = formData.getAll("plateforme");
 
   const lignes = articleIds
     .map((rawArticleId, index) => ({
@@ -66,6 +70,7 @@ export async function createProgrammeAction(formData: FormData) {
       duree_minutes: parseOptionalNumberValue(dureesMinutes[index]),
       qt_carton: parseOptionalNumberValue(qtCartons[index]) ?? 0,
       qt_vrac: parseOptionalNumberValue(qtVracs[index]) ?? 0,
+      plateforme: plateformes[index] === "A" ? "A" : "M",
       date_jour: dateJour,
       numero_programme: numeroProgramme,
       remarque,
@@ -77,6 +82,83 @@ export async function createProgrammeAction(formData: FormData) {
   if (lignes.length === 0) {
     throw new Error("Ajoute au moins un article au programme.");
   }
+
+  const { error } = await supabaseServer.from("programmes").insert(lignes);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/production/programme");
+  redirect(`/production/programme/${numeroProgramme}`);
+}
+
+// Duplique toutes les lignes d'un programme (MB) existant vers un NOUVEAU
+// numero_programme (le plus grand existant + 1, meme convention que
+// createProgrammeAction), date du jour, statut remis a "En attente" (repart
+// a zero, meme si l'original etait deja Fini) - articles/machines/quantites/
+// remarque copies tels quels, prets a etre ajustes sur la page du nouveau
+// programme.
+export async function copyProgrammeAction(formData: FormData) {
+  const currentUser = await requireProgrammeWriteAccess();
+
+  const sourceNumeroProgramme = Number(formData.get("numero_programme") || "0");
+  if (!sourceNumeroProgramme) {
+    throw new Error("Programme invalide.");
+  }
+
+  const { data: sourceLignesData, error: sourceError } = await supabaseServer
+    .from("programmes")
+    .select(
+      "article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, plateforme, remarque"
+    )
+    .eq("numero_programme", sourceNumeroProgramme);
+
+  if (sourceError) {
+    throw new Error(sourceError.message);
+  }
+
+  const sourceLignes = (sourceLignesData ?? []) as {
+    article_id: number;
+    vrac_article_id: number | null;
+    machine_fabrication_id: number | null;
+    machine_conditionnement_id: number | null;
+    duree_minutes: number | null;
+    qt_carton: number;
+    qt_vrac: number;
+    plateforme: string | null;
+    remarque: string | null;
+  }[];
+
+  if (sourceLignes.length === 0) {
+    throw new Error("Programme introuvable.");
+  }
+
+  const { data: dernierProgramme } = await supabaseServer
+    .from("programmes")
+    .select("numero_programme")
+    .order("numero_programme", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const numeroProgramme = ((dernierProgramme as { numero_programme: number | null } | null)?.numero_programme ?? 0) + 1;
+
+  const dateJour = new Date().toISOString().slice(0, 10);
+
+  const lignes = sourceLignes.map((ligne) => ({
+    article_id: ligne.article_id,
+    vrac_article_id: ligne.vrac_article_id,
+    machine_fabrication_id: ligne.machine_fabrication_id,
+    machine_conditionnement_id: ligne.machine_conditionnement_id,
+    duree_minutes: ligne.duree_minutes,
+    qt_carton: ligne.qt_carton,
+    qt_vrac: ligne.qt_vrac,
+    plateforme: ligne.plateforme === "A" ? "A" : "M",
+    date_jour: dateJour,
+    numero_programme: numeroProgramme,
+    remarque: ligne.remarque,
+    statut: STATUT_PROGRAMME_OPTIONS[0],
+    utilisateur: currentUser || null,
+  }));
 
   const { error } = await supabaseServer.from("programmes").insert(lignes);
 
@@ -139,6 +221,7 @@ export async function addLignesProgrammeAction(formData: FormData) {
   const dureesMinutes = formData.getAll("duree_minutes");
   const qtCartons = formData.getAll("qt_carton");
   const qtVracs = formData.getAll("qt_vrac");
+  const plateformes = formData.getAll("plateforme");
 
   const lignes = articleIds
     .map((rawArticleId, index) => ({
@@ -149,6 +232,7 @@ export async function addLignesProgrammeAction(formData: FormData) {
       duree_minutes: parseOptionalNumberValue(dureesMinutes[index]),
       qt_carton: parseOptionalNumberValue(qtCartons[index]) ?? 0,
       qt_vrac: parseOptionalNumberValue(qtVracs[index]) ?? 0,
+      plateforme: plateformes[index] === "A" ? "A" : "M",
       date_jour: (existant as { date_jour: string }).date_jour,
       numero_programme: numeroProgramme,
       remarque: (existant as { remarque: string | null }).remarque,
@@ -223,4 +307,312 @@ export async function updateProgrammeGroupeAction(formData: FormData) {
 
   revalidatePath("/production/programme");
   revalidatePath(`/production/programme/${numeroProgramme}`);
+}
+
+type MirrorLigneInput = {
+  programmeId: number;
+  zone: string;
+  chaine: string;
+  articleId: number;
+  produit: string;
+  typeArticle: string;
+  qtCarton: number;
+  qtVrac: number;
+  plateforme: string;
+  dateJour: string;
+};
+
+// Programme (MB) ne creait jusqu'ici AUCUNE ligne dans programme_lignes -
+// or Dashboard/Calendrier Production (app/production/suivi/data.ts) lisent
+// EXCLUSIVEMENT programme_lignes (confirme_production=true,
+// programme_termine=false/null), jamais programme_dispatcher_lignes ni
+// programmes. Cette fonction cree/met a jour une ligne "miroir" par ligne
+// de programme (liee via source_programme_id, stable a travers les
+// redispatchs), exactement comme "Programme par ligne" le fait pour
+// lui-meme au Save (performProgrammeLigneSave) - avec le meme groupe_id
+// (positif) partage entre toutes les lignes miroir d'un meme MB, reutilise
+// (jamais recree) d'un dispatch a l'autre.
+async function syncProgrammeLignesMirror(
+  numeroProgramme: number,
+  lignes: MirrorLigneInput[],
+  currentUser: string | null
+): Promise<{ groupeId: number; mirrorRowIds: number[]; insertedIds: number[] }> {
+  const { data: existingData, error: existingError } = await supabaseServer
+    .from("programme_lignes")
+    .select("id, source_programme_id, groupe_id")
+    .eq("source_numero_programme", numeroProgramme);
+
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
+  const existingRows = (existingData ?? []) as {
+    id: number;
+    source_programme_id: number | null;
+    groupe_id: number | null;
+  }[];
+  const existingByProgrammeId = new Map(
+    existingRows.filter((row) => row.source_programme_id !== null).map((row) => [row.source_programme_id as number, row])
+  );
+
+  // Ligne retiree du programme depuis le dernier dispatch (article supprime
+  // sur la page MB) : sa ligne miroir n'a plus de raison d'exister, mais
+  // seulement si elle n'a jamais ete confirmee - une ligne deja validee sur
+  // Ravitailleur/page Dispatch reste en place (historique de production
+  // reelle, jamais efface silencieusement).
+  const currentProgrammeIds = new Set(lignes.map((l) => l.programmeId));
+  const orphanIds = existingRows
+    .filter((row) => row.source_programme_id !== null && !currentProgrammeIds.has(row.source_programme_id))
+    .map((row) => row.id);
+  if (orphanIds.length > 0) {
+    const { error: deleteOrphansError } = await supabaseServer
+      .from("programme_lignes")
+      .delete()
+      .in("id", orphanIds)
+      .eq("confirme_production", false);
+    if (deleteOrphansError) {
+      throw new Error(deleteOrphansError.message);
+    }
+  }
+
+  const mirrorRowIds: number[] = new Array(lignes.length).fill(0);
+  const toInsert: Record<string, unknown>[] = [];
+  const toInsertIndexes: number[] = [];
+
+  lignes.forEach((ligne, index) => {
+    const existing = existingByProgrammeId.get(ligne.programmeId);
+    if (existing) {
+      mirrorRowIds[index] = existing.id;
+      return;
+    }
+    toInsertIndexes.push(index);
+    toInsert.push({
+      zone: ligne.zone,
+      chaine: ligne.chaine,
+      article_id: ligne.articleId,
+      produit: ligne.produit || null,
+      type_article: ligne.typeArticle || null,
+      qt_carton: ligne.qtCarton,
+      vrac_a_fabriquer: ligne.qtVrac,
+      plateforme: ligne.plateforme,
+      programe: `MB.${ligne.dateJour.slice(0, 4)}.${numeroProgramme}`,
+      date_jour: ligne.dateJour,
+      cree_par: currentUser,
+      confirme_production: false,
+      source_numero_programme: numeroProgramme,
+      source_programme_id: ligne.programmeId,
+    });
+  });
+
+  let insertedIds: number[] = [];
+  if (toInsert.length > 0) {
+    const { data: insertedData, error: insertError } = await supabaseServer
+      .from("programme_lignes")
+      .insert(toInsert)
+      .select("id");
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+    insertedIds = ((insertedData ?? []) as { id: number }[]).map((row) => row.id);
+    toInsertIndexes.forEach((rowIndex, i) => {
+      mirrorRowIds[rowIndex] = insertedIds[i];
+    });
+  }
+
+  // Lignes existantes : recale zone/chaine/article/quantites/plateforme sur
+  // l'etat courant du programme (l'utilisateur a pu modifier la ligne MB
+  // depuis le dernier dispatch) - une petite requete par ligne (rarement
+  // plus de quelques lignes par programme).
+  for (let index = 0; index < lignes.length; index++) {
+    if (toInsertIndexes.includes(index)) continue;
+    const ligne = lignes[index];
+    const { error: updateError } = await supabaseServer
+      .from("programme_lignes")
+      .update({
+        zone: ligne.zone,
+        chaine: ligne.chaine,
+        article_id: ligne.articleId,
+        produit: ligne.produit || null,
+        type_article: ligne.typeArticle || null,
+        qt_carton: ligne.qtCarton,
+        vrac_a_fabriquer: ligne.qtVrac,
+        plateforme: ligne.plateforme,
+        date_jour: ligne.dateJour,
+      })
+      .eq("id", mirrorRowIds[index]);
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+  }
+
+  const existingGroupeIds = existingRows.map((row) => row.groupe_id).filter((id): id is number => id !== null);
+  let groupeId: number;
+  if (existingGroupeIds.length > 0) {
+    groupeId = Math.min(...existingGroupeIds);
+  } else {
+    // Math.min(mirrorRowIds) (convention de "Programme par ligne") n'est PAS
+    // sur pour un groupe fraichement cree ici : les lignes migrees depuis V1
+    // ont garde leur groupe_id ET leur id d'origine tels quels, donc un id de
+    // ligne miroir tout juste insere (bas, juste apres la reinitialisation
+    // de la sequence post-migration) peut coincider avec un groupe_id DEJA
+    // utilise par une ligne migree totalement sans rapport - ce qui melait 2
+    // programmes distincts sous le meme groupe_id (confirme_production de
+    // l'un affectait l'autre). max(groupe_id)+1 sur toute la table garantit
+    // une valeur jamais utilisee, quelle que soit l'origine des ids.
+    const { data: maxGroupeRow } = await supabaseServer
+      .from("programme_lignes")
+      .select("groupe_id")
+      .not("groupe_id", "is", null)
+      .order("groupe_id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const maxGroupeId = (maxGroupeRow as { groupe_id: number } | null)?.groupe_id ?? 0;
+    groupeId = maxGroupeId + 1;
+  }
+
+  const { error: groupUpdateError } = await supabaseServer
+    .from("programme_lignes")
+    .update({ groupe_id: groupeId })
+    .eq("source_numero_programme", numeroProgramme);
+  if (groupUpdateError) {
+    throw new Error(groupUpdateError.message);
+  }
+
+  return { groupeId, mirrorRowIds, insertedIds };
+}
+
+// Dispatche un programme (MB) vers programme_dispatcher_lignes ET vers des
+// lignes miroir dans programme_lignes (voir syncProgrammeLignesMirror) -
+// assignDispatcherCodesAndInsert (./dispatch-engine.ts, moteur partage issu
+// de l'ancienne page "Programme par ligne" avant sa suppression) fait le
+// decoupage en lots, la generation de code et l'ecriture numero_lot.
+//
+// La zone/chaine viennent de la machine Conditionnement de chaque ligne
+// (machines.zone / machines.nom - "chaine 1" etc.), pas d'une liste fixe
+// comme sur Programme par ligne. Le groupe_id est desormais un vrai
+// groupe_id programme_lignes (positif, stable a travers les redispatchs) -
+// c'est ce qui permet a "Save" (page Dispatch) de confirmer ces lignes pour
+// le Dashboard/Calendrier, exactement comme le Save de Ravitailleur par
+// ligne le fait pour Programme par ligne.
+export async function dispatchProgrammeAction(formData: FormData) {
+  const currentUser = await requireProgrammeWriteAccess();
+  // Porte depuis V2, reserve au compte admin pour le moment.
+  if (!isAdminUser(currentUser)) {
+    throw new Error("Fonctionnalite reservee pour le moment.");
+  }
+
+  const numeroProgramme = Number(formData.get("numero_programme") || "0");
+  if (!numeroProgramme) {
+    throw new Error("Programme invalide.");
+  }
+
+  const { data: lignesData, error: lignesError } = await supabaseServer
+    .from("programmes")
+    .select("id, article_id, machine_conditionnement_id, qt_carton, qt_vrac, plateforme, date_jour")
+    .eq("numero_programme", numeroProgramme);
+
+  if (lignesError) {
+    throw new Error(lignesError.message);
+  }
+
+  const lignes = (lignesData ?? []) as {
+    id: number;
+    article_id: number;
+    machine_conditionnement_id: number | null;
+    qt_carton: number;
+    qt_vrac: number;
+    plateforme: string | null;
+    date_jour: string;
+  }[];
+
+  if (lignes.length === 0) {
+    throw new Error("Programme introuvable.");
+  }
+
+  const machineIds = [...new Set(lignes.map((l) => l.machine_conditionnement_id).filter((id): id is number => !!id))];
+  const articleIds = [...new Set(lignes.map((l) => l.article_id))];
+
+  const [{ data: machinesData }, { data: articlesData }] = await Promise.all([
+    supabaseServer.from("machines").select("id, nom, zone").in("id", machineIds),
+    supabaseServer.from("articles").select("id, nom_article, type_article").in("id", articleIds),
+  ]);
+
+  const machineById = new Map(
+    ((machinesData ?? []) as { id: number; nom: string; zone: string | null }[]).map((m) => [m.id, m])
+  );
+  const articleById = new Map(
+    ((articlesData ?? []) as { id: number; nom_article: string; type_article: string | null }[]).map((a) => [a.id, a])
+  );
+
+  const dateJour = lignes[0].date_jour;
+  const mirrorInputs: MirrorLigneInput[] = lignes.map((ligne) => {
+    const machine = ligne.machine_conditionnement_id ? machineById.get(ligne.machine_conditionnement_id) : null;
+    if (!machine || !machine.zone) {
+      const nomArticle = articleById.get(ligne.article_id)?.nom_article ?? `#${ligne.article_id}`;
+      throw new Error(
+        `${nomArticle} : la machine Conditionnement doit avoir une Zone configuree (page Machines) pour pouvoir dispatcher.`
+      );
+    }
+    const article = articleById.get(ligne.article_id);
+    return {
+      programmeId: ligne.id,
+      zone: machine.zone,
+      chaine: machine.nom,
+      articleId: ligne.article_id,
+      produit: article?.nom_article ?? "",
+      typeArticle: article?.type_article ?? "",
+      qtCarton: ligne.qt_carton,
+      qtVrac: ligne.qt_vrac,
+      plateforme: ligne.plateforme === "A" ? "A" : "M",
+      dateJour: ligne.date_jour,
+    };
+  });
+
+  const filledRows: DispatchSourceRow[] = mirrorInputs.map((ligne) => ({
+    zone: ligne.zone,
+    chaine: ligne.chaine,
+    article_id: ligne.articleId,
+    produit: ligne.produit,
+    type_article: ligne.typeArticle,
+    qt_carton: null,
+    vrac_a_fabriquer: ligne.qtVrac || null,
+    plateforme: ligne.plateforme,
+    programe: `MB.${ligne.dateJour.slice(0, 4)}.${numeroProgramme}`,
+  }));
+
+  const affectedZoneChaine = [
+    ...new Map(filledRows.map((row) => [`${row.zone}::${row.chaine}`, { zone: row.zone, chaine: row.chaine }])).values(),
+  ];
+
+  const { groupeId, mirrorRowIds, insertedIds } = await syncProgrammeLignesMirror(
+    numeroProgramme,
+    mirrorInputs,
+    currentUser
+  );
+
+  try {
+    await assignDispatcherCodesAndInsert(filledRows, dateJour, groupeId, affectedZoneChaine, mirrorRowIds);
+  } catch (error) {
+    // Meme garantie que performProgrammeLigneSave : un Dispatch rate ne
+    // laisse jamais une ligne miroir "fantome" (sans numero_lot) - seules
+    // les lignes miroir CREEES par CET appel sont retirees, jamais celles
+    // qui existaient deja avant (potentiellement deja confirmees).
+    if (insertedIds.length > 0) {
+      await supabaseServer.from("programme_lignes").delete().in("id", insertedIds);
+    }
+    throw error;
+  }
+
+  revalidatePath("/production/programme");
+  revalidatePath(`/production/programme/${numeroProgramme}`);
+  revalidatePath(`/production/programme/${numeroProgramme}/dispatch`);
+  revalidatePath("/production/suivi/dashboard");
+  revalidatePath("/production/suivi/calendrier");
+
+  // Redirige vers une page dediee qui ne montre QUE les lignes de CE
+  // programme, jamais melangees a la production reelle des autres
+  // chaines/zones - contrairement aux vues Ravitailleur par zone/"Toutes
+  // les zones", qui restent des vues globales partagees avec tout le reste
+  // de la production.
+  redirect(`/production/programme/${numeroProgramme}/dispatch`);
 }

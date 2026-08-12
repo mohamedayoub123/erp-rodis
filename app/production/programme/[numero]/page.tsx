@@ -1,14 +1,17 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { formatDate, formatDateTime } from "@/lib/format-date";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { formatDate } from "@/lib/format-date";
+import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { ProgrammeFormulaire } from "../programme-formulaire";
 import {
   addLignesProgrammeAction,
+  copyProgrammeAction,
   deleteProgrammeAction,
+  dispatchProgrammeAction,
   updateProgrammeGroupeAction,
   updateProgrammeLigneAction,
 } from "../actions";
@@ -23,11 +26,11 @@ type ProgrammeRow = {
   duree_minutes: number | null;
   qt_carton: number;
   qt_vrac: number;
+  plateforme: string | null;
   date_jour: string;
   remarque: string | null;
   statut: string;
   utilisateur: string | null;
-  created_at: string | null;
 };
 
 type ArticleRow = {
@@ -38,7 +41,7 @@ type ArticleRow = {
   piece_par_carton: number | null;
 };
 
-type MachineRow = { id: number; nom: string; type: string | null };
+type MachineRow = { id: number; nom: string; type: string | null; zone: string | null };
 
 type MachineProduitRow = {
   machine_id: number;
@@ -83,6 +86,10 @@ export default async function ProgrammeDetailPage({
 
   const currentUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentUser, "programme");
+  // Dispatch/Verifier stock (portes depuis V2) reserves au compte admin pour
+  // le moment - independant de canWrite, qui reste le droit d'ecriture
+  // normal deja donne a plusieurs employes sur cette page.
+  const isAdmin = isAdminUser(currentUser);
 
   const [
     { data: lignesData, error },
@@ -93,12 +100,12 @@ export default async function ProgrammeDetailPage({
     supabaseServer
       .from("programmes")
       .select(
-        "id, article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, date_jour, remarque, statut, utilisateur, created_at"
+        "id, article_id, vrac_article_id, machine_fabrication_id, machine_conditionnement_id, duree_minutes, qt_carton, qt_vrac, plateforme, date_jour, remarque, statut, utilisateur"
       )
       .eq("numero_programme", numeroProgramme)
       .order("id", { ascending: true }),
     fetchAll<ArticleRow>("articles", "id, nom_article, vrac_article_id, contenance, piece_par_carton"),
-    fetchAll<MachineRow>("machines", "id, nom, type"),
+    fetchAll<MachineRow>("machines", "id, nom, type, zone"),
     fetchAll<MachineProduitRow>("machine_produits", "machine_id, article_id, capacite, capacite_min, capacite_max, temps_minutes"),
   ]);
 
@@ -126,11 +133,11 @@ export default async function ProgrammeDetailPage({
 
   const machinesFabrication = machines
     .filter((machine) => machine.type === "Fabrication")
-    .map((machine) => ({ id: machine.id, label: machine.nom }))
+    .map((machine) => ({ id: machine.id, label: `${machine.nom} (${machine.zone || "sans zone"})` }))
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
   const machinesConditionnement = machines
     .filter((machine) => machine.type === "Conditionnement")
-    .map((machine) => ({ id: machine.id, label: machine.nom }))
+    .map((machine) => ({ id: machine.id, label: `${machine.nom} (${machine.zone || "sans zone"})` }))
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
 
   const capaciteParMachineArticle: Record<
@@ -157,7 +164,7 @@ export default async function ProgrammeDetailPage({
               Programme
             </p>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
-              MB{numeroProgramme}
+              MB.{(premiere?.date_jour ?? "").slice(0, 4) || "----"}.{numeroProgramme}
             </h1>
             {premiere ? (
               <p className="mt-1 text-sm text-slate-600">{formatDate(premiere.date_jour)}</p>
@@ -166,6 +173,44 @@ export default async function ProgrammeDetailPage({
 
           <div className="flex items-center gap-3">
             <BackButton href="/production/programme" label="Retour" />
+            {isAdmin ? (
+              <Link
+                href={`/production/programme/${numeroProgramme}/stock`}
+                className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+              >
+                Verifier stock
+              </Link>
+            ) : null}
+            {isAdmin ? (
+              <Link
+                href={`/production/programme/${numeroProgramme}/dispatch`}
+                className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+              >
+                Voir dispatch
+              </Link>
+            ) : null}
+            {canWrite ? (
+              <form action={copyProgrammeAction}>
+                <input type="hidden" name="numero_programme" value={numeroProgramme} />
+                <button
+                  type="submit"
+                  className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                >
+                  Copier ce programme
+                </button>
+              </form>
+            ) : null}
+            {canWrite && isAdmin ? (
+              <form action={dispatchProgrammeAction}>
+                <input type="hidden" name="numero_programme" value={numeroProgramme} />
+                <button
+                  type="submit"
+                  className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+                >
+                  Dispatch
+                </button>
+              </form>
+            ) : null}
             <RefreshButton />
           </div>
         </div>
@@ -229,11 +274,11 @@ export default async function ProgrammeDetailPage({
                       <th className="px-6 py-4 font-semibold">Machine Fabrication</th>
                       <th className="px-6 py-4 font-semibold">Machine Conditionnement</th>
                       <th className="px-6 py-4 font-semibold">Duree (min)</th>
+                      <th className="px-6 py-4 font-semibold">Plateforme</th>
                       <th className="px-6 py-4 font-semibold">Qt carton</th>
                       <th className="px-6 py-4 font-semibold">Qt vrac</th>
                       <th className="px-6 py-4 font-semibold"></th>
                       <th className="px-6 py-4 font-semibold">Saisi par</th>
-                      <th className="px-6 py-4 font-semibold">Date de saisie</th>
                       {canWrite ? <th className="px-6 py-4 font-semibold"></th> : null}
                     </tr>
                   </thead>
@@ -255,6 +300,9 @@ export default async function ProgrammeDetailPage({
                             : "-"}
                         </td>
                         <td className="px-6 py-4 text-slate-600">{ligne.duree_minutes ?? "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {ligne.plateforme === "A" ? "Auto" : "Manuel"}
+                        </td>
                         {canWrite ? (
                           <>
                             <td className="px-6 py-4">
@@ -300,7 +348,6 @@ export default async function ProgrammeDetailPage({
                           </>
                         )}
                         <td className="px-6 py-4 text-slate-600">{ligne.utilisateur || "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{formatDateTime(ligne.created_at)}</td>
                         {canWrite ? (
                           <td className="px-6 py-4">
                             <form action={deleteProgrammeAction}>
