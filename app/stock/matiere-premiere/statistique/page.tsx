@@ -30,8 +30,6 @@ const RAPPORT_COLUMNS_BY_GAMME: Record<string, string[]> = {
     "statistique 4D 6 mois",
     "Statistique 6mois calculé",
     "A COMMANDER",
-    "2025",
-    "CONSO 2024",
     "tonnage 1 tc",
     "conso 1mois",
     "Conso reelle 12mois",
