@@ -57,7 +57,7 @@ async function fetchPrefillLignes(groupeId: number): Promise<PrefillLigne[]> {
   const { data } = await supabaseServer
     .from("programme_lignes")
     .select("zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe, remarque")
-    .eq("groupe_id", groupeId)
+    .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`)
     .order("id", { ascending: true });
 
   return (data ?? []) as PrefillLigne[];

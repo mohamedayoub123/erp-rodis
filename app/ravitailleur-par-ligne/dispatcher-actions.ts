@@ -307,7 +307,7 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
 
   const { data: rowData, error: rowError } = await supabaseServer
     .from("programme_dispatcher_lignes")
-    .select("id, zone, article_id, groupe_id")
+    .select("id, zone, chaine, article_id, groupe_id")
     .eq("id", id)
     .maybeSingle();
 
@@ -315,7 +315,13 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
     throw new Error("Ligne introuvable.");
   }
 
-  const row = rowData as { id: number; zone: string; article_id: number | null; groupe_id: number | null };
+  const row = rowData as {
+    id: number;
+    zone: string;
+    chaine: string;
+    article_id: number | null;
+    groupe_id: number | null;
+  };
 
   let qtCarton: number | null = null;
   if (row.article_id && qtVrac && qtVrac > 0) {
@@ -355,12 +361,16 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
         .from("programme_lignes")
         .select("id, plateforme")
         .eq("groupe_id", row.groupe_id)
-        .eq("article_id", row.article_id),
+        .eq("article_id", row.article_id)
+        .eq("zone", row.zone)
+        .eq("chaine", row.chaine),
       supabaseServer
         .from("programme_dispatcher_lignes")
         .select("id")
         .eq("groupe_id", row.groupe_id)
-        .eq("article_id", row.article_id),
+        .eq("article_id", row.article_id)
+        .eq("zone", row.zone)
+        .eq("chaine", row.chaine),
     ]);
 
     const lignes = (sourceLignes as { id: number; plateforme: string | null }[] | null) ?? [];
@@ -382,10 +392,15 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
     // le code affiche ici (programme_dispatcher_lignes.code) - sans cette
     // synchro, un code ajoute/corrige a la main ici restait invisible du
     // Dashboard meme apres confirmation Ravitailleur. On ne le fait que quand
-    // le lien (groupe_id, article_id) est sans ambiguite (une seule ligne
-    // programme_lignes ET une seule ligne dispatcher pour ce couple) - un lot
-    // reparti sur plusieurs chaines/codes reste inchange ici pour eviter de
-    // deviner a quelle portion du decoupage ce code appartient.
+    // le lien (groupe_id, article_id, zone, chaine) est sans ambiguite (une
+    // seule ligne programme_lignes ET une seule ligne dispatcher pour cette
+    // chaine precise) - un meme article reparti sur PLUSIEURS CHAINES (ex:
+    // DSR Elixir sur CHAINE 5 et CHAINE 6) a une ligne programme_lignes
+    // distincte PAR CHAINE, donc le filtre zone+chaine suffit a lever
+    // l'ambiguite pour ce cas frequent ; seul un lot repArti en plusieurs
+    // codes SUR LA MEME chaine (plusieurs lignes dispatcher pour la meme
+    // chaine) reste ignore ici, faute de savoir a quelle portion du
+    // decoupage ce code appartient.
     if (lignes.length === 1 && (dispatcherSiblings?.length ?? 0) === 1) {
       const numeroLotDetail = trimmedCode
         ? [{ code: trimmedCode, qt_vrac: qtVrac, qt_carton: qtCarton }]

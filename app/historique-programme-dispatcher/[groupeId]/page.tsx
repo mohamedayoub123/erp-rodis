@@ -7,6 +7,8 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { ZonePrintButton } from "@/app/_components/zone-print-button";
+import Link from "next/link";
+import { fetchPdCodeByGroupeId, fetchPlCodeByGroupeId } from "@/lib/programme-numbering";
 
 type HistoryRow = {
   id: number;
@@ -172,39 +174,16 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
     rowsByZone.get(row.zone)?.push(row);
   }
 
-  // PD1/PD2/PD3... n'est pas stocke - recalcule selon le rang du groupe
-  // (le plus ancien = PD1), meme principe que MB1/MB2 et TE1/TS1.
-  const allGroupRows: { groupe_id: number; created_at: string }[] = [];
-  let fromIndex = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data: groupRows } = await supabaseServer
-      .from("programme_dispatcher_history")
-      .select("groupe_id, created_at")
-      .range(fromIndex, fromIndex + pageSize - 1);
-
-    const chunk = (groupRows as { groupe_id: number; created_at: string }[] | null) ?? [];
-    allGroupRows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    fromIndex += pageSize;
-  }
-
-  const earliestByGroup = new Map<number, string>();
-  for (const row of allGroupRows) {
-    const current = earliestByGroup.get(row.groupe_id);
-    if (!current || new Date(row.created_at).getTime() < new Date(current).getTime()) {
-      earliestByGroup.set(row.groupe_id, row.created_at);
-    }
-  }
-
-  const orderedGroupIds = [...earliestByGroup.entries()]
-    .sort((a, b) => new Date(a[1]).getTime() - new Date(b[1]).getTime())
-    .map(([id]) => id);
-
-  const rank = orderedGroupIds.indexOf(groupeIdNumber);
-  const code = rank >= 0 ? `PD${rank + 1}` : `PD-${groupeIdNumber}`;
+  // PD1/PD2/PD3... n'est pas stocke - meme calcul que la page liste (voir
+  // lib/programme-numbering.ts), pour ne plus jamais afficher un numero
+  // different entre les 2 pages pour le meme groupe.
+  const [pdCodeByGroupeId, plCodeByGroupeId] = await Promise.all([
+    fetchPdCodeByGroupeId(),
+    fetchPlCodeByGroupeId(),
+  ]);
+  const code = pdCodeByGroupeId.get(groupeIdNumber) ?? `PD-${groupeIdNumber}`;
+  const sourceGroupeId = rows.find((row) => row.source_groupe_id !== null)?.source_groupe_id ?? null;
+  const plCode = sourceGroupeId !== null ? plCodeByGroupeId.get(sourceGroupeId) ?? null : null;
   const dateJour = rows[0]?.date_jour;
 
   return (
@@ -220,6 +199,19 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
               <p className="mt-2 text-sm text-slate-600">
                 {formatDate(dateJour)} - {rows.length} ligne{rows.length > 1 ? "s" : ""}
                 {rows[0]?.cree_par ? ` - Cree par ${rows[0].cree_par}` : ""}
+              </p>
+              <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                Programme source :
+                {sourceGroupeId !== null ? (
+                  <Link
+                    href={`/historique-programme/${sourceGroupeId}`}
+                    className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
+                  >
+                    {plCode ?? `PL-${sourceGroupeId}`}
+                  </Link>
+                ) : (
+                  <span className="text-slate-400">inconnu</span>
+                )}
               </p>
             </div>
 

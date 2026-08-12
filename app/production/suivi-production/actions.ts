@@ -1239,6 +1239,7 @@ async function createManualEntryLigne(
         numero_lot: numeroLot,
         date_jour: dateJour,
         confirme_production: true,
+        cree_par: currentUser,
       },
     ])
     .select("id")

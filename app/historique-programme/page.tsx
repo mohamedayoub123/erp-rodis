@@ -5,10 +5,11 @@ import { deleteProgrammeLigneGroupAction } from "../programe-par-ligne/actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { computePlCodesFromRows, fetchPdRefsBySourceGroupeId } from "@/lib/programme-numbering";
 
 type ProgrammeLigneRow = {
   id: number;
-  groupe_id: number;
+  groupe_id: number | null;
   date_jour: string;
   created_at: string;
   programe: string | null;
@@ -22,10 +23,19 @@ async function fetchAllProgrammeLignes(): Promise<ProgrammeLigneRow[]> {
   const pageSize = 1000;
 
   while (true) {
+    // Un tri sur created_at seul n'est pas deterministe ici : la grande
+    // majorite des lignes de cette table partagent le meme created_at a la
+    // microseconde pres avec des dizaines d'autres (meme transaction
+    // d'insertion) - sans un 2eme critere de tri unique (id), la pagination
+    // par .range() peut sauter ou dupliquer des lignes d'une requete a
+    // l'autre selon l'ordre interne (non garanti) dans lequel Postgres
+    // renvoie les lignes ex-aequo, ce qui faussait ensuite le calcul du code
+    // PL (base sur la ligne la plus ancienne de chaque groupe).
     const { data, error } = await supabaseServer
       .from("programme_lignes")
       .select("id, groupe_id, date_jour, created_at, programe, cree_par, remarque")
       .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
 
     if (error) break;
@@ -69,23 +79,34 @@ export default async function HistoriqueProgrammePage({
 
   const allLignes = await fetchAllProgrammeLignes();
 
+  // Meme calcul que la page detail (voir lib/programme-numbering.ts) - avant,
+  // chaque page recalculait son propre rang independamment (la liste
+  // prenait a tort la ligne la plus RECENTE de chaque groupe comme
+  // representative au lieu de la plus ANCIENNE), ce qui pouvait afficher un
+  // code PL different entre la liste et le detail pour le meme groupe.
+  const plCodeByGroupeId = computePlCodesFromRows(allLignes);
+  const pdRefsBySourceGroupeId = await fetchPdRefsBySourceGroupeId();
+
+  // Les lignes sans groupe_id (jamais rattachees a un lot au moment de leur
+  // creation) ne doivent jamais etre fusionnees ensemble juste parce
+  // qu'elles partagent toutes la valeur JS "null" - chacune devient son
+  // propre groupe solo via son propre id (unique, jamais en collision avec
+  // un vrai groupe_id puisque ceux-ci sont eux-memes toujours l'id d'une
+  // ligne programme_lignes - voir assignDispatcherCodesAndInsert).
   const groupsMap = new Map<number, ProgrammeLigneRow[]>();
   for (const ligne of allLignes) {
-    const existing = groupsMap.get(ligne.groupe_id);
+    const key = ligne.groupe_id ?? ligne.id;
+    const existing = groupsMap.get(key);
     if (existing) {
       existing.push(ligne);
     } else {
-      groupsMap.set(ligne.groupe_id, [ligne]);
+      groupsMap.set(key, [ligne]);
     }
   }
 
-  // Le code PL1.2026, PL2.2026... n'est pas stocke en base - il est
-  // recalcule ici selon le rang du groupe PARMI CEUX DE LA MEME ANNEE (le
-  // plus ancien de l'annee = PL1.<annee>), remis a 1 a chaque nouvelle
-  // annee de date_jour - meme principe que TE1/TS1 dans Mouvements. La
-  // colonne "programe" reste un champ libre tape par l'utilisateur,
-  // independant de ce code.
-  const groupsByAge = [...groupsMap.entries()]
+  // La colonne "programe" reste un champ libre tape par l'utilisateur,
+  // independant du code PL calcule ci-dessus.
+  const groups = [...groupsMap.entries()]
     .map(([groupeId, lignes]) => ({
       groupeId,
       dateJour: lignes[0]?.date_jour,
@@ -93,17 +114,9 @@ export default async function HistoriqueProgrammePage({
       count: lignes.length,
       creePar: lignes[0]?.cree_par ?? null,
       remarque: lignes[0]?.remarque ?? null,
+      code: plCodeByGroupeId.get(groupeId) ?? `PL-${groupeId}`,
+      pdRefs: pdRefsBySourceGroupeId.get(groupeId) ?? [],
     }))
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-  const rankByYear = new Map<number, number>();
-  const groups = groupsByAge
-    .map((group) => {
-      const annee = new Date(group.dateJour).getFullYear();
-      const rank = (rankByYear.get(annee) ?? 0) + 1;
-      rankByYear.set(annee, rank);
-      return { ...group, annee, code: `PL${rank}.${annee}` };
-    })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   // Le code PLn.annee est calcule sur TOUS les groupes (rang par age dans
@@ -217,6 +230,21 @@ export default async function HistoriqueProgrammePage({
                   </span>
                 </Link>
                 <div className="flex items-center gap-2">
+                  {group.pdRefs.length > 0 ? (
+                    <span className="flex flex-wrap items-center gap-1">
+                      {group.pdRefs.map((ref) => (
+                        <Link
+                          key={ref.groupeId}
+                          href={`/historique-programme-dispatcher/${ref.groupeId}`}
+                          className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
+                        >
+                          {ref.code}
+                        </Link>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400">Pas encore dispatche</span>
+                  )}
                   {canRelaunch ? (
                     <Link
                       href={`/programe-par-ligne?groupe_id=${group.groupeId}`}

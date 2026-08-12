@@ -9,9 +9,51 @@ import {
   canWritePageUser,
   getCurrentStockUser,
 } from "@/lib/stock-auth";
+import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
 
 function normalizeArticle(value: string) {
   return value.replace(/\u00a0/g, "").trim().toUpperCase();
+}
+
+// Meme ordre que /articles/produit-fini et la page detail de la commande
+// (voir sortCommandeLignesByFamily dans [id]/page.tsx) - le Despatcher doit
+// traiter les lignes dans le meme ordre que celui affiche sur la commande,
+// pour que "1ere ligne de la commande" = "1ere ligne dispatchee" (ordre_ligne
+// des resultats FIFO qui en decoule).
+function sortLignesByFamily<
+  T extends {
+    articles:
+      | { nom_article?: string | null; gamme?: string | null }
+      | { nom_article?: string | null; gamme?: string | null }[]
+      | null;
+  }
+>(lignes: T[]): T[] {
+  function resolveArticle(ligne: T) {
+    const relation = ligne.articles;
+    return Array.isArray(relation) ? relation[0] : relation;
+  }
+
+  return [...lignes].sort((a, b) => {
+    const articleA = resolveArticle(a);
+    const articleB = resolveArticle(b);
+
+    const rankA = familyRank(articleA?.gamme ?? null);
+    const rankB = familyRank(articleB?.gamme ?? null);
+    if (rankA !== rankB) return rankA - rankB;
+
+    const typeRankA = articleTypeRank(articleA?.nom_article ?? null);
+    const typeRankB = articleTypeRank(articleB?.nom_article ?? null);
+    if (typeRankA !== typeRankB) return typeRankA - typeRankB;
+
+    const contenanceDiff =
+      articleContenanceFromName(articleB?.nom_article ?? null) -
+      articleContenanceFromName(articleA?.nom_article ?? null);
+    if (contenanceDiff !== 0) return contenanceDiff;
+
+    return String(articleA?.nom_article ?? "").localeCompare(String(articleB?.nom_article ?? ""), "fr", {
+      sensitivity: "base",
+    });
+  });
 }
 
 // Toute creation/modification/suppression de commande peut changer ce que
@@ -1044,7 +1086,7 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
   const { data: commande, error: commandeError } = await supabaseServer
     .from("commandes")
     .select(
-      "id, numero_proforma, client, mode_chargement, commande_lignes(id, article_id, quantite_demandee, articles(type_article)), commentaire"
+      "id, numero_proforma, client, mode_chargement, commande_lignes(id, article_id, quantite_demandee, articles(type_article, nom_article, gamme)), commentaire"
     )
     .eq("id", commandeId)
     .single();
@@ -1053,7 +1095,10 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
     throw new Error(commandeError?.message || "Commande introuvable.");
   }
 
-  const lignes = commande.commande_lignes ?? [];
+  // Meme ordre que la page detail de la commande (sortCommandeLignesByFamily)
+  // - le Despatcher traite desormais les lignes dans cet ordre, donc
+  // ordre_ligne des resultats FIFO qui en decoule suit le meme ordre.
+  const lignes = sortLignesByFamily(commande.commande_lignes ?? []);
 
   if (lignes.length === 0) {
     throw new Error("Cette commande ne contient aucune ligne.");
@@ -1681,14 +1726,40 @@ export async function addFifoLigneForNewArticleAction(formData: FormData) {
     throw new Error("La quantite doit etre superieure a zero.");
   }
 
-  const { data: newLigne, error: ligneError } = await supabaseServer
+  // Cet article peut deja etre demande sur cette commande (ex: FIFO deja
+  // dispatche sur plusieurs codes qui couvrent tout le besoin, et on veut
+  // juste ajouter/remplacer un lot supplementaire) - dans ce cas, on
+  // rattache le nouveau resultat FIFO a la ligne EXISTANTE au lieu d'en
+  // creer une 2eme, sans jamais toucher a sa quantite_demandee (le
+  // "commande" doit rester ce qui a vraiment ete demande, quel que soit ce
+  // qui est ajoute ensuite en resultat FIFO - sinon 200 demandes + 100
+  // ajoutes affichait a tort 300 de demande au lieu de 200 demandes / 300
+  // charges).
+  const { data: existingLigne, error: existingLigneError } = await supabaseServer
     .from("commande_lignes")
-    .insert({ commande_id: commandeId, article_id: articleId, quantite_demandee: quantiteChargee })
     .select("id")
-    .single();
+    .eq("commande_id", commandeId)
+    .eq("article_id", articleId)
+    .maybeSingle();
 
-  if (ligneError || !newLigne) {
-    throw new Error(ligneError?.message || "Erreur pendant la creation de la ligne.");
+  if (existingLigneError) {
+    throw new Error(existingLigneError.message);
+  }
+
+  let ligneId = existingLigne?.id as number | undefined;
+
+  if (!ligneId) {
+    const { data: newLigne, error: ligneError } = await supabaseServer
+      .from("commande_lignes")
+      .insert({ commande_id: commandeId, article_id: articleId, quantite_demandee: quantiteChargee })
+      .select("id")
+      .single();
+
+    if (ligneError || !newLigne) {
+      throw new Error(ligneError?.message || "Erreur pendant la creation de la ligne.");
+    }
+
+    ligneId = newLigne.id;
   }
 
   const { data: maxOrdreRow } = await supabaseServer
@@ -1705,7 +1776,7 @@ export async function addFifoLigneForNewArticleAction(formData: FormData) {
     .from("fifo_resultats")
     .insert({
       commande_id: commandeId,
-      commande_ligne_id: newLigne.id,
+      commande_ligne_id: ligneId,
       article_id: articleId,
       quantite_chargee: 0,
       ordre_ligne: nextOrdre,

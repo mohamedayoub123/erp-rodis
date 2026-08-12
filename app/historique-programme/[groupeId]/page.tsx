@@ -10,11 +10,11 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
-import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
+import { fetchPlCodeByGroupeId, fetchPdRefsBySourceGroupeId } from "@/lib/programme-numbering";
 
 type ProgrammeLigneRow = {
   id: number;
-  groupe_id: number;
+  groupe_id: number | null;
   zone: string;
   chaine: string;
   produit: string | null;
@@ -38,29 +38,6 @@ function formatDate(value: string) {
   return `${day}-${month}-${year}`;
 }
 
-async function fetchAllProgrammeLignesGroupeInfo(): Promise<
-  { groupe_id: number | null; created_at: string; date_jour: string }[]
-> {
-  const rows: { groupe_id: number | null; created_at: string; date_jour: string }[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data } = await supabaseServer
-      .from("programme_lignes")
-      .select("groupe_id, created_at, date_jour")
-      .range(from, from + pageSize - 1);
-
-    const chunk = (data as { groupe_id: number | null; created_at: string; date_jour: string }[] | null) ?? [];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
-}
-
 export default async function HistoriqueProgrammeDetailPage({
   params,
 }: {
@@ -76,16 +53,16 @@ export default async function HistoriqueProgrammeDetailPage({
     notFound();
   }
 
-  const [{ data }, allGroupRows] = await Promise.all([
-    supabaseServer
-      .from("programme_lignes")
-      .select(
-        "id, groupe_id, zone, chaine, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe, date_jour, created_at, numero_lot, cree_par, remarque"
-      )
-      .eq("groupe_id", groupeIdNumber)
-      .order("id", { ascending: true }),
-    fetchAllProgrammeLignesGroupeInfo(),
-  ]);
+  // .or() couvre aussi le cas d'une ligne sans groupe_id (id.eq + groupe_id
+  // is null) - voir la page liste, qui utilise l'id de la ligne comme cle de
+  // groupe solo quand groupe_id est vide.
+  const { data } = await supabaseServer
+    .from("programme_lignes")
+    .select(
+      "id, groupe_id, zone, chaine, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe, date_jour, created_at, numero_lot, cree_par, remarque"
+    )
+    .or(`groupe_id.eq.${groupeIdNumber},and(groupe_id.is.null,id.eq.${groupeIdNumber})`)
+    .order("id", { ascending: true });
 
   const lignes = (data ?? []) as ProgrammeLigneRow[];
 
@@ -93,11 +70,15 @@ export default async function HistoriqueProgrammeDetailPage({
     notFound();
   }
 
-  // Le code PL1.2026, PL2.2026... n'est pas stocke en base - il depend du
-  // rang de ce groupe PARMI CEUX DE LA MEME ANNEE (voir
-  // lib/programme-pl-code.ts, meme principe que TE1/TS1 dans Mouvements).
-  const plCodesByGroupeId = computePlCodesByGroupeId(allGroupRows);
-  const code = plCodesByGroupeId.get(groupeIdNumber) ?? `PL-${groupeIdNumber}`;
+  // Le code PL1.2026, PL2.2026... n'est pas stocke en base - meme calcul que
+  // la page liste (voir lib/programme-numbering.ts), pour ne plus jamais
+  // afficher un numero different entre les 2 pages pour le meme groupe.
+  const [plCodeByGroupeId, pdRefsBySourceGroupeId] = await Promise.all([
+    fetchPlCodeByGroupeId(),
+    fetchPdRefsBySourceGroupeId(),
+  ]);
+  const code = plCodeByGroupeId.get(groupeIdNumber) ?? `PL-${groupeIdNumber}`;
+  const pdRefs = pdRefsBySourceGroupeId.get(groupeIdNumber) ?? [];
 
   const dateJour = lignes[0]?.date_jour;
 
@@ -120,6 +101,22 @@ export default async function HistoriqueProgrammeDetailPage({
               {lignes[0]?.remarque ? (
                 <p className="mt-2 text-base font-semibold text-sky-700">{lignes[0].remarque}</p>
               ) : null}
+              <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                Dispatche dans :
+                {pdRefs.length > 0 ? (
+                  pdRefs.map((ref) => (
+                    <Link
+                      key={ref.groupeId}
+                      href={`/historique-programme-dispatcher/${ref.groupeId}`}
+                      className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
+                    >
+                      {ref.code}
+                    </Link>
+                  ))
+                ) : (
+                  <span className="text-slate-400">pas encore dispatche</span>
+                )}
+              </p>
             </div>
 
             <div className="no-print flex flex-wrap items-center gap-3">
