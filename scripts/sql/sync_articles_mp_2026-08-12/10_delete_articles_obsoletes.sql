@@ -1,0 +1,32 @@
+-- Derniere etape : supprime 50 articles presents en base
+-- mais absents du nouveau fichier Excel ET qui n'ont AUCUNE donnee liee
+-- nulle part (verifie : aucun lot de stock, aucun bon de commande, aucune
+-- recette). A executer UNIQUEMENT apres que toutes les parties "upsert"
+-- ci-dessus ont affiche "Success".
+--
+-- 20 autres articles sont aussi absents du nouveau fichier Excel
+-- mais ont un historique de stock reel (lots_stock_matiere_premiere) - ils
+-- sont volontairement CONSERVES tels quels, pas touches par ce script :
+--   - ALOE VERA EXTRACT POWDER (id 17)
+--   - BAOBAB OIL (id 26)
+--   - BASE ALD 20230 - SPLASH (id 33)
+--   - BASE ALD 24970 ( ANTI MOS ) (id 55)
+--   - BASE CITRONELLE PURE (id 126)
+--   - BASE CUBE EXPLOSION 233635-A (id 161)
+--   - BASE DERMA GEL 338608-G (id 162)
+--   - BASE GEL TT INTENSE 336364-B (id 173)
+--   - BASE PET 80333 ( ANTI MOS ) (id 198)
+--   - BASE PET 80432 (ANTI MOS) (id 199)
+--   - BASE ROYAL FEE (id 206)
+--   - BASE SABAYA 6RL 54244 (id 208)
+--   - BASE SAV 40786 (ANTI MOS ) (id 216)
+--   - BASE SAV 41496 (ANTI MOS ) (id 223)
+--   - BASE STELLINA 702594 (id 229)
+--   - CARBOPOL ULTREZ 21 POLYMER (id 257)
+--   - CB 100 (id 262)
+--   - CETYLPYDINIKUM CHLORIDE (id 273)
+--   - COLORANT BLEU COVARINE W6795 WS 6797 (id 279)
+--   - COLORANT JAUNE AU GRAS W1205 COSM (id 286)
+
+delete from public.articles_matiere_premiere
+where id in (11, 14, 103, 239, 266, 285, 287, 289, 290, 291, 295, 297, 302, 308, 329, 359, 379, 389, 392, 405, 410, 808, 1104, 1177, 1178, 1226, 1646, 1647, 1648, 1840, 3771, 3793, 3942, 3950, 3951, 3952, 3983, 3986, 3987, 3988, 3989, 3990, 3991, 3995, 3997, 4001, 4008, 4009, 4010, 4011);
