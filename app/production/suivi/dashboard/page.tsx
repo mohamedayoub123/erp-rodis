@@ -8,8 +8,15 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { deleteCodeProgressAction } from "../../suivi-production/actions";
-import { markCartonTermineAction, markEmballageTermineAction, markVracTermineAction } from "../actions";
+import {
+  markCartonTermineAction,
+  markEmballageTermineAction,
+  markVracTermineAction,
+  renameLotCodeAction,
+} from "../actions";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { LotCodeCell } from "./lot-code-cell";
 import {
   buildPdLabelByCode,
   computeProduitParCode,
@@ -200,11 +207,13 @@ export default async function PlanningDashboardPage({
   const dateDebutFilter = (params.date_debut || "").trim();
   const dateFinFilter = (params.date_fin || "").trim();
 
-  const [{ rows: allLignes }, pdLabelByCode, articles] = await Promise.all([
+  const [currentUser, { rows: allLignes }, pdLabelByCode, articles] = await Promise.all([
+    getCurrentStockUser(),
     fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true }),
     buildPdLabelByCode(),
     fetchAllArticlesForFilters(),
   ]);
+  const canEditLotCode = isAdminUser(currentUser);
 
   const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
   const articleById = new Map(articles.map((article) => [article.id, article]));
@@ -405,6 +414,7 @@ export default async function PlanningDashboardPage({
       const vracArticle = vracArticleId ? articleById.get(vracArticleId) : null;
       return {
         key: `${row.ligne.id}-${row.code}`,
+        ligneId: row.ligne.id,
         date: row.ligne.date_jour,
         code: row.code,
         label: vracArticle?.nom_article || vracLabelFromName(row.ligne.produit) || "-",
@@ -422,6 +432,7 @@ export default async function PlanningDashboardPage({
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter))
     .map((row) => ({
       key: `${row.ligne.id}-${row.code}`,
+      ligneId: row.ligne.id,
       date: row.ligne.date_jour,
       code: row.code,
       label: row.ligne.produit || "-",
@@ -580,7 +591,14 @@ export default async function PlanningDashboardPage({
                         <td className="px-4 py-3 text-slate-600">
                           {vracLabelFromName(row.ligne.produit) || "-"}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          <LotCodeCell
+                            ligneId={row.ligne.id}
+                            code={row.code}
+                            canEdit={canEditLotCode}
+                            action={renameLotCodeAction}
+                          />
+                        </td>
                         <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                         <td className="px-4 py-3">
                           <RestantBadge restant={row.vracRestant} />
@@ -664,7 +682,14 @@ export default async function PlanningDashboardPage({
                           {row.ligne.zone} / {row.ligne.chaine}
                         </td>
                         <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          <LotCodeCell
+                            ligneId={row.ligne.id}
+                            code={row.code}
+                            canEdit={canEditLotCode}
+                            action={renameLotCodeAction}
+                          />
+                        </td>
                         <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                         <td className="px-4 py-3 text-slate-900">{Math.round(row.cartonPrevu)}</td>
                         <td className="px-4 py-3">
@@ -731,7 +756,14 @@ export default async function PlanningDashboardPage({
                       <tr key={`${row.ligne.id}-${row.code}`} className="border-t border-slate-100">
                         <td className="px-4 py-3 text-slate-600">{formatDate(row.ligne.date_jour)}</td>
                         <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          <LotCodeCell
+                            ligneId={row.ligne.id}
+                            code={row.code}
+                            canEdit={canEditLotCode}
+                            action={renameLotCodeAction}
+                          />
+                        </td>
                         <td className="px-4 py-3">
                           <RestantBadge restant={row.emballageRestant} />
                         </td>
@@ -805,14 +837,28 @@ export default async function PlanningDashboardPage({
                               {row.label}
                             </Link>
                           </td>
-                          <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                          <td className="px-4 py-3 text-slate-700">
+                            <LotCodeCell
+                              ligneId={row.ligneId}
+                              code={row.code}
+                              canEdit={canEditLotCode}
+                              action={renameLotCodeAction}
+                            />
+                          </td>
                           <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
                         </tr>
                       ) : (
                         <tr key={row.key} className="border-t border-slate-100">
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
                           <td className="px-4 py-3 font-medium text-slate-900">{row.label}</td>
-                          <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                          <td className="px-4 py-3 text-slate-700">
+                            <LotCodeCell
+                              ligneId={row.ligneId}
+                              code={row.code}
+                              canEdit={canEditLotCode}
+                              action={renameLotCodeAction}
+                            />
+                          </td>
                           <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
                         </tr>
                       )
@@ -863,14 +909,28 @@ export default async function PlanningDashboardPage({
                               {row.label}
                             </Link>
                           </td>
-                          <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                          <td className="px-4 py-3 text-slate-700">
+                            <LotCodeCell
+                              ligneId={row.ligneId}
+                              code={row.code}
+                              canEdit={canEditLotCode}
+                              action={renameLotCodeAction}
+                            />
+                          </td>
                           <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
                         </tr>
                       ) : (
                         <tr key={row.key} className="border-t border-slate-100">
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
                           <td className="px-4 py-3 font-medium text-slate-900">{row.label}</td>
-                          <td className="px-4 py-3 text-slate-700">{row.code}</td>
+                          <td className="px-4 py-3 text-slate-700">
+                            <LotCodeCell
+                              ligneId={row.ligneId}
+                              code={row.code}
+                              canEdit={canEditLotCode}
+                              action={renameLotCodeAction}
+                            />
+                          </td>
                           <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
                         </tr>
                       )
