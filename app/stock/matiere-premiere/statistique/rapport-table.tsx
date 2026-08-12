@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 // Colonnes calculees en direct depuis les vraies donnees de l'appli (stock,
 // BC, import 4D, A commander) - jamais depuis le fichier Excel fige.
 const LIVE_COLUMNS = new Set([
@@ -57,6 +59,21 @@ const RED_TEXT = "#FF0000";
 const STOCK_BAS_BG = "#FFC7CE";
 const STOCK_BAS_TEXT = "#9C0006";
 
+function combineStyle(
+  base: React.CSSProperties | undefined,
+  rowOverride: ColorOverride | undefined,
+  cellOverride: ColorOverride | undefined
+): React.CSSProperties | undefined {
+  if (!rowOverride?.bg && !rowOverride?.text && !cellOverride?.bg && !cellOverride?.text) return base;
+  return {
+    ...base,
+    ...(rowOverride?.bg ? { backgroundColor: rowOverride.bg } : null),
+    ...(rowOverride?.text ? { color: rowOverride.text } : null),
+    ...(cellOverride?.bg ? { backgroundColor: cellOverride.bg } : null),
+    ...(cellOverride?.text ? { color: cellOverride.text } : null),
+  };
+}
+
 function formatCellValue(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return "-";
   if (typeof value === "number") {
@@ -84,6 +101,26 @@ export type RapportRowWithLive = {
   live: LiveData | null;
 };
 
+// Coloration manuelle "comme sur Excel" - fond et/ou texte, sur une cellule
+// precise OU sur la ligne entiere (cle "__row__"). Stockee par ligne dans
+// donnees.custom_colors (voir saveRapportGammeStatistiqueAction), au meme
+// endroit que designation_couleur (colonne DESIGNATION, deja manuelle,
+// mais figee depuis l'import Excel) - ceci est la version editable depuis
+// l'appli. Une couleur de cellule l'emporte sur la couleur de ligne, qui
+// l'emporte elle-meme sur les couleurs automatiques (categorie/stock bas).
+type ColorOverride = { bg?: string; text?: string };
+type RowColorTarget = "__row__" | string;
+type RowColors = Record<RowColorTarget, ColorOverride>;
+
+function parseStoredColors(value: unknown): RowColors {
+  if (!value || typeof value !== "object") return {};
+  return value as RowColors;
+}
+
+function isColorsEmpty(colors: RowColors) {
+  return Object.values(colors).every((c) => !c.bg && !c.text);
+}
+
 function preventEnterSubmit(event: React.KeyboardEvent<HTMLFormElement>) {
   const target = event.target as HTMLElement;
   if (event.key === "Enter" && target.tagName === "INPUT") {
@@ -104,20 +141,53 @@ export function RapportTable({
   canEdit: boolean;
   saveAction: (formData: FormData) => void | Promise<void>;
 }) {
+  const [colorsByRow, setColorsByRow] = useState<Record<number, RowColors>>(() =>
+    Object.fromEntries(rows.map((row) => [row.id, parseStoredColors(row.donnees?.["custom_colors"])]))
+  );
+  const [selected, setSelected] = useState<{ rowId: number; target: RowColorTarget } | null>(null);
+
+  function selectTarget(rowId: number, target: RowColorTarget) {
+    if (!canEdit) return;
+    setSelected({ rowId, target });
+  }
+
+  function updateSelectedColor(kind: "bg" | "text", value: string | null) {
+    if (!selected) return;
+    setColorsByRow((prev) => {
+      const rowColors = { ...(prev[selected.rowId] || {}) };
+      const current = { ...(rowColors[selected.target] || {}) };
+      if (value) current[kind] = value;
+      else delete current[kind];
+
+      if (!current.bg && !current.text) delete rowColors[selected.target];
+      else rowColors[selected.target] = current;
+
+      return { ...prev, [selected.rowId]: rowColors };
+    });
+  }
+
+  const selectedColor = selected ? colorsByRow[selected.rowId]?.[selected.target] : undefined;
+
   return (
     <form action={saveAction} onKeyDown={preventEnterSubmit} className="space-y-6">
       <input type="hidden" name="gamme_statistique" value={gammeStatistique} />
       {rows.map((row) => (
         <input key={row.id} type="hidden" name="row_id" value={row.id} />
       ))}
-      {rows.map((row) => (
-        <input
-          key={row.id}
-          type="hidden"
-          name={`donnees_${row.id}`}
-          value={JSON.stringify(row.donnees)}
-        />
-      ))}
+      {rows.map((row) => {
+        const colors = colorsByRow[row.id] || {};
+        return (
+          <input
+            key={row.id}
+            type="hidden"
+            name={`donnees_${row.id}`}
+            value={JSON.stringify({
+              ...row.donnees,
+              custom_colors: isColorsEmpty(colors) ? null : colors,
+            })}
+          />
+        );
+      })}
 
       <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -174,20 +244,28 @@ export function RapportTable({
                 const designationBg = DESIGNATION_COULEUR_BG[String(row.donnees?.["designation_couleur"] || "")];
                 const conso12Mois = Number(row.donnees?.["Conso reelle 12mois"] ?? 0);
                 const stockDepasse1An = live ? live.stock > conso12Mois : false;
+                const rowColors = colorsByRow[row.id] || {};
+                const isTargetSelected = (target: RowColorTarget) =>
+                  selected?.rowId === row.id && selected.target === target;
                 return (
                   <tr key={row.id}>
                     <td
-                      className="border border-slate-200 px-4 py-3 text-center font-semibold"
-                      style={style ? { backgroundColor: style.bg, color: style.text } : undefined}
+                      className={`border border-slate-200 px-4 py-3 text-center font-semibold ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected("__row__") ? "ring-2 ring-inset ring-violet-500" : ""}`}
+                      style={combineStyle(style ? { backgroundColor: style.bg, color: style.text } : undefined, rowColors["__row__"], undefined)}
+                      onClick={() => selectTarget(row.id, "__row__")}
+                      title={canEdit ? "Cliquer pour colorer toute la ligne" : undefined}
                     >
                       {row.ordre}
                     </td>
                     <td
-                      className="whitespace-nowrap border border-slate-200 px-4 py-3 font-medium"
-                      style={{
-                        backgroundColor: designationBg,
-                        color: stockDepasse1An ? RED_TEXT : "#0f172a",
-                      }}
+                      className={`whitespace-nowrap border border-slate-200 px-4 py-3 font-medium ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected("DESIGNATION") ? "ring-2 ring-inset ring-violet-500" : ""}`}
+                      style={combineStyle(
+                        { backgroundColor: designationBg, color: stockDepasse1An ? RED_TEXT : "#0f172a" },
+                        rowColors["__row__"],
+                        rowColors["DESIGNATION"]
+                      )}
+                      onClick={() => selectTarget(row.id, "DESIGNATION")}
+                      title={canEdit ? "Cliquer pour colorer cette case" : undefined}
                     >
                       {row.designation}
                     </td>
@@ -227,7 +305,13 @@ export function RapportTable({
 
                       if (!LIVE_COLUMNS.has(col)) {
                         return (
-                          <td key={col} className="whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600">
+                          <td
+                            key={col}
+                            className={`whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600 ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected(col) ? "ring-2 ring-inset ring-violet-500" : ""}`}
+                            style={combineStyle(undefined, rowColors["__row__"], rowColors[col])}
+                            onClick={() => selectTarget(row.id, col)}
+                            title={canEdit ? "Cliquer pour colorer cette case" : undefined}
+                          >
                             {formatCellValue(row.donnees?.[col])}
                           </td>
                         );
@@ -264,8 +348,10 @@ export function RapportTable({
                       return (
                         <td
                           key={col}
-                          className="whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600"
-                          style={cellStyle}
+                          className={`whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600 ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected(col) ? "ring-2 ring-inset ring-violet-500" : ""}`}
+                          style={combineStyle(cellStyle, rowColors["__row__"], rowColors[col])}
+                          onClick={() => selectTarget(row.id, col)}
+                          title={canEdit ? "Cliquer pour colorer cette case" : undefined}
                         >
                           {formatCellValue(value)}
                         </td>
@@ -307,6 +393,49 @@ export function RapportTable({
           ))}
         </div>
       </section>
+
+      {canEdit && selected ? (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-xl">
+          <span className="text-xs font-semibold text-slate-600">
+            Couleur : {selected.target === "__row__" ? "toute la ligne" : selected.target}
+          </span>
+          <label className="flex items-center gap-1 text-xs text-slate-500">
+            Fond
+            <input
+              type="color"
+              value={selectedColor?.bg || "#ffffff"}
+              onChange={(event) => updateSelectedColor("bg", event.target.value)}
+              className="h-7 w-7 cursor-pointer rounded border border-slate-200 p-0"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-slate-500">
+            Texte
+            <input
+              type="color"
+              value={selectedColor?.text || "#0f172a"}
+              onChange={(event) => updateSelectedColor("text", event.target.value)}
+              className="h-7 w-7 cursor-pointer rounded border border-slate-200 p-0"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              updateSelectedColor("bg", null);
+              updateSelectedColor("text", null);
+            }}
+            className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            Effacer
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelected(null)}
+            className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+          >
+            Fermer
+          </button>
+        </div>
+      ) : null}
     </form>
   );
 }
