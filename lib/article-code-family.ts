@@ -34,6 +34,12 @@ export function normalizeFamilyValue(value: string | null | undefined): string {
 const EXFOLIANT_TOKENS = new Set(["EXFOLIANT", "EXFOLIANTE", "EXFO", "EXF"]);
 const CLARIFIANT_TOKENS = new Set(["CLARIFIANT", "CLARIFIANTE"]);
 const SIZE_TOKEN_PATTERN = /^\d+(?:[.,]\d+)?(?:ML|CL|L|GRS|GR|G|KG)?$/;
+// Contenances/formats exprimes en mot plutot qu'en chiffre (Std=standard,
+// Gt=grand tube, Rgl=regulier...) - au meme titre que "500ML" ou "1L", ce
+// sont des tailles differentes du MEME produit, donc a retirer de la cle de
+// famille pour qu'elles partagent un seul compteur de code (ex: "Creme Skin
+// Light Gt/Rgl/Std" doivent avoir le meme code, pas 3 codes separes).
+const PACKAGING_SIZE_TOKENS = new Set(["STD", "GT", "RGL"]);
 
 export function detectArticleVariantFromName(name: string | null | undefined): string {
   const words = normalizeFamilyValue(name).split(" ");
@@ -67,6 +73,7 @@ export function detectArticleFamilyFromName(name: string | null | undefined): st
     const lastWord = words[words.length - 1];
     if (
       SIZE_TOKEN_PATTERN.test(lastWord) ||
+      PACKAGING_SIZE_TOKENS.has(lastWord) ||
       EXFOLIANT_TOKENS.has(lastWord) ||
       CLARIFIANT_TOKENS.has(lastWord) ||
       lastWord === "S-H"
