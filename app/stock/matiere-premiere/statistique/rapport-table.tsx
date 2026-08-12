@@ -40,6 +40,23 @@ const NOTES_LEGEND: { text: string; bg: string; textColor?: string; bold?: boole
   { text: "E.T.D : Estimated Time of Departure (Heure estimée de départ)", bg: "transparent" },
 ];
 
+// Couleur de fond manuelle de la cellule DESIGNATION dans le fichier Excel
+// source (pas une formule - copiee telle quelle sur les articles concernes).
+const DESIGNATION_COULEUR_BG: Record<string, string> = {
+  "00B050": "#00B050",
+  FFFF00: "#FFFF00",
+};
+
+// Memes regles de mise en forme conditionnelle que le fichier Excel source :
+//   - DESIGNATION en rouge si stock > Conso reelle 12mois ("Stock superieur
+//     a 1an de conso note en rouge").
+//   - cellule stock en rose + texte rouge fonce si stock < 3 x conso 1mois
+//     ("Stock inferieur a 3 mois de conso").
+//   - A COMMANDER en rouge si negatif.
+const RED_TEXT = "#FF0000";
+const STOCK_BAS_BG = "#FFC7CE";
+const STOCK_BAS_TEXT = "#9C0006";
+
 function formatCellValue(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return "-";
   if (typeof value === "number") {
@@ -154,6 +171,9 @@ export function RapportTable({
               {rows.map((row) => {
                 const style = row.categorie ? CATEGORIE_STYLES[row.categorie] : null;
                 const live = row.live;
+                const designationBg = DESIGNATION_COULEUR_BG[String(row.donnees?.["designation_couleur"] || "")];
+                const conso12Mois = Number(row.donnees?.["Conso reelle 12mois"] ?? 0);
+                const stockDepasse1An = live ? live.stock > conso12Mois : false;
                 return (
                   <tr key={row.id}>
                     <td
@@ -162,7 +182,13 @@ export function RapportTable({
                     >
                       {row.ordre}
                     </td>
-                    <td className="whitespace-nowrap border border-slate-200 px-4 py-3 font-medium text-slate-900">
+                    <td
+                      className="whitespace-nowrap border border-slate-200 px-4 py-3 font-medium"
+                      style={{
+                        backgroundColor: designationBg,
+                        color: stockDepasse1An ? RED_TEXT : "#0f172a",
+                      }}
+                    >
                       {row.designation}
                     </td>
                     {rapportColumns.map((col) => {
@@ -224,8 +250,23 @@ export function RapportTable({
                       if (col === "date le livraison prevu ds 4d") value = live.date4d || "-";
                       if (col === "A COMMANDER") value = live.aCommander;
 
+                      let cellStyle: React.CSSProperties | undefined;
+                      if (col === "stock") {
+                        const conso1Mois = Number(row.donnees?.["conso 1mois"] ?? 0);
+                        if (live.stock < conso1Mois * 3) {
+                          cellStyle = { backgroundColor: STOCK_BAS_BG, color: STOCK_BAS_TEXT };
+                        }
+                      }
+                      if (col === "A COMMANDER" && live.aCommander < 0) {
+                        cellStyle = { color: RED_TEXT };
+                      }
+
                       return (
-                        <td key={col} className="whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600">
+                        <td
+                          key={col}
+                          className="whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600"
+                          style={cellStyle}
+                        >
                           {formatCellValue(value)}
                         </td>
                       );
