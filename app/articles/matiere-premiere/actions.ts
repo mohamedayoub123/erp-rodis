@@ -52,6 +52,7 @@ export async function createArticleMpAction(formData: FormData) {
   const categorie = String(formData.get("categorie") || "").trim();
   const unite = String(formData.get("unite") || "").trim();
   const gamme = String(formData.get("gamme") || "").trim();
+  const gammeStatistique = String(formData.get("gamme_statistique") || "").trim();
   const utilisation = String(formData.get("utilisation") || "").trim();
   const minStock = parseOptionalNumber(formData, "min_stock");
   const maxStock = parseOptionalNumber(formData, "max_stock");
@@ -79,6 +80,7 @@ export async function createArticleMpAction(formData: FormData) {
       categorie: categorie || null,
       unite: unite || null,
       gamme: gamme || null,
+      gamme_statistique: gammeStatistique || null,
       utilisation: utilisation || null,
       min_stock: minStock,
       max_stock: maxStock,
@@ -129,6 +131,7 @@ export async function updateArticleMpAction(formData: FormData) {
   const categorie = String(formData.get("categorie") || "").trim();
   const unite = String(formData.get("unite") || "").trim();
   const gamme = String(formData.get("gamme") || "").trim();
+  const gammeStatistique = String(formData.get("gamme_statistique") || "").trim();
   const utilisation = String(formData.get("utilisation") || "").trim();
   const minStock = parseOptionalNumber(formData, "min_stock");
   const maxStock = parseOptionalNumber(formData, "max_stock");
@@ -158,6 +161,7 @@ export async function updateArticleMpAction(formData: FormData) {
       categorie: categorie || null,
       unite: unite || null,
       gamme: gamme || null,
+      gamme_statistique: gammeStatistique || null,
       utilisation: utilisation || null,
       min_stock: minStock,
       max_stock: maxStock,

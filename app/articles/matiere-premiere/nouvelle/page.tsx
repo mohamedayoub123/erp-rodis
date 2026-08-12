@@ -62,6 +62,12 @@ export default async function NouvelArticleMpPage() {
               />
               <input
                 type="text"
+                name="gamme_statistique"
+                placeholder="Gamme Statistique"
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+              />
+              <input
+                type="text"
                 name="utilisation"
                 placeholder="Utilisation"
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"

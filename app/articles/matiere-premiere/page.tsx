@@ -17,6 +17,7 @@ type ArticleMpRow = {
   categorie: string | null;
   unite: string | null;
   gamme: string | null;
+  gamme_statistique: string | null;
   utilisation: string | null;
   min_stock: number | null;
   max_stock: number | null;
@@ -30,7 +31,9 @@ async function fetchAllArticlesMp() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite, gamme, utilisation, min_stock, max_stock")
+      .select(
+        "id, nom_article, categorie, unite, gamme, gamme_statistique, utilisation, min_stock, max_stock"
+      )
       .order("nom_article", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -169,6 +172,7 @@ export default async function ArticlesMatierePremierePage({
                       <th className="px-6 py-4 font-semibold">Categorie</th>
                       <th className="px-6 py-4 font-semibold">Unite</th>
                       <th className="px-6 py-4 font-semibold">Gamme</th>
+                      <th className="px-6 py-4 font-semibold">Gamme Statistique</th>
                       <th className="px-6 py-4 font-semibold">Utilisation</th>
                       <th className="px-6 py-4 font-semibold">Stock min</th>
                       <th className="px-6 py-4 font-semibold">Stock max</th>
@@ -185,6 +189,7 @@ export default async function ArticlesMatierePremierePage({
                         <td className="px-6 py-4 text-slate-600">{article.categorie || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.unite || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.gamme || "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{article.gamme_statistique || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.utilisation || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.min_stock ?? "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.max_stock ?? "-"}</td>
@@ -223,6 +228,13 @@ export default async function ArticlesMatierePremierePage({
                                   name="gamme"
                                   defaultValue={article.gamme || ""}
                                   placeholder="Gamme"
+                                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                                />
+                                <input
+                                  type="text"
+                                  name="gamme_statistique"
+                                  defaultValue={article.gamme_statistique || ""}
+                                  placeholder="Gamme Statistique"
                                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                                 />
                                 <input
