@@ -55,7 +55,6 @@ type SearchParams = Promise<{
   page?: string;
   q?: string;
   categorie?: string;
-  gammeStatistique?: string;
 }>;
 
 export default async function ArticlesMatierePremierePage({
@@ -72,7 +71,6 @@ export default async function ArticlesMatierePremierePage({
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const q = (params.q || "").trim();
   const categorie = (params.categorie || "").trim();
-  const gammeStatistique = (params.gammeStatistique || "").trim();
   const from = (currentPage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
@@ -88,7 +86,6 @@ export default async function ArticlesMatierePremierePage({
       !String(article.categorie ?? "").toLowerCase().includes(categorieLower)
     )
       return false;
-    if (gammeStatistique && (article.gamme_statistique || "") !== gammeStatistique) return false;
     return true;
   });
 
@@ -100,20 +97,6 @@ export default async function ArticlesMatierePremierePage({
   ).map((label, index) => ({ id: index, label }));
   const articleOptions = [...new Set(allArticles.map((article) => article.nom_article))].map(
     (label, index) => ({ id: index, label })
-  );
-  // Boutons de raccourci par Gamme Statistique, meme principe que les
-  // boutons de famille du Tableau de Commande PF : un bouton genere pour
-  // chaque valeur reellement presente en base (pas de liste codee en dur,
-  // vu le nombre de gammes MP et le fait qu'elles bougent avec le fichier
-  // Excel source).
-  const gammeStatistiqueCounts = new Map<string, number>();
-  for (const article of allArticles) {
-    const value = (article.gamme_statistique || "").trim();
-    if (!value) continue;
-    gammeStatistiqueCounts.set(value, (gammeStatistiqueCounts.get(value) || 0) + 1);
-  }
-  const gammeStatistiqueButtons = [...gammeStatistiqueCounts.entries()].sort((a, b) =>
-    a[0].localeCompare(b[0])
   );
 
   return (
@@ -147,42 +130,8 @@ export default async function ArticlesMatierePremierePage({
           </div>
         </div>
 
-        {gammeStatistiqueButtons.length > 0 ? (
-          <section className="rounded-[2rem] border border-black/5 bg-white/85 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Gamme Statistique
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href={`/articles/matiere-premiere?q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}`}
-                className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition hover:opacity-90 ${
-                  gammeStatistique === ""
-                    ? "bg-slate-900 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                Tous
-              </Link>
-              {gammeStatistiqueButtons.map(([value, count]) => (
-                <Link
-                  key={value}
-                  href={`/articles/matiere-premiere?q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}&gammeStatistique=${encodeURIComponent(value)}`}
-                  className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition hover:opacity-90 ${
-                    gammeStatistique === value
-                      ? "bg-amber-600 text-white ring-2 ring-amber-900/20"
-                      : "bg-amber-50 text-amber-900 hover:bg-amber-100"
-                  }`}
-                >
-                  {value} <span className="opacity-70">({count})</span>
-                </Link>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 border-b border-slate-100 p-6 md:grid-cols-3">
-            <input type="hidden" name="gammeStatistique" value={gammeStatistique} />
             <SearchableFilterInput
               name="q"
               defaultValue={q}
@@ -347,7 +296,7 @@ export default async function ArticlesMatierePremierePage({
 
                 <div className="flex gap-3">
                   <Link
-                    href={`/articles/matiere-premiere?page=1&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}&gammeStatistique=${encodeURIComponent(gammeStatistique)}`}
+                    href={`/articles/matiere-premiere?page=1&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}`}
                     className={`rounded-full px-4 py-2 font-semibold ${
                       currentPage === 1
                         ? "pointer-events-none bg-slate-100 text-slate-400"
@@ -357,7 +306,7 @@ export default async function ArticlesMatierePremierePage({
                     Premiere
                   </Link>
                   <Link
-                    href={`/articles/matiere-premiere?page=${Math.max(1, currentPage - 1)}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}&gammeStatistique=${encodeURIComponent(gammeStatistique)}`}
+                    href={`/articles/matiere-premiere?page=${Math.max(1, currentPage - 1)}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}`}
                     className={`rounded-full px-4 py-2 font-semibold ${
                       currentPage === 1
                         ? "pointer-events-none bg-slate-100 text-slate-400"
@@ -367,7 +316,7 @@ export default async function ArticlesMatierePremierePage({
                     Precedent
                   </Link>
                   <Link
-                    href={`/articles/matiere-premiere?page=${Math.min(totalPages, currentPage + 1)}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}&gammeStatistique=${encodeURIComponent(gammeStatistique)}`}
+                    href={`/articles/matiere-premiere?page=${Math.min(totalPages, currentPage + 1)}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}`}
                     className={`rounded-full px-4 py-2 font-semibold ${
                       currentPage >= totalPages
                         ? "pointer-events-none bg-slate-100 text-slate-400"
@@ -377,7 +326,7 @@ export default async function ArticlesMatierePremierePage({
                     Suivant
                   </Link>
                   <Link
-                    href={`/articles/matiere-premiere?page=${totalPages}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}&gammeStatistique=${encodeURIComponent(gammeStatistique)}`}
+                    href={`/articles/matiere-premiere?page=${totalPages}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}`}
                     className={`rounded-full px-4 py-2 font-semibold ${
                       currentPage >= totalPages
                         ? "pointer-events-none bg-slate-100 text-slate-400"
