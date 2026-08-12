@@ -10,7 +10,7 @@ import { formatDateTime } from "@/lib/format-date";
 
 type ProgrammeLigneRow = {
   id: number;
-  groupe_id: number;
+  groupe_id: number | null;
   date_jour: string;
   created_at: string;
   programe: string | null;
@@ -71,13 +71,20 @@ export default async function HistoriqueProgrammePage({
 
   const allLignes = await fetchAllProgrammeLignes();
 
+  // Les lignes sans groupe_id (jamais rattachees a un lot au moment de leur
+  // creation) ne doivent jamais etre fusionnees ensemble juste parce
+  // qu'elles partagent toutes la valeur JS "null" - chacune devient son
+  // propre groupe solo via son propre id (unique, jamais en collision avec
+  // un vrai groupe_id puisque ceux-ci sont eux-memes toujours l'id d'une
+  // ligne programme_lignes - voir assignDispatcherCodesAndInsert).
   const groupsMap = new Map<number, ProgrammeLigneRow[]>();
   for (const ligne of allLignes) {
-    const existing = groupsMap.get(ligne.groupe_id);
+    const key = ligne.groupe_id ?? ligne.id;
+    const existing = groupsMap.get(key);
     if (existing) {
       existing.push(ligne);
     } else {
-      groupsMap.set(ligne.groupe_id, [ligne]);
+      groupsMap.set(key, [ligne]);
     }
   }
 

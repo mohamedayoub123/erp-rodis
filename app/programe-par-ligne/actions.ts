@@ -1169,7 +1169,7 @@ export async function dispatchExistingProgrammeLigneGroupAction(formData: FormDa
     .select(
       "id, zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, date_jour"
     )
-    .eq("groupe_id", groupeId)
+    .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`)
     .order("id", { ascending: true });
 
   if (error) {
@@ -1260,7 +1260,7 @@ export async function deleteProgrammeLigneGroupAction(formData: FormData) {
   const { error } = await supabaseServer
     .from("programme_lignes")
     .delete()
-    .eq("groupe_id", groupeId);
+    .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`);
 
   if (error) {
     throw new Error(error.message);

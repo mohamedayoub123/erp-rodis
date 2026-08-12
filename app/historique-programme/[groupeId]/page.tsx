@@ -53,12 +53,15 @@ export default async function HistoriqueProgrammeDetailPage({
     notFound();
   }
 
+  // .or() couvre aussi le cas d'une ligne sans groupe_id (id.eq + groupe_id
+  // is null) - voir la page liste, qui utilise l'id de la ligne comme cle de
+  // groupe solo quand groupe_id est vide.
   const { data } = await supabaseServer
     .from("programme_lignes")
     .select(
       "id, groupe_id, zone, chaine, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe, date_jour, created_at, numero_lot, cree_par, remarque"
     )
-    .eq("groupe_id", groupeIdNumber)
+    .or(`groupe_id.eq.${groupeIdNumber},and(groupe_id.is.null,id.eq.${groupeIdNumber})`)
     .order("id", { ascending: true });
 
   const lignes = (data ?? []) as ProgrammeLigneRow[];
@@ -72,17 +75,19 @@ export default async function HistoriqueProgrammeDetailPage({
   // l'annee = PL1.<annee>), remis a 1 a chaque nouvelle annee de date_jour -
   // meme principe que TE1/TS1 dans Mouvements. La colonne "Programme" reste
   // un champ libre tape par l'utilisateur, independant de ce code.
-  const allGroupRows: { groupe_id: number; created_at: string; date_jour: string }[] = [];
+  const allGroupRows: { id: number; groupe_id: number | null; created_at: string; date_jour: string }[] = [];
   let fromIndex = 0;
   const pageSize = 1000;
 
   while (true) {
     const { data: groupRows } = await supabaseServer
       .from("programme_lignes")
-      .select("groupe_id, created_at, date_jour")
+      .select("id, groupe_id, created_at, date_jour")
+      .order("id", { ascending: true })
       .range(fromIndex, fromIndex + pageSize - 1);
 
-    const chunk = (groupRows as { groupe_id: number; created_at: string; date_jour: string }[] | null) ?? [];
+    const chunk =
+      (groupRows as { id: number; groupe_id: number | null; created_at: string; date_jour: string }[] | null) ?? [];
     allGroupRows.push(...chunk);
 
     if (chunk.length < pageSize) break;
@@ -91,9 +96,10 @@ export default async function HistoriqueProgrammeDetailPage({
 
   const earliestByGroup = new Map<number, { createdAt: string; dateJourForYear: string }>();
   for (const row of allGroupRows) {
-    const current = earliestByGroup.get(row.groupe_id);
+    const key = row.groupe_id ?? row.id;
+    const current = earliestByGroup.get(key);
     if (!current || new Date(row.created_at).getTime() < new Date(current.createdAt).getTime()) {
-      earliestByGroup.set(row.groupe_id, { createdAt: row.created_at, dateJourForYear: row.date_jour });
+      earliestByGroup.set(key, { createdAt: row.created_at, dateJourForYear: row.date_jour });
     }
   }
 
