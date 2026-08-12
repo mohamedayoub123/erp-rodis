@@ -112,15 +112,15 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
   }
   const rapportColumns = RAPPORT_COLUMNS_BY_GAMME[gammeStatistique] || [];
 
-  // Boutons de raccourci par Gamme Statistique, meme principe que les
-  // boutons de famille du Tableau de Commande PF : un bouton genere pour
-  // chaque valeur reellement presente en base (pas de liste codee en dur,
-  // vu le nombre de gammes MP et le fait qu'elles bougent avec le fichier
-  // Excel source).
+  // Un bouton uniquement pour les gammes qui ont deja un vrai rapport
+  // fourni par l'utilisateur (RAPPORT_COLUMNS_BY_GAMME) - pas un bouton
+  // par valeur Gamme Statistique presente en base (il y en a des dizaines,
+  // la plupart sans rien derriere) : "n'ajoute pas de nom, laisse vide tant
+  // que je ne l'ai pas donne".
   const gammeStatistiqueCounts = new Map<string, number>();
   for (const article of allArticles) {
     const value = (article.gamme_statistique || "").trim();
-    if (!value) continue;
+    if (!value || !(value in RAPPORT_COLUMNS_BY_GAMME)) continue;
     gammeStatistiqueCounts.set(value, (gammeStatistiqueCounts.get(value) || 0) + 1);
   }
   const gammeStatistiqueButtons = [...gammeStatistiqueCounts.entries()].sort((a, b) =>
