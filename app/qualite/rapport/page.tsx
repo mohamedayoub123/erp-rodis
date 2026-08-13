@@ -12,14 +12,13 @@ type RapportRow = {
   id: number;
   programme_ligne_id: number;
   code: string;
-  type_fabrication: string | null;
   disposition_qualite: string | null;
   sous_derogation: boolean | null;
   utilisateur_test_labo: string | null;
   date_saisie_test_labo: string | null;
 };
 
-type LigneInfo = { produit: string | null; date_jour: string | null };
+type LigneInfo = { produit: string | null; date_jour: string | null; plateforme: string | null };
 
 async function fetchAllTestLaboRapports(): Promise<RapportRow[]> {
   const rows: RapportRow[] = [];
@@ -30,7 +29,7 @@ async function fetchAllTestLaboRapports(): Promise<RapportRow[]> {
     const { data, error } = await supabaseServer
       .from("production_rapports")
       .select(
-        "id, programme_ligne_id, code, type_fabrication, disposition_qualite, sous_derogation, utilisateur_test_labo, date_saisie_test_labo"
+        "id, programme_ligne_id, code, disposition_qualite, sous_derogation, utilisateur_test_labo, date_saisie_test_labo"
       )
       .not("utilisateur_test_labo", "is", null)
       .range(from, from + pageSize - 1);
@@ -59,17 +58,28 @@ async function fetchLignesInfo(ligneIds: number[]): Promise<Map<number, LigneInf
     const chunk = uniqueIds.slice(from, from + pageSize);
     const { data } = await supabaseServer
       .from("programme_lignes")
-      .select("id, produit, date_jour")
+      .select("id, produit, date_jour, plateforme")
       .in("id", chunk);
 
-    for (const row of (data as { id: number; produit: string | null; date_jour: string | null }[] | null) ?? []) {
-      map.set(row.id, { produit: row.produit, date_jour: row.date_jour });
+    for (const row of (data as
+      | { id: number; produit: string | null; date_jour: string | null; plateforme: string | null }[]
+      | null) ?? []) {
+      map.set(row.id, { produit: row.produit, date_jour: row.date_jour, plateforme: row.plateforme });
     }
 
     from += pageSize;
   }
 
   return map;
+}
+
+// "Type" de preparation = Plateforme saisie sur Programme par ligne
+// (colonne M/A) - le champ type_fabrication de la fiche Fabrication n'est
+// pas rempli de facon fiable, contrairement a la Plateforme.
+function plateformeLabel(value: string | null | undefined) {
+  if (value === "A") return "Auto";
+  if (value === "M") return "Manuel";
+  return "-";
 }
 
 function dispositionQualiteLabel(value: string | null | undefined) {
@@ -91,6 +101,29 @@ function DispositionBadge({ value }: { value: string | null | undefined }) {
       {dispositionQualiteLabel(value)}
     </span>
   );
+}
+
+// Quand une preparation est non conforme, elle n'a que 2 issues possibles :
+// detruite, ou gardee sous derogation (ce qui couvre aussi "A recuperer" -
+// meme principe que "sous derogation", garder le lot malgre le hors spec).
+// "A detruire" est prioritaire : un lot ne peut pas etre a la fois detruit
+// et garde sous derogation.
+function decisionLabel(row: { disposition_qualite: string | null; sous_derogation: boolean | null }) {
+  if (row.disposition_qualite === "a_detruire") return "A detruire";
+  if (row.disposition_qualite === "a_recuperer" || row.sous_derogation) return "Sous derogation";
+  return "-";
+}
+
+function DecisionBadge({ row }: { row: { disposition_qualite: string | null; sous_derogation: boolean | null } }) {
+  const label = decisionLabel(row);
+  const className =
+    label === "A detruire"
+      ? "bg-red-100 text-red-800"
+      : label === "Sous derogation"
+        ? "bg-violet-100 text-violet-800"
+        : "bg-slate-100 text-slate-500";
+
+  return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${className}`}>{label}</span>;
 }
 
 function StatCard({ label, value, className }: { label: string; value: number; className?: string }) {
@@ -137,10 +170,11 @@ export default async function QualiteRapportPage({
       ...r,
       produit: ligne?.produit || "-",
       date: ligne?.date_jour || (r.date_saisie_test_labo ? r.date_saisie_test_labo.slice(0, 10) : ""),
+      typeLabel: plateformeLabel(ligne?.plateforme),
     };
   });
 
-  const typeOptions = [...new Set(allRows.map((r) => r.type_fabrication).filter((v): v is string => !!v))]
+  const typeOptions = [...new Set(allRows.map((r) => r.typeLabel).filter((v) => v !== "-"))]
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
     .map((label, id) => ({ id, label }));
   const codeOptions = [...new Set(allRows.map((r) => r.code).filter((v): v is string => !!v))]
@@ -154,7 +188,7 @@ export default async function QualiteRapportPage({
     .filter((row) => {
       if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
       if (produitFilter && !matchesArticleSearch(row.produit, produitFilter)) return false;
-      if (typeFilter && row.type_fabrication !== typeFilter) return false;
+      if (typeFilter && row.typeLabel !== typeFilter) return false;
       if (dateDebutFilter && (!row.date || row.date < dateDebutFilter)) return false;
       if (dateFinFilter && (!row.date || row.date > dateFinFilter)) return false;
       return true;
@@ -164,17 +198,19 @@ export default async function QualiteRapportPage({
   // Le resume (cartes + repartition par type) porte sur les lignes filtrees
   // (date/produit/code/type), pas sur l'ensemble - pour repondre a "combien
   // sur telle periode / tel produit" sans devoir recompter a la main.
+  // Non conforme = tout ce qui a une decision (A detruire OU Sous
+  // derogation) - "sous derogation" veut dire que le lot etait hors spec,
+  // donc non conforme, meme si le statut qualite est reste "Conforme".
   const total = rows.length;
-  const nonConforme = rows.filter((r) => r.disposition_qualite === "a_recuperer" || r.disposition_qualite === "a_detruire").length;
-  const aRecuperer = rows.filter((r) => r.disposition_qualite === "a_recuperer").length;
-  const aDetruire = rows.filter((r) => r.disposition_qualite === "a_detruire").length;
-  const sousDerogation = rows.filter((r) => r.sous_derogation === true).length;
+  const decisions = rows.map((r) => decisionLabel(r));
+  const aDetruire = decisions.filter((d) => d === "A detruire").length;
+  const sousDerogation = decisions.filter((d) => d === "Sous derogation").length;
+  const nonConforme = aDetruire + sousDerogation;
   const conforme = total - nonConforme;
 
   const countByType = new Map<string, number>();
   for (const row of rows) {
-    const key = row.type_fabrication || "Non renseigne";
-    countByType.set(key, (countByType.get(key) ?? 0) + 1);
+    countByType.set(row.typeLabel, (countByType.get(row.typeLabel) ?? 0) + 1);
   }
   const typeBreakdown = [...countByType.entries()].sort((a, b) => b[1] - a[1]);
 
@@ -207,8 +243,8 @@ export default async function QualiteRapportPage({
                 Rapport Test labo
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Nombre de preparations passees au Test labo, par type de fabrication et par statut
-                qualite.
+                Nombre de preparations passees au Test labo, par plateforme (Auto/Manuel) et par
+                statut qualite.
               </p>
             </div>
 
@@ -235,7 +271,7 @@ export default async function QualiteRapportPage({
             />
             <SearchableFilterInput
               name="type"
-              placeholder="Type de fabrication"
+              placeholder="Auto / Manuel"
               defaultValue={params.type || ""}
               options={typeOptions}
             />
@@ -268,17 +304,16 @@ export default async function QualiteRapportPage({
           </form>
         </section>
 
-        <section className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
+        <section className="grid gap-4 sm:grid-cols-3 xl:grid-cols-5">
           <StatCard label="Preparations" value={total} />
           <StatCard label="Conforme" value={conforme} className="text-emerald-700" />
           <StatCard label="Non conforme" value={nonConforme} className="text-amber-700" />
-          <StatCard label="A recuperer" value={aRecuperer} className="text-amber-700" />
           <StatCard label="A detruire" value={aDetruire} className="text-red-700" />
           <StatCard label="Sous derogation" value={sousDerogation} className="text-violet-700" />
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <h2 className="mb-3 text-lg font-bold text-slate-900">Par type de fabrication</h2>
+          <h2 className="mb-3 text-lg font-bold text-slate-900">Par plateforme (Auto / Manuel)</h2>
           {typeBreakdown.length === 0 ? (
             <p className="text-sm text-slate-500">Aucune preparation pour ce filtre.</p>
           ) : (
@@ -310,7 +345,7 @@ export default async function QualiteRapportPage({
                     <th className="px-4 py-3 font-semibold">Code</th>
                     <th className="px-4 py-3 font-semibold">Type</th>
                     <th className="px-4 py-3 font-semibold">Statut qualite</th>
-                    <th className="px-4 py-3 font-semibold">Sous derogation</th>
+                    <th className="px-4 py-3 font-semibold">Decision</th>
                     <th className="px-4 py-3 font-semibold">Saisi par</th>
                     <th className="px-4 py-3 font-semibold">Date saisie</th>
                   </tr>
@@ -321,11 +356,13 @@ export default async function QualiteRapportPage({
                       <td className="px-4 py-3 text-slate-600">{row.date ? formatDate(row.date) : "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.produit}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{row.code || "-"}</td>
-                      <td className="px-4 py-3 text-slate-600">{row.type_fabrication || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{row.typeLabel}</td>
                       <td className="px-4 py-3">
                         <DispositionBadge value={row.disposition_qualite} />
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{row.sous_derogation ? "Oui" : "Non"}</td>
+                      <td className="px-4 py-3">
+                        <DecisionBadge row={row} />
+                      </td>
                       <td className="px-4 py-3 text-slate-600">{row.utilisateur_test_labo || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">
                         {formatDateTime(row.date_saisie_test_labo)}
