@@ -26,12 +26,18 @@ export default function RavitailleurParLignePage() {
           </div>
         </section>
 
-        <section>
+        <section className="grid gap-4 sm:grid-cols-2">
           <Link
             href="/ravitailleur-par-ligne/tout"
             className="block rounded-[1.75rem] border border-black/5 bg-slate-950 p-6 text-center shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:-translate-y-1"
           >
             <span className="text-lg font-bold text-white">Toutes les zones</span>
+          </Link>
+          <Link
+            href="/ravitailleur-par-ligne/articles"
+            className="block rounded-[1.75rem] border border-black/5 bg-sky-700 p-6 text-center shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:-translate-y-1"
+          >
+            <span className="text-lg font-bold text-white">Par article</span>
           </Link>
         </section>
 
