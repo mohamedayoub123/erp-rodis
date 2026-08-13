@@ -12,6 +12,10 @@ const LIVE_COLUMNS = new Set([
   "en cour d'achat 4D",
   "date le livraison prevu ds 4d",
   "A COMMANDER",
+  "conso 1mois",
+  "Conso reelle 12mois",
+  "conso 9Mois",
+  "conso 4mois",
 ]);
 
 // Meme legende que le fichier Excel source (couleur de la cellule ORDRE).
@@ -90,6 +94,10 @@ export type LiveData = {
   enCours4d: number;
   date4d: string;
   aCommander: number;
+  conso12Mois: number;
+  conso1Mois: number;
+  conso4Mois: number;
+  conso9Mois: number;
 };
 
 export type RapportRowWithLive = {
@@ -242,8 +250,7 @@ export function RapportTable({
                 const style = row.categorie ? CATEGORIE_STYLES[row.categorie] : null;
                 const live = row.live;
                 const designationBg = DESIGNATION_COULEUR_BG[String(row.donnees?.["designation_couleur"] || "")];
-                const conso12Mois = Number(row.donnees?.["Conso reelle 12mois"] ?? 0);
-                const stockDepasse1An = live ? live.stock > conso12Mois : false;
+                const stockDepasse1An = live ? live.stock > live.conso12Mois : false;
                 const rowColors = colorsByRow[row.id] || {};
                 const isTargetSelected = (target: RowColorTarget) =>
                   selected?.rowId === row.id && selected.target === target;
@@ -303,6 +310,21 @@ export function RapportTable({
                         );
                       }
 
+                      if (col === "tonnage 1 tc") {
+                        return (
+                          <td key={col} className="border border-slate-200 p-1">
+                            <input
+                              type="number"
+                              step="0.01"
+                              name={`tonnage1tc_${row.id}`}
+                              defaultValue={row.donnees?.["tonnage 1 tc"] ?? ""}
+                              disabled={!canEdit}
+                              className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none disabled:border-transparent disabled:bg-transparent"
+                            />
+                          </td>
+                        );
+                      }
+
                       if (!LIVE_COLUMNS.has(col)) {
                         return (
                           <td
@@ -333,13 +355,14 @@ export function RapportTable({
                       if (col === "en cour d'achat 4D") value = live.enCours4d || "-";
                       if (col === "date le livraison prevu ds 4d") value = live.date4d || "-";
                       if (col === "A COMMANDER") value = live.aCommander;
+                      if (col === "conso 1mois") value = live.conso1Mois;
+                      if (col === "Conso reelle 12mois") value = live.conso12Mois;
+                      if (col === "conso 9Mois") value = live.conso9Mois;
+                      if (col === "conso 4mois") value = live.conso4Mois;
 
                       let cellStyle: React.CSSProperties | undefined;
-                      if (col === "stock") {
-                        const conso1Mois = Number(row.donnees?.["conso 1mois"] ?? 0);
-                        if (live.stock < conso1Mois * 3) {
-                          cellStyle = { backgroundColor: STOCK_BAS_BG, color: STOCK_BAS_TEXT };
-                        }
+                      if (col === "stock" && live.stock < live.conso1Mois * 3) {
+                        cellStyle = { backgroundColor: STOCK_BAS_BG, color: STOCK_BAS_TEXT };
                       }
                       if (col === "A COMMANDER" && live.aCommander < 0) {
                         cellStyle = { color: RED_TEXT };

@@ -157,6 +157,10 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
       enCours4d: number;
       date4d: string;
       aCommander: number;
+      conso12Mois: number;
+      conso1Mois: number;
+      conso4Mois: number;
+      conso9Mois: number;
     }
   >();
   if (rapportRows.length > 0) {
@@ -182,9 +186,14 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
       // et tronquer silencieusement le stock calcule (meme bug que celui
       // corrige sur le sync des articles MP).
       const [lotsRows, bcLignes] = await Promise.all([
-        fetchAllRows<{ article_id: number | null; qte_entree: number; qte_sortie: number }>(
+        fetchAllRows<{
+          article_id: number | null;
+          qte_entree: number;
+          qte_sortie: number;
+          date_jour: string | null;
+        }>(
           "lots_stock_matiere_premiere",
-          "article_id, qte_entree, qte_sortie",
+          "article_id, qte_entree, qte_sortie, date_jour",
           (query) => query.in("article_id", matchedArticleIds)
         ),
         fetchAllRows<{
@@ -204,10 +213,25 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
       ]);
 
       const stockByArticleId = new Map<number, number>();
+      // Conso reelle 12mois = somme des vraies sorties de stock (qte_sortie)
+      // des 12 derniers mois glissants - plus le snapshot Excel fige, calcule
+      // en direct depuis les mouvements reels. conso 1/4/9 mois = fraction
+      // proportionnelle de ce total (regle demandee : 12mois/12 = 1 mois).
+      const conso12MoisByArticleId = new Map<number, number>();
+      const douzeMoisAvant = new Date();
+      douzeMoisAvant.setDate(douzeMoisAvant.getDate() - 365);
+      const douzeMoisAvantIso = douzeMoisAvant.toISOString().slice(0, 10);
       for (const lot of lotsRows) {
         if (!lot.article_id) continue;
         const mouvement = Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0);
         stockByArticleId.set(lot.article_id, (stockByArticleId.get(lot.article_id) ?? 0) + mouvement);
+
+        if (lot.date_jour && lot.date_jour >= douzeMoisAvantIso) {
+          conso12MoisByArticleId.set(
+            lot.article_id,
+            (conso12MoisByArticleId.get(lot.article_id) ?? 0) + Number(lot.qte_sortie ?? 0)
+          );
+        }
       }
 
       const bcLigneIds = bcLignes.map((ligne) => ligne.id);
@@ -320,6 +344,7 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
         // 4D) - statistique 4D 6 mois (celle-ci reste saisie a la main,
         // donnees[...], pas une valeur live de cette page).
         const statistique4d6Mois = Number(row.donnees?.["statistique 4D 6 mois"] ?? 0);
+        const conso12Mois = conso12MoisByArticleId.get(articleId) ?? 0;
         liveDataByRapportRowId.set(row.id, {
           gamme: article?.gamme ?? null,
           stock,
@@ -340,6 +365,10 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
             )
             .join(" / "),
           aCommander: stock + enCoursBc + enCours4d - statistique4d6Mois,
+          conso12Mois,
+          conso1Mois: conso12Mois / 12,
+          conso4Mois: (conso12Mois / 12) * 4,
+          conso9Mois: (conso12Mois / 12) * 9,
         });
       }
     }

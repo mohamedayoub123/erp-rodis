@@ -4,10 +4,11 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
-// Enregistre "avis" et "statistique 4D 6 mois" (les 2 seuls champs saisis a
-// la main sur ce rapport) pour toutes les lignes soumises en une fois -
-// donnees[...] garde tel quel le reste (stock/BC/4D/consos), qui n'est
-// jamais modifie ici (recalcule en direct a chaque affichage de la page).
+// Enregistre "avis", "statistique 4D 6 mois" et "tonnage 1 tc" (les seuls
+// champs saisis a la main sur ce rapport) pour toutes les lignes soumises
+// en une fois - donnees[...] garde tel quel le reste (stock/BC/4D/consos),
+// qui n'est jamais modifie ici (recalcule en direct a chaque affichage de
+// la page).
 export async function saveRapportGammeStatistiqueAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
@@ -34,6 +35,9 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
 
     const statistiqueRaw = String(formData.get(`stat4d_${id}`) || "").trim().replace(",", ".");
     donnees["statistique 4D 6 mois"] = statistiqueRaw ? Number(statistiqueRaw) : null;
+
+    const tonnageRaw = String(formData.get(`tonnage1tc_${id}`) || "").trim().replace(",", ".");
+    donnees["tonnage 1 tc"] = tonnageRaw ? Number(tonnageRaw) : null;
 
     return { id, donnees };
   });
