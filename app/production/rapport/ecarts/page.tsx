@@ -9,6 +9,7 @@ import {
   buildPdLabelByCode,
   computeProduitParCode,
   fetchAllCartonEntries,
+  fetchAllCodeTermineRows,
   fetchAllEmballageEntries,
   fetchAllProgrammeLignes,
   fetchAllVracEntries,
@@ -114,6 +115,17 @@ export default async function RapportEcartsPage({
       fetchAllEmballageEntries(),
       buildPdLabelByCode(),
     ]);
+
+  // Le bouton "Terminer" du Dashboard enregistre desormais la fin PAR CODE
+  // dans production_code_termine (voir markVracTermineAction), plus au
+  // niveau de toute la ligne - sans ce check, un code termine sur le
+  // Dashboard restait affiche "En cours" ici (ligne.vrac_termine ne bouge
+  // jamais pour une fin par code), pendant que les autres codes de la meme
+  // ligne restaient - a raison - non termines.
+  const codeTermineRows = await fetchAllCodeTermineRows(lignes.map((ligne) => ligne.id));
+  const terminatedCodes = new Set(
+    codeTermineRows.map((row) => `${row.programme_ligne_id}::${row.code}::${row.stage}`)
+  );
 
   function sumEntries(entries: { quantite: number }[]) {
     return entries.reduce((sum, entry) => sum + Number(entry.quantite), 0);
@@ -318,20 +330,28 @@ export default async function RapportEcartsPage({
     const { ligne, code, vracDemande, vracFabrique, cartonDemande, cartonFabrique, cartonEmballe } = base;
 
     // "Termine" = exactement quand la ligne a disparu des 3 colonnes du
-    // Dashboard (reste <= 0 OU "Fin programme" appuye pour cette etape, OU
-    // "Fin programme" general) - meme regle, pas une estimation a part. Ces
-    // drapeaux restent au niveau de la ligne entiere (pas encore suivis par
-    // code cote base), donc partages par tous les codes d'une meme ligne.
+    // Dashboard (reste <= 0 OU "Fin programme" appuye pour cette etape/ce
+    // code precis, OU "Fin programme" general) - meme regle, pas une
+    // estimation a part. Le bouton "Terminer" du Dashboard enregistre la fin
+    // PAR CODE dans production_code_termine (terminatedCodes) ; les
+    // drapeaux ligne.xxx_termine restent en repli pour les lignes/anciennes
+    // saisies qui n'ont jamais eu qu'un seul code.
     // "manuel" = complete via le bouton "Fin programme" (pas parce que la
     // quantite a ete atteinte) - distingue de "naturel" pour afficher
     // "Termine Manuel" au lieu de "Termine" sur ces etapes-la.
-    const vracManuel = Boolean(ligne.programme_termine || ligne.vrac_termine);
+    const vracManuel = Boolean(
+      ligne.programme_termine || ligne.vrac_termine || terminatedCodes.has(`${ligne.id}::${code}::vrac`)
+    );
     const vracNaturel = vracDemande <= 0 || vracFabrique >= vracDemande;
     const vracOk = vracManuel || vracNaturel;
-    const cartonManuel = Boolean(ligne.programme_termine || ligne.carton_termine);
+    const cartonManuel = Boolean(
+      ligne.programme_termine || ligne.carton_termine || terminatedCodes.has(`${ligne.id}::${code}::carton`)
+    );
     const cartonNaturel = cartonDemande <= 0 || cartonFabrique >= cartonDemande;
     const cartonOk = cartonManuel || cartonNaturel;
-    const emballageManuel = Boolean(ligne.programme_termine || ligne.emballage_termine);
+    const emballageManuel = Boolean(
+      ligne.programme_termine || ligne.emballage_termine || terminatedCodes.has(`${ligne.id}::${code}::emballage`)
+    );
     // cartonDemande <= 0 : rien a emballer pour ce code, trivialement fait.
     // Sinon il faut que le conditionnement ait REELLEMENT produit quelque
     // chose (cartonFabrique > 0) et que l'emballage ait suivi - sinon une
