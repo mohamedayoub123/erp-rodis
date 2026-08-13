@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { GAMME_CONFIGS, type LiveField } from "./gamme-config";
+import { GAMME_CONFIGS } from "./gamme-config";
 import { editableFieldName } from "./field-name";
 
 function combineStyle(
@@ -27,13 +27,18 @@ function formatCellValue(value: string | number | null | undefined) {
   return value;
 }
 
-export type LiveData = Record<LiveField, string | number | null> & {
+// Le detail BC/4D (dossier + date) reste du texte normal, mais la quantite
+// elle-meme est extraite a part pour pouvoir la colorer seule (bleu fonce
+// pour le BC, vert gras pour le 4D) sans colorer tout le texte du detail.
+export type DateDetailEntry = { quantite: number; detail: string };
+
+export type LiveData = {
   gamme: string | null;
   stock: number;
   enCoursBc: number;
-  qteBcEtDate: string;
+  qteBcEtDate: DateDetailEntry[];
   enCours4d: number;
-  date4d: string;
+  date4d: DateDetailEntry[];
   aCommander: number;
   conso12Mois: number;
   conso1Mois: number;
@@ -287,6 +292,33 @@ export function RapportTable({
                         );
                       }
 
+                      // qteBcEtDate/date4d : seule la quantite est coloree
+                      // (bleu fonce pour le BC, vert gras pour le 4D), le
+                      // reste du detail (dossier/date) reste en texte normal.
+                      if (col.liveField === "qteBcEtDate" || col.liveField === "date4d") {
+                        const entries = live[col.liveField];
+                        const qtyColor =
+                          col.liveField === "qteBcEtDate" ? { color: "#1E3A8A" } : { color: "#00B050", fontWeight: 700 };
+                        return (
+                          <td
+                            key={colKey}
+                            className={`whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600 ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected(col.key) ? "ring-2 ring-inset ring-violet-500" : ""}`}
+                            style={combineStyle(undefined, rowColors["__row__"], rowColors[col.key])}
+                            onClick={() => selectTarget(row.id, col.key)}
+                            title={canEdit ? "Cliquer pour colorer cette case" : undefined}
+                          >
+                            {entries.length === 0
+                              ? "-"
+                              : entries.map((entry, entryIndex) => (
+                                  <span key={entryIndex}>
+                                    {entryIndex > 0 ? " / " : ""}
+                                    <span style={qtyColor}>{formatCellValue(entry.quantite)}</span> {entry.detail}
+                                  </span>
+                                ))}
+                          </td>
+                        );
+                      }
+
                       const value = col.liveField ? live[col.liveField] : "-";
 
                       let cellStyle: React.CSSProperties | undefined;
@@ -296,10 +328,10 @@ export function RapportTable({
                       if (col.liveField === "aCommander" && live.aCommander < 0) {
                         cellStyle = { color: config.redText, ...(config.redTextBold ? { fontWeight: 700 } : null) };
                       }
-                      if (col.liveField === "enCoursBc" || col.liveField === "qteBcEtDate") {
+                      if (col.liveField === "enCoursBc") {
                         cellStyle = { color: "#1E3A8A" };
                       }
-                      if (col.liveField === "enCours4d" || col.liveField === "date4d") {
+                      if (col.liveField === "enCours4d") {
                         cellStyle = { color: "#00B050", fontWeight: 700 };
                       }
 

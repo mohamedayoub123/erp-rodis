@@ -136,9 +136,9 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
       gamme: string | null;
       stock: number;
       enCoursBc: number;
-      qteBcEtDate: string;
+      qteBcEtDate: { quantite: number; detail: string }[];
       enCours4d: number;
-      date4d: string;
+      date4d: { quantite: number; detail: string }[];
       aCommander: number;
       conso12Mois: number;
       conso1Mois: number;
@@ -340,21 +340,17 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
           gamme: article?.gamme ?? null,
           stock,
           enCoursBc,
-          qteBcEtDate: openLignes
-            .map((ligne) => {
-              const dossier = [ligne.nDoss4d, ligne.nDossErp].filter(Boolean).join(" / ");
-              return `${ligne.quantite}${dossier ? " " + dossier : ""} du ${formatDate(ligne.date_jour)}`;
-            })
-            .join(" / "),
+          qteBcEtDate: openLignes.map((ligne) => {
+            const dossier = [ligne.nDoss4d, ligne.nDossErp].filter(Boolean).join(" / ");
+            return { quantite: ligne.quantite, detail: `${dossier ? dossier + " " : ""}du ${formatDate(ligne.date_jour)}` };
+          }),
           enCours4d,
-          date4d: open4dLignes
-            .map(
-              (ligne) =>
-                `${ligne.quantite} ${ligne.nDoss4d || ""} ${
-                  ligne.datePrevueReception ? formatDate(ligne.datePrevueReception) : "date prevue non saisie"
-                }`
-            )
-            .join(" / "),
+          date4d: open4dLignes.map((ligne) => ({
+            quantite: ligne.quantite,
+            detail: `${ligne.nDoss4d || ""} ${
+              ligne.datePrevueReception ? formatDate(ligne.datePrevueReception) : "date prevue non saisie"
+            }`,
+          })),
           aCommander: stock + enCoursBc + enCours4d - statistique4d6Mois,
           conso12Mois,
           conso1Mois,
