@@ -229,6 +229,36 @@ function applyTransitionDateComment(
   return commentaire || "";
 }
 
+function statusDateKeyFor(statutValue: string | null | undefined): "EN_COURS" | "STAND" | "BL_TRANSFORME" | "LIVREE" {
+  const upper = String(statutValue || "").trim().toUpperCase();
+  if (upper === "STAND") return "STAND";
+  if (upper === "BL_TRANSFORME") return "BL_TRANSFORME";
+  if (upper === "LIVREE") return "LIVREE";
+  return "EN_COURS";
+}
+
+// Ne pose la date "entree dans ce statut"/sa date de transition QUE la
+// premiere fois (token pas encore present) ou lors d'un vrai changement de
+// bucket (voir statutBucket) - jamais a chaque simple resauvegarde
+// (redispatch FIFO, edition du formulaire) de la meme commande deja dans ce
+// bucket, sinon "Statistique livraison" (le delai "hors stand" se mesure
+// depuis DATE_TRANSITION_STAND_ENCOURS) se retrouve faussee a chaque fois
+// que la commande est retouchee.
+function stampStatusDatesIfNeeded(
+  existingCommentaire: string | null | undefined,
+  previousStatut: string | null | undefined,
+  nextStatut: string
+) {
+  const isRealTransition = statutBucket(previousStatut) !== statutBucket(nextStatut);
+  const alreadyStamped = Boolean(extractStatusDateValue(existingCommentaire, statusDateKeyFor(nextStatut)));
+
+  if (!isRealTransition && alreadyStamped) {
+    return existingCommentaire || "";
+  }
+
+  return applyTransitionDateComment(applyStatusDateComment(existingCommentaire, nextStatut), nextStatut);
+}
+
 function sanitizeMetaValue(value: string) {
   return value.replaceAll("|", "/").trim();
 }
@@ -949,7 +979,7 @@ export async function updateManualCommandeAction(formData: FormData) {
 
   const { data: existingCommande, error: existingCommandeError } = await supabaseServer
     .from("commandes")
-    .select("statut")
+    .select("statut, commentaire")
     .eq("id", commandeId)
     .single();
 
@@ -1014,10 +1044,7 @@ export async function updateManualCommandeAction(formData: FormData) {
       mode_chargement: modeChargement || null,
       type_tc: typeTc || null,
       statut: finalStatut,
-      commentaire: applyTransitionDateComment(
-        applyStatusDateComment("Commande modifiee depuis la web", finalStatut),
-        finalStatut
-      ),
+      commentaire: stampStatusDatesIfNeeded(existingCommande.commentaire, existingCommande.statut, finalStatut),
     })
     .eq("id", commandeId);
 
@@ -1316,17 +1343,8 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
     })
   );
 
-  const commentaireBase = commande.commentaire ? `${commande.commentaire} | ` : "";
   const totalShortage = [...shortageByLine.values()].reduce((sum, value) => sum + value, 0);
   const newStatus = totalShortage > 0 ? "FIFO_PARTIEL" : "FIFO_CALCULE";
-  const commentWithStatusDate = upsertStatusDateComment(
-    commande.commentaire,
-    "EN_COURS"
-  );
-  const commentWithTransitionDate = applyTransitionDateComment(
-    commentWithStatusDate,
-    "EN_COURS"
-  );
   // Ne pas faire regresser un statut deja avance (Stand/BL transforme) vers
   // "En cours" juste parce qu'on a redispatche - meme principe que
   // updateManualCommandeAction/changeCommandeStatusAction (statutBucket) :
@@ -1334,13 +1352,14 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
   // de statut voulu par l'utilisateur.
   const finalStatus =
     statutBucket(commande.statut) === "EN_COURS" ? newStatus : commande.statut || newStatus;
+  const commentWithDates = stampStatusDatesIfNeeded(commande.commentaire, commande.statut, finalStatus);
 
   const { error: updateError } = await supabaseServer
     .from("commandes")
     .update({
       statut: finalStatus,
       commentaire:
-        `${commentWithTransitionDate}${commentWithTransitionDate ? " | " : ""}FIFO web calcule automatiquement` +
+        `${commentWithDates}${commentWithDates ? " | " : ""}FIFO web calcule automatiquement` +
         (totalShortage > 0 ? ` | Reste a charger: ${totalShortage}` : ""),
     })
     .eq("id", commandeId);
