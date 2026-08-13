@@ -29,6 +29,13 @@ function normalizeArticleNameLoose(value: string | null | undefined): string {
 // Pagine (offset/limit) au lieu d'un simple select().in(...) sans limite -
 // Supabase plafonne une reponse a 1000 lignes par defaut, ce qui tronque
 // silencieusement le resultat des qu'un article a beaucoup de lignes liees.
+// IMPORTANT : .order("id") est obligatoire ici - sans tri stable, Postgres
+// ne garantit pas le meme ordre de lignes entre deux requetes .range()
+// separees, ce qui peut faire apparaitre la MEME ligne sur 2 pages a la
+// fois (doublon silencieux). C'est ce qui causait un stock faux (calcule 2
+// a 3x trop grand/negatif) des qu'une gamme depassait 1000 lignes de stock
+// cumulees sur tous ses articles (ex: BASE RED GRAPE 338454 sur WHITE
+// SECRET, confirme par comparaison avec une requete directe sans .in()).
 async function fetchAllRows<T>(
   table: string,
   columns: string,
@@ -40,10 +47,9 @@ async function fetchAllRows<T>(
   const pageSize = 1000;
 
   while (true) {
-    const { data, error } = await applyFilters(supabaseServer.from(table).select(columns)).range(
-      from,
-      from + pageSize - 1
-    );
+    const { data, error } = await applyFilters(supabaseServer.from(table).select(columns))
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
     if (error || !data) break;
     rows.push(...(data as T[]));
     if (data.length < pageSize) break;
