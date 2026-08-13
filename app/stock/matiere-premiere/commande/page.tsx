@@ -126,6 +126,7 @@ type SearchParams = Promise<{
   statut?: string;
   article?: string;
   code?: string;
+  doss_erp?: string;
   date_debut?: string;
   date_fin?: string;
 }>;
@@ -136,10 +137,11 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
   const statutFilter = params.statut || "";
   const articleFilter = (params.article || "").trim();
   const codeFilter = (params.code || "").trim().toLowerCase();
+  const dossErpFilter = (params.doss_erp || "").trim().toLowerCase();
   const dateDebutFilter = (params.date_debut || "").trim();
   const dateFinFilter = (params.date_fin || "").trim();
   const hasFilters = Boolean(
-    statutFilter || articleFilter || codeFilter || dateDebutFilter || dateFinFilter
+    statutFilter || articleFilter || codeFilter || dossErpFilter || dateDebutFilter || dateFinFilter
   );
 
   const currentUser = await getCurrentStockUser();
@@ -199,6 +201,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
     .filter((group) => {
       if (statutFilter && group.statut !== statutFilter) return false;
       if (codeFilter && !group.codes.some((code) => code.toLowerCase().includes(codeFilter))) return false;
+      if (dossErpFilter && !(group.nDossErp || "").toLowerCase().includes(dossErpFilter)) return false;
       if (articleFilter && !group.articles.some((article) => matchesArticleSearch(article, articleFilter))) {
         return false;
       }
@@ -220,6 +223,10 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
     id: index,
     label,
   }));
+
+  const dossErpOptions = [
+    ...new Set(rows.map((row) => row.n_doss_erp_import).filter((label): label is string => Boolean(label))),
+  ].map((label, index) => ({ id: index, label }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -255,6 +262,12 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
               defaultValue={params.code || ""}
               options={codeOptions}
               placeholder="N commande (BC...)"
+            />
+            <SearchableFilterInput
+              name="doss_erp"
+              defaultValue={params.doss_erp || ""}
+              options={dossErpOptions}
+              placeholder="Doss. ERP"
             />
             <select
               name="statut"
