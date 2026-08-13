@@ -27,7 +27,7 @@ const mainButtons = [
     pageKey: "stockMatierePremiere" as const,
   },
   {
-    label: "Production",
+    label: "Production Cosmetique",
     href: "/production",
     icon: "\u{1F3ED}",
     accent: "from-blue-500 to-cyan-400",

@@ -82,7 +82,7 @@ export const navItems: NavItem[] = [
   },
   {
     href: "/production",
-    label: "Production",
+    label: "Production Cosmetique",
     pageKey: "productionHub",
     matchPrefixes: [
       "/production",
@@ -91,8 +91,6 @@ export const navItems: NavItem[] = [
       "/historique-programme-dispatcher",
       "/ravitailleur-par-ligne",
       "/code-par-article",
-      "/depots",
-      "/produit",
     ],
     subLinks: [
       { href: "/production/suivi", label: "Planning Production", pageKey: "productionSuiviHub" },
@@ -116,9 +114,21 @@ export const navItems: NavItem[] = [
       { href: "/code-par-article", label: "Code par article", pageKey: "codeParArticle" },
       { href: "/production/rapport", label: "Rapport", pageKey: "productionRapportHub" },
       { href: "/production/machines", label: "Machines", pageKey: "machines" },
-      { href: "/depots", label: "Entrepot", pageKey: "depots" },
-      { href: "/produit", label: "Produit", pageKey: "produit" },
     ],
+  },
+  {
+    href: "/produit",
+    label: "Produit",
+    pageKey: "produit",
+    matchPrefixes: ["/produit"],
+    subLinks: [],
+  },
+  {
+    href: "/depots",
+    label: "Entrepot",
+    pageKey: "depots",
+    matchPrefixes: ["/depots"],
+    subLinks: [],
   },
   {
     href: "/qualite",
