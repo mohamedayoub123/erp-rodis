@@ -161,28 +161,67 @@ export async function createReceptionMpAction(formData: FormData) {
 
   const fournisseur = parseOptionalText(formData, "fournisseur");
 
-  const { data: importRow, error: insertImportError } = await supabaseServer
+  // Si une "declaration" d'import existe deja pour cette ligne (bouton
+  // "Creer import" cote BC, createImportEvenementAction) avec la MEME
+  // quantite et pas encore receptionnee, la Reception la reutilise au
+  // lieu d'en creer une nouvelle - sinon la declaration reste orpheline
+  // pour toujours (jamais cloturee) et s'affiche a tort comme "encore en
+  // attente" partout (Import MP, Commande MP, Statistique MP) alors que
+  // le lot est deja bien entre en stock. Confirme sur un vrai cas
+  // (WHITE SECRET, "1850 date prevue non saisie") et un nettoyage de 40
+  // doublons historiques (7 813 050 unites) le 2026-08-13.
+  const { data: existingDeclaration } = await supabaseServer
     .from("bons_commande_mp_imports")
-    .insert([
-      {
-        bc_ligne_id: bcLigneId,
-        quantite_importee: quantiteImportee,
+    .select("id")
+    .eq("bc_ligne_id", bcLigneId)
+    .eq("quantite_importee", quantiteImportee)
+    .is("lot_stock_id", null)
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  let importId: number;
+  if (existingDeclaration) {
+    importId = (existingDeclaration as { id: number }).id;
+    const { error: updateImportError } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .update({
         n_doss_4d_import: nDoss4dImport,
         n_doss_erp_import: nDossErpImport,
         numero_lot: numeroLot,
         date_fabrication: dateFabrication,
         date_expiration: dateExpiration,
         date_import: dateReception,
-      },
-    ])
-    .select("id")
-    .single();
+      })
+      .eq("id", importId);
 
-  if (insertImportError) {
-    throw new Error(insertImportError.message);
+    if (updateImportError) {
+      throw new Error(updateImportError.message);
+    }
+  } else {
+    const { data: importRow, error: insertImportError } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .insert([
+        {
+          bc_ligne_id: bcLigneId,
+          quantite_importee: quantiteImportee,
+          n_doss_4d_import: nDoss4dImport,
+          n_doss_erp_import: nDossErpImport,
+          numero_lot: numeroLot,
+          date_fabrication: dateFabrication,
+          date_expiration: dateExpiration,
+          date_import: dateReception,
+        },
+      ])
+      .select("id")
+      .single();
+
+    if (insertImportError) {
+      throw new Error(insertImportError.message);
+    }
+
+    importId = (importRow as { id: number }).id;
   }
-
-  const importId = (importRow as { id: number }).id;
 
   const { data: lotRow, error: insertLotError } = await supabaseServer
     .from("lots_stock_matiere_premiere")
