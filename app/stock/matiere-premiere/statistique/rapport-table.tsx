@@ -226,6 +226,11 @@ export function RapportTable({
                       title={canEdit ? "Cliquer pour colorer cette case" : undefined}
                     >
                       {row.designation}
+                      {row.categorie && !config.categorieStyles ? (
+                        <span className="ml-2 whitespace-nowrap text-xs font-normal text-slate-400">
+                          ({row.categorie})
+                        </span>
+                      ) : null}
                     </td>
                     {columns.map((col, index) => {
                       const colKey = col.key + index;
@@ -275,11 +280,11 @@ export function RapportTable({
                       const value = col.liveField ? live[col.liveField] : "-";
 
                       let cellStyle: React.CSSProperties | undefined;
-                      if (col.liveField === "stock" && live.stock < live.conso1Mois * 3) {
+                      if (col.liveField === "stock" && live.stock < live.conso1Mois * (config.stockBasMultiplier ?? 3)) {
                         cellStyle = { backgroundColor: config.stockBasBg, color: config.stockBasText };
                       }
                       if (col.liveField === "aCommander" && live.aCommander < 0) {
-                        cellStyle = { color: config.redText };
+                        cellStyle = { color: config.redText, ...(config.redTextBold ? { fontWeight: 700 } : null) };
                       }
 
                       return (

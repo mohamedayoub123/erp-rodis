@@ -370,6 +370,29 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
     if (!value || !(value in GAMME_CONFIGS)) continue;
     gammeStatistiqueCounts.set(value, (gammeStatistiqueCounts.get(value) || 0) + 1);
   }
+  // Secours : certaines gammes (fichiers multi-onglets comme PARFUM/REAL
+  // CARE) ont leurs vrais articles tagues avec des valeurs plus precises
+  // que le nom plat du fichier source (ex: "PINK FLOWER"/"TARGET" au lieu
+  // de "PARFUM") - sans ca, le bouton ne s'afficherait jamais meme si le
+  // rapport existe bel et bien. On affiche alors le nombre de lignes du
+  // rapport a la place du nombre d'articles tagues (les deux se valent
+  // rarement exactement, mais garantit que le rapport reste accessible).
+  const gammesSansArticleTague = Object.keys(GAMME_CONFIGS).filter(
+    (key) => !gammeStatistiqueCounts.has(key)
+  );
+  if (gammesSansArticleTague.length > 0) {
+    const rapportGammeValues = await fetchAllRows<{ gamme_statistique: string }>(
+      "rapport_gamme_statistique_mp",
+      "gamme_statistique",
+      (query) => query.in("gamme_statistique", gammesSansArticleTague)
+    );
+    for (const row of rapportGammeValues) {
+      gammeStatistiqueCounts.set(
+        row.gamme_statistique,
+        (gammeStatistiqueCounts.get(row.gamme_statistique) || 0) + 1
+      );
+    }
+  }
   const gammeStatistiqueButtons = [...gammeStatistiqueCounts.entries()].sort((a, b) =>
     a[0].localeCompare(b[0])
   );

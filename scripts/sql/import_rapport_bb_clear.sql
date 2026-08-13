@@ -1,0 +1,58 @@
+-- Import du rapport BB CLEAR (onboarding multi-gammes Statistique MP).
+-- 47 articles.
+-- A executer dans Supabase SQL Editor (la table existe deja, creee pour MP COSM).
+
+insert into public.rapport_gamme_statistique_mp
+  (gamme_statistique, ordre, designation, categorie, donnees)
+values
+  ('BB CLEAR', 1, 'COLORANT BLEU COVARINE WS 6797 // CI74160', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":15000}'::jsonb),
+  ('BB CLEAR', 2, 'COLORANT VERT COVARINE WS 7793 // CI74260', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":35000}'::jsonb),
+  ('BB CLEAR', 3, 'BASE M. E-1630133/04 - N. COS 30578 - BB CL', null, '{"2025":4500,"unite":"NP","avis":1000,"statistique 4D 6mois":3000}'::jsonb),
+  ('BB CLEAR', 4, 'BASE SAV 41239 - savon bb c', null, '{"2025":350,"unite":"NP","avis":0,"statistique 4D 6mois":250}'::jsonb),
+  ('BB CLEAR', 5, 'BASE TAJ RAQUEL 461225-B', null, '{"2025":650,"unite":"LUZI","avis":null,"statistique 4D 6mois":400}'::jsonb),
+  ('BB CLEAR', 6, 'CARTON CREME BB CLEAR 140ML', null, '{"2025":6000,"unite":"4dz","avis":null,"statistique 4D 6mois":4000}'::jsonb),
+  ('BB CLEAR', 7, 'CARTON CREME BB CLEAR 320ML', null, '{"2025":7500,"unite":"2dz","avis":2500,"statistique 4D 6mois":4000}'::jsonb),
+  ('BB CLEAR', 8, 'CARTON CREME BB CLEAR EXTRA 140ML', null, '{"2025":null,"unite":"2dz","avis":null,"statistique 4D 6mois":"annule "}'::jsonb),
+  ('BB CLEAR', 9, 'CARTON DSR BB CLEAR 30ML', null, '{"2025":22000,"unite":"6dz","avis":0,"statistique 4D 6mois":15000}'::jsonb),
+  ('BB CLEAR', 10, 'CARTON GEL DOUCHE BB CLEAR', null, '{"2025":7000,"unite":"30pcs","avis":null,"statistique 4D 6mois":6000}'::jsonb),
+  ('BB CLEAR', 11, 'CARTON HUILE BB CLEAR 60ML', null, '{"2025":1700,"unite":"6dz","avis":null,"statistique 4D 6mois":2500}'::jsonb),
+  ('BB CLEAR', 12, 'CARTON LAIT BB CLEAR 200ML', null, '{"2025":22000,"unite":"3dz","avis":4000,"statistique 4D 6mois":15000}'::jsonb),
+  ('BB CLEAR', 13, 'CARTON LAIT BB CLEAR 300ML 33x22x22.2', null, '{"2025":20000,"unite":"2dz","avis":4000,"statistique 4D 6mois":10000}'::jsonb),
+  ('BB CLEAR', 14, 'CARTON TUBE CREME BB CLEAR 50GR', null, '{"2025":500,"unite":"6dz","avis":null,"statistique 4D 6mois":1000}'::jsonb),
+  ('BB CLEAR', 15, 'CARTON SAVON BB CLEAR 190 GRM', null, '{"2025":"7500 CLAR + 2000 EXF","unite":"2dz","avis":null,"statistique 4D 6mois":5000,"designation_couleur":"00B050"}'::jsonb),
+  ('BB CLEAR', 16, 'CARTON SAVON BB CLEAR 90 GRM', null, '{"2025":null,"unite":"4dz","avis":null,"statistique 4D 6mois":1000}'::jsonb),
+  ('BB CLEAR', 17, 'CARTON SERUM BB CLEAR 30ML', null, '{"2025":"5000 + 1000N","unite":"5dz","avis":null,"statistique 4D 6mois":3000}'::jsonb),
+  ('BB CLEAR', 18, 'ETIQUETTE GEL DOUCHE BB CLEAR BACK 600ML', null, '{"2025":null,"unite":null,"avis":0,"statistique 4D 6mois":30000}'::jsonb),
+  ('BB CLEAR', 19, 'ETIQUETTE GEL DOUCHE BB CLEAR FRONT 600ML', null, '{"2025":null,"unite":null,"avis":0,"statistique 4D 6mois":30000}'::jsonb),
+  ('BB CLEAR', 20, 'ETIQUETTE GEL DOUCHE BB CLEAR EXFL. 600ML (BACK)', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":180000}'::jsonb),
+  ('BB CLEAR', 21, 'ETIQUETTE GEL DOUCHE BB CLEAR EXFL. 600ML (FRONT)', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":180000}'::jsonb),
+  ('BB CLEAR', 22, 'ETIQUETTE SERUM BB CLEAR 30ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":180000}'::jsonb),
+  ('BB CLEAR', 23, 'ETUIS BB CLEAR LIGHTENING CARE DSR DISPENSER 12PC*30ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":90000}'::jsonb),
+  ('BB CLEAR', 24, 'ETUIS CREAM BB CLEAR 140ML (EXTRA)', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":"annule"}'::jsonb),
+  ('BB CLEAR', 25, 'ETUIS CREME BB CLEAR 140ML', null, '{"2025":null,"unite":null,"avis":70000,"statistique 4D 6mois":192000}'::jsonb),
+  ('BB CLEAR', 26, 'ETUIS CREME BB CLEAR 320ML', null, '{"2025":null,"unite":null,"avis":0,"statistique 4D 6mois":96000}'::jsonb),
+  ('BB CLEAR', 27, 'ETUIS DSR BB CLEAR 30ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":1080000}'::jsonb),
+  ('BB CLEAR', 28, 'ETUIS LAIT BB CLEAR 200ML', null, '{"2025":null,"unite":null,"avis":115000,"statistique 4D 6mois":540000}'::jsonb),
+  ('BB CLEAR', 29, 'ETUIS LAIT BB CLEAR 300ML', null, '{"2025":null,"unite":null,"avis":0,"statistique 4D 6mois":240000}'::jsonb),
+  ('BB CLEAR', 30, 'ETUIS OIL BB CLEAR 60ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":180000}'::jsonb),
+  ('BB CLEAR', 31, 'ETUIS SAVON BB CLEAR 190G', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":144000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('BB CLEAR', 32, 'ETUIS SAVON BB CLEAR 90G', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":48000}'::jsonb),
+  ('BB CLEAR', 33, 'ETUIS SAVON BB CLEAR EXFOLIANT 190G', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":72000}'::jsonb),
+  ('BB CLEAR', 34, 'ETUIS SERUM BB CLEAR 30ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":180000}'::jsonb),
+  ('BB CLEAR', 35, 'ETUIS TUBE CREME BB CLEAR 50GR', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":72000}'::jsonb),
+  ('BB CLEAR', 36, 'FLYER DSR BB CLEAR 30ML', null, '{"2025":null,"unite":null,"avis":0,"statistique 4D 6mois":1080000}'::jsonb),
+  ('BB CLEAR', 37, 'FLYER SERUM BB CLEAR 30ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":180000}'::jsonb),
+  ('BB CLEAR', 38, 'SLEEV BB CLEAR HUILE 60ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":180000}'::jsonb),
+  ('BB CLEAR', 39, 'SLEEVE CREME BB CLEAR 140ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":192000,"designation_couleur":"00B050"}'::jsonb),
+  ('BB CLEAR', 40, 'SLEEVE CREME BB CLEAR 140ML (EXTRA)', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":0}'::jsonb),
+  ('BB CLEAR', 41, 'SLEEVE CREME BB CLEAR 320ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":96000}'::jsonb),
+  ('BB CLEAR', 42, 'SLEEVE DSR BB CLEAR 30ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":1080000,"designation_couleur":"00B050"}'::jsonb),
+  ('BB CLEAR', 43, 'SLEEVE LAIT BB CLEAR 200ML', null, '{"2025":null,"unite":null,"avis":0,"statistique 4D 6mois":540000,"designation_couleur":"00B050"}'::jsonb),
+  ('BB CLEAR', 44, 'SLEEVE LAIT BB CLEAR 300ML', null, '{"2025":null,"unite":null,"avis":65000,"statistique 4D 6mois":240000,"designation_couleur":"00B050"}'::jsonb),
+  ('BB CLEAR', 45, 'TUBE VIDE CREME BB CLEAR 50GR', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":72000}'::jsonb),
+  ('BB CLEAR', 46, 'GLASS BOTTLE 30ML (GREEN) SERUM', null, '{"2025":null,"unite":null,"avis":60000,"statistique 4D 6mois":300000}'::jsonb),
+  ('BB CLEAR', 47, 'PIPETTE SERUM 18/410 SILVER', null, '{"2025":null,"unite":null,"avis":90000,"statistique 4D 6mois":300000}'::jsonb)
+on conflict (gamme_statistique, ordre) do update set
+  designation = excluded.designation,
+  categorie = excluded.categorie,
+  donnees = excluded.donnees;

@@ -1,0 +1,57 @@
+-- Import du rapport WHITE SECRET (onboarding multi-gammes Statistique MP).
+-- 46 articles.
+-- A executer dans Supabase SQL Editor (la table existe deja, creee pour MP COSM).
+
+insert into public.rapport_gamme_statistique_mp
+  (gamme_statistique, ordre, designation, categorie, donnees)
+values
+  ('WHITE SECRET', 1, 'COLORANT ROUGE COVARINE W3799 // WS 3797// CI12490', null, '{"2025":150000,"unite":null,"avis":60000,"statistique 4D 6mois":150000}'::jsonb),
+  ('WHITE SECRET', 2, 'BASE SKIN WHITE (AR614517 WS1) (ME 20003766)', null, '{"2025":47000,"unite":"CPLA\nME\nM","avis":3500,"statistique 4D 6mois":30000}'::jsonb),
+  ('WHITE SECRET', 3, 'BASE RED GRAPE 338454', null, '{"2025":4500,"unite":"LUZI","avis":1000,"statistique 4D 6mois":3000,"designation_couleur":"00B050"}'::jsonb),
+  ('WHITE SECRET', 4, 'BASE SAV 41126', null, '{"2025":400,"unite":"NP","avis":50,"statistique 4D 6mois":300}'::jsonb),
+  ('WHITE SECRET', 5, 'CARTON CREME WHITE SECRET 140ML', null, '{"2025":100000,"unite":"6dz","avis":60000,"statistique 4D 6mois":80000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('WHITE SECRET', 6, 'CARTON CREME WHITE SECRET 320ML', null, '{"2025":45000,"unite":"3dz","avis":13000,"statistique 4D 6mois":35000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('WHITE SECRET', 7, 'CARTON DSR WHITE SECRET', null, '{"2025":25000,"unite":"6dz","avis":4000,"statistique 4D 6mois":15000}'::jsonb),
+  ('WHITE SECRET', 8, 'CARTON GEL DOUCHE WHITE SECRET 1L', null, '{"2025":30000,"unite":"1dz","avis":20000,"statistique 4D 6mois":20000}'::jsonb),
+  ('WHITE SECRET', 9, 'CARTON GEL DOUCHE WHITE SECRET 500ML', null, '{"2025":30000,"unite":"2dz","avis":15000,"statistique 4D 6mois":20000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('WHITE SECRET', 10, 'CARTON GEL DOUCHE WHITE SECRET EXFL. 500ML', null, '{"2025":3000,"unite":"2dz","avis":null,"statistique 4D 6mois":3000}'::jsonb),
+  ('WHITE SECRET', 11, 'CARTON HUILE WHITE SECRET 60ML', null, '{"2025":"11000 CTS \n6000   CTS N","unite":"8dz","avis":5000,"statistique 4D 6mois":10000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('WHITE SECRET', 12, 'CARTON LAIT WHITE SECRET 200ML', null, '{"2025":170000,"unite":"4dz","avis":65000,"statistique 4D 6mois":100000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('WHITE SECRET', 13, 'CARTON LAIT WHITE SECRET 300ML', null, '{"2025":140000,"unite":"3dz","avis":60000,"statistique 4D 6mois":90000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('WHITE SECRET', 14, 'CARTON LAIT WHITE SECRET 500ML', null, '{"2025":110000,"unite":"2dz","avis":50000,"statistique 4D 6mois":60000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('WHITE SECRET', 15, 'CARTON MASK WHITE SECRET', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('WHITE SECRET', 16, 'CARTON SAVON WHITE SECRET 190G', null, '{"2025":"15000 CLARI+ 3000 EXFO","unite":"4dz","avis":6000,"statistique 4D 6mois":10000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('WHITE SECRET', 17, 'CARTON SAVON WHITE SECRET 90G', null, '{"2025":500,"unite":"8dz","avis":null,"statistique 4D 6mois":3000}'::jsonb),
+  ('WHITE SECRET', 18, 'CARTON SERUM WHITE SECRET', null, '{"2025":"5000 CTS\n1500 CTS N","unite":"6dz","avis":null,"statistique 4D 6mois":6000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('WHITE SECRET', 19, 'CARTON TUBE WHITE SECRET 70 GRS', null, '{"2025":2500,"unite":"6dz","avis":null,"statistique 4D 6mois":3000}'::jsonb),
+  ('WHITE SECRET', 20, 'ETIQUETTE GEL DOUCHE WHITE SECRET 500ML', null, '{"2025":null,"unite":null,"avis":200000,"statistique 4D 6mois":480000,"designation_couleur":"00B050"}'::jsonb),
+  ('WHITE SECRET', 21, 'ETIQUETTE GEL DOUCHE WHITE SECRET EXFL. 500ML', null, '{"2025":null,"unite":null,"avis":20000,"statistique 4D 6mois":72000}'::jsonb),
+  ('WHITE SECRET', 22, 'ETIQUETTE SERUM WHITE SECRET 30ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":432000}'::jsonb),
+  ('WHITE SECRET', 23, 'ETIQUETTE WHITE SECRET GEL DOUCHE 1L', null, '{"2025":null,"unite":null,"avis":70000,"statistique 4D 6mois":240000}'::jsonb),
+  ('WHITE SECRET', 24, 'ETUIS DSR WHITE SECRET 30ML', null, '{"2025":null,"unite":null,"avis":70000,"statistique 4D 6mois":1080000}'::jsonb),
+  ('WHITE SECRET', 25, 'ETUIS SAVON WHITE SECRET 190G', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":480000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('WHITE SECRET', 26, 'ETUIS SAVON WHITE SECRET 90G', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":288000}'::jsonb),
+  ('WHITE SECRET', 27, 'ETUIS SAVON WHITE SECRET EXFOLIANT 190G', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":192000}'::jsonb),
+  ('WHITE SECRET', 28, 'ETUIS SERUM WHITE SECRET 30ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":432000}'::jsonb),
+  ('WHITE SECRET', 29, 'ETUIS TUBE WHITE SECRET 70GR', null, '{"2025":"a rajoute ingredient sur le \nbat si ya comande ","unite":null,"avis":null,"statistique 4D 6mois":216000}'::jsonb),
+  ('WHITE SECRET', 30, 'ETUIS WHITE SECRET DSR DISPENSER 12PC*30ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":90000}'::jsonb),
+  ('WHITE SECRET', 31, 'FLYER DSR WHITE SECRET 30ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":1080000}'::jsonb),
+  ('WHITE SECRET', 32, 'FLYER SERUM WHITE SECRET 30ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":432000}'::jsonb),
+  ('WHITE SECRET', 33, 'SLEEVE CREME WHITE SECRET 140ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":5760000,"designation_couleur":"00B050"}'::jsonb),
+  ('WHITE SECRET', 34, 'SLEEVE CREME WHITE SECRET 320ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":1260000,"designation_couleur":"00B050"}'::jsonb),
+  ('WHITE SECRET', 35, 'SLEEVE DSR WHITE SECRET 30ML', null, '{"2025":null,"unite":null,"avis":70000,"statistique 4D 6mois":1080000,"designation_couleur":"00B050"}'::jsonb),
+  ('WHITE SECRET', 36, 'SLEEVE HUILE WHITE SECRET 60ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":960000,"designation_couleur":"00B050"}'::jsonb),
+  ('WHITE SECRET', 37, 'SLEEVE LAIT WHITE SECRET 200ML', null, '{"2025":null,"unite":null,"avis":1000000,"statistique 4D 6mois":4800000,"designation_couleur":"00B050"}'::jsonb),
+  ('WHITE SECRET', 38, 'SLEEVE LAIT WHITE SECRET 300ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":3240000,"designation_couleur":"00B050"}'::jsonb),
+  ('WHITE SECRET', 39, 'SLEEVE LAIT WHITE SECRET 300ML SYMPA', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('WHITE SECRET', 40, 'SLEEVE LAIT WHITE SECRET 500ML', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":1440000,"designation_couleur":"00B050"}'::jsonb),
+  ('WHITE SECRET', 46, 'SLEEVE LAIT WHITE SECRET 500ML SYMPA', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('WHITE SECRET', 41, 'TUBE VIDE CREME WHITE SECRET 70G LAMINATED (DIA 35MM)', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":216000}'::jsonb),
+  ('WHITE SECRET', 42, '28/410 SLP TRANS RED PANT 1795C - 252MM// VAINO H-190', null, '{"2025":"GEL DOUCHE 1L","unite":null,"avis":50000,"statistique 4D 6mois":240000,"designation_couleur":"FFFF00"}'::jsonb),
+  ('WHITE SECRET', 43, '28/410 SCREW LOTION PUMP TRANS RED PANT 1795C-203MM', null, '{"2025":"GEL DOUCHE 500ML\npipe flexible","unite":null,"avis":50000,"statistique 4D 6mois":480000,"designation_couleur":"00B050"}'::jsonb),
+  ('WHITE SECRET', 44, 'GLASS BOTTLE 30ML (AMBER) SERUM', null, '{"2025":null,"unite":null,"avis":null,"statistique 4D 6mois":650000}'::jsonb),
+  ('WHITE SECRET', 45, 'PIPETTE SERUM 18/410 GOLD', null, '{"2025":"utilise pour serum elixir","unite":null,"avis":null,"statistique 4D 6mois":750000}'::jsonb)
+on conflict (gamme_statistique, ordre) do update set
+  designation = excluded.designation,
+  categorie = excluded.categorie,
+  donnees = excluded.donnees;
