@@ -34,6 +34,14 @@ export function normalizeFamilyValue(value: string | null | undefined): string {
 const EXFOLIANT_TOKENS = new Set(["EXFOLIANT", "EXFOLIANTE", "EXFO", "EXF"]);
 const CLARIFIANT_TOKENS = new Set(["CLARIFIANT", "CLARIFIANTE"]);
 const SIZE_TOKEN_PATTERN = /^\d+(?:[.,]\d+)?(?:ML|CL|L|GRS|GR|G|KG)?$/;
+// Meme unites que SIZE_TOKEN_PATTERN, mais quand le nombre et l'unite sont
+// separes par un espace ("200 ML" au lieu de "200ML" colle) - la saisie
+// manuelle des articles n'est pas coherente sur ce point, et sans ca "200
+// ML" ne matche pas SIZE_TOKEN_PATTERN (qui exige le chiffre ET l'unite
+// dans le MEME mot), donc 2 contenances du meme produit ecrites l'une avec
+// espace et l'autre sans ne partagent pas leur famille de code.
+const UNIT_ONLY_TOKEN_PATTERN = /^(?:ML|CL|L|GRS|GR|G|KG)$/;
+const NUMBER_ONLY_TOKEN_PATTERN = /^\d+(?:[.,]\d+)?$/;
 // Contenances/formats exprimes en mot plutot qu'en chiffre (Std=standard,
 // Gt=grand tube, Rgl=regulier...) - au meme titre que "500ML" ou "1L", ce
 // sont des tailles differentes du MEME produit, donc a retirer de la cle de
@@ -78,6 +86,15 @@ export function detectArticleFamilyFromName(name: string | null | undefined): st
       CLARIFIANT_TOKENS.has(lastWord) ||
       lastWord === "S-H"
     ) {
+      words.pop();
+      continue;
+    }
+    if (
+      words.length > 2 &&
+      UNIT_ONLY_TOKEN_PATTERN.test(lastWord) &&
+      NUMBER_ONLY_TOKEN_PATTERN.test(words[words.length - 2])
+    ) {
+      words.pop();
       words.pop();
       continue;
     }

@@ -202,10 +202,11 @@ export function RapportTable({
                 const live = row.live;
                 // DESIGNATION en jaune si un BC est en cours d'achat, en
                 // vert si un dossier import (4D) est en cours, rien sinon -
-                // priorite au BC si les deux sont en cours en meme temps.
+                // si les deux sont en cours en meme temps pour le meme
+                // article, c'est vert qui gagne.
                 const hasOpenBc = Boolean(live && live.enCoursBc > 0);
                 const hasOpenImport = Boolean(live && live.enCours4d > 0);
-                const designationBg = hasOpenBc ? "#FFFF00" : hasOpenImport ? "#00B050" : undefined;
+                const designationBg = hasOpenImport ? "#00B050" : hasOpenBc ? "#FFFF00" : undefined;
                 const stockDepasse1An = config.highlightStockOverConso12Mois && live ? live.stock > live.conso12Mois : false;
                 const rowColors = colorsByRow[row.id] || {};
                 const isTargetSelected = (target: RowColorTarget) =>
