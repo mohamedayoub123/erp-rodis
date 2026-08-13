@@ -85,7 +85,7 @@ export default async function TestLaboPage({
   }
 
   const currentStockUser = await getCurrentStockUser();
-  const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionFabrication");
+  const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionTestLabo");
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer

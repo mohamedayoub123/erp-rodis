@@ -483,7 +483,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
 export async function saveTestLaboAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "productionSuiviProductionFabrication"))) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionTestLabo"))) {
     throw new Error("Cet utilisateur ne peut pas enregistrer de test labo.");
   }
 
@@ -572,7 +572,7 @@ export async function saveTestLaboAction(formData: FormData) {
 export async function ajouterAjustementMpTestLaboAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "productionSuiviProductionFabrication"))) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionTestLabo"))) {
     throw new Error("Cet utilisateur ne peut pas enregistrer d'ajustement.");
   }
 

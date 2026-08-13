@@ -443,6 +443,22 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport Fabrication",
     pathPrefixes: ["/production/suivi-production/fabrication"],
   },
+  // Cle separee pour le Test labo (sous-page de Fabrication) : un
+  // utilisateur peut avoir le droit d'ecrire le Test labo sans avoir celui
+  // d'ecrire le rapport Fabrication ("Entrer"), ex: role labo/qualite
+  // distinct des chefs de ligne. Meme pathPrefixes que Fabrication - place
+  // APRES dans le tableau pour que findPageForPath (longest-match, premier
+  // gagnant a egalite) continue de resoudre la vraie route /test-labo via
+  // productionSuiviProductionFabrication ; cette entree ne sert qu'a la
+  // gestion des droits (page Admin + canWritePageUser), pas au routage.
+  {
+    key: "productionSuiviProductionTestLabo",
+    module: "Production",
+    label: "Test labo (ecriture separee de Fabrication)",
+    pathPrefixes: ["/production/suivi-production/fabrication"],
+    defaultView: false,
+    defaultWrite: false,
+  },
   {
     key: "productionSuiviProductionConditionnement",
     module: "Production",
