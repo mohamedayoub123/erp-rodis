@@ -14,6 +14,7 @@ type DispatcherRow = {
   produit: string | null;
   code: string | null;
   qt_carton: number | null;
+  date_jour: string | null;
 };
 
 async function fetchAllDispatcherRows(): Promise<DispatcherRow[]> {
@@ -24,7 +25,7 @@ async function fetchAllDispatcherRows(): Promise<DispatcherRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("programme_dispatcher_lignes")
-      .select("id, produit, code, qt_carton")
+      .select("id, produit, code, qt_carton, date_jour")
       .range(from, from + pageSize - 1);
 
     if (error) break;
@@ -83,11 +84,6 @@ export default async function RavitailleurArticlesPage({
     (label, id) => ({ id, label })
   );
 
-  // Une seule date pour toute la feuille (au lieu d'une date par ligne) -
-  // ce tableau sert de feuille de suivi d'emballage imprimee pour une
-  // journee donnee, pas d'un historique par date de production.
-  const todayIso = new Date().toISOString().slice(0, 10);
-
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -100,7 +96,6 @@ export default async function RavitailleurArticlesPage({
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
                 Ravitailleur par article
               </h1>
-              <p className="mt-2 text-sm font-semibold text-slate-600">Date : {formatDate(todayIso)}</p>
             </div>
 
             <div className="no-print flex items-center gap-3">
@@ -125,6 +120,9 @@ export default async function RavitailleurArticlesPage({
             <table className="min-w-full border-collapse text-left text-sm">
               <thead>
                 <tr>
+                  <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900">
+                    DATE
+                  </th>
                   <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900">
                     ARTICLE
                   </th>
@@ -148,7 +146,7 @@ export default async function RavitailleurArticlesPage({
                 {rows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={3 + QT_EMBALLER_COLUMNS.length}
+                      colSpan={4 + QT_EMBALLER_COLUMNS.length}
                       className="border border-slate-300 bg-white px-3 py-6 text-center text-slate-500"
                     >
                       Aucun resultat.
@@ -157,6 +155,9 @@ export default async function RavitailleurArticlesPage({
                 ) : (
                   rows.map((row) => (
                     <tr key={row.id}>
+                      <td className="border border-slate-300 bg-white px-3 py-3 text-center text-slate-600">
+                        {row.date_jour ? formatDate(row.date_jour) : "-"}
+                      </td>
                       <td className="border border-slate-300 bg-white px-3 py-3 font-medium text-slate-900">
                         {row.produit || "-"}
                       </td>
