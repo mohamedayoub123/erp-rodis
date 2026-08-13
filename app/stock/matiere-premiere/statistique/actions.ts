@@ -3,8 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { GAMME_CONFIGS } from "./gamme-config";
 
-// Enregistre "avis", "statistique 4D 6 mois" et "tonnage 1 tc" (les seuls
+export function editableFieldName(rowId: number, columnKey: string) {
+  return `field__${rowId}__${columnKey}`;
+}
+
+// Enregistre les colonnes "editable-*" de la config de la gamme (les seuls
 // champs saisis a la main sur ce rapport) pour toutes les lignes soumises
 // en une fois - donnees[...] garde tel quel le reste (stock/BC/4D/consos),
 // qui n'est jamais modifie ici (recalcule en direct a chaque affichage de
@@ -17,6 +22,15 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
   }
 
   const gammeStatistique = String(formData.get("gamme_statistique") || "").trim();
+  const config = GAMME_CONFIGS[gammeStatistique];
+  if (!config) {
+    throw new Error(`Gamme inconnue: ${gammeStatistique}`);
+  }
+
+  const editableColumns = config.columns.filter(
+    (col) => col.kind === "editable-text" || col.kind === "editable-number"
+  );
+
   const rowIds = formData
     .getAll("row_id")
     .map((value) => Number(value))
@@ -30,14 +44,15 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
       donnees = {};
     }
 
-    const avis = String(formData.get(`avis_${id}`) || "").trim();
-    donnees["avis"] = avis || null;
-
-    const statistiqueRaw = String(formData.get(`stat4d_${id}`) || "").trim().replace(",", ".");
-    donnees["statistique 4D 6 mois"] = statistiqueRaw ? Number(statistiqueRaw) : null;
-
-    const tonnageRaw = String(formData.get(`tonnage1tc_${id}`) || "").trim().replace(",", ".");
-    donnees["tonnage 1 tc"] = tonnageRaw ? Number(tonnageRaw) : null;
+    for (const col of editableColumns) {
+      const raw = String(formData.get(editableFieldName(id, col.key)) || "").trim();
+      if (col.kind === "editable-number") {
+        const normalized = raw.replace(",", ".");
+        donnees[col.key] = normalized ? Number(normalized) : null;
+      } else {
+        donnees[col.key] = raw || null;
+      }
+    }
 
     return { id, donnees };
   });

@@ -8,6 +8,7 @@ import { computeStatutBc } from "@/app/stock/matiere-premiere/bc/constants";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { RapportTable, type RapportRowWithLive } from "./rapport-table";
 import { saveRapportGammeStatistiqueAction } from "./actions";
+import { GAMME_CONFIGS } from "./gamme-config";
 
 // Meme regle que la page Import MP (app/stock/matiere-premiere/commande) :
 // un dossier reste "en cours d'achat 4D" tant qu'il n'a pas atteint le
@@ -61,30 +62,6 @@ type ArticleMpRow = {
   gamme_statistique: string | null;
   min_stock: number | null;
   max_stock: number | null;
-};
-
-// Colonnes du rapport riche (copie fidele des fichiers "INV <gamme>.xlsx"
-// fournis par l'utilisateur), dans l'ordre exact du fichier source - pas
-// d'ordre garanti cote jsonb, donc l'ordre d'affichage est fixe ici.
-const RAPPORT_COLUMNS_BY_GAMME: Record<string, string[]> = {
-  "MP COSM": [
-    "Gamme",
-    "stock",
-    "en cours d'achat BC",
-    "Qte BC et Date",
-    "en cour d'achat 4D",
-    "date le livraison prevu ds 4d",
-    "avis",
-    "statistique 4D 6 mois",
-    "Statistique 6mois calculé",
-    "A COMMANDER",
-    "__SPACER__",
-    "tonnage 1 tc",
-    "conso 1mois",
-    "Conso reelle 12mois",
-    "conso 9Mois",
-    "conso 4mois",
-  ],
 };
 
 type RapportRow = {
@@ -141,7 +118,7 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
       .order("ordre", { ascending: true });
     rapportRows = (data ?? []) as RapportRow[];
   }
-  const rapportColumns = RAPPORT_COLUMNS_BY_GAMME[gammeStatistique] || [];
+  const gammeConfig = GAMME_CONFIGS[gammeStatistique];
 
   // Gamme/stock/BC en cours : recalcules a chaque affichage a partir des
   // vraies tables articles_matiere_premiere/lots_stock_matiere_premiere/
@@ -340,11 +317,19 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
         const enCoursBc = openLignes.reduce((sum, ligne) => sum + ligne.quantite, 0);
         const enCours4d = open4dLignes.reduce((sum, ligne) => sum + ligne.quantite, 0);
         // Meme formule que le fichier Excel source, verifiee identique sur
-        // les 193 lignes : (stock + en cours d'achat BC + en cour d'achat
-        // 4D) - statistique 4D 6 mois (celle-ci reste saisie a la main,
-        // donnees[...], pas une valeur live de cette page).
-        const statistique4d6Mois = Number(row.donnees?.["statistique 4D 6 mois"] ?? 0);
+        // les 193 lignes de MP COSM : (stock + en cours d'achat BC + en
+        // cour d'achat 4D) - statistique 4D 6 mois (celle-ci reste saisie a
+        // la main, donnees[...], pas une valeur live de cette page). La cle
+        // exacte de cette "statistique" varie par gamme (espace ou non).
+        const statistique4d6Mois = Number(row.donnees?.[gammeConfig?.statistiqueKey ?? ""] ?? 0);
         const conso12Mois = conso12MoisByArticleId.get(articleId) ?? 0;
+        // conso 1/4/9 mois : deux formules possibles selon la gamme (voir
+        // gamme-config.ts) - MP COSM se base sur les vraies sorties de
+        // stock des 12 derniers mois glissants, ELIXIR sur sa propre
+        // formule Excel (statistique 4D 6mois / 6), trouvee telle quelle
+        // dans son fichier source.
+        const conso1Mois =
+          gammeConfig?.consoFormula === "excel6mois" ? statistique4d6Mois / 6 : conso12Mois / 12;
         liveDataByRapportRowId.set(row.id, {
           gamme: article?.gamme ?? null,
           stock,
@@ -366,23 +351,23 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
             .join(" / "),
           aCommander: stock + enCoursBc + enCours4d - statistique4d6Mois,
           conso12Mois,
-          conso1Mois: conso12Mois / 12,
-          conso4Mois: (conso12Mois / 12) * 4,
-          conso9Mois: (conso12Mois / 12) * 9,
+          conso1Mois,
+          conso4Mois: conso1Mois * 4,
+          conso9Mois: conso1Mois * 9,
         });
       }
     }
   }
 
   // Un bouton uniquement pour les gammes qui ont deja un vrai rapport
-  // fourni par l'utilisateur (RAPPORT_COLUMNS_BY_GAMME) - pas un bouton
-  // par valeur Gamme Statistique presente en base (il y en a des dizaines,
-  // la plupart sans rien derriere) : "n'ajoute pas de nom, laisse vide tant
-  // que je ne l'ai pas donne".
+  // fourni par l'utilisateur (GAMME_CONFIGS) - pas un bouton par valeur
+  // Gamme Statistique presente en base (il y en a des dizaines, la plupart
+  // sans rien derriere) : "n'ajoute pas de nom, laisse vide tant que je ne
+  // l'ai pas donne".
   const gammeStatistiqueCounts = new Map<string, number>();
   for (const article of allArticles) {
     const value = (article.gamme_statistique || "").trim();
-    if (!value || !(value in RAPPORT_COLUMNS_BY_GAMME)) continue;
+    if (!value || !(value in GAMME_CONFIGS)) continue;
     gammeStatistiqueCounts.set(value, (gammeStatistiqueCounts.get(value) || 0) + 1);
   }
   const gammeStatistiqueButtons = [...gammeStatistiqueCounts.entries()].sort((a, b) =>
@@ -523,7 +508,6 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
 
                 <RapportTable
                   gammeStatistique={gammeStatistique}
-                  rapportColumns={rapportColumns}
                   rows={rowsWithLive}
                   canEdit={canEdit}
                   saveAction={saveRapportGammeStatistiqueAction}
