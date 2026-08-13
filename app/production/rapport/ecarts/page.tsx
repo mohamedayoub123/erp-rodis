@@ -412,14 +412,25 @@ export default async function RapportEcartsPage({
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
     .map((label, id) => ({ id, label }));
 
-  const rows = allRows.filter((row) => {
-    if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
-    if (pdFilter && !row.pd.toLowerCase().includes(pdFilter)) return false;
-    if (statutFilter.size > 0 && !statutFilter.has(row.statut)) return false;
-    if (dateDebutFilter && row.date < dateDebutFilter) return false;
-    if (dateFinFilter && row.date > dateFinFilter) return false;
-    return true;
-  });
+  const rows = allRows
+    .filter((row) => {
+      if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
+      if (pdFilter && !row.pd.toLowerCase().includes(pdFilter)) return false;
+      if (statutFilter.size > 0 && !statutFilter.has(row.statut)) return false;
+      if (dateDebutFilter && row.date < dateDebutFilter) return false;
+      if (dateFinFilter && row.date > dateFinFilter) return false;
+      return true;
+    })
+    // Organise par PD (PD1, PD2... PD10 - tri numeric-aware pour ne pas
+    // classer PD10 avant PD2) plutot que dans un ordre non significatif -
+    // date puis code en departage a l'interieur d'un meme PD.
+    .sort((a, b) => {
+      const pdCompare = a.pd.localeCompare(b.pd, "fr", { numeric: true });
+      if (pdCompare !== 0) return pdCompare;
+      const dateCompare = a.date.localeCompare(b.date);
+      if (dateCompare !== 0) return dateCompare;
+      return a.code.localeCompare(b.code, "fr", { numeric: true });
+    });
 
   // Avec des milliers de codes, tout rendre d'un coup fait exploser le
   // temps de rendu et la memoire - meme filtre pagine que les autres
