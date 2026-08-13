@@ -589,22 +589,33 @@ async function buildStockSnapshot(articleIds?: number[]) {
     // Plus ancienne date_fabrication gagne pour representer le lot (meme
     // convention que le reste de l'app), pour eviter qu'une entree ancienne
     // et une sortie recente du meme lot se retrouvent dans des tranches
-    // d'age differentes.
-    const previousDate = previous?.date_fabrication ?? null;
-    const olderDate =
-      row.date_fabrication && (!previousDate || new Date(row.date_fabrication).getTime() < new Date(previousDate).getTime())
-        ? row.date_fabrication
-        : previousDate ?? row.date_fabrication;
+    // d'age differentes. TOUTES les autres colonnes "d'identite" du lot
+    // (id, numero_lot, chambre, code_pays...) suivent ce MEME choix -
+    // avant, elles venaient a tort de la DERNIERE ligne vue quelle que soit
+    // sa date (souvent une ligne de sortie/mouvement ulterieure du meme
+    // code), ce qui faisait pointer fifo_resultats.lot_stock_id (rempli au
+    // Dispatch avec cet id) vers cette ligne de sortie au lieu de la vraie
+    // ligne d'entree - "Enregistrer tout" (stock_override_fifo_result, qui
+    // resout son propre lot cible independamment) recalculait alors une
+    // disponibilite incoherente avec ce que le Dispatch venait d'assigner.
+    const useRowAsRepresentative =
+      !previous ||
+      Boolean(
+        row.date_fabrication &&
+          (!previous.date_fabrication ||
+            new Date(row.date_fabrication).getTime() < new Date(previous.date_fabrication).getTime())
+      );
+    const representative = useRowAsRepresentative ? row : previous;
 
     latestByLot.set(lotKey, {
-      id: row.id,
+      id: representative.id,
       article_id: row.article_id,
-      numero_lot: String(row.numero_lot || row.code_normalise || "").trim(),
-      code_normalise: String(row.code_normalise || row.numero_lot || "").trim().toUpperCase(),
-      date_jour: row.date_jour,
-      chambre: row.chambre,
-      date_fabrication: olderDate,
-      code_pays: row.code_pays,
+      numero_lot: String(representative.numero_lot || representative.code_normalise || "").trim(),
+      code_normalise: String(representative.code_normalise || representative.numero_lot || "").trim().toUpperCase(),
+      date_jour: representative.date_jour,
+      chambre: representative.chambre,
+      date_fabrication: representative.date_fabrication,
+      code_pays: representative.code_pays,
       stock_restant: Number(previous?.stock_restant ?? 0) + qty,
     });
   }
