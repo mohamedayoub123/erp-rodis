@@ -104,27 +104,21 @@ async function fetchAllArticlesMp() {
   return { rows, error: null };
 }
 
-type SearchParams = Promise<{
-  gammeStatistique?: string;
-}>;
+// Construit les lignes + donnees live d'UNE gamme - reutilise a la fois
+// pour l'affichage d'une seule gamme selectionnee et pour "Tous" (qui
+// affiche tous les tableaux a la suite, voir plus bas).
+async function buildRapportRowsWithLive(
+  gammeKey: string,
+  allArticles: ArticleMpRow[]
+): Promise<RapportRowWithLive[]> {
+  const gammeConfig = GAMME_CONFIGS[gammeKey];
 
-export default async function StatistiqueMpPage({ searchParams }: { searchParams: SearchParams }) {
-  noStore();
-  const params = await searchParams;
-  const gammeStatistique = (params.gammeStatistique || "").trim();
-
-  const { rows: allArticles, error: fetchError } = await fetchAllArticlesMp();
-
-  let rapportRows: RapportRow[] = [];
-  if (gammeStatistique) {
-    const { data } = await supabaseServer
-      .from("rapport_gamme_statistique_mp")
-      .select("id, ordre, designation, categorie, donnees")
-      .eq("gamme_statistique", gammeStatistique)
-      .order("ordre", { ascending: true });
-    rapportRows = (data ?? []) as RapportRow[];
-  }
-  const gammeConfig = GAMME_CONFIGS[gammeStatistique];
+  const { data } = await supabaseServer
+    .from("rapport_gamme_statistique_mp")
+    .select("id, ordre, designation, categorie, donnees")
+    .eq("gamme_statistique", gammeKey)
+    .order("ordre", { ascending: true });
+  const rapportRows = (data ?? []) as RapportRow[];
 
   // Gamme/stock/BC en cours : recalcules a chaque affichage a partir des
   // vraies tables articles_matiere_premiere/lots_stock_matiere_premiere/
@@ -146,6 +140,7 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
       conso9Mois: number;
     }
   >();
+
   if (rapportRows.length > 0) {
     const articleByNormalizedName = new Map<string, ArticleMpRow>();
     for (const article of allArticles) {
@@ -361,6 +356,27 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
     }
   }
 
+  return rapportRows.map((row) => ({
+    id: row.id,
+    ordre: row.ordre,
+    designation: row.designation,
+    categorie: row.categorie,
+    donnees: row.donnees,
+    live: liveDataByRapportRowId.get(row.id) ?? null,
+  }));
+}
+
+type SearchParams = Promise<{
+  gammeStatistique?: string;
+}>;
+
+export default async function StatistiqueMpPage({ searchParams }: { searchParams: SearchParams }) {
+  noStore();
+  const params = await searchParams;
+  const gammeStatistique = (params.gammeStatistique || "").trim();
+
+  const { rows: allArticles, error: fetchError } = await fetchAllArticlesMp();
+
   // Un bouton uniquement pour les gammes qui ont deja un vrai rapport
   // fourni par l'utilisateur (GAMME_CONFIGS) - pas un bouton par valeur
   // Gamme Statistique presente en base (il y en a des dizaines, la plupart
@@ -395,9 +411,46 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
       );
     }
   }
-  const gammeStatistiqueButtons = [...gammeStatistiqueCounts.entries()].sort((a, b) =>
-    a[0].localeCompare(b[0])
-  );
+  // Ordre des boutons = numero du fichier Excel source d'origine (1 MP
+  // COSM, 2 MP PLASTIQUE, 3 COLORANT PLASTIQUE...25 EGYPTIAN BEAUTY), pas
+  // l'ordre alphabetique - demande explicite. ANTI-MOSQUITO n'avait pas de
+  // numero dans son fichier source, place en dernier.
+  const GAMME_ORDER = [
+    "MP COSM",
+    "MP PLASTIQUE",
+    "COLORANT PLASTIQUE",
+    "COLORANT COSMETIQUE",
+    "WHITE SECRET",
+    "ELIXIR",
+    "PRECIOUS PERFECT",
+    "PERFECT GLOW",
+    "BB CLEAR",
+    "LUXURY",
+    "MY FAMILY CARE",
+    "POMMADE ET DIVERS",
+    "PARFUM",
+    "MATRIX",
+    "PARFUM RODIS",
+    "PARFUM REALITY",
+    "MOROCCO SKIN",
+    "PRO-WHITE",
+    "REAL CARE",
+    "COCO CLEAR",
+    "ABSOLUTE CARE",
+    "DERMA TONE",
+    "BB CLEAR VIT C",
+    "TONE THERAPY",
+    "EGYPTIAN BEAUTY",
+    "ANTI-MOSQUITO",
+  ];
+  const gammeStatistiqueButtons = [...gammeStatistiqueCounts.entries()].sort((a, b) => {
+    const indexA = GAMME_ORDER.indexOf(a[0]);
+    const indexB = GAMME_ORDER.indexOf(b[0]);
+    if (indexA === -1 && indexB === -1) return a[0].localeCompare(b[0]);
+    if (indexA === -1) return 1;
+    if (indexB === -1) return -1;
+    return indexA - indexB;
+  });
 
   const articlesSansGamme = allArticles.filter((article) => !(article.gamme_statistique || "").trim());
 
@@ -408,14 +461,21 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "statistiqueMp");
 
-  const rowsWithLive: RapportRowWithLive[] = rapportRows.map((row) => ({
-    id: row.id,
-    ordre: row.ordre,
-    designation: row.designation,
-    categorie: row.categorie,
-    donnees: row.donnees,
-    live: liveDataByRapportRowId.get(row.id) ?? null,
-  }));
+  // "Tous" affiche TOUS les tableaux de gamme a la suite (pas juste un
+  // resume) - construit chaque gamme en parallele pour rester raisonnable
+  // malgre le nombre de gammes.
+  const allGammeSections =
+    gammeStatistique === "" && !fetchError
+      ? await Promise.all(
+          gammeStatistiqueButtons.map(async ([value]) => ({
+            gammeKey: value,
+            rows: await buildRapportRowsWithLive(value, allArticles),
+          }))
+        )
+      : [];
+
+  const rowsWithLive: RapportRowWithLive[] =
+    gammeStatistique && !fetchError ? await buildRapportRowsWithLive(gammeStatistique, allArticles) : [];
 
   // "Mis a jour le" = toujours la date du jour ou la page est ouverte (pas
   // une date sauvegardee) - meme principe que le fichier Excel source.
@@ -485,42 +545,34 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
             </section>
 
             {gammeStatistique === "" ? (
-              <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-slate-500">
-                      <tr>
-                        <th className="px-6 py-4 font-semibold">Gamme Statistique</th>
-                        <th className="px-6 py-4 font-semibold">Nombre d&apos;articles</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {gammeStatistiqueButtons.map(([value, count]) => (
-                        <tr key={value} className="border-t border-slate-100">
-                          <td className="px-6 py-4 font-medium text-slate-900">
-                            <Link
-                              href={`/stock/matiere-premiere/statistique?gammeStatistique=${encodeURIComponent(value)}`}
-                              className="hover:underline"
-                            >
-                              {value}
-                            </Link>
-                          </td>
-                          <td className="px-6 py-4 text-slate-600">{count}</td>
-                        </tr>
-                      ))}
-                      {articlesSansGamme.length > 0 ? (
-                        <tr className="border-t border-slate-100 bg-amber-50/50">
-                          <td className="px-6 py-4 font-medium text-amber-900">
-                            Sans Gamme Statistique
-                          </td>
-                          <td className="px-6 py-4 text-amber-900">{articlesSansGamme.length}</td>
-                        </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            ) : rapportRows.length > 0 ? (
+              <>
+                {articlesSansGamme.length > 0 ? (
+                  <section className="rounded-[1.75rem] border border-amber-200 bg-amber-50/60 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                    <p className="text-sm font-semibold text-amber-900">
+                      {articlesSansGamme.length} article(s) matiere premiere sans Gamme Statistique
+                    </p>
+                  </section>
+                ) : null}
+                {allGammeSections.map(({ gammeKey, rows }) => (
+                  <div key={gammeKey} className="space-y-4">
+                    <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                      <p className="text-lg font-bold text-red-700">
+                        {gammeKey} mis a jour le {todayLabel}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-red-700">
+                        Date: {todayLabel} Stock supérieur à 1an de conso noté en rouge
+                      </p>
+                    </section>
+                    <RapportTable
+                      gammeStatistique={gammeKey}
+                      rows={rows}
+                      canEdit={canEdit}
+                      saveAction={saveRapportGammeStatistiqueAction}
+                    />
+                  </div>
+                ))}
+              </>
+            ) : rowsWithLive.length > 0 ? (
               <>
                 <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
                   <p className="text-lg font-bold text-red-700">
