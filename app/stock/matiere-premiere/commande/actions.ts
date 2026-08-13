@@ -162,30 +162,79 @@ export async function createReceptionMpAction(formData: FormData) {
   const fournisseur = parseOptionalText(formData, "fournisseur");
 
   // Si une "declaration" d'import existe deja pour cette ligne (bouton
-  // "Creer import" cote BC, createImportEvenementAction) avec la MEME
-  // quantite et pas encore receptionnee, la Reception la reutilise au
-  // lieu d'en creer une nouvelle - sinon la declaration reste orpheline
-  // pour toujours (jamais cloturee) et s'affiche a tort comme "encore en
-  // attente" partout (Import MP, Commande MP, Statistique MP) alors que
-  // le lot est deja bien entre en stock. Confirme sur un vrai cas
-  // (WHITE SECRET, "1850 date prevue non saisie") et un nettoyage de 40
-  // doublons historiques (7 813 050 unites) le 2026-08-13.
+  // "Creer import" cote BC, createImportEvenementAction) et pas encore
+  // receptionnee, la Reception la reutilise/reconcilie au lieu d'en creer
+  // une nouvelle - sinon la declaration reste orpheline pour toujours
+  // (jamais cloturee) et s'affiche a tort comme "encore en attente"
+  // partout (Import MP, Commande MP, Statistique MP) alors que le lot est
+  // deja bien entre en stock. Confirme sur un vrai cas (WHITE SECRET,
+  // "1850 date prevue non saisie") et un nettoyage de 40 doublons
+  // historiques (7 813 050 unites) le 2026-08-13.
+  // La declaration peut etre receptionnee en plusieurs fois (livraison
+  // partielle/fractionnee) - une simple egalite exacte de quantite ratait
+  // ce cas (declaration de 460200 receptionnee en 339400 + 120800 : aucune
+  // des 2 receptions ne correspond exactement, donc l'ancienne version
+  // laissait la declaration orpheline). Confirme sur BC17 (6 articles,
+  // 5 442 000 unites fantomes) le 2026-08-13.
   const { data: existingDeclaration } = await supabaseServer
     .from("bons_commande_mp_imports")
-    .select("id")
+    .select("id, quantite_importee")
     .eq("bc_ligne_id", bcLigneId)
-    .eq("quantite_importee", quantiteImportee)
     .is("lot_stock_id", null)
     .order("id", { ascending: true })
     .limit(1)
     .maybeSingle();
 
+  const declaration = existingDeclaration as { id: number; quantite_importee: number } | null;
+  const declarationQuantite = declaration ? Number(declaration.quantite_importee) : null;
+
   let importId: number;
-  if (existingDeclaration) {
-    importId = (existingDeclaration as { id: number }).id;
+  if (declaration && declarationQuantite !== null && declarationQuantite > quantiteImportee) {
+    // Reception partielle d'une declaration plus grande : on reduit la
+    // declaration du montant recu maintenant (elle reste ouverte pour le
+    // reste, encore a receptionner) et on cree une ligne separee pour la
+    // portion recue.
+    const { error: reduceError } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .update({ quantite_importee: declarationQuantite - quantiteImportee })
+      .eq("id", declaration.id);
+
+    if (reduceError) {
+      throw new Error(reduceError.message);
+    }
+
+    const { data: importRow, error: insertImportError } = await supabaseServer
+      .from("bons_commande_mp_imports")
+      .insert([
+        {
+          bc_ligne_id: bcLigneId,
+          quantite_importee: quantiteImportee,
+          n_doss_4d_import: nDoss4dImport,
+          n_doss_erp_import: nDossErpImport,
+          numero_lot: numeroLot,
+          date_fabrication: dateFabrication,
+          date_expiration: dateExpiration,
+          date_import: dateReception,
+        },
+      ])
+      .select("id")
+      .single();
+
+    if (insertImportError) {
+      throw new Error(insertImportError.message);
+    }
+
+    importId = (importRow as { id: number }).id;
+  } else if (declaration) {
+    // Reception qui couvre exactement, ou depasse, la declaration ouverte
+    // (cas exact d'origine + cas d'une reception plus grande que ce qui
+    // avait ete declare) : on cloture cette declaration en l'alignant sur
+    // la quantite reellement recue au lieu d'en creer une autre.
+    importId = declaration.id;
     const { error: updateImportError } = await supabaseServer
       .from("bons_commande_mp_imports")
       .update({
+        quantite_importee: quantiteImportee,
         n_doss_4d_import: nDoss4dImport,
         n_doss_erp_import: nDossErpImport,
         numero_lot: numeroLot,
