@@ -194,6 +194,7 @@ export function RapportTable({
                     </th>
                   )
                 )}
+                <th className="whitespace-nowrap border border-slate-200 px-4 py-4 font-semibold">Remarque</th>
               </tr>
             </thead>
             <tbody>
@@ -295,6 +296,12 @@ export function RapportTable({
                       if (col.liveField === "aCommander" && live.aCommander < 0) {
                         cellStyle = { color: config.redText, ...(config.redTextBold ? { fontWeight: 700 } : null) };
                       }
+                      if (col.liveField === "enCoursBc" || col.liveField === "qteBcEtDate") {
+                        cellStyle = { color: "#1E3A8A" };
+                      }
+                      if (col.liveField === "enCours4d" || col.liveField === "date4d") {
+                        cellStyle = { color: "#00B050", fontWeight: 700 };
+                      }
 
                       return (
                         <td
@@ -308,6 +315,15 @@ export function RapportTable({
                         </td>
                       );
                     })}
+                    <td className="border border-slate-200 p-1">
+                      <input
+                        type="text"
+                        name={editableFieldName(row.id, "remarque_libre")}
+                        defaultValue={(row.donnees?.["remarque_libre"] as string) ?? ""}
+                        disabled={!canEdit}
+                        className="w-40 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none disabled:border-transparent disabled:bg-transparent"
+                      />
+                    </td>
                   </tr>
                 );
               })}

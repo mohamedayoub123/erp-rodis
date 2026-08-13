@@ -24,9 +24,14 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
     throw new Error(`Gamme inconnue: ${gammeStatistique}`);
   }
 
-  const editableColumns = config.columns.filter(
-    (col) => col.kind === "editable-text" || col.kind === "editable-number"
-  );
+  // "remarque_libre" est une colonne universelle ajoutee par le tableau
+  // lui-meme (pas dans gamme-config.ts) - meme sur les gammes qui ont deja
+  // leur propre colonne "remarque" issue de l'Excel source, c'est un champ
+  // libre distinct, toujours present en derniere colonne.
+  const editableColumns = [
+    ...config.columns.filter((col) => col.kind === "editable-text" || col.kind === "editable-number"),
+    { key: "remarque_libre", label: "Remarque", kind: "editable-text" as const },
+  ];
 
   const rowIds = formData
     .getAll("row_id")
