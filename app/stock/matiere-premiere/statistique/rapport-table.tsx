@@ -240,6 +240,7 @@ export function RapportTable({
                       }
 
                       if (col.kind === "editable-text" || col.kind === "editable-number") {
+                        const isAvis = col.key === "avis";
                         return (
                           <td key={colKey} className="border border-slate-200 p-1">
                             <input
@@ -248,7 +249,9 @@ export function RapportTable({
                               name={editableFieldName(row.id, col.key)}
                               defaultValue={(row.donnees?.[col.key] as string | number) ?? ""}
                               disabled={!canEdit}
-                              className="w-32 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none disabled:border-transparent disabled:bg-transparent"
+                              className={`w-32 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none disabled:border-transparent disabled:bg-transparent ${
+                                isAvis ? "font-bold text-red-600" : ""
+                              }`}
                             />
                           </td>
                         );
