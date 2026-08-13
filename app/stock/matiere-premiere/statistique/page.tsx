@@ -220,10 +220,11 @@ async function buildRapportRowsWithLive(
               quantite_importee: number;
               n_doss_4d_import: string | null;
               n_doss_erp_import: string | null;
+              lot_stock_id: number | null;
             }>(
               "bons_commande_mp_imports",
-              "bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import",
-              (query) => query.is("lot_stock_id", null).in("bc_ligne_id", bcLigneIds)
+              "bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, lot_stock_id",
+              (query) => query.in("bc_ligne_id", bcLigneIds)
             )
           : Promise.resolve([]),
         fetchAllRows<{
@@ -234,6 +235,11 @@ async function buildRapportRowsWithLive(
         }>("dossiers_import_mp_statut", "n_doss_4d, n_doss_erp, statut, date_prevue_reception"),
       ]);
 
+      // "Qte importee" utilisee pour savoir si le BC est termine (voir
+      // computeStatutBc) doit compter TOUS les evenements (receptionnes ou
+      // pas), sinon un BC entierement receptionne retombe a "Qte
+      // importee=0"/statut "Stand" (plus aucun evenement "encore ouvert" a
+      // sommer) - meme correctif que sur bc/page.tsx et bc/[code]/page.tsx.
       const importeeByLigneId = new Map<number, number>();
       for (const evenement of importData) {
         importeeByLigneId.set(
@@ -242,9 +248,13 @@ async function buildRapportRowsWithLive(
         );
       }
 
-      // "En cours d'achat 4D" : les evenements d'import (dossier 4D/ERP) pas
-      // encore au statut final "Receptionne Rodis" - suivi independant du
-      // statut de la ligne BC elle-meme (meme logique que la page Import MP).
+      // "En cours d'achat 4D" : les evenements d'import PAS ENCORE
+      // receptionnes (lot_stock_id null) ET pas encore au statut final
+      // "Receptionne Rodis" - suivi independant du statut de la ligne BC
+      // elle-meme (meme logique que la page Import MP). Contrairement a
+      // importeeByLigneId ci-dessus, ce calcul-la doit rester filtre sur
+      // lot_stock_id null : il represente ce qui reste reellement en
+      // attente, pas le total jamais importe.
       const statutByDossier = new Map(
         statutRows.map((row) => [
           dossierKey(row.n_doss_4d, row.n_doss_erp),
@@ -260,6 +270,7 @@ async function buildRapportRowsWithLive(
         { articleId: number; quantite: number; nDoss4d: string | null; datePrevueReception: string | null }
       >();
       for (const evenement of importData) {
+        if (evenement.lot_stock_id !== null) continue;
         const articleId = articleIdByBcLigneId.get(evenement.bc_ligne_id);
         if (!articleId) continue;
         const key = dossierKey(evenement.n_doss_4d_import, evenement.n_doss_erp_import);

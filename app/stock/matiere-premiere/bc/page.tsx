@@ -79,14 +79,20 @@ async function fetchAllImportEvenements() {
   const pageSize = 1000;
 
   while (true) {
-    // Exclut les evenements issus d'une Reception (lot_stock_id renseigne) -
-    // "Creer import" et "Reception" sont deux suivis distincts depuis que la
-    // Reception credite le stock reel ; melanger les deux ici faussait "Qte
-    // importee"/"Reste a importer" du BC (double comptage).
+    // Compte TOUS les evenements (receptionnes ou pas) - "Qte importee"/
+    // "Reste a importer"/le statut du BC doivent refleter tout ce qui a
+    // reellement ete importe, y compris ce qui est deja receptionne
+    // (sinon un BC entierement receptionne retombe a "Qte importee=0" /
+    // statut "Stand", cas reel constate sur GLYCERINE/BC31). Filtrer sur
+    // lot_stock_id IS NULL avait ete ajoute pour eviter un double comptage
+    // du temps ou le bouton Reception creait TOUJOURS un nouvel evenement
+    // en plus de la declaration d'import existante (meme quantite comptee
+    // 2 fois) - ce bug est corrige depuis (Reception reutilise desormais
+    // la declaration existante au lieu d'en creer une 2e), donc il n'y a
+    // plus de double comptage a craindre en sommant tous les evenements.
     const { data, error } = await supabaseServer
       .from("bons_commande_mp_imports")
       .select("bc_ligne_id, quantite_importee")
-      .is("lot_stock_id", null)
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };

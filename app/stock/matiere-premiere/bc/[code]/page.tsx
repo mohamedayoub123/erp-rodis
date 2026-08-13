@@ -79,15 +79,17 @@ async function fetchGroup(code: string) {
 async function fetchImportsForLignes(ligneIds: number[]) {
   if (ligneIds.length === 0) return [] as ImportEvenementRow[];
 
-  // Exclut les evenements issus d'une Reception (lot_stock_id renseigne) -
-  // "Creer import" et "Reception" sont deux suivis distincts depuis que la
-  // Reception credite le stock reel ; melanger les deux ici faussait "Qte
-  // importee"/"Reste a importer" du BC (double comptage).
+  // Compte TOUS les evenements (receptionnes ou pas), meme raison que
+  // bc/page.tsx : filtrer sur lot_stock_id IS NULL faisait retomber "Qte
+  // importee" a 0 et le statut a "Stand" des qu'un BC etait entierement
+  // receptionne (plus aucun evenement "encore ouvert" a sommer), alors que
+  // l'ancien risque de double comptage que ce filtre evitait n'existe plus
+  // (Reception reutilise desormais la declaration existante au lieu d'en
+  // creer une 2e).
   const { data } = await supabaseServer
     .from("bons_commande_mp_imports")
     .select("id, bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, date_import")
     .in("bc_ligne_id", ligneIds)
-    .is("lot_stock_id", null)
     .order("id", { ascending: true });
 
   return (data ?? []) as ImportEvenementRow[];
