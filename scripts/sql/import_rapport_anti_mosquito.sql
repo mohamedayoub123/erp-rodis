@@ -1,0 +1,58 @@
+-- Import du rapport ANTI-MOSQUITO (onboarding multi-gammes Statistique MP, lot 2).
+-- 47 articles. Fichier source multi-onglets : ordre renumerote sequentiellement (1..47), la sous-famille d'origine est gardee dans la colonne categorie.
+-- A executer dans Supabase SQL Editor (la table existe deja, creee pour MP COSM).
+
+insert into public.rapport_gamme_statistique_mp
+  (gamme_statistique, ordre, designation, categorie, donnees)
+values
+  ('ANTI-MOSQUITO', 1, 'CARTON GEL ANTI MOSQUITO 200ML', 'BABY', '{"2025":null,"dz":48,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 2, 'CARTON GEL ANTI MOSQUITO 90ML', 'BABY', '{"2025":null,"dz":96,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 3, 'CARTON LAIT ANTI MOSQUITO 200ML', 'BABY', '{"2025":null,"dz":48,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 4, 'CARTON LAIT ANTI MOSQUITO 90ML', 'BABY', '{"2025":null,"dz":96,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 5, 'CARTON SPRAY ANTI MOSQUITO 200ML', 'BABY', '{"2025":null,"dz":48,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 6, 'CARTON SPRAY ANTI MOSQUITO 90ML', 'BABY', '{"2025":null,"dz":96,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 7, 'ETIQUETTE GEL ANTI MOSQUITO BABY 200ML', 'BABY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 8, 'ETIQUETTE GEL ANTI MOSQUITO BABY 90ML', 'BABY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 9, 'ETIQUETTE LAIT ANTI MOSQUITO BABY 200ML', 'BABY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 10, 'ETIQUETTE LAIT ANTI MOSQUITO BABY 90ML', 'BABY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 11, 'ETIQUETTE SPRAY ANTI MOSQUITO BABY 200ML', 'BABY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 12, 'ETIQUETTE SPRAY ANTI MOSQUITO BABY 90ML', 'BABY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 13, 'SPRAY 24/415 WITHOUT LINE BLEU NACRE 182MM', 'BABY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 14, 'SPRAY 20/415 WITHOUT LINE BLEU NACRE 115MM', 'BABY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 15, 'PUMPE 24/415 WITHOUT LINE BLEU NACRER 200ML', 'BABY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 16, 'BASE PET 80432 (ANTI.MOS)', 'F. CITRONELLA', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 17, 'CARTON GEL ANTI MOSQUITO 200ML', 'F. CITRONELLA', '{"2025":null,"dz":48,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 18, 'CARTON GEL ANTI MOSQUITO 90ML', 'F. CITRONELLA', '{"2025":null,"dz":96,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 19, 'CARTON LAIT ANTI MOSQUITO 200ML', 'F. CITRONELLA', '{"2025":null,"dz":48,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 20, 'CARTON LAIT ANTI MOSQUITO 90ML', 'F. CITRONELLA', '{"2025":null,"dz":96,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 21, 'CARTON SPRAY ANTI MOSQUITO 200ML', 'F. CITRONELLA', '{"2025":null,"dz":48,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 22, 'CARTON SPRAY ANTI MOSQUITO 90ML', 'F. CITRONELLA', '{"2025":null,"dz":96,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 23, 'ETIQUETTE GEL ANTI MOSQUITO FAMILY CITRO. 200ML', 'F. CITRONELLA', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 24, 'ETIQUETTE GEL ANTI MOSQUITO FAMILY CITRO. 90ML', 'F. CITRONELLA', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 25, 'ETIQUETTE LAIT ANTI MOSQUITO FAMILY CITRO. 200ML', 'F. CITRONELLA', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 26, 'ETIQUETTE LAIT ANTI MOSQUITO FAMILY CITRO. 90ML', 'F. CITRONELLA', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 27, 'ETIQUETTE SPRAY ANTI MOSQUITO FAMILY CITRO. 200ML', 'F. CITRONELLA', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 28, 'ETIQUETTE SPRAY ANTI MOSQUITO FAMILY CITRO. 90ML', 'F. CITRONELLA', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 29, 'SPRAY 24/415 WITHOUT LINE VERT 182MM', 'F. CITRONELLA', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 30, 'SPRAY 20/415 WITHOUT LINE VERT 115MM', 'F. CITRONELLA', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 31, 'PUMPE 24/415 WITHOUT LINE VERT 200ML', 'F. CITRONELLA', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 32, 'BASE SAV 41496 (ANTI. MOS)', 'F. NIGHT SKY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 33, 'CARTON GEL ANTI MOSQUITO 200ML', 'F. NIGHT SKY', '{"2025":null,"dz":48,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 34, 'CARTON GEL ANTI MOSQUITO 90ML', 'F. NIGHT SKY', '{"2025":null,"dz":96,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 35, 'CARTON LAIT ANTI MOSQUITO 200ML', 'F. NIGHT SKY', '{"2025":null,"dz":48,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 36, 'CARTON LAIT ANTI MOSQUITO 90ML', 'F. NIGHT SKY', '{"2025":null,"dz":96,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 37, 'CARTON SPRAY ANTI MOSQUITO 200ML', 'F. NIGHT SKY', '{"2025":null,"dz":48,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 38, 'CARTON SPRAY ANTI MOSQUITO 90ML', 'F. NIGHT SKY', '{"2025":null,"dz":96,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 39, 'ETIQUETTE GEL ANTI MOSQUITO FAMILY NIGHT SKY. 200ML', 'F. NIGHT SKY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 40, 'ETIQUETTE GEL ANTI MOSQUITO FAMILY NIGHT SKY. 90ML', 'F. NIGHT SKY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 41, 'ETIQUETTE LAIT ANTI MOSQUITO FAMILY NIGHT SKY. 200ML', 'F. NIGHT SKY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 42, 'ETIQUETTE LAIT ANTI MOSQUITO FAMILY NIGHT SKY. 90ML', 'F. NIGHT SKY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 43, 'ETIQUETTE SPRAY ANTI MOSQUITO FAMILY NIGHT SKY. 200ML', 'F. NIGHT SKY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 44, 'ETIQUETTE SPRAY ANTI MOSQUITO FAMILY NIGHT SKY. 90ML', 'F. NIGHT SKY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 45, 'SPRAY 24/415 WITHOUT LINE BLEU CLAIRE 182MM', 'F. NIGHT SKY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 46, 'SPRAY 20/415 WITHOUT LINE BLEU CLAIRE 115MM', 'F. NIGHT SKY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb),
+  ('ANTI-MOSQUITO', 47, 'PUMPE 24/415 WITHOUT LINE BLEU CLAIRE 200ML', 'F. NIGHT SKY', '{"2025":null,"dz":null,"avis":null,"statistique 4D 6mois":null}'::jsonb)
+on conflict (gamme_statistique, ordre) do update set
+  designation = excluded.designation,
+  categorie = excluded.categorie,
+  donnees = excluded.donnees;
