@@ -52,6 +52,13 @@ function formatDateTime(value: string | null) {
   return `${day}-${month}-${year} ${hours}:${minutes}`;
 }
 
+function dispositionQualiteLabel(value: string | null | undefined) {
+  if (value === "a_recuperer") return "A recuperer";
+  if (value === "a_detruire") return "A detruire";
+  if (value) return "Conforme";
+  return "-";
+}
+
 type ArretField =
   | "arret_depot"
   | "arret_consommable_non_livre"
@@ -155,7 +162,25 @@ type RapportRow = {
   ph: number | null;
   densite: number | null;
   viscosite: number | null;
+  degre_alcool: number | null;
   stabilite: string | null;
+  couleur: string | null;
+  temperature_test: number | null;
+  odeur: string | null;
+  taux_humidite: number | null;
+  pression_atmospherique: number | null;
+  texture: string | null;
+  remarque: string | null;
+  disposition_qualite: string | null;
+  sous_derogation: boolean | null;
+  motif_derogation: string | null;
+  date_prise_echantillon: string | null;
+  heure_prise_echantillon: string | null;
+  heure_debut_analyse: string | null;
+  heure_fin_analyse: string | null;
+  nom_labo: string | null;
+  utilisateur_test_labo: string | null;
+  date_saisie_test_labo: string | null;
   vrac_fabrique: number | null;
   qt_vrac_recupere: number | null;
   code_vrac_recupere: string | null;
@@ -291,7 +316,7 @@ async function fetchAllRows<T>(
 }
 
 const RAPPORT_COLUMNS =
-  "id, programme_ligne_id, code, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
+  "id, programme_ligne_id, code, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, degre_alcool, stabilite, couleur, temperature_test, odeur, taux_humidite, pression_atmospherique, texture, remarque, disposition_qualite, sous_derogation, motif_derogation, date_prise_echantillon, heure_prise_echantillon, heure_debut_analyse, heure_fin_analyse, nom_labo, utilisateur_test_labo, date_saisie_test_labo, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
 
 function groupEntriesByLigne(entries: EntryRow[]): Map<number, EntryRow[]> {
   const map = new Map<number, EntryRow[]>();
@@ -564,8 +589,8 @@ export default async function SuiviProductionListPage({
     return true;
   });
 
-  // Table tres large (61 colonnes) - avec des milliers de lignes, tout
-  // rendre d'un coup fait exploser le temps de rendu et la memoire.
+  // Table tres large (plus de 100 colonnes) - avec des milliers de lignes,
+  // tout rendre d'un coup fait exploser le temps de rendu et la memoire.
   const totalRows = rows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
   const pageFrom = (currentPage - 1) * PAGE_SIZE;
@@ -674,7 +699,10 @@ export default async function SuiviProductionListPage({
                     <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
                       Programme (PL)
                     </th>
-                    <th colSpan={36} className="border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
+                    <th colSpan={22} className="border-b border-slate-200 bg-violet-50 px-6 py-2 text-center font-bold text-violet-800">
+                      Test labo
+                    </th>
+                    <th colSpan={32} className="border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
                       Fabrication
                     </th>
                     <th colSpan={32} className="border-b border-slate-200 bg-sky-50 px-6 py-2 text-center font-bold text-sky-800">
@@ -688,6 +716,30 @@ export default async function SuiviProductionListPage({
                     </th>
                   </tr>
                   <tr>
+                    {/* Test labo */}
+                    <th className="px-6 py-3 font-semibold">Date prise echantillon</th>
+                    <th className="px-6 py-3 font-semibold">Heure prise echantillon</th>
+                    <th className="px-6 py-3 font-semibold">Heure debut analyse</th>
+                    <th className="px-6 py-3 font-semibold">Heure fin analyse</th>
+                    <th className="px-6 py-3 font-semibold">pH</th>
+                    <th className="px-6 py-3 font-semibold">Densite</th>
+                    <th className="px-6 py-3 font-semibold">Viscosite</th>
+                    <th className="px-6 py-3 font-semibold">Degre alcool</th>
+                    <th className="px-6 py-3 font-semibold">Stabilite</th>
+                    <th className="px-6 py-3 font-semibold">Couleur</th>
+                    <th className="px-6 py-3 font-semibold">Temperature test</th>
+                    <th className="px-6 py-3 font-semibold">Odeur</th>
+                    <th className="px-6 py-3 font-semibold">Taux humidite</th>
+                    <th className="px-6 py-3 font-semibold">Pression atmospherique</th>
+                    <th className="px-6 py-3 font-semibold">Texture</th>
+                    <th className="px-6 py-3 font-semibold">Statut qualite</th>
+                    <th className="px-6 py-3 font-semibold">Sous derogation</th>
+                    <th className="px-6 py-3 font-semibold">Motif derogation</th>
+                    <th className="px-6 py-3 font-semibold">Remarque</th>
+                    <th className="px-6 py-3 font-semibold">Laboratoire</th>
+                    <th className="px-6 py-3 font-semibold">Saisi par (test labo)</th>
+                    <th className="px-6 py-3 font-semibold">Date saisie (test labo)</th>
+
                     {/* Fabrication */}
                     <th className="px-6 py-3 font-semibold">Date fabrication</th>
                     <th className="px-6 py-3 font-semibold">Machine fabrication</th>
@@ -705,10 +757,6 @@ export default async function SuiviProductionListPage({
                     <th className="px-6 py-3 font-semibold">Envoi echantillon labo</th>
                     <th className="px-6 py-3 font-semibold">Fin test</th>
                     <th className="px-6 py-3 font-semibold">Vidange</th>
-                    <th className="px-6 py-3 font-semibold">pH</th>
-                    <th className="px-6 py-3 font-semibold">Densite</th>
-                    <th className="px-6 py-3 font-semibold">Viscosite</th>
-                    <th className="px-6 py-3 font-semibold">Stabilite</th>
                     <th className="px-6 py-3 font-semibold">Vrac fabrique</th>
                     <th className="px-6 py-3 font-semibold">Qt vrac recupere</th>
                     <th className="px-6 py-3 font-semibold">Code vrac recupere</th>
@@ -785,6 +833,52 @@ export default async function SuiviProductionListPage({
                           {row.ligne.groupe_id !== null ? plCodeByGroupeId.get(row.ligne.groupe_id) ?? "-" : "-"}
                         </td>
 
+                        {/* Test labo */}
+                        <td className="px-6 py-4 text-slate-600">
+                          {showFab && r?.date_prise_echantillon ? formatDate(r.date_prise_echantillon) : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showFab ? r?.heure_prise_echantillon || "-" : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showFab ? r?.heure_debut_analyse || "-" : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showFab ? r?.heure_fin_analyse || "-" : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.ph ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.densite ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.viscosite ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.degre_alcool ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.stabilite || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.couleur || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.temperature_test ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.odeur || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.taux_humidite ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showFab ? r?.pression_atmospherique ?? "-" : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.texture || "-" : "-"}</td>
+                        <td
+                          className={`px-6 py-4 ${
+                            showFab && r?.disposition_qualite ? "font-semibold text-red-700" : "text-slate-600"
+                          }`}
+                        >
+                          {showFab ? dispositionQualiteLabel(r?.disposition_qualite) : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showFab ? (r?.sous_derogation ? "Oui" : "Non") : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.motif_derogation || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.remarque || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.nom_labo || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showFab ? r?.utilisateur_test_labo || "-" : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showFab ? formatDateTime(r?.date_saisie_test_labo ?? null) : "-"}
+                        </td>
+
                         {/* Fabrication */}
                         <td className="px-6 py-4 text-slate-900 font-semibold">
                           {row.fabrication ? formatDate(row.fabrication.date) : "-"}
@@ -808,10 +902,6 @@ export default async function SuiviProductionListPage({
                         </td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.temps_fin_test || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.temps_vidange || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.ph ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.densite ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.viscosite ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.stabilite ?? "-" : "-"}</td>
                         <td className="px-6 py-4 font-semibold text-slate-900">
                           {row.fabrication ? row.fabrication.quantite : showFab ? r?.vrac_fabrique ?? "-" : "-"}
                         </td>
