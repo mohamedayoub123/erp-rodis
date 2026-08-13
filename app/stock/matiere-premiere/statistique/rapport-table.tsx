@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { GAMME_CONFIGS, type LiveField } from "./gamme-config";
-import { editableFieldName } from "./actions";
+import { editableFieldName } from "./field-name";
 
 function combineStyle(
   base: React.CSSProperties | undefined,

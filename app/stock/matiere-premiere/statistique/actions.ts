@@ -4,10 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { GAMME_CONFIGS } from "./gamme-config";
-
-export function editableFieldName(rowId: number, columnKey: string) {
-  return `field__${rowId}__${columnKey}`;
-}
+import { editableFieldName } from "./field-name";
 
 // Enregistre les colonnes "editable-*" de la config de la gamme (les seuls
 // champs saisis a la main sur ce rapport) pour toutes les lignes soumises
