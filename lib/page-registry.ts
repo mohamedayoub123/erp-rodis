@@ -591,6 +591,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Specs Labo Vrac (pH, viscosite, densite, degre alcool, stabilite, couleur)",
     pathPrefixes: ["/qualite/specs"],
   },
+  {
+    key: "qualiteRapport",
+    module: "Qualite",
+    label: "Rapport Test labo (preparations, conforme/non conforme, derogations)",
+    pathPrefixes: ["/qualite/rapport"],
+    hasWrite: false,
+  },
 
   // Statistique
   {

@@ -20,6 +20,14 @@ const TILES: Tile[] = [
     description:
       "Choisis un article vrac : intervalle pH, viscosite, densite, degre alcool, stabilite, couleur.",
   },
+  {
+    label: "Rapport Test labo",
+    href: "/qualite/rapport",
+    pageKey: "qualiteRapport",
+    icon: "\u{1F4CB}",
+    description:
+      "Nombre de preparations, auto/semi auto, conforme/non conforme, a detruire, sous derogation.",
+  },
 ];
 
 export default async function QualitePage() {
