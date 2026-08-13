@@ -43,7 +43,6 @@ export default async function QualiteSpecsPage() {
     supabaseServer
       .from("articles")
       .select("id, nom_article")
-      .eq("nature", "vrac")
       .order("nom_article", { ascending: true }),
     supabaseServer
       .from("articles_specs_qualite")
