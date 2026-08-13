@@ -127,6 +127,7 @@ type SearchParams = Promise<{
   article?: string;
   code?: string;
   doss_erp?: string;
+  doss_4d?: string;
   date_debut?: string;
   date_fin?: string;
 }>;
@@ -138,10 +139,11 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
   const articleFilter = (params.article || "").trim();
   const codeFilter = (params.code || "").trim().toLowerCase();
   const dossErpFilter = (params.doss_erp || "").trim().toLowerCase();
+  const doss4dFilter = (params.doss_4d || "").trim().toLowerCase();
   const dateDebutFilter = (params.date_debut || "").trim();
   const dateFinFilter = (params.date_fin || "").trim();
   const hasFilters = Boolean(
-    statutFilter || articleFilter || codeFilter || dossErpFilter || dateDebutFilter || dateFinFilter
+    statutFilter || articleFilter || codeFilter || dossErpFilter || doss4dFilter || dateDebutFilter || dateFinFilter
   );
 
   const currentUser = await getCurrentStockUser();
@@ -202,6 +204,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
       if (statutFilter && group.statut !== statutFilter) return false;
       if (codeFilter && !group.codes.some((code) => code.toLowerCase().includes(codeFilter))) return false;
       if (dossErpFilter && !(group.nDossErp || "").toLowerCase().includes(dossErpFilter)) return false;
+      if (doss4dFilter && !(group.nDoss4d || "").toLowerCase().includes(doss4dFilter)) return false;
       if (articleFilter && !group.articles.some((article) => matchesArticleSearch(article, articleFilter))) {
         return false;
       }
@@ -226,6 +229,10 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
 
   const dossErpOptions = [
     ...new Set(rows.map((row) => row.n_doss_erp_import).filter((label): label is string => Boolean(label))),
+  ].map((label, index) => ({ id: index, label }));
+
+  const doss4dOptions = [
+    ...new Set(rows.map((row) => row.n_doss_4d_import).filter((label): label is string => Boolean(label))),
   ].map((label, index) => ({ id: index, label }));
 
   return (
@@ -268,6 +275,12 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
               defaultValue={params.doss_erp || ""}
               options={dossErpOptions}
               placeholder="Doss. ERP"
+            />
+            <SearchableFilterInput
+              name="doss_4d"
+              defaultValue={params.doss_4d || ""}
+              options={doss4dOptions}
+              placeholder="Doss. 4D"
             />
             <select
               name="statut"
