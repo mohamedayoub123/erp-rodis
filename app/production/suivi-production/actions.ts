@@ -179,13 +179,23 @@ async function messageSiHorsSpecSansDerogation(
 export async function messageSiConditionnementInvalide(ligneId: number, code: string): Promise<string | null> {
   if (!code) return null;
 
-  const { data: rapportData } = await supabaseServer
-    .from("production_rapports")
-    .select("disposition_qualite")
-    .eq("programme_ligne_id", ligneId)
-    .eq("code", code)
-    .maybeSingle();
-  const dispositionQualite = (rapportData as { disposition_qualite: string | null } | null)?.disposition_qualite;
+  // Les 3 requetes ne dependent que de (ligneId, code), jamais l'une du
+  // resultat de l'autre - lancees en parallele au lieu d'enchainer 3
+  // allers-retours reseau sequentiels vers Supabase (c'etait la moitie du
+  // temps de latence ressenti au Save du Conditionnement).
+  const [rapportResult, vientDunProgramme, fabricationFaite] = await Promise.all([
+    supabaseServer
+      .from("production_rapports")
+      .select("disposition_qualite")
+      .eq("programme_ligne_id", ligneId)
+      .eq("code", code)
+      .maybeSingle(),
+    ligneVientDunPogramme(ligneId),
+    fabricationDejaProduite(ligneId, code),
+  ]);
+
+  const dispositionQualite = (rapportResult.data as { disposition_qualite: string | null } | null)
+    ?.disposition_qualite;
   if (dispositionQualite === "a_recuperer") {
     return 'Ce vrac est marque "A recuperer" au Test labo - il ne peut pas etre conditionne tel quel.';
   }
@@ -193,8 +203,8 @@ export async function messageSiConditionnementInvalide(ligneId: number, code: st
     return 'Ce vrac est marque "A detruire" au Test labo - il ne peut pas etre conditionne.';
   }
 
-  if (!(await ligneVientDunPogramme(ligneId))) return null;
-  if (!(await fabricationDejaProduite(ligneId, code))) {
+  if (!vientDunProgramme) return null;
+  if (!fabricationFaite) {
     return "La Fabrication doit etre faite (vrac produit) avant de pouvoir saisir le Conditionnement pour ce code.";
   }
   return null;
@@ -326,58 +336,64 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
-  await upsertRapport(ligneId, code, {
-    chef_zone: parseOptionalText(formData, "chef_zone"),
-    chef_ligne: parseOptionalText(formData, "chef_ligne"),
-    ravitailleur: parseOptionalText(formData, "ravitailleur"),
-    tireur: parseOptionalText(formData, "tireur"),
-    nb_journaliers_conditionnement: parseOptionalNumber(formData, "nb_journaliers_conditionnement"),
-    qt_fabriquer: qtFabriquer,
-    cadence: parseOptionalNumber(formData, "cadence"),
-    poids_reel: parseOptionalNumber(formData, "poids_reel"),
-    dechet_sleeve: parseOptionalNumber(formData, "dechet_sleeve"),
-    dechet_capsule: parseOptionalNumber(formData, "dechet_capsule"),
-    dechet_pompe: parseOptionalNumber(formData, "dechet_pompe"),
-    dechet_flacon: parseOptionalNumber(formData, "dechet_flacon"),
-    dechet_pot: parseOptionalNumber(formData, "dechet_pot"),
-    dechet_etiquette: parseOptionalNumber(formData, "dechet_etiquette"),
-    dechet_etui: parseOptionalNumber(formData, "dechet_etui"),
-    arret_depot: parseOptionalNumber(formData, "arret_depot"),
-    arret_consommable_non_livre: parseOptionalNumber(formData, "arret_consommable_non_livre"),
-    arret_manque_conditionnement: parseOptionalNumber(formData, "arret_manque_conditionnement"),
-    arret_manque_vrac: parseOptionalNumber(formData, "arret_manque_vrac"),
-    arret_technique: parseOptionalNumber(formData, "arret_technique"),
-    arret_coupure_courant: parseOptionalNumber(formData, "arret_coupure_courant"),
-    arret_raclage_vrac: parseOptionalNumber(formData, "arret_raclage_vrac"),
-    arret_changement_lot: parseOptionalNumber(formData, "arret_changement_lot"),
-    arret_flacons_nc: parseOptionalNumber(formData, "arret_flacons_nc"),
-    arret_autre: parseOptionalNumber(formData, "arret_autre"),
-    temps_demarage_lot: parseOptionalText(formData, "temps_demarage_lot"),
-    temps_arret_batch: parseOptionalText(formData, "temps_arret_batch"),
-    date_fabrication_conditionnement: dateFabricationConditionnement,
-    date_peremption: parseOptionalText(formData, "date_peremption"),
-    utilisateur_conditionnement: currentUser,
-    date_saisie_conditionnement: new Date().toISOString(),
-  });
+  // upsertRapport (production_rapports) et l'insertion carton
+  // (production_carton_entries) ecrivent dans 2 tables independantes sans
+  // dependre l'une de l'autre - lancees en parallele au lieu d'attendre la
+  // premiere avant de commencer la seconde.
+  const [, cartonInsert] = await Promise.all([
+    upsertRapport(ligneId, code, {
+      chef_zone: parseOptionalText(formData, "chef_zone"),
+      chef_ligne: parseOptionalText(formData, "chef_ligne"),
+      ravitailleur: parseOptionalText(formData, "ravitailleur"),
+      tireur: parseOptionalText(formData, "tireur"),
+      nb_journaliers_conditionnement: parseOptionalNumber(formData, "nb_journaliers_conditionnement"),
+      qt_fabriquer: qtFabriquer,
+      cadence: parseOptionalNumber(formData, "cadence"),
+      poids_reel: parseOptionalNumber(formData, "poids_reel"),
+      dechet_sleeve: parseOptionalNumber(formData, "dechet_sleeve"),
+      dechet_capsule: parseOptionalNumber(formData, "dechet_capsule"),
+      dechet_pompe: parseOptionalNumber(formData, "dechet_pompe"),
+      dechet_flacon: parseOptionalNumber(formData, "dechet_flacon"),
+      dechet_pot: parseOptionalNumber(formData, "dechet_pot"),
+      dechet_etiquette: parseOptionalNumber(formData, "dechet_etiquette"),
+      dechet_etui: parseOptionalNumber(formData, "dechet_etui"),
+      arret_depot: parseOptionalNumber(formData, "arret_depot"),
+      arret_consommable_non_livre: parseOptionalNumber(formData, "arret_consommable_non_livre"),
+      arret_manque_conditionnement: parseOptionalNumber(formData, "arret_manque_conditionnement"),
+      arret_manque_vrac: parseOptionalNumber(formData, "arret_manque_vrac"),
+      arret_technique: parseOptionalNumber(formData, "arret_technique"),
+      arret_coupure_courant: parseOptionalNumber(formData, "arret_coupure_courant"),
+      arret_raclage_vrac: parseOptionalNumber(formData, "arret_raclage_vrac"),
+      arret_changement_lot: parseOptionalNumber(formData, "arret_changement_lot"),
+      arret_flacons_nc: parseOptionalNumber(formData, "arret_flacons_nc"),
+      arret_autre: parseOptionalNumber(formData, "arret_autre"),
+      temps_demarage_lot: parseOptionalText(formData, "temps_demarage_lot"),
+      temps_arret_batch: parseOptionalText(formData, "temps_arret_batch"),
+      date_fabrication_conditionnement: dateFabricationConditionnement,
+      date_peremption: parseOptionalText(formData, "date_peremption"),
+      utilisateur_conditionnement: currentUser,
+      date_saisie_conditionnement: new Date().toISOString(),
+    }),
+    // Alimente le journal carton (meme principe que le Dashboard) pour que
+    // le "reste" par rapport a la quantite prevue se recalcule tout seul.
+    // date_jour vient de la date saisie sur le rapport (Date fabrication)
+    // au lieu de la date automatique (aujourd'hui, valeur par defaut) -
+    // c'est ce qui alimente la colonne "Date conditionnement" de Suivi
+    // Production.
+    qtFabriquer && qtFabriquer > 0
+      ? supabaseServer.from("production_carton_entries").insert([
+          {
+            programme_ligne_id: ligneId,
+            code,
+            quantite: qtFabriquer,
+            ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
+          },
+        ])
+      : Promise.resolve({ error: null }),
+  ]);
 
-  // Alimente le journal carton (meme principe que le Dashboard) pour que
-  // le "reste" par rapport a la quantite prevue se recalcule tout seul.
-  // date_jour vient de la date saisie sur le rapport (Date fabrication) au
-  // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
-  // qui alimente la colonne "Date conditionnement" de Suivi Production.
-  if (qtFabriquer && qtFabriquer > 0) {
-    const { error: cartonError } = await supabaseServer.from("production_carton_entries").insert([
-      {
-        programme_ligne_id: ligneId,
-        code,
-        quantite: qtFabriquer,
-        ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
-      },
-    ]);
-
-    if (cartonError) {
-      throw new Error(cartonError.message);
-    }
+  if (cartonInsert.error) {
+    throw new Error(cartonInsert.error.message);
   }
 
   revalidateRapportPages();
@@ -412,68 +428,74 @@ export async function saveFabricationRapportAction(formData: FormData) {
   const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
-  await upsertRapport(ligneId, code, {
-    machine: parseOptionalText(formData, "machine"),
-    type_fabrication: parseOptionalText(formData, "type_fabrication"),
-    preparateur: parseOptionalText(formData, "preparateur"),
-    cuve_1_numero: parseOptionalText(formData, "cuve_1_numero"),
-    cuve_1_poids: parseOptionalNumber(formData, "cuve_1_poids"),
-    cuve_2_numero: parseOptionalText(formData, "cuve_2_numero"),
-    cuve_2_poids: parseOptionalNumber(formData, "cuve_2_poids"),
-    cuve_3_numero: parseOptionalText(formData, "cuve_3_numero"),
-    cuve_3_poids: parseOptionalNumber(formData, "cuve_3_poids"),
-    cuve_4_numero: parseOptionalText(formData, "cuve_4_numero"),
-    cuve_4_poids: parseOptionalNumber(formData, "cuve_4_poids"),
-    temps_debut_preparation: parseOptionalText(formData, "temps_debut_preparation"),
-    temps_envoi_echantillon_labo: parseOptionalText(formData, "temps_envoi_echantillon_labo"),
-    temps_fin_test: parseOptionalText(formData, "temps_fin_test"),
-    temps_vidange: parseOptionalText(formData, "temps_vidange"),
-    vrac_fabrique: vracFabrique,
-    qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
-    code_vrac_recupere: parseOptionalText(formData, "code_vrac_recupere"),
-    fabrication_arret_absence_air: parseOptionalNumber(formData, "fabrication_arret_absence_air"),
-    fabrication_arret_absence_vapeur: parseOptionalNumber(formData, "fabrication_arret_absence_vapeur"),
-    fabrication_arret_attente_aspiration_aqueuse: parseOptionalNumber(
-      formData,
-      "fabrication_arret_attente_aspiration_aqueuse"
-    ),
-    fabrication_arret_attente_cuves_mobiles: parseOptionalNumber(
-      formData,
-      "fabrication_arret_attente_cuves_mobiles"
-    ),
-    fabrication_arret_attente_eau_osmosee: parseOptionalNumber(formData, "fabrication_arret_attente_eau_osmosee"),
-    fabrication_arret_coupure_electrique: parseOptionalNumber(formData, "fabrication_arret_coupure_electrique"),
-    fabrication_arret_maintenance_plateforme: parseOptionalNumber(
-      formData,
-      "fabrication_arret_maintenance_plateforme"
-    ),
-    fabrication_arret_manque_cuves_mobiles: parseOptionalNumber(formData, "fabrication_arret_manque_cuves_mobiles"),
-    fabrication_arret_probleme_pompe: parseOptionalNumber(formData, "fabrication_arret_probleme_pompe"),
-    fabrication_arret_probleme_ph: parseOptionalNumber(formData, "fabrication_arret_probleme_ph"),
-    fabrication_arret_probleme_technique: parseOptionalNumber(formData, "fabrication_arret_probleme_technique"),
-    date_fabrication_conditionnement: dateFabricationConditionnement,
-    utilisateur_fabrication: currentUser,
-    date_saisie_fabrication: new Date().toISOString(),
-  });
+  // upsertRapport (production_rapports) et l'insertion vrac
+  // (production_vrac_entries) ecrivent dans 2 tables independantes sans
+  // dependre l'une de l'autre - lancees en parallele au lieu d'attendre la
+  // premiere avant de commencer la seconde.
+  const [, vracInsert] = await Promise.all([
+    upsertRapport(ligneId, code, {
+      machine: parseOptionalText(formData, "machine"),
+      type_fabrication: parseOptionalText(formData, "type_fabrication"),
+      preparateur: parseOptionalText(formData, "preparateur"),
+      cuve_1_numero: parseOptionalText(formData, "cuve_1_numero"),
+      cuve_1_poids: parseOptionalNumber(formData, "cuve_1_poids"),
+      cuve_2_numero: parseOptionalText(formData, "cuve_2_numero"),
+      cuve_2_poids: parseOptionalNumber(formData, "cuve_2_poids"),
+      cuve_3_numero: parseOptionalText(formData, "cuve_3_numero"),
+      cuve_3_poids: parseOptionalNumber(formData, "cuve_3_poids"),
+      cuve_4_numero: parseOptionalText(formData, "cuve_4_numero"),
+      cuve_4_poids: parseOptionalNumber(formData, "cuve_4_poids"),
+      temps_debut_preparation: parseOptionalText(formData, "temps_debut_preparation"),
+      temps_envoi_echantillon_labo: parseOptionalText(formData, "temps_envoi_echantillon_labo"),
+      temps_fin_test: parseOptionalText(formData, "temps_fin_test"),
+      temps_vidange: parseOptionalText(formData, "temps_vidange"),
+      vrac_fabrique: vracFabrique,
+      qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
+      code_vrac_recupere: parseOptionalText(formData, "code_vrac_recupere"),
+      fabrication_arret_absence_air: parseOptionalNumber(formData, "fabrication_arret_absence_air"),
+      fabrication_arret_absence_vapeur: parseOptionalNumber(formData, "fabrication_arret_absence_vapeur"),
+      fabrication_arret_attente_aspiration_aqueuse: parseOptionalNumber(
+        formData,
+        "fabrication_arret_attente_aspiration_aqueuse"
+      ),
+      fabrication_arret_attente_cuves_mobiles: parseOptionalNumber(
+        formData,
+        "fabrication_arret_attente_cuves_mobiles"
+      ),
+      fabrication_arret_attente_eau_osmosee: parseOptionalNumber(formData, "fabrication_arret_attente_eau_osmosee"),
+      fabrication_arret_coupure_electrique: parseOptionalNumber(formData, "fabrication_arret_coupure_electrique"),
+      fabrication_arret_maintenance_plateforme: parseOptionalNumber(
+        formData,
+        "fabrication_arret_maintenance_plateforme"
+      ),
+      fabrication_arret_manque_cuves_mobiles: parseOptionalNumber(formData, "fabrication_arret_manque_cuves_mobiles"),
+      fabrication_arret_probleme_pompe: parseOptionalNumber(formData, "fabrication_arret_probleme_pompe"),
+      fabrication_arret_probleme_ph: parseOptionalNumber(formData, "fabrication_arret_probleme_ph"),
+      fabrication_arret_probleme_technique: parseOptionalNumber(formData, "fabrication_arret_probleme_technique"),
+      date_fabrication_conditionnement: dateFabricationConditionnement,
+      utilisateur_fabrication: currentUser,
+      date_saisie_fabrication: new Date().toISOString(),
+    }),
+    // Alimente le journal vrac (meme principe que le Dashboard) pour que
+    // le "reste" par rapport a la quantite prevue se recalcule tout seul.
+    // date_jour vient de la date saisie sur le rapport (Date fabrication)
+    // au lieu de la date automatique (aujourd'hui, valeur par defaut) -
+    // c'est ce qui alimente la colonne "Date fabrication" de Suivi
+    // Production.
+    vracFabrique && vracFabrique > 0
+      ? supabaseServer.from("production_vrac_entries").insert([
+          {
+            programme_ligne_id: ligneId,
+            code,
+            quantite: vracFabrique,
+            ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
+          },
+        ])
+      : Promise.resolve({ error: null }),
+  ]);
 
-  // Alimente le journal vrac (meme principe que le Dashboard) pour que le
-  // "reste" par rapport a la quantite prevue se recalcule tout seul.
-  // date_jour vient de la date saisie sur le rapport (Date fabrication) au
-  // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
-  // qui alimente la colonne "Date fabrication" de Suivi Production.
-  if (vracFabrique && vracFabrique > 0) {
-    const { error: vracError } = await supabaseServer.from("production_vrac_entries").insert([
-      {
-        programme_ligne_id: ligneId,
-        code,
-        quantite: vracFabrique,
-        ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
-      },
-    ]);
-
-    if (vracError) {
-      throw new Error(vracError.message);
-    }
+  if (vracInsert.error) {
+    throw new Error(vracInsert.error.message);
   }
 
   revalidateRapportPages();
