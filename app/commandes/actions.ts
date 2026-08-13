@@ -598,14 +598,28 @@ async function buildStockSnapshot(articleIds?: number[]) {
     // ligne d'entree - "Enregistrer tout" (stock_override_fifo_result, qui
     // resout son propre lot cible independamment) recalculait alors une
     // disponibilite incoherente avec ce que le Dispatch venait d'assigner.
-    const useRowAsRepresentative =
-      !previous ||
-      Boolean(
-        row.date_fabrication &&
-          (!previous.date_fabrication ||
-            new Date(row.date_fabrication).getTime() < new Date(previous.date_fabrication).getTime())
-      );
-    const representative = useRowAsRepresentative ? row : previous;
+    // A EGALITE de date_fabrication (tres frequent : l'entree et ses
+    // sorties ulterieures du meme lot partagent souvent la meme date de
+    // fabrication, seule leur date_jour differe) - l'id le plus petit
+    // gagne, meme convention de departage que stock_override_fifo_result
+    // cote SQL ("order by date_fabrication asc nulls last, id asc").
+    const rowHasDate = Boolean(row.date_fabrication);
+    const previousHasDate = Boolean(previous?.date_fabrication);
+    let useRowAsRepresentative: boolean;
+    if (!previous) {
+      useRowAsRepresentative = true;
+    } else if (rowHasDate && !previousHasDate) {
+      useRowAsRepresentative = true;
+    } else if (!rowHasDate && previousHasDate) {
+      useRowAsRepresentative = false;
+    } else if (rowHasDate && previousHasDate) {
+      const rowTime = new Date(row.date_fabrication as string).getTime();
+      const previousTime = new Date(previous.date_fabrication as string).getTime();
+      useRowAsRepresentative = rowTime !== previousTime ? rowTime < previousTime : row.id < previous.id;
+    } else {
+      useRowAsRepresentative = row.id < previous.id;
+    }
+    const representative = useRowAsRepresentative ? row : previous!;
 
     latestByLot.set(lotKey, {
       id: representative.id,
