@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
@@ -8,6 +9,7 @@ import { formatDate } from "../../../suivi/data";
 import { formatDateTime } from "@/lib/format-date";
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { FabricationForm } from "./fabrication-form";
+import { messageSiTestLaboInvalide } from "../../actions";
 
 type LigneInfo = {
   id: number;
@@ -34,11 +36,6 @@ type RapportInfo = {
   temps_envoi_echantillon_labo: string | null;
   temps_fin_test: string | null;
   temps_vidange: string | null;
-  ph: number | null;
-  densite: number | null;
-  viscosite: number | null;
-  degre_alcool: number | null;
-  stabilite: string | null;
   vrac_fabrique: number | null;
   qt_vrac_recupere: number | null;
   code_vrac_recupere: string | null;
@@ -58,7 +55,7 @@ type RapportInfo = {
   date_saisie_fabrication: string | null;
 };
 
-type SearchParams = Promise<{ code?: string }>;
+type SearchParams = Promise<{ code?: string; erreur?: string }>;
 
 export default async function RapportFabricationPage({
   params,
@@ -70,7 +67,7 @@ export default async function RapportFabricationPage({
   noStore();
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
-  const { code: codeParam } = await searchParams;
+  const { code: codeParam, erreur } = await searchParams;
   // Comme Conditionnement/Emballage : code du lot precis pour cette saisie
   // (ex: "AA4141V" parmi les 3 codes d'une ligne decoupee en plusieurs lots)
   // - vide seulement pour un lien genere avant l'ajout du suivi par code.
@@ -84,7 +81,7 @@ export default async function RapportFabricationPage({
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionFabrication");
 
   const RAPPORT_FIELDS =
-    "machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, degre_alcool, stabilite, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, date_fabrication_conditionnement, utilisateur_fabrication, date_saisie_fabrication";
+    "machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, date_fabrication_conditionnement, utilisateur_fabrication, date_saisie_fabrication";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
@@ -123,6 +120,8 @@ export default async function RapportFabricationPage({
     notFound();
   }
 
+  const erreurTestLabo = await messageSiTestLaboInvalide(ligne.id, code);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -157,11 +156,27 @@ export default async function RapportFabricationPage({
           </div>
         </section>
 
+        {erreur ? (
+          <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
+            {erreur}
+          </div>
+        ) : null}
+
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           {!canWrite ? (
             <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-600">
               Lecture seule : saisie de rapport cachee pour cet utilisateur.
             </p>
+          ) : erreurTestLabo ? (
+            <div className="flex flex-col items-start gap-3 rounded-2xl bg-violet-50 px-4 py-4 text-sm font-medium text-violet-800">
+              <p>{erreurTestLabo}</p>
+              <Link
+                href={`/production/suivi-production/fabrication/${ligne.id}/test-labo?code=${encodeURIComponent(code)}`}
+                className="rounded-full bg-violet-700 px-4 py-2 text-xs font-semibold text-white"
+              >
+                Aller au Test labo
+              </Link>
+            </div>
           ) : (
             <FabricationForm ligneId={ligne.id} code={code} rapport={rapport} />
           )}

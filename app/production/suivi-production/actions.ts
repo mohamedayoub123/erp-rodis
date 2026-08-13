@@ -22,6 +22,184 @@ function revalidateRapportPages() {
   revalidatePath("/production/suivi/dashboard");
 }
 
+// La ligne appartient a un vrai Programme (MB) dispatche des que
+// source_numero_programme est renseigne - une fiche "nouveau" (bouton "+" du
+// Dashboard, cree a la volee sans passer par aucun programme) reste null et
+// n'a donc jamais de Fabrication independante a attendre en Conditionnement.
+async function ligneVientDunPogramme(ligneId: number): Promise<boolean> {
+  const { data, error } = await supabaseServer
+    .from("programme_lignes")
+    .select("source_numero_programme")
+    .eq("id", ligneId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as { source_numero_programme: number | null } | null)?.source_numero_programme !== null;
+}
+
+async function fetchDepotBId(): Promise<number | null> {
+  const { data } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
+  return (data as { id: number } | null)?.id ?? null;
+}
+
+async function fabricationDejaProduite(ligneId: number, code: string): Promise<boolean> {
+  const { data, error } = await supabaseServer
+    .from("production_vrac_entries")
+    .select("id")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data);
+}
+
+// Le Test labo n'est pas reserve aux lignes issues d'un Programme - un
+// controle qualite doit se faire sur TOUT batch physiquement fabrique, y
+// compris une fiche manuelle ("+" du Dashboard).
+async function testLaboEstFait(ligneId: number, code: string): Promise<boolean> {
+  const { data, error } = await supabaseServer
+    .from("production_rapports")
+    .select("utilisateur_test_labo")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean((data as { utilisateur_test_labo: string | null } | null)?.utilisateur_test_labo);
+}
+
+export async function messageSiTestLaboInvalide(ligneId: number, code: string): Promise<string | null> {
+  if (!(await testLaboEstFait(ligneId, code))) {
+    return "Le Test labo doit etre enregistre avant de pouvoir saisir la Fabrication pour ce code.";
+  }
+  return null;
+}
+
+// Recalcule le hors-spec cote serveur (meme logique que NumericSpecField/
+// stabilite/couleur/odeur du formulaire Test labo) - jamais confiance au
+// seul calcul client pour decider si l'enregistrement doit etre bloque.
+// sousDerogation debloque volontairement l'enregistrement malgre un hors
+// spec, le motif etant trace separement sur le rapport.
+async function messageSiHorsSpecSansDerogation(
+  ligneId: number,
+  values: {
+    ph: number | null;
+    densite: number | null;
+    viscosite: number | null;
+    degreAlcool: number | null;
+    stabilite: string | null;
+    couleur: string | null;
+    odeur: string | null;
+    tauxHumidite: number | null;
+    pressionAtmospherique: number | null;
+    texture: string | null;
+    temperatureTest: number | null;
+    sousDerogation: boolean;
+  }
+): Promise<string | null> {
+  if (values.sousDerogation) return null;
+
+  const { data: ligneData } = await supabaseServer
+    .from("programme_lignes")
+    .select("article_id")
+    .eq("id", ligneId)
+    .maybeSingle();
+  const articleId = (ligneData as { article_id: number | null } | null)?.article_id ?? null;
+  if (!articleId) return null;
+
+  const { data: articleData } = await supabaseServer
+    .from("articles")
+    .select("vrac_article_id")
+    .eq("id", articleId)
+    .maybeSingle();
+  const vracArticleId = (articleData as { vrac_article_id: number | null } | null)?.vrac_article_id ?? null;
+  if (!vracArticleId) return null;
+
+  const { data: specData } = await supabaseServer
+    .from("articles_specs_qualite")
+    .select(
+      "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture, temperature_min, temperature_max"
+    )
+    .eq("article_id", vracArticleId)
+    .maybeSingle();
+  const spec = specData as {
+    ph_min: number | null;
+    ph_max: number | null;
+    viscosite_min: number | null;
+    viscosite_max: number | null;
+    densite_min: number | null;
+    densite_max: number | null;
+    degre_alcool_min: number | null;
+    degre_alcool_max: number | null;
+    stabilite: string | null;
+    couleur: string | null;
+    taux_humidite_min: number | null;
+    taux_humidite_max: number | null;
+    pression_atmospherique_min: number | null;
+    pression_atmospherique_max: number | null;
+    texture: string | null;
+    temperature_min: number | null;
+    temperature_max: number | null;
+  } | null;
+  if (!spec) return null;
+
+  function horsRange(value: number | null, min: number | null, max: number | null): boolean {
+    if (value === null || min === null || max === null) return false;
+    return value < min || value > max;
+  }
+
+  const horsSpec =
+    horsRange(values.ph, spec.ph_min, spec.ph_max) ||
+    horsRange(values.densite, spec.densite_min, spec.densite_max) ||
+    horsRange(values.viscosite, spec.viscosite_min, spec.viscosite_max) ||
+    horsRange(values.degreAlcool, spec.degre_alcool_min, spec.degre_alcool_max) ||
+    horsRange(values.tauxHumidite, spec.taux_humidite_min, spec.taux_humidite_max) ||
+    horsRange(values.pressionAtmospherique, spec.pression_atmospherique_min, spec.pression_atmospherique_max) ||
+    horsRange(values.temperatureTest, spec.temperature_min, spec.temperature_max) ||
+    (Boolean(spec.stabilite) && values.stabilite !== "" && values.stabilite !== null && values.stabilite !== spec.stabilite) ||
+    (Boolean(spec.couleur) &&
+      values.couleur !== null &&
+      values.couleur.trim() !== "" &&
+      values.couleur.trim().toLowerCase() !== (spec.couleur || "").trim().toLowerCase()) ||
+    (Boolean(spec.texture) &&
+      values.texture !== null &&
+      values.texture.trim() !== "" &&
+      values.texture.trim().toLowerCase() !== (spec.texture || "").trim().toLowerCase()) ||
+    values.odeur === "Non OK";
+
+  if (horsSpec) {
+    return 'Au moins un parametre est hors spec - coche "Je valide sous derogation" pour enregistrer quand meme.';
+  }
+  return null;
+}
+
+// Statut qualite decide au Test labo - s'applique a TOUT code (y compris une
+// fiche manuelle), meme principe que testLaboEstFait : un vrac "A recuperer"
+// ou "A detruire" ne peut jamais etre conditionne tel quel. Une fiche
+// manuelle (pas de vrai Programme source) n'a pas de Fabrication a attendre.
+export async function messageSiConditionnementInvalide(ligneId: number, code: string): Promise<string | null> {
+  if (!code) return null;
+
+  const { data: rapportData } = await supabaseServer
+    .from("production_rapports")
+    .select("disposition_qualite")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .maybeSingle();
+  const dispositionQualite = (rapportData as { disposition_qualite: string | null } | null)?.disposition_qualite;
+  if (dispositionQualite === "a_recuperer") {
+    return 'Ce vrac est marque "A recuperer" au Test labo - il ne peut pas etre conditionne tel quel.';
+  }
+  if (dispositionQualite === "a_detruire") {
+    return 'Ce vrac est marque "A detruire" au Test labo - il ne peut pas etre conditionne.';
+  }
+
+  if (!(await ligneVientDunPogramme(ligneId))) return null;
+  if (!(await fabricationDejaProduite(ligneId, code))) {
+    return "La Fabrication doit etre faite (vrac produit) avant de pouvoir saisir le Conditionnement pour ce code.";
+  }
+  return null;
+}
+
 // Une ligne "Programme par ligne" decoupee en plusieurs lots (voir
 // buildDispatcherDraftRows) donne plusieurs codes physiques distincts
 // (ex: 9000 -> 3x3000) - Conditionnement/Emballage se font par code (chaque
@@ -138,6 +316,13 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     throw new Error("Ligne invalide.");
   }
 
+  const erreurConditionnement = await messageSiConditionnementInvalide(ligneId, code);
+  if (erreurConditionnement) {
+    redirect(
+      `/production/suivi-production/conditionnement/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurConditionnement)}`
+    );
+  }
+
   const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
@@ -217,6 +402,13 @@ export async function saveFabricationRapportAction(formData: FormData) {
     throw new Error("Ligne invalide.");
   }
 
+  const erreurTestLabo = await messageSiTestLaboInvalide(ligneId, code);
+  if (erreurTestLabo) {
+    redirect(
+      `/production/suivi-production/fabrication/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurTestLabo)}`
+    );
+  }
+
   const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
@@ -236,11 +428,6 @@ export async function saveFabricationRapportAction(formData: FormData) {
     temps_envoi_echantillon_labo: parseOptionalText(formData, "temps_envoi_echantillon_labo"),
     temps_fin_test: parseOptionalText(formData, "temps_fin_test"),
     temps_vidange: parseOptionalText(formData, "temps_vidange"),
-    ph: parseOptionalNumber(formData, "ph"),
-    densite: parseOptionalNumber(formData, "densite"),
-    viscosite: parseOptionalNumber(formData, "viscosite"),
-    degre_alcool: parseOptionalNumber(formData, "degre_alcool"),
-    stabilite: parseOptionalText(formData, "stabilite"),
     vrac_fabrique: vracFabrique,
     qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
     code_vrac_recupere: parseOptionalText(formData, "code_vrac_recupere"),
@@ -291,6 +478,137 @@ export async function saveFabricationRapportAction(formData: FormData) {
 
   revalidateRapportPages();
   redirect("/production/suivi/dashboard");
+}
+
+export async function saveTestLaboAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionFabrication"))) {
+    throw new Error("Cet utilisateur ne peut pas enregistrer de test labo.");
+  }
+
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+
+  if (!ligneId) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const ph = parseOptionalNumber(formData, "ph");
+  const densite = parseOptionalNumber(formData, "densite");
+  const viscosite = parseOptionalNumber(formData, "viscosite");
+  const degreAlcool = parseOptionalNumber(formData, "degre_alcool");
+  const stabilite = parseOptionalText(formData, "stabilite");
+  const couleur = parseOptionalText(formData, "couleur");
+  const odeur = parseOptionalText(formData, "odeur");
+  const tauxHumidite = parseOptionalNumber(formData, "taux_humidite");
+  const pressionAtmospherique = parseOptionalNumber(formData, "pression_atmospherique");
+  const texture = parseOptionalText(formData, "texture");
+  const temperatureTest = parseOptionalNumber(formData, "temperature_test");
+  const sousDerogation = formData.get("sous_derogation") === "on";
+  const motifDerogation = parseOptionalText(formData, "motif_derogation");
+
+  // Recalcule le hors-spec cote serveur (meme logique que le formulaire) -
+  // jamais confiance au seul calcul client pour bloquer l'enregistrement.
+  // Odeur "Non OK" compte aussi comme hors-spec meme si elle n'a pas de
+  // borne min/max dans articles_specs_qualite.
+  const erreurHorsSpec = await messageSiHorsSpecSansDerogation(ligneId, {
+    ph,
+    densite,
+    viscosite,
+    degreAlcool,
+    stabilite,
+    couleur,
+    odeur,
+    tauxHumidite,
+    pressionAtmospherique,
+    texture,
+    temperatureTest,
+    sousDerogation,
+  });
+  if (erreurHorsSpec) {
+    redirect(
+      `/production/suivi-production/fabrication/${ligneId}/test-labo?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurHorsSpec)}`
+    );
+  }
+
+  await upsertRapport(ligneId, code, {
+    ph,
+    densite,
+    viscosite,
+    degre_alcool: degreAlcool,
+    stabilite,
+    couleur,
+    temperature_test: temperatureTest,
+    odeur,
+    taux_humidite: tauxHumidite,
+    pression_atmospherique: pressionAtmospherique,
+    texture,
+    remarque: parseOptionalText(formData, "remarque"),
+    disposition_qualite: parseOptionalText(formData, "disposition_qualite"),
+    sous_derogation: sousDerogation,
+    motif_derogation: motifDerogation,
+    date_prise_echantillon: parseOptionalText(formData, "date_prise_echantillon"),
+    heure_prise_echantillon: parseOptionalText(formData, "heure_prise_echantillon"),
+    heure_debut_analyse: parseOptionalText(formData, "heure_debut_analyse"),
+    heure_fin_analyse: parseOptionalText(formData, "heure_fin_analyse"),
+    // Jamais tape a la main, meme principe que utilisateur_test_labo -
+    // constant tant qu'il n'existe qu'un seul labo.
+    nom_labo: "Laboratoire Rodis",
+    utilisateur_test_labo: currentUser,
+    date_saisie_test_labo: new Date().toISOString(),
+  });
+
+  revalidateRapportPages();
+  revalidatePath(`/production/suivi-production/fabrication/${ligneId}/test-labo`);
+  redirect("/production/suivi/dashboard");
+}
+
+// Ajout ponctuel de matiere premiere pour corriger un parametre non
+// conforme constate au Test labo (ex: ajuster le pH) - action separee du
+// Save du test (pas un champ a re-upserter a l'identique a chaque
+// correction de couleur/remarque) : chaque clic est une VRAIE sortie de
+// stock physique, jamais reversible/idempotente comme le reste du rapport.
+export async function ajouterAjustementMpTestLaboAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionFabrication"))) {
+    throw new Error("Cet utilisateur ne peut pas enregistrer d'ajustement.");
+  }
+
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+  const articleId = Number(String(formData.get("article_id") || "0"));
+  const numeroLot = parseOptionalText(formData, "numero_lot");
+  const quantite = parseOptionalNumber(formData, "quantite");
+  const note = parseOptionalText(formData, "note");
+
+  if (!ligneId || !articleId || !numeroLot || !quantite || quantite <= 0) {
+    throw new Error("Ajustement matiere premiere invalide.");
+  }
+
+  const depotId = await fetchDepotBId();
+
+  const { error } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
+    article_id: articleId,
+    numero_lot: numeroLot,
+    code_normalise: numeroLot.toUpperCase(),
+    qte_entree: 0,
+    qte_sortie: quantite,
+    depot_id: depotId,
+    date_jour: new Date().toISOString().slice(0, 10),
+    utilisateur: currentUser,
+    note: note ? `Ajustement qualite fabrication - ${note}` : "Ajustement qualite fabrication",
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath(`/production/suivi-production/fabrication/${ligneId}/test-labo`);
+  revalidatePath("/stock/matiere-premiere/stock-actuel");
+  revalidatePath("/produit");
+  redirect(`/production/suivi-production/fabrication/${ligneId}/test-labo?code=${encodeURIComponent(code)}&ajuste=1`);
 }
 
 export async function saveEmballageRapportAction(formData: FormData) {

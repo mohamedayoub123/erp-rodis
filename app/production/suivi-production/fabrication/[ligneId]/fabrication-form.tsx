@@ -44,11 +44,6 @@ type RapportInfo = {
   temps_envoi_echantillon_labo: string | null;
   temps_fin_test: string | null;
   temps_vidange: string | null;
-  ph: number | null;
-  densite: number | null;
-  viscosite: number | null;
-  degre_alcool: number | null;
-  stabilite: string | null;
   vrac_fabrique: number | null;
   qt_vrac_recupere: number | null;
   code_vrac_recupere: string | null;
@@ -353,69 +348,6 @@ export function FabricationForm({
           />
           <TempsField label="Fin test" name="temps_fin_test" defaultValue={rapport?.temps_fin_test} />
           <TempsField label="Vidange" name="temps_vidange" defaultValue={rapport?.temps_vidange} />
-        </div>
-      </div>
-
-      <div>
-        <h2 className="mb-3 text-lg font-bold text-slate-900">Controle qualite</h2>
-        <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            pH
-            <input
-              type="number"
-              step="0.01"
-              name="ph"
-              defaultValue={rapport?.ph ?? "0"}
-              required
-              className={inputClass}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Densite
-            <input
-              type="number"
-              step="0.01"
-              name="densite"
-              defaultValue={rapport?.densite ?? "0"}
-              required
-              className={inputClass}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Viscosite
-            <input
-              type="number"
-              step="0.01"
-              name="viscosite"
-              defaultValue={rapport?.viscosite ?? "0"}
-              required
-              className={inputClass}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Degre d&apos;alcool
-            <input
-              type="number"
-              step="0.01"
-              name="degre_alcool"
-              defaultValue={rapport?.degre_alcool ?? "0"}
-              required
-              className={inputClass}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Stabilite
-            <select
-              name="stabilite"
-              defaultValue={rapport?.stabilite || ""}
-              required
-              className={inputClass}
-            >
-              <option value="">-</option>
-              <option value="Stable">Stable</option>
-              <option value="Non stable">Non stable</option>
-            </select>
-          </label>
         </div>
       </div>
 

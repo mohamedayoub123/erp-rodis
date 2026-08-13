@@ -5,7 +5,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
-import { saveConditionnementRapportAction } from "../../actions";
+import { saveConditionnementRapportAction, messageSiConditionnementInvalide } from "../../actions";
 import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 import { LigneZoneChaineEditor } from "./zone-chaine-editor";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
@@ -70,7 +70,7 @@ type RapportInfo = {
   date_saisie_conditionnement: string | null;
 };
 
-type SearchParams = Promise<{ code?: string }>;
+type SearchParams = Promise<{ code?: string; erreur?: string }>;
 
 export default async function RapportConditionnementPage({
   params,
@@ -82,7 +82,7 @@ export default async function RapportConditionnementPage({
   noStore();
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
-  const { code: codeParam } = await searchParams;
+  const { code: codeParam, erreur } = await searchParams;
   // Code du lot precis pour cette saisie (ex: "AA4141V" parmi les 3 codes
   // d'une ligne decoupee en plusieurs lots) - vide seulement pour un lien
   // genere avant l'ajout du suivi par code (comportement combine legacy).
@@ -137,6 +137,8 @@ export default async function RapportConditionnementPage({
     notFound();
   }
 
+  const erreurFabricationRequise = await messageSiConditionnementInvalide(ligne.id, code);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -185,10 +187,20 @@ export default async function RapportConditionnementPage({
           </div>
         </section>
 
+        {erreur ? (
+          <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
+            {erreur}
+          </div>
+        ) : null}
+
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           {!canWrite ? (
             <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-600">
               Lecture seule : saisie de rapport cachee pour cet utilisateur.
+            </p>
+          ) : erreurFabricationRequise ? (
+            <p className="rounded-2xl bg-amber-50 px-4 py-4 text-sm font-medium text-amber-800">
+              {erreurFabricationRequise}
             </p>
           ) : (
             <form action={saveConditionnementRapportAction} className="grid gap-6">

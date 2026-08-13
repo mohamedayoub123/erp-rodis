@@ -148,6 +148,39 @@ async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeTermineR
   return rows;
 }
 
+// Cles "ligneId::code" pour lesquelles un Test labo a deja ete enregistre
+// au moins une fois (utilisateur_test_labo rempli par saveTestLaboAction) -
+// utilise pour allumer le bouton Test labo en vert sur ce Dashboard.
+async function fetchTestLaboDoneKeys(ligneIds: number[]): Promise<Set<string>> {
+  const keys = new Set<string>();
+  if (ligneIds.length === 0) return keys;
+
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("production_rapports")
+      .select("programme_ligne_id, code, utilisateur_test_labo")
+      .in("programme_ligne_id", ligneIds)
+      .not("utilisateur_test_labo", "is", null)
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk =
+      (data as { programme_ligne_id: number; code: string | null }[] | null) ?? [];
+    for (const row of chunk) {
+      keys.add(`${row.programme_ligne_id}::${row.code ?? ""}`);
+    }
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return keys;
+}
+
 type SearchParams = Promise<{
   code?: string;
   produit?: string;
@@ -208,11 +241,12 @@ export default async function PlanningDashboardPage({
 
   const activeLigneIds = allLignes.map((ligne) => ligne.id);
 
-  const [cartonEntries, vracEntries, emballageEntries, codeTermineRows] = await Promise.all([
+  const [cartonEntries, vracEntries, emballageEntries, codeTermineRows, testLaboDoneKeys] = await Promise.all([
     fetchAllCartonEntries(activeLigneIds),
     fetchAllVracEntries(activeLigneIds),
     fetchAllEmballageEntries(activeLigneIds),
     fetchAllCodeTermineRows(activeLigneIds),
+    fetchTestLaboDoneKeys(activeLigneIds),
   ]);
 
   // Terminer UN code (Fabrication/Conditionnement/Emballage) ne doit jamais
@@ -541,12 +575,24 @@ export default async function PlanningDashboardPage({
                           <RestantBadge restant={row.vracRestant} />
                         </td>
                         <td className="px-4 py-3">
-                          <Link
-                            href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
-                            className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
-                          >
-                            Entrer
-                          </Link>
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
+                              className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
+                            >
+                              Entrer
+                            </Link>
+                            <Link
+                              href={`/production/suivi-production/fabrication/${row.ligne.id}/test-labo?code=${encodeURIComponent(row.code)}`}
+                              className={`rounded-full px-3 py-1.5 text-xs font-semibold text-white ${
+                                testLaboDoneKeys.has(`${row.ligne.id}::${row.code}`)
+                                  ? "bg-emerald-600"
+                                  : "bg-violet-700"
+                              }`}
+                            >
+                              Test labo
+                            </Link>
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markVracTermineAction} />
