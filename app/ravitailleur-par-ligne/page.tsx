@@ -26,7 +26,7 @@ export default function RavitailleurParLignePage() {
           </div>
         </section>
 
-        <section className="grid gap-4 sm:grid-cols-2">
+        <section className="grid gap-4 sm:grid-cols-3">
           <Link
             href="/ravitailleur-par-ligne/tout"
             className="block rounded-[1.75rem] border border-black/5 bg-slate-950 p-6 text-center shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:-translate-y-1"
@@ -38,6 +38,12 @@ export default function RavitailleurParLignePage() {
             className="block rounded-[1.75rem] border border-black/5 bg-sky-700 p-6 text-center shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:-translate-y-1"
           >
             <span className="text-lg font-bold text-white">Par article</span>
+          </Link>
+          <Link
+            href="/ravitailleur-par-ligne/genres"
+            className="block rounded-[1.75rem] border border-black/5 bg-emerald-700 p-6 text-center shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:-translate-y-1"
+          >
+            <span className="text-lg font-bold text-white">Par genre</span>
           </Link>
         </section>
 
