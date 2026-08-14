@@ -599,6 +599,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "qualiteHistoriqueTestLabo",
+    module: "Qualite",
+    label: "Historique Test labo (toutes les valeurs mesurees par test)",
+    pathPrefixes: ["/qualite/historique-test-labo"],
+    hasWrite: false,
+  },
+  {
     key: "qualiteNcConfidentiel",
     module: "Qualite",
     label: "NC Confidentiel (audit interne)",

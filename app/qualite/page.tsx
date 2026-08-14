@@ -29,6 +29,13 @@ const TILES: Tile[] = [
       "Nombre de preparations, auto/semi auto, conforme/non conforme, a detruire, sous derogation.",
   },
   {
+    label: "Historique Test labo",
+    href: "/qualite/historique-test-labo",
+    pageKey: "qualiteHistoriqueTestLabo",
+    icon: "\u{1F4DC}",
+    description: "Chaque Test labo enregistre, avec toutes les valeurs mesurees (pH, viscosite, couleur...).",
+  },
+  {
     label: "NC Confidentiel",
     href: "/qualite/nc-confidentiel",
     pageKey: "qualiteNcConfidentiel",
