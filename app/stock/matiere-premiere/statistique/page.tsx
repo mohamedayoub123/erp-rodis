@@ -138,6 +138,7 @@ async function buildRapportRowsWithLive(
       conso1Mois: number;
       conso4Mois: number;
       conso9Mois: number;
+      conso6MoisSysteme: number;
     }
   >();
 
@@ -356,12 +357,18 @@ async function buildRapportRowsWithLive(
             detail: `${ligne.nDoss4d || ""} ${
               ligne.datePrevueReception ? formatDate(ligne.datePrevueReception) : "date prevue non saisie"
             }`,
+            datePrevueReception: ligne.datePrevueReception,
           })),
           aCommander: stock + enCoursBc + enCours4d - statistique4d6Mois,
           conso12Mois,
           conso1Mois,
           conso4Mois: conso1Mois * 4,
           conso9Mois: conso1Mois * 9,
+          // Colonne informative demandee separement de "Statistique 4D 6
+          // mois" (qui reste manuelle et seule utilisee dans "A commander")
+          // - simple moitie de conso12Mois (deja calcule sur les vraies
+          // sorties de stock), pour que l'utilisateur analyse lui-meme.
+          conso6MoisSysteme: conso12Mois / 2,
         });
       }
     }

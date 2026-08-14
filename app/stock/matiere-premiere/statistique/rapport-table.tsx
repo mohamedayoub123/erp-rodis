@@ -31,7 +31,10 @@ function formatCellValue(value: string | number | null | undefined) {
 // Le detail BC/4D (dossier + date) reste du texte normal, mais la quantite
 // elle-meme est extraite a part pour pouvoir la colorer seule (bleu fonce
 // pour le BC, vert gras pour le 4D) sans colorer tout le texte du detail.
-export type DateDetailEntry = { quantite: number; detail: string };
+// datePrevueReception : uniquement rempli pour les entrees de date4d (en
+// cours 4D), utilise pour decider la couleur DESIGNATION (voir plus bas) -
+// absent/inutilise pour qteBcEtDate.
+export type DateDetailEntry = { quantite: number; detail: string; datePrevueReception?: string | null };
 
 export type LiveData = {
   gamme: string | null;
@@ -45,6 +48,11 @@ export type LiveData = {
   conso1Mois: number;
   conso4Mois: number;
   conso9Mois: number;
+  // Colonne informative uniquement (conso12Mois / 2) - ne remplace pas la
+  // "Statistique 4D 6 mois" saisie a la main depuis Excel, qui reste seule
+  // utilisee dans le calcul de "A commander". Sur demande explicite : juste
+  // un chiffre de reference calcule en direct, l'analyse reste manuelle.
+  conso6MoisSysteme: number;
 };
 
 export type RapportRowWithLive = {
@@ -125,6 +133,9 @@ export function RapportTable({
 
   const selectedColor = selected ? colorsByRow[selected.rowId]?.[selected.target] : undefined;
   const columns = config.columns;
+  // Comparaison lexicographique valide car date_prevue_reception est
+  // toujours au format ISO "AAAA-MM-JJ" (voir DateJmaFormField).
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   return (
     <form action={saveAction} onKeyDown={preventEnterSubmit} className="space-y-6">
@@ -192,14 +203,21 @@ export function RapportTable({
                   col.kind === "spacer" ? (
                     <th key={col.key + index} className="w-28 border-0 bg-white p-0" />
                   ) : (
+                    // Titre en retour a la ligne (au lieu de nowrap) et
+                    // largeur plafonnee, pour que la colonne se resserre a
+                    // la taille de son contenu (chiffres/article) plutot
+                    // que d'etre etiree par un titre long.
                     <th
                       key={col.key + index}
-                      className="whitespace-nowrap border border-slate-200 px-4 py-4 font-semibold"
+                      className="max-w-[110px] whitespace-normal break-words border border-slate-200 px-2 py-2 font-semibold"
                     >
                       {col.label}
                     </th>
                   )
                 )}
+                <th className="max-w-[110px] whitespace-normal break-words border border-slate-200 px-2 py-2 font-semibold">
+                  Statistique 6 mois (systeme)
+                </th>
                 <th className="whitespace-nowrap border border-slate-200 px-4 py-4 font-semibold">Remarque</th>
               </tr>
             </thead>
@@ -212,13 +230,33 @@ export function RapportTable({
                 // categorie d'une ligne a l'autre marque cette frontiere.
                 const isSheetBoundary = rowIndex > 0 && row.categorie !== rows[rowIndex - 1].categorie;
                 const sheetBoundaryClass = isSheetBoundary ? "border-t-[24px] border-t-black" : "";
-                // DESIGNATION en jaune si un BC est en cours d'achat, en
-                // vert si un dossier import (4D) est en cours, rien sinon -
-                // si les deux sont en cours en meme temps pour le meme
-                // article, c'est vert qui gagne.
+                // DESIGNATION :
+                // - vert si un dossier import (4D) est en cours SANS date
+                //   prevue de reception saisie, OU si sa date prevue est
+                //   deja depassee (aujourd'hui > date prevue) - dans les 2
+                //   cas ca reste urgent a suivre.
+                // - si un import est en cours ET a une date prevue pas
+                //   encore depassee, la case redevient SANS couleur, meme
+                //   si un BC est aussi en cours (la date prevue rassure,
+                //   pas besoin d'alerter).
+                // - jaune si un BC est en cours d'achat (et qu'aucune des 2
+                //   regles import ci-dessus ne s'applique).
                 const hasOpenBc = Boolean(live && live.enCoursBc > 0);
                 const hasOpenImport = Boolean(live && live.enCours4d > 0);
-                const designationBg = hasOpenImport ? "#00B050" : hasOpenBc ? "#FFFF00" : undefined;
+                const importIsUrgent = Boolean(
+                  live &&
+                    live.date4d.some(
+                      (entry) => !entry.datePrevueReception || entry.datePrevueReception < todayIso
+                    )
+                );
+                const importSuppressesColor = hasOpenImport && !importIsUrgent;
+                const designationBg = importIsUrgent
+                  ? "#00B050"
+                  : importSuppressesColor
+                    ? undefined
+                    : hasOpenBc
+                      ? "#FFFF00"
+                      : undefined;
                 const stockDepasse1An = config.highlightStockOverConso12Mois && live ? live.stock > live.conso12Mois : false;
                 const rowColors = colorsByRow[row.id] || {};
                 const isTargetSelected = (target: RowColorTarget) =>
@@ -361,6 +399,11 @@ export function RapportTable({
                         </td>
                       );
                     })}
+                    <td
+                      className={`whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600 ${sheetBoundaryClass}`}
+                    >
+                      {live ? formatCellValue(live.conso6MoisSysteme) : "-"}
+                    </td>
                     <td className={`border border-slate-200 p-1 ${sheetBoundaryClass}`}>
                       <input
                         type="text"
