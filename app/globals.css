@@ -249,6 +249,13 @@ body {
      !important. */
   table.print-readable-table {
     font-size: 11px !important;
+    /* La regle generale ci-dessus force aussi table-layout:fixed - or la
+       colonne Article/Code utilise l'astuce "width:1% + nowrap" (colonne
+       resserree exactement sur son contenu), qui NE FONCTIONNE QUE sous
+       table-layout:auto (fixed prend les 1% au pied de la lettre et
+       compresse le texte caractere par caractere, exactement le bug revu
+       apres etre repasse a cette astuce). */
+    table-layout: auto !important;
   }
 
   table.print-readable-table th,
