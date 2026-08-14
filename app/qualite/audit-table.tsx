@@ -224,15 +224,16 @@ export function AuditTable({
   // de mettre a jour visuellement un statut calcule automatiquement (couleur
   // + valeur) sans redessiner tout le tableau (voir rowsRef plus haut).
   const statusSelectRefs = useRef<Record<string, HTMLSelectElement | null>>({});
-  // Barre d'outils du haut (Ajouter/Enregistrer) : hauteur mesuree pour que
-  // l'entete du tableau, elle aussi collante, se cale juste en-dessous sans
-  // la chevaucher. Tout (barre du haut, entete, barre du bas) est collant a
-  // l'interieur de son PROPRE cadre de defilement borne (voir wrapperClassName
-  // plus bas) plutot que de dependre du defilement de la page entiere - un
-  // seul contexte de defilement, sans ambiguite, evite le bug observe ou la
-  // barre/entete se decalaient au milieu du tableau au lieu de rester en haut.
+  // Barre d'outils du haut (Ajouter/Enregistrer) et entete de colonnes
+  // collantes par rapport a la PAGE ENTIERE (pas un cadre separe) : quand on
+  // defile la page, elles restent collees juste sous le bandeau ERP Rodis
+  // (deja collant, voir headerOffset) et on ne defile QUE dans le tableau
+  // lui-meme, comme le reste de la page. headerOffset/toolbarHeight sont
+  // mesures pour empiler les 3 elements collants (bandeau, barre, entete)
+  // sans qu'ils se chevauchent.
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const [toolbarHeight, setToolbarHeight] = useState(0);
+  const [headerOffset, setHeaderOffset] = useState(0);
 
   useEffect(() => {
     const el = toolbarRef.current;
@@ -249,6 +250,17 @@ export function AuditTable({
     observer.observe(el);
     return () => observer.disconnect();
   }, [canWrite]);
+
+  useEffect(() => {
+    const header = document.querySelector("header");
+    if (!header) return;
+    setHeaderOffset(header.getBoundingClientRect().height);
+    const observer = new ResizeObserver((entries) => {
+      setHeaderOffset(entries[0].contentRect.height);
+    });
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
 
   function updateCell(key: string, field: string, value: string) {
     rowsRef.current[key] = { ...rowsRef.current[key], [field]: value };
@@ -360,13 +372,15 @@ export function AuditTable({
     "w-full min-w-[26rem] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
   const statusSelectBaseClass =
     "w-48 rounded-xl border px-3 py-2 text-sm font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60";
+  const theadTop = headerOffset + toolbarHeight;
 
   return (
-    <div className="max-h-[75vh] overflow-auto">
+    <div>
       {canWrite ? (
         <div
           ref={toolbarRef}
-          className="sticky top-0 left-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4"
+          style={{ top: headerOffset }}
+          className="sticky z-20 flex flex-wrap items-center justify-between gap-3 rounded-t-[2rem] border-b border-slate-100 bg-white px-4 py-4"
         >
           <button
             type="button"
@@ -396,14 +410,14 @@ export function AuditTable({
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  style={{ top: toolbarHeight }}
+                  style={{ top: theadTop }}
                   className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold whitespace-nowrap"
                 >
                   {col.label}
                 </th>
               ))}
               {canWrite ? (
-                <th style={{ top: toolbarHeight }} className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold">
+                <th style={{ top: theadTop }} className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold">
                   Actions
                 </th>
               ) : null}
@@ -537,7 +551,7 @@ export function AuditTable({
         </table>
 
       {canWrite ? (
-        <div className="sticky bottom-0 left-0 z-20 flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="sticky bottom-0 z-20 flex flex-col gap-3 rounded-b-[2rem] border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
             {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}
