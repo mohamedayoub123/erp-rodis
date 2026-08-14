@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { STATUT_DOSSIER_MP_OPTIONS } from "../commande/constants";
 
 type PendingBcLigne = {
   article: string;
@@ -278,17 +279,42 @@ export async function createImportEvenementAction(formData: FormData) {
     throw new Error("Ligne de commande introuvable.");
   }
 
+  const nDoss4dImport = parseOptionalText(formData, "n_doss_4d_import");
+  const nDossErpImport = parseOptionalText(formData, "n_doss_erp_import");
+
   const { error } = await supabaseServer.from("bons_commande_mp_imports").insert([
     {
       bc_ligne_id: bcLigneId,
       quantite_importee: quantiteImportee,
-      n_doss_4d_import: parseOptionalText(formData, "n_doss_4d_import"),
-      n_doss_erp_import: parseOptionalText(formData, "n_doss_erp_import"),
+      n_doss_4d_import: nDoss4dImport,
+      n_doss_erp_import: nDossErpImport,
     },
   ]);
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  // 1ere declaration d'un dossier -> statut initial "Fabrication"
+  // automatique, sur demande explicite (avant, Fabrication n'etait qu'un
+  // repli d'affichage cote page - jamais persiste). N'ecrase jamais un
+  // dossier deja suivi (ex: un 2eme article ajoute plus tard au meme
+  // dossier, deja passe a "Import" entre-temps).
+  if (nDoss4dImport || nDossErpImport) {
+    let dossierQuery = supabaseServer.from("dossiers_import_mp_statut").select("id");
+    dossierQuery = nDoss4dImport
+      ? dossierQuery.eq("n_doss_4d", nDoss4dImport)
+      : dossierQuery.is("n_doss_4d", null);
+    dossierQuery = nDossErpImport
+      ? dossierQuery.eq("n_doss_erp", nDossErpImport)
+      : dossierQuery.is("n_doss_erp", null);
+    const { data: existingStatut } = await dossierQuery.maybeSingle();
+
+    if (!existingStatut) {
+      await supabaseServer.from("dossiers_import_mp_statut").insert([
+        { n_doss_4d: nDoss4dImport, n_doss_erp: nDossErpImport, statut: STATUT_DOSSIER_MP_OPTIONS[0] },
+      ]);
+    }
   }
 
   revalidateCommandeBcMpPages();

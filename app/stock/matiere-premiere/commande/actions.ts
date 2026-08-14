@@ -335,6 +335,34 @@ export async function createReceptionMpAction(formData: FormData) {
     throw new Error(updateError.message);
   }
 
+  // Une Reception fait toujours passer le dossier a "Receptionne Rodis"
+  // automatiquement (statut final, verrouille ensuite - voir
+  // updateDossierMpStatutAction) - ne touche jamais
+  // date_prevue_reception pour ne pas la reecraser (meme bug que le
+  // formulaire Statut, corrige le 2026-08-14).
+  if (nDoss4dImport || nDossErpImport) {
+    let dossierQuery = supabaseServer.from("dossiers_import_mp_statut").select("id");
+    dossierQuery = nDoss4dImport
+      ? dossierQuery.eq("n_doss_4d", nDoss4dImport)
+      : dossierQuery.is("n_doss_4d", null);
+    dossierQuery = nDossErpImport
+      ? dossierQuery.eq("n_doss_erp", nDossErpImport)
+      : dossierQuery.is("n_doss_erp", null);
+    const { data: existingDossierStatut } = await dossierQuery.maybeSingle();
+
+    const receptionneRodis = STATUT_DOSSIER_MP_OPTIONS[STATUT_DOSSIER_MP_OPTIONS.length - 1];
+    if (existingDossierStatut) {
+      await supabaseServer
+        .from("dossiers_import_mp_statut")
+        .update({ statut: receptionneRodis, updated_at: new Date().toISOString() })
+        .eq("id", (existingDossierStatut as { id: number }).id);
+    } else {
+      await supabaseServer
+        .from("dossiers_import_mp_statut")
+        .insert([{ n_doss_4d: nDoss4dImport, n_doss_erp: nDossErpImport, statut: receptionneRodis }]);
+    }
+  }
+
   revalidateCommandeMpPages();
 }
 
@@ -501,12 +529,19 @@ export async function updateDossierMpStatutAction(formData: FormData) {
     throw new Error("Statut invalide.");
   }
 
-  let query = supabaseServer.from("dossiers_import_mp_statut").select("id");
+  let query = supabaseServer.from("dossiers_import_mp_statut").select("id, statut");
   query = nDoss4d ? query.eq("n_doss_4d", nDoss4d) : query.is("n_doss_4d", null);
   query = nDossErp ? query.eq("n_doss_erp", nDossErp) : query.is("n_doss_erp", null);
   const { data: existing } = await query.maybeSingle();
 
   if (existing) {
+    // "Receptionne Rodis" est le statut final, mis automatiquement par la
+    // Reception - plus modifiable a la main ensuite (statut ou date), sur
+    // demande explicite.
+    if ((existing as { statut: string }).statut === STATUT_DOSSIER_MP_OPTIONS[STATUT_DOSSIER_MP_OPTIONS.length - 1]) {
+      throw new Error("Ce dossier est deja receptionne chez Rodis - le statut ne peut plus etre modifie.");
+    }
+
     const { error } = await supabaseServer
       .from("dossiers_import_mp_statut")
       .update({ statut, date_prevue_reception: datePrevueReception, updated_at: new Date().toISOString() })

@@ -360,6 +360,11 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                 <tbody>
                   {groups.map((group) => {
                     const dossierId = encodeDossierId(group.nDoss4d, group.nDossErp);
+                    // Statut final, mis automatiquement par la Reception - le
+                    // serveur (updateDossierMpStatutAction) refuse deja toute
+                    // modification a ce stade, on evite juste d'afficher un
+                    // formulaire qui echouerait.
+                    const dossierIsLocked = group.statut === STATUT_DOSSIER_MP_OPTIONS[STATUT_DOSSIER_MP_OPTIONS.length - 1];
 
                     return (
                       <tr key={dossierId} className="border-t border-slate-100">
@@ -376,7 +381,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                         <td className="px-6 py-4 text-slate-900">{group.quantiteTotale}</td>
                         <td className="px-6 py-4 text-slate-600">{formatDate(group.dateRecente)}</td>
                         <td className="px-6 py-4">
-                          {canEdit ? (
+                          {canEdit && !dossierIsLocked ? (
                             <form action={updateDossierMpStatutAction} className="flex items-center gap-2">
                               <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
                               <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
@@ -420,7 +425,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          {canEdit ? (
+                          {canEdit && !dossierIsLocked ? (
                             <form action={updateDossierMpStatutAction} className="flex items-center gap-2">
                               <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
                               <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
