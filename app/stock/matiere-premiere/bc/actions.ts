@@ -253,6 +253,28 @@ export async function addArticleToCommandeBcAction(formData: FormData) {
   revalidateCommandeBcMpPages();
 }
 
+// Numero interne auto-genere par declaration d'import (IM.<annee>.<sequence>,
+// remise a 1 chaque nouvelle annee) - distinct des Doss. 4D/ERP, references
+// externes reelles toujours saisies a la main. Simple requete MAX+1 (pas de
+// verrou dedie) : coherent avec le reste de cette fonctionnalite, usage
+// interne a faible concurrence.
+async function nextNumeroImport(): Promise<string> {
+  const prefix = `IM.${new Date().getFullYear()}.`;
+
+  const { data } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .select("numero_import")
+    .like("numero_import", `${prefix}%`);
+
+  let maxSeq = 0;
+  for (const row of (data ?? []) as { numero_import: string | null }[]) {
+    const seq = Number(row.numero_import?.slice(prefix.length));
+    if (!Number.isNaN(seq) && seq > maxSeq) maxSeq = seq;
+  }
+
+  return `${prefix}${maxSeq + 1}`;
+}
+
 // Enregistre un NOUVEL evenement d'import pour une ligne (pas d'ecrasement -
 // un article commande en une fois peut arriver en plusieurs fois, chacune
 // avec son propre dossier). Volontairement libre : peut depasser la
@@ -281,6 +303,7 @@ export async function createImportEvenementAction(formData: FormData) {
 
   const nDoss4dImport = parseOptionalText(formData, "n_doss_4d_import");
   const nDossErpImport = parseOptionalText(formData, "n_doss_erp_import");
+  const numeroImport = await nextNumeroImport();
 
   const { error } = await supabaseServer.from("bons_commande_mp_imports").insert([
     {
@@ -288,6 +311,7 @@ export async function createImportEvenementAction(formData: FormData) {
       quantite_importee: quantiteImportee,
       n_doss_4d_import: nDoss4dImport,
       n_doss_erp_import: nDossErpImport,
+      numero_import: numeroImport,
     },
   ]);
 
@@ -299,7 +323,7 @@ export async function createImportEvenementAction(formData: FormData) {
   // automatique, sur demande explicite (avant, Fabrication n'etait qu'un
   // repli d'affichage cote page - jamais persiste). N'ecrase jamais un
   // dossier deja suivi (ex: un 2eme article ajoute plus tard au meme
-  // dossier, deja passe a "Import" entre-temps).
+  // dossier, deja passe a "Depart" entre-temps).
   if (nDoss4dImport || nDossErpImport) {
     let dossierQuery = supabaseServer.from("dossiers_import_mp_statut").select("id");
     dossierQuery = nDoss4dImport

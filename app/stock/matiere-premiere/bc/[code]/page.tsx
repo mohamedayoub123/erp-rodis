@@ -67,6 +67,7 @@ type ImportEvenementRow = {
   n_doss_4d_import: string | null;
   n_doss_erp_import: string | null;
   date_import: string | null;
+  numero_import: string | null;
 };
 
 async function fetchGroup(code: string) {
@@ -93,7 +94,7 @@ async function fetchImportsForLignes(ligneIds: number[]) {
   // creer une 2e).
   const { data } = await supabaseServer
     .from("bons_commande_mp_imports")
-    .select("id, bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, date_import")
+    .select("id, bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, date_import, numero_import")
     .in("bc_ligne_id", ligneIds)
     .order("id", { ascending: true });
 
@@ -183,12 +184,12 @@ export default async function CommandeBcMpDetailPage({
                     />
                   </label>
                   <div className="flex items-end">
-                    <button
-                      type="submit"
+                    <SubmitButton
+                      pendingLabel="Enregistrement..."
                       className="rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                     >
                       Enregistrer
-                    </button>
+                    </SubmitButton>
                   </div>
                 </form>
               </section>
@@ -239,6 +240,9 @@ export default async function CommandeBcMpDetailPage({
                                 {ligneImports.map((imp) => (
                                   <li key={imp.id} className="flex items-start gap-1.5 text-xs">
                                     <span className="pt-0.5">
+                                      {imp.numero_import ? (
+                                        <span className="font-semibold text-slate-900">{imp.numero_import} - </span>
+                                      ) : null}
                                       {imp.quantite_importee} - {imp.n_doss_4d_import || "-"} /{" "}
                                       {imp.n_doss_erp_import || "-"} -{" "}
                                       {formatDate(imp.date_import)}
@@ -271,12 +275,12 @@ export default async function CommandeBcMpDetailPage({
                                               className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                             />
                                           </label>
-                                          <button
-                                            type="submit"
+                                          <SubmitButton
+                                            pendingLabel="Enregistrement..."
                                             className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
                                           >
                                             Enregistrer
-                                          </button>
+                                          </SubmitButton>
                                         </form>
                                       </details>
                                     ) : null}
@@ -343,12 +347,12 @@ export default async function CommandeBcMpDetailPage({
                                           className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                         />
                                       </label>
-                                      <button
-                                        type="submit"
+                                      <SubmitButton
+                                        pendingLabel="Enregistrement..."
                                         className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
                                       >
                                         Enregistrer
-                                      </button>
+                                      </SubmitButton>
                                     </form>
                                   </details>
                                 ) : null}
@@ -403,12 +407,9 @@ export default async function CommandeBcMpDetailPage({
                                 {canEdit && statut !== "Termine" ? (
                                   <form action={markCommandeBcLigneTermineAction}>
                                     <input type="hidden" name="bc_id" value={row.id} />
-                                    <button
-                                      type="submit"
-                                      className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100"
-                                    >
+                                    <SubmitButton className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100">
                                       Termine
-                                    </button>
+                                    </SubmitButton>
                                   </form>
                                 ) : null}
 
