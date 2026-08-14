@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { GAMME_CONFIGS } from "./gamme-config";
 import { editableFieldName } from "./field-name";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 function combineStyle(
   base: React.CSSProperties | undefined,
@@ -170,12 +171,12 @@ export function RapportTable({
           </div>
 
           {canEdit ? (
-            <button
-              type="submit"
+            <SubmitButton
+              pendingLabel="Enregistrement..."
               className="rounded-full bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-500"
             >
               Enregistrer
-            </button>
+            </SubmitButton>
           ) : null}
         </div>
       </section>
@@ -203,9 +204,14 @@ export function RapportTable({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {rows.map((row, rowIndex) => {
                 const style = row.categorie ? config.categorieStyles?.[row.categorie] : null;
                 const live = row.live;
+                // Trait noir large entre 2 feuilles Excel differentes (gammes
+                // multi-sheet, ex: sous-familles) - le changement de
+                // categorie d'une ligne a l'autre marque cette frontiere.
+                const isSheetBoundary = rowIndex > 0 && row.categorie !== rows[rowIndex - 1].categorie;
+                const sheetBoundaryClass = isSheetBoundary ? "border-t-4 border-t-black" : "";
                 // DESIGNATION en jaune si un BC est en cours d'achat, en
                 // vert si un dossier import (4D) est en cours, rien sinon -
                 // si les deux sont en cours en meme temps pour le meme
@@ -220,7 +226,7 @@ export function RapportTable({
                 return (
                   <tr key={row.id}>
                     <td
-                      className={`border border-slate-200 px-4 py-3 text-center font-semibold ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected("__row__") ? "ring-2 ring-inset ring-violet-500" : ""}`}
+                      className={`border border-slate-200 px-4 py-3 text-center font-semibold ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected("__row__") ? "ring-2 ring-inset ring-violet-500" : ""} ${sheetBoundaryClass}`}
                       style={combineStyle(style ? { backgroundColor: style.bg, color: style.text } : undefined, rowColors["__row__"], undefined)}
                       onClick={() => selectTarget(row.id, "__row__")}
                       title={canEdit ? "Cliquer pour colorer toute la ligne" : undefined}
@@ -228,7 +234,7 @@ export function RapportTable({
                       {row.ordre}
                     </td>
                     <td
-                      className={`whitespace-nowrap border border-slate-200 px-4 py-3 font-medium ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected("DESIGNATION") ? "ring-2 ring-inset ring-violet-500" : ""}`}
+                      className={`whitespace-nowrap border border-slate-200 px-4 py-3 font-medium ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected("DESIGNATION") ? "ring-2 ring-inset ring-violet-500" : ""} ${sheetBoundaryClass}`}
                       style={combineStyle(
                         { backgroundColor: designationBg, color: stockDepasse1An ? config.redText : "#0f172a" },
                         rowColors["__row__"],
@@ -248,13 +254,13 @@ export function RapportTable({
                       const colKey = col.key + index;
 
                       if (col.kind === "spacer") {
-                        return <td key={colKey} className="w-28 border-0 bg-white p-0" />;
+                        return <td key={colKey} className={`w-28 border-0 bg-white p-0 ${sheetBoundaryClass}`} />;
                       }
 
                       if (col.kind === "editable-text" || col.kind === "editable-number") {
                         const isAvis = col.key === "avis";
                         return (
-                          <td key={colKey} className="border border-slate-200 p-1">
+                          <td key={colKey} className={`border border-slate-200 p-1 ${sheetBoundaryClass}`}>
                             <input
                               type={col.kind === "editable-number" ? "number" : "text"}
                               step={col.kind === "editable-number" ? "0.01" : undefined}
@@ -273,7 +279,7 @@ export function RapportTable({
                         return (
                           <td
                             key={colKey}
-                            className={`whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600 ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected(col.key) ? "ring-2 ring-inset ring-violet-500" : ""}`}
+                            className={`whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600 ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected(col.key) ? "ring-2 ring-inset ring-violet-500" : ""} ${sheetBoundaryClass}`}
                             style={combineStyle(undefined, rowColors["__row__"], rowColors[col.key])}
                             onClick={() => selectTarget(row.id, col.key)}
                             title={canEdit ? "Cliquer pour colorer cette case" : undefined}
@@ -286,7 +292,10 @@ export function RapportTable({
                       // kind === "live"
                       if (!live) {
                         return (
-                          <td key={colKey} className="whitespace-nowrap border border-slate-200 px-4 py-3 text-amber-700">
+                          <td
+                            key={colKey}
+                            className={`whitespace-nowrap border border-slate-200 px-4 py-3 text-amber-700 ${sheetBoundaryClass}`}
+                          >
                             article introuvable
                           </td>
                         );
@@ -298,11 +307,13 @@ export function RapportTable({
                       if (col.liveField === "qteBcEtDate" || col.liveField === "date4d") {
                         const entries = live[col.liveField];
                         const qtyColor =
-                          col.liveField === "qteBcEtDate" ? { color: "#1E3A8A" } : { color: "#00B050", fontWeight: 700 };
+                          col.liveField === "qteBcEtDate"
+                            ? { color: "#1E3A8A", fontWeight: 700 }
+                            : { color: "#00B050", fontWeight: 700 };
                         return (
                           <td
                             key={colKey}
-                            className={`whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600 ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected(col.key) ? "ring-2 ring-inset ring-violet-500" : ""}`}
+                            className={`border border-slate-200 px-4 py-3 text-slate-600 ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected(col.key) ? "ring-2 ring-inset ring-violet-500" : ""} ${sheetBoundaryClass}`}
                             style={combineStyle(undefined, rowColors["__row__"], rowColors[col.key])}
                             onClick={() => selectTarget(row.id, col.key)}
                             title={canEdit ? "Cliquer pour colorer cette case" : undefined}
@@ -310,10 +321,13 @@ export function RapportTable({
                             {entries.length === 0
                               ? "-"
                               : entries.map((entry, entryIndex) => (
-                                  <span key={entryIndex}>
-                                    {entryIndex > 0 ? " / " : ""}
+                                  // Plusieurs dossiers sur la meme case : chacun sur sa
+                                  // propre ligne (empile), pas colle en ligne avec " / "
+                                  // qui rendait la case illisible des qu'elle depassait
+                                  // la largeur de colonne.
+                                  <div key={entryIndex} className="whitespace-nowrap">
                                     <span style={qtyColor}>{formatCellValue(entry.quantite)}</span> {entry.detail}
-                                  </span>
+                                  </div>
                                 ))}
                           </td>
                         );
@@ -329,7 +343,7 @@ export function RapportTable({
                         cellStyle = { color: config.redText, ...(config.redTextBold ? { fontWeight: 700 } : null) };
                       }
                       if (col.liveField === "enCoursBc") {
-                        cellStyle = { color: "#1E3A8A" };
+                        cellStyle = { color: "#1E3A8A", fontWeight: 700 };
                       }
                       if (col.liveField === "enCours4d") {
                         cellStyle = { color: "#00B050", fontWeight: 700 };
@@ -338,7 +352,7 @@ export function RapportTable({
                       return (
                         <td
                           key={colKey}
-                          className={`whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600 ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected(col.key) ? "ring-2 ring-inset ring-violet-500" : ""}`}
+                          className={`whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600 ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected(col.key) ? "ring-2 ring-inset ring-violet-500" : ""} ${sheetBoundaryClass}`}
                           style={combineStyle(cellStyle, rowColors["__row__"], rowColors[col.key])}
                           onClick={() => selectTarget(row.id, col.key)}
                           title={canEdit ? "Cliquer pour colorer cette case" : undefined}
@@ -347,7 +361,7 @@ export function RapportTable({
                         </td>
                       );
                     })}
-                    <td className="border border-slate-200 p-1">
+                    <td className={`border border-slate-200 p-1 ${sheetBoundaryClass}`}>
                       <input
                         type="text"
                         name={editableFieldName(row.id, "remarque_libre")}
@@ -365,12 +379,12 @@ export function RapportTable({
 
         {canEdit ? (
           <div className="flex justify-end border-t border-slate-100 px-6 py-4">
-            <button
-              type="submit"
+            <SubmitButton
+              pendingLabel="Enregistrement..."
               className="rounded-full bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-500"
             >
               Enregistrer
-            </button>
+            </SubmitButton>
           </div>
         ) : null}
       </section>
