@@ -96,16 +96,15 @@ function stripAccents(value: string) {
   return value.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
-// Ordre de test important : "Gel Douche ... Clarifiant" doit tomber dans
-// Clarifiant (pas Gel Douche), donc CLARIFI/HYDRAT sont testes AVANT les
-// prefixes de type - confirme sur les vrais articles (ex: "Gel Douche
-// WHITE SECRET 500ml Clarifiant", "LAIT MAMASSITA HYDRATANT 250ML").
-// Tout le reste (aucun mot-cle/prefixe connu) tombe dans "Autre" - jamais
-// exclu, sur demande explicite ("il faut prendre tous les articles").
+// Classe uniquement par type de produit (prefixe) + Auto/Manuel ensuite -
+// "Clarifiant"/"Hydratant" ne sont PAS un genre a part : un "Creme ...
+// Clarifiant" reste range dans "Creme", pas retire de son type pour
+// creer une categorie a part (sur demande explicite - Lait/Creme restent
+// sous leur propre type meme quand ils sont la variante clarifiante).
+// Tout le reste (aucun prefixe connu) tombe dans "Autre" - jamais exclu,
+// sur demande explicite ("il faut prendre tous les articles").
 function classifyGenre(produit: string | null): string {
   const value = stripAccents((produit || "").toUpperCase());
-  if (value.includes("CLARIFI")) return "Clarifiant";
-  if (value.includes("HYDRAT")) return "Hydratant";
   for (const prefix of GENRE_PREFIXES) {
     if (value.startsWith(prefix)) return prefix;
   }
