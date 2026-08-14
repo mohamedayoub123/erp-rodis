@@ -44,7 +44,7 @@ export function TestLaboPieChart({
   const slices: Slice[] = [
     { label: "Conforme", value: conforme, color: "#059669" },
     { label: "A detruire", value: aDetruire, color: "#dc2626" },
-    { label: "Sous derogation", value: sousDerogation, color: "#7c3aed" },
+    { label: "Sous derogation", value: sousDerogation, color: "#c026d3" },
     { label: "A decider", value: aDecider, color: "#ea580c" },
   ].filter((slice) => slice.value > 0);
 

@@ -169,7 +169,7 @@ function DecisionBadge({ row }: { row: { disposition_qualite: string | null; sou
     label === "A detruire"
       ? "bg-red-100 text-red-800"
       : label === "Sous derogation"
-        ? "bg-violet-100 text-violet-800"
+        ? "bg-fuchsia-100 text-fuchsia-800"
         : label === "A decider"
           ? "bg-orange-100 text-orange-800"
           : "bg-slate-100 text-slate-500";
@@ -359,7 +359,7 @@ export default async function QualiteRapportPage({
     {
       key: "sous_derogation",
       label: "Sous derogation",
-      color: "#7c3aed",
+      color: "#c026d3",
       values: monthKeys.map((key) => sousDerogationByMonth.get(key) ?? 0),
     },
     {
@@ -377,7 +377,7 @@ export default async function QualiteRapportPage({
     {
       key: "manuel",
       label: "Manuel",
-      color: "#d97706",
+      color: "#ca8a04",
       values: monthKeys.map((key) => manuelByMonth.get(key) ?? 0),
     },
   ];
