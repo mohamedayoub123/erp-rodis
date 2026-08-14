@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[] };
 
@@ -174,6 +174,8 @@ export function AuditTable({
   closureDoneValue,
   closureClosedStatus,
   closureOpenStatus,
+  restrictedColumnKeys,
+  canEditRestrictedColumns,
 }: {
   columns: AuditColumn[];
   initialRows: AuditRow[];
@@ -206,6 +208,11 @@ export function AuditTable({
   closureDoneValue?: string;
   closureClosedStatus?: string;
   closureOpenStatus?: string;
+  // Colonnes verrouillees (optionnel) : ces colonnes restent en lecture
+  // seule pour tout le monde, meme un utilisateur avec canWrite=true (y
+  // compris l'admin), sauf si canEditRestrictedColumns est vrai.
+  restrictedColumnKeys?: string[];
+  canEditRestrictedColumns?: boolean;
 }) {
   const [rowKeys, setRowKeys] = useState<string[]>(() => initialRows.map((r) => `row-${r.id}`));
   const rowsRef = useRef<Record<string, AuditRow>>(
@@ -224,65 +231,6 @@ export function AuditTable({
   // de mettre a jour visuellement un statut calcule automatiquement (couleur
   // + valeur) sans redessiner tout le tableau (voir rowsRef plus haut).
   const statusSelectRefs = useRef<Record<string, HTMLSelectElement | null>>({});
-  // Barre d'outils du haut (Ajouter/Enregistrer) et entete de colonnes
-  // collantes par rapport a la PAGE ENTIERE (pas un cadre separe) : quand on
-  // defile la page, elles restent collees juste sous le bandeau ERP Rodis
-  // (deja collant, voir headerOffset) et on ne defile QUE dans le tableau
-  // lui-meme, comme le reste de la page. headerOffset/toolbarHeight sont
-  // mesures pour empiler les 3 elements collants (bandeau, barre, entete)
-  // sans qu'ils se chevauchent.
-  const toolbarRef = useRef<HTMLDivElement | null>(null);
-  const [toolbarHeight, setToolbarHeight] = useState(0);
-  const [headerOffset, setHeaderOffset] = useState(0);
-
-  useEffect(() => {
-    const el = toolbarRef.current;
-    if (!el) {
-      setToolbarHeight(0);
-      return;
-    }
-    // Mesure synchrone immediate en plus du ResizeObserver - sinon la toute
-    // premiere peinture utiliserait encore la valeur par defaut (0).
-    setToolbarHeight(el.getBoundingClientRect().height);
-    const observer = new ResizeObserver((entries) => {
-      setToolbarHeight(entries[0].contentRect.height);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [canWrite]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let observer: ResizeObserver | null = null;
-    let frame = 0;
-
-    // Le bandeau global peut ne pas encore etre monte au tout premier
-    // passage (ordre d'hydratation) - on reessaie a chaque frame jusqu'a
-    // le trouver, sinon headerOffset resterait bloque a 0 et la barre/entete
-    // collante se cacherait entierement derriere le bandeau (plus haut
-    // qu'elle) au lieu d'apparaitre juste en-dessous.
-    function tryAttach() {
-      if (cancelled) return;
-      const header = document.querySelector("header");
-      if (!header) {
-        frame = requestAnimationFrame(tryAttach);
-        return;
-      }
-      setHeaderOffset(header.getBoundingClientRect().height);
-      observer = new ResizeObserver((entries) => {
-        setHeaderOffset(entries[0].contentRect.height);
-      });
-      observer.observe(header);
-    }
-
-    tryAttach();
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frame);
-      observer?.disconnect();
-    };
-  }, []);
 
   function updateCell(key: string, field: string, value: string) {
     rowsRef.current[key] = { ...rowsRef.current[key], [field]: value };
@@ -394,16 +342,17 @@ export function AuditTable({
     "w-full min-w-[26rem] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
   const statusSelectBaseClass =
     "w-48 rounded-xl border px-3 py-2 text-sm font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60";
-  const theadTop = headerOffset + toolbarHeight;
+
+  function isColumnEditable(col: AuditColumn): boolean {
+    if (!canWrite) return false;
+    if (restrictedColumnKeys?.includes(col.key)) return Boolean(canEditRestrictedColumns);
+    return true;
+  }
 
   return (
     <div>
       {canWrite ? (
-        <div
-          ref={toolbarRef}
-          style={{ top: headerOffset }}
-          className="sticky z-20 flex flex-wrap items-center justify-between gap-3 rounded-t-[2rem] border-b border-slate-100 bg-white px-4 py-4"
-        >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-4">
           <button
             type="button"
             onClick={addRow}
@@ -426,23 +375,20 @@ export function AuditTable({
         </div>
       ) : null}
 
-      <table className="min-w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-500">
+      {/* Meme structure que Suivi Production (defilement horizontal fiable,
+          deja teste sur tout le reste de l'app) : un seul conteneur
+          overflow-x-auto autour du tableau, entete sticky top-0 relative a
+          CE conteneur (pas a la page entiere). */}
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500 shadow-[0_1px_0_rgba(15,23,42,0.08)]">
             <tr>
               {columns.map((col) => (
-                <th
-                  key={col.key}
-                  style={{ top: theadTop }}
-                  className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold whitespace-nowrap"
-                >
+                <th key={col.key} className="bg-slate-50 px-4 py-3 font-semibold whitespace-nowrap">
                   {col.label}
                 </th>
               ))}
-              {canWrite ? (
-                <th style={{ top: theadTop }} className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold">
-                  Actions
-                </th>
-              ) : null}
+              {canWrite ? <th className="bg-slate-50 px-4 py-3 font-semibold">Actions</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -458,7 +404,7 @@ export function AuditTable({
                 return (
                   <tr key={key} className="border-t border-slate-100 align-top">
                     {columns.map((col) =>
-                      canWrite ? (
+                      isColumnEditable(col) ? (
                         <td key={col.key} className="px-4 py-3">
                           {col.select ? (
                             <select
@@ -542,7 +488,7 @@ export function AuditTable({
                           deleteFileAction ? (
                             <AttachmentsCell
                               rowId={row.id}
-                              canWrite={false}
+                              canWrite={canWrite}
                               initialFiles={(row.id && initialAttachments?.[row.id]) || []}
                               uploadFilesAction={uploadFilesAction}
                               getFileUrlAction={getFileUrlAction}
@@ -571,9 +517,10 @@ export function AuditTable({
             )}
           </tbody>
         </table>
+      </div>
 
       {canWrite ? (
-        <div className="sticky bottom-0 z-20 flex flex-col gap-3 rounded-b-[2rem] border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
             {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}

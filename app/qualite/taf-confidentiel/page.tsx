@@ -11,6 +11,10 @@ import { saveTafConfidentielBatchAction, deleteTafConfidentielRowAction } from "
 // Memes valeurs que celles deja utilisees dans les donnees TAF importees.
 const STATUT_OPTIONS = ["EN COURS", "CLOTUREE", "PAS D'ACTION"];
 
+// Ces colonnes restent en lecture seule pour tout le monde, meme l'admin -
+// seule felicite peut les modifier.
+const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "constat", "processus_concerne", "service_concerne"];
+
 // Memes titres, dans le meme ordre, que la feuille "TAF Confidentiel" du
 // classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne).
 const COLUMNS: AuditColumn[] = [
@@ -171,7 +175,7 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
           </form>
         </section>
 
-        <section className="rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+        <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <AuditTable
             columns={COLUMNS}
             initialRows={rows}
@@ -181,6 +185,8 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
             progressColumnKeys={["t1", "t2", "t3", "t4"]}
             progressStatusColumnKey="statut"
             progressDoneStatus="CLOTUREE"
+            restrictedColumnKeys={RESTRICTED_COLUMN_KEYS}
+            canEditRestrictedColumns={currentUser === "felicite"}
           />
         </section>
       </div>
