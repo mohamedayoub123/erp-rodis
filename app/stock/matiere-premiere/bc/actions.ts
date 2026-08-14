@@ -350,32 +350,6 @@ export async function updateImportEvenementAction(formData: FormData) {
   revalidateCommandeBcMpPages();
 }
 
-// Supprime un evenement d'import - le "reste a importer" de la ligne
-// remonte automatiquement puisqu'il se recalcule a partir de la somme des
-// evenements restants (pas de champ separe a corriger). Meme protection
-// lot_stock_id que la modification.
-export async function deleteImportEvenementAction(formData: FormData) {
-  await requireDeleteAccess();
-
-  const importId = Number(String(formData.get("import_id") || "0"));
-
-  if (!importId) {
-    throw new Error("Evenement d'import invalide.");
-  }
-
-  const { error } = await supabaseServer
-    .from("bons_commande_mp_imports")
-    .delete()
-    .eq("id", importId)
-    .is("lot_stock_id", null);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  revalidateCommandeBcMpPages();
-}
-
 // Modifie la quantite commandee et les dossiers 4D/ERP d'UNE ligne BC
 // (contrairement a updateCommandeBcGroupAction, qui n'ecrit que le dossier
 // et pour toutes les lignes du meme code).

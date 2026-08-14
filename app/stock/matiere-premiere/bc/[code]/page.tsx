@@ -10,12 +10,17 @@ import { formatDate } from "@/lib/format-date";
 import {
   createImportEvenementAction,
   deleteCommandeBcLigneAction,
-  deleteImportEvenementAction,
   markCommandeBcLigneTermineAction,
   updateCommandeBcGroupAction,
   updateCommandeBcLigneAction,
   updateImportEvenementAction,
 } from "../actions";
+// La version bc/actions.ts est volontairement bloquee sur un evenement issu
+// d'une Reception (lot_stock_id non nul) pour ne jamais desynchroniser le
+// stock - celle-ci (deja utilisee sur Import MP) gere aussi ce cas en
+// retirant le lot de stock credite, donc supprimer une reception en double
+// fonctionne aussi depuis cette page BC.
+import { deleteImportEvenementAction } from "../../commande/actions";
 import { computeStatutBc, statutBcBadgeClass } from "../constants";
 import { AddArticleForm } from "./add-article-form";
 

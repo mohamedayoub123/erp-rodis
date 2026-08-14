@@ -1,6 +1,6 @@
 export const STATUT_DOSSIER_MP_OPTIONS = [
   "Fabrication",
-  "Import",
+  "Depart",
   "Receptionne au port",
   "Receptionne Rodis",
 ] as const;
@@ -11,7 +11,7 @@ export function statutDossierMpBadgeClass(statut: string) {
   switch (statut) {
     case "Fabrication":
       return "bg-slate-100 text-slate-800";
-    case "Import":
+    case "Depart":
       return "bg-amber-100 text-amber-800";
     case "Receptionne au port":
       return "bg-sky-100 text-sky-800";
