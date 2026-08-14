@@ -132,27 +132,20 @@ function RavitailleurGenreTable({
         <h2 className="text-lg font-bold text-slate-900">{title}</h2>
       </div>
       <div className="overflow-x-auto">
-        {/* Largeurs en % fixees via colgroup + table-layout:fixed - la
-            version "largeur exacte au contenu" (width:1%+nowrap) a echoue a
-            l'impression a chaque essai (4x), meme apres avoir corrige la
-            regle globale qui la cassait au depart. Cette version-ci (%
-            fixes, sans dependre d'un calcul de layout variable) est la
-            SEULE confirmee fonctionner correctement a l'impression. */}
-        <table
-          className="print-readable-table w-full border-collapse text-left text-sm"
-          style={{ tableLayout: "fixed" }}
-        >
-          <colgroup>
-            <col style={{ width: "45%" }} />
-            <col style={{ width: "15%" }} />
-            <col style={{ width: "40%" }} />
-          </colgroup>
+        {/* Largeur exacte au contenu pour Article/Code (nowrap, sans
+            largeur forcee - table-layout:auto natif) - le globals.css a une
+            regle desormais STRICTEMENT plus specifique que celle qui
+            cassait ca a l'impression (voir .print-readable-table), donc
+            plus d'ambiguite sur laquelle des 2 s'applique. Remarque
+            (print-remarque-cell) garde une largeur minimale genereuse pour
+            ne jamais s'ecraser. */}
+        <table className="print-readable-table w-full border-collapse text-left text-sm">
           <thead>
             <tr>
-              <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900">
+              <th className="whitespace-nowrap border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900">
                 ARTICLE
               </th>
-              <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900">
+              <th className="whitespace-nowrap border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900">
                 CODE
               </th>
               <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900">
@@ -170,11 +163,13 @@ function RavitailleurGenreTable({
             ) : (
               rows.map((row) => (
                 <tr key={row.id}>
-                  <td className="border border-slate-300 bg-white px-3 py-6 font-medium text-slate-900">
+                  <td className="whitespace-nowrap border border-slate-300 bg-white px-3 py-6 font-medium text-slate-900">
                     {row.produit}
                   </td>
-                  <td className="border border-slate-300 bg-white px-3 py-6 text-center">{row.code || "-"}</td>
-                  <td className="border border-slate-300 bg-white px-3 py-6" />
+                  <td className="whitespace-nowrap border border-slate-300 bg-white px-3 py-6 text-center">
+                    {row.code || "-"}
+                  </td>
+                  <td className="print-remarque-cell border border-slate-300 bg-white px-3 py-6" />
                 </tr>
               ))
             )}

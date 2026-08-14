@@ -240,28 +240,33 @@ body {
 
   /* Echappatoire a la regle "html[data-print-mode] table {...}" ci-dessus :
      ecrite pour le Dispatcher Ravitailleur par zone (13 colonnes, doit
-     forcement rester minuscule) - le word-break/8px force la meme chose sur
-     N'IMPORTE QUEL AUTRE tableau imprime avec SimplePrintButton (data-
-     print-mode="simple"), y compris un tableau a 3 colonnes larges comme
-     Ravitailleur par genre, ou ca compresse le texte lettre par lettre au
-     lieu de simplement passer a la ligne aux espaces. Plus specifique
-     (classe + element) donc l'emporte sur la regle generale malgre les 2
-     !important. */
-  table.print-readable-table {
+     forcement rester minuscule) - le word-break/fixed/8px force la meme
+     chose sur N'IMPORTE QUEL AUTRE tableau imprime avec SimplePrintButton
+     (data-print-mode="simple"), y compris un tableau a 3 colonnes larges
+     comme Ravitailleur par genre. Prefixe "html[data-print-mode]" ici
+     aussi (pas juste ".print-readable-table") pour avoir une specificite
+     STRICTEMENT superieure a la regle generale, sans ambiguite d'ordre
+     source - un essai precedent avec une specificite EGALE marchait de
+     facon aleatoire selon lequel des 2 le navigateur appliquait en
+     dernier. */
+  html[data-print-mode] table.print-readable-table {
     font-size: 11px !important;
-    /* La regle generale ci-dessus force aussi table-layout:fixed - or la
-       colonne Article/Code utilise l'astuce "width:1% + nowrap" (colonne
-       resserree exactement sur son contenu), qui NE FONCTIONNE QUE sous
-       table-layout:auto (fixed prend les 1% au pied de la lettre et
-       compresse le texte caractere par caractere, exactement le bug revu
-       apres etre repasse a cette astuce). */
     table-layout: auto !important;
   }
 
-  table.print-readable-table th,
-  table.print-readable-table td {
-    white-space: normal !important;
+  html[data-print-mode] table.print-readable-table th,
+  html[data-print-mode] table.print-readable-table td {
+    white-space: nowrap !important;
     overflow-wrap: normal !important;
     word-break: normal !important;
+  }
+
+  /* Seule la colonne Remarque (sans classe dediee, juste "pas de nowrap")
+     doit pouvoir passer a la ligne / s'etaler - Article et Code restent
+     sur 1 ligne (nowrap ci-dessus) pour se resserrer exactement sur leur
+     contenu. */
+  html[data-print-mode] table.print-readable-table td.print-remarque-cell {
+    white-space: normal !important;
+    min-width: 220px;
   }
 }
