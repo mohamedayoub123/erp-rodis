@@ -383,7 +383,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                         <td className="px-6 py-4 text-slate-600">{formatDate(group.dateRecente)}</td>
                         <td className="px-6 py-4">
                           {canEdit && !dossierIsLocked ? (
-                            <form action={updateDossierMpStatutAction} className="flex items-center gap-2">
+                            <form action={updateDossierMpStatutAction} className="flex flex-wrap items-center gap-2">
                               <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
                               <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
                               {/* Ce formulaire ne touche que le statut, mais l'action ecrit
@@ -411,15 +411,30 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                               <SubmitButton className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800">
                                 OK
                               </SubmitButton>
+                              {/* Date deja enregistree, affichee ici (a cote du statut, pas
+                                  seulement dans la colonne Date plus loin) pour confirmer
+                                  d'un coup d'oeil, sans chercher, que "OK" a bien sauvegarde
+                                  la date sur CE dossier precis - la liste se retrie par date
+                                  recente a chaque enregistrement, ce qui deplace les lignes. */}
+                              <span className="w-full text-xs text-slate-500">
+                                Date prevue :{" "}
+                                {group.datePrevueReception ? formatDate(group.datePrevueReception) : "non saisie"}
+                              </span>
                             </form>
                           ) : (
-                            <span
-                              className={`rounded-full px-3 py-1 text-xs font-semibold ${statutDossierMpBadgeClass(
-                                group.statut
-                              )}`}
-                            >
-                              {group.statut}
-                            </span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-semibold ${statutDossierMpBadgeClass(
+                                  group.statut
+                                )}`}
+                              >
+                                {group.statut}
+                              </span>
+                              <span className="w-full text-xs text-slate-500">
+                                Date prevue :{" "}
+                                {group.datePrevueReception ? formatDate(group.datePrevueReception) : "non saisie"}
+                              </span>
+                            </div>
                           )}
                         </td>
                         <td className="px-6 py-4">
