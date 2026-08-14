@@ -536,9 +536,13 @@ export async function updateDossierMpStatutAction(formData: FormData) {
 
   if (existing) {
     // "Receptionne Rodis" est le statut final, mis automatiquement par la
-    // Reception - plus modifiable a la main ensuite (statut ou date), sur
-    // demande explicite.
-    if ((existing as { statut: string }).statut === STATUT_DOSSIER_MP_OPTIONS[STATUT_DOSSIER_MP_OPTIONS.length - 1]) {
+    // Reception - plus modifiable a la main ensuite (sur demande
+    // explicite), mais UNIQUEMENT le statut lui-meme : la date prevue
+    // reste une info administrative modifiable a tout moment (un dossier
+    // verrouille avant d'avoir eu sa date saisie doit pouvoir etre
+    // corrige, pas rester bloque a "-" pour toujours).
+    const receptionneRodis = STATUT_DOSSIER_MP_OPTIONS[STATUT_DOSSIER_MP_OPTIONS.length - 1];
+    if ((existing as { statut: string }).statut === receptionneRodis && statut !== receptionneRodis) {
       throw new Error("Ce dossier est deja receptionne chez Rodis - le statut ne peut plus etre modifie.");
     }
 

@@ -423,7 +423,12 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          {canEdit && !dossierIsLocked ? (
+                          {/* Contrairement au Statut, la date prevue reste modifiable
+                              meme apres "Receptionne Rodis" - c'est une info
+                              administrative (pas une etape du workflow), et un
+                              dossier verrouille AVANT d'avoir eu sa date saisie ne
+                              doit jamais rester bloque a "-" pour toujours. */}
+                          {canEdit ? (
                             <form action={updateDossierMpStatutAction} className="flex items-center gap-2">
                               <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
                               <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
