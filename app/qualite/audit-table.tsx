@@ -8,6 +8,21 @@ export type AuditRow = { id: number | null; [columnKey: string]: string | number
 
 export type AttachmentFile = { name: string; path: string };
 
+// Couleur des statuts (colonnes select) : vert = realise/cloture, orange =
+// en cours, rouge = non realise/pas d'action. Les autres valeurs (vide,
+// "NOUVELLE NC OUVERTE ANNEE N+1"...) restent neutres.
+const STATUS_DONE = new Set(["REALISEE", "CLOTUREE"]);
+const STATUS_EN_COURS = new Set(["EN COURS"]);
+const STATUS_BLOQUE = new Set(["NON REALISEE", "PAS D'ACTION"]);
+
+function statusColorClasses(value: string | number | null | undefined): string {
+  const key = String(value ?? "").trim().toUpperCase();
+  if (STATUS_DONE.has(key)) return "border-emerald-300 bg-emerald-50 text-emerald-800";
+  if (STATUS_EN_COURS.has(key)) return "border-amber-300 bg-amber-50 text-amber-800";
+  if (STATUS_BLOQUE.has(key)) return "border-red-300 bg-red-50 text-red-800";
+  return "border-slate-200 bg-white text-slate-700";
+}
+
 // Widget "pieces jointes" pour UNE colonne (ex: "N"). Gere sa propre liste de
 // fichiers independamment de rowsRef/handleSave - chaque ajout/suppression
 // est une vraie ecriture immediate (Storage + base), pas une modification en
@@ -254,6 +269,8 @@ export function AuditTable({
     "w-48 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
   const longCellClass =
     "w-full min-w-[26rem] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+  const statusSelectBaseClass =
+    "w-48 rounded-xl border px-3 py-2 text-sm font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60";
 
   return (
     <div>
@@ -311,8 +328,11 @@ export function AuditTable({
                           {col.select ? (
                             <select
                               defaultValue={row[col.key] ?? ""}
-                              onChange={(e) => updateCell(key, col.key, e.target.value)}
-                              className={cellClass}
+                              onChange={(e) => {
+                                updateCell(key, col.key, e.target.value);
+                                e.target.className = `${statusSelectBaseClass} ${statusColorClasses(e.target.value)}`;
+                              }}
+                              className={`${statusSelectBaseClass} ${statusColorClasses(row[col.key])}`}
                             >
                               <option value="">-</option>
                               {/* La valeur existante est toujours proposee meme si elle ne
@@ -363,7 +383,17 @@ export function AuditTable({
                             col.long ? "min-w-[26rem] whitespace-pre-wrap" : ""
                           }`}
                         >
-                          {row[col.key] || "-"}
+                          {col.select ? (
+                            <span
+                              className={`inline-block rounded-full border px-3 py-1 text-xs font-semibold ${statusColorClasses(
+                                row[col.key]
+                              )}`}
+                            >
+                              {row[col.key] || "-"}
+                            </span>
+                          ) : (
+                            row[col.key] || "-"
+                          )}
                           {col.key === attachmentsColumnKey &&
                           uploadFilesAction &&
                           getFileUrlAction &&
