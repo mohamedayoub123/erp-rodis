@@ -237,4 +237,24 @@ body {
     break-before: page;
     page-break-before: always;
   }
+
+  /* Echappatoire a la regle "html[data-print-mode] table {...}" ci-dessus :
+     ecrite pour le Dispatcher Ravitailleur par zone (13 colonnes, doit
+     forcement rester minuscule) - le word-break/8px force la meme chose sur
+     N'IMPORTE QUEL AUTRE tableau imprime avec SimplePrintButton (data-
+     print-mode="simple"), y compris un tableau a 3 colonnes larges comme
+     Ravitailleur par genre, ou ca compresse le texte lettre par lettre au
+     lieu de simplement passer a la ligne aux espaces. Plus specifique
+     (classe + element) donc l'emporte sur la regle generale malgre les 2
+     !important. */
+  table.print-readable-table {
+    font-size: 11px !important;
+  }
+
+  table.print-readable-table th,
+  table.print-readable-table td {
+    white-space: normal !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+  }
 }
