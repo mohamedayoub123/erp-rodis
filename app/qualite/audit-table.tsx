@@ -2,9 +2,137 @@
 
 import { useRef, useState, useTransition } from "react";
 
-export type AuditColumn = { key: string; label: string; long?: boolean };
+export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[] };
 
 export type AuditRow = { id: number | null; [columnKey: string]: string | number | null };
+
+export type AttachmentFile = { name: string; path: string };
+
+// Widget "pieces jointes" pour UNE colonne (ex: "N"). Gere sa propre liste de
+// fichiers independamment de rowsRef/handleSave - chaque ajout/suppression
+// est une vraie ecriture immediate (Storage + base), pas une modification en
+// attente du bouton "Enregistrer" general.
+function AttachmentsCell({
+  rowId,
+  canWrite,
+  initialFiles,
+  uploadFilesAction,
+  getFileUrlAction,
+  deleteFileAction,
+}: {
+  rowId: number | null;
+  canWrite: boolean;
+  initialFiles: AttachmentFile[];
+  uploadFilesAction: (
+    rowId: number,
+    formData: FormData
+  ) => Promise<{ ok: boolean; message?: string; files?: AttachmentFile[] }>;
+  getFileUrlAction: (path: string) => Promise<{ ok: boolean; url?: string; message?: string }>;
+  deleteFileAction: (rowId: number, path: string) => Promise<{ ok: boolean; message?: string }>;
+}) {
+  const [files, setFiles] = useState(initialFiles);
+  const [expanded, setExpanded] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  if (!rowId) {
+    return <p className="mt-1 text-[11px] text-slate-400">Enregistre la ligne pour joindre un fichier.</p>;
+  }
+
+  function handleUpload(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    setError("");
+    const formData = new FormData();
+    for (const file of Array.from(fileList)) formData.append("files", file);
+
+    startTransition(async () => {
+      const result = await uploadFilesAction(rowId as number, formData);
+      if (!result.ok) {
+        setError(result.message || "Erreur pendant l'envoi.");
+        return;
+      }
+      setFiles((prev) => [...prev, ...(result.files ?? [])]);
+      setExpanded(true);
+      if (inputRef.current) inputRef.current.value = "";
+    });
+  }
+
+  function handleView(path: string) {
+    setError("");
+    startTransition(async () => {
+      const result = await getFileUrlAction(path);
+      if (!result.ok || !result.url) {
+        setError(result.message || "Fichier introuvable.");
+        return;
+      }
+      window.open(result.url, "_blank", "noopener,noreferrer");
+    });
+  }
+
+  function handleDelete(path: string) {
+    setError("");
+    startTransition(async () => {
+      const result = await deleteFileAction(rowId as number, path);
+      if (!result.ok) {
+        setError(result.message || "Erreur pendant la suppression.");
+        return;
+      }
+      setFiles((prev) => prev.filter((f) => f.path !== path));
+    });
+  }
+
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="text-[11px] font-semibold text-violet-700 hover:underline"
+      >
+        📎 {files.length > 0 ? `${files.length} fichier${files.length > 1 ? "s" : ""}` : "Joindre"}
+      </button>
+      {expanded ? (
+        <div className="mt-1 grid gap-1">
+          {files.map((file) => (
+            <div key={file.path} className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleView(file.path)}
+                disabled={isPending}
+                className="truncate text-left text-[11px] text-sky-700 hover:underline disabled:opacity-60"
+                title={file.name}
+              >
+                {file.name}
+              </button>
+              {canWrite ? (
+                <button
+                  type="button"
+                  onClick={() => handleDelete(file.path)}
+                  disabled={isPending}
+                  className="text-[11px] font-bold text-red-600 disabled:opacity-60"
+                  title="Supprimer ce fichier"
+                >
+                  x
+                </button>
+              ) : null}
+            </div>
+          ))}
+          {canWrite ? (
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              onChange={(e) => handleUpload(e.target.files)}
+              disabled={isPending}
+              className="mt-1 text-[11px]"
+            />
+          ) : null}
+          {error ? <p className="text-[11px] font-semibold text-red-700">{error}</p> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 // Meme principe que ProgrammeLigneTable (Programme par ligne) : les valeurs
 // des cellules vivent dans une ref (rowsRef), pas dans du useState, pour que
@@ -18,6 +146,11 @@ export function AuditTable({
   canWrite,
   saveBatchAction,
   deleteRowAction,
+  attachmentsColumnKey,
+  initialAttachments,
+  uploadFilesAction,
+  getFileUrlAction,
+  deleteFileAction,
 }: {
   columns: AuditColumn[];
   initialRows: AuditRow[];
@@ -26,12 +159,25 @@ export function AuditTable({
     rows: AuditRow[]
   ) => Promise<{ ok: boolean; message?: string; insertedIds?: number[] }>;
   deleteRowAction: (id: number) => Promise<void>;
+  // Pieces jointes (optionnel) : uniquement sur la colonne attachmentsColumnKey.
+  attachmentsColumnKey?: string;
+  initialAttachments?: Record<number, AttachmentFile[]>;
+  uploadFilesAction?: (
+    rowId: number,
+    formData: FormData
+  ) => Promise<{ ok: boolean; message?: string; files?: AttachmentFile[] }>;
+  getFileUrlAction?: (path: string) => Promise<{ ok: boolean; url?: string; message?: string }>;
+  deleteFileAction?: (rowId: number, path: string) => Promise<{ ok: boolean; message?: string }>;
 }) {
   const [rowKeys, setRowKeys] = useState<string[]>(() => initialRows.map((r) => `row-${r.id}`));
   const rowsRef = useRef<Record<string, AuditRow>>(
     Object.fromEntries(initialRows.map((r) => [`row-${r.id}`, r]))
   );
   const nextTempId = useRef(-1);
+  // Redessine la ligne apres un Save reussi : les nouvelles lignes recoivent
+  // alors un id reel (voir handleSave), necessaire pour que la cellule
+  // pieces-jointes de cette ligne cesse d'etre desactivee.
+  const [, forceRerender] = useState(0);
   const [isPending, startTransition] = useTransition();
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -95,6 +241,7 @@ export function AuditTable({
               idx++;
             }
           }
+          forceRerender((n) => n + 1);
         }
         setMessage("Enregistre.");
       } catch (error) {
@@ -105,6 +252,8 @@ export function AuditTable({
 
   const cellClass =
     "w-48 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
+  const longCellClass =
+    "w-full min-w-[26rem] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
 
   return (
     <div>
@@ -159,12 +308,31 @@ export function AuditTable({
                     {columns.map((col) =>
                       canWrite ? (
                         <td key={col.key} className="px-4 py-3">
-                          {col.long ? (
+                          {col.select ? (
+                            <select
+                              defaultValue={row[col.key] ?? ""}
+                              onChange={(e) => updateCell(key, col.key, e.target.value)}
+                              className={cellClass}
+                            >
+                              <option value="">-</option>
+                              {/* La valeur existante est toujours proposee meme si elle ne
+                                  correspond plus exactement a la liste (ancienne saisie libre) -
+                                  jamais silencieusement remplacee par un select vide. */}
+                              {row[col.key] && !col.select.includes(String(row[col.key])) ? (
+                                <option value={String(row[col.key])}>{String(row[col.key])}</option>
+                              ) : null}
+                              {col.select.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          ) : col.long ? (
                             <textarea
                               defaultValue={row[col.key] ?? ""}
                               onChange={(e) => updateCell(key, col.key, e.target.value)}
-                              rows={2}
-                              className={`${cellClass} min-w-[16rem]`}
+                              rows={6}
+                              className={longCellClass}
                             />
                           ) : (
                             <input
@@ -174,10 +342,41 @@ export function AuditTable({
                               className={cellClass}
                             />
                           )}
+                          {col.key === attachmentsColumnKey &&
+                          uploadFilesAction &&
+                          getFileUrlAction &&
+                          deleteFileAction ? (
+                            <AttachmentsCell
+                              rowId={row.id}
+                              canWrite={canWrite}
+                              initialFiles={(row.id && initialAttachments?.[row.id]) || []}
+                              uploadFilesAction={uploadFilesAction}
+                              getFileUrlAction={getFileUrlAction}
+                              deleteFileAction={deleteFileAction}
+                            />
+                          ) : null}
                         </td>
                       ) : (
-                        <td key={col.key} className="px-4 py-3 text-slate-600">
+                        <td
+                          key={col.key}
+                          className={`px-4 py-3 text-slate-600 ${
+                            col.long ? "min-w-[26rem] whitespace-pre-wrap" : ""
+                          }`}
+                        >
                           {row[col.key] || "-"}
+                          {col.key === attachmentsColumnKey &&
+                          uploadFilesAction &&
+                          getFileUrlAction &&
+                          deleteFileAction ? (
+                            <AttachmentsCell
+                              rowId={row.id}
+                              canWrite={false}
+                              initialFiles={(row.id && initialAttachments?.[row.id]) || []}
+                              uploadFilesAction={uploadFilesAction}
+                              getFileUrlAction={getFileUrlAction}
+                              deleteFileAction={deleteFileAction}
+                            />
+                          ) : null}
                         </td>
                       )
                     )}
