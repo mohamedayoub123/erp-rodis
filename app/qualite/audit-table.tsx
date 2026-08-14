@@ -226,12 +226,13 @@ export function AuditTable({
   const statusSelectRefs = useRef<Record<string, HTMLSelectElement | null>>({});
   // Barre d'outils du haut (Ajouter/Enregistrer) : hauteur mesuree pour que
   // l'entete du tableau, elle aussi collante, se cale juste en-dessous sans
-  // la chevaucher. headerOffset = hauteur du bandeau ERP Rodis global (deja
-  // collant en haut de chaque page) - sans ca, notre barre/entete colle a
-  // "top: 0" passerait SOUS ce bandeau au lieu de rester juste en-dessous.
+  // la chevaucher. Tout (barre du haut, entete, barre du bas) est collant a
+  // l'interieur de son PROPRE cadre de defilement borne (voir wrapperClassName
+  // plus bas) plutot que de dependre du defilement de la page entiere - un
+  // seul contexte de defilement, sans ambiguite, evite le bug observe ou la
+  // barre/entete se decalaient au milieu du tableau au lieu de rester en haut.
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const [toolbarHeight, setToolbarHeight] = useState(0);
-  const [headerOffset, setHeaderOffset] = useState(0);
   // Sur un tableau de 78/147 lignes, une ligne ajoutee en bas du tableau est
   // invisible sans defiler manuellement jusqu'en bas - on l'amene donc a
   // l'ecran automatiquement, sinon "+ Ajouter une ligne" semble ne rien faire.
@@ -253,17 +254,6 @@ export function AuditTable({
     observer.observe(el);
     return () => observer.disconnect();
   }, [canWrite]);
-
-  useEffect(() => {
-    const header = document.querySelector("header");
-    if (!header) return;
-    setHeaderOffset(header.getBoundingClientRect().height);
-    const observer = new ResizeObserver((entries) => {
-      setHeaderOffset(entries[0].contentRect.height);
-    });
-    observer.observe(header);
-    return () => observer.disconnect();
-  }, []);
 
   useEffect(() => {
     const key = pendingScrollKeyRef.current;
@@ -376,15 +366,13 @@ export function AuditTable({
     "w-full min-w-[26rem] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
   const statusSelectBaseClass =
     "w-48 rounded-xl border px-3 py-2 text-sm font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60";
-  const theadTop = headerOffset + toolbarHeight;
 
   return (
-    <div>
+    <div className="max-h-[75vh] overflow-auto">
       {canWrite ? (
         <div
           ref={toolbarRef}
-          style={{ top: headerOffset }}
-          className="sticky z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4"
+          className="sticky top-0 left-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4"
         >
           <button
             type="button"
@@ -408,21 +396,20 @@ export function AuditTable({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
+      <table className="min-w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-500">
             <tr>
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  style={{ top: theadTop }}
+                  style={{ top: toolbarHeight }}
                   className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold whitespace-nowrap"
                 >
                   {col.label}
                 </th>
               ))}
               {canWrite ? (
-                <th style={{ top: theadTop }} className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold">
+                <th style={{ top: toolbarHeight }} className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold">
                   Actions
                 </th>
               ) : null}
@@ -560,10 +547,9 @@ export function AuditTable({
             )}
           </tbody>
         </table>
-      </div>
 
       {canWrite ? (
-        <div className="sticky bottom-0 z-20 flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="sticky bottom-0 left-0 z-20 flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
             {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}
