@@ -211,7 +211,7 @@ export function RapportTable({
                 // multi-sheet, ex: sous-familles) - le changement de
                 // categorie d'une ligne a l'autre marque cette frontiere.
                 const isSheetBoundary = rowIndex > 0 && row.categorie !== rows[rowIndex - 1].categorie;
-                const sheetBoundaryClass = isSheetBoundary ? "border-t-4 border-t-black" : "";
+                const sheetBoundaryClass = isSheetBoundary ? "border-t-[24px] border-t-black" : "";
                 // DESIGNATION en jaune si un BC est en cours d'achat, en
                 // vert si un dossier import (4D) est en cours, rien sinon -
                 // si les deux sont en cours en meme temps pour le meme
