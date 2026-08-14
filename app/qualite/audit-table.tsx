@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[] };
 
@@ -285,28 +285,6 @@ export function AuditTable({
   // de mettre a jour visuellement un statut calcule automatiquement (couleur
   // + valeur) sans redessiner tout le tableau (voir rowsRef plus haut).
   const statusSelectRefs = useRef<Record<string, HTMLSelectElement | null>>({});
-  // Le tableau vit dans son propre cadre borne (defilement horizontal ET
-  // vertical sur le meme element) - la barre du haut et l'entete y restent
-  // collantes en permanence pendant un long defilement DANS le cadre, tout
-  // en gardant un defilement horizontal fiable (un seul conteneur, pas de
-  // conflit entre deux defilements imbriques).
-  const toolbarRef = useRef<HTMLDivElement | null>(null);
-  const [toolbarHeight, setToolbarHeight] = useState(0);
-
-  useEffect(() => {
-    const el = toolbarRef.current;
-    if (!el) {
-      setToolbarHeight(0);
-      return;
-    }
-    setToolbarHeight(el.getBoundingClientRect().height);
-    const observer = new ResizeObserver((entries) => {
-      setToolbarHeight(entries[0].contentRect.height);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [canWrite]);
-
   function updateCell(key: string, field: string, value: string) {
     rowsRef.current[key] = { ...rowsRef.current[key], [field]: value };
   }
@@ -426,12 +404,15 @@ export function AuditTable({
 
   return (
     <div className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-    <div className="max-h-[75vh] overflow-auto">
+      {/* Barre Ajouter/Enregistrer HORS du cadre defilant - toujours visible
+          des qu'on voit le tableau, sans avoir besoin d'etre "collante"
+          elle-meme. La garder DANS le cadre (sticky top-0) obligeait a
+          mesurer sa hauteur en JS pour decaler l'entete en dessous - un
+          decalage rate (mesure a 0) faisait recouvrir l'entete par cette
+          barre (z-index superieur), la rendant invisible des le moindre
+          defilement. */}
       {canWrite ? (
-        <div
-          ref={toolbarRef}
-          className="sticky top-0 left-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4"
-        >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4">
           <button
             type="button"
             onClick={addRow}
@@ -454,20 +435,20 @@ export function AuditTable({
         </div>
       ) : null}
 
+    <div className="max-h-[75vh] overflow-auto">
       <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
           <thead className="bg-slate-50 text-slate-500">
             <tr>
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  style={{ top: toolbarHeight }}
-                  className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold whitespace-nowrap"
+                  className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold whitespace-nowrap"
                 >
                   {col.label}
                 </th>
               ))}
               {canWrite ? (
-                <th style={{ top: toolbarHeight }} className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold">
+                <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">
                   Actions
                 </th>
               ) : null}
@@ -603,9 +584,10 @@ export function AuditTable({
             )}
           </tbody>
         </table>
+    </div>
 
       {canWrite ? (
-        <div className="sticky bottom-0 left-0 z-20 flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
             {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}
@@ -620,7 +602,6 @@ export function AuditTable({
           </button>
         </div>
       ) : null}
-    </div>
     </div>
   );
 }
