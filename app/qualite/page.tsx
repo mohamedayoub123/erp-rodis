@@ -28,6 +28,20 @@ const TILES: Tile[] = [
     description:
       "Nombre de preparations, auto/semi auto, conforme/non conforme, a detruire, sous derogation.",
   },
+  {
+    label: "NC Confidentiel",
+    href: "/qualite/nc-confidentiel",
+    pageKey: "qualiteNcConfidentiel",
+    icon: "\u{1F512}",
+    description: "Suivi des Non-Conformites d'audit interne.",
+  },
+  {
+    label: "TAF Confidentiel",
+    href: "/qualite/taf-confidentiel",
+    pageKey: "qualiteTafConfidentiel",
+    icon: "\u{1F512}",
+    description: "Suivi des TAF d'audit interne.",
+  },
 ];
 
 export default async function QualitePage() {

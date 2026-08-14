@@ -598,6 +598,22 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/qualite/rapport"],
     hasWrite: false,
   },
+  {
+    key: "qualiteNcConfidentiel",
+    module: "Qualite",
+    label: "NC Confidentiel (audit interne)",
+    pathPrefixes: ["/qualite/nc-confidentiel"],
+    defaultView: false,
+    defaultWrite: false,
+  },
+  {
+    key: "qualiteTafConfidentiel",
+    module: "Qualite",
+    label: "TAF Confidentiel (audit interne)",
+    pathPrefixes: ["/qualite/taf-confidentiel"],
+    defaultView: false,
+    defaultWrite: false,
+  },
 
   // Statistique
   {
