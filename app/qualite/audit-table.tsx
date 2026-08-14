@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[] };
 
@@ -75,13 +75,24 @@ function AttachmentsCell({
 
   function handleView(path: string) {
     setError("");
+    // Ouvre l'onglet tout de suite (dans le clic, pendant que le navigateur
+    // considere encore que c'est un geste de l'utilisateur) puis le
+    // redirige une fois l'URL signee recuperee - sinon un "window.open"
+    // appele APRES un await est bloque silencieusement par le navigateur
+    // (bloqueur de popup), meme si l'action vient bien d'un vrai clic.
+    const win = window.open("", "_blank", "noopener,noreferrer");
     startTransition(async () => {
       const result = await getFileUrlAction(path);
       if (!result.ok || !result.url) {
         setError(result.message || "Fichier introuvable.");
+        win?.close();
         return;
       }
-      window.open(result.url, "_blank", "noopener,noreferrer");
+      if (win) {
+        win.location.href = result.url;
+      } else {
+        window.open(result.url, "_blank", "noopener,noreferrer");
+      }
     });
   }
 
@@ -231,6 +242,27 @@ export function AuditTable({
   // de mettre a jour visuellement un statut calcule automatiquement (couleur
   // + valeur) sans redessiner tout le tableau (voir rowsRef plus haut).
   const statusSelectRefs = useRef<Record<string, HTMLSelectElement | null>>({});
+  // Le tableau vit dans son propre cadre borne (defilement horizontal ET
+  // vertical sur le meme element, voir plus bas) - la barre du haut et
+  // l'entete y restent collantes en permanence, y compris pendant un long
+  // defilement, tout en gardant un defilement horizontal fiable (un seul
+  // conteneur, pas de conflit entre deux defilements imbriques).
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const [toolbarHeight, setToolbarHeight] = useState(0);
+
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) {
+      setToolbarHeight(0);
+      return;
+    }
+    setToolbarHeight(el.getBoundingClientRect().height);
+    const observer = new ResizeObserver((entries) => {
+      setToolbarHeight(entries[0].contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [canWrite]);
 
   function updateCell(key: string, field: string, value: string) {
     rowsRef.current[key] = { ...rowsRef.current[key], [field]: value };
@@ -350,9 +382,12 @@ export function AuditTable({
   }
 
   return (
-    <div>
+    <div className="max-h-[75vh] overflow-auto">
       {canWrite ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-4">
+        <div
+          ref={toolbarRef}
+          className="sticky top-0 left-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4"
+        >
           <button
             type="button"
             onClick={addRow}
@@ -375,20 +410,23 @@ export function AuditTable({
         </div>
       ) : null}
 
-      {/* Meme structure que Suivi Production (defilement horizontal fiable,
-          deja teste sur tout le reste de l'app) : un seul conteneur
-          overflow-x-auto autour du tableau, entete sticky top-0 relative a
-          CE conteneur (pas a la page entiere). */}
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500 shadow-[0_1px_0_rgba(15,23,42,0.08)]">
+      <table className="min-w-full text-left text-sm">
+          <thead className="bg-slate-50 text-slate-500">
             <tr>
               {columns.map((col) => (
-                <th key={col.key} className="bg-slate-50 px-4 py-3 font-semibold whitespace-nowrap">
+                <th
+                  key={col.key}
+                  style={{ top: toolbarHeight }}
+                  className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold whitespace-nowrap"
+                >
                   {col.label}
                 </th>
               ))}
-              {canWrite ? <th className="bg-slate-50 px-4 py-3 font-semibold">Actions</th> : null}
+              {canWrite ? (
+                <th style={{ top: toolbarHeight }} className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold">
+                  Actions
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -517,10 +555,9 @@ export function AuditTable({
             )}
           </tbody>
         </table>
-      </div>
 
       {canWrite ? (
-        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="sticky bottom-0 left-0 z-20 flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
             {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}
