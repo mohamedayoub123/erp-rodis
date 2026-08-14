@@ -437,18 +437,18 @@ export function AuditTable({
 
     <div className="max-h-[75vh] overflow-auto">
       <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
-          <thead className="bg-slate-50 text-slate-500">
+          <thead className="bg-slate-50 text-slate-950">
             <tr>
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-base font-semibold whitespace-nowrap"
+                  className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-base font-bold whitespace-nowrap"
                 >
                   {col.label}
                 </th>
               ))}
               {canWrite ? (
-                <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-base font-semibold">
+                <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-base font-bold">
                   Actions
                 </th>
               ) : null}
