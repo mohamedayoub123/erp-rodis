@@ -5,6 +5,7 @@ import { saveTestLaboAction, ajouterAjustementMpTestLaboAction } from "../../../
 import { ProduitPickerField } from "../../../produit-picker-field";
 import { fetchAvailableLotsAction } from "@/app/depots/transfer-order/actions";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 type RapportInfo = {
   ph: number | null;
@@ -389,13 +390,13 @@ export function TestLaboForm({
         )}
 
         <div>
-          <button
-            type="submit"
+          <SubmitButton
             disabled={anyHorsSpec && !sousDerogation}
+            pendingLabel="Enregistrement..."
             className="rounded-full bg-violet-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-violet-600 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             Enregistrer le test labo
-          </button>
+          </SubmitButton>
           {anyHorsSpec && !sousDerogation ? (
             <p className="mt-2 text-xs font-semibold text-red-700">
               Coche &quot;Je valide sous derogation&quot; pour pouvoir enregistrer malgre le hors spec.
@@ -468,12 +469,12 @@ export function TestLaboForm({
               <input type="text" name="note" className={inputClass} />
             </label>
             <div className="flex items-center gap-3">
-              <button
-                type="submit"
+              <SubmitButton
+                pendingLabel="Ajout..."
                 className="rounded-full bg-amber-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-500"
               >
                 Ajouter l&apos;ajustement
-              </button>
+              </SubmitButton>
               <button
                 type="button"
                 onClick={() => setShowAjustement(false)}

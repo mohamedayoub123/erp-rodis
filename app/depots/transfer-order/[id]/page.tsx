@@ -6,6 +6,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { formatDate } from "@/lib/format-date";
 import { fetchLotsInDepot, type ArticleType } from "../stock-lots";
 import {
@@ -156,34 +157,34 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
               {canEdit ? (
                 <form action={copyTransferOrderAction}>
                   <input type="hidden" name="transfer_order_id" value={transferOrderId} />
-                  <button
-                    type="submit"
+                  <SubmitButton
+                    pendingLabel="Copie..."
                     className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
                   >
                     Copier ce Transfer Order
-                  </button>
+                  </SubmitButton>
                 </form>
               ) : null}
               {canEdit && transferOrder.statut === "en_attente" ? (
                 <form action={approveTransferOrderAction}>
                   <input type="hidden" name="transfer_order_id" value={transferOrderId} />
-                  <button
-                    type="submit"
+                  <SubmitButton
+                    pendingLabel="Approbation..."
                     className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
                   >
                     Approuver
-                  </button>
+                  </SubmitButton>
                 </form>
               ) : null}
               {canPoster ? (
                 <form action={postToInvoiceOrderAction}>
                   <input type="hidden" name="transfer_order_id" value={transferOrderId} />
-                  <button
-                    type="submit"
+                  <SubmitButton
+                    pendingLabel="Publication..."
                     className="rounded-full bg-sky-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-sky-500"
                   >
                     Poster a Transfer Invoice
-                  </button>
+                  </SubmitButton>
                 </form>
               ) : null}
               {invoiceOrders.map((io) => (

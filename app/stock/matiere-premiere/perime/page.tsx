@@ -7,6 +7,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { updateLotMpNoteAction } from "./actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { matchesArticleSearch } from "@/lib/article-search";
 
 const FENETRE_JOURS = 90; // ~3 mois avant peremption
@@ -300,12 +301,12 @@ export default async function StockPerimeMpPage({
                               placeholder="Note..."
                               className="w-48 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
                             />
-                            <button
-                              type="submit"
+                            <SubmitButton
+                              pendingLabel="Enregistrement..."
                               className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
                             >
                               Enregistrer
-                            </button>
+                            </SubmitButton>
                           </form>
                         ) : (
                           lot.note || "-"

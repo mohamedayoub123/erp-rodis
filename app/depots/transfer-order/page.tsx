@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { formatDate } from "@/lib/format-date";
 import { createTransferOrderAction, deleteTransferOrderAction } from "./actions";
 import { TransferOrderLinesForm } from "./transfer-order-lines-form";
@@ -127,12 +128,12 @@ export default async function TransferOrderListPage() {
               <TransferOrderLinesForm depots={depots} articlesMp={articlesMp} articlesPf={articlesPf} />
 
               <div>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Creation..."
                   className="rounded-full bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
                 >
                   Creer le Transfer Order
-                </button>
+                </SubmitButton>
               </div>
             </form>
           </details>

@@ -4,6 +4,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { RecetteConditionnementFormulaire } from "../recette-conditionnement-formulaire";
 import { createRecetteCompleteAction } from "../../recette-fabrication/actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 type ArticleFiniRow = {
   id: number;
@@ -141,12 +142,12 @@ export default async function NouvelleRecetteConditionnementPage() {
               <input type="hidden" name="page_key" value="recetteConditionnement" />
               <RecetteConditionnementFormulaire pfArticles={pfOptions} vracArticles={vracOptions} mpArticles={mpOptions} />
               <div>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Enregistrement..."
                   className="rounded-full bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
                 >
                   Enregistrer la recette
-                </button>
+                </SubmitButton>
               </div>
             </form>
           )}

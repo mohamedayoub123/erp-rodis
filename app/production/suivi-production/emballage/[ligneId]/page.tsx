@@ -8,6 +8,7 @@ import { formatDate } from "../../../suivi/data";
 import { saveEmballageRapportAction } from "../../actions";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { formatDateTime } from "@/lib/format-date";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 const ARRET_CAUSES = [
   { field: "emballage_arret_changement_bobine", label: "ARRET CHANGEMENT BOBINE" },
@@ -293,12 +294,12 @@ export default async function RapportEmballagePage({
               </div>
 
               <div>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Enregistrement..."
                   className="rounded-full bg-amber-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-500"
                 >
                   Save
-                </button>
+                </SubmitButton>
               </div>
             </form>
           )}

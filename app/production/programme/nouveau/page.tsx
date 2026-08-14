@@ -4,6 +4,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ProgrammeFormulaire } from "../programme-formulaire";
 import { createProgrammeAction } from "../actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 type ArticleRow = {
   id: number;
@@ -198,12 +199,12 @@ export default async function NouveauProgrammePage() {
               />
 
               <div>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Enregistrement..."
                   className="rounded-full bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
                 >
                   Enregistrer le programme
-                </button>
+                </SubmitButton>
               </div>
             </form>
           )}

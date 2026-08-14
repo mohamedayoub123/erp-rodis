@@ -7,6 +7,7 @@ import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 import { createManualEmballageEntryAction } from "../../actions";
 import { ProduitPickerField } from "../../produit-picker-field";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 const ARRET_CAUSES = [
   { field: "emballage_arret_changement_bobine", label: "ARRET CHANGEMENT BOBINE" },
@@ -260,12 +261,12 @@ export default async function NouvelleFicheEmballagePage() {
               </div>
 
               <div>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Creation..."
                   className="rounded-full bg-amber-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-500"
                 >
                   Creer et enregistrer
-                </button>
+                </SubmitButton>
               </div>
             </form>
           )}

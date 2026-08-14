@@ -6,6 +6,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { formatDate } from "@/lib/format-date";
 import { type ArticleType } from "../../transfer-order/stock-lots";
 import {
@@ -142,12 +143,12 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
               {canEdit && invoiceOrder.statut === "draft" ? (
                 <form action={validateInvoiceOrderAction}>
                   <input type="hidden" name="invoice_order_id" value={invoiceOrderId} />
-                  <button
-                    type="submit"
+                  <SubmitButton
+                    pendingLabel="Approbation..."
                     className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
                   >
                     Approuver
-                  </button>
+                  </SubmitButton>
                 </form>
               ) : null}
               {canDelete ? (

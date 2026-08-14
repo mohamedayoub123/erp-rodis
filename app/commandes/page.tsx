@@ -3,6 +3,7 @@ import { cancelFifoBatchAction, changeCommandeStatusAction, deleteProformaGroupA
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
   canChangeStatusCommandesUser,
@@ -435,12 +436,9 @@ export default async function CommandesPage({
                                         <option value="BL_TRANSFORME">BL transforme</option>
                                         <option value="LIVREE">Livree</option>
                                       </select>
-                                      <button
-                                        type="submit"
-                                        className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800"
-                                      >
+                                      <SubmitButton className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
                                         OK
-                                      </button>
+                                      </SubmitButton>
                                     </form>
                                   );
                                 })()
@@ -450,12 +448,12 @@ export default async function CommandesPage({
                               dispatchedCommandeIds.has(row.id) ? (
                                 <form action={cancelFifoBatchAction}>
                                   <input type="hidden" name="commande_id" value={row.id} />
-                                  <button
-                                    type="submit"
+                                  <SubmitButton
+                                    pendingLabel="Annulation..."
                                     className="shrink-0 rounded-full border border-red-300 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800"
                                   >
                                     Annuler dispatch
-                                  </button>
+                                  </SubmitButton>
                                 </form>
                               ) : null}
                             </div>

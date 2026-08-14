@@ -5,6 +5,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { ProduitPickerField } from "@/app/production/suivi-production/produit-picker-field";
 import { NouvelleRecetteLignes } from "../nouvelle-recette-lignes";
 import { createRecetteCompleteAction } from "../actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 async function fetchArticlesVrac() {
   const rows: { id: number; nom_article: string }[] = [];
@@ -113,12 +114,12 @@ export default async function NouvelleRecetteFabricationPage() {
               </div>
 
               <div>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Enregistrement..."
                   className="rounded-full bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
                 >
                   Enregistrer la recette
-                </button>
+                </SubmitButton>
               </div>
             </form>
           )}

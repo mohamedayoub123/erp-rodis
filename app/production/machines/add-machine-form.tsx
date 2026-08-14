@@ -1,4 +1,5 @@
 import { createMachineAction } from "./actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 const ZONE_OPTIONS = [
   "B1Z1",
@@ -60,9 +61,9 @@ export function AddMachineForm() {
         </select>
       </label>
       <div className="sm:col-span-2 lg:col-span-3">
-        <button type="submit" className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white">
+        <SubmitButton pendingLabel="Ajout..." className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white">
           Ajouter
-        </button>
+        </SubmitButton>
       </div>
     </form>
   );

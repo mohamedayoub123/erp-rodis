@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { formatDate } from "@/lib/format-date";
 import { decodeDossierId } from "../dossier-id";
@@ -248,12 +249,12 @@ export default async function ImportMpDossierPage({
                                           required
                                         />
                                       </label>
-                                      <button
-                                        type="submit"
+                                      <SubmitButton
+                                        pendingLabel="Enregistrement..."
                                         className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
                                       >
                                         Enregistrer
-                                      </button>
+                                      </SubmitButton>
                                     </form>
                                   </details>
                                 )}

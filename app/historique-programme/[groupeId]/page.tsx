@@ -9,6 +9,7 @@ import {
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { formatDateTime } from "@/lib/format-date";
 import { fetchPlCodeByGroupeId, fetchPdRefsBySourceGroupeId } from "@/lib/programme-numbering";
@@ -137,12 +138,12 @@ export default async function HistoriqueProgrammeDetailPage({
               {canRelaunch ? (
                 <form action={dispatchExistingProgrammeLigneGroupAction}>
                   <input type="hidden" name="groupe_id" value={groupeIdNumber} />
-                  <button
-                    type="submit"
+                  <SubmitButton
+                    pendingLabel="Dispatch..."
                     className="rounded-full bg-emerald-700 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
                   >
                     Dispatch
-                  </button>
+                  </SubmitButton>
                 </form>
               ) : null}
               {canDelete ? (

@@ -17,6 +17,7 @@ import { PrintButton } from "./print-button";
 import { formatDate } from "@/lib/format-date";
 import { LignesCommandeField } from "./lignes-commande-field";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import type { CodeOption } from "./fifo-code-picker";
 import { FifoResultsTable, type FifoResultRowData } from "./fifo-results-table";
 import { FifoAddLigneForm } from "./fifo-add-ligne-form";
@@ -871,23 +872,23 @@ export default async function CommandeDetailPage({
               {canWriteCommandes ? (
                 <form action={calculateFifoForCommandeAction}>
                   <input type="hidden" name="commande_id" value={selectedCommande.id} />
-                  <button
-                    type="submit"
+                  <SubmitButton
+                    pendingLabel="Despatch..."
                     className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
                   >
                     Despatcher
-                  </button>
+                  </SubmitButton>
                 </form>
               ) : null}
               {canWriteCommandes && !isCommandeLivree && fifoResults.length > 0 ? (
                 <form action={cancelFifoBatchAction}>
                   <input type="hidden" name="commande_id" value={selectedCommande.id} />
-                  <button
-                    type="submit"
+                  <SubmitButton
+                    pendingLabel="Annulation..."
                     className="rounded-full border border-red-300 bg-red-50 px-4 py-2 text-sm font-semibold text-red-800"
                   >
                     Annuler batch
-                  </button>
+                  </SubmitButton>
                 </form>
               ) : null}
               {canEditCommandes ? (
@@ -900,12 +901,12 @@ export default async function CommandeDetailPage({
                       placeholder="Numero BL (optionnel)"
                       className="w-40 rounded-full border border-slate-200 px-4 py-2 text-sm outline-none"
                     />
-                    <button
-                      type="submit"
+                    <SubmitButton
+                      pendingLabel="Livraison..."
                       className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"
                     >
                       Livrer
-                    </button>
+                    </SubmitButton>
                   </form>
                 </>
               ) : null}
@@ -1009,12 +1010,12 @@ export default async function CommandeDetailPage({
                                       name="lot_stock_id"
                                       value={candidate.lot_stock_id}
                                     />
-                                    <button
-                                      type="submit"
+                                    <SubmitButton
+                                      pendingLabel="Confirmation..."
                                       className="rounded-full bg-amber-600 px-3 py-1 text-xs font-semibold text-white"
                                     >
                                       Confirmer
-                                    </button>
+                                    </SubmitButton>
                                   </form>
                                 ) : null}
                               </li>
@@ -1217,12 +1218,12 @@ export default async function CommandeDetailPage({
                 </datalist>
 
                 <div>
-                  <button
-                    type="submit"
+                  <SubmitButton
+                    pendingLabel="Enregistrement..."
                     className="rounded-full bg-amber-600 px-5 py-3 text-sm font-semibold text-white"
                   >
                     Enregistrer modification
-                  </button>
+                  </SubmitButton>
                 </div>
               </form>
             </details>

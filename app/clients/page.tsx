@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
 const TRANSPORT_OPTIONS = ["CAMION", "CONTINAIR", "TC", "TC20", "TC40"];
@@ -161,12 +162,12 @@ export default async function ClientsPage({
               </select>
 
               <div>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Enregistrement..."
                   className="rounded-full bg-sky-700 px-5 py-3 text-sm font-semibold text-white"
                 >
                   Enregistrer client
-                </button>
+                </SubmitButton>
               </div>
             </form>
           </section>
@@ -268,12 +269,12 @@ export default async function ClientsPage({
                                 ))}
                               </select>
                               <div>
-                                <button
-                                  type="submit"
+                                <SubmitButton
+                                  pendingLabel="Enregistrement..."
                                   className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
                                 >
                                   Enregistrer
-                                </button>
+                                </SubmitButton>
                               </div>
                             </form>
                             ) : null}

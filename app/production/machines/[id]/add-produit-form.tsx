@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { addMachineProduitAction } from "../actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 type ArticleOption = { id: number; label: string };
 
@@ -117,13 +118,13 @@ export function AddProduitForm({
       ) : null}
 
       <div className="sm:col-span-2 lg:col-span-3">
-        <button
-          type="submit"
+        <SubmitButton
           disabled={!selected}
+          pendingLabel="Ajout..."
           className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white disabled:opacity-40"
         >
           Ajouter
-        </button>
+        </SubmitButton>
       </div>
     </form>
   );

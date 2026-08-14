@@ -2,6 +2,7 @@ import { readImportStatus } from "@/lib/import-status";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import {
   getCurrentStockUser,
   getUserPermissions,
@@ -239,12 +240,12 @@ export default async function AdminPage({
                 accept=".xlsm,.xlsx"
                 className="block w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
               />
-              <button
-                type="submit"
+              <SubmitButton
+                pendingLabel="Envoi..."
                 className="rounded-full bg-sky-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-600"
               >
                 Envoyer le fichier Excel
-              </button>
+              </SubmitButton>
             </form>
 
             <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm">
@@ -361,12 +362,12 @@ export default async function AdminPage({
                     {user.connected ? (
                       <form action={forceLogoutUserAction}>
                         <input type="hidden" name="username" value={user.username} />
-                        <button
-                          type="submit"
+                        <SubmitButton
+                          pendingLabel="Deconnexion..."
                           className="rounded-full bg-slate-950 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
                         >
                           Deconnecter
-                        </button>
+                        </SubmitButton>
                       </form>
                     ) : null}
                   </div>
@@ -397,12 +398,12 @@ export default async function AdminPage({
                 required
               />
               <div className="md:col-span-3">
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Creation..."
                   className="rounded-full bg-amber-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-amber-400"
                 >
                   Creer utilisateur
-                </button>
+                </SubmitButton>
               </div>
             </form>
 
@@ -591,12 +592,12 @@ export default async function AdminPage({
                       </div>
 
                       {!user.isAdmin ? (
-                        <button
-                          type="submit"
+                        <SubmitButton
+                          pendingLabel="Enregistrement..."
                           className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
                         >
                           Enregistrer permissions
-                        </button>
+                        </SubmitButton>
                       ) : (
                         <p className="text-sm font-medium text-emerald-700">
                           Mayoub garde tous les droits.
@@ -655,12 +656,12 @@ export default async function AdminPage({
                 accept=".xlsm,.xlsx"
                 className="block w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
               />
-              <button
-                type="submit"
+              <SubmitButton
+                pendingLabel="Envoi..."
                 className="rounded-full bg-violet-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-600"
               >
                 Envoyer Data
-              </button>
+              </SubmitButton>
             </form>
           </article>
 
@@ -708,12 +709,12 @@ export default async function AdminPage({
                 accept=".xlsm,.xlsx"
                 className="block w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
               />
-              <button
-                type="submit"
+              <SubmitButton
+                pendingLabel="Envoi..."
                 className="rounded-full bg-emerald-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-600"
               >
                 Envoyer Entrer
-              </button>
+              </SubmitButton>
             </form>
           </article>
 
@@ -756,12 +757,12 @@ export default async function AdminPage({
                 accept=".xlsm,.xlsx"
                 className="block w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
               />
-              <button
-                type="submit"
+              <SubmitButton
+                pendingLabel="Envoi..."
                 className="rounded-full bg-sky-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-600"
               >
                 Envoyer Commande
-              </button>
+              </SubmitButton>
             </form>
           </article>
 
@@ -804,12 +805,12 @@ export default async function AdminPage({
                 accept=".xlsm,.xlsx"
                 className="block w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
               />
-              <button
-                type="submit"
+              <SubmitButton
+                pendingLabel="Envoi..."
                 className="rounded-full bg-lime-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-lime-600"
               >
                 Envoyer Clients
-              </button>
+              </SubmitButton>
             </form>
           </article>
         </section>

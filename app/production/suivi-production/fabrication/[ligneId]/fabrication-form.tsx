@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { saveFabricationRapportAction } from "../../actions";
 import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 const TYPE_FABRICATION_OPTIONS = [
   "Automatique",
@@ -417,12 +418,12 @@ export function FabricationForm({
       </div>
 
       <div>
-        <button
-          type="submit"
+        <SubmitButton
+          pendingLabel="Enregistrement..."
           className="rounded-full bg-amber-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-500"
         >
           Save
-        </button>
+        </SubmitButton>
       </div>
     </form>
   );

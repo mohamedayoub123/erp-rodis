@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDate } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
@@ -407,12 +408,9 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                                   </option>
                                 ))}
                               </select>
-                              <button
-                                type="submit"
-                                className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800"
-                              >
+                              <SubmitButton className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800">
                                 OK
-                              </button>
+                              </SubmitButton>
                             </form>
                           ) : (
                             <span
@@ -434,12 +432,9 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                                 name="date_prevue_reception"
                                 defaultValue={group.datePrevueReception}
                               />
-                              <button
-                                type="submit"
-                                className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800"
-                              >
+                              <SubmitButton className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800">
                                 OK
-                              </button>
+                              </SubmitButton>
                             </form>
                           ) : (
                             <span className="text-slate-600">{formatDate(group.datePrevueReception)}</span>

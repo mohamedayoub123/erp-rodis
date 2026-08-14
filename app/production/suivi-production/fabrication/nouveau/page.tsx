@@ -8,6 +8,7 @@ import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 import { createManualFabricationEntryAction } from "../../actions";
 import { ProduitPickerField } from "../../produit-picker-field";
 import { TempsField } from "../[ligneId]/fabrication-form";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 const TYPE_FABRICATION_OPTIONS = [
   "Automatique",
@@ -426,12 +427,12 @@ export default async function NouvelleFicheFabricationPage() {
               </div>
 
               <div>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Creation..."
                   className="rounded-full bg-amber-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-500"
                 >
                   Creer et enregistrer
-                </button>
+                </SubmitButton>
               </div>
             </form>
           )}

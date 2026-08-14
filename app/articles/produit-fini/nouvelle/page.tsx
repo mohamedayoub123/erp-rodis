@@ -2,6 +2,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { createArticleAction } from "../actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 export default async function NouvelArticlePage() {
   const currentStockUser = await getCurrentStockUser();
@@ -236,12 +237,12 @@ export default async function NouvelArticlePage() {
               </div>
 
               <div>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Enregistrement..."
                   className="rounded-full bg-amber-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-500"
                 >
                   Enregistrer article
-                </button>
+                </SubmitButton>
               </div>
             </form>
           )}

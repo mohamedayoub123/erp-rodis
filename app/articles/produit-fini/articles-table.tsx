@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { deleteArticleAction, updateArticleAction } from "./actions";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { matchesArticleSearch } from "@/lib/article-search";
 
 export type ArticleRow = {
@@ -498,12 +499,12 @@ export function ArticlesProduitFiniTable({
                           </div>
 
                           <div>
-                            <button
-                              type="submit"
+                            <SubmitButton
+                              pendingLabel="Enregistrement..."
                               className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
                             >
                               Enregistrer
-                            </button>
+                            </SubmitButton>
                           </div>
                         </form>
                       </details>

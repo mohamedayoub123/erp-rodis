@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { formatDate } from "@/lib/format-date";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { matchesArticleSearch } from "@/lib/article-search";
@@ -145,13 +146,13 @@ export function EntreeProductionBoard({
                           : "-"}
                       </p>
                     </div>
-                    <button
-                      type="submit"
+                    <SubmitButton
                       disabled={!allValid}
+                      pendingLabel="Validation..."
                       className="rounded-full bg-emerald-700 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Valider cette entree
-                    </button>
+                    </SubmitButton>
                   </div>
 
                   <div className="overflow-x-auto">

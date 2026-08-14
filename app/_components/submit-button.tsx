@@ -11,15 +11,20 @@ export function SubmitButton({
   children,
   pendingLabel = "...",
   className,
+  disabled = false,
 }: {
   children: ReactNode;
   pendingLabel?: string;
   className?: string;
+  // Condition metier independante (ex: validation incomplete) qui doit
+  // bloquer l'envoi EN PLUS de la protection anti-double-clic - les 2 se
+  // cumulent, jamais l'une a la place de l'autre.
+  disabled?: boolean;
 }) {
   const { pending } = useFormStatus();
 
   return (
-    <button type="submit" disabled={pending} className={className}>
+    <button type="submit" disabled={pending || disabled} className={className}>
       {pending ? pendingLabel : children}
     </button>
   );

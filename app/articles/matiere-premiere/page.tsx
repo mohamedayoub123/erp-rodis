@@ -6,6 +6,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 
@@ -264,12 +265,12 @@ export default async function ArticlesMatierePremierePage({
                                 </div>
 
                                 <div>
-                                  <button
-                                    type="submit"
+                                  <SubmitButton
+                                    pendingLabel="Enregistrement..."
                                     className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
                                   >
                                     Enregistrer
-                                  </button>
+                                  </SubmitButton>
                                 </div>
                               </form>
                             </details>

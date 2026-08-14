@@ -16,6 +16,7 @@ import {
   updateProgrammeLigneAction,
 } from "../actions";
 import { STATUT_PROGRAMME_OPTIONS } from "../constants";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 type ProgrammeRow = {
   id: number;
@@ -192,23 +193,23 @@ export default async function ProgrammeDetailPage({
             {canWrite ? (
               <form action={copyProgrammeAction}>
                 <input type="hidden" name="numero_programme" value={numeroProgramme} />
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Copie..."
                   className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
                 >
                   Copier ce programme
-                </button>
+                </SubmitButton>
               </form>
             ) : null}
             {canWrite && isAdmin ? (
               <form action={dispatchProgrammeAction}>
                 <input type="hidden" name="numero_programme" value={numeroProgramme} />
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Dispatch..."
                   className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
                 >
                   Dispatch
-                </button>
+                </SubmitButton>
               </form>
             ) : null}
             <RefreshButton />
@@ -254,12 +255,12 @@ export default async function ProgrammeDetailPage({
                   </select>
                 </label>
                 {canWrite ? (
-                  <button
-                    type="submit"
+                  <SubmitButton
+                    pendingLabel="Enregistrement..."
                     className="rounded-full bg-slate-900 px-5 py-3 text-xs font-semibold text-white transition hover:bg-slate-800"
                   >
                     Enregistrer
-                  </button>
+                  </SubmitButton>
                 ) : null}
               </form>
             </section>
@@ -331,12 +332,12 @@ export default async function ProgrammeDetailPage({
                               <form id={`ligne-${ligne.id}`} action={updateProgrammeLigneAction}>
                                 <input type="hidden" name="programme_id" value={ligne.id} />
                                 <input type="hidden" name="numero_programme" value={numeroProgramme} />
-                                <button
-                                  type="submit"
+                                <SubmitButton
+                                  pendingLabel="Enregistrement..."
                                   className="whitespace-nowrap rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
                                 >
                                   Enregistrer
-                                </button>
+                                </SubmitButton>
                               </form>
                             </td>
                           </>
@@ -353,12 +354,12 @@ export default async function ProgrammeDetailPage({
                             <form action={deleteProgrammeAction}>
                               <input type="hidden" name="programme_id" value={ligne.id} />
                               <input type="hidden" name="numero_programme" value={numeroProgramme} />
-                              <button
-                                type="submit"
+                              <SubmitButton
+                                pendingLabel="Suppression..."
                                 className="whitespace-nowrap rounded-full border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50"
                               >
                                 Supprimer
-                              </button>
+                              </SubmitButton>
                             </form>
                           </td>
                         ) : null}
@@ -388,12 +389,12 @@ export default async function ProgrammeDetailPage({
                       capaciteParMachineArticle={capaciteParMachineArticle}
                     />
                     <div>
-                      <button
-                        type="submit"
+                      <SubmitButton
+                        pendingLabel="Ajout..."
                         className="rounded-full bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
                       >
                         Ajouter au programme
-                      </button>
+                      </SubmitButton>
                     </div>
                   </form>
                 )}

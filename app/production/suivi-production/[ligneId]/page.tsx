@@ -6,6 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../suivi/data";
 import { saveConditionnementRapportAction } from "../actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 const ARRET_CAUSES = [
   "ARRET CAUSE DE DEPOT",
@@ -260,12 +261,12 @@ export default async function RapportProductionPage({
               </div>
 
               <div>
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Enregistrement..."
                   className="rounded-full bg-amber-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-500"
                 >
                   Save
-                </button>
+                </SubmitButton>
               </div>
             </form>
           )}

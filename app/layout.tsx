@@ -15,6 +15,7 @@ import { GlobalNav } from "./_components/global-nav";
 import { RouteAccessGate } from "./_components/route-access-gate";
 import { ServiceWorkerRegister } from "./_components/service-worker-register";
 import { ZoomControl } from "./_components/zoom-control";
+import { SubmitButton } from "@/app/_components/submit-button";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -197,12 +198,12 @@ export default async function RootLayout({
                         className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-slate-900"
                         required
                       />
-                      <button
-                        type="submit"
+                      <SubmitButton
+                        pendingLabel="Confirmation..."
                         className="w-full rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
                       >
                         Confirmer
-                      </button>
+                      </SubmitButton>
                     </form>
                   </div>
                 </details>

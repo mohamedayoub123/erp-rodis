@@ -11,6 +11,7 @@ import {
   deleteRecetteLigneAction,
   updateQuantiteBaseAction,
 } from "../actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 type ArticlePfRow = {
   id: number;
@@ -138,12 +139,12 @@ export default async function RecetteFabricationDetailPage({
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
               />
             </label>
-            <button
-              type="submit"
+            <SubmitButton
+              pendingLabel="Enregistrement..."
               className="rounded-full bg-slate-900 px-4 py-3 text-xs font-semibold text-white transition hover:bg-slate-800"
             >
               Enregistrer
-            </button>
+            </SubmitButton>
           </form>
         </section>
 
@@ -188,12 +189,12 @@ export default async function RecetteFabricationDetailPage({
                               quantiteName="quantite"
                               defaultQuantite={ligne.quantite}
                             />
-                            <button
-                              type="submit"
+                            <SubmitButton
+                              pendingLabel="Enregistrement..."
                               className="rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
                             >
                               Enregistrer
-                            </button>
+                            </SubmitButton>
                           </form>
                         </td>
                         <td className="px-6 py-4">
@@ -201,12 +202,12 @@ export default async function RecetteFabricationDetailPage({
                             <input type="hidden" name="page_key" value="recetteFabrication" />
                             <input type="hidden" name="ligne_id" value={ligne.id} />
                             <input type="hidden" name="article_pf_id" value={articlePfId} />
-                            <button
-                              type="submit"
+                            <SubmitButton
+                              pendingLabel="Suppression..."
                               className="rounded-full border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50"
                             >
                               Supprimer
-                            </button>
+                            </SubmitButton>
                           </form>
                         </td>
                       </tr>
@@ -225,12 +226,12 @@ export default async function RecetteFabricationDetailPage({
             <input type="hidden" name="article_pf_id" value={articlePfId} />
             <ProduitPickerField articles={mpOptions.filter((option) => !usedMpIds.has(option.id))} />
             <QuantitePourcentField total={totalQuantite} quantiteName="quantite" />
-            <button
-              type="submit"
+            <SubmitButton
+              pendingLabel="Ajout..."
               className="rounded-2xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
             >
               Ajouter
-            </button>
+            </SubmitButton>
           </form>
         </section>
       </div>

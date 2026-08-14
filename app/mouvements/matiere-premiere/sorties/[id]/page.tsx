@@ -13,6 +13,7 @@ import {
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 export default async function SortieMpDetailPage({
   params,
@@ -150,12 +151,12 @@ export default async function SortieMpDetailPage({
                                   className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                 />
                               </label>
-                              <button
-                                type="submit"
+                              <SubmitButton
+                                pendingLabel="Enregistrement..."
                                 className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
                               >
                                 Enregistrer
-                              </button>
+                              </SubmitButton>
                             </form>
                           </details>
                           ) : null}

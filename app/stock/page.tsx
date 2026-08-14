@@ -4,6 +4,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { deleteLotStockAction, updateLotStockAction } from "./actions";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate, formatDateTime } from "@/lib/format-date";
@@ -698,12 +699,12 @@ export default async function StockPage({
                                 placeholder="Note"
                                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                               />
-                              <button
-                                type="submit"
+                              <SubmitButton
+                                pendingLabel="Enregistrement..."
                                 className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
                               >
                                 Enregistrer
-                              </button>
+                              </SubmitButton>
                             </form>
                             ) : null}
                             {canDeleteStock ? (

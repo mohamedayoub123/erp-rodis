@@ -10,6 +10,7 @@ import {
   deleteRecetteLigneAction,
   updateQuantiteBaseAction,
 } from "../../recette-fabrication/actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 type ArticlePfRow = {
   id: number;
@@ -186,12 +187,12 @@ export default async function RecetteConditionnementDetailPage({
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
               />
             </label>
-            <button
-              type="submit"
+            <SubmitButton
+              pendingLabel="Enregistrement..."
               className="rounded-full bg-slate-900 px-4 py-3 text-xs font-semibold text-white transition hover:bg-slate-800"
             >
               Enregistrer
-            </button>
+            </SubmitButton>
           </form>
         </section>
 
@@ -235,12 +236,12 @@ export default async function RecetteConditionnementDetailPage({
                           <input type="hidden" name="page_key" value="recetteConditionnement" />
                           <input type="hidden" name="article_pf_id" value={articlePfId} />
                           <input type="hidden" name="quantite_recette_base" value={quantiteBase ?? ""} />
-                          <button
-                            type="submit"
+                          <SubmitButton
+                            pendingLabel="Retrait..."
                             className="rounded-full border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50"
                           >
                             Retirer
-                          </button>
+                          </SubmitButton>
                         </form>
                       </td>
                     </tr>
@@ -268,12 +269,12 @@ export default async function RecetteConditionnementDetailPage({
                               required
                               className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                             />
-                            <button
-                              type="submit"
+                            <SubmitButton
+                              pendingLabel="Enregistrement..."
                               className="rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
                             >
                               Enregistrer
-                            </button>
+                            </SubmitButton>
                           </form>
                         </td>
                         <td className="px-6 py-4">
@@ -281,12 +282,12 @@ export default async function RecetteConditionnementDetailPage({
                             <input type="hidden" name="page_key" value="recetteConditionnement" />
                             <input type="hidden" name="ligne_id" value={ligne.id} />
                             <input type="hidden" name="article_pf_id" value={articlePfId} />
-                            <button
-                              type="submit"
+                            <SubmitButton
+                              pendingLabel="Suppression..."
                               className="rounded-full border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50"
                             >
                               Supprimer
-                            </button>
+                            </SubmitButton>
                           </form>
                         </td>
                       </tr>

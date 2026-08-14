@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDate, formatDateTime } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
@@ -602,12 +603,12 @@ export default async function StockMatierePremiereStockPage({
                                     className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                   />
                                 </label>
-                                <button
-                                  type="submit"
+                                <SubmitButton
+                                  pendingLabel="Enregistrement..."
                                   className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
                                 >
                                   Enregistrer
-                                </button>
+                                </SubmitButton>
                               </form>
                             </details>
                             ) : null}
@@ -660,12 +661,12 @@ export default async function StockMatierePremiereStockPage({
                                     className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                   />
                                 </label>
-                                <button
-                                  type="submit"
+                                <SubmitButton
+                                  pendingLabel="Enregistrement..."
                                   className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
                                 >
                                   Enregistrer
-                                </button>
+                                </SubmitButton>
                               </form>
                             </details>
                             ) : null}

@@ -5,6 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { AutoRefresh } from "@/app/_components/auto-refresh";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { matchesArticleSearch } from "@/lib/article-search";
@@ -65,12 +66,12 @@ function FinProgrammeButton({
     <form action={action}>
       <input type="hidden" name="ligne_id" value={ligneId} />
       <input type="hidden" name="code" value={code} />
-      <button
-        type="submit"
+      <SubmitButton
+        pendingLabel="Finalisation..."
         className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
       >
         Fin programme
-      </button>
+      </SubmitButton>
     </form>
   );
 }

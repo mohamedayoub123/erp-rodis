@@ -5,6 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { autoCreateTransferOrdersAction } from "./actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 type ProgrammeRow = {
   article_id: number;
@@ -204,12 +205,12 @@ export default async function ProgrammeVerifierStockPage({
             {canCreateTransferOrders && peutCreerTransferOrders ? (
               <form action={autoCreateTransferOrdersAction}>
                 <input type="hidden" name="numero_programme" value={numeroProgramme} />
-                <button
-                  type="submit"
+                <SubmitButton
+                  pendingLabel="Creation..."
                   className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
                 >
                   Creer les Transfer Order
-                </button>
+                </SubmitButton>
               </form>
             ) : null}
           </div>

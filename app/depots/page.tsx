@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { createDepotAction, deleteDepotAction } from "./actions";
 
 type DepotRow = { id: number; nom: string };
@@ -82,12 +83,12 @@ export default async function DepotsPage() {
                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                 />
               </label>
-              <button
-                type="submit"
+              <SubmitButton
+                pendingLabel="Creation..."
                 className="rounded-full bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
               >
                 Creer
-              </button>
+              </SubmitButton>
             </form>
           </details>
         ) : null}

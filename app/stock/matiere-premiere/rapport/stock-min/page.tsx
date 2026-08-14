@@ -7,6 +7,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { applyProposedMinStockAction } from "./actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 type ArticleMpRow = {
   id: number;
@@ -294,12 +295,12 @@ export default async function RapportRotationMpPage({ searchParams }: { searchPa
                           <form action={applyProposedMinStockAction}>
                             <input type="hidden" name="article_id" value={row.article_id} />
                             <input type="hidden" name="nouveau_min" value={row.nouveau_min_propose} />
-                            <button
-                              type="submit"
+                            <SubmitButton
+                              pendingLabel="Application..."
                               className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
                             >
                               Appliquer
-                            </button>
+                            </SubmitButton>
                           </form>
                         </td>
                       ) : null}

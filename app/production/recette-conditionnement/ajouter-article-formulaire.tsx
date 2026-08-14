@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ProduitPickerField } from "@/app/production/suivi-production/produit-picker-field";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 function round(value: number, decimals = 3) {
   const factor = 10 ** decimals;
@@ -87,12 +88,12 @@ export function AjouterArticleFormulaire({
         title={estVrac ? "Le vrac n'a pas de quantite a saisir ici, elle se calcule automatiquement." : undefined}
         className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none disabled:bg-slate-50"
       />
-      <button
-        type="submit"
+      <SubmitButton
+        pendingLabel="Ajout..."
         className="rounded-2xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
       >
         Ajouter
-      </button>
+      </SubmitButton>
     </div>
   );
 }
