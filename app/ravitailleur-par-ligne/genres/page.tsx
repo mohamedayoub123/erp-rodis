@@ -72,45 +72,42 @@ function plateformeKey(groupeId: number | null, articleId: number | null, zone: 
   return `${groupeId ?? ""}::${articleId ?? ""}::${zone}::${chaine}`;
 }
 
-// Prefixes de type de produit deja etablis dans ce projet (voir
-// articleTypeRank, lib/gamme-families.ts), completes de 2 prefixes tres
-// frequents (BRUME PARFUMEE, MINI PARFUM) - teste sur le nom entier
-// (accents normalises) pour couvrir tout ce qui est dispatche, pas
-// seulement les quelques exemples donnes au depart.
-const GENRE_PREFIXES = [
-  "GEL DOUCHE",
-  "BRUME PARFUMEE",
-  "MINI PARFUM",
-  "CREME",
-  "LAIT",
-  "DSR",
-  "HUILE",
-  "SERUM",
-  "SAVON",
-  "EDC",
-  "POMMADE",
-  "TALC",
-];
+type ArticleTypeRow = { id: number; type_article: string | null };
 
-function stripAccents(value: string) {
-  return value.normalize("NFD").replace(/[̀-ͯ]/g, "");
+async function fetchAllArticleTypes(): Promise<ArticleTypeRow[]> {
+  const rows: ArticleTypeRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, type_article")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as ArticleTypeRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
 }
 
-// CLARIFI/HYDRAT priment sur le type de produit - un "Lait ... Clarifiant"
-// ou "Creme ... Clarifiant" ou "DSR ... Clarifiant" tombent TOUS ensemble
-// dans "Clarifiant" (pas de sous-groupe par format), pas dans leur type de
-// base (confirme explicitement - il n'y a pas de categorie Lait/Creme
-// separee pour ces variantes). Tout le reste (aucun mot-cle/prefixe
-// connu) tombe dans "Autre" - jamais exclu, sur demande explicite
-// ("il faut prendre tous les articles").
-function classifyGenre(produit: string | null): string {
-  const value = stripAccents((produit || "").toUpperCase());
-  if (value.includes("CLARIFI")) return "Clarifiant";
-  if (value.includes("HYDRAT")) return "Hydratant";
-  for (const prefix of GENRE_PREFIXES) {
-    if (value.startsWith(prefix)) return prefix;
-  }
-  return "Autre";
+// Le genre vient du vrai champ "Type article" (deja renseigne a la main sur
+// chaque article Produit Fini, voir Articles Produit Fini) - PAS devine
+// depuis le nom. Confirme sur les vraies donnees : "Lait WHITE SECRET" a
+// type_article="clarifiant" (pas "lait"), donc aucune regle basee sur le
+// nom (Lait/Creme/DSR...) ne pouvait jamais retrouver cette classification
+// correctement. Normalise casse/espaces pour le regroupement, affiche
+// proprement capitalise.
+function formatGenreLabel(typeArticle: string | null): string {
+  const trimmed = (typeArticle || "").trim();
+  if (!trimmed) return "Autre";
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
 type GenreRow = { id: number; produit: string; code: string; plateforme: string | null };
@@ -183,9 +180,10 @@ function RavitailleurGenreTable({
 export default async function RavitailleurGenresPage() {
   noStore();
 
-  const [dispatcherRows, programmeLigneKeys] = await Promise.all([
+  const [dispatcherRows, programmeLigneKeys, articleTypes] = await Promise.all([
     fetchAllDispatcherRows(),
     fetchAllProgrammeLigneKeys(),
+    fetchAllArticleTypes(),
   ]);
 
   const plateformeByKey = new Map<string, string | null>();
@@ -193,9 +191,11 @@ export default async function RavitailleurGenresPage() {
     plateformeByKey.set(plateformeKey(ligne.groupe_id, ligne.article_id, ligne.zone, ligne.chaine), ligne.plateforme);
   }
 
+  const typeArticleByArticleId = new Map(articleTypes.map((article) => [article.id, article.type_article]));
+
   const rowsByGenre = new Map<string, GenreRow[]>();
   for (const row of dispatcherRows) {
-    const genre = classifyGenre(row.produit);
+    const genre = formatGenreLabel(row.article_id !== null ? typeArticleByArticleId.get(row.article_id) ?? null : null);
     const plateforme = plateformeByKey.get(plateformeKey(row.groupe_id, row.article_id, row.zone, row.chaine)) ?? null;
     const list = rowsByGenre.get(genre) ?? [];
     list.push({ id: row.id, produit: row.produit || "-", code: row.code || "", plateforme });
