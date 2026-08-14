@@ -227,4 +227,14 @@ body {
   html[data-print-mode] main {
     min-height: 0 !important;
   }
+
+  /* Force une section a commencer sur une nouvelle page - une seule
+     impression (un seul clic "Imprimer") mais chaque section marquee
+     atterrit sur sa propre page (ex: Ravitailleur par genre, un genre par
+     page). A ne PAS mettre sur la toute premiere section, sinon page
+     blanche en tete. */
+  .print-page-break {
+    break-before: page;
+    page-break-before: always;
+  }
 }

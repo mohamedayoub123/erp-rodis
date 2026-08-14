@@ -72,44 +72,76 @@ function plateformeKey(groupeId: number | null, articleId: number | null, zone: 
   return `${groupeId ?? ""}::${articleId ?? ""}::${zone}::${chaine}`;
 }
 
-type Genre = "Gel Douche" | "Clarifiant" | "Hydratant" | "Talc" | "Huile / Serum";
+// Prefixes de type de produit deja etablis dans ce projet (voir
+// articleTypeRank, lib/gamme-families.ts), completes de 2 prefixes tres
+// frequents (BRUME PARFUMEE, MINI PARFUM) - teste sur le nom entier
+// (accents normalises) pour couvrir tout ce qui est dispatche, pas
+// seulement les quelques exemples donnes au depart.
+const GENRE_PREFIXES = [
+  "GEL DOUCHE",
+  "BRUME PARFUMEE",
+  "MINI PARFUM",
+  "CREME",
+  "LAIT",
+  "DSR",
+  "HUILE",
+  "SERUM",
+  "SAVON",
+  "EDC",
+  "POMMADE",
+  "TALC",
+];
 
-// Ordre de test important : "Gel Douche ... Clarifiant" doit tomber dans
-// Clarifiant (pas Gel Douche), donc CLARIFI/HYDRAT sont testes AVANT le
-// prefixe "GEL DOUCHE" - confirme sur les vrais articles (ex: "Gel Douche
-// WHITE SECRET 500ml Clarifiant", "LAIT MAMASSITA HYDRATANT 250ML").
-function classifyGenre(produit: string | null): Genre | null {
-  const value = (produit || "").toUpperCase();
-  if (value.includes("CLARIFI")) return "Clarifiant";
-  if (value.includes("HYDRAT")) return "Hydratant";
-  if (value.startsWith("TALC")) return "Talc";
-  if (value.startsWith("HUILE") || value.startsWith("SERUM")) return "Huile / Serum";
-  if (value.startsWith("GEL DOUCHE")) return "Gel Douche";
-  return null;
+function stripAccents(value: string) {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
-// Genres qui se separent en Auto/Manuel (via programme_lignes.plateforme,
-// "A"/"M") - Gel Douche et Huile/Serum restent un seul groupe, sur demande
-// explicite.
-const GENRES_SEPARES_AUTO_MANU: Genre[] = ["Clarifiant", "Hydratant", "Talc"];
-const GENRE_ORDER: Genre[] = ["Gel Douche", "Clarifiant", "Hydratant", "Talc", "Huile / Serum"];
+// Ordre de test important : "Gel Douche ... Clarifiant" doit tomber dans
+// Clarifiant (pas Gel Douche), donc CLARIFI/HYDRAT sont testes AVANT les
+// prefixes de type - confirme sur les vrais articles (ex: "Gel Douche
+// WHITE SECRET 500ml Clarifiant", "LAIT MAMASSITA HYDRATANT 250ML").
+// Tout le reste (aucun mot-cle/prefixe connu) tombe dans "Autre" - jamais
+// exclu, sur demande explicite ("il faut prendre tous les articles").
+function classifyGenre(produit: string | null): string {
+  const value = stripAccents((produit || "").toUpperCase());
+  if (value.includes("CLARIFI")) return "Clarifiant";
+  if (value.includes("HYDRAT")) return "Hydratant";
+  for (const prefix of GENRE_PREFIXES) {
+    if (value.startsWith(prefix)) return prefix;
+  }
+  return "Autre";
+}
 
 type GenreRow = { id: number; produit: string; code: string; plateforme: string | null };
 
-function RavitailleurGenreTable({ title, rows }: { title: string; rows: GenreRow[] }) {
+function RavitailleurGenreTable({
+  title,
+  rows,
+  className = "",
+}: {
+  title: string;
+  rows: GenreRow[];
+  className?: string;
+}) {
   return (
-    <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+    <section
+      className={`overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)] ${className}`}
+    >
       <div className="border-b border-slate-100 px-4 py-3">
         <h2 className="text-lg font-bold text-slate-900">{title}</h2>
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse text-left text-sm">
+        <table className="w-full border-collapse text-left text-sm">
           <thead>
             <tr>
-              <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900">
+              {/* w-px + nowrap = astuce classique pour qu'une colonne se
+                  resserre exactement sur son contenu dans un tableau
+                  auto-layout - tout l'espace restant part dans Remarque
+                  (seule colonne sans largeur forcee). */}
+              <th className="w-px whitespace-nowrap border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900">
                 ARTICLE
               </th>
-              <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900">
+              <th className="w-px whitespace-nowrap border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900">
                 CODE
               </th>
               <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900">
@@ -127,10 +159,12 @@ function RavitailleurGenreTable({ title, rows }: { title: string; rows: GenreRow
             ) : (
               rows.map((row) => (
                 <tr key={row.id}>
-                  <td className="border border-slate-300 bg-white px-3 py-3 font-medium text-slate-900">
+                  <td className="w-px whitespace-nowrap border border-slate-300 bg-white px-3 py-3 font-medium text-slate-900">
                     {row.produit}
                   </td>
-                  <td className="border border-slate-300 bg-white px-3 py-3 text-center">{row.code || "-"}</td>
+                  <td className="w-px whitespace-nowrap border border-slate-300 bg-white px-3 py-3 text-center">
+                    {row.code || "-"}
+                  </td>
                   <td className="border border-slate-300 bg-white px-3 py-3" />
                 </tr>
               ))
@@ -155,11 +189,9 @@ export default async function RavitailleurGenresPage() {
     plateformeByKey.set(plateformeKey(ligne.groupe_id, ligne.article_id, ligne.zone, ligne.chaine), ligne.plateforme);
   }
 
-  const rowsByGenre = new Map<Genre, GenreRow[]>();
+  const rowsByGenre = new Map<string, GenreRow[]>();
   for (const row of dispatcherRows) {
     const genre = classifyGenre(row.produit);
-    if (!genre) continue;
-
     const plateforme = plateformeByKey.get(plateformeKey(row.groupe_id, row.article_id, row.zone, row.chaine)) ?? null;
     const list = rowsByGenre.get(genre) ?? [];
     list.push({ id: row.id, produit: row.produit || "-", code: row.code || "", plateforme });
@@ -169,6 +201,14 @@ export default async function RavitailleurGenresPage() {
   for (const list of rowsByGenre.values()) {
     list.sort((a, b) => a.produit.localeCompare(b.produit, "fr", { sensitivity: "base" }));
   }
+
+  // Genres tries alphabetiquement (ordre stable, previsible a l'impression) -
+  // "Autre" (rien de reconnu) toujours en dernier.
+  const genreOrder = [...rowsByGenre.keys()].sort((a, b) => {
+    if (a === "Autre") return 1;
+    if (b === "Autre") return -1;
+    return a.localeCompare(b, "fr", { sensitivity: "base" });
+  });
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -190,21 +230,21 @@ export default async function RavitailleurGenresPage() {
           </div>
         </section>
 
-        {GENRE_ORDER.map((genre) => {
+        {/* Auto/Manuel s'applique a TOUS les genres, sans exception - le
+            genre lui-meme n'apparait que s'il a au moins 1 ligne dispatchee,
+            jamais de section/page vide a l'impression. */}
+        {genreOrder.map((genre, sectionIndex) => {
           const genreRows = rowsByGenre.get(genre) ?? [];
-
-          if (!GENRES_SEPARES_AUTO_MANU.includes(genre)) {
-            return <RavitailleurGenreTable key={genre} title={genre} rows={genreRows} />;
-          }
+          const pageBreakClass = sectionIndex > 0 ? "print-page-break" : "";
 
           const autoRows = genreRows.filter((row) => row.plateforme === "A");
           const manuRows = genreRows.filter((row) => row.plateforme === "M");
           const nonClasseRows = genreRows.filter((row) => row.plateforme !== "A" && row.plateforme !== "M");
 
           return (
-            <div key={genre} className="space-y-6">
-              <RavitailleurGenreTable title={`${genre} - Auto`} rows={autoRows} />
-              <RavitailleurGenreTable title={`${genre} - Manuel`} rows={manuRows} />
+            <div key={genre} className={`space-y-6 ${pageBreakClass}`}>
+              {autoRows.length > 0 ? <RavitailleurGenreTable title={`${genre} - Auto`} rows={autoRows} /> : null}
+              {manuRows.length > 0 ? <RavitailleurGenreTable title={`${genre} - Manuel`} rows={manuRows} /> : null}
               {nonClasseRows.length > 0 ? (
                 <RavitailleurGenreTable title={`${genre} - Non classe`} rows={nonClasseRows} />
               ) : null}
