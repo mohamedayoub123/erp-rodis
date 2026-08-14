@@ -12,6 +12,9 @@ type DepotLot = { numeroLot: string; solde: number; dateTri: string | null };
 // depot source sont choisis, va chercher en direct les lots/quantites
 // reellement disponibles dans ce depot pour cet article - pour que
 // l'utilisateur sache quoi demander avant meme de creer le Transfer Order.
+// Rendu en 1 seule ligne compacte (type + article + disponible total) - le
+// detail lot par lot n'a plus sa place ici, seule la somme est affichee,
+// pour que chaque article tienne sur sa propre ligne dans le formulaire.
 export function TransferArticlePicker({
   articlesMp,
   articlesPf,
@@ -47,9 +50,11 @@ export function TransferArticlePicker({
     };
   }, [articleId, depotSourceId, type]);
 
+  const totalDisponible = lots?.reduce((sum, lot) => sum + lot.solde, 0) ?? null;
+
   return (
-    <div className="grid gap-2">
-      <div className="flex gap-4 text-xs font-semibold text-slate-500">
+    <div className="flex flex-1 flex-wrap items-center gap-3">
+      <div className="flex shrink-0 gap-3 text-xs font-semibold text-slate-500">
         <label className="flex items-center gap-1.5">
           <input
             type="radio"
@@ -61,7 +66,7 @@ export function TransferArticlePicker({
               setArticleId(null);
             }}
           />
-          Matiere premiere
+          MP
         </label>
         <label className="flex items-center gap-1.5">
           <input
@@ -74,34 +79,33 @@ export function TransferArticlePicker({
               setArticleId(null);
             }}
           />
-          Produit fini
+          PF
         </label>
       </div>
-      <ProduitPickerField
-        key={type}
-        articles={type === "MP" ? articlesMp : articlesPf}
-        hiddenName="article_id"
-        textName="produit"
-        onSelect={setArticleId}
-      />
 
-      {!depotSourceId ? null : !articleId ? null : loading ? (
-        <p className="text-xs text-slate-400">Chargement du stock disponible...</p>
-      ) : lots && lots.length > 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
-          <p className="mb-1.5 font-semibold text-slate-500">Disponible dans le depot source :</p>
-          <div className="grid gap-1">
-            {lots.map((lot) => (
-              <div key={lot.numeroLot} className="flex items-center justify-between gap-3">
-                <span className="text-slate-700">{lot.numeroLot || "(sans numero de lot)"}</span>
-                <span className="font-semibold text-slate-900">{lot.solde.toLocaleString("fr-FR")}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <p className="text-xs font-semibold text-red-700">Aucun stock disponible dans ce depot pour cet article.</p>
-      )}
+      <div className="min-w-[14rem] flex-1">
+        <ProduitPickerField
+          key={type}
+          articles={type === "MP" ? articlesMp : articlesPf}
+          hiddenName="article_id"
+          textName="produit"
+          onSelect={setArticleId}
+        />
+      </div>
+
+      <div className="w-44 shrink-0 text-right text-xs">
+        {!depotSourceId || !articleId ? (
+          <span className="text-slate-400">-</span>
+        ) : loading ? (
+          <span className="text-slate-400">Chargement...</span>
+        ) : totalDisponible !== null && totalDisponible > 0 ? (
+          <span className="font-semibold text-slate-700">
+            Disponible : {totalDisponible.toLocaleString("fr-FR")}
+          </span>
+        ) : (
+          <span className="font-semibold text-red-700">Aucun stock</span>
+        )}
+      </div>
     </div>
   );
 }

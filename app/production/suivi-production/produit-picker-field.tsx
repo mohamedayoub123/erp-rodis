@@ -33,6 +33,7 @@ export function ProduitPickerField({
   const [articleId, setArticleId] = useState<number | null>(defaultArticleId);
   const [showDropdown, setShowDropdown] = useState(false);
   const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [rawHighlightedIndex, setRawHighlightedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Liste vide tant que rien n'est tape - ne propose pas d'articles au
@@ -46,6 +47,37 @@ export function ProduitPickerField({
       return words.every((word) => label.includes(word));
     });
   }, [value, articles]);
+
+  // La liste filtree change a chaque frappe - un index qui reste sur une
+  // ancienne position (potentiellement hors bornes de la nouvelle liste, ou
+  // pointant sur un tout autre article) preterait a confusion. Valeur
+  // derivee au rendu (pas un effet+setState) : hors bornes -> -1 (rien en
+  // surbrillance) sans avoir a re-render exprès pour ca.
+  const highlightedIndex = rawHighlightedIndex < filtered.length ? rawHighlightedIndex : -1;
+
+  function selectArticle(article: { id: number; label: string }) {
+    setValue(article.label);
+    setArticleId(article.id);
+    setShowDropdown(false);
+    onSelect?.(article.id);
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (!showDropdown || filtered.length === 0) return;
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setRawHighlightedIndex((highlightedIndex + 1) % filtered.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setRawHighlightedIndex(highlightedIndex <= 0 ? filtered.length - 1 : highlightedIndex - 1);
+    } else if (event.key === "Enter" && highlightedIndex >= 0) {
+      event.preventDefault();
+      selectArticle(filtered[highlightedIndex]);
+    } else if (event.key === "Escape") {
+      setShowDropdown(false);
+    }
+  }
 
   // "article_id" (champ cache) ne participe pas a la validation native du
   // navigateur - sans ca, taper un texte SANS cliquer une suggestion
@@ -94,6 +126,7 @@ export function ProduitPickerField({
         }}
         onFocus={() => setShowDropdown(true)}
         onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+        onKeyDown={handleKeyDown}
         placeholder="Ecris puis choisis..."
         autoComplete="off"
         required
@@ -105,18 +138,16 @@ export function ProduitPickerField({
               style={{ top: dropdownRect.top, left: dropdownRect.left, width: dropdownRect.width }}
               className="fixed z-50 mt-1 max-h-64 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]"
             >
-              {filtered.map((article) => (
+              {filtered.map((article, index) => (
                 <button
                   key={article.id}
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    setValue(article.label);
-                    setArticleId(article.id);
-                    setShowDropdown(false);
-                    onSelect?.(article.id);
-                  }}
-                  className="block w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
+                  onMouseEnter={() => setRawHighlightedIndex(index)}
+                  onClick={() => selectArticle(article)}
+                  className={`block w-full px-3 py-2 text-left text-sm ${
+                    index === highlightedIndex ? "bg-sky-100 text-sky-900" : "text-slate-800 hover:bg-slate-100"
+                  }`}
                 >
                   {article.label}
                 </button>

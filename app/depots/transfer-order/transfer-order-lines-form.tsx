@@ -54,33 +54,37 @@ export function TransferOrderLinesForm({
         </label>
       </div>
 
-      {rowKeys.map((key) => (
-        <div key={key} className="grid gap-3 rounded-2xl border border-slate-200 p-4">
-          <TransferArticlePicker articlesMp={articlesMp} articlesPf={articlesPf} depotSourceId={depotSourceId} />
-          <div className="flex items-end gap-3">
-            <label className="grid flex-1 gap-1 text-xs font-semibold text-slate-500">
-              Quantite demandee
-              <input
-                type="number"
-                step="0.001"
-                min="0"
-                name="quantite_demandee"
-                required
-                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-              />
-            </label>
+      {/* 1 ligne compacte par article (au lieu d'un bloc empile sur
+          plusieurs lignes) - la suivante juste en dessous, comme un
+          tableau. */}
+      <div className="grid gap-2">
+        {rowKeys.map((key) => (
+          <div
+            key={key}
+            className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3"
+          >
+            <TransferArticlePicker articlesMp={articlesMp} articlesPf={articlesPf} depotSourceId={depotSourceId} />
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              name="quantite_demandee"
+              placeholder="Quantite"
+              required
+              className="w-28 shrink-0 rounded-2xl border border-slate-200 px-3 py-2.5 text-sm outline-none"
+            />
             {rowKeys.length > 1 ? (
               <button
                 type="button"
                 onClick={() => setRowKeys(rowKeys.filter((k) => k !== key))}
-                className="rounded-full border border-red-200 px-4 py-3 text-xs font-semibold text-red-700 transition hover:bg-red-50"
+                className="shrink-0 rounded-full border border-red-200 px-4 py-2.5 text-xs font-semibold text-red-700 transition hover:bg-red-50"
               >
                 Retirer
               </button>
             ) : null}
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
       <div>
         <button
           type="button"
