@@ -96,15 +96,17 @@ function stripAccents(value: string) {
   return value.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
-// Classe uniquement par type de produit (prefixe) + Auto/Manuel ensuite -
-// "Clarifiant"/"Hydratant" ne sont PAS un genre a part : un "Creme ...
-// Clarifiant" reste range dans "Creme", pas retire de son type pour
-// creer une categorie a part (sur demande explicite - Lait/Creme restent
-// sous leur propre type meme quand ils sont la variante clarifiante).
-// Tout le reste (aucun prefixe connu) tombe dans "Autre" - jamais exclu,
-// sur demande explicite ("il faut prendre tous les articles").
+// CLARIFI/HYDRAT priment sur le type de produit - un "Lait ... Clarifiant"
+// ou "Creme ... Clarifiant" ou "DSR ... Clarifiant" tombent TOUS ensemble
+// dans "Clarifiant" (pas de sous-groupe par format), pas dans leur type de
+// base (confirme explicitement - il n'y a pas de categorie Lait/Creme
+// separee pour ces variantes). Tout le reste (aucun mot-cle/prefixe
+// connu) tombe dans "Autre" - jamais exclu, sur demande explicite
+// ("il faut prendre tous les articles").
 function classifyGenre(produit: string | null): string {
   const value = stripAccents((produit || "").toUpperCase());
+  if (value.includes("CLARIFI")) return "Clarifiant";
+  if (value.includes("HYDRAT")) return "Hydratant";
   for (const prefix of GENRE_PREFIXES) {
     if (value.startsWith(prefix)) return prefix;
   }
@@ -130,25 +132,27 @@ function RavitailleurGenreTable({
         <h2 className="text-lg font-bold text-slate-900">{title}</h2>
       </div>
       <div className="overflow-x-auto">
-        {/* print-readable-table desactive la regle globale (globals.css,
-            ecrite pour le Dispatcher Ravitailleur par zone a 13 colonnes)
-            qui forcait word-break/8px sur tout tableau imprime - c'etait la
-            vraie cause du texte compresse lettre par lettre. Maintenant que
-            c'est corrige, Article/Code peuvent revenir a la largeur exacte
-            de leur contenu ("width:1%" + nowrap) au lieu d'un % fixe. */}
-        <table className="print-readable-table w-full border-collapse text-left text-sm">
+        {/* Largeurs en % fixees via colgroup + table-layout:fixed - la
+            version "largeur exacte au contenu" (width:1%+nowrap) a echoue a
+            l'impression a chaque essai (4x), meme apres avoir corrige la
+            regle globale qui la cassait au depart. Cette version-ci (%
+            fixes, sans dependre d'un calcul de layout variable) est la
+            SEULE confirmee fonctionner correctement a l'impression. */}
+        <table
+          className="print-readable-table w-full border-collapse text-left text-sm"
+          style={{ tableLayout: "fixed" }}
+        >
+          <colgroup>
+            <col style={{ width: "45%" }} />
+            <col style={{ width: "15%" }} />
+            <col style={{ width: "40%" }} />
+          </colgroup>
           <thead>
             <tr>
-              <th
-                style={{ width: "1%" }}
-                className="whitespace-nowrap border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900"
-              >
+              <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900">
                 ARTICLE
               </th>
-              <th
-                style={{ width: "1%" }}
-                className="whitespace-nowrap border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900"
-              >
+              <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900">
                 CODE
               </th>
               <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900">
@@ -166,18 +170,10 @@ function RavitailleurGenreTable({
             ) : (
               rows.map((row) => (
                 <tr key={row.id}>
-                  <td
-                    style={{ width: "1%" }}
-                    className="whitespace-nowrap border border-slate-300 bg-white px-3 py-6 font-medium text-slate-900"
-                  >
+                  <td className="border border-slate-300 bg-white px-3 py-6 font-medium text-slate-900">
                     {row.produit}
                   </td>
-                  <td
-                    style={{ width: "1%" }}
-                    className="whitespace-nowrap border border-slate-300 bg-white px-3 py-6 text-center"
-                  >
-                    {row.code || "-"}
-                  </td>
+                  <td className="border border-slate-300 bg-white px-3 py-6 text-center">{row.code || "-"}</td>
                   <td className="border border-slate-300 bg-white px-3 py-6" />
                 </tr>
               ))
