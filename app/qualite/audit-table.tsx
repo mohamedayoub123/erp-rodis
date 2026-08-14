@@ -252,14 +252,36 @@ export function AuditTable({
   }, [canWrite]);
 
   useEffect(() => {
-    const header = document.querySelector("header");
-    if (!header) return;
-    setHeaderOffset(header.getBoundingClientRect().height);
-    const observer = new ResizeObserver((entries) => {
-      setHeaderOffset(entries[0].contentRect.height);
-    });
-    observer.observe(header);
-    return () => observer.disconnect();
+    let cancelled = false;
+    let observer: ResizeObserver | null = null;
+    let frame = 0;
+
+    // Le bandeau global peut ne pas encore etre monte au tout premier
+    // passage (ordre d'hydratation) - on reessaie a chaque frame jusqu'a
+    // le trouver, sinon headerOffset resterait bloque a 0 et la barre/entete
+    // collante se cacherait entierement derriere le bandeau (plus haut
+    // qu'elle) au lieu d'apparaitre juste en-dessous.
+    function tryAttach() {
+      if (cancelled) return;
+      const header = document.querySelector("header");
+      if (!header) {
+        frame = requestAnimationFrame(tryAttach);
+        return;
+      }
+      setHeaderOffset(header.getBoundingClientRect().height);
+      observer = new ResizeObserver((entries) => {
+        setHeaderOffset(entries[0].contentRect.height);
+      });
+      observer.observe(header);
+    }
+
+    tryAttach();
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
   }, []);
 
   function updateCell(key: string, field: string, value: string) {
