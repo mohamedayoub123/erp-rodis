@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[] };
 
@@ -166,6 +166,14 @@ export function AuditTable({
   uploadFilesAction,
   getFileUrlAction,
   deleteFileAction,
+  progressColumnKeys,
+  progressStatusColumnKey,
+  progressDoneStatus,
+  closureSourceKeys,
+  closureTargetKey,
+  closureDoneValue,
+  closureClosedStatus,
+  closureOpenStatus,
 }: {
   columns: AuditColumn[];
   initialRows: AuditRow[];
@@ -183,6 +191,21 @@ export function AuditTable({
   ) => Promise<{ ok: boolean; message?: string; files?: AttachmentFile[] }>;
   getFileUrlAction?: (path: string) => Promise<{ ok: boolean; url?: string; message?: string }>;
   deleteFileAction?: (rowId: number, path: string) => Promise<{ ok: boolean; message?: string }>;
+  // Cloture automatique (optionnel, ex: TAF) : quand la somme des colonnes
+  // progressColumnKeys atteint 100% (1), progressStatusColumnKey passe
+  // automatiquement a progressDoneStatus.
+  progressColumnKeys?: string[];
+  progressStatusColumnKey?: string;
+  progressDoneStatus?: string;
+  // Statut de cloture derive de 2 statuts source (optionnel, ex: NC :
+  // Statut correction + Statut AC -> Statut cloture). closureTargetKey vaut
+  // closureClosedStatus si les 2 closureSourceKeys valent closureDoneValue,
+  // sinon closureOpenStatus.
+  closureSourceKeys?: [string, string];
+  closureTargetKey?: string;
+  closureDoneValue?: string;
+  closureClosedStatus?: string;
+  closureOpenStatus?: string;
 }) {
   const [rowKeys, setRowKeys] = useState<string[]>(() => initialRows.map((r) => `row-${r.id}`));
   const rowsRef = useRef<Record<string, AuditRow>>(
@@ -197,9 +220,90 @@ export function AuditTable({
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  // Ref DOM des <select> de statut, indexee par "rowKey::colKey" - permet
+  // de mettre a jour visuellement un statut calcule automatiquement (couleur
+  // + valeur) sans redessiner tout le tableau (voir rowsRef plus haut).
+  const statusSelectRefs = useRef<Record<string, HTMLSelectElement | null>>({});
+  // Barre d'outils du haut (Ajouter/Enregistrer) : hauteur mesuree pour que
+  // l'entete du tableau, elle aussi collante, se cale juste en-dessous sans
+  // la chevaucher. headerOffset = hauteur du bandeau ERP Rodis global (deja
+  // collant en haut de chaque page) - sans ca, notre barre/entete colle a
+  // "top: 0" passerait SOUS ce bandeau au lieu de rester juste en-dessous.
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const [toolbarHeight, setToolbarHeight] = useState(0);
+  const [headerOffset, setHeaderOffset] = useState(0);
+  // Sur un tableau de 78/147 lignes, une ligne ajoutee en bas du tableau est
+  // invisible sans defiler manuellement jusqu'en bas - on l'amene donc a
+  // l'ecran automatiquement, sinon "+ Ajouter une ligne" semble ne rien faire.
+  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
+  const pendingScrollKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) {
+      setToolbarHeight(0);
+      return;
+    }
+    // Mesure synchrone immediate en plus du ResizeObserver - sinon la toute
+    // premiere peinture utiliserait encore la valeur par defaut (0).
+    setToolbarHeight(el.getBoundingClientRect().height);
+    const observer = new ResizeObserver((entries) => {
+      setToolbarHeight(entries[0].contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [canWrite]);
+
+  useEffect(() => {
+    const header = document.querySelector("header");
+    if (!header) return;
+    setHeaderOffset(header.getBoundingClientRect().height);
+    const observer = new ResizeObserver((entries) => {
+      setHeaderOffset(entries[0].contentRect.height);
+    });
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const key = pendingScrollKeyRef.current;
+    if (!key) return;
+    pendingScrollKeyRef.current = null;
+    rowRefs.current[key]?.scrollIntoView({ block: "center" });
+  }, [rowKeys]);
 
   function updateCell(key: string, field: string, value: string) {
     rowsRef.current[key] = { ...rowsRef.current[key], [field]: value };
+  }
+
+  function setStatusValue(key: string, columnKey: string, value: string) {
+    updateCell(key, columnKey, value);
+    const select = statusSelectRefs.current[`${key}::${columnKey}`];
+    if (select) {
+      select.value = value;
+      select.className = `${statusSelectBaseClass} ${statusColorClasses(value)}`;
+    }
+  }
+
+  function maybeAutoCloseProgress(key: string) {
+    if (!progressColumnKeys || !progressStatusColumnKey) return;
+    const row = rowsRef.current[key];
+    const total = progressColumnKeys.reduce((sum, colKey) => {
+      const n = parseFloat(String(row[colKey] ?? "").replace(",", "."));
+      return sum + (Number.isFinite(n) ? n : 0);
+    }, 0);
+    if (total >= 0.999) {
+      setStatusValue(key, progressStatusColumnKey, progressDoneStatus || "CLOTUREE");
+    }
+  }
+
+  function maybeRecomputeClosure(key: string) {
+    if (!closureSourceKeys || !closureTargetKey) return;
+    const row = rowsRef.current[key];
+    const done = (closureDoneValue || "REALISEE").trim().toUpperCase();
+    const allDone = closureSourceKeys.every((colKey) => String(row[colKey] ?? "").trim().toUpperCase() === done);
+    const next = allDone ? closureClosedStatus || "CLOTUREE" : closureOpenStatus || "EN COURS";
+    setStatusValue(key, closureTargetKey, next);
   }
 
   function addRow() {
@@ -207,6 +311,7 @@ export function AuditTable({
     const blank: AuditRow = { id: null };
     for (const col of columns) blank[col.key] = "";
     rowsRef.current[key] = blank;
+    pendingScrollKeyRef.current = key;
     setRowKeys((prev) => [...prev, key]);
   }
 
@@ -271,11 +376,16 @@ export function AuditTable({
     "w-full min-w-[26rem] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
   const statusSelectBaseClass =
     "w-48 rounded-xl border px-3 py-2 text-sm font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60";
+  const theadTop = headerOffset + toolbarHeight;
 
   return (
     <div>
       {canWrite ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-4">
+        <div
+          ref={toolbarRef}
+          style={{ top: headerOffset }}
+          className="sticky z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4"
+        >
           <button
             type="button"
             onClick={addRow}
@@ -303,11 +413,19 @@ export function AuditTable({
           <thead className="bg-slate-50 text-slate-500">
             <tr>
               {columns.map((col) => (
-                <th key={col.key} className="px-4 py-3 font-semibold whitespace-nowrap">
+                <th
+                  key={col.key}
+                  style={{ top: theadTop }}
+                  className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold whitespace-nowrap"
+                >
                   {col.label}
                 </th>
               ))}
-              {canWrite ? <th className="px-4 py-3 font-semibold">Actions</th> : null}
+              {canWrite ? (
+                <th style={{ top: theadTop }} className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold">
+                  Actions
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -321,16 +439,26 @@ export function AuditTable({
               rowKeys.map((key) => {
                 const row = rowsRef.current[key];
                 return (
-                  <tr key={key} className="border-t border-slate-100 align-top">
+                  <tr
+                    key={key}
+                    ref={(el) => {
+                      rowRefs.current[key] = el;
+                    }}
+                    className="border-t border-slate-100 align-top"
+                  >
                     {columns.map((col) =>
                       canWrite ? (
                         <td key={col.key} className="px-4 py-3">
                           {col.select ? (
                             <select
+                              ref={(el) => {
+                                statusSelectRefs.current[`${key}::${col.key}`] = el;
+                              }}
                               defaultValue={row[col.key] ?? ""}
                               onChange={(e) => {
                                 updateCell(key, col.key, e.target.value);
                                 e.target.className = `${statusSelectBaseClass} ${statusColorClasses(e.target.value)}`;
+                                if (closureSourceKeys?.includes(col.key)) maybeRecomputeClosure(key);
                               }}
                               className={`${statusSelectBaseClass} ${statusColorClasses(row[col.key])}`}
                             >
@@ -358,7 +486,10 @@ export function AuditTable({
                             <input
                               type="text"
                               defaultValue={row[col.key] ?? ""}
-                              onChange={(e) => updateCell(key, col.key, e.target.value)}
+                              onChange={(e) => {
+                                updateCell(key, col.key, e.target.value);
+                                if (progressColumnKeys?.includes(col.key)) maybeAutoCloseProgress(key);
+                              }}
                               className={cellClass}
                             />
                           )}
@@ -432,7 +563,7 @@ export function AuditTable({
       </div>
 
       {canWrite ? (
-        <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="sticky bottom-0 z-20 flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
             {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}

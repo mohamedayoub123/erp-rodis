@@ -178,6 +178,9 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
             canWrite={canWrite}
             saveBatchAction={saveTafConfidentielBatchAction}
             deleteRowAction={deleteTafConfidentielRowAction}
+            progressColumnKeys={["t1", "t2", "t3", "t4"]}
+            progressStatusColumnKey="statut"
+            progressDoneStatus="CLOTUREE"
           />
         </section>
       </div>

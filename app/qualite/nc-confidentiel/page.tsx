@@ -16,6 +16,9 @@ import {
 
 // Memes 4 valeurs pour Statut correction et Statut AC.
 const STATUT_OPTIONS = ["REALISEE", "EN COURS", "NON REALISEE", "NOUVELLE NC OUVERTE ANNEE N+1"];
+// Statut cloture : calcule automatiquement a partir de Statut correction et
+// Statut AC - CLOTUREE seulement si les 2 valent REALISEE, sinon EN COURS.
+const STATUT_CLOTURE_OPTIONS = ["CLOTUREE", "EN COURS"];
 
 // Memes titres, dans le meme ordre, que la feuille "NC Confidentiel" du
 // classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne).
@@ -45,7 +48,7 @@ const COLUMNS: AuditColumn[] = [
   { key: "mesure_efficacite_ac", label: "Mesure efficacité AC", long: true },
   { key: "realise_par", label: "Réalisé par" },
   { key: "commentaire3", label: "commentaire3", long: true },
-  { key: "statut_cloture", label: "Statut cloture" },
+  { key: "statut_cloture", label: "Statut cloture", select: STATUT_CLOTURE_OPTIONS },
 ];
 
 async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<number, AttachmentFile[]> }> {
@@ -228,6 +231,11 @@ export default async function NcConfidentielPage({ searchParams }: { searchParam
             uploadFilesAction={uploadNcConfidentielFilesAction}
             getFileUrlAction={getNcConfidentielFileUrlAction}
             deleteFileAction={deleteNcConfidentielFileAction}
+            closureSourceKeys={["statut_correction", "statut_ac"]}
+            closureTargetKey="statut_cloture"
+            closureDoneValue="REALISEE"
+            closureClosedStatus="CLOTUREE"
+            closureOpenStatus="EN COURS"
           />
         </section>
       </div>
