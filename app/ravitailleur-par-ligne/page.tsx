@@ -43,7 +43,7 @@ export default function RavitailleurParLignePage() {
             href="/ravitailleur-par-ligne/genres"
             className="block rounded-[1.75rem] border border-black/5 bg-emerald-700 p-6 text-center shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition hover:-translate-y-1"
           >
-            <span className="text-lg font-bold text-white">Par genre</span>
+            <span className="text-lg font-bold text-white">Impression pour detail de fabrication</span>
           </Link>
         </section>
 

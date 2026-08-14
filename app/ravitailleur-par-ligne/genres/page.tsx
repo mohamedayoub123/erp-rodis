@@ -177,7 +177,9 @@ export default async function RavitailleurGenresPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Ravitailleur par genre</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
+                Impression pour detail de fabrication
+              </h1>
             </div>
 
             <div className="no-print flex items-center gap-3">
