@@ -233,11 +233,6 @@ export function AuditTable({
   // barre/entete se decalaient au milieu du tableau au lieu de rester en haut.
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const [toolbarHeight, setToolbarHeight] = useState(0);
-  // Sur un tableau de 78/147 lignes, une ligne ajoutee en bas du tableau est
-  // invisible sans defiler manuellement jusqu'en bas - on l'amene donc a
-  // l'ecran automatiquement, sinon "+ Ajouter une ligne" semble ne rien faire.
-  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
-  const pendingScrollKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const el = toolbarRef.current;
@@ -254,13 +249,6 @@ export function AuditTable({
     observer.observe(el);
     return () => observer.disconnect();
   }, [canWrite]);
-
-  useEffect(() => {
-    const key = pendingScrollKeyRef.current;
-    if (!key) return;
-    pendingScrollKeyRef.current = null;
-    rowRefs.current[key]?.scrollIntoView({ block: "center" });
-  }, [rowKeys]);
 
   function updateCell(key: string, field: string, value: string) {
     rowsRef.current[key] = { ...rowsRef.current[key], [field]: value };
@@ -301,8 +289,9 @@ export function AuditTable({
     const blank: AuditRow = { id: null };
     for (const col of columns) blank[col.key] = "";
     rowsRef.current[key] = blank;
-    pendingScrollKeyRef.current = key;
-    setRowKeys((prev) => [...prev, key]);
+    // Ajoutee tout en haut, juste sous "+ Ajouter une ligne" - immediatement
+    // visible sans avoir a chercher dans un tableau de 78/147 lignes.
+    setRowKeys((prev) => [key, ...prev]);
   }
 
   function removeRow(key: string) {
@@ -345,12 +334,17 @@ export function AuditTable({
         // orpheline en base.
         if (result.insertedIds && result.insertedIds.length > 0) {
           let idx = 0;
+          const savedKeys: string[] = [];
           for (const key of rowKeys) {
             if (rowsRef.current[key].id === null) {
               rowsRef.current[key] = { ...rowsRef.current[key], id: result.insertedIds[idx] };
               idx++;
+              savedKeys.push(key);
             }
           }
+          // Une fois enregistree, la ligne n'a plus besoin de rester tout en
+          // haut (ou elle a ete saisie) - elle rejoint le reste, en bas.
+          setRowKeys((prev) => [...prev.filter((k) => !savedKeys.includes(k)), ...savedKeys]);
           forceRerender((n) => n + 1);
         }
         setMessage("Enregistre.");
@@ -426,13 +420,7 @@ export function AuditTable({
               rowKeys.map((key) => {
                 const row = rowsRef.current[key];
                 return (
-                  <tr
-                    key={key}
-                    ref={(el) => {
-                      rowRefs.current[key] = el;
-                    }}
-                    className="border-t border-slate-100 align-top"
-                  >
+                  <tr key={key} className="border-t border-slate-100 align-top">
                     {columns.map((col) =>
                       canWrite ? (
                         <td key={col.key} className="px-4 py-3">
