@@ -122,7 +122,16 @@ export function TestLaboForm({
   const [couleur, setCouleur] = useState(rapport?.couleur || "");
   const [texture, setTexture] = useState(rapport?.texture || "");
   const [odeur, setOdeur] = useState(rapport?.odeur || "");
-  const [dispositionQualite, setDispositionQualite] = useState(rapport?.disposition_qualite || "");
+  // Decision manuelle (A recuperer / A detruire) - separee du statut
+  // Conforme/Non conforme lui-meme, qui est desormais entierement
+  // automatique (voir dispositionQualiteEffective plus bas). Une valeur
+  // sauvegardee "non_conforme" (statut automatique, pas une decision) ne
+  // compte pas comme un choix a re-precocher au chargement.
+  const [dispositionChoice, setDispositionChoice] = useState(
+    rapport?.disposition_qualite === "a_recuperer" || rapport?.disposition_qualite === "a_detruire"
+      ? rapport.disposition_qualite
+      : ""
+  );
   const [numericHorsSpec, setNumericHorsSpec] = useState<Record<string, boolean>>({});
   const [sousDerogation, setSousDerogation] = useState(rapport?.sous_derogation ?? false);
   const [motifDerogation, setMotifDerogation] = useState(rapport?.motif_derogation || "");
@@ -160,13 +169,14 @@ export function TestLaboForm({
     textureNonConforme ||
     Object.values(numericHorsSpec).some(Boolean);
 
-  // Des qu'un parametre est hors spec, le statut affiche/enregistre passe
-  // automatiquement a "Non conforme" tant que l'utilisateur n'a pas choisi
-  // "A recuperer"/"A detruire" lui-meme (valeur derivee au rendu, pas un
-  // effet+setState - ne peut plus laisser "Conforme" alors qu'un parametre
-  // est hors spec).
-  const effectiveDispositionQualite =
-    anyHorsSpec && dispositionQualite === "" ? "non_conforme" : dispositionQualite;
+  // Conforme/Non conforme est desormais 100% automatique (plus un choix
+  // dans un menu) : range bon partout -> Conforme, au moins 1 hors spec ->
+  // Non conforme - jamais choisi a la main. La decision "A recuperer"/"A
+  // detruire" reste manuelle (2 boutons), mais seulement pertinente/valide
+  // quand Non conforme - un choix fait pendant un hors-spec redevient sans
+  // effet des que le parametre revient dans la norme (le champ enregistre
+  // repasse a "" = Conforme automatiquement).
+  const dispositionQualiteToSubmit = anyHorsSpec ? dispositionChoice || "non_conforme" : "";
 
   return (
     <div className="grid gap-8">
@@ -332,27 +342,48 @@ export function TestLaboForm({
         <div>
           <h2 className="mb-1 text-lg font-bold text-slate-900">Statut qualite</h2>
           <p className="mb-3 text-xs text-slate-500">
-            Si la fabrication n&apos;est pas bonne, choisis ce qu&apos;il faut en faire. &quot;A recuperer&quot;
-            credite quand meme le stock (avec un statut visible dessus). &quot;A detruire&quot; ne credite
-            jamais le stock - la quantite part dans l&apos;historique de destruction.
+            Automatique : Conforme si tous les parametres sont dans la norme, Non conforme des qu&apos;un
+            seul est hors spec. Si Non conforme, choisis quoi en faire. &quot;A recuperer&quot; credite
+            quand meme le stock (avec un statut visible dessus). &quot;A detruire&quot; ne credite jamais
+            le stock - la quantite part dans l&apos;historique de destruction.
           </p>
-          <select
-            name="disposition_qualite"
-            value={effectiveDispositionQualite}
-            onChange={(e) => setDispositionQualite(e.target.value)}
-            className={
-              effectiveDispositionQualite === "a_detruire" || effectiveDispositionQualite === "non_conforme"
-                ? inputClassNonConforme
-                : effectiveDispositionQualite === "a_recuperer"
-                  ? "rounded-2xl border-2 border-amber-400 bg-amber-50 px-4 py-3 text-sm font-normal text-amber-900 outline-none"
-                  : inputClass
-            }
-          >
-            <option value="">Conforme</option>
-            <option value="non_conforme">Non conforme</option>
-            <option value="a_recuperer">A recuperer</option>
-            <option value="a_detruire">A detruire</option>
-          </select>
+          <input type="hidden" name="disposition_qualite" value={dispositionQualiteToSubmit} />
+          <div className="flex flex-wrap items-center gap-3">
+            <span
+              className={`rounded-full px-4 py-2 text-sm font-bold ${
+                anyHorsSpec ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800"
+              }`}
+            >
+              {anyHorsSpec ? "Non conforme" : "Conforme"}
+            </span>
+
+            {anyHorsSpec ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setDispositionChoice("a_recuperer")}
+                  className={`rounded-full border-2 px-4 py-2 text-sm font-semibold transition ${
+                    dispositionChoice === "a_recuperer"
+                      ? "border-amber-400 bg-amber-100 text-amber-900"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-amber-300"
+                  }`}
+                >
+                  A recuperer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDispositionChoice("a_detruire")}
+                  className={`rounded-full border-2 px-4 py-2 text-sm font-semibold transition ${
+                    dispositionChoice === "a_detruire"
+                      ? "border-red-400 bg-red-100 text-red-900"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-red-300"
+                  }`}
+                >
+                  A detruire
+                </button>
+              </>
+            ) : null}
+          </div>
         </div>
 
         <div>

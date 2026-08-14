@@ -8,6 +8,7 @@ import { formatDate } from "../../production/suivi/data";
 import { formatDateTime } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { TestLaboPieChart } from "./test-labo-pie-chart";
+import { TestLaboMonthBarChart } from "./test-labo-month-bar-chart";
 
 type RapportRow = {
   id: number;
@@ -252,6 +253,19 @@ export default async function QualiteRapportPage({
   }
   const typeBreakdown = [...countByType.entries()].sort((a, b) => b[1] - a[1]);
 
+  // Tendance par mois (graphique "Tests par mois") - meme filtre que le
+  // reste de la page, triee chronologiquement (le plus ancien a gauche)
+  // pour se lire comme une evolution dans le temps.
+  const countByMonth = new Map<string, number>();
+  for (const row of rows) {
+    const key = row.date.slice(0, 7);
+    if (key.length !== 7) continue;
+    countByMonth.set(key, (countByMonth.get(key) ?? 0) + 1);
+  }
+  const monthChartData = [...countByMonth.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([key, count]) => ({ label: moisLabel(key), count }));
+
   const totalRows = rows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
   const from = (currentPage - 1) * PAGE_SIZE;
@@ -363,12 +377,22 @@ export default async function QualiteRapportPage({
           <StatCard label="Sous derogation" value={sousDerogation} className="text-violet-700" />
         </section>
 
-        <TestLaboPieChart
-          conforme={conforme}
-          aDetruire={aDetruire}
-          sousDerogation={sousDerogation}
-          aDecider={aDecider}
-        />
+        {/* 2 graphiques cote a cote, chacun en grand - prennent presque toute
+            la largeur de la page (grid pleine largeur, 1 colonne sur petit
+            ecran, 2 sur large). */}
+        <section className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <TestLaboPieChart
+              conforme={conforme}
+              aDetruire={aDetruire}
+              sousDerogation={sousDerogation}
+              aDecider={aDecider}
+            />
+          </div>
+          <div className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <TestLaboMonthBarChart data={monthChartData} />
+          </div>
+        </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <h2 className="mb-3 text-lg font-bold text-slate-900">Par plateforme (Auto / Manuel)</h2>
