@@ -134,14 +134,22 @@ function RavitailleurGenreTable({
         <table className="w-full border-collapse text-left text-sm">
           <thead>
             <tr>
-              {/* w-px + nowrap = astuce classique pour qu'une colonne se
-                  resserre exactement sur son contenu dans un tableau
-                  auto-layout - tout l'espace restant part dans Remarque
+              {/* "width:1%" (pas w-px/1px, qui ecrase tout a l'impression -
+                  le texte se retrouve compresse caractere par caractere) +
+                  nowrap = astuce fiable pour qu'une colonne se resserre sur
+                  son contenu dans un tableau auto-layout, ecran ET
+                  impression - tout l'espace restant part dans Remarque
                   (seule colonne sans largeur forcee). */}
-              <th className="w-px whitespace-nowrap border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900">
+              <th
+                style={{ width: "1%" }}
+                className="whitespace-nowrap border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900"
+              >
                 ARTICLE
               </th>
-              <th className="w-px whitespace-nowrap border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900">
+              <th
+                style={{ width: "1%" }}
+                className="whitespace-nowrap border border-slate-300 bg-slate-200 px-3 py-2 text-center font-bold text-slate-900"
+              >
                 CODE
               </th>
               <th className="border border-slate-300 bg-slate-200 px-3 py-2 text-left font-bold text-slate-900">
@@ -159,10 +167,16 @@ function RavitailleurGenreTable({
             ) : (
               rows.map((row) => (
                 <tr key={row.id}>
-                  <td className="w-px whitespace-nowrap border border-slate-300 bg-white px-3 py-3 font-medium text-slate-900">
+                  <td
+                    style={{ width: "1%" }}
+                    className="whitespace-nowrap border border-slate-300 bg-white px-3 py-3 font-medium text-slate-900"
+                  >
                     {row.produit}
                   </td>
-                  <td className="w-px whitespace-nowrap border border-slate-300 bg-white px-3 py-3 text-center">
+                  <td
+                    style={{ width: "1%" }}
+                    className="whitespace-nowrap border border-slate-300 bg-white px-3 py-3 text-center"
+                  >
                     {row.code || "-"}
                   </td>
                   <td className="border border-slate-300 bg-white px-3 py-3" />
