@@ -5,15 +5,23 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { AuditTable, type AuditColumn, type AuditRow } from "../audit-table";
-import { saveTafConfidentielBatchAction, deleteTafConfidentielRowAction } from "./actions";
+import { AuditTable, type AuditColumn, type AuditRow, type AttachmentFile } from "../audit-table";
+import {
+  saveTafConfidentielBatchAction,
+  deleteTafConfidentielRowAction,
+  createTafConfidentielUploadSlotAction,
+  confirmTafConfidentielUploadAction,
+  getTafConfidentielFileUrlAction,
+  deleteTafConfidentielFileAction,
+} from "./actions";
 
 // Memes valeurs que celles deja utilisees dans les donnees TAF importees.
 const STATUT_OPTIONS = ["EN COURS", "CLOTUREE", "PAS D'ACTION"];
 
 // Ces colonnes restent en lecture seule pour tout le monde, meme l'admin -
-// seule felicite peut les modifier.
-const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "constat", "processus_concerne", "service_concerne"];
+// seule felicite peut les modifier. "Constat" a ete retire de cette liste -
+// modifiable par tout le monde comme "Commentaire".
+const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "processus_concerne", "service_concerne"];
 
 // Memes titres, dans le meme ordre, que la feuille "TAF Confidentiel" du
 // classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne).
@@ -38,8 +46,9 @@ const COLUMNS: AuditColumn[] = [
   { key: "statut", label: "Statut", select: STATUT_OPTIONS },
 ];
 
-async function fetchAllRows(): Promise<AuditRow[]> {
+async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<number, AttachmentFile[]> }> {
   const rows: AuditRow[] = [];
+  const attachments: Record<number, AttachmentFile[]> = {};
   let from = 0;
   const pageSize = 1000;
 
@@ -54,18 +63,20 @@ async function fetchAllRows(): Promise<AuditRow[]> {
 
     const chunk = (data ?? []) as Record<string, unknown>[];
     for (const raw of chunk) {
-      const row: AuditRow = { id: Number(raw.id) };
+      const id = Number(raw.id);
+      const row: AuditRow = { id };
       for (const col of COLUMNS) {
         row[col.key] = raw[col.key] != null ? String(raw[col.key]) : "";
       }
       rows.push(row);
+      attachments[id] = Array.isArray(raw.pieces_jointes) ? (raw.pieces_jointes as AttachmentFile[]) : [];
     }
 
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
 
-  return rows;
+  return { rows, attachments };
 }
 
 type SearchParams = Promise<{
@@ -86,7 +97,7 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
   const params = await searchParams;
   const currentUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentUser, "qualiteTafConfidentiel");
-  const allRows = await fetchAllRows();
+  const { rows: allRows, attachments } = await fetchAllRows();
 
   const auditFilter = (params.audit || "").trim().toLowerCase();
   const numeroFilter = (params.numero || "").trim().toLowerCase();
@@ -181,6 +192,12 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
           canWrite={canWrite}
           saveBatchAction={saveTafConfidentielBatchAction}
           deleteRowAction={deleteTafConfidentielRowAction}
+          attachmentsColumnKey="numero"
+          initialAttachments={attachments}
+          createUploadSlotAction={createTafConfidentielUploadSlotAction}
+          confirmUploadAction={confirmTafConfidentielUploadAction}
+          getFileUrlAction={getTafConfidentielFileUrlAction}
+          deleteFileAction={deleteTafConfidentielFileAction}
           progressColumnKeys={["t1", "t2", "t3", "t4"]}
           progressStatusColumnKey="statut"
           progressDoneStatus="CLOTUREE"

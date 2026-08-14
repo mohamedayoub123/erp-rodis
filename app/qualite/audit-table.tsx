@@ -442,13 +442,13 @@ export function AuditTable({
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold whitespace-nowrap"
+                  className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-base font-semibold whitespace-nowrap"
                 >
                   {col.label}
                 </th>
               ))}
               {canWrite ? (
-                <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">
+                <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-base font-semibold">
                   Actions
                 </th>
               ) : null}
@@ -530,12 +530,7 @@ export function AuditTable({
                           ) : null}
                         </td>
                       ) : (
-                        <td
-                          key={col.key}
-                          className={`px-4 py-3 text-slate-600 ${
-                            col.long ? "min-w-[26rem] whitespace-pre-wrap" : ""
-                          }`}
-                        >
+                        <td key={col.key} className="px-4 py-3 text-slate-600">
                           {col.select ? (
                             <span
                               className={`inline-block rounded-full border px-3 py-1 text-xs font-semibold ${statusColorClasses(
@@ -544,6 +539,17 @@ export function AuditTable({
                             >
                               {row[col.key] || "-"}
                             </span>
+                          ) : col.long ? (
+                            // Meme taille (rows=6) que le champ modifiable
+                            // equivalent (ex: "Commentaire") - avec defilement
+                            // interne au lieu de laisser le texte etirer toute
+                            // la ligne quand il est long.
+                            <textarea
+                              readOnly
+                              value={String(row[col.key] ?? "") || "-"}
+                              rows={6}
+                              className={longCellClass}
+                            />
                           ) : (
                             row[col.key] || "-"
                           )}
