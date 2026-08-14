@@ -380,6 +380,15 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                             <form action={updateDossierMpStatutAction} className="flex items-center gap-2">
                               <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
                               <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
+                              {/* Ce formulaire ne touche que le statut, mais l'action ecrit
+                                  aussi date_prevue_reception - sans ce champ cache, valider ici
+                                  effacait la date deja saisie (elle arrivait "absente" du
+                                  formData, donc convertie en null). */}
+                              <input
+                                type="hidden"
+                                name="date_prevue_reception"
+                                value={group.datePrevueReception ?? ""}
+                              />
                               <select
                                 name="statut"
                                 defaultValue={group.statut}
