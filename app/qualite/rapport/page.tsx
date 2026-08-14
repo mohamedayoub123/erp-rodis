@@ -8,7 +8,7 @@ import { formatDate } from "../../production/suivi/data";
 import { formatDateTime } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { TestLaboPieChart } from "./test-labo-pie-chart";
-import { TestLaboMonthBarChart } from "./test-labo-month-bar-chart";
+import { TestLaboLineChart } from "./test-labo-line-chart";
 
 type RapportRow = {
   id: number;
@@ -20,7 +20,12 @@ type RapportRow = {
   date_saisie_test_labo: string | null;
 };
 
-type LigneInfo = { produit: string | null; date_jour: string | null; plateforme: string | null };
+type LigneInfo = {
+  produit: string | null;
+  date_jour: string | null;
+  plateforme: string | null;
+  article_id: number | null;
+};
 
 async function fetchAllTestLaboRapports(): Promise<RapportRow[]> {
   const rows: RapportRow[] = [];
@@ -60,19 +65,57 @@ async function fetchLignesInfo(ligneIds: number[]): Promise<Map<number, LigneInf
     const chunk = uniqueIds.slice(from, from + pageSize);
     const { data } = await supabaseServer
       .from("programme_lignes")
-      .select("id, produit, date_jour, plateforme")
+      .select("id, produit, date_jour, plateforme, article_id")
       .in("id", chunk);
 
     for (const row of (data as
-      | { id: number; produit: string | null; date_jour: string | null; plateforme: string | null }[]
+      | { id: number; produit: string | null; date_jour: string | null; plateforme: string | null; article_id: number | null }[]
       | null) ?? []) {
-      map.set(row.id, { produit: row.produit, date_jour: row.date_jour, plateforme: row.plateforme });
+      map.set(row.id, {
+        produit: row.produit,
+        date_jour: row.date_jour,
+        plateforme: row.plateforme,
+        article_id: row.article_id,
+      });
     }
 
     from += pageSize;
   }
 
   return map;
+}
+
+type ArticleInfo = { type_article: string | null; gamme: string | null };
+
+async function fetchArticleInfos(articleIds: number[]): Promise<Map<number, ArticleInfo>> {
+  const map = new Map<number, ArticleInfo>();
+  if (articleIds.length === 0) return map;
+
+  let from = 0;
+  const pageSize = 1000;
+  const uniqueIds = [...new Set(articleIds)];
+
+  while (from < uniqueIds.length) {
+    const chunk = uniqueIds.slice(from, from + pageSize);
+    const { data } = await supabaseServer.from("articles").select("id, type_article, gamme").in("id", chunk);
+
+    for (const row of (data as { id: number; type_article: string | null; gamme: string | null }[] | null) ?? []) {
+      map.set(row.id, { type_article: row.type_article, gamme: row.gamme });
+    }
+
+    from += pageSize;
+  }
+
+  return map;
+}
+
+// "clarifiant" -> "Clarifiant" - meme normalisation que Ravitailleur par
+// genre (articles.type_article est saisi a la main, casse pas toujours
+// coherente).
+function capitalize(value: string | null | undefined) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return "-";
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
 // "Type" de preparation = Plateforme saisie sur Programme par ligne
@@ -171,6 +214,8 @@ type SearchParams = Promise<{
   code?: string;
   produit?: string;
   type?: string;
+  type_article?: string;
+  gamme?: string;
   page?: string;
   date_debut?: string;
   date_fin?: string;
@@ -187,28 +232,49 @@ export default async function QualiteRapportPage({
   const codeFilter = (params.code || "").trim().toLowerCase();
   const produitFilter = (params.produit || "").trim().toLowerCase();
   const typeFilter = (params.type || "").trim();
+  const typeArticleFilter = (params.type_article || "").trim();
+  const gammeFilter = (params.gamme || "").trim();
   const dateDebutFilter = (params.date_debut || "").trim();
   const dateFinFilter = (params.date_fin || "").trim();
   const moisFilter = (params.mois || "").trim();
   const hasFilters = Boolean(
-    codeFilter || produitFilter || typeFilter || dateDebutFilter || dateFinFilter || moisFilter
+    codeFilter ||
+      produitFilter ||
+      typeFilter ||
+      typeArticleFilter ||
+      gammeFilter ||
+      dateDebutFilter ||
+      dateFinFilter ||
+      moisFilter
   );
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
 
   const allRapports = await fetchAllTestLaboRapports();
   const lignesInfo = await fetchLignesInfo(allRapports.map((r) => r.programme_ligne_id));
+  const articleInfos = await fetchArticleInfos(
+    [...lignesInfo.values()].map((l) => l.article_id).filter((id): id is number => id !== null)
+  );
 
   const allRows = allRapports.map((r) => {
     const ligne = lignesInfo.get(r.programme_ligne_id);
+    const article = ligne?.article_id ? articleInfos.get(ligne.article_id) : undefined;
     return {
       ...r,
       produit: ligne?.produit || "-",
       date: ligne?.date_jour || (r.date_saisie_test_labo ? r.date_saisie_test_labo.slice(0, 10) : ""),
       typeLabel: plateformeLabel(ligne?.plateforme),
+      typeArticleLabel: capitalize(article?.type_article),
+      gammeLabel: article?.gamme?.trim() || "-",
     };
   });
 
   const typeOptions = [...new Set(allRows.map((r) => r.typeLabel).filter((v) => v !== "-"))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
+  const typeArticleOptions = [...new Set(allRows.map((r) => r.typeArticleLabel).filter((v) => v !== "-"))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, id) => ({ id, label }));
+  const gammeOptions = [...new Set(allRows.map((r) => r.gammeLabel).filter((v) => v !== "-"))]
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
     .map((label, id) => ({ id, label }));
   const codeOptions = [...new Set(allRows.map((r) => r.code).filter((v): v is string => !!v))]
@@ -226,6 +292,8 @@ export default async function QualiteRapportPage({
       if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
       if (produitFilter && !matchesArticleSearch(row.produit, produitFilter)) return false;
       if (typeFilter && row.typeLabel !== typeFilter) return false;
+      if (typeArticleFilter && row.typeArticleLabel !== typeArticleFilter) return false;
+      if (gammeFilter && row.gammeLabel !== gammeFilter) return false;
       if (dateDebutFilter && (!row.date || row.date < dateDebutFilter)) return false;
       if (dateFinFilter && (!row.date || row.date > dateFinFilter)) return false;
       if (moisFilter && row.date.slice(0, 7) !== moisFilter) return false;
@@ -253,18 +321,66 @@ export default async function QualiteRapportPage({
   }
   const typeBreakdown = [...countByType.entries()].sort((a, b) => b[1] - a[1]);
 
-  // Tendance par mois (graphique "Tests par mois") - meme filtre que le
-  // reste de la page, triee chronologiquement (le plus ancien a gauche)
-  // pour se lire comme une evolution dans le temps.
-  const countByMonth = new Map<string, number>();
+  // Evolution par mois (graphique multi-courbes) - meme filtre que le reste
+  // de la page, triee chronologiquement (le plus ancien a gauche). 5
+  // series : total, sous derogation, a detruire (statut qualite) + auto,
+  // manuel (plateforme) - toutes en "nombre de preparations", meme axe.
+  const monthKeysSet = new Set<string>();
+  for (const row of rows) {
+    const key = row.date.slice(0, 7);
+    if (key.length === 7) monthKeysSet.add(key);
+  }
+  const monthKeys = [...monthKeysSet].sort((a, b) => a.localeCompare(b));
+
+  const totalByMonth = new Map<string, number>();
+  const sousDerogationByMonth = new Map<string, number>();
+  const aDetruireByMonth = new Map<string, number>();
+  const autoByMonth = new Map<string, number>();
+  const manuelByMonth = new Map<string, number>();
   for (const row of rows) {
     const key = row.date.slice(0, 7);
     if (key.length !== 7) continue;
-    countByMonth.set(key, (countByMonth.get(key) ?? 0) + 1);
+    totalByMonth.set(key, (totalByMonth.get(key) ?? 0) + 1);
+    const decision = decisionLabel(row);
+    if (decision === "Sous derogation") sousDerogationByMonth.set(key, (sousDerogationByMonth.get(key) ?? 0) + 1);
+    if (decision === "A detruire") aDetruireByMonth.set(key, (aDetruireByMonth.get(key) ?? 0) + 1);
+    if (row.typeLabel === "Auto") autoByMonth.set(key, (autoByMonth.get(key) ?? 0) + 1);
+    if (row.typeLabel === "Manuel") manuelByMonth.set(key, (manuelByMonth.get(key) ?? 0) + 1);
   }
-  const monthChartData = [...countByMonth.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([key, count]) => ({ label: moisLabel(key), count }));
+
+  const monthLabels = monthKeys.map((key) => moisLabel(key));
+  const lineChartSeries = [
+    {
+      key: "total",
+      label: "Preparations faites",
+      color: "#0d9488",
+      values: monthKeys.map((key) => totalByMonth.get(key) ?? 0),
+    },
+    {
+      key: "sous_derogation",
+      label: "Sous derogation",
+      color: "#7c3aed",
+      values: monthKeys.map((key) => sousDerogationByMonth.get(key) ?? 0),
+    },
+    {
+      key: "a_detruire",
+      label: "A detruire",
+      color: "#dc2626",
+      values: monthKeys.map((key) => aDetruireByMonth.get(key) ?? 0),
+    },
+    {
+      key: "auto",
+      label: "Auto",
+      color: "#0284c7",
+      values: monthKeys.map((key) => autoByMonth.get(key) ?? 0),
+    },
+    {
+      key: "manuel",
+      label: "Manuel",
+      color: "#d97706",
+      values: monthKeys.map((key) => manuelByMonth.get(key) ?? 0),
+    },
+  ];
 
   const totalRows = rows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
@@ -277,8 +393,11 @@ export default async function QualiteRapportPage({
     if (params.code) qs.set("code", params.code);
     if (params.produit) qs.set("produit", params.produit);
     if (params.type) qs.set("type", params.type);
+    if (params.type_article) qs.set("type_article", params.type_article);
+    if (params.gamme) qs.set("gamme", params.gamme);
     if (params.date_debut) qs.set("date_debut", params.date_debut);
     if (params.date_fin) qs.set("date_fin", params.date_fin);
+    if (params.mois) qs.set("mois", params.mois);
     return `/qualite/rapport?${qs.toString()}`;
   };
 
@@ -308,7 +427,7 @@ export default async function QualiteRapportPage({
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr_auto_auto]">
             <SearchableFilterInput
               name="code"
               placeholder="Code"
@@ -326,6 +445,18 @@ export default async function QualiteRapportPage({
               placeholder="Auto / Manuel"
               defaultValue={params.type || ""}
               options={typeOptions}
+            />
+            <SearchableFilterInput
+              name="type_article"
+              placeholder="Type (clarifiant, hydratant...)"
+              defaultValue={params.type_article || ""}
+              options={typeArticleOptions}
+            />
+            <SearchableFilterInput
+              name="gamme"
+              placeholder="Gamme"
+              defaultValue={params.gamme || ""}
+              options={gammeOptions}
             />
             <select
               name="mois"
@@ -390,7 +521,7 @@ export default async function QualiteRapportPage({
             />
           </div>
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <TestLaboMonthBarChart data={monthChartData} />
+            <TestLaboLineChart months={monthLabels} series={lineChartSeries} />
           </div>
         </section>
 
