@@ -31,16 +31,21 @@ function AttachmentsCell({
   rowId,
   canWrite,
   initialFiles,
-  uploadFilesAction,
+  createUploadSlotAction,
+  confirmUploadAction,
   getFileUrlAction,
   deleteFileAction,
 }: {
   rowId: number | null;
   canWrite: boolean;
   initialFiles: AttachmentFile[];
-  uploadFilesAction: (
+  createUploadSlotAction: (
     rowId: number,
-    formData: FormData
+    fileName: string
+  ) => Promise<{ ok: boolean; message?: string; path?: string; signedUrl?: string }>;
+  confirmUploadAction: (
+    rowId: number,
+    files: AttachmentFile[]
   ) => Promise<{ ok: boolean; message?: string; files?: AttachmentFile[] }>;
   getFileUrlAction: (path: string) => Promise<{ ok: boolean; url?: string; message?: string }>;
   deleteFileAction: (rowId: number, path: string) => Promise<{ ok: boolean; message?: string }>;
@@ -58,17 +63,46 @@ function AttachmentsCell({
   function handleUpload(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
     setError("");
-    const formData = new FormData();
-    for (const file of Array.from(fileList)) formData.append("files", file);
 
     startTransition(async () => {
-      const result = await uploadFilesAction(rowId as number, formData);
-      if (!result.ok) {
-        setError(result.message || "Erreur pendant l'envoi.");
-        return;
+      // Chaque fichier est envoye DIRECTEMENT au stockage Supabase depuis le
+      // navigateur (lien signe obtenu via createUploadSlotAction) plutot que
+      // de passer par une Server Action - les fonctions serveur Vercel
+      // refusent toute requete de plus de 4.5 Mo quel que soit le reglage
+      // Next.js, ce qui bloquait deja les videos et aurait fini par bloquer
+      // aussi les photos les plus lourdes.
+      const uploaded: AttachmentFile[] = [];
+      for (const file of Array.from(fileList)) {
+        const slot = await createUploadSlotAction(rowId as number, file.name);
+        if (!slot.ok || !slot.path || !slot.signedUrl) {
+          setError(slot.message || `Erreur pendant l'envoi de "${file.name}".`);
+          continue;
+        }
+        try {
+          const response = await fetch(slot.signedUrl, {
+            method: "PUT",
+            headers: { "Content-Type": file.type || "application/octet-stream" },
+            body: file,
+          });
+          if (!response.ok) {
+            setError(`Erreur pendant l'envoi de "${file.name}".`);
+            continue;
+          }
+          uploaded.push({ name: file.name, path: slot.path });
+        } catch {
+          setError(`Erreur pendant l'envoi de "${file.name}".`);
+        }
       }
-      setFiles((prev) => [...prev, ...(result.files ?? [])]);
-      setExpanded(true);
+
+      if (uploaded.length > 0) {
+        const result = await confirmUploadAction(rowId as number, uploaded);
+        if (!result.ok) {
+          setError(result.message || "Erreur pendant l'enregistrement.");
+        } else {
+          setFiles((prev) => [...prev, ...uploaded]);
+          setExpanded(true);
+        }
+      }
       if (inputRef.current) inputRef.current.value = "";
     });
   }
@@ -178,7 +212,8 @@ export function AuditTable({
   deleteRowAction,
   attachmentsColumnKey,
   initialAttachments,
-  uploadFilesAction,
+  createUploadSlotAction,
+  confirmUploadAction,
   getFileUrlAction,
   deleteFileAction,
   progressColumnKeys,
@@ -202,9 +237,13 @@ export function AuditTable({
   // Pieces jointes (optionnel) : uniquement sur la colonne attachmentsColumnKey.
   attachmentsColumnKey?: string;
   initialAttachments?: Record<number, AttachmentFile[]>;
-  uploadFilesAction?: (
+  createUploadSlotAction?: (
     rowId: number,
-    formData: FormData
+    fileName: string
+  ) => Promise<{ ok: boolean; message?: string; path?: string; signedUrl?: string }>;
+  confirmUploadAction?: (
+    rowId: number,
+    files: AttachmentFile[]
   ) => Promise<{ ok: boolean; message?: string; files?: AttachmentFile[] }>;
   getFileUrlAction?: (path: string) => Promise<{ ok: boolean; url?: string; message?: string }>;
   deleteFileAction?: (rowId: number, path: string) => Promise<{ ok: boolean; message?: string }>;
@@ -267,46 +306,6 @@ export function AuditTable({
     observer.observe(el);
     return () => observer.disconnect();
   }, [canWrite]);
-
-  // Le cadre lui-meme est aussi colle a la page (sticky), juste sous le
-  // bandeau ERP Rodis global - sinon, des qu'on fait defiler la PAGE assez
-  // pour que le haut du cadre sorte de l'ecran, le titre "collant" a
-  // l'interieur du cadre sort avec lui (il n'est colle qu'a l'interieur du
-  // cadre, pas a l'ecran) et redevient invisible tant qu'on ne remonte pas.
-  // headerOffset = hauteur du bandeau, mesuree dynamiquement (change avec
-  // le niveau de zoom choisi dans "Taille").
-  const [headerOffset, setHeaderOffset] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    let observer: ResizeObserver | null = null;
-    let frame = 0;
-
-    // Le bandeau global peut ne pas encore etre monte au tout premier
-    // passage (ordre d'hydratation en production) - on reessaie a chaque
-    // frame jusqu'a le trouver, sinon headerOffset resterait bloque a 0.
-    function tryAttach() {
-      if (cancelled) return;
-      const header = document.querySelector("header");
-      if (!header) {
-        frame = requestAnimationFrame(tryAttach);
-        return;
-      }
-      setHeaderOffset(header.getBoundingClientRect().height);
-      observer = new ResizeObserver((entries) => {
-        setHeaderOffset(entries[0].contentRect.height);
-      });
-      observer.observe(header);
-    }
-
-    tryAttach();
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frame);
-      observer?.disconnect();
-    };
-  }, []);
 
   function updateCell(key: string, field: string, value: string) {
     rowsRef.current[key] = { ...rowsRef.current[key], [field]: value };
@@ -426,10 +425,8 @@ export function AuditTable({
   }
 
   return (
-    <div
-      style={{ top: headerOffset }}
-      className="sticky z-30 max-h-[75vh] overflow-auto rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]"
-    >
+    <div className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+    <div className="max-h-[75vh] overflow-auto">
       {canWrite ? (
         <div
           ref={toolbarRef}
@@ -457,7 +454,7 @@ export function AuditTable({
         </div>
       ) : null}
 
-      <table className="min-w-full text-left text-sm">
+      <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
           <thead className="bg-slate-50 text-slate-500">
             <tr>
               {columns.map((col) => (
@@ -536,14 +533,16 @@ export function AuditTable({
                             />
                           )}
                           {col.key === attachmentsColumnKey &&
-                          uploadFilesAction &&
+                          createUploadSlotAction &&
+                          confirmUploadAction &&
                           getFileUrlAction &&
                           deleteFileAction ? (
                             <AttachmentsCell
                               rowId={row.id}
                               canWrite={canWrite}
                               initialFiles={(row.id && initialAttachments?.[row.id]) || []}
-                              uploadFilesAction={uploadFilesAction}
+                              createUploadSlotAction={createUploadSlotAction}
+                              confirmUploadAction={confirmUploadAction}
                               getFileUrlAction={getFileUrlAction}
                               deleteFileAction={deleteFileAction}
                             />
@@ -568,14 +567,16 @@ export function AuditTable({
                             row[col.key] || "-"
                           )}
                           {col.key === attachmentsColumnKey &&
-                          uploadFilesAction &&
+                          createUploadSlotAction &&
+                          confirmUploadAction &&
                           getFileUrlAction &&
                           deleteFileAction ? (
                             <AttachmentsCell
                               rowId={row.id}
                               canWrite={canWrite}
                               initialFiles={(row.id && initialAttachments?.[row.id]) || []}
-                              uploadFilesAction={uploadFilesAction}
+                              createUploadSlotAction={createUploadSlotAction}
+                              confirmUploadAction={confirmUploadAction}
                               getFileUrlAction={getFileUrlAction}
                               deleteFileAction={deleteFileAction}
                             />
@@ -619,6 +620,7 @@ export function AuditTable({
           </button>
         </div>
       ) : null}
+    </div>
     </div>
   );
 }

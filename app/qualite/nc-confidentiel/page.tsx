@@ -9,7 +9,8 @@ import { AuditTable, type AuditColumn, type AuditRow, type AttachmentFile } from
 import {
   saveNcConfidentielBatchAction,
   deleteNcConfidentielRowAction,
-  uploadNcConfidentielFilesAction,
+  createNcConfidentielUploadSlotAction,
+  confirmNcConfidentielUploadAction,
   getNcConfidentielFileUrlAction,
   deleteNcConfidentielFileAction,
 } from "./actions";
@@ -231,7 +232,8 @@ export default async function NcConfidentielPage({ searchParams }: { searchParam
           deleteRowAction={deleteNcConfidentielRowAction}
           attachmentsColumnKey="numero"
           initialAttachments={attachments}
-          uploadFilesAction={uploadNcConfidentielFilesAction}
+          createUploadSlotAction={createNcConfidentielUploadSlotAction}
+          confirmUploadAction={confirmNcConfidentielUploadAction}
           getFileUrlAction={getNcConfidentielFileUrlAction}
           deleteFileAction={deleteNcConfidentielFileAction}
           closureSourceKeys={["statut_correction", "statut_ac"]}
