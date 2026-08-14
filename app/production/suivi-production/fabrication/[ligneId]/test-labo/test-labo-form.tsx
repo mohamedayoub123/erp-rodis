@@ -160,6 +160,14 @@ export function TestLaboForm({
     textureNonConforme ||
     Object.values(numericHorsSpec).some(Boolean);
 
+  // Des qu'un parametre est hors spec, le statut affiche/enregistre passe
+  // automatiquement a "Non conforme" tant que l'utilisateur n'a pas choisi
+  // "A recuperer"/"A detruire" lui-meme (valeur derivee au rendu, pas un
+  // effet+setState - ne peut plus laisser "Conforme" alors qu'un parametre
+  // est hors spec).
+  const effectiveDispositionQualite =
+    anyHorsSpec && dispositionQualite === "" ? "non_conforme" : dispositionQualite;
+
   return (
     <div className="grid gap-8">
       <form action={saveTestLaboAction} className="grid gap-6">
@@ -330,17 +338,18 @@ export function TestLaboForm({
           </p>
           <select
             name="disposition_qualite"
-            value={dispositionQualite}
+            value={effectiveDispositionQualite}
             onChange={(e) => setDispositionQualite(e.target.value)}
             className={
-              dispositionQualite === "a_detruire"
+              effectiveDispositionQualite === "a_detruire" || effectiveDispositionQualite === "non_conforme"
                 ? inputClassNonConforme
-                : dispositionQualite === "a_recuperer"
+                : effectiveDispositionQualite === "a_recuperer"
                   ? "rounded-2xl border-2 border-amber-400 bg-amber-50 px-4 py-3 text-sm font-normal text-amber-900 outline-none"
                   : inputClass
             }
           >
             <option value="">Conforme</option>
+            <option value="non_conforme">Non conforme</option>
             <option value="a_recuperer">A recuperer</option>
             <option value="a_detruire">A detruire</option>
           </select>

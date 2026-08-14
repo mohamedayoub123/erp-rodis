@@ -102,12 +102,13 @@ function plateformeLabel(value: string | null | undefined) {
 function dispositionQualiteLabel(value: string | null | undefined) {
   if (value === "a_recuperer") return "A recuperer";
   if (value === "a_detruire") return "A detruire";
+  if (value === "non_conforme") return "Non conforme";
   return "Conforme";
 }
 
 function DispositionBadge({ value }: { value: string | null | undefined }) {
   const className =
-    value === "a_detruire"
+    value === "a_detruire" || value === "non_conforme"
       ? "bg-red-100 text-red-800"
       : value === "a_recuperer"
         ? "bg-amber-100 text-amber-800"
@@ -223,8 +224,8 @@ export default async function QualiteHistoriqueTestLaboPage({
                 Historique Test labo
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Chaque Test labo enregistre, avec toutes les valeurs mesurees (clique "Details" sur une
-                ligne).
+                Chaque Test labo enregistre, avec toutes les valeurs mesurees (clique &quot;Details&quot; sur
+                une ligne).
               </p>
             </div>
 

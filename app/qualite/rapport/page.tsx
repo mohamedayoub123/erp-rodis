@@ -7,6 +7,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { formatDate } from "../../production/suivi/data";
 import { formatDateTime } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { TestLaboPieChart } from "./test-labo-pie-chart";
 
 type RapportRow = {
   id: number;
@@ -85,12 +86,13 @@ function plateformeLabel(value: string | null | undefined) {
 function dispositionQualiteLabel(value: string | null | undefined) {
   if (value === "a_recuperer") return "A recuperer";
   if (value === "a_detruire") return "A detruire";
+  if (value === "non_conforme") return "Non conforme";
   return "Conforme";
 }
 
 function DispositionBadge({ value }: { value: string | null | undefined }) {
   const className =
-    value === "a_detruire"
+    value === "a_detruire" || value === "non_conforme"
       ? "bg-red-100 text-red-800"
       : value === "a_recuperer"
         ? "bg-amber-100 text-amber-800"
@@ -111,6 +113,9 @@ function DispositionBadge({ value }: { value: string | null | undefined }) {
 function decisionLabel(row: { disposition_qualite: string | null; sous_derogation: boolean | null }) {
   if (row.disposition_qualite === "a_detruire") return "A detruire";
   if (row.disposition_qualite === "a_recuperer" || row.sous_derogation) return "Sous derogation";
+  // "Non conforme" auto (parametre hors spec) sans A recuperer/A detruire
+  // choisi ensuite - decision encore en attente.
+  if (row.disposition_qualite === "non_conforme") return "A decider";
   return "-";
 }
 
@@ -121,7 +126,9 @@ function DecisionBadge({ row }: { row: { disposition_qualite: string | null; sou
       ? "bg-red-100 text-red-800"
       : label === "Sous derogation"
         ? "bg-violet-100 text-violet-800"
-        : "bg-slate-100 text-slate-500";
+        : label === "A decider"
+          ? "bg-orange-100 text-orange-800"
+          : "bg-slate-100 text-slate-500";
 
   return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${className}`}>{label}</span>;
 }
@@ -137,6 +144,28 @@ function StatCard({ label, value, className }: { label: string; value: number; c
 
 const PAGE_SIZE = 200;
 
+const MOIS_NOMS = [
+  "Janvier",
+  "Fevrier",
+  "Mars",
+  "Avril",
+  "Mai",
+  "Juin",
+  "Juillet",
+  "Aout",
+  "Septembre",
+  "Octobre",
+  "Novembre",
+  "Decembre",
+];
+
+// "2026-08" -> "Aout 2026" - cle triable telle quelle (ordre chronologique).
+function moisLabel(moisKey: string) {
+  const [year, month] = moisKey.split("-");
+  const index = Number(month) - 1;
+  return `${MOIS_NOMS[index] ?? month} ${year}`;
+}
+
 type SearchParams = Promise<{
   code?: string;
   produit?: string;
@@ -144,6 +173,7 @@ type SearchParams = Promise<{
   page?: string;
   date_debut?: string;
   date_fin?: string;
+  mois?: string;
 }>;
 
 export default async function QualiteRapportPage({
@@ -158,7 +188,10 @@ export default async function QualiteRapportPage({
   const typeFilter = (params.type || "").trim();
   const dateDebutFilter = (params.date_debut || "").trim();
   const dateFinFilter = (params.date_fin || "").trim();
-  const hasFilters = Boolean(codeFilter || produitFilter || typeFilter || dateDebutFilter || dateFinFilter);
+  const moisFilter = (params.mois || "").trim();
+  const hasFilters = Boolean(
+    codeFilter || produitFilter || typeFilter || dateDebutFilter || dateFinFilter || moisFilter
+  );
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
 
   const allRapports = await fetchAllTestLaboRapports();
@@ -183,6 +216,9 @@ export default async function QualiteRapportPage({
   const produitOptions = [...new Set(allRows.map((r) => r.produit).filter((p) => p && p !== "-"))]
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
     .map((label, id) => ({ id, label }));
+  const moisOptions = [...new Set(allRows.map((r) => r.date.slice(0, 7)).filter((m) => m.length === 7))]
+    .sort((a, b) => b.localeCompare(a))
+    .map((key, id) => ({ id, label: moisLabel(key), value: key }));
 
   const rows = allRows
     .filter((row) => {
@@ -191,6 +227,7 @@ export default async function QualiteRapportPage({
       if (typeFilter && row.typeLabel !== typeFilter) return false;
       if (dateDebutFilter && (!row.date || row.date < dateDebutFilter)) return false;
       if (dateFinFilter && (!row.date || row.date > dateFinFilter)) return false;
+      if (moisFilter && row.date.slice(0, 7) !== moisFilter) return false;
       return true;
     })
     .sort((a, b) => (b.date_saisie_test_labo || "").localeCompare(a.date_saisie_test_labo || ""));
@@ -198,14 +235,15 @@ export default async function QualiteRapportPage({
   // Le resume (cartes + repartition par type) porte sur les lignes filtrees
   // (date/produit/code/type), pas sur l'ensemble - pour repondre a "combien
   // sur telle periode / tel produit" sans devoir recompter a la main.
-  // Non conforme = tout ce qui a une decision (A detruire OU Sous
-  // derogation) - "sous derogation" veut dire que le lot etait hors spec,
+  // Non conforme = tout ce qui a une decision (A detruire, Sous derogation,
+  // ou A decider) - "sous derogation" veut dire que le lot etait hors spec,
   // donc non conforme, meme si le statut qualite est reste "Conforme".
   const total = rows.length;
   const decisions = rows.map((r) => decisionLabel(r));
   const aDetruire = decisions.filter((d) => d === "A detruire").length;
   const sousDerogation = decisions.filter((d) => d === "Sous derogation").length;
-  const nonConforme = aDetruire + sousDerogation;
+  const aDecider = decisions.filter((d) => d === "A decider").length;
+  const nonConforme = aDetruire + sousDerogation + aDecider;
   const conforme = total - nonConforme;
 
   const countByType = new Map<string, number>();
@@ -256,7 +294,7 @@ export default async function QualiteRapportPage({
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr_auto_auto]">
             <SearchableFilterInput
               name="code"
               placeholder="Code"
@@ -275,6 +313,18 @@ export default async function QualiteRapportPage({
               defaultValue={params.type || ""}
               options={typeOptions}
             />
+            <select
+              name="mois"
+              defaultValue={params.mois || ""}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              <option value="">Tous les mois</option>
+              {moisOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
             <input
               type="date"
               name="date_debut"
@@ -304,13 +354,21 @@ export default async function QualiteRapportPage({
           </form>
         </section>
 
-        <section className="grid gap-4 sm:grid-cols-3 xl:grid-cols-5">
+        <section className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
           <StatCard label="Preparations" value={total} />
           <StatCard label="Conforme" value={conforme} className="text-emerald-700" />
           <StatCard label="Non conforme" value={nonConforme} className="text-amber-700" />
+          <StatCard label="A decider" value={aDecider} className="text-orange-700" />
           <StatCard label="A detruire" value={aDetruire} className="text-red-700" />
           <StatCard label="Sous derogation" value={sousDerogation} className="text-violet-700" />
         </section>
+
+        <TestLaboPieChart
+          conforme={conforme}
+          aDetruire={aDetruire}
+          sousDerogation={sousDerogation}
+          aDecider={aDecider}
+        />
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <h2 className="mb-3 text-lg font-bold text-slate-900">Par plateforme (Auto / Manuel)</h2>
