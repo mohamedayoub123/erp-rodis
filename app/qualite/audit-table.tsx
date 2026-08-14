@@ -91,7 +91,11 @@ function AttachmentsCell({
       if (win) {
         win.location.href = result.url;
       } else {
-        window.open(result.url, "_blank", "noopener,noreferrer");
+        // Le navigateur a bloque meme l'ouverture de l'onglet vide (arrive
+        // dans certains navigateurs integres/mobiles tres restrictifs) -
+        // plutot que de retenter un window.open (bloque pour la meme
+        // raison), on navigue dans l'onglet actuel : ca marche partout.
+        window.location.href = result.url;
       }
     });
   }
@@ -243,10 +247,10 @@ export function AuditTable({
   // + valeur) sans redessiner tout le tableau (voir rowsRef plus haut).
   const statusSelectRefs = useRef<Record<string, HTMLSelectElement | null>>({});
   // Le tableau vit dans son propre cadre borne (defilement horizontal ET
-  // vertical sur le meme element, voir plus bas) - la barre du haut et
-  // l'entete y restent collantes en permanence, y compris pendant un long
-  // defilement, tout en gardant un defilement horizontal fiable (un seul
-  // conteneur, pas de conflit entre deux defilements imbriques).
+  // vertical sur le meme element) - la barre du haut et l'entete y restent
+  // collantes en permanence pendant un long defilement DANS le cadre, tout
+  // en gardant un defilement horizontal fiable (un seul conteneur, pas de
+  // conflit entre deux defilements imbriques).
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const [toolbarHeight, setToolbarHeight] = useState(0);
 
@@ -263,6 +267,46 @@ export function AuditTable({
     observer.observe(el);
     return () => observer.disconnect();
   }, [canWrite]);
+
+  // Le cadre lui-meme est aussi colle a la page (sticky), juste sous le
+  // bandeau ERP Rodis global - sinon, des qu'on fait defiler la PAGE assez
+  // pour que le haut du cadre sorte de l'ecran, le titre "collant" a
+  // l'interieur du cadre sort avec lui (il n'est colle qu'a l'interieur du
+  // cadre, pas a l'ecran) et redevient invisible tant qu'on ne remonte pas.
+  // headerOffset = hauteur du bandeau, mesuree dynamiquement (change avec
+  // le niveau de zoom choisi dans "Taille").
+  const [headerOffset, setHeaderOffset] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    let observer: ResizeObserver | null = null;
+    let frame = 0;
+
+    // Le bandeau global peut ne pas encore etre monte au tout premier
+    // passage (ordre d'hydratation en production) - on reessaie a chaque
+    // frame jusqu'a le trouver, sinon headerOffset resterait bloque a 0.
+    function tryAttach() {
+      if (cancelled) return;
+      const header = document.querySelector("header");
+      if (!header) {
+        frame = requestAnimationFrame(tryAttach);
+        return;
+      }
+      setHeaderOffset(header.getBoundingClientRect().height);
+      observer = new ResizeObserver((entries) => {
+        setHeaderOffset(entries[0].contentRect.height);
+      });
+      observer.observe(header);
+    }
+
+    tryAttach();
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, []);
 
   function updateCell(key: string, field: string, value: string) {
     rowsRef.current[key] = { ...rowsRef.current[key], [field]: value };
@@ -382,7 +426,10 @@ export function AuditTable({
   }
 
   return (
-    <div className="max-h-[75vh] overflow-auto">
+    <div
+      style={{ top: headerOffset }}
+      className="sticky z-30 max-h-[75vh] overflow-auto rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]"
+    >
       {canWrite ? (
         <div
           ref={toolbarRef}
