@@ -724,27 +724,27 @@ function renderArticleManquantInsideTableau(
                   </colgroup>
                   <thead>
                     <tr>
-                      <th rowSpan={3} className={`sticky top-0 left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium text-slate-950`}>
+                      <th rowSpan={3} className={`sticky top-0 left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium text-slate-950`}>
                         Article
                       </th>
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`status-${column.key}`}
-                          className={`sticky top-0 z-20 border border-slate-700 px-1 py-2 text-center text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
+                          className={`sticky top-0 z-10 border border-slate-700 px-1 py-2 text-center text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
                         >
                           {getStatusLabel(column.statut)}
                         </th>
                       ))}
-                      <th rowSpan={3} className={`sticky top-0 z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={3} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         TOTAL
                       </th>
-                      <th rowSpan={3} className={`sticky top-0 z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={3} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         STOCK
                       </th>
-                      <th rowSpan={3} className={`sticky top-0 z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={3} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         RESTE
                       </th>
-                      <th rowSpan={3} className={`sticky top-0 z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
+                      <th rowSpan={3} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
                         Qt en cours de Conditionnement
                       </th>
                     </tr>
@@ -752,7 +752,7 @@ function renderArticleManquantInsideTableau(
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`client-${column.key}`}
-                          className={`sticky top-[44px] z-10 border border-slate-700 px-1 py-2 text-center text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
+                          className={`sticky top-[75px] z-20 border border-slate-700 px-1 py-2 text-center text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
                         >
                           {column.client || "-"}
                         </th>
@@ -762,7 +762,7 @@ function renderArticleManquantInsideTableau(
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`proforma-${column.key}`}
-                          className={`sticky top-[87px] z-10 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                          className={`sticky top-[150px] z-30 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
                         >
                           {column.numero_proforma || "-"}
                         </th>
@@ -982,18 +982,18 @@ function renderWhiteSecretEmptyTemplate(
               </colgroup>
               <thead>
                 <tr>
-                  <th className="sticky top-0 left-0 z-40 border border-slate-700 bg-white px-3 py-2 text-left text-xl font-medium text-slate-900">
+                  <th className="sticky top-0 left-0 z-50 border border-slate-700 bg-white px-3 py-2 text-left text-xl font-medium text-slate-900">
                     &nbsp;
                   </th>
                   <th
                     colSpan={whiteSecretDataColumns.length + WHITE_SECRET_SUMMARY_COLUMNS.length}
-                    className={`sticky top-0 z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-center text-lg font-medium text-slate-950`}
+                    className={`sticky top-0 z-10 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-center text-lg font-medium text-slate-950`}
                   >
                     White Secret
                   </th>
                 </tr>
                 <tr>
-                  <th className="sticky top-[60px] left-0 z-40 border border-slate-700 bg-[#62ff1b] px-2 py-1 text-center text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
+                  <th className="sticky top-[90px] left-0 z-50 border border-slate-700 bg-[#62ff1b] px-2 py-1 text-center text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
                     &nbsp;
                   </th>
                   {visibleCommandColumns.map((column, index) => {
@@ -1012,7 +1012,7 @@ function renderWhiteSecretEmptyTemplate(
                           : "EN COURS";
 
                     return (
-                    <th key={`white-secret-empty-top-${index}`} className={`sticky top-[60px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 whitespace-normal break-words`}>
+                    <th key={`white-secret-empty-top-${index}`} className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 whitespace-normal break-words`}>
                       <span className={`inline-block rounded-sm px-3 py-1 text-[16px] font-medium uppercase ${badgeClass}`}>
                         {label}
                       </span>
@@ -1022,12 +1022,12 @@ function renderWhiteSecretEmptyTemplate(
                   {WHITE_SECRET_SUMMARY_COLUMNS.map((column) => (
                     <th
                       key={`white-secret-summary-top-${column}`}
-                      className={`sticky top-[60px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`}
+                      className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`}
                     />
                   ))}
                 </tr>
                 <tr>
-                  <th className={`sticky top-[117px] left-0 z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-3 font-medium text-slate-950`}>
+                  <th className={`sticky top-[180px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-3 font-medium text-slate-950`}>
                     Client
                   </th>
                   {visibleCommandColumns.map((column) => {
@@ -1042,7 +1042,7 @@ function renderWhiteSecretEmptyTemplate(
                     return (
                       <th
                         key={`white-secret-client-${column.key}`}
-                        className={`sticky top-[117px] z-20 border border-slate-700 px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${clientClass}`}
+                        className={`sticky top-[180px] z-12 border border-slate-700 px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${clientClass}`}
                       >
                         {column.client || "\u00A0"}
                       </th>
@@ -1052,7 +1052,7 @@ function renderWhiteSecretEmptyTemplate(
                     <th
                       key={`white-secret-summary-header-${column}`}
                         className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950 ${
-                          index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[117px] right-0 z-30" : "sticky top-[117px] z-20"
+                          index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[180px] right-0 z-13" : "sticky top-[180px] z-12"
                         }`}
                     >
                       {column}
@@ -1060,13 +1060,13 @@ function renderWhiteSecretEmptyTemplate(
                   ))}
                 </tr>
                 <tr>
-                  <th className={`sticky top-[175px] left-0 z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
+                  <th className={`sticky top-[270px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
                     NOMBRE DE CAMION
                   </th>
                   {visibleCommandColumns.map((column) => (
                     <th
                       key={`white-secret-camions-${column.key}`}
-                      className={`sticky top-[175px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
+                      className={`sticky top-[270px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
                     >
                       {formatTruckCount(column.nombre_camion)}
                     </th>
@@ -1074,18 +1074,18 @@ function renderWhiteSecretEmptyTemplate(
                   {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
                     <th
                       key={`white-secret-summary-camions-${column}`}
-                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[175px] right-0 z-30" : "sticky top-[175px] z-20"}`}
+                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[270px] right-0 z-14" : "sticky top-[270px] z-13"}`}
                     />
                   ))}
                 </tr>
                 <tr>
-                  <th className={`sticky top-[222px] left-0 z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
+                  <th className={`sticky top-[360px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
                     tC
                   </th>
                   {visibleCommandColumns.map((column) => (
                     <th
                       key={`white-secret-tc-${column.key}`}
-                      className={`sticky top-[222px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
+                      className={`sticky top-[360px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
                     >
                       {column.mode_chargement || "\u00A0"}
                     </th>
@@ -1093,18 +1093,18 @@ function renderWhiteSecretEmptyTemplate(
                   {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
                     <th
                       key={`white-secret-summary-tc-${column}`}
-                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[222px] right-0 z-30" : "sticky top-[222px] z-20"}`}
+                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[360px] right-0 z-15" : "sticky top-[360px] z-14"}`}
                     />
                   ))}
                 </tr>
                 <tr>
-                  <th className={`sticky top-[270px] left-0 z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
+                  <th className={`sticky top-[450px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
                     Proforma #
                   </th>
                   {visibleCommandColumns.map((column) => (
                     <th
                       key={`white-secret-proforma-${column.key}`}
-                      className={`sticky top-[270px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                      className={`sticky top-[450px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
                     >
                       {column.numero_proforma || "\u00A0"}
                     </th>
@@ -1112,7 +1112,7 @@ function renderWhiteSecretEmptyTemplate(
                   {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
                     <th
                       key={`white-secret-summary-proforma-${column}`}
-                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[270px] right-0 z-30" : "sticky top-[270px] z-20"}`}
+                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[450px] right-0 z-16" : "sticky top-[450px] z-15"}`}
                     />
                   ))}
                 </tr>
@@ -1292,18 +1292,18 @@ function renderGenericFamilyTemplate(
               </colgroup>
               <thead>
                 <tr>
-                  <th className="sticky top-0 left-0 z-40 border border-slate-700 bg-white px-3 py-2 text-left text-xl font-medium text-slate-900">
+                  <th className="sticky top-0 left-0 z-50 border border-slate-700 bg-white px-3 py-2 text-left text-xl font-medium text-slate-900">
                     {formatDateCell(new Date())}
                   </th>
                   <th
                     colSpan={Math.max(commandColumns.length, 1) + 4}
-                    className={`sticky top-0 z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-center text-lg font-medium text-slate-950`}
+                    className={`sticky top-0 z-10 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-center text-lg font-medium text-slate-950`}
                   >
                     {selectedFamille}
                   </th>
                 </tr>
                 <tr>
-                  <th className="sticky top-[60px] left-0 z-40 border border-slate-700 bg-[#62ff1b] px-2 py-1 text-center text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
+                  <th className="sticky top-[90px] left-0 z-50 border border-slate-700 bg-[#62ff1b] px-2 py-1 text-center text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
                     &nbsp;
                   </th>
                   {commandColumns.length > 0 ? (
@@ -1311,7 +1311,7 @@ function renderGenericFamilyTemplate(
                       return (
                         <th
                           key={`status-${column.key}`}
-                          className={`sticky top-[60px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 whitespace-normal break-words`}
+                          className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 whitespace-normal break-words`}
                         >
                           <span
                             className={`inline-block rounded-sm px-3 py-1 text-[16px] font-medium uppercase ${getStatusCellClass(column.statut)}`}
@@ -1322,104 +1322,104 @@ function renderGenericFamilyTemplate(
                       );
                     })
                   ) : (
-                    <th className={`sticky top-[60px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
-                  <th className={`sticky top-[60px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
-                  <th className={`sticky top-[60px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
-                  <th className={`sticky top-[60px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
-                  <th className={`sticky top-[60px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
+                  <th className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
+                  <th className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
+                  <th className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
+                  <th className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
                 </tr>
                 <tr>
-                  <th className={`sticky top-[117px] left-0 z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-3 font-medium text-slate-950`}>
+                  <th className={`sticky top-[180px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-3 font-medium text-slate-950`}>
                     Client
                   </th>
                   {commandColumns.length > 0 ? (
                     visibleCommandColumns.map((column) => (
                       <th
                         key={`client-${column.key}`}
-                        className={`sticky top-[117px] z-20 border border-slate-700 px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
+                        className={`sticky top-[180px] z-12 border border-slate-700 px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
                       >
                         {column.client || "\u00A0"}
                       </th>
                     ))
                   ) : (
-                    <th className={`sticky top-[117px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-3`} />
+                    <th className={`sticky top-[180px] z-12 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-3`} />
                   )}
-                  <th className={`sticky top-[117px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
+                  <th className={`sticky top-[180px] z-12 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
                     TOTAL
                   </th>
-                  <th className={`sticky top-[117px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
+                  <th className={`sticky top-[180px] z-12 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
                     STOCK
                   </th>
-                  <th className={`sticky top-[117px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
+                  <th className={`sticky top-[180px] z-12 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
                     RESTE
                   </th>
-                  <th className={`sticky top-[117px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
+                  <th className={`sticky top-[180px] z-12 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
                     Qt en cours de Conditionnement
                   </th>
                 </tr>
                 <tr>
-                  <th className={`sticky top-[175px] left-0 z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
+                  <th className={`sticky top-[270px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
                     NOMBRE DE CAMION
                   </th>
                   {commandColumns.length > 0 ? (
                     visibleCommandColumns.map((column) => (
                       <th
                         key={`truck-${column.key}`}
-                        className={`sticky top-[175px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
+                        className={`sticky top-[270px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
                       >
                         {formatTruckCount(column.nombre_camion)}
                       </th>
                     ))
                   ) : (
-                    <th className={`sticky top-[175px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`sticky top-[270px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
-                  <th className={`sticky top-[175px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[175px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[175px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[175px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[270px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[270px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[270px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[270px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                 </tr>
                 <tr>
-                  <th className={`sticky top-[222px] left-0 z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
+                  <th className={`sticky top-[360px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
                     tC
                   </th>
                   {commandColumns.length > 0 ? (
                     visibleCommandColumns.map((column) => (
                       <th
                         key={`tc-${column.key}`}
-                        className={`sticky top-[222px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
+                        className={`sticky top-[360px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
                       >
                         {column.mode_chargement || "\u00A0"}
                       </th>
                     ))
                   ) : (
-                    <th className={`sticky top-[222px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`sticky top-[360px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
-                  <th className={`sticky top-[222px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[222px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[222px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[222px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[360px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[360px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[360px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[360px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                 </tr>
                 <tr>
-                  <th className={`sticky top-[270px] left-0 z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
+                  <th className={`sticky top-[450px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
                     Proforma #
                   </th>
                   {commandColumns.length > 0 ? (
                     visibleCommandColumns.map((column) => (
                       <th
                         key={`proforma-${column.key}`}
-                        className={`sticky top-[270px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                        className={`sticky top-[450px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
                       >
                         {column.numero_proforma || "-"}
                       </th>
                     ))
                   ) : (
-                    <th className={`sticky top-[270px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`sticky top-[450px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
-                  <th className={`sticky top-[270px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[270px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[270px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[270px] z-20 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[450px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[450px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[450px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`sticky top-[450px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                 </tr>
               </thead>
               <tbody>
@@ -2642,89 +2642,89 @@ export default async function TableauCommandesPage({
             <table className="min-w-[2200px] w-full border-separate border-spacing-0 text-center text-[16px]">
               <thead>
                 <tr>
-                  <th className="sticky top-0 left-0 z-40 border border-slate-700 bg-white px-3 py-2 text-left font-medium text-slate-900">
+                  <th className="sticky top-0 left-0 z-50 border border-slate-700 bg-white px-3 py-2 text-left font-medium text-slate-900">
                     {formatDateCell(new Date())}
                   </th>
                   <th
                     colSpan={displayCommandColumns.length + 3}
-                    className="sticky top-0 z-20 border border-slate-700 bg-[#14989d] px-3 py-2 text-center text-lg font-medium text-slate-950"
+                    className="sticky top-0 z-10 border border-slate-700 bg-[#14989d] px-3 py-2 text-center text-lg font-medium text-slate-950"
                   >
                     {selectedFamille}
                   </th>
                 </tr>
                 <tr>
-                  <th className="sticky top-[61px] left-0 z-40 border border-slate-700 bg-[#62ff1b] px-3 py-3 text-left text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
+                  <th className="sticky top-[90px] left-0 z-50 border border-slate-700 bg-[#62ff1b] px-3 py-3 text-left text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
                     Tableau commandes
                   </th>
                   {displayCommandColumns.map((column) => (
-                    <th key={`status-${column.key}`} className="sticky top-[61px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2">
+                    <th key={`status-${column.key}`} className="sticky top-[90px] z-11 border border-slate-700 bg-[#14989d] px-2 py-2">
                       <span className="text-[16px] font-medium uppercase text-slate-950">
                         {column.mode_chargement.toLowerCase().includes("stand") ? "STAND" : ""}
                       </span>
                     </th>
                   ))}
-                  <th className="sticky top-[61px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
+                  <th className="sticky top-[90px] z-11 border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
                     TOTAL
                   </th>
-                  <th className="sticky top-[61px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
+                  <th className="sticky top-[90px] z-11 border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
                     STOCK
                   </th>
-                  <th className="sticky top-[61px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
+                  <th className="sticky top-[90px] z-11 border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
                     RESTE
                   </th>
                 </tr>
                 <tr>
-                  <th className="sticky top-[116px] left-0 z-40 border border-slate-700 bg-[#14989d] px-3 py-3 font-medium text-slate-950">
+                  <th className="sticky top-[180px] left-0 z-50 border border-slate-700 bg-[#14989d] px-3 py-3 font-medium text-slate-950">
                     Client
                   </th>
                   {displayCommandColumns.map((column) => (
                     <th
                       key={`client-${column.key}`}
-                      className="sticky top-[116px] z-20 border border-slate-700 bg-[#14989d] px-2 py-3 text-[16px] font-medium uppercase text-slate-950"
+                      className="sticky top-[180px] z-12 border border-slate-700 bg-[#14989d] px-2 py-3 text-[16px] font-medium uppercase text-slate-950"
                     >
                       {column.client || "-"}
                     </th>
                   ))}
-                  <th className="sticky top-[116px] z-20 border border-slate-700 bg-[#14989d] px-2 py-3" />
-                  <th className="sticky top-[116px] z-20 border border-slate-700 bg-[#14989d] px-2 py-3" />
-                  <th className="sticky top-[116px] z-20 border border-slate-700 bg-[#14989d] px-2 py-3" />
+                  <th className="sticky top-[180px] z-12 border border-slate-700 bg-[#14989d] px-2 py-3" />
+                  <th className="sticky top-[180px] z-12 border border-slate-700 bg-[#14989d] px-2 py-3" />
+                  <th className="sticky top-[180px] z-12 border border-slate-700 bg-[#14989d] px-2 py-3" />
                 </tr>
                 <tr>
-                  <th className="sticky top-[174px] left-0 z-40 border border-slate-700 bg-[#14989d] px-3 py-2 font-medium uppercase text-slate-950">
+                  <th className="sticky top-[270px] left-0 z-50 border border-slate-700 bg-[#14989d] px-3 py-2 font-medium uppercase text-slate-950">
                     Nombre de camion / tc
                   </th>
                   {displayCommandColumns.map((column) => (
                     <th
                       key={`truck-${column.key}`}
-                      className="sticky top-[174px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium uppercase text-slate-950"
+                      className="sticky top-[270px] z-13 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium uppercase text-slate-950"
                     >
                       <div>{formatTruckCount(column.nombre_camion)}</div>
                       <div>{column.mode_chargement || ""}</div>
                     </th>
                   ))}
-                  <th className="sticky top-[174px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2" />
-                  <th className="sticky top-[174px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2" />
-                  <th className="sticky top-[174px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2" />
+                  <th className="sticky top-[270px] z-13 border border-slate-700 bg-[#14989d] px-2 py-2" />
+                  <th className="sticky top-[270px] z-13 border border-slate-700 bg-[#14989d] px-2 py-2" />
+                  <th className="sticky top-[270px] z-13 border border-slate-700 bg-[#14989d] px-2 py-2" />
                 </tr>
                 <tr>
-                  <th className="sticky top-[245px] left-0 z-40 border border-slate-700 bg-[#14989d] px-3 py-2 font-medium text-slate-950">
+                  <th className="sticky top-[360px] left-0 z-50 border border-slate-700 bg-[#14989d] px-3 py-2 font-medium text-slate-950">
                     Proforma #
                   </th>
                   {displayCommandColumns.map((column) => (
                     <th
                       key={`proforma-${column.key}`}
-                      className="sticky top-[245px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950"
+                      className="sticky top-[360px] z-14 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950"
                     >
                       {column.numero_proforma || "-"}
                     </th>
                   ))}
-                  <th className="sticky top-[245px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
+                  <th className="sticky top-[360px] z-14 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
                     TOTAL
                   </th>
-                  <th className="sticky top-[245px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
+                  <th className="sticky top-[360px] z-14 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
                     STOCK
                   </th>
-                  <th className="sticky top-[245px] z-20 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
+                  <th className="sticky top-[360px] z-14 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
                     RESTE
                   </th>
                 </tr>
