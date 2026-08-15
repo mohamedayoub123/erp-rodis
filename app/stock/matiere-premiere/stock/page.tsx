@@ -8,7 +8,6 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDate, formatDateTime } from "@/lib/format-date";
-import { matchesArticleSearch } from "@/lib/article-search";
 import {
   deleteLotFromEntreeMpDetailAction,
   deleteLotFromSortieMpDetailAction,
@@ -24,88 +23,36 @@ import { encodeDossierId } from "../commande/dossier-id";
 
 const PAGE_SIZE = 200;
 
-type MouvementRow = {
+type DisplayRow = {
+  display_key: string;
   id: number;
   article_id: number | null;
+  nom_article: string | null;
+  gamme: string | null;
+  categorie: string | null;
+  mouvement_type: "entree" | "sortie";
   numero_lot: string | null;
   code_normalise: string | null;
+  unite: string | null;
   date_fabrication: string | null;
   date_expiration: string | null;
   date_jour: string | null;
   qte_entree: number;
   qte_sortie: number;
-  unite: string | null;
+  stock_code: number;
+  stock_article: number;
   fournisseur: string | null;
   client: string | null;
   n_doss_erp: string | null;
   n_doss_4d: string | null;
-  utilisateur: string | null;
-  note: string | null;
   mouvement_groupe_id: number | null;
+  note: string | null;
+  utilisateur: string | null;
   created_at: string | null;
-  articles_matiere_premiere: {
-    nom_article: string;
-    gamme: string | null;
-    categorie: string | null;
-  } | null;
+  total_rows: number;
+  total_entree_visible: number;
+  total_sortie_visible: number;
 };
-
-type DisplayRow = MouvementRow & {
-  display_key: string;
-  mouvement_type: "entree" | "sortie";
-  stock_code: number;
-  stock_article: number;
-};
-
-const MOUVEMENTS_MP_COLUMNS =
-  "id, article_id, numero_lot, code_normalise, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, utilisateur, note, mouvement_groupe_id, created_at, articles_matiere_premiere(nom_article, gamme, categorie)";
-
-// La table complete (~40 000 lignes avec l'historique Excel) etait
-// rapatriee via une boucle .range() SEQUENTIELLE (une requete attend la
-// precedente) - jusqu'a 40 allers-retours reseau l'un apres l'autre avant
-// meme de commencer a filtrer, la vraie cause de lenteur de cette page.
-// Un premier compte (head:true, pas de donnees) donne le nombre de pages a
-// lire, puis toutes les pages sont demandees EN PARALLELE via Promise.all -
-// meme volume de donnees, meme resultat, juste sans attendre chaque page
-// l'une apres l'autre.
-async function fetchAllMouvements() {
-  const pageSize = 1000;
-
-  const { count, error: countError } = await supabaseServer
-    .from("lots_stock_matiere_premiere")
-    .select("id", { count: "exact", head: true });
-
-  if (countError) {
-    return { rows: [] as MouvementRow[], error: countError };
-  }
-
-  const pageCount = Math.max(1, Math.ceil((count ?? 0) / pageSize));
-
-  const pages = await Promise.all(
-    Array.from({ length: pageCount }, (_, index) => {
-      const from = index * pageSize;
-      return supabaseServer
-        .from("lots_stock_matiere_premiere")
-        .select(MOUVEMENTS_MP_COLUMNS)
-        .order("id", { ascending: false })
-        .range(from, from + pageSize - 1);
-    })
-  );
-
-  const rows: MouvementRow[] = [];
-  for (const page of pages) {
-    if (page.error) {
-      return { rows, error: page.error };
-    }
-    rows.push(...((page.data as unknown as MouvementRow[] | null) ?? []));
-  }
-
-  return { rows, error: null };
-}
-
-function buildCodeKey(articleId: number | null, numeroLot: string | null | undefined) {
-  return `${articleId ?? 0}::${String(numeroLot || "").trim().toUpperCase()}`;
-}
 
 function parseMonthValue(value: string) {
   const month = Number(value || "0");
@@ -155,25 +102,47 @@ export default async function StockMatierePremiereStockPage({
   const hideZeroStock = (params.hide_zero || "").trim() === "1";
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const from = (currentPage - 1) * PAGE_SIZE;
-  const to = from + PAGE_SIZE - 1;
 
-  const [{ rows: rawRows, error }, { data: articleSuggestionsData }, webSourceRows] = await Promise.all([
-    fetchAllMouvements(),
+  const [
+    { data: rowsData, error },
+    { data: articleSuggestionsData },
+    { data: yearsData },
+    { data: codesData },
+    webSourceRows,
+  ] = await Promise.all([
+    supabaseServer.rpc("stock_mp_display_rows", {
+      p_article_q: q || null,
+      p_code_q: codeQ || null,
+      p_date_from: dateFrom || null,
+      p_date_to: dateTo || null,
+      p_month_from: monthFrom || null,
+      p_month_to: monthTo || null,
+      p_year: selectedYear || null,
+      p_hide_zero: hideZeroStock,
+      p_limit: PAGE_SIZE,
+      p_offset: from,
+    }),
     supabaseServer
       .from("articles_matiere_premiere")
       .select("nom_article")
       .order("nom_article", { ascending: true })
       .limit(5000),
+    supabaseServer.rpc("stock_mp_available_years"),
+    supabaseServer.rpc("stock_mp_available_codes"),
     fetchWebMouvementMpSourceRows(),
   ]);
+
+  const pagedRows = (rowsData as DisplayRow[] | null) ?? [];
 
   const articleSuggestions = ((articleSuggestionsData as { nom_article: string }[] | null) ?? []).map(
     (article) => article.nom_article
   );
   const articleOptions = articleSuggestions.map((label, id) => ({ id, label }));
-  const codeOptions = [...new Set(rawRows.map((row) => (row.numero_lot || "").trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
-    .map((label, id) => ({ id, label }));
+  const availableYears = ((yearsData as { year: number }[] | null) ?? []).map((row) => row.year);
+  const codeOptions = ((codesData as { code: string }[] | null) ?? []).map((row, id) => ({
+    id,
+    label: row.code,
+  }));
 
   // Code TE/TS (meme numerotation que la page Mouvements MP) par
   // mouvement_groupe_id, pour pouvoir renvoyer directement vers le
@@ -186,109 +155,10 @@ export default async function StockMatierePremiereStockPage({
     mouvementCodeByGroupe.set(group.groupe_id, { code: group.code, type: "sortie" });
   }
 
-  // Meme calcul que /stock (PF) : chaque ligne du grand livre est affichee
-  // separement en entree OU en sortie (jamais les deux sur la meme ligne),
-  // "stock code" = somme entree-sortie de tout le lot, "stock article" =
-  // solde cumulatif de l'article au fil des mouvements (ordre chronologique).
-  const displaySourceRows = rawRows.flatMap((row) => {
-    const rows: MouvementRow[] = [];
-    if (Number(row.qte_entree ?? 0) > 0) rows.push({ ...row, qte_sortie: 0 });
-    if (Number(row.qte_sortie ?? 0) > 0) rows.push({ ...row, qte_entree: 0 });
-    if (rows.length === 0) rows.push(row);
-    return rows;
-  });
-
-  const stockCodeTotals = new Map<string, number>();
-  for (const row of displaySourceRows) {
-    const key = buildCodeKey(row.article_id, row.numero_lot || row.code_normalise);
-    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-    stockCodeTotals.set(key, Number(stockCodeTotals.get(key) ?? 0) + mouvement);
-  }
-
-  // date_jour est une colonne Postgres "date" (pas "timestamp"), toujours
-  // servie par PostgREST au format ISO "AAAA-MM-JJ" sans heure - une simple
-  // comparaison de chaines trie exactement comme new Date(...).getTime(),
-  // mais sans l'allocation d'un objet Date par comparaison. Sur ~40 000
-  // lignes tirees deux fois (les deux .sort() ci-dessous), c'etait devenu le
-  // vrai goulot d'etranglement de cette page une fois le reseau parallelise.
-  const runningStockByArticle = new Map<number, number>();
-  const rowsWithStock = [...displaySourceRows]
-    .sort((a, b) => {
-      const dateA = a.date_jour || "";
-      const dateB = b.date_jour || "";
-      if (dateA !== dateB) return dateA < dateB ? -1 : 1;
-      // A date egale, une entree precede toujours une sortie : sinon le
-      // solde cumulatif peut passer par une valeur negative artificielle
-      // le temps d'une seule journee, meme quand le stock reel ne l'a
-      // jamais ete (l'id ne reflete pas l'ordre reel des mouvements).
-      const entreeA = Number(a.qte_entree ?? 0) > 0 ? 0 : 1;
-      const entreeB = Number(b.qte_entree ?? 0) > 0 ? 0 : 1;
-      if (entreeA !== entreeB) return entreeA - entreeB;
-      return a.id - b.id;
-    })
-    .map((row): DisplayRow => {
-      const previousArticle = row.article_id ? runningStockByArticle.get(row.article_id) ?? 0 : 0;
-      const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-      const stockCode = Number(
-        stockCodeTotals.get(buildCodeKey(row.article_id, row.numero_lot || row.code_normalise)) ?? 0
-      );
-      const stockArticle = previousArticle + mouvement;
-
-      if (row.article_id) runningStockByArticle.set(row.article_id, stockArticle);
-
-      return {
-        ...row,
-        display_key: `${row.id}-${Number(row.qte_entree ?? 0) > 0 ? "entree" : "sortie"}`,
-        mouvement_type: Number(row.qte_entree ?? 0) > 0 ? "entree" : "sortie",
-        stock_code: stockCode,
-        stock_article: stockArticle,
-      };
-    })
-    .sort((a, b) => {
-      const dateA = a.date_jour || "";
-      const dateB = b.date_jour || "";
-      if (dateB !== dateA) return dateB < dateA ? -1 : 1;
-      return b.id - a.id;
-    });
-
-  const availableYears = [
-    ...new Set(
-      rowsWithStock
-        .map((row) => (row.date_jour ? Number(row.date_jour.slice(0, 4)) : 0))
-        .filter((year) => year > 0)
-    ),
-  ].sort((a, b) => b - a);
-
-  const filteredRows = rowsWithStock.filter((row) => {
-    if (hideZeroStock && row.stock_code <= 0) return false;
-    if (q && !matchesArticleSearch(row.articles_matiere_premiere?.nom_article, q)) return false;
-    if (codeQ && !String(row.numero_lot || "").toLowerCase().includes(codeQ)) return false;
-
-    if (!row.date_jour) {
-      return !dateFrom && !dateTo && !monthFrom && !monthTo && !selectedYear;
-    }
-
-    // row.date_jour, dateFrom et dateTo sont tous au format ISO "AAAA-MM-JJ"
-    // (colonne Postgres "date" / <input type="date">) - comparaison de
-    // chaines directe, meme resultat qu'avec new Date(...).getTime() mais
-    // sans creer un objet Date par ligne filtree.
-    const rowMonth = Number(row.date_jour.slice(5, 7));
-    const rowYear = Number(row.date_jour.slice(0, 4));
-
-    if (dateFrom && row.date_jour < dateFrom) return false;
-    if (dateTo && row.date_jour > dateTo) return false;
-    if (selectedYear && rowYear !== selectedYear) return false;
-    if (monthFrom && rowMonth < monthFrom) return false;
-    if (monthTo && rowMonth > monthTo) return false;
-
-    return true;
-  });
-
-  const totalRows = filteredRows.length;
+  const totalRows = pagedRows[0]?.total_rows ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
-  const pagedRows = filteredRows.slice(from, to + 1);
-  const totalEntree = pagedRows.reduce((sum, row) => sum + Number(row.qte_entree ?? 0), 0);
-  const totalSortie = pagedRows.reduce((sum, row) => sum + Number(row.qte_sortie ?? 0), 0);
+  const totalEntree = pagedRows[0]?.total_entree_visible ?? 0;
+  const totalSortie = pagedRows[0]?.total_sortie_visible ?? 0;
 
   function buildPageHref(page: number) {
     const search = new URLSearchParams();
@@ -467,7 +337,7 @@ export default async function StockMatierePremiereStockPage({
                     <tr key={row.display_key} className="border-t border-slate-100">
                       <td className="px-4 py-3 text-xs text-slate-600">{formatDate(row.date_jour)}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">
-                        {row.articles_matiere_premiere?.nom_article || "-"}
+                        {row.nom_article || "-"}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
                         {row.mouvement_type === "entree" ? "Entree" : "Sortie"}
@@ -493,10 +363,10 @@ export default async function StockMatierePremiereStockPage({
                         })()}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
-                        {row.articles_matiere_premiere?.categorie || "-"}
+                        {row.categorie || "-"}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
-                        {row.articles_matiere_premiere?.gamme || "-"}
+                        {row.gamme || "-"}
                       </td>
                       <td className="px-4 py-3 text-slate-600">{row.numero_lot || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.unite || "-"}</td>
