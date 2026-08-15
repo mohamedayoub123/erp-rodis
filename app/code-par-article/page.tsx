@@ -140,14 +140,14 @@ export default async function CodeParArticlePage({
             codeManuOptions={codeManuOptions}
           />
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
+          <div className="max-h-[75vh] overflow-auto">
+            <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+              <thead className="bg-slate-50 text-slate-950">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Article</th>
-                  <th className="px-4 py-3 font-semibold">Gamme</th>
-                  <th className="px-4 py-3 font-semibold">Code auto</th>
-                  <th className="px-4 py-3 font-semibold">Code manuel</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Article</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Gamme</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Code auto</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Code manuel</th>
                 </tr>
               </thead>
               <tbody>
