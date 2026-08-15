@@ -344,18 +344,18 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
               {hasFilters ? "Aucun resultat pour ce filtre." : "Aucun import pour le moment."}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+            <div className="max-h-[75vh] overflow-auto">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="bg-slate-50 text-slate-950">
                   <tr>
-                    <th className="px-6 py-4 font-semibold">Doss. 4D</th>
-                    <th className="px-6 py-4 font-semibold">Doss. ERP</th>
-                    <th className="px-6 py-4 font-semibold">Nb articles</th>
-                    <th className="px-6 py-4 font-semibold">Qte importee</th>
-                    <th className="px-6 py-4 font-semibold">Date recente</th>
-                    <th className="px-6 py-4 font-semibold">Statut</th>
-                    <th className="px-6 py-4 font-semibold">Date prevue reception</th>
-                    {canEdit || canDelete ? <th className="px-6 py-4 font-semibold">Action</th> : null}
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Doss. 4D</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Doss. ERP</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Nb articles</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Qte importee</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Date recente</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Statut</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Date prevue reception</th>
+                    {canEdit || canDelete ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
                 <tbody>
