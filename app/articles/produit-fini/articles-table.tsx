@@ -210,38 +210,38 @@ export function ArticlesProduitFiniTable({
           {hasFilters ? "Aucun resultat pour ce filtre." : "Aucun article trouve pour le moment."}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
+        <div className="max-h-[75vh] overflow-auto">
+          <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+            <thead className="bg-slate-50 text-slate-950">
               <tr>
-                <th className="px-6 py-4 font-semibold">Article</th>
-                <th className="px-6 py-4 font-semibold">Type</th>
-                <th className="px-6 py-4 font-semibold">Marque</th>
-                <th className="px-6 py-4 font-semibold">Gamme</th>
-                <th className="px-6 py-4 font-semibold">Nature</th>
-                <th className="px-6 py-4 font-semibold">Min</th>
-                <th className="px-6 py-4 font-semibold">Max</th>
-                <th className="px-6 py-4 font-semibold">Volume unitaire</th>
-                <th className="px-6 py-4 font-semibold">Volume stockage</th>
-                <th className="px-6 py-4 font-semibold">Contenance</th>
-                <th className="px-6 py-4 font-semibold">Cadence</th>
-                <th className="px-6 py-4 font-semibold">Nb carton par vrac</th>
-                <th className="px-6 py-4 font-semibold">Max prod vrac 8h</th>
-                <th className="px-6 py-4 font-semibold">Nb piece par max vrac</th>
-                <th className="px-6 py-4 font-semibold">Piece par carton</th>
-                <th className="px-6 py-4 font-semibold">Min vrac</th>
-                <th className="px-6 py-4 font-semibold">Max vrac auto</th>
-                <th className="px-6 py-4 font-semibold">Vrac max manuel</th>
-                <th className="px-6 py-4 font-semibold">Dispenseur pcs/carton</th>
-                <th className="px-6 py-4 font-semibold">Pot/flacon</th>
-                <th className="px-6 py-4 font-semibold">Capsule</th>
-                <th className="px-6 py-4 font-semibold">Sleeve</th>
-                <th className="px-6 py-4 font-semibold">Dispenseur</th>
-                <th className="px-6 py-4 font-semibold">Carton</th>
-                <th className="px-6 py-4 font-semibold">Etiquette</th>
-                <th className="px-6 py-4 font-semibold">Etui</th>
-                {canEditArticles ? <th className="px-6 py-4 font-semibold">Modifier</th> : null}
-                {canDeleteArticles ? <th className="px-6 py-4 font-semibold">Supprimer</th> : null}
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Marque</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Nature</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Min</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Max</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Volume unitaire</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Volume stockage</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Contenance</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Cadence</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Nb carton par vrac</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Max prod vrac 8h</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Nb piece par max vrac</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Piece par carton</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Min vrac</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Max vrac auto</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Vrac max manuel</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Dispenseur pcs/carton</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Pot/flacon</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Capsule</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Sleeve</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Dispenseur</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Carton</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Etiquette</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Etui</th>
+                {canEditArticles ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Modifier</th> : null}
+                {canDeleteArticles ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Supprimer</th> : null}
               </tr>
             </thead>
             <tbody>

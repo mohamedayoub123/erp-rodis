@@ -583,29 +583,29 @@ export default async function StockPage({
           ) : pagedRows.length === 0 ? (
             <div className="p-6 text-sm text-slate-500">Aucune ligne stock trouvee.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+            <div className="max-h-[75vh] overflow-auto">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="bg-slate-50 text-slate-950">
                   <tr>
-                    <th className="px-4 py-3 font-semibold">Date</th>
-                    <th className="px-4 py-3 font-semibold">Article</th>
-                    <th className="px-4 py-3 font-semibold">Type</th>
-                    <th className="px-4 py-3 font-semibold">Gamme</th>
-                    <th className="px-4 py-3 font-semibold">Lot</th>
-                    <th className="px-4 py-3 font-semibold">Date fab.</th>
-                    <th className="px-4 py-3 font-semibold">Entree</th>
-                    <th className="px-4 py-3 font-semibold">Sortie</th>
-                    <th className="px-4 py-3 font-semibold">Stock code</th>
-                    <th className="px-4 py-3 font-semibold">Stock article</th>
-                    <th className="px-4 py-3 font-semibold">Chambre</th>
-                    <th className="px-4 py-3 font-semibold">Code pays</th>
-                    <th className="px-4 py-3 font-semibold">Code sortie</th>
-                    <th className="px-4 py-3 font-semibold">Client</th>
-                    <th className="px-4 py-3 font-semibold">Proforma</th>
-                    <th className="px-4 py-3 font-semibold">Numero BL</th>
-                    <th className="px-4 py-3 font-semibold">Preparateur</th>
-                    <th className="px-4 py-3 font-semibold">Date de saisie</th>
-                    {canEditStock || canDeleteStock ? <th className="px-4 py-3 font-semibold">Modifier</th> : null}
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Article</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Type</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Gamme</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Lot</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date fab.</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Entree</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Sortie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock code</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock article</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Chambre</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Code pays</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Code sortie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Client</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Proforma</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Numero BL</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Preparateur</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date de saisie</th>
+                    {canEditStock || canDeleteStock ? <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Modifier</th> : null}
                   </tr>
                 </thead>
                 <tbody>

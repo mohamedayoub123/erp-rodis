@@ -434,32 +434,32 @@ export default async function StockMatierePremiereStockPage({
           ) : pagedRows.length === 0 ? (
             <div className="p-6 text-sm text-slate-500">Aucun mouvement matiere premiere enregistre.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+            <div className="max-h-[75vh] overflow-auto">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="bg-slate-50 text-slate-950">
                   <tr>
-                    <th className="px-4 py-3 font-semibold">Date</th>
-                    <th className="px-4 py-3 font-semibold">Article</th>
-                    <th className="px-4 py-3 font-semibold">Type</th>
-                    <th className="px-4 py-3 font-semibold">TE/TS</th>
-                    <th className="px-4 py-3 font-semibold">Categorie</th>
-                    <th className="px-4 py-3 font-semibold">Gamme</th>
-                    <th className="px-4 py-3 font-semibold">Lot</th>
-                    <th className="px-4 py-3 font-semibold">Unite</th>
-                    <th className="px-4 py-3 font-semibold">Date fab.</th>
-                    <th className="px-4 py-3 font-semibold">Date exp.</th>
-                    <th className="px-4 py-3 font-semibold">Entree</th>
-                    <th className="px-4 py-3 font-semibold">Sortie</th>
-                    <th className="px-4 py-3 font-semibold">Stock code</th>
-                    <th className="px-4 py-3 font-semibold">Stock article</th>
-                    <th className="px-4 py-3 font-semibold">Fournisseur / Client</th>
-                    <th className="px-4 py-3 font-semibold">Doss. ERP</th>
-                    <th className="px-4 py-3 font-semibold">Doss. 4D</th>
-                    <th className="px-4 py-3 font-semibold">Import</th>
-                    <th className="px-4 py-3 font-semibold">Note</th>
-                    <th className="px-4 py-3 font-semibold">Saisi par</th>
-                    <th className="px-4 py-3 font-semibold">Date de saisie</th>
-                    <th className="px-4 py-3 font-semibold">Action</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Article</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Type</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">TE/TS</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Categorie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Gamme</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Lot</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Unite</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date fab.</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date exp.</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Entree</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Sortie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock code</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock article</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Fournisseur / Client</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Doss. ERP</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Doss. 4D</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Import</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Note</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Saisi par</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date de saisie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Action</th>
                   </tr>
                 </thead>
                 <tbody>

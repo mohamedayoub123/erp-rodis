@@ -157,19 +157,19 @@ export default async function HistoriqueProgrammeDetailPage({
         </section>
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
+          <div className="max-h-[75vh] overflow-auto">
+            <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+              <thead className="bg-slate-50 text-slate-950">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Zone</th>
-                  <th className="px-4 py-3 font-semibold">Chaine</th>
-                  <th className="px-4 py-3 font-semibold">Type</th>
-                  <th className="px-4 py-3 font-semibold">Produit</th>
-                  <th className="px-4 py-3 font-semibold">N Lot</th>
-                  <th className="px-4 py-3 font-semibold">Qt carton</th>
-                  <th className="px-4 py-3 font-semibold">Vrac a fabriquer</th>
-                  <th className="px-4 py-3 font-semibold">Plateforme</th>
-                  <th className="px-4 py-3 font-semibold">Programme</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Zone</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Chaine</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Type</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Produit</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">N Lot</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Qt carton</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Vrac a fabriquer</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Plateforme</th>
+                  <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Programme</th>
                 </tr>
               </thead>
               <tbody>

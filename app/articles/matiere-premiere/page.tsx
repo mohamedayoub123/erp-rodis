@@ -165,21 +165,21 @@ export default async function ArticlesMatierePremierePage({
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-500">
+              <div className="max-h-[75vh] overflow-auto">
+                <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                  <thead className="bg-slate-50 text-slate-950">
                     <tr>
-                      <th className="px-6 py-4 font-semibold">Article</th>
-                      <th className="px-6 py-4 font-semibold">Categorie</th>
-                      <th className="px-6 py-4 font-semibold">Unite</th>
-                      <th className="px-6 py-4 font-semibold">Gamme</th>
-                      <th className="px-6 py-4 font-semibold">Gamme Statistique</th>
-                      <th className="px-6 py-4 font-semibold">Utilisation</th>
-                      <th className="px-6 py-4 font-semibold">Stock min</th>
-                      <th className="px-6 py-4 font-semibold">Stock max</th>
-                      {canEditArticles ? <th className="px-6 py-4 font-semibold">Modifier</th> : null}
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme Statistique</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Utilisation</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock min</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock max</th>
+                      {canEditArticles ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Modifier</th> : null}
                       {canDeleteArticles ? (
-                        <th className="px-6 py-4 font-semibold">Supprimer</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Supprimer</th>
                       ) : null}
                     </tr>
                   </thead>
