@@ -83,10 +83,9 @@ export function AjouterArticleFormulaire({
         value={quantite}
         onChange={(event) => setQuantite(event.target.value)}
         placeholder="Quantite"
-        required={!estVrac}
-        disabled={estVrac}
-        title={estVrac ? "Le vrac n'a pas de quantite a saisir ici, elle se calcule automatiquement." : undefined}
-        className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none disabled:bg-slate-50"
+        required
+        title={estVrac ? "Quantite de vrac calculee automatiquement - modifiable si besoin." : undefined}
+        className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
       />
       <SubmitButton
         pendingLabel="Ajout..."

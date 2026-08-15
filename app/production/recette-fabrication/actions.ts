@@ -83,9 +83,10 @@ export async function addRecetteOuVracAction(formData: FormData) {
       throw new Error("Le vrac n'existe que pour la recette Conditionnement.");
     }
 
+    const quantiteVrac = parseQuantite(formData);
     const { error } = await supabaseServer
       .from("articles")
-      .update({ vrac_article_id: -combinedId })
+      .update({ vrac_article_id: -combinedId, vrac_quantite_recette: quantiteVrac || null })
       .eq("id", articlePfId);
 
     if (error) {
@@ -128,6 +129,8 @@ export async function createRecetteCompleteAction(formData: FormData) {
   const quantiteBase = quantiteBaseRaw ? Number(quantiteBaseRaw) : null;
   const vracArticleIdRaw = Number(formData.get("vrac_article_id") || "0");
   const vracArticleId = vracArticleIdRaw > 0 ? vracArticleIdRaw : null;
+  const vracQuantiteRaw = String(formData.get("vrac_quantite") || "").trim().replace(",", ".");
+  const vracQuantite = vracQuantiteRaw ? Number(vracQuantiteRaw) : null;
 
   const mpIds = formData.getAll("mp_article_id").map((value) => Number(value));
   const quantites = formData.getAll("quantite_ligne").map((value) => {
@@ -161,6 +164,7 @@ export async function createRecetteCompleteAction(formData: FormData) {
   }
   if (pageKey === "recetteConditionnement") {
     articleFields.vrac_article_id = vracArticleId;
+    articleFields.vrac_quantite_recette = vracArticleId && !Number.isNaN(vracQuantite) ? vracQuantite : null;
   }
 
   if (Object.keys(articleFields).length > 0) {
@@ -201,12 +205,43 @@ export async function updateQuantiteBaseAction(formData: FormData) {
   };
   if (pageKey === "recetteConditionnement") {
     const vracArticleIdRaw = Number(formData.get("vrac_article_id") || "0");
-    articleFields.vrac_article_id = vracArticleIdRaw > 0 ? vracArticleIdRaw : null;
+    const vracArticleId = vracArticleIdRaw > 0 ? vracArticleIdRaw : null;
+    articleFields.vrac_article_id = vracArticleId;
+    // Le vrac est retire (bouton "Retirer", vrac_article_id absent du
+    // formulaire) - la quantite qui lui etait propre n'a plus de sens.
+    if (!vracArticleId) {
+      articleFields.vrac_quantite_recette = null;
+    }
   }
 
   const { error } = await supabaseServer
     .from("articles")
     .update(articleFields)
+    .eq("id", articlePfId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateRecettePages(articlePfId);
+}
+
+// Quantite de vrac necessaire a la recette - editable independamment du
+// reste (contrairement aux lignes MP classiques, le vrac n'a pas de ligne
+// dediee dans recettes_pf, juste articles.vrac_quantite_recette).
+export async function updateVracQuantiteAction(formData: FormData) {
+  await requireRecetteWriteAccess("recetteConditionnement");
+
+  const articlePfId = Number(formData.get("article_pf_id") || "0");
+  if (!articlePfId) {
+    throw new Error("Article invalide.");
+  }
+
+  const quantite = parseQuantite(formData);
+
+  const { error } = await supabaseServer
+    .from("articles")
+    .update({ vrac_quantite_recette: quantite || null })
     .eq("id", articlePfId);
 
   if (error) {
