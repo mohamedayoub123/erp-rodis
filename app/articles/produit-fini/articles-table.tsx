@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { deleteArticleAction, updateArticleAction } from "./actions";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
@@ -37,6 +37,8 @@ export type ArticleRow = {
   code_auto: string | null;
   code_manu: string | null;
 };
+
+const VISIBLE_STEP = 100;
 
 function formatRounded(value: number | null) {
   if (value === null || value === undefined) return "-";
@@ -179,6 +181,20 @@ export function ArticlesProduitFiniTable({
     });
   }, [articles, q, type, gamme]);
 
+  // Rendre les 849 lignes d'un coup (chacune avec son formulaire de
+  // modification complet, ~25 champs) rendait la page lente a l'ouverture -
+  // on affiche seulement les VISIBLE_STEP premieres et on agrandit la
+  // fenetre au clic, la recherche elle reste instantanee (filtre en memoire
+  // sur tout le tableau, independant de ce qui est affiche).
+  const [visibleCount, setVisibleCount] = useState(VISIBLE_STEP);
+
+  useEffect(() => {
+    setVisibleCount(VISIBLE_STEP);
+  }, [q, type, gamme]);
+
+  const visibleArticles = filteredArticles.slice(0, visibleCount);
+  const hiddenCount = filteredArticles.length - visibleArticles.length;
+
   return (
     <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
       <div className="grid gap-3 border-b border-slate-100 px-6 py-5 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
@@ -245,7 +261,7 @@ export function ArticlesProduitFiniTable({
               </tr>
             </thead>
             <tbody>
-              {filteredArticles.map((article) => (
+              {visibleArticles.map((article) => (
                 <tr key={article.id} className="border-t border-slate-100 align-top">
                   <td className="px-6 py-4 font-medium text-slate-900">{article.nom_article}</td>
                   <td className="px-6 py-4 text-slate-600">{article.type_article || "-"}</td>
@@ -524,6 +540,18 @@ export function ArticlesProduitFiniTable({
           </table>
         </div>
       )}
+
+      {hiddenCount > 0 ? (
+        <div className="flex justify-center border-t border-slate-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={() => setVisibleCount((count) => count + VISIBLE_STEP)}
+            className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+          >
+            Voir plus ({hiddenCount} restant{hiddenCount > 1 ? "s" : ""})
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }
