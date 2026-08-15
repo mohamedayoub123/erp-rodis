@@ -6,6 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../../suivi/data";
 import { vracLabelFromName } from "@/lib/gamme-families";
+import { resolveVracArticleId } from "@/lib/vrac-article";
 import { TestLaboForm } from "./test-labo-form";
 
 type LigneInfo = {
@@ -124,27 +125,23 @@ export default async function TestLaboPage({
     notFound();
   }
 
-  // Spec labo = celle du vrac fabrique par cette ligne (meme resolution
-  // article -> vrac_article_id que la credit de stock vrac en Fabrication).
+  // Spec labo = celle du vrac fabrique par cette ligne. La plupart des
+  // lignes fabriquent un produit fini (dont l'article pointe vers son vrac
+  // via articles.vrac_article_id), mais une ligne peut aussi fabriquer un
+  // article DEJA de nature "vrac" (pas de conditionnement prevu) - dans ce
+  // cas l'article de la ligne EST directement le bon article pour la spec,
+  // sans indirection (resolveVracArticleId gere les 2 cas).
+  const vracArticleId = await resolveVracArticleId(ligne.article_id);
   let spec: SpecInfo | null = null;
-  if (ligne.article_id) {
-    const { data: articleData } = await supabaseServer
-      .from("articles")
-      .select("vrac_article_id")
-      .eq("id", ligne.article_id)
+  if (vracArticleId) {
+    const { data: specData } = await supabaseServer
+      .from("articles_specs_qualite")
+      .select(
+        "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture, temperature_min, temperature_max"
+      )
+      .eq("article_id", vracArticleId)
       .maybeSingle();
-    const vracArticleId = (articleData as { vrac_article_id: number | null } | null)?.vrac_article_id ?? null;
-
-    if (vracArticleId) {
-      const { data: specData } = await supabaseServer
-        .from("articles_specs_qualite")
-        .select(
-          "ph_min, ph_max, viscosite_min, viscosite_max, densite_min, densite_max, degre_alcool_min, degre_alcool_max, stabilite, couleur, taux_humidite_min, taux_humidite_max, pression_atmospherique_min, pression_atmospherique_max, texture, temperature_min, temperature_max"
-        )
-        .eq("article_id", vracArticleId)
-        .maybeSingle();
-      spec = specData as SpecInfo | null;
-    }
+    spec = specData as SpecInfo | null;
   }
 
   // Liste complete des matieres premieres pour le picker d'ajustement -
