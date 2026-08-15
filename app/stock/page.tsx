@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteLotStockAction, updateLotStockAction } from "./actions";
@@ -27,32 +27,30 @@ type SearchParams = Promise<{
   hide_zero?: string;
 }>;
 
-type StockMovementRow = {
+type DisplayStockRow = {
+  display_key: string;
   id: number;
   article_id: number | null;
-  numero_lot: string;
+  nom_article: string | null;
+  type_article: string | null;
+  marque: string | null;
+  gamme: string | null;
+  mouvement_type: "entree" | "sortie";
+  numero_lot: string | null;
   date_fabrication: string | null;
   date_jour: string | null;
   qte_entree: number;
   qte_sortie: number;
+  stock_code: number;
+  stock_article: number;
   chambre: string | null;
   code_pays: string | null;
   note: string | null;
   created_at: string | null;
   source_import: string | null;
-  articles: {
-    nom_article: string;
-    type_article: string | null;
-    marque: string | null;
-    gamme: string | null;
-  } | null;
-};
-
-type DisplayStockRow = StockMovementRow & {
-  display_key: string;
-  mouvement_type: "entree" | "sortie";
-  stock_code: number;
-  stock_article: number;
+  total_rows: number;
+  total_entree_visible: number;
+  total_sortie_visible: number;
   code_sortie: string | null;
   livre_pour: string | null;
   numero_bl: string | null;
@@ -114,10 +112,6 @@ function parseLatestSortieMeta(note: string | null, sourceImport: string | null)
   return empty;
 }
 
-function buildCodeKey(articleId: number | null, numeroLot: string | null | undefined) {
-  return `${articleId ?? 0}::${String(numeroLot || "").trim().toUpperCase()}`;
-}
-
 function parseMonthValue(value: string) {
   const month = Number(value || "0");
   if (Number.isNaN(month) || month < 1 || month > 12) {
@@ -160,238 +154,78 @@ export default async function StockPage({
   const hideZeroStock = (params.hide_zero || "").trim() === "1";
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const from = (currentPage - 1) * PAGE_SIZE;
-  const to = from + PAGE_SIZE - 1;
 
-  const { data: articleSuggestionsData } = await supabaseServer
-    .from("articles")
-    .select("id, nom_article")
-    .order("nom_article", { ascending: true })
-    .limit(5000);
+  const [{ data: rowsData, error }, { data: articleSuggestionsData }, { data: yearsData }] = await Promise.all([
+    supabaseServer.rpc("stock_pf_display_rows", {
+      p_article_q: articleQ || null,
+      p_code_q: codeQ || null,
+      p_chambre_q: chambre || null,
+      p_pays_q: pays || null,
+      p_date_from: dateFrom || null,
+      p_date_to: dateTo || null,
+      p_month_from: monthFrom || null,
+      p_month_to: monthTo || null,
+      p_year: selectedYear || null,
+      p_hide_zero: hideZeroStock,
+      p_limit: PAGE_SIZE,
+      p_offset: from,
+    }),
+    supabaseServer
+      .from("articles")
+      .select("id, nom_article")
+      .order("nom_article", { ascending: true })
+      .limit(5000),
+    supabaseServer.rpc("stock_pf_available_years"),
+  ]);
 
-  const matchingArticleIds = articleQ
-    ? (
-        (
-          await supabaseServer
-            .from("articles")
-            .select("id")
-            .or(
-              `nom_article.ilike.%${articleQ}%,type_article.ilike.%${articleQ}%,marque.ilike.%${articleQ}%,gamme.ilike.%${articleQ}%`
-            )
-            .limit(1000)
-        ).data ?? []
-      ).map((row) => row.id)
-    : [];
+  const pagedRows: DisplayStockRow[] = ((rowsData as Omit<DisplayStockRow, keyof ReturnType<typeof parseLatestSortieMeta>>[] | null) ?? []).map(
+    (row) => ({
+      ...row,
+      ...parseLatestSortieMeta(row.note, row.source_import),
+    })
+  );
 
-  // PostgREST plafonne chaque requete a son max-rows interne (~1000) peu
-  // importe le .range() demande - un seul appel .range(0, 19999) ne
-  // retournait en realite qu'une fraction des lignes, faisant disparaitre
-  // silencieusement la plupart des mouvements de la liste.
-  const rawRows: StockMovementRow[] = [];
-  let fetchError: { message: string } | null = null;
-  let stockFrom = 0;
-  const stockPageSize = 1000;
-
-  while (true) {
-    let stockQuery = supabaseServer
-      .from("lots_stock")
-      .select(
-        "id, article_id, numero_lot, date_fabrication, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, created_at, source_import, articles!inner(nom_article, type_article, marque, gamme)"
-      )
-      .order("id", { ascending: false })
-      .range(stockFrom, stockFrom + stockPageSize - 1);
-
-    if (articleQ) {
-      if (matchingArticleIds.length === 0) {
-        stockQuery = stockQuery.eq("article_id", -1);
-      } else {
-        stockQuery = stockQuery.in("article_id", matchingArticleIds);
-      }
-    }
-
-    if (codeQ) {
-      stockQuery = stockQuery.ilike("numero_lot", `%${codeQ}%`);
-    }
-
-    if (chambre) {
-      stockQuery = stockQuery.ilike("chambre", `%${chambre}%`);
-    }
-
-    if (pays) {
-      stockQuery = stockQuery.ilike("code_pays", `%${pays}%`);
-    }
-
-    const { data, error } = await stockQuery;
-
-    if (error) {
-      fetchError = error;
-      break;
-    }
-
-    const chunk = (data as unknown as StockMovementRow[] | null) ?? [];
-    rawRows.push(...chunk);
-
-    if (chunk.length < stockPageSize) break;
-    stockFrom += stockPageSize;
-  }
-
-  const error = fetchError;
   const articleSuggestions =
     ((articleSuggestionsData as { id: number; nom_article: string }[] | null) ?? []).map(
       (article) => article.nom_article
     );
   const articleOptions = [...new Set(articleSuggestions)].map((label, index) => ({ id: index, label }));
+  const availableYears = ((yearsData as { year: number }[] | null) ?? []).map((row) => row.year);
 
-  const displaySourceRows = rawRows.flatMap((row) => {
-    const rows: StockMovementRow[] = [];
-
-    if (Number(row.qte_entree ?? 0) > 0) {
-      rows.push({
-        ...row,
-        qte_sortie: 0,
-      });
-    }
-
-    if (Number(row.qte_sortie ?? 0) > 0) {
-      rows.push({
-        ...row,
-        qte_entree: 0,
-      });
-    }
-
-    if (rows.length === 0) {
-      rows.push(row);
-    }
-
-    return rows;
-  });
-
-  const stockCodeTotals = new Map<string, number>();
-
-  for (const row of displaySourceRows) {
-    const key = buildCodeKey(row.article_id, row.numero_lot);
-    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-    stockCodeTotals.set(key, Number(stockCodeTotals.get(key) ?? 0) + mouvement);
-  }
-
-  const runningStockByArticle = new Map<number, number>();
-  const rowsWithStock = [...displaySourceRows]
-    .sort((a, b) => {
-      const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
-      const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
-
-      if (dateA !== dateB) {
-        return dateA - dateB;
-      }
-
-      // A date egale, une entree precede toujours une sortie : sinon le
-      // solde cumulatif peut passer par une valeur negative artificielle
-      // le temps d'une seule journee, meme quand le stock reel ne l'a
-      // jamais ete (l'id ne reflete pas l'ordre reel des mouvements).
-      const entreeA = Number(a.qte_entree ?? 0) > 0 ? 0 : 1;
-      const entreeB = Number(b.qte_entree ?? 0) > 0 ? 0 : 1;
-      if (entreeA !== entreeB) return entreeA - entreeB;
-
-      return a.id - b.id;
-    })
-    .map((row): DisplayStockRow => {
-      const previousArticle = row.article_id
-        ? runningStockByArticle.get(row.article_id) ?? 0
-        : 0;
-
-      const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-      const stockCode = Number(
-        stockCodeTotals.get(buildCodeKey(row.article_id, row.numero_lot)) ?? 0
-      );
-      const stockArticle = previousArticle + mouvement;
-
-      if (row.article_id) {
-        runningStockByArticle.set(row.article_id, stockArticle);
-      }
-
-      return {
-        ...row,
-        display_key: `${row.id}-${Number(row.qte_entree ?? 0) > 0 ? "entree" : "sortie"}`,
-        mouvement_type: Number(row.qte_entree ?? 0) > 0 ? "entree" : "sortie",
-        stock_code: stockCode,
-        stock_article: stockArticle,
-        ...parseLatestSortieMeta(row.note, row.source_import),
-      };
-    })
-    .sort((a, b) => {
-      const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
-      const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
-
-      if (dateB !== dateA) {
-        return dateB - dateA;
-      }
-
-      return b.id - a.id;
-    });
-
-  const filteredRows = rowsWithStock.filter((row) => {
-    if (hideZeroStock && row.stock_code <= 0) {
-      return false;
-    }
-
-    if (!row.date_jour) {
-      return !dateFrom && !dateTo && !monthFrom && !monthTo && !selectedYear;
-    }
-
-    const rowDate = new Date(row.date_jour);
-    const rowDateValue = rowDate.getTime();
-    const rowMonth = rowDate.getMonth() + 1;
-    const rowYear = rowDate.getFullYear();
-
-    if (dateFrom) {
-      const fromDateValue = new Date(dateFrom).getTime();
-      if (rowDateValue < fromDateValue) {
-        return false;
-      }
-    }
-
-    if (dateTo) {
-      const toDateValue = new Date(dateTo).getTime();
-      if (rowDateValue > toDateValue) {
-        return false;
-      }
-    }
-
-    if (selectedYear && rowYear !== selectedYear) {
-      return false;
-    }
-
-    if (monthFrom && rowMonth < monthFrom) {
-      return false;
-    }
-
-    if (monthTo && rowMonth > monthTo) {
-      return false;
-    }
-
-    return true;
-  });
-
-  const pagedRows = filteredRows.slice(from, to + 1);
-  const totalRows = filteredRows.length;
+  const totalRows = pagedRows[0]?.total_rows ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
-  const totalEntree = pagedRows.reduce((sum, row) => sum + Number(row.qte_entree ?? 0), 0);
-  const totalSortie = pagedRows.reduce((sum, row) => sum + Number(row.qte_sortie ?? 0), 0);
-  const totalStockArticle = new Map<number, number>();
+  const totalEntree = pagedRows[0]?.total_entree_visible ?? 0;
+  const totalSortie = pagedRows[0]?.total_sortie_visible ?? 0;
 
-  for (const row of filteredRows) {
+  // Stock article visible : pour chaque article distinct present sur cette
+  // page, on garde son solde le plus recent (les lignes arrivent deja
+  // triees du plus recent au plus ancien) puis on additionne - meme portee
+  // "page actuelle" que Entree/Sortie visible juste au-dessus.
+  const totalStockArticleByArticle = new Map<number, number>();
+  for (const row of pagedRows) {
     if (!row.article_id) continue;
-    totalStockArticle.set(row.article_id, row.stock_article);
+    if (!totalStockArticleByArticle.has(row.article_id)) {
+      totalStockArticleByArticle.set(row.article_id, row.stock_article);
+    }
   }
+  const totalStockVisible = [...totalStockArticleByArticle.values()].reduce((sum, value) => sum + value, 0);
 
-  const totalStockVisible = [...new Set(pagedRows.map((row) => row.article_id).filter(Boolean))]
-    .map((articleId) => Number(totalStockArticle.get(Number(articleId)) ?? 0))
-    .reduce((sum, value) => sum + value, 0);
-
-  const availableYears = [...new Set(
-    rowsWithStock
-      .map((row) => (row.date_jour ? new Date(row.date_jour).getFullYear() : 0))
-      .filter((year) => year > 0)
-  )].sort((a, b) => b - a);
+  function buildPageHref(page: number) {
+    const search = new URLSearchParams();
+    if (articleQ) search.set("article_q", articleQ);
+    if (codeQ) search.set("code_q", codeQ);
+    if (chambre) search.set("chambre", chambre);
+    if (pays) search.set("pays", pays);
+    if (dateFrom) search.set("date_from", dateFrom);
+    if (dateTo) search.set("date_to", dateTo);
+    if (monthFrom) search.set("month_from", String(monthFrom));
+    if (monthTo) search.set("month_to", String(monthTo));
+    if (selectedYear) search.set("year", String(selectedYear));
+    if (hideZeroStock) search.set("hide_zero", "1");
+    if (page > 1) search.set("page", String(page));
+    const qs = search.toString();
+    return qs ? `/stock?${qs}` : "/stock";
+  }
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#eef5f0_0%,#f8fbf8_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -613,10 +447,10 @@ export default async function StockPage({
                     <tr key={row.display_key} className="border-t border-slate-100">
                       <td className="px-4 py-3 text-xs text-slate-600">{formatDate(row.date_jour)}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">
-                        {row.articles?.nom_article || "-"}
+                        {row.nom_article || "-"}
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{row.articles?.type_article || "-"}</td>
-                      <td className="px-4 py-3 text-slate-600">{row.articles?.gamme || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{row.type_article || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{row.gamme || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.numero_lot}</td>
                       <td className="px-4 py-3 text-xs text-slate-600">{formatDate(row.date_fabrication)}</td>
                       <td className="px-4 py-3 font-semibold text-emerald-700">
@@ -647,7 +481,7 @@ export default async function StockPage({
                               <input
                                 type="text"
                                 name="numero_lot"
-                                defaultValue={row.numero_lot}
+                                defaultValue={row.numero_lot ?? ""}
                                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                                 required
                               />
@@ -731,7 +565,7 @@ export default async function StockPage({
 
               <div className="flex gap-3">
                 <Link
-                  href={`/stock?page=${Math.max(1, currentPage - 1)}&article_q=${encodeURIComponent(articleQ)}&code_q=${encodeURIComponent(codeQ)}&chambre=${encodeURIComponent(chambre)}&pays=${encodeURIComponent(pays)}`}
+                  href={buildPageHref(Math.max(1, currentPage - 1))}
                   className={`rounded-full px-4 py-2 font-semibold ${
                     currentPage === 1
                       ? "pointer-events-none bg-slate-100 text-slate-400"
@@ -741,7 +575,7 @@ export default async function StockPage({
                   Precedent
                 </Link>
                 <Link
-                  href={`/stock?page=${Math.min(totalPages, currentPage + 1)}&article_q=${encodeURIComponent(articleQ)}&code_q=${encodeURIComponent(codeQ)}&chambre=${encodeURIComponent(chambre)}&pays=${encodeURIComponent(pays)}`}
+                  href={buildPageHref(Math.min(totalPages, currentPage + 1))}
                   className={`rounded-full px-4 py-2 font-semibold ${
                     currentPage >= totalPages
                       ? "pointer-events-none bg-slate-100 text-slate-400"
@@ -758,4 +592,3 @@ export default async function StockPage({
     </main>
   );
 }
-

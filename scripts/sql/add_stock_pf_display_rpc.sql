@@ -1,32 +1,11 @@
--- Stock MP (app/stock/matiere-premiere/stock) chargeait TOUTE la table
--- lots_stock_matiere_premiere (41 000+ lignes, ~5.5s de reseau) a chaque
--- ouverture de page pour calculer stock_code/stock_article puis filtrer/
--- paginer en JS - alors que 200 lignes seulement sont affichees. Cette RPC
--- fait tout le travail (eclatement entree/sortie, cumul, filtres,
--- pagination) directement en base, qui ne renvoie que la page demandee.
+-- Meme raison et meme motif que stock_mp_display_rows (add_stock_mp_display_rpc.sql)
+-- applique a Stock PF (app/stock, table lots_stock, 16 000+ lignes).
 
-create or replace function matches_article_search(p_text text, p_query text)
-returns boolean
-language sql
-immutable
-as $$
-  select case
-    when p_query is null or btrim(p_query) = '' then true
-    else not exists (
-      select 1
-      from unnest(regexp_split_to_array(lower(btrim(p_query)), '\s+')) as token
-      where token <> '' and not exists (
-        select 1
-        from unnest(regexp_split_to_array(lower(coalesce(p_text, '')), '\s+')) as w
-        where w like token || '%'
-      )
-    )
-  end;
-$$;
-
-create or replace function stock_mp_display_rows(
+create or replace function stock_pf_display_rows(
   p_article_q text default null,
   p_code_q text default null,
+  p_chambre_q text default null,
+  p_pays_q text default null,
   p_date_from date default null,
   p_date_to date default null,
   p_month_from int default null,
@@ -41,27 +20,22 @@ returns table (
   id bigint,
   article_id bigint,
   nom_article text,
+  type_article text,
+  marque text,
   gamme text,
-  categorie text,
   mouvement_type text,
   numero_lot text,
-  code_normalise text,
-  unite text,
   date_fabrication date,
-  date_expiration date,
   date_jour date,
   qte_entree numeric,
   qte_sortie numeric,
   stock_code numeric,
   stock_article numeric,
-  fournisseur text,
-  client text,
-  n_doss_erp text,
-  n_doss_4d text,
-  mouvement_groupe_id bigint,
+  chambre text,
+  code_pays text,
   note text,
-  utilisateur text,
   created_at timestamptz,
+  source_import text,
   total_rows bigint,
   total_entree_visible numeric,
   total_sortie_visible numeric
@@ -69,20 +43,14 @@ returns table (
 language sql
 stable
 as $$
-  -- Une ligne source peut donner 0, 1 OU 2 lignes affichees (entree ET
-  -- sortie toutes les 2 positives sur le meme mouvement) - l'ancienne
-  -- version lisait donc la table 3 FOIS (une par UNION ALL, chacune avec
-  -- son propre WHERE). Le LATERAL ci-dessous obtient exactement le meme
-  -- resultat en lisant la table UNE SEULE fois : le filtre entree/sortie/
-  -- ni-l'un-ni-l'autre s'applique sur les valeurs deja lues (l.qte_entree,
-  -- l.qte_sortie), pas via un nouveau passage sur la table.
+  -- Meme optimisation que stock_mp_display_rows : la table est lue UNE
+  -- SEULE fois (LATERAL) au lieu de 3 fois (une par UNION ALL).
   with split_rows as (
-    select l.id, l.article_id, l.numero_lot, l.code_normalise, l.date_fabrication,
-           l.date_expiration, l.date_jour, v.qte_entree, v.qte_sortie, v.mouvement_type,
+    select l.id, l.article_id, l.numero_lot, l.date_fabrication, l.date_jour,
+           v.qte_entree, v.qte_sortie, v.mouvement_type,
            (l.id::text || '-' || v.mouvement_type) as display_key,
-           l.unite, l.fournisseur, l.client, l.n_doss_erp, l.n_doss_4d, l.utilisateur, l.note,
-           l.mouvement_groupe_id, l.created_at
-    from lots_stock_matiere_premiere l
+           l.chambre, l.code_pays, l.note, l.created_at, l.source_import
+    from lots_stock l
     cross join lateral (
       select l.qte_entree as qte_entree, 0::numeric as qte_sortie, 'entree' as mouvement_type
       where coalesce(l.qte_entree, 0) > 0
@@ -97,7 +65,7 @@ as $$
   with_stock as (
     select s.*,
       sum(s.qte_entree - s.qte_sortie) over (
-        partition by s.article_id, coalesce(nullif(s.numero_lot, ''), s.code_normalise)
+        partition by s.article_id, s.numero_lot
       ) as stock_code,
       sum(s.qte_entree - s.qte_sortie) over (
         partition by s.article_id
@@ -107,15 +75,26 @@ as $$
     from split_rows s
   ),
   joined as (
-    select w.*, a.nom_article, a.gamme, a.categorie
+    select w.*, a.nom_article, a.type_article, a.marque, a.gamme
     from with_stock w
-    left join articles_matiere_premiere a on a.id = w.article_id
+    left join articles a on a.id = w.article_id
   ),
   filtered as (
     select j.*
     from joined j
-    where matches_article_search(j.nom_article, p_article_q)
+    -- L'ancienne page JS cherchait article_q sur 4 colonnes (nom, type, marque,
+    -- gamme) via ILIKE substring, pas seulement le nom comme matches_article_search
+    -- (utilise pour Stock MP) - meme comportement reproduit ici a l'identique.
+    where (
+        p_article_q is null or btrim(p_article_q) = ''
+        or j.nom_article ilike '%' || p_article_q || '%'
+        or j.type_article ilike '%' || p_article_q || '%'
+        or j.marque ilike '%' || p_article_q || '%'
+        or j.gamme ilike '%' || p_article_q || '%'
+      )
       and (p_code_q is null or btrim(p_code_q) = '' or j.numero_lot ilike '%' || p_code_q || '%')
+      and (p_chambre_q is null or btrim(p_chambre_q) = '' or j.chambre ilike '%' || p_chambre_q || '%')
+      and (p_pays_q is null or btrim(p_pays_q) = '' or j.code_pays ilike '%' || p_pays_q || '%')
       and (not p_hide_zero or j.stock_code > 0)
       and (
         j.date_jour is not null
@@ -138,10 +117,9 @@ as $$
     limit p_limit offset p_offset
   )
   select
-    p.display_key, p.id, p.article_id, p.nom_article, p.gamme, p.categorie, p.mouvement_type,
-    p.numero_lot, p.code_normalise, p.unite, p.date_fabrication, p.date_expiration, p.date_jour,
-    p.qte_entree, p.qte_sortie, p.stock_code, p.stock_article, p.fournisseur, p.client,
-    p.n_doss_erp, p.n_doss_4d, p.mouvement_groupe_id, p.note, p.utilisateur, p.created_at,
+    p.display_key, p.id, p.article_id, p.nom_article, p.type_article, p.marque, p.gamme, p.mouvement_type,
+    p.numero_lot, p.date_fabrication, p.date_jour, p.qte_entree, p.qte_sortie, p.stock_code, p.stock_article,
+    p.chambre, p.code_pays, p.note, p.created_at, p.source_import,
     p.total_rows,
     (select coalesce(sum(qte_entree), 0) from paged) as total_entree_visible,
     (select coalesce(sum(qte_sortie), 0) from paged) as total_sortie_visible
