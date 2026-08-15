@@ -479,25 +479,25 @@ export default async function StockAlerteMpPage({
               Aucune alerte pour le moment : aucun article n&apos;est a ou sous son stock min.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
+            <div className="max-h-[75vh] overflow-auto">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="bg-slate-50 text-slate-950">
                   <tr>
-                    <th className="px-6 py-4 font-semibold">Categorie</th>
-                    <th className="px-6 py-4 font-semibold">Article</th>
-                    <th className="px-6 py-4 font-semibold">Stock</th>
-                    <th className="px-6 py-4 font-semibold">Unite</th>
-                    <th className="px-6 py-4 font-semibold">Consommation dernier mois</th>
-                    <th className="px-6 py-4 font-semibold">Consommation dernier 3 mois</th>
-                    <th className="px-6 py-4 font-semibold">Consommation dernier 6 mois</th>
-                    <th className="px-6 py-4 font-semibold">Consommation dernier 12 mois</th>
-                    <th className="px-6 py-4 font-semibold">Total entree (12 mois)</th>
-                    <th className="px-6 py-4 font-semibold">Total entree (3 mois)</th>
-                    <th className="px-6 py-4 font-semibold">Stock alert</th>
-                    <th className="px-6 py-4 font-semibold">Commande (BC)</th>
-                    <th className="px-6 py-4 font-semibold">Import</th>
-                    <th className="px-6 py-4 font-semibold">Average consommation 12 mois</th>
-                    <th className="px-6 py-4 font-semibold">Utilisation produit</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation dernier mois</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation dernier 3 mois</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation dernier 6 mois</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation dernier 12 mois</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Total entree (12 mois)</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Total entree (3 mois)</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock alert</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Commande (BC)</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Import</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Average consommation 12 mois</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Utilisation produit</th>
                   </tr>
                 </thead>
                 <tbody>
