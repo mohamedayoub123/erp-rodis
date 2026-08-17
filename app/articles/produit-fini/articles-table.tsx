@@ -4,7 +4,37 @@ import { useEffect, useMemo, useState } from "react";
 import { deleteArticleAction, updateArticleAction } from "./actions";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { matchesArticleSearch } from "@/lib/article-search";
+
+const EXPORT_COLUMNS = [
+  { label: "Article", key: "nom_article" },
+  { label: "Type", key: "type_article" },
+  { label: "Marque", key: "marque" },
+  { label: "Gamme", key: "gamme" },
+  { label: "Nature", key: "nature_label" },
+  { label: "Min", key: "min_stock" },
+  { label: "Max", key: "max_stock" },
+  { label: "Volume unitaire", key: "volume_unitaire" },
+  { label: "Volume stockage", key: "volume_stockage" },
+  { label: "Contenance", key: "contenance" },
+  { label: "Cadence", key: "cadence" },
+  { label: "Nb carton par vrac", key: "nb_carton_par_vrac" },
+  { label: "Max prod vrac 8h", key: "max_production_vrac_8h" },
+  { label: "Nb piece par max vrac", key: "nb_piece_par_max_vrac" },
+  { label: "Piece par carton", key: "piece_par_carton" },
+  { label: "Min vrac", key: "min_vrac" },
+  { label: "Max vrac auto", key: "max_vrac_auto" },
+  { label: "Vrac max manuel", key: "vrac_max_manuel" },
+  { label: "Dispenseur pcs/carton", key: "dispenseur_pcs_carton" },
+  { label: "Pot/flacon", key: "besoin_pot_flacon" },
+  { label: "Capsule", key: "besoin_capsule" },
+  { label: "Sleeve", key: "besoin_sleeve" },
+  { label: "Dispenseur", key: "besoin_dispenseur" },
+  { label: "Carton", key: "besoin_carton" },
+  { label: "Etiquette", key: "besoin_etiquette" },
+  { label: "Etui", key: "besoin_etui" },
+];
 
 export type ArticleRow = {
   id: number;
@@ -181,6 +211,25 @@ export function ArticlesProduitFiniTable({
     });
   }, [articles, q, type, gamme]);
 
+  // Export = exactement ce que le filtre affiche (filteredArticles), jamais
+  // la liste complete - demande explicite de l'utilisateur ("si ya filtre
+  // il prend seulement ca qui trouve le filtre").
+  const exportRows = useMemo(
+    () =>
+      filteredArticles.map((article) => ({
+        ...article,
+        nature_label: article.nature === "vrac" ? "Vrac" : "Fini",
+        besoin_pot_flacon: article.besoin_pot_flacon ? "Oui" : "",
+        besoin_capsule: article.besoin_capsule ? "Oui" : "",
+        besoin_sleeve: article.besoin_sleeve ? "Oui" : "",
+        besoin_dispenseur: article.besoin_dispenseur ? "Oui" : "",
+        besoin_carton: article.besoin_carton ? "Oui" : "",
+        besoin_etiquette: article.besoin_etiquette ? "Oui" : "",
+        besoin_etui: article.besoin_etui ? "Oui" : "",
+      })),
+    [filteredArticles]
+  );
+
   // Rendre les 849 lignes d'un coup (chacune avec son formulaire de
   // modification complet, ~25 champs) rendait la page lente a l'ouverture -
   // on affiche seulement les VISIBLE_STEP premieres et on agrandit la
@@ -197,7 +246,7 @@ export function ArticlesProduitFiniTable({
 
   return (
     <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-      <div className="grid gap-3 border-b border-slate-100 px-6 py-5 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
+      <div className="grid gap-3 border-b border-slate-100 px-6 py-5 lg:grid-cols-[1.4fr_1fr_1fr_auto_auto]">
         <FilterField value={q} onChange={setQ} placeholder="Ecrire article..." options={articleOptions} />
         <FilterField value={type} onChange={setType} placeholder="Ecrire type..." options={typeOptions} />
         <FilterField value={gamme} onChange={setGamme} placeholder="Ecrire gamme..." options={gammeOptions} />
@@ -214,6 +263,13 @@ export function ArticlesProduitFiniTable({
             Effacer
           </button>
         ) : null}
+        <div className="flex items-center justify-center">
+          <ExportExcelButton
+            rows={exportRows}
+            columns={EXPORT_COLUMNS}
+            filename={`articles-produit-fini-${new Date().toISOString().slice(0, 10)}.xlsx`}
+          />
+        </div>
       </div>
 
       <p className="px-6 pt-4 text-xs font-semibold text-slate-500">
