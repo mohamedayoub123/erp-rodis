@@ -133,7 +133,7 @@ export async function createEntreeMpBatchAction(formData: FormData) {
 
     return {
       article_id: articleId,
-      date_jour: new Date().toISOString().slice(0, 10),
+      date_jour: dateReception,
       date_reception: dateReception,
       numero_lot: numeroLot,
       code_normalise: numeroLot.toUpperCase(),
