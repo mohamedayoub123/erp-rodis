@@ -62,7 +62,7 @@ export function GlobalNav({
                   FluxPilote
                 </h1>
                 <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-white">
-                  {process.env.NEXT_PUBLIC_APP_VERSION || "V1"}
+                  {process.env.NEXT_PUBLIC_APP_VERSION || "V2"}
                 </span>
                 <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-900">
                   Page : {currentItem.label}
