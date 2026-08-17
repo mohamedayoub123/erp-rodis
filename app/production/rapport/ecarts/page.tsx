@@ -64,13 +64,15 @@ function DiffCell({ value, whole }: { value: number; whole?: boolean }) {
   return <td className={`px-4 py-3 ${className}`}>{rounded}</td>;
 }
 
-const PAGE_SIZE = 200;
+const DEFAULT_PAGE_SIZE = 200;
+const PAGE_SIZE_OPTIONS = [200, 500, 1000] as const;
 const STATUT_OPTIONS: Statut[] = ["Termine", "Termine Manuel", "En cours", "Pas commence"];
 
 type SearchParams = Promise<{
   code?: string;
   pd?: string;
   page?: string;
+  taille?: string;
   statut?: string | string[];
   date_debut?: string;
   date_fin?: string;
@@ -94,6 +96,12 @@ export default async function RapportEcartsPage({
   const hasSearchFilters = Boolean(codeFilter || pdFilter || dateDebutFilter || dateFinFilter);
   const hasFilters = hasSearchFilters || statutFilter.size > 0;
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
+  const pageSizeChoice: number | "tout" =
+    params.taille === "tout"
+      ? "tout"
+      : PAGE_SIZE_OPTIONS.includes(Number(params.taille) as (typeof PAGE_SIZE_OPTIONS)[number])
+        ? Number(params.taille)
+        : DEFAULT_PAGE_SIZE;
 
   // Sans recherche, on se limite aux 3 derniers mois par defaut - une
   // recherche par code/PD/date repasse sans borne pour retrouver du vieux
@@ -421,11 +429,15 @@ export default async function RapportEcartsPage({
       if (dateFinFilter && row.date > dateFinFilter) return false;
       return true;
     })
-    // Organise par PD (PD1, PD2... PD10 - tri numeric-aware pour ne pas
-    // classer PD10 avant PD2) plutot que dans un ordre non significatif -
-    // date puis code en departage a l'interieur d'un meme PD.
+    // Organise par PD, le PLUS RECENT en premier (PD16 avant PD1 - tri
+    // numeric-aware inverse pour ne pas classer PD10 avant PD2) - les codes
+    // recents sont ceux qui interessent en priorite, pas la peine de
+    // cliquer "Suivant" plusieurs fois pour les voir. Les codes sans PD
+    // ("-", jamais enregistres via Ravitailleur/Dispatcher) tombent
+    // naturellement en dernier avec ce tri inverse. Date puis code en
+    // departage a l'interieur d'un meme PD.
     .sort((a, b) => {
-      const pdCompare = a.pd.localeCompare(b.pd, "fr", { numeric: true });
+      const pdCompare = b.pd.localeCompare(a.pd, "fr", { numeric: true });
       if (pdCompare !== 0) return pdCompare;
       const dateCompare = a.date.localeCompare(b.date);
       if (dateCompare !== 0) return dateCompare;
@@ -434,15 +446,19 @@ export default async function RapportEcartsPage({
 
   // Avec des milliers de codes, tout rendre d'un coup fait exploser le
   // temps de rendu et la memoire - meme filtre pagine que les autres
-  // grosses listes de l'appli (/stock, /historique-programme...).
+  // grosses listes de l'appli (/stock, /historique-programme...). "Tout"
+  // reste possible via le selecteur de taille pour qui veut tout voir d'un
+  // coup malgre ce cout.
   const totalRows = rows.length;
-  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
-  const from = (currentPage - 1) * PAGE_SIZE;
-  const pagedRows = rows.slice(from, from + PAGE_SIZE);
+  const effectivePageSize = pageSizeChoice === "tout" ? Math.max(totalRows, 1) : pageSizeChoice;
+  const totalPages = Math.max(1, Math.ceil(totalRows / effectivePageSize));
+  const from = (currentPage - 1) * effectivePageSize;
+  const pagedRows = rows.slice(from, from + effectivePageSize);
 
   const buildPageHref = (page: number) => {
     const qs = new URLSearchParams();
     qs.set("page", String(page));
+    if (params.taille) qs.set("taille", params.taille);
     if (params.code) qs.set("code", params.code);
     if (params.pd) qs.set("pd", params.pd);
     if (params.date_debut) qs.set("date_debut", params.date_debut);
@@ -552,6 +568,22 @@ export default async function RapportEcartsPage({
                 </label>
               ))}
             </div>
+
+            <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:col-span-4 sm:w-48">
+              Lignes par page
+              <select
+                name="taille"
+                defaultValue={params.taille || String(DEFAULT_PAGE_SIZE)}
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-normal normal-case text-slate-900 outline-none"
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+                <option value="tout">Tout afficher</option>
+              </select>
+            </label>
           </form>
         </section>
 
@@ -649,7 +681,7 @@ export default async function RapportEcartsPage({
         {totalRows > 0 ? (
           <div className="flex items-center justify-between rounded-[1.75rem] border border-black/5 bg-white px-6 py-4 text-sm shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <p className="text-slate-500">
-              Codes {from + 1} a {Math.min(from + PAGE_SIZE, totalRows)} sur {totalRows}
+              Codes {from + 1} a {Math.min(from + effectivePageSize, totalRows)} sur {totalRows}
             </p>
 
             <div className="flex gap-3">

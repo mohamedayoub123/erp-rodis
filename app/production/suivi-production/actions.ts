@@ -44,6 +44,35 @@ async function fetchDepotBId(): Promise<number | null> {
   return (data as { id: number } | null)?.id ?? null;
 }
 
+// Les champs de quantite (vrac/carton/emballage) sont pre-remplis a la
+// reouverture du formulaire avec la DERNIERE valeur enregistree (voir
+// fabrication-form.tsx) - rouvrir une fiche deja saisie pour corriger un
+// champ SANS RAPPORT avec la quantite (preparateur, chef de zone...) puis
+// Enregistrer soumettait donc a nouveau la meme quantite, qui s'ajoutait en
+// double au journal (production_vrac/carton/emballage_entries) puisque
+// chaque Save y insere une ligne sans jamais verifier si elle existe deja.
+// Ce garde-fou saute l'insertion quand la quantite est identique a la
+// toute derniere entree de ce meme (ligne, code) - une vraie nouvelle
+// production (valeur differente, y compris une 2e fournee du meme jour
+// pour Conditionnement/Emballage) continue de s'ajouter normalement.
+async function dernierEntreeQuantiteIdentique(
+  table: "production_vrac_entries" | "production_carton_entries" | "production_emballage_entries",
+  ligneId: number,
+  code: string,
+  quantite: number
+): Promise<boolean> {
+  const { data } = await supabaseServer
+    .from(table)
+    .select("quantite")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const derniere = (data as { quantite: number } | null)?.quantite;
+  return derniere !== undefined && derniere !== null && Number(derniere) === Number(quantite);
+}
+
 async function fabricationDejaProduite(ligneId: number, code: string): Promise<boolean> {
   const { data, error } = await supabaseServer
     .from("production_vrac_entries")
@@ -334,11 +363,11 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
-  // upsertRapport (production_rapports) et l'insertion carton
-  // (production_carton_entries) ecrivent dans 2 tables independantes sans
-  // dependre l'une de l'autre - lancees en parallele au lieu d'attendre la
-  // premiere avant de commencer la seconde.
-  const [, cartonInsert] = await Promise.all([
+  // upsertRapport (production_rapports) et la verification anti-doublon
+  // (dernierEntreeQuantiteIdentique) ne dependent pas l'une de l'autre -
+  // lancees en parallele ; l'insertion carton elle-meme n'a besoin
+  // d'attendre que la verification.
+  const [, dejaCompteIdentique] = await Promise.all([
     upsertRapport(ligneId, code, {
       chef_zone: parseOptionalText(formData, "chef_zone"),
       chef_ligne: parseOptionalText(formData, "chef_ligne"),
@@ -372,14 +401,23 @@ export async function saveConditionnementRapportAction(formData: FormData) {
       utilisateur_conditionnement: currentUser,
       date_saisie_conditionnement: new Date().toISOString(),
     }),
-    // Alimente le journal carton (meme principe que le Dashboard) pour que
-    // le "reste" par rapport a la quantite prevue se recalcule tout seul.
-    // date_jour vient de la date saisie sur le rapport (Date fabrication)
-    // au lieu de la date automatique (aujourd'hui, valeur par defaut) -
-    // c'est ce qui alimente la colonne "Date conditionnement" de Suivi
-    // Production.
+    // dernierEntreeQuantiteIdentique evite de compter deux fois le meme
+    // carton quand la fiche est rouverte/re-enregistree sans que la
+    // quantite ait change (voir sa doc) - une vraie nouvelle fournee du
+    // jour (valeur differente) continue de s'ajouter normalement.
     qtFabriquer && qtFabriquer > 0
-      ? supabaseServer.from("production_carton_entries").insert([
+      ? dernierEntreeQuantiteIdentique("production_carton_entries", ligneId, code, qtFabriquer)
+      : Promise.resolve(false),
+  ]);
+
+  // Alimente le journal carton (meme principe que le Dashboard) pour que le
+  // "reste" par rapport a la quantite prevue se recalcule tout seul.
+  // date_jour vient de la date saisie sur le rapport (Date fabrication) au
+  // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
+  // qui alimente la colonne "Date conditionnement" de Suivi Production.
+  const cartonInsert =
+    qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique
+      ? await supabaseServer.from("production_carton_entries").insert([
           {
             programme_ligne_id: ligneId,
             code,
@@ -387,8 +425,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
             ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
           },
         ])
-      : Promise.resolve({ error: null }),
-  ]);
+      : { error: null };
 
   if (cartonInsert.error) {
     throw new Error(cartonInsert.error.message);
@@ -426,11 +463,11 @@ export async function saveFabricationRapportAction(formData: FormData) {
   const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
-  // upsertRapport (production_rapports) et l'insertion vrac
-  // (production_vrac_entries) ecrivent dans 2 tables independantes sans
-  // dependre l'une de l'autre - lancees en parallele au lieu d'attendre la
-  // premiere avant de commencer la seconde.
-  const [, vracInsert] = await Promise.all([
+  // upsertRapport (production_rapports) et la verification anti-doublon
+  // (dernierEntreeQuantiteIdentique) ne dependent pas l'une de l'autre -
+  // lancees en parallele ; l'insertion vrac elle-meme n'a besoin d'attendre
+  // que la verification (le resultat d'upsertRapport ne l'affecte pas).
+  const [, dejaCompteIdentique] = await Promise.all([
     upsertRapport(ligneId, code, {
       machine: parseOptionalText(formData, "machine"),
       type_fabrication: parseOptionalText(formData, "type_fabrication"),
@@ -474,14 +511,22 @@ export async function saveFabricationRapportAction(formData: FormData) {
       utilisateur_fabrication: currentUser,
       date_saisie_fabrication: new Date().toISOString(),
     }),
-    // Alimente le journal vrac (meme principe que le Dashboard) pour que
-    // le "reste" par rapport a la quantite prevue se recalcule tout seul.
-    // date_jour vient de la date saisie sur le rapport (Date fabrication)
-    // au lieu de la date automatique (aujourd'hui, valeur par defaut) -
-    // c'est ce qui alimente la colonne "Date fabrication" de Suivi
-    // Production.
+    // dernierEntreeQuantiteIdentique evite de compter deux fois le meme
+    // vrac quand la fiche est rouverte/re-enregistree sans que la quantite
+    // fabriquee ait change (voir sa doc).
     vracFabrique && vracFabrique > 0
-      ? supabaseServer.from("production_vrac_entries").insert([
+      ? dernierEntreeQuantiteIdentique("production_vrac_entries", ligneId, code, vracFabrique)
+      : Promise.resolve(false),
+  ]);
+
+  // Alimente le journal vrac (meme principe que le Dashboard) pour que le
+  // "reste" par rapport a la quantite prevue se recalcule tout seul.
+  // date_jour vient de la date saisie sur le rapport (Date fabrication) au
+  // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
+  // qui alimente la colonne "Date fabrication" de Suivi Production.
+  const vracInsert =
+    vracFabrique && vracFabrique > 0 && !dejaCompteIdentique
+      ? await supabaseServer.from("production_vrac_entries").insert([
           {
             programme_ligne_id: ligneId,
             code,
@@ -489,8 +534,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
             ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
           },
         ])
-      : Promise.resolve({ error: null }),
-  ]);
+      : { error: null };
 
   if (vracInsert.error) {
     throw new Error(vracInsert.error.message);
@@ -683,8 +727,14 @@ export async function saveEmballageRapportAction(formData: FormData) {
   // tout seul. date_jour vient de la date saisie sur le rapport (Date
   // emballage) au lieu de la date automatique (aujourd'hui, valeur par
   // defaut) - c'est ce qui alimente la colonne "Date emballage" de Suivi
-  // Production.
-  if (quantite && quantite > 0) {
+  // Production. dernierEntreeQuantiteIdentique evite de compter deux fois
+  // le meme emballage quand la fiche est rouverte/re-enregistree sans que
+  // la quantite ait change (voir sa doc).
+  if (
+    quantite &&
+    quantite > 0 &&
+    !(await dernierEntreeQuantiteIdentique("production_emballage_entries", ligneId, code, quantite))
+  ) {
     const { error: emballageError } = await supabaseServer.from("production_emballage_entries").insert([
       {
         programme_ligne_id: ligneId,
