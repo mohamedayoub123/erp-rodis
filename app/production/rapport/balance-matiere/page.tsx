@@ -513,7 +513,7 @@ export default async function RapportBalanceMatierePage({
       return true;
     })
     .sort((a, b) => {
-      const pdCompare = a.pd.localeCompare(b.pd, "fr", { numeric: true });
+      const pdCompare = b.pd.localeCompare(a.pd, "fr", { numeric: true });
       if (pdCompare !== 0) return pdCompare;
       const dateCompare = a.date.localeCompare(b.date);
       if (dateCompare !== 0) return dateCompare;
