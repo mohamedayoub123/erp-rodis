@@ -54,6 +54,13 @@ const TILES = [
     icon: "\u{1F9EE}",
     description: "Carton fabrique par gamme, avec detail mensuel/journalier en filtrant sur un article.",
   },
+  {
+    label: "Rapport Dechets",
+    href: "/production/rapport/dechets",
+    pageKey: "productionRapportDechets",
+    icon: "\u{1F5D1}\u{FE0F}",
+    description: "Par code : pieces fabriquees vs pieces jetees (dechet), et le % de dechet.",
+  },
 ] as const;
 
 export default async function RapportPage() {

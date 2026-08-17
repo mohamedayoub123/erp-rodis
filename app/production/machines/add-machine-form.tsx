@@ -61,21 +61,17 @@ export function AddMachineForm() {
           ))}
         </select>
       </label>
-      <label className="grid gap-1 text-xs font-semibold text-slate-500">
-        Type de produit
-        <select
-          name="type_produit"
-          defaultValue=""
-          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-        >
-          <option value="">-</option>
+      <div className="grid gap-1 text-xs font-semibold text-slate-500">
+        Type(s) de produit
+        <div className="flex flex-wrap gap-3 rounded-2xl border border-slate-200 px-4 py-3">
           {TYPE_PRODUIT_OPTIONS.map((option) => (
-            <option key={option} value={option}>
+            <label key={option} className="flex items-center gap-1.5 text-sm font-normal text-slate-700">
+              <input type="checkbox" name="type_produit" value={option} />
               {option}
-            </option>
+            </label>
           ))}
-        </select>
-      </label>
+        </div>
+      </div>
       <div className="sm:col-span-2 lg:col-span-3">
         <SubmitButton pendingLabel="Ajout..." className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white">
           Ajouter

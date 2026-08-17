@@ -14,7 +14,7 @@ type MachineRow = {
   nom: string;
   zone: string | null;
   type: string | null;
-  type_produit: string | null;
+  type_produit: string[] | null;
 };
 
 async function fetchAllMachines(): Promise<{ rows: MachineRow[]; error: { message: string } | null }> {
@@ -106,7 +106,9 @@ export default async function MachinesPage() {
                         {canEdit ? (
                           <MachineTypeProduitSelect machine={machine} />
                         ) : (
-                          machine.type_produit || "-"
+                          (machine.type_produit && machine.type_produit.length > 0
+                            ? machine.type_produit.join(", ")
+                            : "-")
                         )}
                       </td>
                       {canDelete ? (

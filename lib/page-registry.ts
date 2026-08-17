@@ -611,6 +611,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/production/rapport/carton-gamme"],
     hasWrite: false,
   },
+  {
+    key: "productionRapportDechets",
+    module: "Production",
+    label: "Rapport Dechets",
+    pathPrefixes: ["/production/rapport/dechets"],
+    hasWrite: false,
+  },
 
   // Qualite
   {
@@ -730,6 +737,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/fifo"],
     hasWrite: false,
     defaultView: true,
+  },
+  // Contient des salaires - PAS de defaultView (contrairement aux autres
+  // pages "General" ci-dessus) : reserve aux comptes qui l'ont explicitement.
+  {
+    key: "chargesHub",
+    module: "General",
+    label: "Charges Usine",
+    pathPrefixes: ["/charges"],
   },
 ];
 

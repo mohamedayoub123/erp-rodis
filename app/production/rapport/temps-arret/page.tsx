@@ -5,6 +5,10 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
 import { formatMinutes, hhmmDiffMinutes } from "@/lib/suivi-tirage-time";
+// Composant generique (SVG multi-courbes fait maison, pas de bibliotheque
+// de graphiques dans ce projet) - deja utilise par Rapport Test Labo,
+// reutilise ici tel quel malgre son nom de fichier.
+import { TestLaboLineChart } from "../../../qualite/rapport/test-labo-line-chart";
 
 const ARRET_FIELDS = [
   { key: "arret_depot", label: "Depot" },
@@ -193,6 +197,29 @@ export default async function RapportTempsArretPage({
   const grandTotalArretMinutes = totalsByType.reduce((sum, t) => sum + t.totalMinutes, 0);
   const grandTotalTravailMinutes = enriched.reduce((sum, e) => sum + e.tempsTravailTotalMinutes, 0);
 
+  // % taux d'arret par mois = temps d'arret / temps de travail total, sur
+  // TOUTES les lignes filtrees (enriched, pas juste la page affichee).
+  const arretByMonth = new Map<string, number>();
+  const travailByMonth = new Map<string, number>();
+  for (const entry of enriched) {
+    const key = (entry.row.date_jour || "").slice(0, 7);
+    if (key.length !== 7) continue;
+    arretByMonth.set(key, (arretByMonth.get(key) ?? 0) + entry.arretTotalMinutes);
+    travailByMonth.set(key, (travailByMonth.get(key) ?? 0) + entry.tempsTravailTotalMinutes);
+  }
+  const tauxArretMonthKeys = [...arretByMonth.keys()].sort((a, b) => a.localeCompare(b));
+  const tauxArretChartSeries = [
+    {
+      key: "taux_arret",
+      label: "% Taux d'arret",
+      color: "#dc2626",
+      values: tauxArretMonthKeys.map((key) => {
+        const travail = travailByMonth.get(key) ?? 0;
+        return travail > 0 ? Math.round(((arretByMonth.get(key) ?? 0) / travail) * 1000) / 10 : 0;
+      }),
+    },
+  ];
+
   const totalRows = enriched.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
   const pageFrom = (currentPage - 1) * PAGE_SIZE;
@@ -364,6 +391,17 @@ export default async function RapportTempsArretPage({
             </table>
           </div>
         </section>
+
+        {tauxArretMonthKeys.length > 0 ? (
+          <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <TestLaboLineChart
+              months={tauxArretMonthKeys.map((key) => monthLabel(key))}
+              series={tauxArretChartSeries}
+              title="% Taux d'arret par mois"
+              unit="%"
+            />
+          </section>
+        ) : null}
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="border-b border-slate-100 px-6 py-5">
