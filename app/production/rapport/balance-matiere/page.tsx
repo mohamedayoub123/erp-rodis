@@ -438,6 +438,10 @@ export default async function RapportBalanceMatierePage({
 
   const rows = allRows
     .filter((row) => {
+      // Uniquement le vrac+conditionnement reellement termines (naturellement
+      // ou via "Fin programme") - un code "En cours"/"Pas commence" n'a pas
+      // fini de consommer son vrac, donc l'ecart matiere serait trompeur.
+      if (row.statut !== "Termine" && row.statut !== "Termine Manuel") return false;
       if (produitFilter && !row.produit.toLowerCase().includes(produitFilter)) return false;
       if (dateDebutFilter && row.date < dateDebutFilter) return false;
       if (dateFinFilter && row.date > dateFinFilter) return false;
