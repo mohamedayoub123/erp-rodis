@@ -400,20 +400,20 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
               {hasFilters ? "Aucun resultat pour ce filtre." : "Aucun article pour le moment."}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
+            <div className="max-h-[75vh] overflow-auto">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="bg-slate-50 text-slate-950">
                   <tr>
-                    <th className="px-6 py-4 font-semibold">Article</th>
-                    <th className="px-6 py-4 font-semibold">Categorie</th>
-                    <th className="px-6 py-4 font-semibold">Unite</th>
-                    <th className="px-6 py-4 font-semibold">Conso. moyenne/mois</th>
-                    <th className="px-6 py-4 font-semibold">Stock min (3 mois)</th>
-                    <th className="px-6 py-4 font-semibold">Deja en commande/import</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conso. moyenne/mois</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock min (3 mois)</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Deja en commande/import</th>
                     {MOIS_COURT.map((mois, idx) => (
                       <th
                         key={mois}
-                        className="px-4 py-4 text-center font-semibold"
+                        className="sticky top-0 z-10 bg-slate-50 px-4 py-4 text-center font-semibold"
                         title={`A avoir en stock en entrant dans ${MOIS_LONG[idx]} (3 mois de delai + 6 mois de cycle = 9 mois)`}
                       >
                         {mois}

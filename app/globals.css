@@ -149,6 +149,16 @@ body {
     overflow: visible !important;
   }
 
+  /* Meme raison que .overflow-x-auto juste au-dessus, pour le cadre borne
+     (titre collant) utilise sur les tableaux larges : sans ca, seule la
+     hauteur visible a l'ecran (75vh) s'imprimerait, coupant le reste du
+     tableau au lieu de laisser toutes les lignes s'etaler sur autant de
+     pages que necessaire. */
+  html[data-print-mode] .max-h-\[75vh\] {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
   /* Le tableau "Resultat FIFO" utilise table-fixed + colgroup en % pour que
      l'entete et chaque ligne (qui est en fait sa PROPRE table imbriquee,
      necessaire pour que chaque ligne soit un <form> independant) gardent

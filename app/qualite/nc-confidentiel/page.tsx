@@ -9,7 +9,8 @@ import { AuditTable, type AuditColumn, type AuditRow, type AttachmentFile } from
 import {
   saveNcConfidentielBatchAction,
   deleteNcConfidentielRowAction,
-  uploadNcConfidentielFilesAction,
+  createNcConfidentielUploadSlotAction,
+  confirmNcConfidentielUploadAction,
   getNcConfidentielFileUrlAction,
   deleteNcConfidentielFileAction,
 } from "./actions";
@@ -19,6 +20,10 @@ const STATUT_OPTIONS = ["REALISEE", "EN COURS", "NON REALISEE", "NOUVELLE NC OUV
 // Statut cloture : calcule automatiquement a partir de Statut correction et
 // Statut AC - CLOTUREE seulement si les 2 valent REALISEE, sinon EN COURS.
 const STATUT_CLOTURE_OPTIONS = ["CLOTUREE", "EN COURS"];
+
+// Ces colonnes restent en lecture seule pour tout le monde, meme l'admin -
+// seule felicite peut les modifier.
+const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "constat", "processus_concerne", "service_concerne"];
 
 // Memes titres, dans le meme ordre, que la feuille "NC Confidentiel" du
 // classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne).
@@ -219,25 +224,26 @@ export default async function NcConfidentielPage({ searchParams }: { searchParam
           </form>
         </section>
 
-        <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <AuditTable
-            columns={COLUMNS}
-            initialRows={rows}
-            canWrite={canWrite}
-            saveBatchAction={saveNcConfidentielBatchAction}
-            deleteRowAction={deleteNcConfidentielRowAction}
-            attachmentsColumnKey="numero"
-            initialAttachments={attachments}
-            uploadFilesAction={uploadNcConfidentielFilesAction}
-            getFileUrlAction={getNcConfidentielFileUrlAction}
-            deleteFileAction={deleteNcConfidentielFileAction}
-            closureSourceKeys={["statut_correction", "statut_ac"]}
-            closureTargetKey="statut_cloture"
-            closureDoneValue="REALISEE"
-            closureClosedStatus="CLOTUREE"
-            closureOpenStatus="EN COURS"
-          />
-        </section>
+        <AuditTable
+          columns={COLUMNS}
+          initialRows={rows}
+          canWrite={canWrite}
+          saveBatchAction={saveNcConfidentielBatchAction}
+          deleteRowAction={deleteNcConfidentielRowAction}
+          attachmentsColumnKey="numero"
+          initialAttachments={attachments}
+          createUploadSlotAction={createNcConfidentielUploadSlotAction}
+          confirmUploadAction={confirmNcConfidentielUploadAction}
+          getFileUrlAction={getNcConfidentielFileUrlAction}
+          deleteFileAction={deleteNcConfidentielFileAction}
+          closureSourceKeys={["statut_correction", "statut_ac"]}
+          closureTargetKey="statut_cloture"
+          closureDoneValue="REALISEE"
+          closureClosedStatus="CLOTUREE"
+          closureOpenStatus="EN COURS"
+          restrictedColumnKeys={RESTRICTED_COLUMN_KEYS}
+          canEditRestrictedColumns={currentUser === "felicite"}
+        />
       </div>
     </main>
   );

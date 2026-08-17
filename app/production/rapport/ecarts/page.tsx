@@ -562,40 +562,40 @@ export default async function RapportEcartsPage({
         ) : (
           <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="max-h-[75vh] overflow-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="text-slate-950">
                   <tr>
-                    <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Statut</th>
-                    <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Date programme</th>
-                    <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Code</th>
-                    <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Programme (PD)</th>
-                    <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Produit</th>
-                    <th colSpan={5} className="bg-amber-50 px-4 py-2 text-center font-semibold text-amber-800">
+                    <th rowSpan={2} className="sticky top-0 z-30 bg-slate-50 px-4 py-3 font-semibold align-bottom">Statut</th>
+                    <th rowSpan={2} className="sticky top-0 z-30 bg-slate-50 px-4 py-3 font-semibold align-bottom">Date programme</th>
+                    <th rowSpan={2} className="sticky top-0 z-30 bg-slate-50 px-4 py-3 font-semibold align-bottom">Code</th>
+                    <th rowSpan={2} className="sticky top-0 z-30 bg-slate-50 px-4 py-3 font-semibold align-bottom">Programme (PD)</th>
+                    <th rowSpan={2} className="sticky top-0 z-30 bg-slate-50 px-4 py-3 font-semibold align-bottom">Produit</th>
+                    <th colSpan={5} className="sticky top-0 z-10 bg-amber-50 px-4 py-2 text-center font-semibold text-amber-800">
                       Fabrication
                     </th>
-                    <th colSpan={4} className="bg-sky-50 px-4 py-2 text-center font-semibold text-sky-800">
+                    <th colSpan={4} className="sticky top-0 z-10 bg-sky-50 px-4 py-2 text-center font-semibold text-sky-800">
                       Conditionnement
                     </th>
-                    <th colSpan={5} className="bg-emerald-50 px-4 py-2 text-center font-semibold text-emerald-800">
+                    <th colSpan={5} className="sticky top-0 z-10 bg-emerald-50 px-4 py-2 text-center font-semibold text-emerald-800">
                       Emballage
                     </th>
-                    {canDelete ? <th rowSpan={2} className="px-4 py-3 font-semibold align-bottom">Action</th> : null}
+                    {canDelete ? <th rowSpan={2} className="sticky top-0 z-30 bg-slate-50 px-4 py-3 font-semibold align-bottom">Action</th> : null}
                   </tr>
                   <tr>
-                    <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Statut</th>
-                    <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Carton a fabriquer</th>
-                    <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Vrac demande</th>
-                    <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Vrac fabrique</th>
-                    <th className="bg-amber-50/60 px-4 py-2 font-semibold text-amber-800">Ecart vrac</th>
-                    <th className="bg-sky-50/60 px-4 py-2 font-semibold text-sky-800">Statut</th>
-                    <th className="bg-sky-50/60 px-4 py-2 font-semibold text-sky-800">Carton demande</th>
-                    <th className="bg-sky-50/60 px-4 py-2 font-semibold text-sky-800">Carton fabrique</th>
-                    <th className="bg-sky-50/60 px-4 py-2 font-semibold text-sky-800">Ecart carton</th>
-                    <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Statut</th>
-                    <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Carton demande</th>
-                    <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Carton emballe</th>
-                    <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">Ecart carton</th>
-                    <th className="bg-emerald-50/60 px-4 py-2 font-semibold text-emerald-800">
+                    <th className="sticky top-[52px] z-20 bg-amber-100 px-4 py-2 font-semibold text-amber-800">Statut</th>
+                    <th className="sticky top-[52px] z-20 bg-amber-100 px-4 py-2 font-semibold text-amber-800">Carton a fabriquer</th>
+                    <th className="sticky top-[52px] z-20 bg-amber-100 px-4 py-2 font-semibold text-amber-800">Vrac demande</th>
+                    <th className="sticky top-[52px] z-20 bg-amber-100 px-4 py-2 font-semibold text-amber-800">Vrac fabrique</th>
+                    <th className="sticky top-[52px] z-20 bg-amber-100 px-4 py-2 font-semibold text-amber-800">Ecart vrac</th>
+                    <th className="sticky top-[52px] z-20 bg-sky-100 px-4 py-2 font-semibold text-sky-800">Statut</th>
+                    <th className="sticky top-[52px] z-20 bg-sky-100 px-4 py-2 font-semibold text-sky-800">Carton demande</th>
+                    <th className="sticky top-[52px] z-20 bg-sky-100 px-4 py-2 font-semibold text-sky-800">Carton fabrique</th>
+                    <th className="sticky top-[52px] z-20 bg-sky-100 px-4 py-2 font-semibold text-sky-800">Ecart carton</th>
+                    <th className="sticky top-[52px] z-20 bg-emerald-100 px-4 py-2 font-semibold text-emerald-800">Statut</th>
+                    <th className="sticky top-[52px] z-20 bg-emerald-100 px-4 py-2 font-semibold text-emerald-800">Carton demande</th>
+                    <th className="sticky top-[52px] z-20 bg-emerald-100 px-4 py-2 font-semibold text-emerald-800">Carton emballe</th>
+                    <th className="sticky top-[52px] z-20 bg-emerald-100 px-4 py-2 font-semibold text-emerald-800">Ecart carton</th>
+                    <th className="sticky top-[52px] z-20 bg-emerald-100 px-4 py-2 font-semibold text-emerald-800">
                       Ecart emballage/conditionnement
                     </th>
                   </tr>

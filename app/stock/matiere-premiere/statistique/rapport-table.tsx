@@ -193,15 +193,15 @@ export function RapportTable({
       </section>
 
       <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-        <div className="overflow-x-auto">
-          <table className="min-w-full border-collapse text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
+        <div className="max-h-[75vh] overflow-auto">
+          <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+            <thead className="bg-slate-50 text-slate-950">
               <tr>
-                <th className="border border-slate-200 px-4 py-4 font-semibold">ORDRE</th>
-                <th className="border border-slate-200 px-4 py-4 font-semibold">DESIGNATION</th>
+                <th className="sticky top-0 z-10 border border-slate-200 bg-slate-50 px-4 py-4 font-semibold">ORDRE</th>
+                <th className="sticky top-0 z-10 border border-slate-200 bg-slate-50 px-4 py-4 font-semibold">DESIGNATION</th>
                 {columns.map((col, index) =>
                   col.kind === "spacer" ? (
-                    <th key={col.key + index} className="w-28 border-0 bg-white p-0" />
+                    <th key={col.key + index} className="sticky top-0 z-10 w-28 border-0 bg-white p-0" />
                   ) : (
                     // Titre en retour a la ligne (au lieu de nowrap) et
                     // largeur plafonnee, pour que la colonne se resserre a
@@ -209,16 +209,16 @@ export function RapportTable({
                     // que d'etre etiree par un titre long.
                     <th
                       key={col.key + index}
-                      className="max-w-[110px] whitespace-normal break-words border border-slate-200 px-2 py-2 font-semibold"
+                      className="sticky top-0 z-10 max-w-[110px] whitespace-normal break-words border border-slate-200 bg-slate-50 px-2 py-2 font-semibold"
                     >
                       {col.label}
                     </th>
                   )
                 )}
-                <th className="max-w-[110px] whitespace-normal break-words border border-slate-200 px-2 py-2 font-semibold">
+                <th className="sticky top-0 z-10 max-w-[110px] whitespace-normal break-words border border-slate-200 bg-slate-50 px-2 py-2 font-semibold">
                   Statistique 6 mois (systeme)
                 </th>
-                <th className="whitespace-nowrap border border-slate-200 px-4 py-4 font-semibold">Remarque</th>
+                <th className="sticky top-0 z-10 whitespace-nowrap border border-slate-200 bg-slate-50 px-4 py-4 font-semibold">Remarque</th>
               </tr>
             </thead>
             <tbody>

@@ -342,23 +342,23 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
               {hasFilters ? "Aucun resultat pour ce filtre." : "Aucune commande pour le moment."}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+            <div className="max-h-[75vh] overflow-auto">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="bg-slate-50 text-slate-950">
                   <tr>
-                    <th className="px-6 py-4 font-semibold">BC</th>
-                    <th className="px-6 py-4 font-semibold">Nb articles</th>
-                    <th className="px-6 py-4 font-semibold">Qte commandee</th>
-                    <th className="px-6 py-4 font-semibold">Qte importee</th>
-                    <th className="px-6 py-4 font-semibold">Reste a importer</th>
-                    <th className="px-6 py-4 font-semibold">Fournisseur</th>
-                    <th className="px-6 py-4 font-semibold">Dossier BC 4D</th>
-                    <th className="px-6 py-4 font-semibold">Dossier BC ERP</th>
-                    <th className="px-6 py-4 font-semibold">Doss import 4D</th>
-                    <th className="px-6 py-4 font-semibold">Doss import ERP</th>
-                    <th className="px-6 py-4 font-semibold">Statut</th>
-                    <th className="px-6 py-4 font-semibold">Date</th>
-                    {canDelete ? <th className="px-6 py-4 font-semibold">Action</th> : null}
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">BC</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Nb articles</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Qte commandee</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Qte importee</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Reste a importer</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Fournisseur</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Dossier BC 4D</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Dossier BC ERP</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Doss import 4D</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Doss import ERP</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Statut</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Date</th>
+                    {canDelete ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
                 <tbody>

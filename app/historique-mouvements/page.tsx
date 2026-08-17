@@ -370,20 +370,20 @@ export default async function HistoriqueMouvementsPage({
           ) : pagedRows.length === 0 ? (
             <div className="p-6 text-sm text-slate-500">Aucune statistique trouvee.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
+            <div className="max-h-[75vh] overflow-auto">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="bg-slate-50 text-slate-950">
                   <tr>
-                    <th className="px-4 py-3 font-semibold">Article</th>
-                    <th className="px-4 py-3 font-semibold">Type</th>
-                    <th className="px-4 py-3 font-semibold">Marque</th>
-                    <th className="px-4 py-3 font-semibold">Gamme</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Article</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Type</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Marque</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Gamme</th>
                     {monthColumns.map((monthKey) => (
-                      <th key={monthKey} className="px-4 py-3 text-center font-semibold">
+                      <th key={monthKey} className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center font-semibold">
                         {formatMonthLabel(monthKey)}
                       </th>
                     ))}
-                    <th className="px-4 py-3 text-center font-semibold">Total vendu</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center font-semibold">Total vendu</th>
                   </tr>
                 </thead>
                 <tbody>

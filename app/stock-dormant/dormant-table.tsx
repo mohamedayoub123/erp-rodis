@@ -117,50 +117,52 @@ export function DormantTable({ rows }: { rows: DormantTableRow[] }) {
         </button>
       </div>
 
-      <table className="min-w-full text-left text-sm">
-      <thead className="bg-slate-50 text-slate-500">
-        <tr>
-          {columns.map((column, index) => (
-            <th key={column.key} className="px-6 py-4 font-semibold">
-              <div className="flex items-center justify-between gap-2">
-                <span>{column.label}</span>
-                <span className="flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() => moveColumn(index, -1)}
-                    disabled={index === 0}
-                    title="Deplacer a gauche"
-                    className="rounded-full border border-slate-200 px-1.5 text-xs font-semibold text-slate-500 disabled:opacity-30"
-                  >
-                    {"◀"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveColumn(index, 1)}
-                    disabled={index === columns.length - 1}
-                    title="Deplacer a droite"
-                    className="rounded-full border border-slate-200 px-1.5 text-xs font-semibold text-slate-500 disabled:opacity-30"
-                  >
-                    {"▶"}
-                  </button>
-                </span>
-              </div>
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.lot_stock_id} className="border-t border-slate-100">
-            {columns.map((column) => (
-              <td key={column.key} className="px-6 py-4 text-slate-600">
-                {renderCell(row, column.key)}
-              </td>
+      <div className="max-h-[75vh] overflow-auto">
+        <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+          <thead className="bg-slate-50 text-slate-950">
+            <tr>
+              {columns.map((column, index) => (
+                <th key={column.key} className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>{column.label}</span>
+                    <span className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moveColumn(index, -1)}
+                        disabled={index === 0}
+                        title="Deplacer a gauche"
+                        className="rounded-full border border-slate-200 px-1.5 text-xs font-semibold text-slate-500 disabled:opacity-30"
+                      >
+                        {"◀"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveColumn(index, 1)}
+                        disabled={index === columns.length - 1}
+                        title="Deplacer a droite"
+                        className="rounded-full border border-slate-200 px-1.5 text-xs font-semibold text-slate-500 disabled:opacity-30"
+                      >
+                        {"▶"}
+                      </button>
+                    </span>
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.lot_stock_id} className="border-t border-slate-100">
+                {columns.map((column) => (
+                  <td key={column.key} className="px-6 py-4 text-slate-600">
+                    {renderCell(row, column.key)}
+                  </td>
+                ))}
+              </tr>
             ))}
-          </tr>
-        ))}
-      </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

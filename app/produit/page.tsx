@@ -5,14 +5,14 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
-import { computeStockByArticleDepot, stockKey } from "@/lib/depot-stock";
+import { stockKey } from "@/lib/depot-stock";
 
 const PAGE_SIZE = 100;
 
 type DepotRow = { id: number; nom: string };
-type ArticlePfRow = { id: number; nom_article: string; nature: string | null; depot_id: number | null };
-type ArticleMpRow = { id: number; nom_article: string; depot_id: number | null };
-type LotRow = { article_id: number | null; qte_entree: number; qte_sortie: number; depot_id: number | null };
+type ArticlePfRow = { id: number; nom_article: string; nature: string | null };
+type ArticleMpRow = { id: number; nom_article: string };
+type StockByDepotRow = { article_id: number; depot_id: number; stock: number };
 
 type ProduitRow = {
   type: "PF" | "MP";
@@ -50,21 +50,29 @@ export default async function ProduitListPage({ searchParams }: { searchParams: 
   const q = (params.q || "").trim();
   const typeFilter = (params.type || "").trim();
 
-  const [{ rows: depots }, { rows: articlesPf }, { rows: articlesMp }, { rows: lotsPf }, { rows: lotsMp }] =
+  const [{ rows: depots }, { rows: articlesPf }, { rows: articlesMp }, stockPfResult, stockMpResult] =
     await Promise.all([
       fetchAll<DepotRow>("depots", "id, nom"),
-      fetchAll<ArticlePfRow>("articles", "id, nom_article, nature, depot_id"),
-      fetchAll<ArticleMpRow>("articles_matiere_premiere", "id, nom_article, depot_id"),
-      fetchAll<LotRow>("lots_stock", "article_id, qte_entree, qte_sortie, depot_id"),
-      fetchAll<LotRow>("lots_stock_matiere_premiere", "article_id, qte_entree, qte_sortie, depot_id"),
+      fetchAll<ArticlePfRow>("articles", "id, nom_article, nature"),
+      fetchAll<ArticleMpRow>("articles_matiere_premiere", "id, nom_article"),
+      supabaseServer.rpc("stock_by_article_depot_pf"),
+      supabaseServer.rpc("stock_by_article_depot_mp"),
     ]);
 
   const sortedDepots = [...depots].sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
-  const defaultDepotByPfId = new Map(articlesPf.map((a) => [a.id, a.depot_id]));
-  const defaultDepotByMpId = new Map(articlesMp.map((a) => [a.id, a.depot_id]));
-  const stockPfMap = computeStockByArticleDepot(lotsPf, defaultDepotByPfId);
-  const stockMpMap = computeStockByArticleDepot(lotsMp, defaultDepotByMpId);
+  const stockPfMap = new Map(
+    ((stockPfResult.data as StockByDepotRow[] | null) ?? []).map((row) => [
+      stockKey(row.article_id, row.depot_id),
+      Number(row.stock),
+    ])
+  );
+  const stockMpMap = new Map(
+    ((stockMpResult.data as StockByDepotRow[] | null) ?? []).map((row) => [
+      stockKey(row.article_id, row.depot_id),
+      Number(row.stock),
+    ])
+  );
 
   const allRows: ProduitRow[] = [
     ...articlesPf.map((a) => ({
@@ -148,14 +156,14 @@ export default async function ProduitListPage({ searchParams }: { searchParams: 
             <div className="px-6 py-8 text-sm text-slate-500">Aucun article trouve pour le moment.</div>
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-500">
+              <div className="max-h-[75vh] overflow-auto">
+                <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                  <thead className="bg-slate-50 text-slate-950">
                     <tr>
-                      <th className="px-6 py-4 font-semibold">Article</th>
-                      <th className="px-6 py-4 font-semibold">Type</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type</th>
                       {sortedDepots.map((depot) => (
-                        <th key={depot.id} className="px-6 py-4 font-semibold">
+                        <th key={depot.id} className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
                           Stock {depot.nom}
                         </th>
                       ))}

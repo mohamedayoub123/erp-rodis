@@ -610,16 +610,16 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
               </>
             ) : (
               <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-slate-500">
+                <div className="max-h-[75vh] overflow-auto">
+                  <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                    <thead className="bg-slate-50 text-slate-950">
                       <tr>
-                        <th className="px-6 py-4 font-semibold">Article</th>
-                        <th className="px-6 py-4 font-semibold">Categorie</th>
-                        <th className="px-6 py-4 font-semibold">Unite</th>
-                        <th className="px-6 py-4 font-semibold">Gamme</th>
-                        <th className="px-6 py-4 font-semibold">Stock min</th>
-                        <th className="px-6 py-4 font-semibold">Stock max</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock min</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock max</th>
                       </tr>
                     </thead>
                     <tbody>

@@ -92,11 +92,13 @@ type CodeRow = {
   emballageRestant: number;
 };
 
-type ArticleOption = { id: number; nom_article: string; gamme: string | null };
+type ArticleOption = { id: number; nom_article: string; gamme: string | null; vrac_article_id: number | null };
 
 // Utilise pour le menu du filtre Produit (liste complete, pas les
-// suggestions "deja saisies" du navigateur) et pour resoudre la gamme d'une
-// ligne (via son article_id) pour le filtre Gamme.
+// suggestions "deja saisies" du navigateur), pour resoudre la gamme d'une
+// ligne (via son article_id) pour le filtre Gamme, et pour retrouver
+// l'article Vrac (nature "Vrac") d'un article conditionne pour la colonne
+// "Salle de pesage".
 async function fetchAllArticlesForFilters(): Promise<ArticleOption[]> {
   const rows: ArticleOption[] = [];
   let from = 0;
@@ -105,7 +107,7 @@ async function fetchAllArticlesForFilters(): Promise<ArticleOption[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles")
-      .select("id, nom_article, gamme")
+      .select("id, nom_article, gamme, vrac_article_id")
       .order("nom_article", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -121,7 +123,8 @@ async function fetchAllArticlesForFilters(): Promise<ArticleOption[]> {
   return rows;
 }
 
-type CodeTermineRow = { programme_ligne_id: number; code: string; stage: "vrac" | "carton" | "emballage" };
+type CodeTermineStage = "vrac" | "carton" | "emballage" | "pesage" | "salle_conditionnement";
+type CodeTermineRow = { programme_ligne_id: number; code: string; stage: CodeTermineStage };
 
 async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeTermineRow[]> {
   if (ligneIds.length === 0) return [];
@@ -212,8 +215,14 @@ export default async function PlanningDashboardPage({
     fetchAllArticlesForFilters(),
   ]);
   const canEditLotCode = isAdminUser(currentUser);
+  // Salle de pesage/Salle de conditionnement : reservees aux comptes admin
+  // pour le moment (meme verification que canEditLotCode) - tous les autres
+  // utilisateurs voient le Dashboard exactement comme avant, ces 2 sections
+  // en moins.
+  const isAdmin = canEditLotCode;
 
   const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
+  const articleById = new Map(articles.map((article) => [article.id, article]));
   const distinctGammes = [...new Set(articles.map((article) => article.gamme).filter(Boolean))].sort(
     (a, b) => (a as string).localeCompare(b as string)
   ) as string[];
@@ -261,7 +270,7 @@ export default async function PlanningDashboardPage({
   function isCodeTerminated(
     ligneId: number,
     code: string,
-    stage: "vrac" | "carton" | "emballage",
+    stage: CodeTermineStage,
     codeCount: number,
     legacyLigneFlag: boolean
   ): boolean {
@@ -413,6 +422,51 @@ export default async function PlanningDashboardPage({
   const totalVracProduit = vracRows.reduce((sum, row) => sum + row.vracProduit, 0);
   const totalCartonPrevu = cartonRows.reduce((sum, row) => sum + row.cartonPrevu, 0);
   const totalCartonProduit = cartonRows.reduce((sum, row) => sum + row.cartonProduit, 0);
+
+  // Salle de pesage / Salle de conditionnement : suivi INDEPENDANT de
+  // Fabrication/Conditionnement (stage "pesage"/"salle_conditionnement",
+  // jamais "vrac"/"carton" - sinon Valider ici ferait aussi disparaitre la
+  // ligne de Fabrication/Conditionnement, qui ont leur propre "Fin
+  // programme"). Construit directement depuis codeRows (pas vracRows/
+  // cartonRows) pour ne pas heriter de leur propre filtre "vrac"/"carton".
+  const pesageRows = codeRows
+    .filter(
+      (row) =>
+        row.vracPrevu > 0 && !isCodeTerminated(row.ligne.id, row.code, "pesage", row.codeCount, false)
+    )
+    .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter))
+    .map((row) => {
+      const article = row.ligne.article_id ? articleById.get(row.ligne.article_id) : null;
+      const vracArticleId = article?.vrac_article_id ?? null;
+      const vracArticle = vracArticleId ? articleById.get(vracArticleId) : null;
+      return {
+        key: `${row.ligne.id}-${row.code}`,
+        ligneId: row.ligne.id,
+        date: row.ligne.date_jour,
+        code: row.code,
+        label: vracArticle?.nom_article || vracLabelFromName(row.ligne.produit) || "-",
+        qt: row.vracPrevu,
+        href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=vrac&qt=${row.vracPrevu}`,
+      };
+    });
+
+  const conditionnementRows = codeRows
+    .filter(
+      (row) =>
+        row.cartonPrevu > 0 &&
+        !isCodeTerminated(row.ligne.id, row.code, "salle_conditionnement", row.codeCount, false)
+    )
+    .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter))
+    .map((row) => ({
+      key: `${row.ligne.id}-${row.code}`,
+      ligneId: row.ligne.id,
+      date: row.ligne.date_jour,
+      code: row.code,
+      label: row.ligne.produit || "-",
+      qt: row.cartonPrevu,
+      href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=carton&qt=${row.cartonPrevu}`,
+    }));
+
   const totalEmballagePrevu = emballageRows.reduce((sum, row) => sum + row.emballagePrevu, 0);
   const totalEmballageProduit = emballageRows.reduce((sum, row) => sum + row.emballageProduit, 0);
 
@@ -767,6 +821,122 @@ export default async function PlanningDashboardPage({
             </div>
           </div>
         </section>
+
+        {isAdmin ? (
+          <section className="grid gap-6 xl:grid-cols-2">
+            <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                <h2 className="text-lg font-bold text-slate-900">Salle de pesage</h2>
+                <div className="flex items-center gap-3">
+                  <p className="text-xs text-slate-500">Clique un article pour ouvrir sa formule MP</p>
+                  <Link
+                    href="/production/suivi/dashboard/validations/pesage"
+                    className="text-xs font-semibold text-sky-700 underline"
+                  >
+                    Historique
+                  </Link>
+                </div>
+              </div>
+              <div className="max-h-[50vh] overflow-y-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Date</th>
+                      <th className="px-4 py-3 font-semibold">Article</th>
+                      <th className="px-4 py-3 font-semibold">N lot</th>
+                      <th className="px-4 py-3 font-semibold">Qt vrac</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pesageRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">
+                          Rien en cours.
+                        </td>
+                      </tr>
+                    ) : (
+                      pesageRows.map((row) => (
+                        <tr key={row.key} className="border-t border-slate-100">
+                          <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
+                          <td className="px-4 py-3">
+                            <Link href={row.href} className="font-medium text-sky-700 underline">
+                              {row.label}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            <LotCodeCell
+                              ligneId={row.ligneId}
+                              code={row.code}
+                              canEdit={canEditLotCode}
+                              action={renameLotCodeAction}
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                <h2 className="text-lg font-bold text-slate-900">Salle de conditionnement</h2>
+                <div className="flex items-center gap-3">
+                  <p className="text-xs text-slate-500">Clique un article pour ouvrir sa formule</p>
+                  <Link
+                    href="/production/suivi/dashboard/validations/conditionnement"
+                    className="text-xs font-semibold text-sky-700 underline"
+                  >
+                    Historique
+                  </Link>
+                </div>
+              </div>
+              <div className="max-h-[50vh] overflow-y-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Date</th>
+                      <th className="px-4 py-3 font-semibold">Article</th>
+                      <th className="px-4 py-3 font-semibold">N lot</th>
+                      <th className="px-4 py-3 font-semibold">Qt conditionnement</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {conditionnementRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">
+                          Rien en cours.
+                        </td>
+                      </tr>
+                    ) : (
+                      conditionnementRows.map((row) => (
+                        <tr key={row.key} className="border-t border-slate-100">
+                          <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
+                          <td className="px-4 py-3">
+                            <Link href={row.href} className="font-medium text-sky-700 underline">
+                              {row.label}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            <LotCodeCell
+                              ligneId={row.ligneId}
+                              code={row.code}
+                              canEdit={canEditLotCode}
+                              action={renameLotCodeAction}
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        ) : null}
       </div>
     </main>
   );

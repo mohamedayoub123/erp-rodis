@@ -483,9 +483,7 @@ export default async function StockDormantPage({
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <DormantTable rows={lignes} />
-              </div>
+              <DormantTable rows={lignes} />
 
               <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4 text-sm">
                 <p className="text-slate-500">

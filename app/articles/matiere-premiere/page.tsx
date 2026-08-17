@@ -24,29 +24,44 @@ type ArticleMpRow = {
   max_stock: number | null;
 };
 
+const ARTICLES_MP_COLUMNS =
+  "id, nom_article, categorie, unite, gamme, gamme_statistique, utilisation, min_stock, max_stock";
+
+// PostgREST plafonne chaque requete a ~1000 lignes quel que soit le .range()
+// demande - la table (~2200 lignes) a donc toujours besoin de plusieurs
+// pages, mais elles peuvent etre demandees EN PARALLELE (une seule attente
+// reseau au lieu d'une boucle sequentielle qui attend chaque page l'une
+// apres l'autre), meme motif que Stock MP/PF avant leur passage en RPC.
 async function fetchAllArticlesMp() {
-  const rows: ArticleMpRow[] = [];
-  let from = 0;
   const pageSize = 1000;
 
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("articles_matiere_premiere")
-      .select(
-        "id, nom_article, categorie, unite, gamme, gamme_statistique, utilisation, min_stock, max_stock"
-      )
-      .order("nom_article", { ascending: true })
-      .range(from, from + pageSize - 1);
+  const { count, error: countError } = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select("id", { count: "exact", head: true });
 
-    if (error) {
-      return { rows, error };
+  if (countError) {
+    return { rows: [] as ArticleMpRow[], error: countError };
+  }
+
+  const pageCount = Math.max(1, Math.ceil((count ?? 0) / pageSize));
+
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, index) => {
+      const from = index * pageSize;
+      return supabaseServer
+        .from("articles_matiere_premiere")
+        .select(ARTICLES_MP_COLUMNS)
+        .order("nom_article", { ascending: true })
+        .range(from, from + pageSize - 1);
+    })
+  );
+
+  const rows: ArticleMpRow[] = [];
+  for (const page of pages) {
+    if (page.error) {
+      return { rows, error: page.error };
     }
-
-    const chunk = (data ?? []) as ArticleMpRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
+    rows.push(...((page.data as unknown as ArticleMpRow[] | null) ?? []));
   }
 
   return { rows, error: null };
@@ -165,21 +180,21 @@ export default async function ArticlesMatierePremierePage({
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-500">
+              <div className="max-h-[75vh] overflow-auto">
+                <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                  <thead className="bg-slate-50 text-slate-950">
                     <tr>
-                      <th className="px-6 py-4 font-semibold">Article</th>
-                      <th className="px-6 py-4 font-semibold">Categorie</th>
-                      <th className="px-6 py-4 font-semibold">Unite</th>
-                      <th className="px-6 py-4 font-semibold">Gamme</th>
-                      <th className="px-6 py-4 font-semibold">Gamme Statistique</th>
-                      <th className="px-6 py-4 font-semibold">Utilisation</th>
-                      <th className="px-6 py-4 font-semibold">Stock min</th>
-                      <th className="px-6 py-4 font-semibold">Stock max</th>
-                      {canEditArticles ? <th className="px-6 py-4 font-semibold">Modifier</th> : null}
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme Statistique</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Utilisation</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock min</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock max</th>
+                      {canEditArticles ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Modifier</th> : null}
                       {canDeleteArticles ? (
-                        <th className="px-6 py-4 font-semibold">Supprimer</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Supprimer</th>
                       ) : null}
                     </tr>
                   </thead>

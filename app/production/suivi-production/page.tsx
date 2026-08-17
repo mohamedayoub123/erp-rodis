@@ -680,138 +680,138 @@ export default async function SuiviProductionListPage({
           </div>
         ) : (
           <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500 shadow-[0_1px_0_rgba(15,23,42,0.08)]">
+            <div className="max-h-[75vh] overflow-auto">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="bg-slate-50 text-slate-950">
                   <tr>
-                    <th rowSpan={2} className="border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Article
                     </th>
-                    <th rowSpan={2} className="border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Code
                     </th>
-                    <th rowSpan={2} className="border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Vrac demande
                     </th>
-                    <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Carton demande
                     </th>
-                    <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Programme (PL)
                     </th>
-                    <th colSpan={22} className="border-b border-slate-200 bg-violet-50 px-6 py-2 text-center font-bold text-violet-800">
+                    <th colSpan={22} className="sticky top-0 z-20 border-b border-slate-200 bg-violet-50 px-6 py-2 text-center font-bold text-violet-800">
                       Test labo
                     </th>
-                    <th colSpan={32} className="border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
+                    <th colSpan={32} className="sticky top-0 z-20 border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
                       Fabrication
                     </th>
-                    <th colSpan={32} className="border-b border-slate-200 bg-sky-50 px-6 py-2 text-center font-bold text-sky-800">
+                    <th colSpan={32} className="sticky top-0 z-20 border-b border-slate-200 bg-sky-50 px-6 py-2 text-center font-bold text-sky-800">
                       Conditionnement
                     </th>
-                    <th colSpan={14} className="border-b border-slate-200 bg-emerald-50 px-6 py-2 text-center font-bold text-emerald-800">
+                    <th colSpan={14} className="sticky top-0 z-20 border-b border-slate-200 bg-emerald-50 px-6 py-2 text-center font-bold text-emerald-800">
                       Emballage
                     </th>
-                    <th rowSpan={2} className="border-b border-slate-200 px-6 py-3 font-semibold align-bottom">
+                    <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Actions
                     </th>
                   </tr>
                   <tr>
                     {/* Test labo */}
-                    <th className="px-6 py-3 font-semibold">Date prise echantillon</th>
-                    <th className="px-6 py-3 font-semibold">Heure prise echantillon</th>
-                    <th className="px-6 py-3 font-semibold">Heure debut analyse</th>
-                    <th className="px-6 py-3 font-semibold">Heure fin analyse</th>
-                    <th className="px-6 py-3 font-semibold">pH</th>
-                    <th className="px-6 py-3 font-semibold">Densite</th>
-                    <th className="px-6 py-3 font-semibold">Viscosite</th>
-                    <th className="px-6 py-3 font-semibold">Degre alcool</th>
-                    <th className="px-6 py-3 font-semibold">Stabilite</th>
-                    <th className="px-6 py-3 font-semibold">Couleur</th>
-                    <th className="px-6 py-3 font-semibold">Temperature test</th>
-                    <th className="px-6 py-3 font-semibold">Odeur</th>
-                    <th className="px-6 py-3 font-semibold">Taux humidite</th>
-                    <th className="px-6 py-3 font-semibold">Pression atmospherique</th>
-                    <th className="px-6 py-3 font-semibold">Texture</th>
-                    <th className="px-6 py-3 font-semibold">Statut qualite</th>
-                    <th className="px-6 py-3 font-semibold">Sous derogation</th>
-                    <th className="px-6 py-3 font-semibold">Motif derogation</th>
-                    <th className="px-6 py-3 font-semibold">Remarque</th>
-                    <th className="px-6 py-3 font-semibold">Laboratoire</th>
-                    <th className="px-6 py-3 font-semibold">Saisi par (test labo)</th>
-                    <th className="px-6 py-3 font-semibold">Date saisie (test labo)</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Date prise echantillon</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Heure prise echantillon</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Heure debut analyse</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Heure fin analyse</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">pH</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Densite</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Viscosite</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Degre alcool</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Stabilite</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Couleur</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Temperature test</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Odeur</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Taux humidite</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Pression atmospherique</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Texture</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Statut qualite</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Sous derogation</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Motif derogation</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Remarque</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Laboratoire</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Saisi par (test labo)</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Date saisie (test labo)</th>
 
                     {/* Fabrication */}
-                    <th className="px-6 py-3 font-semibold">Date fabrication</th>
-                    <th className="px-6 py-3 font-semibold">Machine fabrication</th>
-                    <th className="px-6 py-3 font-semibold">Type</th>
-                    <th className="px-6 py-3 font-semibold">Preparateur</th>
-                    <th className="px-6 py-3 font-semibold">Cuve 1</th>
-                    <th className="px-6 py-3 font-semibold">Poids cuve 1</th>
-                    <th className="px-6 py-3 font-semibold">Cuve 2</th>
-                    <th className="px-6 py-3 font-semibold">Poids cuve 2</th>
-                    <th className="px-6 py-3 font-semibold">Cuve 3</th>
-                    <th className="px-6 py-3 font-semibold">Poids cuve 3</th>
-                    <th className="px-6 py-3 font-semibold">Cuve 4</th>
-                    <th className="px-6 py-3 font-semibold">Poids cuve 4</th>
-                    <th className="px-6 py-3 font-semibold">Debut preparation</th>
-                    <th className="px-6 py-3 font-semibold">Envoi echantillon labo</th>
-                    <th className="px-6 py-3 font-semibold">Fin test</th>
-                    <th className="px-6 py-3 font-semibold">Vidange</th>
-                    <th className="px-6 py-3 font-semibold">Vrac fabrique</th>
-                    <th className="px-6 py-3 font-semibold">Qt vrac recupere</th>
-                    <th className="px-6 py-3 font-semibold">Code vrac recupere</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Date fabrication</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Machine fabrication</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Type</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Preparateur</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Cuve 1</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Poids cuve 1</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Cuve 2</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Poids cuve 2</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Cuve 3</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Poids cuve 3</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Cuve 4</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Poids cuve 4</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Debut preparation</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Envoi echantillon labo</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Fin test</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Vidange</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Vrac fabrique</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Qt vrac recupere</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Code vrac recupere</th>
                     {FABRICATION_ARRET_LABELS.map(({ field, label }) => (
-                      <th key={field} className="px-6 py-3 font-semibold">
+                      <th key={field} className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">
                         {label}
                       </th>
                     ))}
-                    <th className="px-6 py-3 font-semibold">Saisi par (fabrication)</th>
-                    <th className="px-6 py-3 font-semibold">Date saisie (fabrication)</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Saisi par (fabrication)</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Date saisie (fabrication)</th>
 
                     {/* Conditionnement */}
-                    <th className="px-6 py-3 font-semibold">Date conditionnement</th>
-                    <th className="px-6 py-3 font-semibold">Zone</th>
-                    <th className="px-6 py-3 font-semibold">Chaine</th>
-                    <th className="px-6 py-3 font-semibold">Chef zone</th>
-                    <th className="px-6 py-3 font-semibold">Chef ligne</th>
-                    <th className="px-6 py-3 font-semibold">Ravitailleur</th>
-                    <th className="px-6 py-3 font-semibold">Tireur</th>
-                    <th className="px-6 py-3 font-semibold">Cadence</th>
-                    <th className="px-6 py-3 font-semibold">Poids reel</th>
-                    <th className="px-6 py-3 font-semibold">Dechet sleeve</th>
-                    <th className="px-6 py-3 font-semibold">Dechet capsule</th>
-                    <th className="px-6 py-3 font-semibold">Dechet pompe</th>
-                    <th className="px-6 py-3 font-semibold">Dechet flacon</th>
-                    <th className="px-6 py-3 font-semibold">Dechet pot</th>
-                    <th className="px-6 py-3 font-semibold">Dechet etiquette</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Date conditionnement</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Zone</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Chaine</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Chef zone</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Chef ligne</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Ravitailleur</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Tireur</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Cadence</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Poids reel</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Dechet sleeve</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Dechet capsule</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Dechet pompe</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Dechet flacon</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Dechet pot</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Dechet etiquette</th>
                     {ARRET_LABELS.map(({ field, label }) => (
-                      <th key={field} className="px-6 py-3 font-semibold">
+                      <th key={field} className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">
                         {label}
                       </th>
                     ))}
-                    <th className="px-6 py-3 font-semibold">Demarage lot</th>
-                    <th className="px-6 py-3 font-semibold">Arret batch</th>
-                    <th className="px-6 py-3 font-semibold">Date fabrication</th>
-                    <th className="px-6 py-3 font-semibold">Date peremption</th>
-                    <th className="px-6 py-3 font-semibold">Carton fabrique</th>
-                    <th className="px-6 py-3 font-semibold">Saisi par (conditionnement)</th>
-                    <th className="px-6 py-3 font-semibold">Date saisie (conditionnement)</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Demarage lot</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Arret batch</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Date fabrication</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Date peremption</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Carton fabrique</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Saisi par (conditionnement)</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Date saisie (conditionnement)</th>
 
                     {/* Emballage */}
-                    <th className="px-6 py-3 font-semibold">Date emballage</th>
-                    <th className="px-6 py-3 font-semibold">Machine emballage</th>
-                    <th className="px-6 py-3 font-semibold">Operateur emballage</th>
-                    <th className="px-6 py-3 font-semibold">Scotcheuse</th>
-                    <th className="px-6 py-3 font-semibold">Demarage emballage</th>
-                    <th className="px-6 py-3 font-semibold">Arret emballage</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Date emballage</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Machine emballage</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Operateur emballage</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Scotcheuse</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Demarage emballage</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Arret emballage</th>
                     {EMBALLAGE_ARRET_LABELS.map(({ field, label }) => (
-                      <th key={field} className="px-6 py-3 font-semibold">
+                      <th key={field} className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">
                         {label}
                       </th>
                     ))}
-                    <th className="px-6 py-3 font-semibold">Quantite emballage</th>
-                    <th className="px-6 py-3 font-semibold">Saisi par (emballage)</th>
-                    <th className="px-6 py-3 font-semibold">Date saisie (emballage)</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Quantite emballage</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Saisi par (emballage)</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Date saisie (emballage)</th>
                   </tr>
                 </thead>
                 <tbody>

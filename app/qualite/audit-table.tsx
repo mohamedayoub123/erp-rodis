@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[] };
 
@@ -31,16 +31,21 @@ function AttachmentsCell({
   rowId,
   canWrite,
   initialFiles,
-  uploadFilesAction,
+  createUploadSlotAction,
+  confirmUploadAction,
   getFileUrlAction,
   deleteFileAction,
 }: {
   rowId: number | null;
   canWrite: boolean;
   initialFiles: AttachmentFile[];
-  uploadFilesAction: (
+  createUploadSlotAction: (
     rowId: number,
-    formData: FormData
+    fileName: string
+  ) => Promise<{ ok: boolean; message?: string; path?: string; signedUrl?: string }>;
+  confirmUploadAction: (
+    rowId: number,
+    files: AttachmentFile[]
   ) => Promise<{ ok: boolean; message?: string; files?: AttachmentFile[] }>;
   getFileUrlAction: (path: string) => Promise<{ ok: boolean; url?: string; message?: string }>;
   deleteFileAction: (rowId: number, path: string) => Promise<{ ok: boolean; message?: string }>;
@@ -58,30 +63,74 @@ function AttachmentsCell({
   function handleUpload(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
     setError("");
-    const formData = new FormData();
-    for (const file of Array.from(fileList)) formData.append("files", file);
 
     startTransition(async () => {
-      const result = await uploadFilesAction(rowId as number, formData);
-      if (!result.ok) {
-        setError(result.message || "Erreur pendant l'envoi.");
-        return;
+      // Chaque fichier est envoye DIRECTEMENT au stockage Supabase depuis le
+      // navigateur (lien signe obtenu via createUploadSlotAction) plutot que
+      // de passer par une Server Action - les fonctions serveur Vercel
+      // refusent toute requete de plus de 4.5 Mo quel que soit le reglage
+      // Next.js, ce qui bloquait deja les videos et aurait fini par bloquer
+      // aussi les photos les plus lourdes.
+      const uploaded: AttachmentFile[] = [];
+      for (const file of Array.from(fileList)) {
+        const slot = await createUploadSlotAction(rowId as number, file.name);
+        if (!slot.ok || !slot.path || !slot.signedUrl) {
+          setError(slot.message || `Erreur pendant l'envoi de "${file.name}".`);
+          continue;
+        }
+        try {
+          const response = await fetch(slot.signedUrl, {
+            method: "PUT",
+            headers: { "Content-Type": file.type || "application/octet-stream" },
+            body: file,
+          });
+          if (!response.ok) {
+            setError(`Erreur pendant l'envoi de "${file.name}".`);
+            continue;
+          }
+          uploaded.push({ name: file.name, path: slot.path });
+        } catch {
+          setError(`Erreur pendant l'envoi de "${file.name}".`);
+        }
       }
-      setFiles((prev) => [...prev, ...(result.files ?? [])]);
-      setExpanded(true);
+
+      if (uploaded.length > 0) {
+        const result = await confirmUploadAction(rowId as number, uploaded);
+        if (!result.ok) {
+          setError(result.message || "Erreur pendant l'enregistrement.");
+        } else {
+          setFiles((prev) => [...prev, ...uploaded]);
+          setExpanded(true);
+        }
+      }
       if (inputRef.current) inputRef.current.value = "";
     });
   }
 
   function handleView(path: string) {
     setError("");
+    // Ouvre l'onglet tout de suite (dans le clic, pendant que le navigateur
+    // considere encore que c'est un geste de l'utilisateur) puis le
+    // redirige une fois l'URL signee recuperee - sinon un "window.open"
+    // appele APRES un await est bloque silencieusement par le navigateur
+    // (bloqueur de popup), meme si l'action vient bien d'un vrai clic.
+    const win = window.open("", "_blank", "noopener,noreferrer");
     startTransition(async () => {
       const result = await getFileUrlAction(path);
       if (!result.ok || !result.url) {
         setError(result.message || "Fichier introuvable.");
+        win?.close();
         return;
       }
-      window.open(result.url, "_blank", "noopener,noreferrer");
+      if (win) {
+        win.location.href = result.url;
+      } else {
+        // Le navigateur a bloque meme l'ouverture de l'onglet vide (arrive
+        // dans certains navigateurs integres/mobiles tres restrictifs) -
+        // plutot que de retenter un window.open (bloque pour la meme
+        // raison), on navigue dans l'onglet actuel : ca marche partout.
+        window.location.href = result.url;
+      }
     });
   }
 
@@ -163,7 +212,8 @@ export function AuditTable({
   deleteRowAction,
   attachmentsColumnKey,
   initialAttachments,
-  uploadFilesAction,
+  createUploadSlotAction,
+  confirmUploadAction,
   getFileUrlAction,
   deleteFileAction,
   progressColumnKeys,
@@ -174,6 +224,8 @@ export function AuditTable({
   closureDoneValue,
   closureClosedStatus,
   closureOpenStatus,
+  restrictedColumnKeys,
+  canEditRestrictedColumns,
 }: {
   columns: AuditColumn[];
   initialRows: AuditRow[];
@@ -185,9 +237,13 @@ export function AuditTable({
   // Pieces jointes (optionnel) : uniquement sur la colonne attachmentsColumnKey.
   attachmentsColumnKey?: string;
   initialAttachments?: Record<number, AttachmentFile[]>;
-  uploadFilesAction?: (
+  createUploadSlotAction?: (
     rowId: number,
-    formData: FormData
+    fileName: string
+  ) => Promise<{ ok: boolean; message?: string; path?: string; signedUrl?: string }>;
+  confirmUploadAction?: (
+    rowId: number,
+    files: AttachmentFile[]
   ) => Promise<{ ok: boolean; message?: string; files?: AttachmentFile[] }>;
   getFileUrlAction?: (path: string) => Promise<{ ok: boolean; url?: string; message?: string }>;
   deleteFileAction?: (rowId: number, path: string) => Promise<{ ok: boolean; message?: string }>;
@@ -206,6 +262,11 @@ export function AuditTable({
   closureDoneValue?: string;
   closureClosedStatus?: string;
   closureOpenStatus?: string;
+  // Colonnes verrouillees (optionnel) : ces colonnes restent en lecture
+  // seule pour tout le monde, meme un utilisateur avec canWrite=true (y
+  // compris l'admin), sauf si canEditRestrictedColumns est vrai.
+  restrictedColumnKeys?: string[];
+  canEditRestrictedColumns?: boolean;
 }) {
   const [rowKeys, setRowKeys] = useState<string[]>(() => initialRows.map((r) => `row-${r.id}`));
   const rowsRef = useRef<Record<string, AuditRow>>(
@@ -224,32 +285,6 @@ export function AuditTable({
   // de mettre a jour visuellement un statut calcule automatiquement (couleur
   // + valeur) sans redessiner tout le tableau (voir rowsRef plus haut).
   const statusSelectRefs = useRef<Record<string, HTMLSelectElement | null>>({});
-  // Barre d'outils du haut (Ajouter/Enregistrer) : hauteur mesuree pour que
-  // l'entete du tableau, elle aussi collante, se cale juste en-dessous sans
-  // la chevaucher. Tout (barre du haut, entete, barre du bas) est collant a
-  // l'interieur de son PROPRE cadre de defilement borne (voir wrapperClassName
-  // plus bas) plutot que de dependre du defilement de la page entiere - un
-  // seul contexte de defilement, sans ambiguite, evite le bug observe ou la
-  // barre/entete se decalaient au milieu du tableau au lieu de rester en haut.
-  const toolbarRef = useRef<HTMLDivElement | null>(null);
-  const [toolbarHeight, setToolbarHeight] = useState(0);
-
-  useEffect(() => {
-    const el = toolbarRef.current;
-    if (!el) {
-      setToolbarHeight(0);
-      return;
-    }
-    // Mesure synchrone immediate en plus du ResizeObserver - sinon la toute
-    // premiere peinture utiliserait encore la valeur par defaut (0).
-    setToolbarHeight(el.getBoundingClientRect().height);
-    const observer = new ResizeObserver((entries) => {
-      setToolbarHeight(entries[0].contentRect.height);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [canWrite]);
-
   function updateCell(key: string, field: string, value: string) {
     rowsRef.current[key] = { ...rowsRef.current[key], [field]: value };
   }
@@ -361,13 +396,23 @@ export function AuditTable({
   const statusSelectBaseClass =
     "w-48 rounded-xl border px-3 py-2 text-sm font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60";
 
+  function isColumnEditable(col: AuditColumn): boolean {
+    if (!canWrite) return false;
+    if (restrictedColumnKeys?.includes(col.key)) return Boolean(canEditRestrictedColumns);
+    return true;
+  }
+
   return (
-    <div className="max-h-[75vh] overflow-auto">
+    <div className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+      {/* Barre Ajouter/Enregistrer HORS du cadre defilant - toujours visible
+          des qu'on voit le tableau, sans avoir besoin d'etre "collante"
+          elle-meme. La garder DANS le cadre (sticky top-0) obligeait a
+          mesurer sa hauteur en JS pour decaler l'entete en dessous - un
+          decalage rate (mesure a 0) faisait recouvrir l'entete par cette
+          barre (z-index superieur), la rendant invisible des le moindre
+          defilement. */}
       {canWrite ? (
-        <div
-          ref={toolbarRef}
-          className="sticky top-0 left-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4"
-        >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4">
           <button
             type="button"
             onClick={addRow}
@@ -390,20 +435,20 @@ export function AuditTable({
         </div>
       ) : null}
 
-      <table className="min-w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-500">
+    <div className="max-h-[75vh] overflow-auto">
+      <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+          <thead className="bg-slate-50 text-slate-950">
             <tr>
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  style={{ top: toolbarHeight }}
-                  className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold whitespace-nowrap"
+                  className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-base font-bold whitespace-nowrap"
                 >
                   {col.label}
                 </th>
               ))}
               {canWrite ? (
-                <th style={{ top: toolbarHeight }} className="sticky z-10 bg-slate-50 px-4 py-3 font-semibold">
+                <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-base font-bold">
                   Actions
                 </th>
               ) : null}
@@ -422,7 +467,7 @@ export function AuditTable({
                 return (
                   <tr key={key} className="border-t border-slate-100 align-top">
                     {columns.map((col) =>
-                      canWrite ? (
+                      isColumnEditable(col) ? (
                         <td key={col.key} className="px-4 py-3">
                           {col.select ? (
                             <select
@@ -469,26 +514,23 @@ export function AuditTable({
                             />
                           )}
                           {col.key === attachmentsColumnKey &&
-                          uploadFilesAction &&
+                          createUploadSlotAction &&
+                          confirmUploadAction &&
                           getFileUrlAction &&
                           deleteFileAction ? (
                             <AttachmentsCell
                               rowId={row.id}
                               canWrite={canWrite}
                               initialFiles={(row.id && initialAttachments?.[row.id]) || []}
-                              uploadFilesAction={uploadFilesAction}
+                              createUploadSlotAction={createUploadSlotAction}
+                              confirmUploadAction={confirmUploadAction}
                               getFileUrlAction={getFileUrlAction}
                               deleteFileAction={deleteFileAction}
                             />
                           ) : null}
                         </td>
                       ) : (
-                        <td
-                          key={col.key}
-                          className={`px-4 py-3 text-slate-600 ${
-                            col.long ? "min-w-[26rem] whitespace-pre-wrap" : ""
-                          }`}
-                        >
+                        <td key={col.key} className="px-4 py-3 text-slate-600">
                           {col.select ? (
                             <span
                               className={`inline-block rounded-full border px-3 py-1 text-xs font-semibold ${statusColorClasses(
@@ -497,18 +539,31 @@ export function AuditTable({
                             >
                               {row[col.key] || "-"}
                             </span>
+                          ) : col.long ? (
+                            // Meme taille (rows=6) que le champ modifiable
+                            // equivalent (ex: "Commentaire") - avec defilement
+                            // interne au lieu de laisser le texte etirer toute
+                            // la ligne quand il est long.
+                            <textarea
+                              readOnly
+                              value={String(row[col.key] ?? "") || "-"}
+                              rows={6}
+                              className={longCellClass}
+                            />
                           ) : (
                             row[col.key] || "-"
                           )}
                           {col.key === attachmentsColumnKey &&
-                          uploadFilesAction &&
+                          createUploadSlotAction &&
+                          confirmUploadAction &&
                           getFileUrlAction &&
                           deleteFileAction ? (
                             <AttachmentsCell
                               rowId={row.id}
-                              canWrite={false}
+                              canWrite={canWrite}
                               initialFiles={(row.id && initialAttachments?.[row.id]) || []}
-                              uploadFilesAction={uploadFilesAction}
+                              createUploadSlotAction={createUploadSlotAction}
+                              confirmUploadAction={confirmUploadAction}
                               getFileUrlAction={getFileUrlAction}
                               deleteFileAction={deleteFileAction}
                             />
@@ -535,9 +590,10 @@ export function AuditTable({
             )}
           </tbody>
         </table>
+    </div>
 
       {canWrite ? (
-        <div className="sticky bottom-0 left-0 z-20 flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
             {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}

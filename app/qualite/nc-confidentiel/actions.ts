@@ -74,10 +74,18 @@ function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
 }
 
-export async function uploadNcConfidentielFilesAction(
+// Cree juste un "emplacement" d'envoi signe (aucun octet de fichier ne
+// transite par cette action) - le navigateur envoie ensuite le fichier
+// DIRECTEMENT a Supabase Storage avec ce lien (voir confirmNcConfidentielUploadAction
+// pour la suite). Necessaire pour les gros fichiers (video...) : les
+// Server Actions passent par les fonctions serveur Vercel, plafonnees a
+// 4.5 Mo par requete quel que soit le "bodySizeLimit" de Next.js - au-dela,
+// la requete echoue avant meme d'atteindre notre code, ce qui ressemblait
+// a "erreur" sans message clair pour l'utilisateur.
+export async function createNcConfidentielUploadSlotAction(
   rowId: number,
-  formData: FormData
-): Promise<{ ok: boolean; message?: string; files?: AttachmentFile[] }> {
+  fileName: string
+): Promise<{ ok: boolean; message?: string; path?: string; signedUrl?: string }> {
   const currentUser = await getCurrentStockUser();
   if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
     return { ok: false, message: "Cet utilisateur ne peut pas ajouter de fichier." };
@@ -86,22 +94,27 @@ export async function uploadNcConfidentielFilesAction(
     return { ok: false, message: "Ligne invalide." };
   }
 
-  const incoming = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
-  if (incoming.length === 0) {
-    return { ok: false, message: "Aucun fichier choisi." };
+  const path = `nc-confidentiel/${rowId}/${Date.now()}-${sanitizeFileName(fileName)}`;
+  const { data, error } = await supabaseServer.storage.from(BUCKET).createSignedUploadUrl(path);
+  if (error || !data) {
+    return { ok: false, message: error?.message || "Impossible de preparer l'envoi." };
   }
 
-  const uploaded: AttachmentFile[] = [];
-  for (const file of incoming) {
-    const path = `nc-confidentiel/${rowId}/${Date.now()}-${sanitizeFileName(file.name)}`;
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const { error } = await supabaseServer.storage
-      .from(BUCKET)
-      .upload(path, buffer, { contentType: file.type || undefined, upsert: false });
-    if (error) {
-      return { ok: false, message: error.message };
-    }
-    uploaded.push({ name: file.name, path });
+  return { ok: true, path, signedUrl: data.signedUrl };
+}
+
+// Enregistre les fichiers deja envoyes (par le navigateur, directement a
+// Storage via le lien signe ci-dessus) dans la colonne pieces_jointes.
+export async function confirmNcConfidentielUploadAction(
+  rowId: number,
+  files: AttachmentFile[]
+): Promise<{ ok: boolean; message?: string; files?: AttachmentFile[] }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas ajouter de fichier." };
+  }
+  if (!rowId || files.length === 0) {
+    return { ok: false, message: "Rien a enregistrer." };
   }
 
   const { data: existing } = await supabaseServer
@@ -110,7 +123,7 @@ export async function uploadNcConfidentielFilesAction(
     .eq("id", rowId)
     .maybeSingle();
   const currentFiles = ((existing as { pieces_jointes: AttachmentFile[] } | null)?.pieces_jointes ?? []) as AttachmentFile[];
-  const nextFiles = [...currentFiles, ...uploaded];
+  const nextFiles = [...currentFiles, ...files];
 
   const { error: updateError } = await supabaseServer
     .from(TABLE)
@@ -121,7 +134,7 @@ export async function uploadNcConfidentielFilesAction(
   }
 
   revalidatePath("/qualite/nc-confidentiel");
-  return { ok: true, files: uploaded };
+  return { ok: true, files };
 }
 
 export async function getNcConfidentielFileUrlAction(

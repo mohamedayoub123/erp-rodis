@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { deleteArticleAction, updateArticleAction } from "./actions";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
@@ -37,6 +37,8 @@ export type ArticleRow = {
   code_auto: string | null;
   code_manu: string | null;
 };
+
+const VISIBLE_STEP = 100;
 
 function formatRounded(value: number | null) {
   if (value === null || value === undefined) return "-";
@@ -179,6 +181,20 @@ export function ArticlesProduitFiniTable({
     });
   }, [articles, q, type, gamme]);
 
+  // Rendre les 849 lignes d'un coup (chacune avec son formulaire de
+  // modification complet, ~25 champs) rendait la page lente a l'ouverture -
+  // on affiche seulement les VISIBLE_STEP premieres et on agrandit la
+  // fenetre au clic, la recherche elle reste instantanee (filtre en memoire
+  // sur tout le tableau, independant de ce qui est affiche).
+  const [visibleCount, setVisibleCount] = useState(VISIBLE_STEP);
+
+  useEffect(() => {
+    setVisibleCount(VISIBLE_STEP);
+  }, [q, type, gamme]);
+
+  const visibleArticles = filteredArticles.slice(0, visibleCount);
+  const hiddenCount = filteredArticles.length - visibleArticles.length;
+
   return (
     <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
       <div className="grid gap-3 border-b border-slate-100 px-6 py-5 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
@@ -210,42 +226,42 @@ export function ArticlesProduitFiniTable({
           {hasFilters ? "Aucun resultat pour ce filtre." : "Aucun article trouve pour le moment."}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
+        <div className="max-h-[75vh] overflow-auto">
+          <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+            <thead className="bg-slate-50 text-slate-950">
               <tr>
-                <th className="px-6 py-4 font-semibold">Article</th>
-                <th className="px-6 py-4 font-semibold">Type</th>
-                <th className="px-6 py-4 font-semibold">Marque</th>
-                <th className="px-6 py-4 font-semibold">Gamme</th>
-                <th className="px-6 py-4 font-semibold">Nature</th>
-                <th className="px-6 py-4 font-semibold">Min</th>
-                <th className="px-6 py-4 font-semibold">Max</th>
-                <th className="px-6 py-4 font-semibold">Volume unitaire</th>
-                <th className="px-6 py-4 font-semibold">Volume stockage</th>
-                <th className="px-6 py-4 font-semibold">Contenance</th>
-                <th className="px-6 py-4 font-semibold">Cadence</th>
-                <th className="px-6 py-4 font-semibold">Nb carton par vrac</th>
-                <th className="px-6 py-4 font-semibold">Max prod vrac 8h</th>
-                <th className="px-6 py-4 font-semibold">Nb piece par max vrac</th>
-                <th className="px-6 py-4 font-semibold">Piece par carton</th>
-                <th className="px-6 py-4 font-semibold">Min vrac</th>
-                <th className="px-6 py-4 font-semibold">Max vrac auto</th>
-                <th className="px-6 py-4 font-semibold">Vrac max manuel</th>
-                <th className="px-6 py-4 font-semibold">Dispenseur pcs/carton</th>
-                <th className="px-6 py-4 font-semibold">Pot/flacon</th>
-                <th className="px-6 py-4 font-semibold">Capsule</th>
-                <th className="px-6 py-4 font-semibold">Sleeve</th>
-                <th className="px-6 py-4 font-semibold">Dispenseur</th>
-                <th className="px-6 py-4 font-semibold">Carton</th>
-                <th className="px-6 py-4 font-semibold">Etiquette</th>
-                <th className="px-6 py-4 font-semibold">Etui</th>
-                {canEditArticles ? <th className="px-6 py-4 font-semibold">Modifier</th> : null}
-                {canDeleteArticles ? <th className="px-6 py-4 font-semibold">Supprimer</th> : null}
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Marque</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Nature</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Min</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Max</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Volume unitaire</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Volume stockage</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Contenance</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Cadence</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Nb carton par vrac</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Max prod vrac 8h</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Nb piece par max vrac</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Piece par carton</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Min vrac</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Max vrac auto</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Vrac max manuel</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Dispenseur pcs/carton</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Pot/flacon</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Capsule</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Sleeve</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Dispenseur</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Carton</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Etiquette</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Etui</th>
+                {canEditArticles ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Modifier</th> : null}
+                {canDeleteArticles ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Supprimer</th> : null}
               </tr>
             </thead>
             <tbody>
-              {filteredArticles.map((article) => (
+              {visibleArticles.map((article) => (
                 <tr key={article.id} className="border-t border-slate-100 align-top">
                   <td className="px-6 py-4 font-medium text-slate-900">{article.nom_article}</td>
                   <td className="px-6 py-4 text-slate-600">{article.type_article || "-"}</td>
@@ -524,6 +540,18 @@ export function ArticlesProduitFiniTable({
           </table>
         </div>
       )}
+
+      {hiddenCount > 0 ? (
+        <div className="flex justify-center border-t border-slate-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={() => setVisibleCount((count) => count + VISIBLE_STEP)}
+            className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+          >
+            Voir plus ({hiddenCount} restant{hiddenCount > 1 ? "s" : ""})
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

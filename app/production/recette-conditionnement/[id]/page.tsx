@@ -9,6 +9,7 @@ import {
   updateRecetteLigneAction,
   deleteRecetteLigneAction,
   updateQuantiteBaseAction,
+  updateVracQuantiteAction,
 } from "../../recette-fabrication/actions";
 import { SubmitButton } from "@/app/_components/submit-button";
 
@@ -19,6 +20,7 @@ type ArticlePfRow = {
   nature: string | null;
   quantite_recette_base: number | null;
   vrac_article_id: number | null;
+  vrac_quantite_recette: number | null;
   contenance: number | null;
   piece_par_carton: number | null;
   dispenseur_pcs_carton: number | null;
@@ -100,7 +102,7 @@ export default async function RecetteConditionnementDetailPage({
   const { data: articlePf } = await supabaseServer
     .from("articles")
     .select(
-      "id, nom_article, gamme, nature, quantite_recette_base, vrac_article_id, contenance, piece_par_carton, dispenseur_pcs_carton"
+      "id, nom_article, gamme, nature, quantite_recette_base, vrac_article_id, vrac_quantite_recette, contenance, piece_par_carton, dispenseur_pcs_carton"
     )
     .eq("id", articlePfId)
     .maybeSingle();
@@ -136,14 +138,17 @@ export default async function RecetteConditionnementDetailPage({
 
   const usedMpIds = new Set(lignes.map((ligne) => ligne.article_mp_id));
   const quantiteBase = (articlePf as ArticlePfRow).quantite_recette_base;
+  const vracQuantiteRecette = (articlePf as ArticlePfRow).vrac_quantite_recette;
   const { contenance, piece_par_carton: piecePartCarton, dispenseur_pcs_carton: dispenseurPcsCarton } =
     articlePf as ArticlePfRow;
   // "Nombre de cartons du lot" pas encore rempli -> calcule quand meme pour
-  // 1 carton, pour ne pas laisser le vrac affiche a vide.
-  const qtVracNecessaire =
+  // 1 carton, pour ne pas laisser le vrac affiche a vide. Une quantite
+  // saisie a la main (vrac_quantite_recette) remplace toujours ce calcul.
+  const qtVracAuto =
     contenance && piecePartCarton
       ? round((quantiteBase || 1) * piecePartCarton * contenance, 3)
       : null;
+  const qtVracNecessaire = vracQuantiteRecette ?? qtVracAuto;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -225,11 +230,28 @@ export default async function RecetteConditionnementDetailPage({
                         {vracActuel.nom_article} <span className="text-xs text-sky-700">(vrac)</span>
                       </td>
                       <td className="px-6 py-4 text-slate-600">kg</td>
-                      <td className="px-6 py-4 text-slate-700">
-                        {qtVracNecessaire !== null
-                          ? qtVracNecessaire.toLocaleString("fr-FR", { maximumFractionDigits: 3 })
-                          : "-"}
-                        <span className="ml-2 text-xs text-slate-400">(auto)</span>
+                      <td className="px-6 py-4">
+                        <form action={updateVracQuantiteAction} className="flex items-center gap-2">
+                          <input type="hidden" name="article_pf_id" value={articlePfId} />
+                          <input
+                            type="number"
+                            step="0.001"
+                            min="0"
+                            name="quantite"
+                            defaultValue={qtVracNecessaire ?? ""}
+                            placeholder="Quantite"
+                            className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                          />
+                          <SubmitButton
+                            pendingLabel="Enregistrement..."
+                            className="rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+                          >
+                            Enregistrer
+                          </SubmitButton>
+                          {vracQuantiteRecette === null && qtVracAuto !== null ? (
+                            <span className="text-xs text-slate-400">(auto)</span>
+                          ) : null}
+                        </form>
                       </td>
                       <td className="px-6 py-4">
                         <form action={updateQuantiteBaseAction}>

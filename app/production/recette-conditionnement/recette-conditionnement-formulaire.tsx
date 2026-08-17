@@ -226,7 +226,7 @@ export function RecetteConditionnementFormulaire({
                   type="number"
                   step="0.001"
                   min="0"
-                  name={estVrac ? undefined : "quantite_ligne"}
+                  name={estVrac ? "vrac_quantite" : "quantite_ligne"}
                   value={ligne.quantite}
                   onChange={(event) => updateQuantite(ligne.key, event.target.value)}
                   placeholder="Quantite"

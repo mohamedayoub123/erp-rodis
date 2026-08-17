@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { resolveVracArticleId } from "@/lib/vrac-article";
 
 function parseOptionalNumber(formData: FormData, name: string) {
   const raw = String(formData.get(name) || "").trim().replace(",", ".");
@@ -25,7 +26,9 @@ function revalidateRapportPages() {
 // La ligne appartient a un vrai Programme (MB) dispatche des que
 // source_numero_programme est renseigne - une fiche "nouveau" (bouton "+" du
 // Dashboard, cree a la volee sans passer par aucun programme) reste null et
-// n'a donc jamais de Fabrication independante a attendre en Conditionnement.
+// n'a donc jamais de Fabrication independante a attendre en Conditionnement,
+// ni a passer par Salle de pesage/Salle de conditionnement, qui n'existent
+// que pour le flux Programme dispatche.
 async function ligneVientDunPogramme(ligneId: number): Promise<boolean> {
   const { data, error } = await supabaseServer
     .from("programme_lignes")
@@ -106,12 +109,7 @@ async function messageSiHorsSpecSansDerogation(
   const articleId = (ligneData as { article_id: number | null } | null)?.article_id ?? null;
   if (!articleId) return null;
 
-  const { data: articleData } = await supabaseServer
-    .from("articles")
-    .select("vrac_article_id")
-    .eq("id", articleId)
-    .maybeSingle();
-  const vracArticleId = (articleData as { vrac_article_id: number | null } | null)?.vrac_article_id ?? null;
+  const vracArticleId = await resolveVracArticleId(articleId);
   if (!vracArticleId) return null;
 
   const { data: specData } = await supabaseServer
