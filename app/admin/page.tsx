@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { readImportStatus } from "@/lib/import-status";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -159,6 +160,12 @@ export default async function AdminPage({
             </div>
 
             <div className="flex items-center gap-3">
+              <Link
+                href="/admin/historique"
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm"
+              >
+                Historique
+              </Link>
               <BackButton href="/" label="Retour accueil" />
               <RefreshButton />
             </div>

@@ -10,6 +10,7 @@ import {
   getCurrentStockUser,
 } from "@/lib/stock-auth";
 import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
+import { logAudit } from "@/lib/audit-log";
 
 // Meme ordre que /articles/produit-fini et la page detail de la commande
 // (voir sortCommandeLignesByFamily dans [id]/page.tsx) - le Despatcher doit
@@ -957,6 +958,14 @@ export async function createManualCommandeAction(formData: FormData) {
     }
   }
 
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "Commandes",
+    action: "creation",
+    cible: numeroProforma,
+    resume: `Commande ${numeroProforma} creee (${client}, ${nombreCamion} camion${nombreCamion > 1 ? "s" : ""})`,
+  });
+
   revalidateCommandeDependentPages();
   redirect("/commandes");
 }
@@ -1122,6 +1131,14 @@ export async function updateManualCommandeAction(formData: FormData) {
   if (insertLinesError) {
     throw new Error(insertLinesError.message);
   }
+
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "Commandes",
+    action: "modification",
+    cible: numeroProforma,
+    resume: `Commande ${numeroProforma} (${client}) modifiee`,
+  });
 
   revalidateCommandeDependentPages(commandeId);
   } catch (err) {
@@ -1454,6 +1471,12 @@ export async function deleteCommandeAction(formData: FormData) {
     throw new Error("Commande invalide.");
   }
 
+  const { data: commandeAvantSuppression } = await supabaseServer
+    .from("commandes")
+    .select("numero_proforma, client")
+    .eq("id", commandeId)
+    .maybeSingle();
+
   const { error } = await supabaseServer
     .from("commandes")
     .delete()
@@ -1462,6 +1485,14 @@ export async function deleteCommandeAction(formData: FormData) {
   if (error) {
     throw new Error(error.message);
   }
+
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "Commandes",
+    action: "suppression",
+    cible: commandeAvantSuppression?.numero_proforma || `#${commandeId}`,
+    resume: `Commande ${commandeAvantSuppression?.numero_proforma || `#${commandeId}`}${commandeAvantSuppression?.client ? ` (${commandeAvantSuppression.client})` : ""} supprimee`,
+  });
 
   revalidateCommandeDependentPages();
 }
@@ -1519,6 +1550,14 @@ export async function deleteCommandeTruckAction(formData: FormData) {
     throw new Error(error.message);
   }
 
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "Commandes",
+    action: "suppression",
+    cible: commande.numero_proforma,
+    resume: `Camion ${commande.numero_proforma} supprime`,
+  });
+
   revalidateCommandeDependentPages();
 
   if (currentViewedId && currentViewedId === commandeId) {
@@ -1542,6 +1581,11 @@ export async function deleteProformaGroupAction(formData: FormData) {
     throw new Error("Proforma invalide.");
   }
 
+  const { data: groupeAvantSuppression } = await supabaseServer
+    .from("commandes")
+    .select("id, client")
+    .or(`numero_proforma.eq.${numeroProforma},numero_proforma.like.${numeroProforma}-%`);
+
   // Sibling trucks are stored as "<proforma>-2", "<proforma>-3"... to satisfy
   // the unique constraint on numero_proforma - match those too.
   const { error } = await supabaseServer
@@ -1552,6 +1596,17 @@ export async function deleteProformaGroupAction(formData: FormData) {
   if (error) {
     throw new Error(error.message);
   }
+
+  const nombreCamions = groupeAvantSuppression?.length ?? 0;
+  const client = groupeAvantSuppression?.[0]?.client;
+
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "Commandes",
+    action: "suppression",
+    cible: numeroProforma,
+    resume: `Commande ${numeroProforma}${client ? ` (${client})` : ""} supprimee entierement (${nombreCamions} camion${nombreCamions > 1 ? "s" : ""})`,
+  });
 
   revalidateCommandeDependentPages();
 }
@@ -1573,7 +1628,7 @@ export async function changeCommandeStatusAction(formData: FormData) {
 
   const { data: commande, error: commandeError } = await supabaseServer
     .from("commandes")
-    .select("id, statut, commentaire")
+    .select("id, statut, commentaire, numero_proforma")
     .eq("id", commandeId)
     .single();
 
@@ -1612,6 +1667,14 @@ export async function changeCommandeStatusAction(formData: FormData) {
     throw new Error(updateError.message);
   }
 
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "Commandes",
+    action: "modification",
+    cible: commande.numero_proforma,
+    resume: `Commande ${commande.numero_proforma} : statut change de ${commande.statut || "-"} a ${statut}`,
+  });
+
   revalidateCommandeDependentPages(commandeId);
 }
 
@@ -1627,6 +1690,12 @@ export async function deliverCommandeAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
   const numeroBl = String(formData.get("numero_bl") || "").trim();
 
+  const { data: commandeAvantLivraison } = await supabaseServer
+    .from("commandes")
+    .select("numero_proforma")
+    .eq("id", commandeId)
+    .maybeSingle();
+
   const { error } = await supabaseServer.rpc("stock_deliver_commande", {
     p_commande_id: commandeId,
     p_utilisateur: currentUser || "",
@@ -1636,6 +1705,14 @@ export async function deliverCommandeAction(formData: FormData) {
   if (error) {
     throw new Error(error.message);
   }
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "Commandes",
+    action: "modification",
+    cible: commandeAvantLivraison?.numero_proforma || `#${commandeId}`,
+    resume: `Commande ${commandeAvantLivraison?.numero_proforma || `#${commandeId}`} livree${numeroBl ? ` (BL ${numeroBl})` : ""}`,
+  });
 
   revalidateCommandeDependentPages(commandeId);
   revalidatePath("/stock");

@@ -11,6 +11,7 @@ import {
   verifyStockPassword,
 } from "@/lib/stock-auth";
 import { deleteLotStockCore } from "@/lib/lot-stock-delete";
+import { logAudit } from "@/lib/audit-log";
 
 export async function loginStockEditAction(formData: FormData) {
   const username = String(formData.get("username") || "").trim().toLowerCase();
@@ -79,6 +80,14 @@ export async function updateLotStockAction(formData: FormData) {
   if (error) {
     throw new Error(error.message);
   }
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "Stock",
+    action: "modification",
+    cible: numeroLot,
+    resume: `Lot ${numeroLot} modifie (entree ${qteEntree}, sortie ${qteSortie})`,
+  });
 
   revalidatePath("/stock");
   revalidatePath("/mouvements/produit-fini");
