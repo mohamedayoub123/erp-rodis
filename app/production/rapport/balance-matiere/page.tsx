@@ -503,6 +503,9 @@ export default async function RapportBalanceMatierePage({
       // ou via "Fin programme") - un code "En cours"/"Pas commence" n'a pas
       // fini de consommer son vrac, donc l'ecart matiere serait trompeur.
       if (row.statut !== "Termine" && row.statut !== "Termine Manuel") return false;
+      // Code sans rien a comparer (jamais rien commande ni fabrique) - passe
+      // trivialement le test "0 <= 0" mais n'a rien a montrer dans le rapport.
+      if (row.vracDemande <= 0 && row.vracFabrique <= 0 && row.cartonFabrique <= 0) return false;
       if (produitFilter && !row.produit.toLowerCase().includes(produitFilter)) return false;
       if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
       if (dateDebutFilter && row.date < dateDebutFilter) return false;

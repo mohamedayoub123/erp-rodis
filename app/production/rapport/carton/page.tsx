@@ -156,6 +156,11 @@ export default async function RapportCartonPage({ searchParams }: { searchParams
   const rows = allRows
     .filter((row) => {
       if (row.statut !== "Termine" && row.statut !== "Termine Manuel") return false;
+      // Code sans rien a comparer (jamais rien commande ni fabrique pour ce
+      // code precis) - "Termine" ici est juste un cas vide qui a
+      // trivialement passe le test "0 <= 0", pas un vrai code termine a
+      // montrer dans le rapport.
+      if (row.cartonDemande <= 0 && row.cartonFabrique <= 0) return false;
       if (produitFilter && !row.produit.toLowerCase().includes(produitFilter)) return false;
       if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
       if (dateDebutFilter && row.date < dateDebutFilter) return false;
