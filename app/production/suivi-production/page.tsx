@@ -942,7 +942,17 @@ export default async function SuiviProductionListPage({
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.temps_fin_test || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.temps_vidange || "-" : "-"}</td>
                         <td className="px-6 py-4 font-semibold text-slate-900">
-                          {row.fabrication ? row.fabrication.quantite : showFab ? r?.vrac_fabrique ?? "-" : "-"}
+                          {(() => {
+                            if (!showFab) return "-";
+                            const base = row.fabrication ? row.fabrication.quantite : r?.vrac_fabrique;
+                            if (base === null || base === undefined) return "-";
+                            // Le vrac recupere (d'un autre code, voir "Code vrac
+                            // recupere") s'ajoute au vrac fabrique de ce code -
+                            // sinon la colonne ne montrait que ce qui sortait de
+                            // la cuve, pas ce qui a reellement ete disponible.
+                            const recupere = Number(r?.qt_vrac_recupere ?? 0);
+                            return recupere > 0 ? Number(base) + recupere : base;
+                          })()}
                         </td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.qt_vrac_recupere ?? "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.code_vrac_recupere || "-" : "-"}</td>
