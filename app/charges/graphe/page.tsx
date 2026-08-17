@@ -132,8 +132,12 @@ function n(value: number | null | undefined) {
   return value ?? 0;
 }
 
-function ratio(numerator: number, nbCarton: number) {
-  return nbCarton > 0 ? numerator / nbCarton : null;
+// null (affiche "-") si le mois n'a pas de nb carton OU pas de ligne
+// Charges Usine saisie - sans "hasData", un mois avec du carton mais sans
+// Charges Usine renvoyait 0 (cout nul) au lieu de "aucune donnee", ce qui
+// se lisait comme un vrai cout de 0 FCFA/carton.
+function ratio(numerator: number, nbCarton: number, hasData: boolean) {
+  return hasData && nbCarton > 0 ? numerator / nbCarton : null;
 }
 
 function formatNombre(value: number | null, decimals = 0) {
@@ -204,20 +208,22 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
     const cadre = n(charge?.salaire_cadre);
     const depenseUsine = n(charge?.depense_usine);
 
-    const r1 = ratio(journalierTotal, nbCarton);
-    const r2 = ratio(journalierCosmetique, nbCarton);
-    const r3 = ratio(journalierCosmetique + energieCosmetique, nbCarton);
-    const r4 = ratio(journalierTotal + energieTotale, nbCarton);
-    const r5 = ratio(journalierTotal + embauches + energieTotale, nbCarton);
+    const hasData = Boolean(charge);
+    const r1 = ratio(journalierTotal, nbCarton, hasData);
+    const r2 = ratio(journalierCosmetique, nbCarton, hasData);
+    const r3 = ratio(journalierCosmetique + energieCosmetique, nbCarton, hasData);
+    const r4 = ratio(journalierTotal + energieTotale, nbCarton, hasData);
+    const r5 = ratio(journalierTotal + embauches + energieTotale, nbCarton, hasData);
     const r6 = ratio(
       journalierTotal + embauches + cadre + depenseUsine + energieTotale + essenceCout,
-      nbCarton
+      nbCarton,
+      hasData
     );
 
     return {
       mois,
       moisLabel: MOIS_NOMS[i],
-      hasData: Boolean(charge),
+      hasData,
       nbCarton,
       nbCartonEstManuel: nbCartonAuto <= 0 && nbCartonManuel !== null,
       journalierTotal,
@@ -318,11 +324,7 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
         ) : (
           <>
             <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-              <CartonMensuelLineChart
-                months={monthRows.map((r) => r.moisLabel)}
-                series={chartSeries}
-                labelAllPoints
-              />
+              <CartonMensuelLineChart months={monthRows.map((r) => r.moisLabel)} series={chartSeries} />
             </section>
 
             <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
