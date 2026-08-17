@@ -26,7 +26,9 @@ function revalidateRapportPages() {
 // La ligne appartient a un vrai Programme (MB) dispatche des que
 // source_numero_programme est renseigne - une fiche "nouveau" (bouton "+" du
 // Dashboard, cree a la volee sans passer par aucun programme) reste null et
-// n'a donc jamais de Fabrication independante a attendre en Conditionnement.
+// n'a donc jamais de Fabrication independante a attendre en Conditionnement,
+// ni a passer par Salle de pesage/Salle de conditionnement, qui n'existent
+// que pour le flux Programme dispatche.
 async function ligneVientDunPogramme(ligneId: number): Promise<boolean> {
   const { data, error } = await supabaseServer
     .from("programme_lignes")
