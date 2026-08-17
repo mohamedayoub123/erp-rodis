@@ -6,7 +6,7 @@ const WIDTH = 720;
 const HEIGHT = 320;
 const PAD_LEFT = 48;
 const PAD_RIGHT = 16;
-const PAD_TOP = 16;
+const PAD_TOP = 26;
 const PAD_BOTTOM = 40;
 
 // Evolution mensuelle commande vs fabrique, meme axe Y (les 2 en nombre de
@@ -15,7 +15,20 @@ const PAD_BOTTOM = 40;
 // validee (dataviz skill) : #d97706 (commande, meme ambre que le tableau)
 // vs #0284c7 (fabrique, meme bleu que le tableau) - ΔE normal-vision 30.6,
 // tous les checks passent.
-export function CartonMensuelLineChart({ months, series }: { months: string[]; series: Series[] }) {
+export function CartonMensuelLineChart({
+  months,
+  series,
+  labelAllPoints = false,
+}: {
+  months: string[];
+  series: Series[];
+  // Chiffre affiche sur chaque point (pas seulement le dernier) - utile
+  // quand plusieurs series se croisent et que la valeur exacte de chaque
+  // mois doit rester lisible (demande explicite sur le Graphe Cout par
+  // Carton, 7 series). Halo blanc (paint-order+stroke) pour rester lisible
+  // par-dessus la grille et les autres lignes sans logique de collision.
+  labelAllPoints?: boolean;
+}) {
   const maxValue = Math.max(1, ...series.flatMap((s) => s.values));
   const plotWidth = WIDTH - PAD_LEFT - PAD_RIGHT;
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
@@ -103,17 +116,33 @@ export function CartonMensuelLineChart({ months, series }: { months: string[]; s
                       strokeWidth={1.5}
                     />
                   ))}
-                  {lastIndex >= 0 ? (
-                    <text
-                      x={xFor(lastIndex) + 6}
-                      y={yFor(serie.values[lastIndex])}
-                      dominantBaseline="middle"
-                      className="text-[11px] font-bold"
-                      fill={serie.color}
-                    >
-                      {Math.round(serie.values[lastIndex])}
-                    </text>
-                  ) : null}
+                  {labelAllPoints
+                    ? serie.values.map((value, index) => (
+                        <text
+                          key={index}
+                          x={xFor(index)}
+                          y={yFor(value) - 8}
+                          textAnchor="middle"
+                          className="text-[10px] font-bold"
+                          fill={serie.color}
+                          stroke="#fff"
+                          strokeWidth={3}
+                          paintOrder="stroke"
+                        >
+                          {Math.round(value)}
+                        </text>
+                      ))
+                    : lastIndex >= 0 ? (
+                        <text
+                          x={xFor(lastIndex) + 6}
+                          y={yFor(serie.values[lastIndex])}
+                          dominantBaseline="middle"
+                          className="text-[11px] font-bold"
+                          fill={serie.color}
+                        >
+                          {Math.round(serie.values[lastIndex])}
+                        </text>
+                      ) : null}
                 </g>
               );
             })}
