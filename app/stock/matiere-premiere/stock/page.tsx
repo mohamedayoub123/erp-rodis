@@ -20,6 +20,7 @@ import {
   fetchWebMouvementMpSourceRows,
 } from "@/app/mouvements/matiere-premiere/shared";
 import { encodeDossierId } from "../commande/dossier-id";
+import { StockMpExportButton } from "./export-button";
 
 const PAGE_SIZE = 200;
 
@@ -195,6 +196,18 @@ export default async function StockMatierePremiereStockPage({
 
             <div className="flex items-center gap-3">
               <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
+              <StockMpExportButton
+                filters={{
+                  q,
+                  codeQ,
+                  dateFrom,
+                  dateTo,
+                  monthFrom,
+                  monthTo,
+                  year: selectedYear,
+                  hideZero: hideZeroStock,
+                }}
+              />
               <RefreshButton />
             </div>
           </div>
