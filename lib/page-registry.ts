@@ -731,13 +731,17 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
     defaultView: true,
   },
-  // Contient des salaires - PAS de defaultView (contrairement aux autres
+  // Contient des salaires - defaultView: false (contrairement aux autres
   // pages "General" ci-dessus) : reserve aux comptes qui l'ont explicitement.
+  // (defaultView omis seul ne suffit pas : le fallback general est
+  // "page.defaultView ?? true", donc l'omission donnait view:true a tout le
+  // monde par defaut - corrige ici.)
   {
     key: "chargesHub",
     module: "General",
     label: "Charges Usine",
     pathPrefixes: ["/charges"],
+    defaultView: false,
   },
 ];
 
