@@ -243,6 +243,7 @@ type RapportRow = {
 type EntryRow = {
   id: number;
   programme_ligne_id: number;
+  code: string;
   quantite: number;
   date_jour: string;
 };
@@ -326,9 +327,31 @@ function groupEntriesByLigne(entries: EntryRow[]): Map<number, EntryRow[]> {
     map.set(entry.programme_ligne_id, list);
   }
   for (const list of map.values()) {
-    list.sort((a, b) => a.date_jour.localeCompare(b.date_jour));
+    list.sort((a, b) => a.date_jour.localeCompare(b.date_jour) || a.id - b.id);
   }
   return map;
+}
+
+// Les entrees d'une etape (vrac/carton/emballage) portent leur propre code
+// depuis que chaque etape se saisit PAR CODE (voir upsertRapport) - une
+// ligne decoupee en plusieurs lots doit donc apparier chaque entree au bon
+// code au lieu de les zipper par position entre les 3 listes (ancien
+// comportement) : une ligne a 2 codes avec par exemple 3 entrees vrac et 5
+// entrees carton toutes-codes-confondues affichait des paires
+// vrac/carton qui n'avaient jamais ete saisies ensemble, pour le mauvais
+// code (voir AB1053V - lignes 7324/7325). Repli sur les anciennes entrees
+// "code vide" seulement quand la ligne n'a qu'un seul lot (aucune
+// ambiguite possible) ou qu'aucune entree de cette etape n'a encore ete
+// scopee par code sur cette ligne (saisie d'avant ce decoupage, jamais
+// retouchee depuis).
+function entriesForSplit(ligneEntries: EntryRow[], code: string, isSingleCodeLigne: boolean): EntryRow[] {
+  const explicit = ligneEntries.filter((entry) => entry.code === code);
+  if (explicit.length > 0) return explicit;
+  const hasAnyExplicitCode = ligneEntries.some((entry) => entry.code !== "");
+  if (isSingleCodeLigne || !hasAnyExplicitCode) {
+    return ligneEntries.filter((entry) => entry.code === "");
+  }
+  return [];
 }
 
 function toStageEntry(entry: EntryRow | undefined): StageEntry | null {
@@ -343,7 +366,6 @@ function toStageEntry(entry: EntryRow | undefined): StageEntry | null {
 // avec seulement les colonnes de cette etape remplies. Une ligne de
 // programme avec un rapport mais aucune quantite encore saisie garde quand
 // meme une ligne "generale", pour ne rien perdre de visible.
-type BaseDisplayRow = Omit<DisplayRow, "displayCode" | "displayVrac" | "displayCarton">;
 
 // Conditionnement/Emballage sont desormais saisis PAR CODE (voir
 // upsertRapport) - une ligne decoupee en plusieurs lots a donc plusieurs
@@ -394,22 +416,18 @@ function buildDisplayRows(
     ...anyRapportByLigne.keys(),
   ]);
 
-  const rows: BaseDisplayRow[] = [];
+  const rows: DisplayRow[] = [];
 
   for (const ligneId of allLigneIds) {
     const ligne = ligneById.get(ligneId);
     if (!ligne) continue;
-    // Rapport "provisoire" pour cette passe (avant eclatement par code) -
-    // sert seulement a detecter une ligne "generale" (rapport sans encore
-    // aucune entree) ; le rapport reellement affiche est resolu PAR CODE
-    // plus bas (voir expandedRows), une fois le/les code(s) connus.
-    const rapport = anyRapportByLigne.get(ligneId) ?? null;
 
     const vracList = vracByLigne.get(ligneId) ?? [];
     const cartonList = cartonByLigne.get(ligneId) ?? [];
     const emballageList = emballageByLigne.get(ligneId) ?? [];
 
     if (vracList.length === 0 && cartonList.length === 0 && emballageList.length === 0) {
+      const rapport = anyRapportByLigne.get(ligneId) ?? null;
       if (!rapport) continue;
       rows.push({
         key: `gen-${rapport.id}`,
@@ -420,43 +438,76 @@ function buildDisplayRows(
         emballage: null,
         isGeneral: true,
         generalRapportId: rapport.id,
+        displayCode: ligne.numero_lot || "-",
+        displayVrac: ligne.vrac_a_fabriquer,
+        displayCarton: ligne.qt_carton,
       });
       continue;
     }
 
-    const extraCount = Math.max(vracList.length, cartonList.length, emballageList.length, 1) - 1;
+    // Une ligne dont le vrac a ete reparti sur plusieurs lots (voir
+    // splitLigneByCode) devient plusieurs lignes d'affichage, une par code -
+    // chaque etape (vrac/carton/emballage) apparie ses PROPRES entrees a ce
+    // code (voir entriesForSplit) au lieu de zipper les 3 listes par
+    // position entre elles, qui melangeait les quantites de codes
+    // differents sur une meme ligne d'affichage.
+    const codeSplits = splitLigneByCode(ligne);
+    const isSingleCodeLigne = codeSplits.length <= 1;
 
-    rows.push({
-      key: `ligne-${ligneId}-0`,
-      ligne,
-      rapport,
-      fabrication: toStageEntry(vracList[0]),
-      conditionnement: toStageEntry(cartonList[0]),
-      emballage: toStageEntry(emballageList[0]),
-      isGeneral: false,
-      generalRapportId: null,
-    });
+    codeSplits.forEach((split, splitIndex) => {
+      const vracForCode = entriesForSplit(vracList, split.code, isSingleCodeLigne);
+      const cartonForCode = entriesForSplit(cartonList, split.code, isSingleCodeLigne);
+      const emballageForCode = entriesForSplit(emballageList, split.code, isSingleCodeLigne);
 
-    for (let i = 1; i <= extraCount; i++) {
-      const fabrication = toStageEntry(vracList[i]);
-      const conditionnement = toStageEntry(cartonList[i]);
-      const emballage = toStageEntry(emballageList[i]);
-      if (!fabrication && !conditionnement && !emballage) continue;
+      const codeSpecific = rapportByLigneAndCode.get(`${ligne.id}::${split.code}`) ?? null;
+      const legacy = legacyRapportByLigne.get(ligne.id) ?? null;
+      const rapport = mergeRapports(codeSpecific, legacy);
+
+      // Une ligne supplementaire n'est creee que si une MEME etape a ete
+      // faite plusieurs fois POUR CE CODE (ex: 2 passages d'emballage un
+      // jour different chacun) : la 2eme occurrence va sur une ligne de
+      // plus, avec seulement les colonnes de cette etape remplies.
+      const extraCount = Math.max(vracForCode.length, cartonForCode.length, emballageForCode.length, 1) - 1;
+      const keyPrefix = `ligne-${ligneId}-code${splitIndex}`;
 
       rows.push({
-        key: `ligne-${ligneId}-${i}`,
+        key: `${keyPrefix}-0`,
         ligne,
         rapport,
-        fabrication,
-        conditionnement,
-        emballage,
+        fabrication: toStageEntry(vracForCode[0]),
+        conditionnement: toStageEntry(cartonForCode[0]),
+        emballage: toStageEntry(emballageForCode[0]),
         isGeneral: false,
         generalRapportId: null,
+        displayCode: split.code,
+        displayVrac: split.vrac,
+        displayCarton: split.carton,
       });
-    }
+
+      for (let i = 1; i <= extraCount; i++) {
+        const fabrication = toStageEntry(vracForCode[i]);
+        const conditionnement = toStageEntry(cartonForCode[i]);
+        const emballage = toStageEntry(emballageForCode[i]);
+        if (!fabrication && !conditionnement && !emballage) continue;
+
+        rows.push({
+          key: `${keyPrefix}-${i}`,
+          ligne,
+          rapport,
+          fabrication,
+          conditionnement,
+          emballage,
+          isGeneral: false,
+          generalRapportId: null,
+          displayCode: split.code,
+          displayVrac: split.vrac,
+          displayCarton: split.carton,
+        });
+      }
+    });
   }
 
-  function rowRecencyId(row: BaseDisplayRow): number {
+  function rowRecencyId(row: DisplayRow): number {
     return Math.max(
       row.fabrication?.entryId ?? 0,
       row.conditionnement?.entryId ?? 0,
@@ -473,7 +524,7 @@ function buildDisplayRows(
   // dates affichees au lieu de les montrer proprement du plus recent au
   // plus ancien. L'id ne sert plus que de departage entre 2 lignes de la
   // meme date.
-  function rowSortDate(row: BaseDisplayRow): string {
+  function rowSortDate(row: DisplayRow): string {
     const dates = [row.fabrication?.date, row.conditionnement?.date, row.emballage?.date].filter(
       (date): date is string => Boolean(date)
     );
@@ -487,32 +538,7 @@ function buildDisplayRows(
     return rowRecencyId(b) - rowRecencyId(a);
   });
 
-  // Une ligne dont le vrac a ete reparti sur plusieurs lots (voir
-  // splitLigneByCode) devient plusieurs lignes d'affichage, une par code -
-  // Conditionnement/Emballage sont desormais saisis par code (voir
-  // mergeRapports plus haut), seule Fabrication reste partagee entre tous
-  // les codes d'une meme ligne.
-  const expandedRows: DisplayRow[] = [];
-  for (const row of rows) {
-    const codeSplits = splitLigneByCode(row.ligne);
-    codeSplits.forEach((split, index) => {
-      const codeSpecific = rapportByLigneAndCode.get(`${row.ligne.id}::${split.code}`) ?? null;
-      const legacy = legacyRapportByLigne.get(row.ligne.id) ?? null;
-      const rapport = mergeRapports(codeSpecific, legacy);
-
-      expandedRows.push({
-        ...row,
-        rapport,
-        generalRapportId: row.isGeneral ? (rapport?.id ?? row.generalRapportId) : row.generalRapportId,
-        key: codeSplits.length > 1 ? `${row.key}-code${index}` : row.key,
-        displayCode: split.code,
-        displayVrac: split.vrac,
-        displayCarton: split.carton,
-      });
-    });
-  }
-
-  return expandedRows;
+  return rows;
 }
 
 const PAGE_SIZE = 200;
@@ -540,9 +566,9 @@ export default async function SuiviProductionListPage({
       "id, zone, chaine, produit, numero_lot, numero_lot_detail, date_jour, vrac_a_fabriquer, qt_carton, groupe_id, created_at"
     ),
     fetchAllRows<RapportRow>("production_rapports", RAPPORT_COLUMNS),
-    fetchAllRows<EntryRow>("production_vrac_entries", "id, programme_ligne_id, quantite, date_jour"),
-    fetchAllRows<EntryRow>("production_carton_entries", "id, programme_ligne_id, quantite, date_jour"),
-    fetchAllRows<EntryRow>("production_emballage_entries", "id, programme_ligne_id, quantite, date_jour"),
+    fetchAllRows<EntryRow>("production_vrac_entries", "id, programme_ligne_id, code, quantite, date_jour"),
+    fetchAllRows<EntryRow>("production_carton_entries", "id, programme_ligne_id, code, quantite, date_jour"),
+    fetchAllRows<EntryRow>("production_emballage_entries", "id, programme_ligne_id, code, quantite, date_jour"),
   ]);
 
   const fetchError =
