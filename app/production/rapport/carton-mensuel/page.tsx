@@ -2,6 +2,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { CartonMensuelLineChart } from "./carton-mensuel-line-chart";
 import {
   computeProduitParCode,
   fetchAllCartonEntries,
@@ -139,6 +140,24 @@ export default async function RapportCartonMensuelPage() {
     }))
     .sort((a, b) => b.mois.localeCompare(a.mois));
 
+  // Ordre chronologique croissant pour le graphe (le tableau, lui, reste du
+  // plus recent au plus ancien pour la lecture).
+  const monthRowsAscending = [...monthRows].sort((a, b) => a.mois.localeCompare(b.mois));
+  const chartSeries = [
+    {
+      key: "commande",
+      label: "Carton commande",
+      color: "#d97706",
+      values: monthRowsAscending.map((row) => row.totalCommande),
+    },
+    {
+      key: "fabrique",
+      label: "Carton fabrique",
+      color: "#0284c7",
+      values: monthRowsAscending.map((row) => row.totalFabrique),
+    },
+  ];
+
   const exportRows = monthRows.map((row) => ({
     moisLabel: row.moisLabel,
     totalCommande: Math.round(row.totalCommande),
@@ -182,6 +201,14 @@ export default async function RapportCartonMensuelPage() {
             Aucun programme pour le moment.
           </div>
         ) : (
+          <>
+          <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <CartonMensuelLineChart
+              months={monthRowsAscending.map((row) => row.moisLabel)}
+              series={chartSeries}
+            />
+          </section>
+
           <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="max-h-[75vh] overflow-auto">
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
@@ -240,6 +267,7 @@ export default async function RapportCartonMensuelPage() {
               </table>
             </div>
           </section>
+          </>
         )}
       </div>
     </main>
