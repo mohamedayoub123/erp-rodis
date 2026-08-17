@@ -47,6 +47,13 @@ const TILES = [
     icon: "\u{1F4C6}",
     description: "Par mois : carton commande vs fabrique, et le % de programmes termines.",
   },
+  {
+    label: "Carton par Gamme",
+    href: "/production/rapport/carton-gamme",
+    pageKey: "productionRapportCartonGamme",
+    icon: "\u{1F9EE}",
+    description: "Carton fabrique par gamme, avec detail mensuel/journalier en filtrant sur un article.",
+  },
 ] as const;
 
 export default async function RapportPage() {
