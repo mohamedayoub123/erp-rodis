@@ -8,7 +8,19 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { matchesArticleSearch } from "@/lib/article-search";
+
+const EXPORT_COLUMNS = [
+  { label: "Article", key: "nom_article" },
+  { label: "Categorie", key: "categorie" },
+  { label: "Unite", key: "unite" },
+  { label: "Gamme", key: "gamme" },
+  { label: "Gamme Statistique", key: "gamme_statistique" },
+  { label: "Utilisation", key: "utilisation" },
+  { label: "Stock min", key: "min_stock" },
+  { label: "Stock max", key: "max_stock" },
+];
 
 const PAGE_SIZE = 100;
 
@@ -134,6 +146,11 @@ export default async function ArticlesMatierePremierePage({
 
           <div className="flex flex-wrap gap-3">
             <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
+            <ExportExcelButton
+              rows={filteredArticles}
+              columns={EXPORT_COLUMNS}
+              filename={`articles-matiere-premiere-${new Date().toISOString().slice(0, 10)}.xlsx`}
+            />
             <RefreshButton />
             {canWriteArticles ? (
               <Link
