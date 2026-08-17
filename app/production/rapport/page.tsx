@@ -18,6 +18,13 @@ const TILES = [
     icon: "\u{23F1}\u{FE0F}",
     description: "Temps par cause d'arret, par chaine/zone/article, et temps de travail par code.",
   },
+  {
+    label: "Balance Matiere",
+    href: "/production/rapport/balance-matiere",
+    pageKey: "productionRapportBalanceMatiere",
+    icon: "\u{2696}\u{FE0F}",
+    description: "Par code : vrac fabrique vs carton fabrique converti en kg, et l'ecart matiere entre les deux.",
+  },
 ] as const;
 
 export default async function RapportPage() {

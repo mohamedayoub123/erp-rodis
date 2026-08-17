@@ -413,6 +413,43 @@ export async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeT
   return rows;
 }
 
+export type ArticleKgFactor = { pieceParCarton: number | null; contenance: number | null };
+
+// Facteurs de conversion carton -> kg (piece_par_carton, contenance) pour un
+// lot d'article_id donne - utilise par Rapport Balance Matiere pour
+// convertir "Carton fabrique" (unites) en kg comparable au vrac fabrique.
+// contenance est deja stocke en kg par piece (verifie sur des exemples
+// reels), donc: kg = nb_carton * piece_par_carton * contenance, sans
+// conversion d'unite supplementaire.
+export async function fetchArticleKgFactorsByIds(
+  articleIds: (number | null)[]
+): Promise<Map<number, ArticleKgFactor>> {
+  const result = new Map<number, ArticleKgFactor>();
+  const uniqueIds = [...new Set(articleIds.filter((id): id is number => typeof id === "number"))];
+  if (uniqueIds.length === 0) return result;
+
+  const chunkSize = 500;
+  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+    const chunk = uniqueIds.slice(i, i + chunkSize);
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, piece_par_carton, contenance")
+      .in("id", chunk);
+
+    if (error) continue;
+
+    for (const row of (data ?? []) as {
+      id: number;
+      piece_par_carton: number | null;
+      contenance: number | null;
+    }[]) {
+      result.set(row.id, { pieceParCarton: row.piece_par_carton, contenance: row.contenance });
+    }
+  }
+
+  return result;
+}
+
 function normalizeArticleNameForRestant(value: string | null) {
   return (value || "").replace(/ /g, "").trim().toUpperCase();
 }
