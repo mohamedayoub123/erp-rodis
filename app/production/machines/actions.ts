@@ -11,6 +11,13 @@ function toNumberOrNull(value: FormDataEntryValue | null) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// Plusieurs types de produit possibles par machine (checkboxes, meme nom de
+// champ "type_produit" repete) - tableau vide range en NULL, pas en [].
+function toTypeProduitsArray(formData: FormData) {
+  const values = formData.getAll("type_produit").map((v) => String(v).trim()).filter(Boolean);
+  return values.length > 0 ? values : null;
+}
+
 export async function createMachineAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
@@ -27,7 +34,7 @@ export async function createMachineAction(formData: FormData) {
     nom,
     zone: String(formData.get("zone") || "").trim() || null,
     type: String(formData.get("type") || "").trim() || null,
-    type_produit: String(formData.get("type_produit") || "").trim() || null,
+    type_produit: toTypeProduitsArray(formData),
   });
 
   if (error) {
@@ -57,7 +64,7 @@ export async function updateMachineAction(formData: FormData) {
       nom,
       zone: String(formData.get("zone") || "").trim() || null,
       type: String(formData.get("type") || "").trim() || null,
-      type_produit: String(formData.get("type_produit") || "").trim() || null,
+      type_produit: toTypeProduitsArray(formData),
     })
     .eq("id", id);
 
