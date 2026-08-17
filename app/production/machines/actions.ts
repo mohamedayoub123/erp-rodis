@@ -27,7 +27,39 @@ export async function createMachineAction(formData: FormData) {
     nom,
     zone: String(formData.get("zone") || "").trim() || null,
     type: String(formData.get("type") || "").trim() || null,
+    type_produit: String(formData.get("type_produit") || "").trim() || null,
   });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/production/machines");
+}
+
+export async function updateMachineAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "machines"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier de machine.");
+  }
+
+  const id = Number(String(formData.get("id") || "0"));
+  const nom = String(formData.get("nom") || "").trim();
+
+  if (!id || !nom) {
+    throw new Error("Machine invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("machines")
+    .update({
+      nom,
+      zone: String(formData.get("zone") || "").trim() || null,
+      type: String(formData.get("type") || "").trim() || null,
+      type_produit: String(formData.get("type_produit") || "").trim() || null,
+    })
+    .eq("id", id);
 
   if (error) {
     throw new Error(error.message);

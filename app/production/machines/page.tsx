@@ -7,18 +7,20 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { deleteMachineAction } from "./actions";
 import { AddMachineForm } from "./add-machine-form";
+import { MachineTypeProduitSelect } from "./type-produit-select";
 
 type MachineRow = {
   id: number;
   nom: string;
   zone: string | null;
   type: string | null;
+  type_produit: string | null;
 };
 
 async function fetchAllMachines(): Promise<{ rows: MachineRow[]; error: { message: string } | null }> {
   const { data, error } = await supabaseServer
     .from("machines")
-    .select("id, nom, zone, type")
+    .select("id, nom, zone, type, type_produit")
     .order("nom", { ascending: true });
 
   if (error) return { rows: [], error };
@@ -83,6 +85,7 @@ export default async function MachinesPage() {
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Nom</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Zone</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type de produit</th>
                     {canDelete ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
@@ -99,6 +102,13 @@ export default async function MachinesPage() {
                       </td>
                       <td className="px-6 py-4 text-slate-600">{machine.zone || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{machine.type || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {canEdit ? (
+                          <MachineTypeProduitSelect machine={machine} />
+                        ) : (
+                          machine.type_produit || "-"
+                        )}
+                      </td>
                       {canDelete ? (
                         <td className="px-6 py-4">
                           <form action={deleteMachineAction}>

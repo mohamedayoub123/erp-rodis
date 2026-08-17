@@ -1,5 +1,6 @@
 import { createMachineAction } from "./actions";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { TYPE_PRODUIT_OPTIONS } from "./type-produit-options";
 
 const ZONE_OPTIONS = [
   "B1Z1",
@@ -54,6 +55,21 @@ export function AddMachineForm() {
         >
           <option value="">-</option>
           {TYPE_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="grid gap-1 text-xs font-semibold text-slate-500">
+        Type de produit
+        <select
+          name="type_produit"
+          defaultValue=""
+          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+        >
+          <option value="">-</option>
+          {TYPE_PRODUIT_OPTIONS.map((option) => (
             <option key={option} value={option}>
               {option}
             </option>
