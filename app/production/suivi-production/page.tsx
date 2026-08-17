@@ -429,18 +429,31 @@ function buildDisplayRows(
     if (vracList.length === 0 && cartonList.length === 0 && emballageList.length === 0) {
       const rapport = anyRapportByLigne.get(ligneId) ?? null;
       if (!rapport) continue;
-      rows.push({
-        key: `gen-${rapport.id}`,
-        ligne,
-        rapport,
-        fabrication: null,
-        conditionnement: null,
-        emballage: null,
-        isGeneral: true,
-        generalRapportId: rapport.id,
-        displayCode: ligne.numero_lot || "-",
-        displayVrac: ligne.vrac_a_fabriquer,
-        displayCarton: ligne.qt_carton,
+
+      // Meme decoupage par code que plus bas (voir splitLigneByCode) - une
+      // ligne a plusieurs lots doit rester scindee des sa creation, avant
+      // meme la 1ere saisie de production, sinon les codes apparaissent
+      // fusionnes sur une seule ligne tant qu'aucune entree n'existe encore
+      // (voir AB1077V/AB1078V).
+      const codeSplits = splitLigneByCode(ligne);
+      const legacy = legacyRapportByLigne.get(ligne.id) ?? null;
+      codeSplits.forEach((split, splitIndex) => {
+        const codeSpecific = rapportByLigneAndCode.get(`${ligne.id}::${split.code}`) ?? null;
+        const codeRapport = mergeRapports(codeSpecific, legacy) ?? rapport;
+
+        rows.push({
+          key: `gen-${ligneId}-code${splitIndex}`,
+          ligne,
+          rapport: codeRapport,
+          fabrication: null,
+          conditionnement: null,
+          emballage: null,
+          isGeneral: true,
+          generalRapportId: codeRapport.id,
+          displayCode: split.code,
+          displayVrac: split.vrac,
+          displayCarton: split.carton,
+        });
       });
       continue;
     }
