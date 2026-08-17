@@ -32,6 +32,13 @@ const TILES = [
     icon: "\u{1F4E6}",
     description: "Par code : carton commande vs carton reellement fabrique, avec KPI globaux.",
   },
+  {
+    label: "Capacite Machines",
+    href: "/production/rapport/machines-capacite",
+    pageKey: "productionRapportMachinesCapacite",
+    icon: "\u{2699}\u{FE0F}",
+    description: "Combien de machines de l'usine tournent en ce moment, sur le total disponible.",
+  },
 ] as const;
 
 export default async function RapportPage() {
