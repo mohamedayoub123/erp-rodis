@@ -515,6 +515,16 @@ export default async function RapportBalanceMatierePage({
       return a.code.localeCompare(b.code, "fr", { numeric: true });
     });
 
+  // KPI globaux sur TOUTES les lignes filtrees (rows, pas juste la page
+  // affichee) - "vrac tire" = le vrac reellement consomme pour remplir les
+  // cartons (carton fabrique converti en kg), donc different du vrac
+  // fabrique reel (vracFabrique) : l'ecart commande/tire montre le manque
+  // global entre ce qui etait prevu et ce qui a vraiment ete tire en carton.
+  const totalVracCommande = rows.reduce((sum, row) => sum + row.vracDemande, 0);
+  const totalVracFabrique = rows.reduce((sum, row) => sum + row.vracFabrique, 0);
+  const totalCartonVracTire = rows.reduce((sum, row) => sum + (row.cartonFabriqueKg ?? 0), 0);
+  const ecartCommandeTire = totalVracCommande - totalCartonVracTire;
+
   const totalRows = rows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
   const from = (currentPage - 1) * PAGE_SIZE;
@@ -611,6 +621,39 @@ export default async function RapportBalanceMatierePage({
               </label>
             </div>
           </form>
+        </section>
+
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-[1.75rem] border border-black/5 bg-amber-50 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-700">
+              Total vrac commande
+            </p>
+            <p className="mt-2 text-3xl font-black text-amber-900">{formatQty(totalVracCommande)} kg</p>
+          </div>
+          <div className="rounded-[1.75rem] border border-black/5 bg-amber-50 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-700">
+              Total vrac fabrique
+            </p>
+            <p className="mt-2 text-3xl font-black text-amber-900">{formatQty(totalVracFabrique)} kg</p>
+          </div>
+          <div className="rounded-[1.75rem] border border-black/5 bg-sky-50 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-700">
+              Total carton (vrac tire)
+            </p>
+            <p className="mt-2 text-3xl font-black text-sky-900">{formatQty(totalCartonVracTire)} kg</p>
+          </div>
+          <div className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              Ecart commande - tire
+            </p>
+            <p
+              className={`mt-2 text-3xl font-black ${
+                ecartCommandeTire > 0 ? "text-red-700" : "text-emerald-700"
+              }`}
+            >
+              {formatQty(ecartCommandeTire)} kg
+            </p>
+          </div>
         </section>
 
         {rows.length === 0 ? (
