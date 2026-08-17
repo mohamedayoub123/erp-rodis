@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { getCurrentStockUser, getPageViewMap } from "@/lib/stock-auth";
@@ -49,6 +50,7 @@ const TILES = [
 ] as const;
 
 export default async function RapportPage() {
+  noStore();
   const currentUser = await getCurrentStockUser();
   const pageViewMap = await getPageViewMap(currentUser);
   const visibleTiles = TILES.filter((tile) => pageViewMap[tile.pageKey] ?? false);
