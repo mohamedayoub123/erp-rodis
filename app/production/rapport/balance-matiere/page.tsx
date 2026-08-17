@@ -456,9 +456,11 @@ export default async function RapportBalanceMatierePage({
     const contenance = poidsReelGrammes !== null ? poidsReelGrammes / 1000 : factor?.contenance ?? null;
     const canConvert = pieceParCarton !== null && contenance !== null && pieceParCarton > 0 && contenance > 0;
     const cartonFabriqueKg = canConvert ? cartonFabrique * (pieceParCarton as number) * (contenance as number) : null;
-    const ecartMatiereKg = cartonFabriqueKg !== null ? vracFabrique - cartonFabriqueKg : null;
+    // Ecart = vrac COMMANDE - carton (vrac tire), pas vrac fabrique - voir
+    // aussi les KPI globaux en haut de page (meme principe).
+    const ecartMatiereKg = cartonFabriqueKg !== null ? vracDemande - cartonFabriqueKg : null;
     const ecartPct =
-      ecartMatiereKg !== null && vracFabrique > 0 ? (ecartMatiereKg / vracFabrique) * 100 : null;
+      ecartMatiereKg !== null && vracDemande > 0 ? (ecartMatiereKg / vracDemande) * 100 : null;
 
     return {
       statut,
