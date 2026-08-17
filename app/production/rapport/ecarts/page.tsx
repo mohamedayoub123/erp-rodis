@@ -396,10 +396,12 @@ export default async function RapportEcartsPage({
       produit: ligne.produit || "-",
       vracDemande,
       vracFabrique,
-      vracDiff: vracDemande - vracFabrique,
+      // Positif = surplus (fabrique/produit plus que demande), negatif =
+      // manque - inverse par rapport a avant sur demande explicite.
+      vracDiff: vracFabrique - vracDemande,
       cartonDemande,
       cartonFabrique,
-      cartonDiff: cartonDemande - cartonFabrique,
+      cartonDiff: cartonFabrique - cartonDemande,
       cartonEmballe,
       cartonEmballeDiff: cartonDemande - cartonEmballe,
       conditionnementEmballageDiff: cartonEmballe - cartonFabrique,
