@@ -1179,11 +1179,15 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
     throw new Error("Commande invalide.");
   }
 
+  // Toute la logique metier (verrouillage stock, regles FIFO, ecriture
+  // fifo_resultats/commande_lignes/commandes) vit desormais dans le RPC
+  // stock_run_fifo (scripts/sql/stock_locking_functions.sql), execute sous
+  // verrou pg_advisory_xact_lock par article - seul l'ordre d'affichage des
+  // lignes (sortLignesByFamily, tri pur sans acces disque) reste calcule
+  // ici et transmis au RPC.
   const { data: commande, error: commandeError } = await supabaseServer
     .from("commandes")
-    .select(
-      "id, numero_proforma, client, statut, mode_chargement, commande_lignes(id, article_id, quantite_demandee, articles(type_article, nom_article, gamme)), commentaire"
-    )
+    .select("id, commande_lignes(id, articles(nom_article, gamme))")
     .eq("id", commandeId)
     .single();
 
@@ -1191,206 +1195,18 @@ export async function calculateFifoForCommandeAction(formData: FormData) {
     throw new Error(commandeError?.message || "Commande introuvable.");
   }
 
-  // Une fois livree, le stock est deja reellement sorti - redispatcher
-  // recalculerait des reservations sur un stock deja consomme.
-  if ((commande.statut || "").toUpperCase() === "LIVREE") {
-    throw new Error("Cette commande est deja livree, impossible de redispatcher.");
-  }
-
   // Meme ordre que la page detail de la commande (sortCommandeLignesByFamily)
-  // - le Despatcher traite desormais les lignes dans cet ordre, donc
-  // ordre_ligne des resultats FIFO qui en decoule suit le meme ordre.
+  // - le Despatcher traite les lignes dans cet ordre, donc ordre_ligne des
+  // resultats FIFO qui en decoule suit le meme ordre.
   const lignes = sortLignesByFamily(commande.commande_lignes ?? []);
 
-  if (lignes.length === 0) {
-    throw new Error("Cette commande ne contient aucune ligne.");
-  }
+  const { error } = await supabaseServer.rpc("stock_run_fifo", {
+    p_commande_id: commandeId,
+    p_ordered_ligne_ids: lignes.map((ligne) => ligne.id),
+  });
 
-  const isUgandaClient = await isClientFromCountry(commande.client, "ouganda");
-  const articleIds = [...new Set(lignes.map((line) => line.article_id))];
-  const [{ articleAvailabilityMap, latestLots }, reservedResponse] = await Promise.all([
-    buildStockSnapshot(articleIds),
-    fetchAllReservedLotsExcludingCommande(commandeId),
-  ]);
-
-  const lotsData = latestLots.filter((row) => Number(row.stock_restant ?? 0) > 0);
-  const { data: reservedData, error: reservedError } = reservedResponse;
-
-  if (reservedError) {
-    throw new Error(reservedError.message);
-  }
-
-  const reservedByLot = new Map<number, number>();
-  for (const row of (reservedData as { lot_stock_id: number | null; quantite_chargee: number }[] | null) ??
-    []) {
-    if (!row.lot_stock_id) continue;
-    reservedByLot.set(
-      row.lot_stock_id,
-      (reservedByLot.get(row.lot_stock_id) ?? 0) + Number(row.quantite_chargee ?? 0)
-    );
-  }
-
-  const lotsByArticle = new Map<number, FifoLotRow[]>();
-
-  for (const lot of lotsData ?? []) {
-    const list = lotsByArticle.get(lot.article_id) ?? [];
-    const reservedQty = Number(reservedByLot.get(lot.id) ?? 0);
-    const availableQty = Math.max(0, Number(lot.stock_restant) - reservedQty);
-    list.push({
-      ...lot,
-      numero_lot: String(lot.numero_lot || "").trim(),
-      code_normalise: String(lot.code_normalise || lot.numero_lot || "").trim().toUpperCase(),
-      stock_restant: availableQty,
-    });
-    lotsByArticle.set(lot.article_id, list);
-  }
-
-  const fifoPayload: {
-    commande_id: number;
-    commande_ligne_id: number;
-    article_id: number;
-    lot_stock_id: number;
-    numero_lot: string;
-    date_fabrication: string | null;
-    chambre: string | null;
-    quantite_chargee: number;
-    ordre_ligne: number;
-    regle_appliquee: string;
-  }[] = [];
-
-  let ordre = 1;
-  const shortageByLine = new Map<number, number>();
-  const chargedByLine = new Map<number, number>();
-
-  for (const ligne of lignes) {
-    const rawLots = lotsByArticle.get(ligne.article_id) ?? [];
-    const articleRelation = ligne.articles as
-      | { type_article?: string | null }
-      | { type_article?: string | null }[]
-      | null
-      | undefined;
-    const articleType = Array.isArray(articleRelation)
-      ? articleRelation[0]?.type_article
-      : articleRelation?.type_article;
-    const articleAvailability = articleAvailabilityMap.get(ligne.article_id);
-    const maxAllowedForRule = getRuleLimitedAvailability(
-      articleAvailability,
-      articleType,
-      commande.mode_chargement
-    );
-    let qtyToLoad = Math.min(Number(ligne.quantite_demandee), maxAllowedForRule);
-    const { ruleName: baseRuleName, lots: ruleLots } = applyFifoRuleForArticle(
-      getPositiveCodeLots(rawLots),
-      articleType,
-      commande.mode_chargement
-    );
-
-    // Ouganda : un lot marque avec un code_pays (peu importe la valeur) est
-    // reserve pour ce client et doit etre pris en priorite, meme si un lot
-    // "normal" (sans code_pays) est aussi disponible pour le meme article.
-    const hasCodePaysLot = ruleLots.some((lot) => (lot.code_pays || "").trim() !== "");
-    const lots =
-      isUgandaClient && hasCodePaysLot
-        ? [...ruleLots].sort((a, b) => {
-            const aHasCodePays = (a.code_pays || "").trim() !== "" ? 0 : 1;
-            const bHasCodePays = (b.code_pays || "").trim() !== "" ? 0 : 1;
-            return aHasCodePays - bHasCodePays;
-          })
-        : ruleLots;
-    const ruleName =
-      isUgandaClient && hasCodePaysLot ? `${baseRuleName} + CODE PAYS OUGANDA` : baseRuleName;
-
-    for (const lot of lots) {
-      if (qtyToLoad <= 0) break;
-      if (Math.max(0, Number(lot.stock_restant ?? 0)) <= 0) continue;
-
-      const takeQty = Math.min(qtyToLoad, Math.max(0, Number(lot.stock_restant ?? 0)));
-      if (takeQty <= 0) continue;
-
-      fifoPayload.push({
-        commande_id: commandeId,
-        commande_ligne_id: ligne.id,
-        article_id: ligne.article_id,
-        lot_stock_id: lot.id,
-        numero_lot: lot.numero_lot,
-        date_fabrication: lot.date_fabrication,
-        chambre: lot.chambre,
-        quantite_chargee: takeQty,
-        ordre_ligne: ordre,
-        regle_appliquee: ruleName,
-      });
-
-      qtyToLoad -= takeQty;
-      lot.stock_restant -= takeQty;
-      chargedByLine.set(
-        ligne.id,
-        (chargedByLine.get(ligne.id) ?? 0) + Number(takeQty)
-      );
-      ordre += 1;
-    }
-
-    const totalCharged = Number(chargedByLine.get(ligne.id) ?? 0);
-    shortageByLine.set(ligne.id, Math.max(0, Number(ligne.quantite_demandee) - totalCharged));
-  }
-
-  const { error: deleteError } = await supabaseServer
-    .from("fifo_resultats")
-    .delete()
-    .eq("commande_id", commandeId);
-
-  if (deleteError) {
-    throw new Error(deleteError.message);
-  }
-
-  if (fifoPayload.length > 0) {
-    const { error: insertError } = await supabaseServer
-      .from("fifo_resultats")
-      .insert(fifoPayload);
-
-    if (insertError) {
-      throw new Error(insertError.message);
-    }
-  }
-
-  await Promise.all(
-    lignes.map(async (ligne) => {
-      const shortage = Number(shortageByLine.get(ligne.id) ?? 0);
-      const { error: updateLineError } = await supabaseServer
-        .from("commande_lignes")
-        .update({
-          qt_non_dispo_total: shortage,
-        })
-        .eq("id", ligne.id);
-
-      if (updateLineError) {
-        throw new Error(updateLineError.message);
-      }
-    })
-  );
-
-  const totalShortage = [...shortageByLine.values()].reduce((sum, value) => sum + value, 0);
-  const newStatus = totalShortage > 0 ? "FIFO_PARTIEL" : "FIFO_CALCULE";
-  // Ne pas faire regresser un statut deja avance (Stand/BL transforme) vers
-  // "En cours" juste parce qu'on a redispatche - meme principe que
-  // updateManualCommandeAction/changeCommandeStatusAction (statutBucket) :
-  // le recalcul FIFO reste une operation technique, pas un vrai changement
-  // de statut voulu par l'utilisateur.
-  const finalStatus =
-    statutBucket(commande.statut) === "EN_COURS" ? newStatus : commande.statut || newStatus;
-  const commentWithDates = stampStatusDatesIfNeeded(commande.commentaire, commande.statut, finalStatus);
-
-  const { error: updateError } = await supabaseServer
-    .from("commandes")
-    .update({
-      statut: finalStatus,
-      commentaire:
-        `${commentWithDates}${commentWithDates ? " | " : ""}FIFO web calcule automatiquement` +
-        (totalShortage > 0 ? ` | Reste a charger: ${totalShortage}` : ""),
-    })
-    .eq("id", commandeId);
-
-  if (updateError) {
-    throw new Error(updateError.message);
+  if (error) {
+    throw new Error(error.message);
   }
 
   revalidateCommandeDependentPages(commandeId);
@@ -1461,8 +1277,14 @@ export async function addManualFifoLotAction(formData: FormData) {
   }
 
   // On recalcule le solde reel du lot (net de tous ses mouvements, moins ce
-  // que d'autres commandes ont deja charge dessus) plutot que de faire
-  // confiance a une quantite affichee cote client, potentiellement perimee.
+  // que d'autres commandes NON LIVREES ont deja charge dessus) plutot que de
+  // faire confiance a une quantite affichee cote client, potentiellement
+  // perimee. Une commande LIVREE doit etre exclue (meme principe que
+  // fetchAllReservedLotsExcludingCommande) : sa sortie de stock est deja
+  // reellement comptabilisee dans qte_sortie du lot (via stock_deliver_commande),
+  // donc soustraire EN PLUS son fifo_resultats.quantite_chargee revenait a
+  // decompter la meme quantite livree 2 fois - un lot partiellement livre
+  // sur plusieurs commandes apparaissait alors a tort a 0 disponible.
   const [{ data: lotRows, error: lotRowsError }, { data: reservedRows, error: reservedError }] =
     await Promise.all([
       supabaseServer
@@ -1470,7 +1292,11 @@ export async function addManualFifoLotAction(formData: FormData) {
         .select("qte_entree, qte_sortie")
         .eq("article_id", lot.article_id)
         .eq("code_normalise", lot.code_normalise || lot.numero_lot),
-      supabaseServer.from("fifo_resultats").select("quantite_chargee").eq("lot_stock_id", lotStockId),
+      supabaseServer
+        .from("fifo_resultats")
+        .select("quantite_chargee, commandes!inner(statut)")
+        .eq("lot_stock_id", lotStockId)
+        .neq("commandes.statut", "LIVREE"),
     ]);
 
   if (lotRowsError) {
@@ -2008,11 +1834,18 @@ export async function addFifoLigneForNewArticleAction(
     0
   );
 
+  // Une commande LIVREE ne compte pas comme "reservee" : sa sortie de stock
+  // est deja reellement comptabilisee dans qte_sortie (rawStock ci-dessus)
+  // - la compter en plus ici revenait a decompter la meme quantite 2 fois
+  // et affichait a tort "stock insuffisant" sur un lot partiellement
+  // livre sur plusieurs commandes (meme principe que
+  // fetchAllReservedLotsExcludingCommande / stock_run_fifo).
   const { data: reservedRows, error: reservedError } = await supabaseServer
     .from("fifo_resultats")
-    .select("quantite_chargee")
+    .select("quantite_chargee, commandes!inner(statut)")
     .eq("article_id", articleId)
-    .eq("numero_lot", numeroLot);
+    .eq("numero_lot", numeroLot)
+    .neq("commandes.statut", "LIVREE");
 
   if (reservedError) {
     return { error: reservedError.message };

@@ -407,9 +407,15 @@ grant execute on function public.stock_deliver_commande(bigint) to service_role;
 -- sum(qte_entree - qte_sortie) sur toutes les lignes qui partagent cette cle
 -- - la marche cumulative en JS (getLatestLotAvailabilityRows) ne sert qu'a
 -- calculer ce meme total final pas a pas ; un GROUP BY sum donne le meme
--- resultat. Le "code n'existe pas / stock insuffisant" et le calcul de
--- reservation NE sont PAS filtres par statut LIVREE des commandes (meme
--- incoherence que dans le code actuel, preservee volontairement).
+-- resultat. Le calcul de reservation EXCLUT les commandes LIVREE (meme
+-- principe que fetchAllReservedLotsExcludingCommande / stock_run_fifo) :
+-- une commande livree a deja sa sortie physique comptabilisee dans
+-- qte_sortie du lot (via stock_deliver_commande), donc soustraire EN PLUS
+-- son fifo_resultats.quantite_chargee revenait a decompter la meme
+-- quantite 2 fois - un lot partiellement livre sur plusieurs commandes
+-- apparaissait alors a tort avec un disponible negatif/nul (bug reel
+-- observe le 2026-08-17 sur le code AA4125 : 30 cartons reellement en
+-- stock, affiches comme 0 disponible).
 create or replace function public.stock_override_fifo_result(
   p_fifo_id bigint,
   p_commande_id bigint,
@@ -474,10 +480,13 @@ begin
     raise exception 'Ce code n''existe pas pour cet article dans le stock.';
   end if;
 
-  select coalesce(sum(quantite_chargee), 0)
+  select coalesce(sum(fr.quantite_chargee), 0)
   into v_reserved_qty
-  from public.fifo_resultats
-  where lot_stock_id = v_target_lot_id and id <> p_fifo_id;
+  from public.fifo_resultats fr
+  join public.commandes c on c.id = fr.commande_id
+  where fr.lot_stock_id = v_target_lot_id
+    and fr.id <> p_fifo_id
+    and upper(coalesce(c.statut, '')) <> 'LIVREE';
 
   v_current_qty_on_this_line := case when v_target_lot_id = v_lot_stock_id then coalesce(v_current_quantite, 0) else 0 end;
   v_available_qty := greatest(0, v_target_stock_restant - v_reserved_qty + v_current_qty_on_this_line);
@@ -579,3 +588,455 @@ $$;
 
 revoke all on function public.stock_delete_lot_group(bigint) from public;
 grant execute on function public.stock_delete_lot_group(bigint) to service_role;
+
+-- Port de monthsBetween (app/commandes/actions.ts) : difference en mois
+-- CALENDAIRES entre deux dates (ignore le jour du mois), pas un nombre de
+-- jours divise par 30.
+create or replace function public._months_between_calendar(p_from date, p_to date)
+returns int
+language sql
+immutable
+as $$
+  select (extract(year from p_to)::int - extract(year from p_from)::int) * 12
+       + (extract(month from p_to)::int - extract(month from p_from)::int);
+$$;
+
+revoke all on function public._months_between_calendar(date, date) from public;
+
+-- Port de isClientFromCountry (app/commandes/actions.ts) : meme 3 tentatives
+-- de rapprochement client (client_normalise sans espaces, client_normalise
+-- brut, puis nom_client en ilike), s'arrete a la premiere qui renvoie un
+-- pays non vide.
+create or replace function public._client_is_from_country(p_client text, p_country_keyword text)
+returns boolean
+language plpgsql
+as $$
+declare
+  v_trimmed text := trim(coalesce(p_client, ''));
+  v_pays text;
+begin
+  if v_trimmed = '' then
+    return false;
+  end if;
+
+  select pays into v_pays from public.clients
+  where client_normalise = upper(replace(v_trimmed, ' ', '')) limit 1;
+
+  if v_pays is null or trim(v_pays) = '' then
+    select pays into v_pays from public.clients
+    where client_normalise = upper(v_trimmed) limit 1;
+  end if;
+
+  if v_pays is null or trim(v_pays) = '' then
+    select pays into v_pays from public.clients
+    where nom_client ilike v_trimmed limit 1;
+  end if;
+
+  if v_pays is not null and trim(v_pays) <> '' then
+    return position(lower(p_country_keyword) in lower(trim(v_pays))) > 0;
+  end if;
+
+  return false;
+end;
+$$;
+
+revoke all on function public._client_is_from_country(text, text) from public;
+
+-- Port de statutBucket/statusDateKeyFor (app/commandes/actions.ts) - les
+-- deux fonctions JS font exactement le meme regroupement, une seule
+-- version SQL suffit pour les deux usages.
+create or replace function public._statut_bucket(p_value text)
+returns text
+language sql
+immutable
+as $$
+  select case
+    when upper(coalesce(p_value, '')) in ('STAND', 'BL_TRANSFORME', 'LIVREE') then upper(p_value)
+    else 'EN_COURS'
+  end;
+$$;
+
+revoke all on function public._statut_bucket(text) from public;
+
+-- Port de stampStatusDatesIfNeeded (app/commandes/actions.ts) : ne pose la
+-- date "entree dans ce statut" / sa date de transition que lors d'un vrai
+-- changement de bucket (statutBucket different) ou si jamais posee pour ce
+-- statut - jamais a chaque simple resauvegarde (redispatch FIFO) de la
+-- meme commande deja dans ce bucket, sinon "Statistique livraison" se
+-- retrouve faussee.
+create or replace function public._stamp_status_dates_if_needed(
+  p_existing_commentaire text,
+  p_previous_statut text,
+  p_next_statut text
+)
+returns text
+language plpgsql
+as $$
+declare
+  v_status_key text := public._statut_bucket(p_next_statut);
+  v_is_real_transition boolean := public._statut_bucket(p_previous_statut) <> public._statut_bucket(p_next_statut);
+  v_already_stamped boolean;
+  v_transition_key text;
+  v_result text;
+  v_upper_next text := upper(coalesce(p_next_statut, ''));
+begin
+  v_already_stamped := coalesce(public._extract_comment_token(p_existing_commentaire, 'STATUT_DATE_' || v_status_key || ':'), '') <> '';
+
+  if not v_is_real_transition and v_already_stamped then
+    return coalesce(p_existing_commentaire, '');
+  end if;
+
+  v_result := public._upsert_comment_token(p_existing_commentaire, 'STATUT_DATE_' || v_status_key || ':', to_char(current_date, 'YYYY-MM-DD'));
+
+  if v_upper_next in ('EN_COURS', 'STAND', 'FIFO_PARTIEL', 'FIFO_CALCULE', 'SAISIE_WEB') then
+    v_transition_key := 'STAND_ENCOURS';
+  elsif v_upper_next = 'BL_TRANSFORME' then
+    v_transition_key := 'ENCOURS_BLTRANSFORME';
+  elsif v_upper_next = 'LIVREE' then
+    v_transition_key := 'ENCOURS_LIVREE';
+  else
+    v_transition_key := null;
+  end if;
+
+  if v_transition_key is not null then
+    v_result := public._upsert_comment_token(v_result, 'DATE_TRANSITION_' || v_transition_key || ':', to_char(current_date, 'YYYY-MM-DD'));
+  end if;
+
+  return v_result;
+end;
+$$;
+
+revoke all on function public._stamp_status_dates_if_needed(text, text, text) from public;
+
+-- Remplace calculateFifoForCommandeAction (app/commandes/actions.ts) - le
+-- moteur principal, la fonction la plus complexe du chantier. Porte
+-- fidelement : isContainerMode, la regle clarifiant en mode container
+-- (stock <= 2 mois, tri decroissant), la regle container standard (tri
+-- decroissant), la regle non-container (tri croissant, FIFO classique), la
+-- priorite "code pays" pour un client ougandais, le compteur global
+-- ordre_ligne a travers toutes les lignes, la suppression + reinsertion
+-- complete de fifo_resultats, la mise a jour de qt_non_dispo_total et du
+-- statut/commentaire.
+--
+-- L'ordre des lignes (sortLignesByFamily : tri par famille/gamme, simple
+-- ordre d'affichage sans lecture disque, deja teste) reste calcule cote TS
+-- et transmis via p_ordered_ligne_ids - la fonction traite les lignes dans
+-- CET ordre exact pour que ordre_ligne corresponde toujours a l'ordre
+-- affiche sur la page de la commande.
+--
+-- Divergence mineure assumee : en cas d'egalite exacte de date_fabrication
+-- entre plusieurs lots du meme article, le depart se fait par lot_stock_id
+-- croissant (deterministe) plutot que par un ordre d'insertion de Map JS
+-- difficile a reproduire fidelement en SQL - les quantites allouees sont
+-- identiques dans tous les cas, seule l'attribution du lot precis peut
+-- differer sur une egalite de date.
+create or replace function public.stock_run_fifo(
+  p_commande_id bigint,
+  p_ordered_ligne_ids bigint[]
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_statut text;
+  v_commentaire text;
+  v_mode_chargement text;
+  v_client text;
+  v_is_container boolean;
+  v_is_uganda_client boolean;
+  v_article_ids bigint[];
+  v_expected_count int;
+  v_ligne_id bigint;
+  v_ligne_article_id bigint;
+  v_ligne_quantite_demandee numeric;
+  v_ligne_type_article text;
+  v_type_lower text;
+  v_stock_total numeric;
+  v_stock_2_mois numeric;
+  v_max_allowed numeric;
+  v_qty_to_load numeric;
+  v_charged numeric;
+  v_shortage numeric;
+  v_total_shortage numeric := 0;
+  v_rule_name text;
+  v_final_rule_name text;
+  v_has_code_pays_lot boolean;
+  v_ordre int := 1;
+  v_lot record;
+  v_take numeric;
+  v_new_statut text;
+  v_final_statut text;
+  v_comment_with_dates text;
+  v_final_commentaire text;
+begin
+  select statut, commentaire, mode_chargement, client
+  into v_statut, v_commentaire, v_mode_chargement, v_client
+  from public.commandes
+  where id = p_commande_id;
+
+  if not found then
+    raise exception 'Commande introuvable.';
+  end if;
+
+  if upper(coalesce(v_statut, '')) = 'LIVREE' then
+    raise exception 'Cette commande est deja livree, impossible de redispatcher.';
+  end if;
+
+  select count(*) into v_expected_count
+  from public.commande_lignes
+  where commande_id = p_commande_id;
+
+  if v_expected_count = 0 then
+    raise exception 'Cette commande ne contient aucune ligne.';
+  end if;
+
+  if coalesce(array_length(p_ordered_ligne_ids, 1), 0) <> v_expected_count then
+    raise exception 'Liste de lignes invalide.';
+  end if;
+
+  if (select count(distinct x) from unnest(p_ordered_ligne_ids) as x) <> v_expected_count then
+    raise exception 'Liste de lignes invalide (doublons).';
+  end if;
+
+  if exists (
+    select 1 from unnest(p_ordered_ligne_ids) as t(id)
+    where not exists (
+      select 1 from public.commande_lignes cl where cl.id = t.id and cl.commande_id = p_commande_id
+    )
+  ) then
+    raise exception 'Liste de lignes invalide (ligne hors commande).';
+  end if;
+
+  select coalesce(array_agg(distinct article_id), '{}')
+  into v_article_ids
+  from public.commande_lignes
+  where commande_id = p_commande_id;
+
+  perform public._lock_articles_for_stock(v_article_ids);
+
+  v_is_container := (
+    upper(coalesce(v_mode_chargement, '')) like 'TC%'
+    or position('CONTINAIR' in upper(coalesce(v_mode_chargement, ''))) > 0
+    or position('CONTENAIR' in upper(coalesce(v_mode_chargement, ''))) > 0
+    or position('CONTENEUR' in upper(coalesce(v_mode_chargement, ''))) > 0
+    or position('CONTAINER' in upper(coalesce(v_mode_chargement, ''))) > 0
+  );
+
+  v_is_uganda_client := public._client_is_from_country(v_client, 'ouganda');
+
+  -- Instantane des lots (agrege par article + code, plus ancienne
+  -- date_fabrication represente le lot, meme convention que
+  -- buildStockSnapshot / stock_override_fifo_result).
+  create temporary table tmp_lot_agg (
+    article_id bigint,
+    lot_id bigint,
+    numero_lot text,
+    date_fabrication date,
+    chambre text,
+    code_pays text,
+    stock_restant numeric
+  ) on commit drop;
+
+  insert into tmp_lot_agg
+  select
+    ls.article_id,
+    (array_agg(ls.id order by ls.date_fabrication asc nulls last, ls.id asc))[1],
+    (array_agg(coalesce(nullif(ls.numero_lot, ''), ls.code_normalise) order by ls.date_fabrication asc nulls last, ls.id asc))[1],
+    (array_agg(ls.date_fabrication order by ls.date_fabrication asc nulls last, ls.id asc))[1],
+    (array_agg(ls.chambre order by ls.date_fabrication asc nulls last, ls.id asc))[1],
+    (array_agg(ls.code_pays order by ls.date_fabrication asc nulls last, ls.id asc))[1],
+    sum(coalesce(ls.qte_entree, 0) - coalesce(ls.qte_sortie, 0))
+  from public.lots_stock ls
+  where ls.article_id = any(v_article_ids)
+  group by ls.article_id, upper(trim(coalesce(nullif(ls.code_normalise, ''), ls.numero_lot)))
+  having sum(coalesce(ls.qte_entree, 0) - coalesce(ls.qte_sortie, 0)) > 0;
+
+  -- Disponibilite BRUTE par article (plafond par regle : stock_2_mois pour
+  -- un clarifiant en mode container, stock_total sinon) - PAS nette des
+  -- reservations d'autres commandes, exactement comme articleAvailabilityMap
+  -- cote TS.
+  create temporary table tmp_article_availability (
+    article_id bigint primary key,
+    stock_total numeric,
+    stock_2_mois numeric
+  ) on commit drop;
+
+  insert into tmp_article_availability
+  select
+    article_id,
+    sum(stock_restant),
+    sum(case
+      when date_fabrication is not null
+        and public._months_between_calendar(date_fabrication, current_date) <= 2
+      then stock_restant else 0
+    end)
+  from tmp_lot_agg
+  group by article_id;
+
+  -- Disponibilite NETTE par lot (sert au chargement reel, deduite des
+  -- reservations d'autres commandes non livrees, exactement comme
+  -- lotsByArticle / fetchAllReservedLotsExcludingCommande cote TS).
+  create temporary table tmp_lot_state (
+    lot_id bigint primary key,
+    article_id bigint,
+    numero_lot text,
+    date_fabrication date,
+    chambre text,
+    code_pays text,
+    remaining numeric
+  ) on commit drop;
+
+  insert into tmp_lot_state
+  select
+    la.lot_id, la.article_id, la.numero_lot, la.date_fabrication, la.chambre, la.code_pays,
+    greatest(0, la.stock_restant - coalesce(r.qty, 0))
+  from tmp_lot_agg la
+  left join (
+    select fr.lot_stock_id, sum(fr.quantite_chargee) as qty
+    from public.fifo_resultats fr
+    join public.commandes c on c.id = fr.commande_id
+    where fr.commande_id <> p_commande_id
+      and upper(coalesce(c.statut, '')) <> 'LIVREE'
+    group by fr.lot_stock_id
+  ) r on r.lot_stock_id = la.lot_id;
+
+  create temporary table tmp_candidate_lots (
+    lot_id bigint,
+    remaining numeric,
+    date_fabrication date,
+    chambre text,
+    code_pays text,
+    rule_rank int
+  ) on commit drop;
+
+  delete from public.fifo_resultats where commande_id = p_commande_id;
+
+  foreach v_ligne_id in array p_ordered_ligne_ids loop
+    select cl.article_id, cl.quantite_demandee, a.type_article
+    into v_ligne_article_id, v_ligne_quantite_demandee, v_ligne_type_article
+    from public.commande_lignes cl
+    left join public.articles a on a.id = cl.article_id
+    where cl.id = v_ligne_id;
+
+    v_type_lower := lower(trim(coalesce(v_ligne_type_article, '')));
+
+    select stock_total, stock_2_mois
+    into v_stock_total, v_stock_2_mois
+    from tmp_article_availability
+    where article_id = v_ligne_article_id;
+
+    v_stock_total := coalesce(v_stock_total, 0);
+    v_stock_2_mois := coalesce(v_stock_2_mois, 0);
+
+    if v_is_container and v_type_lower = 'clarifiant' then
+      v_max_allowed := v_stock_2_mois;
+    else
+      v_max_allowed := v_stock_total;
+    end if;
+
+    v_qty_to_load := least(coalesce(v_ligne_quantite_demandee, 0), v_max_allowed);
+
+    truncate tmp_candidate_lots;
+
+    if not v_is_container then
+      v_rule_name := 'FIFO WEB STANDARD';
+      insert into tmp_candidate_lots
+      select lot_id, remaining, date_fabrication, chambre, code_pays,
+        row_number() over (order by date_fabrication asc nulls first, lot_id asc)
+      from tmp_lot_state
+      where article_id = v_ligne_article_id and remaining > 0;
+    elsif v_type_lower = 'clarifiant' then
+      v_rule_name := 'FIFO WEB CONTINAIR CLARIFIANT <= 2 MOIS';
+      insert into tmp_candidate_lots
+      select lot_id, remaining, date_fabrication, chambre, code_pays,
+        row_number() over (order by date_fabrication desc, lot_id asc)
+      from tmp_lot_state
+      where article_id = v_ligne_article_id and remaining > 0
+        and date_fabrication is not null
+        and public._months_between_calendar(date_fabrication, current_date) <= 2;
+    else
+      v_rule_name := 'FIFO WEB CONTINAIR PLUS RECENT D''ABORD';
+      insert into tmp_candidate_lots
+      select lot_id, remaining, date_fabrication, chambre, code_pays,
+        row_number() over (order by date_fabrication desc nulls last, lot_id asc)
+      from tmp_lot_state
+      where article_id = v_ligne_article_id and remaining > 0;
+    end if;
+
+    select exists(select 1 from tmp_candidate_lots where trim(coalesce(code_pays, '')) <> '')
+    into v_has_code_pays_lot;
+
+    v_final_rule_name := case
+      when v_is_uganda_client and v_has_code_pays_lot then v_rule_name || ' + CODE PAYS OUGANDA'
+      else v_rule_name
+    end;
+
+    v_charged := 0;
+
+    for v_lot in
+      select lot_id, remaining, date_fabrication, chambre, code_pays
+      from tmp_candidate_lots
+      order by
+        case when v_is_uganda_client and v_has_code_pays_lot and trim(coalesce(code_pays, '')) <> '' then 0 else 1 end,
+        rule_rank
+    loop
+      exit when v_qty_to_load <= 0;
+      if v_lot.remaining <= 0 then
+        continue;
+      end if;
+
+      v_take := least(v_qty_to_load, v_lot.remaining);
+      if v_take <= 0 then
+        continue;
+      end if;
+
+      insert into public.fifo_resultats (
+        commande_id, commande_ligne_id, article_id, lot_stock_id, numero_lot,
+        date_fabrication, chambre, quantite_chargee, ordre_ligne, regle_appliquee
+      )
+      select
+        p_commande_id, v_ligne_id, v_ligne_article_id, v_lot.lot_id, ts.numero_lot,
+        v_lot.date_fabrication, v_lot.chambre, v_take, v_ordre, v_final_rule_name
+      from tmp_lot_state ts
+      where ts.lot_id = v_lot.lot_id;
+
+      update tmp_lot_state set remaining = remaining - v_take where lot_id = v_lot.lot_id;
+
+      v_qty_to_load := v_qty_to_load - v_take;
+      v_charged := v_charged + v_take;
+      v_ordre := v_ordre + 1;
+    end loop;
+
+    v_shortage := greatest(0, coalesce(v_ligne_quantite_demandee, 0) - v_charged);
+    v_total_shortage := v_total_shortage + v_shortage;
+
+    update public.commande_lignes set qt_non_dispo_total = v_shortage where id = v_ligne_id;
+  end loop;
+
+  v_new_statut := case when v_total_shortage > 0 then 'FIFO_PARTIEL' else 'FIFO_CALCULE' end;
+  v_final_statut := case
+    when public._statut_bucket(v_statut) = 'EN_COURS' then v_new_statut
+    else coalesce(nullif(v_statut, ''), v_new_statut)
+  end;
+
+  v_comment_with_dates := public._stamp_status_dates_if_needed(v_commentaire, v_statut, v_final_statut);
+
+  v_final_commentaire := v_comment_with_dates
+    || case when v_comment_with_dates <> '' then ' | ' else '' end
+    || 'FIFO web calcule automatiquement'
+    || case when v_total_shortage > 0 then ' | Reste a charger: ' || v_total_shortage::text else '' end;
+
+  update public.commandes
+  set statut = v_final_statut, commentaire = v_final_commentaire
+  where id = p_commande_id;
+
+  return jsonb_build_object(
+    'commande_id', p_commande_id,
+    'statut', v_final_statut,
+    'total_shortage', v_total_shortage
+  );
+end;
+$$;
+
+revoke all on function public.stock_run_fifo(bigint, bigint[]) from public;
+grant execute on function public.stock_run_fifo(bigint, bigint[]) to service_role;
