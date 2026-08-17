@@ -138,6 +138,7 @@ type LigneRow = {
   qt_carton: number | null;
   groupe_id: number | null;
   created_at: string;
+  exclu_rapports?: boolean | null;
 };
 
 type RapportRow = {
@@ -576,7 +577,7 @@ export default async function SuiviProductionListPage({
   const [lignesResult, rapportsResult, vracResult, cartonResult, emballageResult] = await Promise.all([
     fetchAllRows<LigneRow>(
       "programme_lignes",
-      "id, zone, chaine, produit, numero_lot, numero_lot_detail, date_jour, vrac_a_fabriquer, qt_carton, groupe_id, created_at"
+      "id, zone, chaine, produit, numero_lot, numero_lot_detail, date_jour, vrac_a_fabriquer, qt_carton, groupe_id, created_at, exclu_rapports"
     ),
     fetchAllRows<RapportRow>("production_rapports", RAPPORT_COLUMNS),
     fetchAllRows<EntryRow>("production_vrac_entries", "id, programme_ligne_id, code, quantite, date_jour"),
@@ -587,10 +588,14 @@ export default async function SuiviProductionListPage({
   const fetchError =
     lignesResult.error || rapportsResult.error || vracResult.error || cartonResult.error || emballageResult.error;
 
-  const plCodeByGroupeId = computePlCodesByGroupeId(lignesResult.rows);
+  // Lignes marquees "erreur de saisie" (voir scripts/sql/exclude_pd1_pd2_bad_data.sql)
+  // - masquees de Suivi Production sans rien supprimer.
+  const lignesVisibles = lignesResult.rows.filter((ligne) => !ligne.exclu_rapports);
+
+  const plCodeByGroupeId = computePlCodesByGroupeId(lignesVisibles);
 
   const allRows = buildDisplayRows(
-    lignesResult.rows,
+    lignesVisibles,
     rapportsResult.rows,
     vracResult.rows,
     cartonResult.rows,

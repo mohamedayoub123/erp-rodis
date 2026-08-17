@@ -78,7 +78,11 @@ export async function fetchAllProgrammeLignes(options?: {
       .from("programme_lignes")
       .select(
         "id, groupe_id, zone, chaine, article_id, produit, qt_carton, vrac_a_fabriquer, plateforme, date_jour, created_at, vrac_termine, vrac_termine_date, carton_termine, carton_termine_date, emballage_termine, emballage_termine_date, numero_lot, numero_lot_detail, programme_termine, programme_termine_date"
-      );
+      )
+      // Lignes marquees "erreur de saisie" (voir scripts/sql/exclude_pd1_pd2_bad_data.sql)
+      // - masquees des rapports/suivi sans rien supprimer (stock et
+      // commandes deja livrees qui citent ces codes restent intacts).
+      .eq("exclu_rapports", false);
 
     if (options?.activeOnly) {
       query = query.or("programme_termine.eq.false,programme_termine.is.null");
