@@ -76,11 +76,17 @@ export default async function ChargesPage() {
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Charges Usine</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Consommations et depenses saisies une fois par mois (electricite, gaz, gasoil, essence,
-                salaires, autres) - les graphes viendront une fois plusieurs mois saisis.
+                salaires, autres).
               </p>
             </div>
 
             <div className="flex items-center gap-3">
+              <Link
+                href="/charges/graphe"
+                className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100"
+              >
+                Graphe cout carton
+              </Link>
               <Link
                 href="/charges/prix"
                 className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100"
