@@ -7,7 +7,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { deleteChargesUsineAction } from "./actions";
 import { ChargesUsineForm } from "./charges-form";
-import { MOIS_NOMS, NUMERIC_FIELDS, type ChargeRow, type FieldKey } from "./fields";
+import { CARTON_MANUEL_FIELD, MOIS_NOMS, NUMERIC_FIELDS, type ChargeRow, type FieldKey } from "./fields";
 
 // Champs de consommation carburant (litres) qui ont un cout calcule via le
 // prix du litre saisi sur /charges/prix pour le meme mois - gasoil
@@ -32,7 +32,9 @@ function formatNombre(value: number | null) {
 async function fetchAllCharges(): Promise<{ rows: ChargeRow[]; error: { message: string } | null }> {
   const { data, error } = await supabaseServer
     .from("charges_usine")
-    .select(`id, annee, mois, utilisateur, ${NUMERIC_FIELDS.map((f) => f.key).join(", ")}`)
+    .select(
+      `id, annee, mois, utilisateur, ${CARTON_MANUEL_FIELD.key}, ${NUMERIC_FIELDS.map((f) => f.key).join(", ")}`
+    )
     .order("annee", { ascending: false })
     .order("mois", { ascending: false });
 

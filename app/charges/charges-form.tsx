@@ -3,11 +3,14 @@
 import { useMemo, useState } from "react";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { saveChargesUsineAction } from "./actions";
-import { MOIS_NOMS, NUMERIC_FIELDS, type ChargeRow } from "./fields";
+import { CARTON_MANUEL_FIELD, MOIS_NOMS, NUMERIC_FIELDS, type ChargeRow } from "./fields";
 
 const GROUPS = ["Energie", "Salaires", "Autres"] as const;
 
-function defaultValueFor(existing: ChargeRow | null, key: (typeof NUMERIC_FIELDS)[number]["key"]) {
+function defaultValueFor(
+  existing: ChargeRow | null,
+  key: (typeof NUMERIC_FIELDS)[number]["key"] | typeof CARTON_MANUEL_FIELD.key
+) {
   const value = existing?.[key];
   return value === null || value === undefined ? "" : String(value);
 }
@@ -101,6 +104,21 @@ export function ChargesUsineForm({
             </div>
           </div>
         ))}
+
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">Production</p>
+          <label className="grid gap-1 text-xs font-semibold text-slate-500 sm:max-w-xs">
+            {CARTON_MANUEL_FIELD.label}
+            <input
+              type="number"
+              step="0.01"
+              name={CARTON_MANUEL_FIELD.key}
+              placeholder="Laisser vide si deja dans Suivi Production"
+              defaultValue={defaultValueFor(existing, CARTON_MANUEL_FIELD.key)}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+            />
+          </label>
+        </div>
 
         <div>
           <SubmitButton

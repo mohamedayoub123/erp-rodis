@@ -37,6 +37,7 @@ type ChargeMonthRow = {
   salaire_journalier_global: number | null;
   salaire_cadre: number | null;
   depense_usine: number | null;
+  carton_fabrique_manuel: number | null;
 };
 
 type PrixMonthRow = {
@@ -61,6 +62,7 @@ const CHARGE_COLUMNS = [
   "salaire_journalier_global",
   "salaire_cadre",
   "depense_usine",
+  "carton_fabrique_manuel",
 ].join(", ");
 
 async function fetchChargesByYear(annee: number): Promise<ChargeMonthRow[]> {
@@ -175,7 +177,11 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
     const charge = chargesByMois.get(mois) ?? null;
     const prix = prixByMois.get(mois) ?? null;
     const moisKey = `${annee}-${String(mois).padStart(2, "0")}`;
-    const nbCarton = cartonByMonth.get(moisKey) ?? 0;
+    // Suivi Production prioritaire si dispo ; sinon repli sur la saisie
+    // manuelle (mois anciens sans donnee dans Suivi Production).
+    const nbCartonAuto = cartonByMonth.get(moisKey) ?? 0;
+    const nbCartonManuel = charge?.carton_fabrique_manuel ?? null;
+    const nbCarton = nbCartonAuto > 0 ? nbCartonAuto : (nbCartonManuel ?? 0);
 
     const gazCout = charge && prix?.prix_gaz != null ? n(charge.gaz) * prix.prix_gaz : 0;
     const essenceCout = charge && prix?.prix_essence != null ? n(charge.essence) * prix.prix_essence : 0;
@@ -213,6 +219,7 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
       moisLabel: MOIS_NOMS[i],
       hasData: Boolean(charge),
       nbCarton,
+      nbCartonEstManuel: nbCartonAuto <= 0 && nbCartonManuel !== null,
       journalierTotal,
       journalierCosmetique,
       r1,
@@ -351,6 +358,11 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
                         </td>
                         <td className="bg-violet-50/30 px-4 py-3 text-slate-600">
                           {formatNombre(row.nbCarton)}
+                          {row.nbCartonEstManuel ? (
+                            <span className="ml-1.5 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                              manuel
+                            </span>
+                          ) : null}
                         </td>
                         <td className="bg-blue-50/30 px-4 py-3 text-slate-600">{formatNombre(row.r1, 1)}</td>
                         <td className="bg-orange-50/30 px-4 py-3 text-slate-600">{formatNombre(row.r2, 1)}</td>

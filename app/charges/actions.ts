@@ -42,6 +42,7 @@ export async function saveChargesUsineAction(formData: FormData) {
       salaire_journalier_global: toNumberOrNull(formData.get("salaire_journalier_global")),
       salaire_cadre: toNumberOrNull(formData.get("salaire_cadre")),
       depense_usine: toNumberOrNull(formData.get("depense_usine")),
+      carton_fabrique_manuel: toNumberOrNull(formData.get("carton_fabrique_manuel")),
       utilisateur: currentUser,
       date_saisie: new Date().toISOString(),
     },
@@ -53,6 +54,7 @@ export async function saveChargesUsineAction(formData: FormData) {
   }
 
   revalidatePath("/charges");
+  revalidatePath("/charges/graphe");
 }
 
 export async function deleteChargesUsineAction(formData: FormData) {
