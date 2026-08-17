@@ -454,6 +454,32 @@ export async function fetchArticleKgFactorsByIds(
   return result;
 }
 
+export type ArticleGammeInfo = { gamme: string | null; typeArticle: string | null };
+
+// Gamme/type d'un lot d'article_id donne - utilise par Rapport Carton par
+// Gamme pour regrouper le carton fabrique par gamme au lieu de par code.
+export async function fetchArticleGammeInfoByIds(
+  articleIds: (number | null)[]
+): Promise<Map<number, ArticleGammeInfo>> {
+  const result = new Map<number, ArticleGammeInfo>();
+  const uniqueIds = [...new Set(articleIds.filter((id): id is number => typeof id === "number"))];
+  if (uniqueIds.length === 0) return result;
+
+  const chunkSize = 500;
+  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+    const chunk = uniqueIds.slice(i, i + chunkSize);
+    const { data, error } = await supabaseServer.from("articles").select("id, gamme, type_article").in("id", chunk);
+
+    if (error) continue;
+
+    for (const row of (data ?? []) as { id: number; gamme: string | null; type_article: string | null }[]) {
+      result.set(row.id, { gamme: row.gamme, typeArticle: row.type_article });
+    }
+  }
+
+  return result;
+}
+
 function normalizeArticleNameForRestant(value: string | null) {
   return (value || "").replace(/ /g, "").trim().toUpperCase();
 }

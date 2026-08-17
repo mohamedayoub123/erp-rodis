@@ -48,6 +48,13 @@ const TILES = [
     description: "Par mois : carton commande vs fabrique, et le % de programmes termines.",
   },
   {
+    label: "Carton par Gamme",
+    href: "/production/rapport/carton-gamme",
+    pageKey: "productionRapportCartonGamme",
+    icon: "\u{1F9EE}",
+    description: "Carton fabrique par gamme, avec detail mensuel/journalier en filtrant sur un article.",
+  },
+  {
     label: "Rapport Dechets",
     href: "/production/rapport/dechets",
     pageKey: "productionRapportDechets",
