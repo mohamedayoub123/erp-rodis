@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
+import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
@@ -19,6 +20,43 @@ import {
   splitLigneIntoDisplayRows,
   type ProgrammeLigneRow,
 } from "../../suivi/data";
+
+type PoidsReelRow = { programme_ligne_id: number; code: string; poids_reel: number | null };
+
+// Poids reel releve en Conditionnement (grammes), par ligne+code - prime sur
+// la contenance nominale de la fiche article pour la conversion carton->kg,
+// demande explicite : le poids theorique ne reflete pas toujours le poids
+// reellement mesure au conditionnement (ex: 239g releve vs 237g theorique).
+async function fetchPoidsReelByLigneCode(ligneIds: number[]): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (ligneIds.length === 0) return map;
+
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("production_rapports")
+      .select("programme_ligne_id, code, poids_reel")
+      .in("programme_ligne_id", ligneIds)
+      .not("poids_reel", "is", null)
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as PoidsReelRow[];
+    for (const row of chunk) {
+      if (row.poids_reel !== null && row.poids_reel > 0) {
+        map.set(`${row.programme_ligne_id}::${row.code}`, row.poids_reel);
+      }
+    }
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return map;
+}
 
 // Rapport Balance Matiere : par code, compare la masse qui est ENTREE dans
 // le process (vrac fabrique, deja en kg) a la masse qui en est SORTIE
@@ -135,6 +173,7 @@ export default async function RapportBalanceMatierePage({
   );
 
   const articleFactors = await fetchArticleKgFactorsByIds(lignes.map((ligne) => ligne.article_id));
+  const poidsReelByKey = await fetchPoidsReelByLigneCode(lignes.map((ligne) => ligne.id));
 
   function sumEntries(entries: { quantite: number }[]) {
     return entries.reduce((sum, entry) => sum + Number(entry.quantite), 0);
@@ -224,9 +263,19 @@ export default async function RapportBalanceMatierePage({
   const lignesWithLot = lignes.filter((ligne) => ligne.numero_lot);
   const lignesById = new Map(lignesWithLot.map((ligne) => [ligne.id, ligne]));
 
-  // Etape 1 : decoupage par code AU SEIN de chaque ligne.
+  // Etape 1 : decoupage par code AU SEIN de chaque ligne. La demande par
+  // code vient toujours du split fige (numero_lot_detail) - mais le
+  // FABRIQUE reel utilise desormais computeProduitParCode (meme helper deja
+  // utilise plus bas pour l'emballage) : somme directe des entrees qui
+  // portent deja le bon code, repli sur l'ancienne repartition en cascade
+  // seulement pour les entrees historiques encore en code partage "".
+  // Avant ce correctif, le fabrique venait du meme split "demande - restant"
+  // que la demande elle-meme, ce qui PLAFONNAIT silencieusement le fabrique
+  // reel a la demande (jamais de depassement visible, meme quand la
+  // production reelle d'un code depassait ce qui etait prevu pour lui).
   const baseRowsByKey = new Map<string, CodeRowBase>();
   for (const ligne of lignesWithLot) {
+    const codes = ligneOwnCodes(ligne);
     const vracEntriesForLigne = (vracByLigne.get(ligne.id) ?? []) as { code: string; quantite: number }[];
     const cartonEntriesForLigne = (cartonByLigne.get(ligne.id) ?? []) as { code: string; quantite: number }[];
 
@@ -236,31 +285,32 @@ export default async function RapportBalanceMatierePage({
     const vracSplits = splitLigneIntoDisplayRows(ligne, "qt_vrac", totalVracFabrique);
     const cartonSplits = splitLigneIntoDisplayRows(ligne, "qt_carton", totalCartonFabrique);
 
-    const cartonPrevuByCode = new Map(cartonSplits.map((split) => [split.displayCode, split.displayQuantite]));
-    const cartonFabriqueByCode = new Map(
-      cartonSplits.map((split) => [
-        split.displayCode,
-        split.displayQuantite !== null ? (split.displayQuantite ?? 0) - (split.displayRestant ?? 0) : null,
-      ])
+    const vracDemandeByCode = new Map(
+      vracSplits.map((split) => [split.displayCode, split.displayQuantite ?? ligne.vrac_a_fabriquer ?? 0])
+    );
+    const cartonDemandeByCode = new Map(
+      cartonSplits.map((split) => [split.displayCode, split.displayQuantite ?? ligne.qt_carton ?? 0])
     );
 
-    for (const vracSplit of vracSplits) {
-      const code = vracSplit.displayCode;
-      const vracDemande = vracSplit.displayQuantite ?? ligne.vrac_a_fabriquer ?? 0;
-      const vracFabrique =
-        vracSplit.displayQuantite !== null
-          ? (vracSplit.displayQuantite ?? 0) - (vracSplit.displayRestant ?? 0)
-          : totalVracFabrique;
-      const cartonDemande = cartonPrevuByCode.get(code) ?? ligne.qt_carton ?? 0;
-      const cartonFabrique = cartonFabriqueByCode.get(code) ?? totalCartonFabrique;
+    const vracFabriqueByCode = computeProduitParCode(
+      vracEntriesForLigne,
+      codes,
+      (code) => vracDemandeByCode.get(code) ?? 0
+    );
+    const cartonFabriqueByCode = computeProduitParCode(
+      cartonEntriesForLigne,
+      codes,
+      (code) => cartonDemandeByCode.get(code) ?? 0
+    );
 
+    for (const code of codes) {
       baseRowsByKey.set(`${ligne.id}::${code}`, {
         ligne,
         code,
-        vracDemande,
-        vracFabrique,
-        cartonDemande,
-        cartonFabrique,
+        vracDemande: vracDemandeByCode.get(code) ?? 0,
+        vracFabrique: vracFabriqueByCode.get(code) ?? 0,
+        cartonDemande: cartonDemandeByCode.get(code) ?? 0,
+        cartonFabrique: cartonFabriqueByCode.get(code) ?? 0,
         cartonEmballe: 0,
       });
     }
@@ -397,9 +447,13 @@ export default async function RapportBalanceMatierePage({
     // contenance (deja en kg par unite, confirme sur des articles reels -
     // aucune autre conversion). "-" si l'article ou ses facteurs manquent,
     // plutot que d'afficher 0 (trompeur : on ne SAIT pas, on n'a pas "zero").
+    // Le poids reel releve en Conditionnement pour CE code (grammes) prime
+    // sur la contenance nominale de la fiche article des qu'il est
+    // disponible - demande explicite de l'utilisateur.
     const factor = ligne.article_id ? articleFactors.get(ligne.article_id) : undefined;
     const pieceParCarton = factor?.pieceParCarton ?? null;
-    const contenance = factor?.contenance ?? null;
+    const poidsReelGrammes = poidsReelByKey.get(`${ligne.id}::${code}`) ?? null;
+    const contenance = poidsReelGrammes !== null ? poidsReelGrammes / 1000 : factor?.contenance ?? null;
     const canConvert = pieceParCarton !== null && contenance !== null && pieceParCarton > 0 && contenance > 0;
     const cartonFabriqueKg = canConvert ? cartonFabrique * (pieceParCarton as number) * (contenance as number) : null;
     const ecartMatiereKg = cartonFabriqueKg !== null ? vracFabrique - cartonFabriqueKg : null;
