@@ -382,6 +382,31 @@ export default async function QualiteRapportPage({
     },
   ];
 
+  // % sous derogation et % non conforme detruit par mois (sur le total de
+  // preparations de ce mois) - memes couleurs que les series equivalentes
+  // du graphe en nombre, pour que la couleur reste attachee a la meme
+  // categorie d'un graphe a l'autre.
+  const pctChartSeries = [
+    {
+      key: "pct_sous_derogation",
+      label: "% Sous derogation",
+      color: "#c026d3",
+      values: monthKeys.map((key) => {
+        const total = totalByMonth.get(key) ?? 0;
+        return total > 0 ? Math.round(((sousDerogationByMonth.get(key) ?? 0) / total) * 1000) / 10 : 0;
+      }),
+    },
+    {
+      key: "pct_a_detruire",
+      label: "% Non conforme detruit",
+      color: "#dc2626",
+      values: monthKeys.map((key) => {
+        const total = totalByMonth.get(key) ?? 0;
+        return total > 0 ? Math.round(((aDetruireByMonth.get(key) ?? 0) / total) * 1000) / 10 : 0;
+      }),
+    },
+  ];
+
   const totalRows = rows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
   const from = (currentPage - 1) * PAGE_SIZE;
@@ -523,6 +548,15 @@ export default async function QualiteRapportPage({
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <TestLaboLineChart months={monthLabels} series={lineChartSeries} />
           </div>
+        </section>
+
+        <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <TestLaboLineChart
+            months={monthLabels}
+            series={pctChartSeries}
+            title="% sous derogation / % non conforme detruit par mois"
+            unit="%"
+          />
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">

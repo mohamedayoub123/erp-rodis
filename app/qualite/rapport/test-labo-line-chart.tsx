@@ -17,9 +17,13 @@ const PAD_BOTTOM = 40;
 export function TestLaboLineChart({
   months,
   series,
+  title = "Evolution par mois",
+  unit = "",
 }: {
   months: string[];
   series: Series[];
+  title?: string;
+  unit?: string;
 }) {
   const maxValue = Math.max(1, ...series.flatMap((s) => s.values));
   const plotWidth = WIDTH - PAD_LEFT - PAD_RIGHT;
@@ -38,13 +42,13 @@ export function TestLaboLineChart({
 
   return (
     <div className="flex h-full flex-col">
-      <h2 className="mb-4 text-lg font-bold text-slate-900">Evolution par mois</h2>
+      <h2 className="mb-4 text-lg font-bold text-slate-900">{title}</h2>
 
       {months.length === 0 ? (
         <p className="text-sm text-slate-500">Aucune preparation pour ce filtre.</p>
       ) : (
         <>
-          <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full" role="img" aria-label="Evolution des preparations par mois">
+          <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full" role="img" aria-label={title}>
             {yTicks.map((tick) => (
               <g key={tick}>
                 <line
@@ -57,6 +61,7 @@ export function TestLaboLineChart({
                 />
                 <text x={PAD_LEFT - 8} y={yFor(tick)} textAnchor="end" dominantBaseline="middle" className="fill-slate-400 text-[10px]">
                   {tick}
+                  {unit}
                 </text>
               </g>
             ))}
@@ -91,6 +96,7 @@ export function TestLaboLineChart({
                       fill={serie.color}
                     >
                       {serie.values[lastIndex]}
+                      {unit}
                     </text>
                   ) : null}
                 </g>
