@@ -10,6 +10,11 @@ export async function logAudit(params: {
   action: AuditAction;
   cible?: string | null;
   resume: string;
+  // Etat complet (pas juste les champs changes) - donnees_avant sert de
+  // source pour restaurer une suppression, donnees_apres sert au diff
+  // affiche sur la page Historique.
+  avant?: unknown;
+  apres?: unknown;
 }) {
   try {
     const { error } = await supabaseServer.from("audit_log").insert({
@@ -18,6 +23,8 @@ export async function logAudit(params: {
       action: params.action,
       cible: params.cible || null,
       resume: params.resume,
+      donnees_avant: params.avant ?? null,
+      donnees_apres: params.apres ?? null,
     });
 
     if (error) {

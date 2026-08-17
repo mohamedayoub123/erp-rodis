@@ -3,8 +3,10 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { getCurrentStockUser, getUserPermissions, isAdminUser, listStockUsers } from "@/lib/stock-auth";
 import { formatDateTime } from "@/lib/format-date";
+import { restaurerAuditLogAction } from "./actions";
 
 type AuditRow = {
   id: number;
@@ -14,7 +16,159 @@ type AuditRow = {
   action: "creation" | "modification" | "suppression";
   cible: string | null;
   resume: string;
+  donnees_avant: Record<string, unknown> | null;
+  donnees_apres: Record<string, unknown> | null;
+  restaure: boolean;
 };
+
+const FIELD_LABELS: Record<string, string> = {
+  numero_proforma: "N proforma",
+  client: "Client",
+  mode_chargement: "Mode chargement",
+  type_tc: "Nb camions",
+  statut: "Statut",
+  lignes: "Lignes",
+  numero_lot: "Numero lot",
+  date_fabrication: "Date fabrication",
+  qte_entree: "Qte entree",
+  qte_sortie: "Qte sortie",
+  chambre: "Chambre",
+  code_pays: "Code pays",
+  note: "Note",
+  numero_bl: "Numero BL",
+};
+
+function fieldLabel(key: string) {
+  return FIELD_LABELS[key] || key;
+}
+
+function formatFieldValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "-";
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "(aucune)";
+    return value
+      .map((item) => {
+        if (item && typeof item === "object" && "article" in item && "quantite" in item) {
+          const typed = item as { article: unknown; quantite: unknown };
+          return `${typed.article} x ${typed.quantite}`;
+        }
+        return String(item);
+      })
+      .join(", ");
+  }
+
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+// Compare champ par champ (avant vs apres) et n'affiche que ce qui a
+// vraiment change - repond au besoin de voir "la modification, c'est quoi
+// exactement", pas juste "modifie".
+function ModificationDiff({
+  avant,
+  apres,
+}: {
+  avant: Record<string, unknown> | null;
+  apres: Record<string, unknown> | null;
+}) {
+  if (!avant || !apres) {
+    return <p className="text-sm text-slate-500">Aucun detail enregistre pour cette entree.</p>;
+  }
+
+  const keys = [...new Set([...Object.keys(avant), ...Object.keys(apres)])];
+  const changed = keys.filter((key) => JSON.stringify(avant[key]) !== JSON.stringify(apres[key]));
+
+  if (changed.length === 0) {
+    return <p className="text-sm text-slate-500">Aucun changement detecte.</p>;
+  }
+
+  return (
+    <div className="grid gap-2">
+      {changed.map((key) => (
+        <div key={key} className="grid grid-cols-[9rem_1fr_1.5rem_1fr] items-start gap-2 text-sm">
+          <p className="font-semibold text-slate-600">{fieldLabel(key)}</p>
+          <p className="text-red-700 line-through">{formatFieldValue(avant[key])}</p>
+          <span className="text-center text-slate-400">-&gt;</span>
+          <p className="font-medium text-emerald-700">{formatFieldValue(apres[key])}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CreationDetail({ apres }: { apres: Record<string, unknown> | null }) {
+  if (!apres) return <p className="text-sm text-slate-500">Aucun detail enregistre pour cette entree.</p>;
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {Object.keys(apres).map((key) => (
+        <div key={key}>
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">{fieldLabel(key)}</p>
+          <p className="text-sm text-slate-800">{formatFieldValue(apres[key])}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type CommandeSnapshot = { commande: Record<string, unknown>; lignes: Record<string, unknown>[] };
+
+function SuppressionDetail({ row }: { row: AuditRow }) {
+  if (!row.donnees_avant) {
+    return <p className="text-sm text-slate-500">Aucun detail sauvegarde pour cette suppression.</p>;
+  }
+
+  if (row.module === "Commandes") {
+    const commandes = (row.donnees_avant.commandes as CommandeSnapshot[] | undefined) ?? [];
+    return (
+      <div className="grid gap-3">
+        {commandes.map(({ commande, lignes }, index) => (
+          <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-semibold text-slate-800">
+              {String(commande.numero_proforma ?? "")} - {String(commande.client ?? "")}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Statut : {String(commande.statut ?? "-")} - {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
+            </p>
+            {lignes.length > 0 ? (
+              <p className="mt-2 text-sm text-slate-700">
+                {lignes
+                  .map((ligne) => `article #${ligne.article_id} x ${ligne.quantite_demandee}`)
+                  .join(", ")}
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (row.module === "Stock") {
+    const lots = (row.donnees_avant.lots as Record<string, unknown>[] | undefined) ?? [];
+    return (
+      <div className="grid gap-3">
+        {lots.map((lot, index) => (
+          <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-semibold text-slate-800">{String(lot.numero_lot ?? "")}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Entree {String(lot.qte_entree ?? 0)} - Sortie {String(lot.qte_sortie ?? 0)} - Fabrication{" "}
+              {String(lot.date_fabrication ?? "-")}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <p className="text-sm text-slate-500">Detail non disponible pour ce module.</p>;
+}
+
+function RowDetail({ row }: { row: AuditRow }) {
+  if (row.action === "creation") return <CreationDetail apres={row.donnees_apres} />;
+  if (row.action === "suppression") return <SuppressionDetail row={row} />;
+  return <ModificationDiff avant={row.donnees_avant} apres={row.donnees_apres} />;
+}
 
 const PAGE_SIZE = 100;
 const MODULE_OPTIONS = ["Commandes", "Stock"];
@@ -88,7 +242,10 @@ export default async function AdminHistoriquePage({ searchParams }: { searchPara
 
   let query = supabaseServer
     .from("audit_log")
-    .select("id, created_at, utilisateur, module, action, cible, resume", { count: "exact" })
+    .select(
+      "id, created_at, utilisateur, module, action, cible, resume, donnees_avant, donnees_apres, restaure",
+      { count: "exact" }
+    )
     .order("created_at", { ascending: false });
 
   if (utilisateurFilter) query = query.eq("utilisateur", utilisateurFilter);
@@ -242,23 +399,55 @@ export default async function AdminHistoriquePage({ searchParams }: { searchPara
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Utilisateur</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Module</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Action</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Resume</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Detail</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id} className="border-t border-slate-100 align-top">
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                        {formatDateTime(row.created_at)}
-                      </td>
-                      <td className="px-4 py-3 font-medium text-slate-900">{row.utilisateur || "-"}</td>
-                      <td className="px-4 py-3 text-slate-600">{row.module}</td>
-                      <td className="px-4 py-3">
-                        <ActionBadge action={row.action} />
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">{row.resume}</td>
-                    </tr>
-                  ))}
+                  {rows.map((row) => {
+                    const peutRestaurer =
+                      row.action === "suppression" && !row.restaure && Boolean(row.donnees_avant);
+
+                    return (
+                      <tr key={row.id} className="border-t border-slate-100 align-top">
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                          {formatDateTime(row.created_at)}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-900">{row.utilisateur || "-"}</td>
+                        <td className="px-4 py-3 text-slate-600">{row.module}</td>
+                        <td className="px-4 py-3">
+                          <ActionBadge action={row.action} />
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          <p>{row.resume}</p>
+                          {row.action === "suppression" && row.restaure ? (
+                            <span className="mt-1 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
+                              Deja restaure
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3">
+                          <details className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5">
+                            <summary className="cursor-pointer text-xs font-semibold text-sky-700">Voir</summary>
+                            <div className="mt-3 w-80">
+                              <RowDetail row={row} />
+                              {peutRestaurer ? (
+                                <form action={restaurerAuditLogAction} className="mt-3">
+                                  <input type="hidden" name="audit_log_id" value={row.id} />
+                                  <SubmitButton
+                                    pendingLabel="Restauration..."
+                                    className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white"
+                                  >
+                                    Restaurer
+                                  </SubmitButton>
+                                </form>
+                              ) : null}
+                            </div>
+                          </details>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

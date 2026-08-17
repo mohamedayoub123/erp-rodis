@@ -10,7 +10,7 @@ export async function deleteLotStockCore(lotId: number) {
 
   const { data: lotAvantSuppression } = await supabaseServer
     .from("lots_stock")
-    .select("numero_lot, code_normalise, articles(nom_article)")
+    .select("*, articles(nom_article)")
     .eq("id", lotId)
     .maybeSingle();
 
@@ -27,6 +27,7 @@ export async function deleteLotStockCore(lotId: number) {
     | undefined;
   const nomArticle = Array.isArray(articleRelation) ? articleRelation[0]?.nom_article : articleRelation?.nom_article;
   const code = lotAvantSuppression?.numero_lot || lotAvantSuppression?.code_normalise || `#${lotId}`;
+  const { articles: _articles, ...lotSnapshot } = lotAvantSuppression ?? {};
 
   await logAudit({
     utilisateur: await getCurrentStockUser(),
@@ -34,6 +35,7 @@ export async function deleteLotStockCore(lotId: number) {
     action: "suppression",
     cible: code,
     resume: `Lot ${code}${nomArticle ? ` (${nomArticle})` : ""} supprime du stock`,
+    avant: lotAvantSuppression ? { lots: [lotSnapshot] } : null,
   });
 
   revalidatePath("/stock");

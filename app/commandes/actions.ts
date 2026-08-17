@@ -53,6 +53,15 @@ function sortLignesByFamily<
   });
 }
 
+// Separe une commande selectionnee avec "*, commande_lignes(*)" en
+// {commande, lignes} - forme de snapshot utilisee par logAudit(avant) pour
+// pouvoir tout reinserer tel quel via restaurerAuditLogAction (voir
+// app/admin/historique/actions.ts).
+function splitCommandeSnapshot(row: Record<string, unknown>) {
+  const { commande_lignes, ...commande } = row;
+  return { commande, lignes: (commande_lignes as unknown[] | null) ?? [] };
+}
+
 function normalizeArticle(value: string) {
   return value.replace(/\u00a0/g, "").trim().toUpperCase();
 }
@@ -964,6 +973,13 @@ export async function createManualCommandeAction(formData: FormData) {
     action: "creation",
     cible: numeroProforma,
     resume: `Commande ${numeroProforma} creee (${client}, ${nombreCamion} camion${nombreCamion > 1 ? "s" : ""})`,
+    apres: {
+      numero_proforma: numeroProforma,
+      client,
+      mode_chargement: modeChargement || null,
+      statut: statut || "EN_COURS",
+      lignes,
+    },
   });
 
   revalidateCommandeDependentPages();
@@ -1013,13 +1029,32 @@ export async function updateManualCommandeAction(formData: FormData) {
 
   const { data: existingCommande, error: existingCommandeError } = await supabaseServer
     .from("commandes")
-    .select("statut, commentaire")
+    .select("statut, commentaire, numero_proforma, client, mode_chargement, type_tc, commande_lignes(quantite_demandee, articles(nom_article))")
     .eq("id", commandeId)
     .single();
 
   if (existingCommandeError || !existingCommande) {
     throw new Error(existingCommandeError?.message || "Commande introuvable.");
   }
+
+  // Snapshot "avant" (proforma/client/lignes lisibles) pour le diff affiche
+  // sur la page Historique - capture avant tout DELETE/UPDATE plus bas.
+  const avantModification = {
+    numero_proforma: existingCommande.numero_proforma,
+    client: existingCommande.client,
+    mode_chargement: existingCommande.mode_chargement,
+    type_tc: existingCommande.type_tc,
+    statut: existingCommande.statut,
+    lignes: (existingCommande.commande_lignes ?? []).map((ligne) => {
+      const articleRelation = ligne.articles as
+        | { nom_article?: string | null }
+        | { nom_article?: string | null }[]
+        | null
+        | undefined;
+      const nomArticle = Array.isArray(articleRelation) ? articleRelation[0]?.nom_article : articleRelation?.nom_article;
+      return { article: nomArticle || "?", quantite: ligne.quantite_demandee };
+    }),
+  };
 
   // Une fois livree, le stock est deja sorti - la modifier (lignes,
   // statut...) apres coup creerait un decalage avec le stock reel.
@@ -1138,6 +1173,15 @@ export async function updateManualCommandeAction(formData: FormData) {
     action: "modification",
     cible: numeroProforma,
     resume: `Commande ${numeroProforma} (${client}) modifiee`,
+    avant: avantModification,
+    apres: {
+      numero_proforma: numeroProforma,
+      client,
+      mode_chargement: modeChargement || null,
+      type_tc: typeTc || null,
+      statut: finalStatut,
+      lignes,
+    },
   });
 
   revalidateCommandeDependentPages(commandeId);
@@ -1473,7 +1517,7 @@ export async function deleteCommandeAction(formData: FormData) {
 
   const { data: commandeAvantSuppression } = await supabaseServer
     .from("commandes")
-    .select("numero_proforma, client")
+    .select("*, commande_lignes(*)")
     .eq("id", commandeId)
     .maybeSingle();
 
@@ -1492,6 +1536,7 @@ export async function deleteCommandeAction(formData: FormData) {
     action: "suppression",
     cible: commandeAvantSuppression?.numero_proforma || `#${commandeId}`,
     resume: `Commande ${commandeAvantSuppression?.numero_proforma || `#${commandeId}`}${commandeAvantSuppression?.client ? ` (${commandeAvantSuppression.client})` : ""} supprimee`,
+    avant: commandeAvantSuppression ? { commandes: [splitCommandeSnapshot(commandeAvantSuppression)] } : null,
   });
 
   revalidateCommandeDependentPages();
@@ -1515,7 +1560,7 @@ export async function deleteCommandeTruckAction(formData: FormData) {
 
   const { data: commande, error: fetchError } = await supabaseServer
     .from("commandes")
-    .select("id, numero_proforma")
+    .select("*, commande_lignes(*)")
     .eq("id", commandeId)
     .maybeSingle();
 
@@ -1556,6 +1601,7 @@ export async function deleteCommandeTruckAction(formData: FormData) {
     action: "suppression",
     cible: commande.numero_proforma,
     resume: `Camion ${commande.numero_proforma} supprime`,
+    avant: { commandes: [splitCommandeSnapshot(commande)] },
   });
 
   revalidateCommandeDependentPages();
@@ -1583,7 +1629,7 @@ export async function deleteProformaGroupAction(formData: FormData) {
 
   const { data: groupeAvantSuppression } = await supabaseServer
     .from("commandes")
-    .select("id, client")
+    .select("*, commande_lignes(*)")
     .or(`numero_proforma.eq.${numeroProforma},numero_proforma.like.${numeroProforma}-%`);
 
   // Sibling trucks are stored as "<proforma>-2", "<proforma>-3"... to satisfy
@@ -1606,6 +1652,7 @@ export async function deleteProformaGroupAction(formData: FormData) {
     action: "suppression",
     cible: numeroProforma,
     resume: `Commande ${numeroProforma}${client ? ` (${client})` : ""} supprimee entierement (${nombreCamions} camion${nombreCamions > 1 ? "s" : ""})`,
+    avant: { commandes: (groupeAvantSuppression ?? []).map(splitCommandeSnapshot) },
   });
 
   revalidateCommandeDependentPages();
@@ -1673,6 +1720,8 @@ export async function changeCommandeStatusAction(formData: FormData) {
     action: "modification",
     cible: commande.numero_proforma,
     resume: `Commande ${commande.numero_proforma} : statut change de ${commande.statut || "-"} a ${statut}`,
+    avant: { statut: commande.statut },
+    apres: { statut },
   });
 
   revalidateCommandeDependentPages(commandeId);
@@ -1692,7 +1741,7 @@ export async function deliverCommandeAction(formData: FormData) {
 
   const { data: commandeAvantLivraison } = await supabaseServer
     .from("commandes")
-    .select("numero_proforma")
+    .select("numero_proforma, statut")
     .eq("id", commandeId)
     .maybeSingle();
 
@@ -1712,6 +1761,8 @@ export async function deliverCommandeAction(formData: FormData) {
     action: "modification",
     cible: commandeAvantLivraison?.numero_proforma || `#${commandeId}`,
     resume: `Commande ${commandeAvantLivraison?.numero_proforma || `#${commandeId}`} livree${numeroBl ? ` (BL ${numeroBl})` : ""}`,
+    avant: { statut: commandeAvantLivraison?.statut ?? null },
+    apres: { statut: "LIVREE", numero_bl: numeroBl || null },
   });
 
   revalidateCommandeDependentPages(commandeId);

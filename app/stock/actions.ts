@@ -66,6 +66,12 @@ export async function updateLotStockAction(formData: FormData) {
     throw new Error("Il faut au moins une entree ou une sortie superieure a zero.");
   }
 
+  const { data: lotAvantModification } = await supabaseServer
+    .from("lots_stock")
+    .select("numero_lot, date_fabrication, qte_entree, qte_sortie, chambre, code_pays, note")
+    .eq("id", lotId)
+    .maybeSingle();
+
   const { error } = await supabaseServer.rpc("stock_edit_lot", {
     p_lot_id: lotId,
     p_numero_lot: numeroLot,
@@ -87,6 +93,16 @@ export async function updateLotStockAction(formData: FormData) {
     action: "modification",
     cible: numeroLot,
     resume: `Lot ${numeroLot} modifie (entree ${qteEntree}, sortie ${qteSortie})`,
+    avant: lotAvantModification,
+    apres: {
+      numero_lot: numeroLot,
+      date_fabrication: dateFabrication,
+      qte_entree: qteEntree,
+      qte_sortie: qteSortie,
+      chambre: chambre || null,
+      code_pays: codePays || null,
+      note: note || null,
+    },
   });
 
   revalidatePath("/stock");
