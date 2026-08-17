@@ -731,6 +731,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
     defaultView: true,
   },
+  // Contient des salaires - PAS de defaultView (contrairement aux autres
+  // pages "General" ci-dessus) : reserve aux comptes qui l'ont explicitement.
+  {
+    key: "chargesHub",
+    module: "General",
+    label: "Charges Usine",
+    pathPrefixes: ["/charges"],
+  },
 ];
 
 // Regroupement affiche dans l'admin (Gestion Stock PF / Gestion Stock MP /

@@ -59,6 +59,14 @@ const mainButtons = [
     pageKey: "qualiteHub" as const,
   },
   {
+    label: "Charges Usine",
+    href: "/charges",
+    icon: "\u{1F4B0}",
+    accent: "from-amber-500 to-orange-400",
+    panel: "bg-amber-50 text-amber-950 border-amber-200",
+    pageKey: "chargesHub" as const,
+  },
+  {
     label: "Admin",
     href: "/admin",
     icon: "\u{1F6E0}\u{FE0F}",
