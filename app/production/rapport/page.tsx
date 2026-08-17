@@ -25,6 +25,13 @@ const TILES = [
     icon: "\u{2696}\u{FE0F}",
     description: "Par code : vrac fabrique vs carton fabrique converti en kg, et l'ecart matiere entre les deux.",
   },
+  {
+    label: "Rapport Carton",
+    href: "/production/rapport/carton",
+    pageKey: "productionRapportCarton",
+    icon: "\u{1F4E6}",
+    description: "Par code : carton commande vs carton reellement fabrique, avec KPI globaux.",
+  },
 ] as const;
 
 export default async function RapportPage() {

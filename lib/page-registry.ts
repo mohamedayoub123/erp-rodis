@@ -583,6 +583,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/production/rapport/balance-matiere"],
     hasWrite: false,
   },
+  {
+    key: "productionRapportCarton",
+    module: "Production",
+    label: "Rapport Carton",
+    pathPrefixes: ["/production/rapport/carton"],
+    hasWrite: false,
+  },
 
   // Qualite
   {
