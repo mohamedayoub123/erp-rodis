@@ -4,29 +4,10 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
-import { SubmitButton } from "@/app/_components/submit-button";
-import { deletePrixCarburantAction, savePrixCarburantAction } from "./actions";
-
-// Prix au litre du gaz/essence/gasoil, saisis par mois - sert a calculer
-// automatiquement le cout carburant sur la page Charges Usine a partir de
-// la consommation en litres saisie la-bas (meme mois).
-const MOIS_NOMS = [
-  "Janvier", "Fevrier", "Mars", "Avril", "Mai", "Juin",
-  "Juillet", "Aout", "Septembre", "Octobre", "Novembre", "Decembre",
-];
-
-const PRIX_FIELDS = [
-  { key: "prix_gaz", label: "Prix Gaz (par litre)" },
-  { key: "prix_essence", label: "Prix Essence (par litre)" },
-  { key: "prix_gasoil", label: "Prix Gasoil (par litre)" },
-] as const;
-
-type FieldKey = (typeof PRIX_FIELDS)[number]["key"];
-
-type PrixRow = { id: number; annee: number; mois: number; utilisateur: string | null } & Record<
-  FieldKey,
-  number | null
->;
+import { deletePrixCarburantAction } from "./actions";
+import { PrixCarburantForm } from "./prix-form";
+import { MOIS_NOMS, PRIX_FIELDS } from "./fields";
+import type { PrixRow } from "./fields";
 
 function formatNombre(value: number | null) {
   if (value === null || value === undefined) return "-";
@@ -76,69 +57,7 @@ export default async function PrixCarburantPage() {
           </div>
         </section>
 
-        {canEdit ? (
-          <details className="group overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-amber-700 marker:content-none">
-              + Saisir un mois (ou corriger un mois deja saisi)
-            </summary>
-            <form action={savePrixCarburantAction} className="grid gap-4 border-t border-slate-100 p-5">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                  Annee
-                  <select
-                    name="annee"
-                    defaultValue={currentYear}
-                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                  >
-                    {yearOptions.map((year) => (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                  Mois
-                  <select
-                    name="mois"
-                    defaultValue={new Date().getMonth() + 1}
-                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                  >
-                    {MOIS_NOMS.map((nom, index) => (
-                      <option key={nom} value={index + 1}>
-                        {nom}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {PRIX_FIELDS.map((field) => (
-                  <label key={field.key} className="grid gap-1 text-xs font-semibold text-slate-500">
-                    {field.label}
-                    <input
-                      type="number"
-                      step="0.01"
-                      name={field.key}
-                      placeholder="0"
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                    />
-                  </label>
-                ))}
-              </div>
-
-              <div>
-                <SubmitButton
-                  pendingLabel="Enregistrement..."
-                  className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white"
-                >
-                  Enregistrer ce mois
-                </SubmitButton>
-              </div>
-            </form>
-          </details>
-        ) : null}
+        {canEdit ? <PrixCarburantForm rows={rows} yearOptions={yearOptions} currentYear={currentYear} /> : null}
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           {error ? (

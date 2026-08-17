@@ -5,39 +5,9 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
-import { SubmitButton } from "@/app/_components/submit-button";
-import { deleteChargesUsineAction, saveChargesUsineAction } from "./actions";
-
-// Charges/consommations de l'usine saisies une fois par mois (electricite,
-// gaz, gasoil, essence, salaires, depenses diverses) - juste la saisie +
-// la liste pour l'instant, les graphes/calculs viendront une fois qu'il y
-// a quelques mois de vraies donnees (demande explicite : "chaque mois...
-// pour apres faire des graphes").
-const MOIS_NOMS = [
-  "Janvier", "Fevrier", "Mars", "Avril", "Mai", "Juin",
-  "Juillet", "Aout", "Septembre", "Octobre", "Novembre", "Decembre",
-];
-
-const NUMERIC_FIELDS = [
-  { key: "electricite_plastique", label: "Electricite Plastique", group: "Energie" },
-  { key: "electricite_cosmetique", label: "Electricite Cosmetique", group: "Energie" },
-  { key: "gaz", label: "Gaz (litres)", group: "Energie" },
-  { key: "gasoil_plastique", label: "Gasoil Plastique (litres)", group: "Energie" },
-  { key: "gasoil_cosmetique", label: "Gasoil Cosmetique (litres)", group: "Energie" },
-  { key: "essence", label: "Essence (litres)", group: "Energie" },
-  { key: "salaire_embauche", label: "Salaire Embauches", group: "Salaires" },
-  { key: "salaire_journalier_cosmetique", label: "Salaire journaliers Cosmetique", group: "Salaires" },
-  { key: "salaire_journalier_global", label: "Salaire journaliers Global", group: "Salaires" },
-  { key: "salaire_cadre", label: "Salaire Cadres", group: "Salaires" },
-  { key: "depense_usine", label: "Depenses usine (divers)", group: "Autres" },
-] as const;
-
-type FieldKey = (typeof NUMERIC_FIELDS)[number]["key"];
-
-type ChargeRow = { id: number; annee: number; mois: number; utilisateur: string | null } & Record<
-  FieldKey,
-  number | null
->;
+import { deleteChargesUsineAction } from "./actions";
+import { ChargesUsineForm } from "./charges-form";
+import { MOIS_NOMS, NUMERIC_FIELDS, type ChargeRow, type FieldKey } from "./fields";
 
 // Champs de consommation carburant (litres) qui ont un cout calcule via le
 // prix du litre saisi sur /charges/prix pour le meme mois - gasoil
@@ -91,8 +61,6 @@ export default async function ChargesPage() {
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - 2 + i);
 
-  const groups = ["Energie", "Salaires", "Autres"] as const;
-
   const prixByKey = new Map<string, PrixRow>();
   for (const prix of prixRows) {
     prixByKey.set(`${prix.annee}-${prix.mois}`, prix);
@@ -125,76 +93,7 @@ export default async function ChargesPage() {
           </div>
         </section>
 
-        {canEdit ? (
-          <details className="group overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-amber-700 marker:content-none">
-              + Saisir un mois (ou corriger un mois deja saisi)
-            </summary>
-            <form action={saveChargesUsineAction} className="grid gap-4 border-t border-slate-100 p-5">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                  Annee
-                  <select
-                    name="annee"
-                    defaultValue={currentYear}
-                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                  >
-                    {yearOptions.map((year) => (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                  Mois
-                  <select
-                    name="mois"
-                    defaultValue={new Date().getMonth() + 1}
-                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                  >
-                    {MOIS_NOMS.map((nom, index) => (
-                      <option key={nom} value={index + 1}>
-                        {nom}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              {groups.map((group) => (
-                <div key={group}>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
-                    {group}
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {NUMERIC_FIELDS.filter((field) => field.group === group).map((field) => (
-                      <label key={field.key} className="grid gap-1 text-xs font-semibold text-slate-500">
-                        {field.label}
-                        <input
-                          type="number"
-                          step="0.01"
-                          name={field.key}
-                          placeholder="0"
-                          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
-
-              <div>
-                <SubmitButton
-                  pendingLabel="Enregistrement..."
-                  className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white"
-                >
-                  Enregistrer ce mois
-                </SubmitButton>
-              </div>
-            </form>
-          </details>
-        ) : null}
+        {canEdit ? <ChargesUsineForm rows={rows} yearOptions={yearOptions} currentYear={currentYear} /> : null}
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           {error ? (
