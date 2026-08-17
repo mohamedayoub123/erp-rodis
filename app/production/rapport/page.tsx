@@ -39,6 +39,13 @@ const TILES = [
     icon: "\u{2699}\u{FE0F}",
     description: "Combien de machines de l'usine tournent en ce moment, sur le total disponible.",
   },
+  {
+    label: "Carton Mensuel",
+    href: "/production/rapport/carton-mensuel",
+    pageKey: "productionRapportCartonMensuel",
+    icon: "\u{1F4C6}",
+    description: "Par mois : carton commande vs fabrique, et le % de programmes termines.",
+  },
 ] as const;
 
 export default async function RapportPage() {
