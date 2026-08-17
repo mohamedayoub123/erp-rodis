@@ -29,9 +29,12 @@ type LigneActive = {
   chaine: string;
   produit: string | null;
   date_jour: string;
+  article_id: number | null;
 };
 
 type RapportMachineRow = { programme_ligne_id: number; machine: string | null };
+
+type ArticleTypeRow = { id: number; type_article: string | null };
 
 async function fetchAllMachines(): Promise<MachineRow[]> {
   const rows: MachineRow[] = [];
@@ -64,7 +67,7 @@ async function fetchLignesActives(): Promise<LigneActive[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("programme_lignes")
-      .select("id, zone, chaine, produit, date_jour")
+      .select("id, zone, chaine, produit, date_jour, article_id")
       .or("programme_termine.eq.false,programme_termine.is.null")
       .eq("exclu_rapports", false)
       .range(from, from + pageSize - 1);
@@ -79,6 +82,24 @@ async function fetchLignesActives(): Promise<LigneActive[]> {
   }
 
   return rows;
+}
+
+async function fetchArticleTypes(articleIds: number[]): Promise<Map<number, string | null>> {
+  const map = new Map<number, string | null>();
+  if (articleIds.length === 0) return map;
+
+  const { data, error } = await supabaseServer
+    .from("articles")
+    .select("id, type_article")
+    .in("id", articleIds);
+
+  if (error) return map;
+
+  for (const row of (data ?? []) as ArticleTypeRow[]) {
+    map.set(row.id, row.type_article);
+  }
+
+  return map;
 }
 
 async function fetchRapportsMachine(ligneIds: number[]): Promise<RapportMachineRow[]> {
@@ -114,7 +135,11 @@ export default async function RapportMachinesCapacitePage() {
   const [machines, lignesActives] = await Promise.all([fetchAllMachines(), fetchLignesActives()]);
 
   const ligneIds = lignesActives.map((l) => l.id);
-  const rapportsMachine = await fetchRapportsMachine(ligneIds);
+  const articleIds = [...new Set(lignesActives.map((l) => l.article_id).filter((id): id is number => id !== null))];
+  const [rapportsMachine, articleTypeById] = await Promise.all([
+    fetchRapportsMachine(ligneIds),
+    fetchArticleTypes(articleIds),
+  ]);
 
   const ligneById = new Map(lignesActives.map((l) => [l.id, l]));
 
@@ -134,12 +159,24 @@ export default async function RapportMachinesCapacitePage() {
   // Produits actuellement associes a chaque nom-chaine normalise (pour les
   // machines type Conditionnement, via programme_lignes.chaine).
   const produitsByChaineName = new Map<string, Set<string>>();
+  // Type d'article (articles.type_article, meme colonne "Type" que la page
+  // Articles Produit Fini / Programme par ligne) actuellement associe a
+  // chaque chaine - demande explicite pour voir la repartition Conditionnement
+  // par type de produit, pas seulement Fabrication/Conditionnement global.
+  const typesByChaineName = new Map<string, Set<string>>();
   for (const ligne of lignesActives) {
     const key = normalize(ligne.chaine);
     if (!key) continue;
     const set = produitsByChaineName.get(key) ?? new Set<string>();
     set.add(ligne.produit || "-");
     produitsByChaineName.set(key, set);
+
+    const typeArticle = ligne.article_id ? articleTypeById.get(ligne.article_id) : null;
+    if (typeArticle) {
+      const typeSet = typesByChaineName.get(key) ?? new Set<string>();
+      typeSet.add(typeArticle);
+      typesByChaineName.set(key, typeSet);
+    }
   }
 
   const machineRows = machines
@@ -150,11 +187,13 @@ export default async function RapportMachinesCapacitePage() {
         ? produitsByMachineNameFabrication.get(key)
         : produitsByChaineName.get(key) ?? produitsByMachineNameFabrication.get(key);
       const active = Boolean(produits && produits.size > 0);
+      const types = isFabrication ? undefined : typesByChaineName.get(key);
 
       return {
         ...machine,
         active,
         produits: produits ? [...produits] : [],
+        types: types ? [...types] : [],
       };
     })
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
@@ -169,6 +208,25 @@ export default async function RapportMachinesCapacitePage() {
   const conditionnementRows = machineRows.filter((r) => normalize(r.type) === "conditionnement");
   const fabricationPct = capacitePct(fabricationRows);
   const conditionnementPct = capacitePct(conditionnementRows);
+
+  // Repartition des machines Conditionnement ACTIVES par type de produit
+  // (articles.type_article) - une machine active sans type connu (article
+  // pas rattache a un type_article) part dans "Type non renseigne".
+  const conditionnementActives = conditionnementRows.filter((r) => r.active);
+  const typeBreakdown = new Map<string, number>();
+  for (const machine of conditionnementActives) {
+    const types = machine.types.length > 0 ? machine.types : ["Type non renseigne"];
+    for (const type of types) {
+      typeBreakdown.set(type, (typeBreakdown.get(type) ?? 0) + 1);
+    }
+  }
+  const typeBreakdownRows = [...typeBreakdown.entries()]
+    .map(([type, count]) => ({
+      type,
+      count,
+      pct: conditionnementActives.length > 0 ? (count / conditionnementActives.length) * 100 : 0,
+    }))
+    .sort((a, b) => b.count - a.count);
 
   function formatPct(value: number | null) {
     return value === null ? "-" : `${Math.round(value)}%`;
@@ -225,6 +283,36 @@ export default async function RapportMachinesCapacitePage() {
             </p>
           </div>
         </section>
+
+        {typeBreakdownRows.length > 0 ? (
+          <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <h2 className="text-lg font-bold text-slate-900">
+              Conditionnement actif - repartition par type
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Parmi les {conditionnementActives.length} machine{conditionnementActives.length > 1 ? "s" : ""}{" "}
+              Conditionnement actuellement actives, quel type de produit elles fabriquent.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {typeBreakdownRows.map((row) => (
+                <div key={row.type} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold capitalize text-slate-900">{row.type}</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className="h-full rounded-full bg-sky-500"
+                        style={{ width: `${Math.min(100, Math.round(row.pct))}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-semibold text-slate-600">
+                      {row.count} ({Math.round(row.pct)}%)
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {machineRows.length === 0 ? (
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-8 text-center text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
