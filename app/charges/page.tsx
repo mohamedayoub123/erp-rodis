@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
@@ -20,10 +21,11 @@ const MOIS_NOMS = [
 const NUMERIC_FIELDS = [
   { key: "electricite_plastique", label: "Electricite Plastique", group: "Energie" },
   { key: "electricite_cosmetique", label: "Electricite Cosmetique", group: "Energie" },
-  { key: "gaz", label: "Gaz", group: "Energie" },
-  { key: "gasoil_plastique", label: "Gasoil Plastique", group: "Energie" },
-  { key: "gasoil_cosmetique", label: "Gasoil Cosmetique", group: "Energie" },
-  { key: "essence", label: "Essence", group: "Energie" },
+  { key: "gaz", label: "Gaz (litres)", group: "Energie" },
+  { key: "gasoil_plastique", label: "Gasoil Plastique (litres)", group: "Energie" },
+  { key: "gasoil_cosmetique", label: "Gasoil Cosmetique (litres)", group: "Energie" },
+  { key: "essence", label: "Essence (litres)", group: "Energie" },
+  { key: "salaire_embauche", label: "Salaire Embauches", group: "Salaires" },
   { key: "salaire_journalier_cosmetique", label: "Salaire journaliers Cosmetique", group: "Salaires" },
   { key: "salaire_journalier_global", label: "Salaire journaliers Global", group: "Salaires" },
   { key: "salaire_cadre", label: "Salaire Cadres", group: "Salaires" },
@@ -36,6 +38,21 @@ type ChargeRow = { id: number; annee: number; mois: number; utilisateur: string 
   FieldKey,
   number | null
 >;
+
+// Champs de consommation carburant (litres) qui ont un cout calcule via le
+// prix du litre saisi sur /charges/prix pour le meme mois - gasoil
+// plastique/cosmetique partagent le meme prix (un seul carburant physique).
+const COST_FIELDS = [
+  { key: "gaz", priceKey: "prix_gaz", label: "Cout Gaz" },
+  { key: "essence", priceKey: "prix_essence", label: "Cout Essence" },
+  { key: "gasoil_plastique", priceKey: "prix_gasoil", label: "Cout Gasoil Plastique" },
+  { key: "gasoil_cosmetique", priceKey: "prix_gasoil", label: "Cout Gasoil Cosmetique" },
+] as const satisfies readonly { key: FieldKey; priceKey: PrixFieldKey; label: string }[];
+
+const PRIX_FIELD_KEYS = ["prix_gaz", "prix_essence", "prix_gasoil"] as const;
+type PrixFieldKey = (typeof PRIX_FIELD_KEYS)[number];
+
+type PrixRow = { annee: number; mois: number } & Record<PrixFieldKey, number | null>;
 
 function formatNombre(value: number | null) {
   if (value === null || value === undefined) return "-";
@@ -53,6 +70,15 @@ async function fetchAllCharges(): Promise<{ rows: ChargeRow[]; error: { message:
   return { rows: (data ?? []) as unknown as ChargeRow[], error: null };
 }
 
+async function fetchAllPrixCarburant(): Promise<{ rows: PrixRow[]; error: { message: string } | null }> {
+  const { data, error } = await supabaseServer
+    .from("prix_carburant")
+    .select(`annee, mois, ${PRIX_FIELD_KEYS.join(", ")}`);
+
+  if (error) return { rows: [], error };
+  return { rows: (data ?? []) as unknown as PrixRow[], error: null };
+}
+
 export default async function ChargesPage() {
   noStore();
 
@@ -61,10 +87,16 @@ export default async function ChargesPage() {
   const canDelete = await canDeletePageUser(currentUser, "chargesHub");
 
   const { rows, error } = await fetchAllCharges();
+  const { rows: prixRows } = await fetchAllPrixCarburant();
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - 2 + i);
 
   const groups = ["Energie", "Salaires", "Autres"] as const;
+
+  const prixByKey = new Map<string, PrixRow>();
+  for (const prix of prixRows) {
+    prixByKey.set(`${prix.annee}-${prix.mois}`, prix);
+  }
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -81,6 +113,12 @@ export default async function ChargesPage() {
             </div>
 
             <div className="flex items-center gap-3">
+              <Link
+                href="/charges/prix"
+                className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100"
+              >
+                Prix carburant
+              </Link>
               <BackButton href="/" label="Retour accueil" />
               <RefreshButton />
             </div>
@@ -178,6 +216,14 @@ export default async function ChargesPage() {
                         {field.label}
                       </th>
                     ))}
+                    {COST_FIELDS.map((field) => (
+                      <th
+                        key={field.key}
+                        className="sticky top-0 z-10 bg-amber-50 px-4 py-3 font-semibold text-amber-800"
+                      >
+                        {field.label}
+                      </th>
+                    ))}
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Total</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Saisi par</th>
                     {canDelete ? (
@@ -187,7 +233,24 @@ export default async function ChargesPage() {
                 </thead>
                 <tbody>
                   {rows.map((row) => {
-                    const total = NUMERIC_FIELDS.reduce((sum, field) => sum + Number(row[field.key] ?? 0), 0);
+                    const prix = prixByKey.get(`${row.annee}-${row.mois}`);
+                    const fuelCostByKey = new Map<FieldKey, number | null>();
+                    for (const field of COST_FIELDS) {
+                      const litres = row[field.key];
+                      const prixLitre = prix?.[field.priceKey] ?? null;
+                      fuelCostByKey.set(
+                        field.key,
+                        litres !== null && prixLitre !== null ? litres * prixLitre : null
+                      );
+                    }
+                    const nonFuelTotal = NUMERIC_FIELDS.filter(
+                      (field) => !COST_FIELDS.some((c) => c.key === field.key)
+                    ).reduce((sum, field) => sum + Number(row[field.key] ?? 0), 0);
+                    const fuelCostTotal = COST_FIELDS.reduce(
+                      (sum, field) => sum + Number(fuelCostByKey.get(field.key) ?? 0),
+                      0
+                    );
+                    const total = nonFuelTotal + fuelCostTotal;
                     return (
                       <tr key={row.id} className="border-t border-slate-100">
                         <td className="px-4 py-3 font-semibold text-slate-900">
@@ -196,6 +259,11 @@ export default async function ChargesPage() {
                         {NUMERIC_FIELDS.map((field) => (
                           <td key={field.key} className="px-4 py-3 text-slate-600">
                             {formatNombre(row[field.key])}
+                          </td>
+                        ))}
+                        {COST_FIELDS.map((field) => (
+                          <td key={field.key} className="px-4 py-3 text-amber-700">
+                            {formatNombre(fuelCostByKey.get(field.key) ?? null)}
                           </td>
                         ))}
                         <td className="px-4 py-3 font-semibold text-amber-700">{formatNombre(total)}</td>

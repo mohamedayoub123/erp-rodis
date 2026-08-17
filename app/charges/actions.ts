@@ -37,6 +37,7 @@ export async function saveChargesUsineAction(formData: FormData) {
       gasoil_plastique: toNumberOrNull(formData.get("gasoil_plastique")),
       gasoil_cosmetique: toNumberOrNull(formData.get("gasoil_cosmetique")),
       essence: toNumberOrNull(formData.get("essence")),
+      salaire_embauche: toNumberOrNull(formData.get("salaire_embauche")),
       salaire_journalier_cosmetique: toNumberOrNull(formData.get("salaire_journalier_cosmetique")),
       salaire_journalier_global: toNumberOrNull(formData.get("salaire_journalier_global")),
       salaire_cadre: toNumberOrNull(formData.get("salaire_cadre")),
