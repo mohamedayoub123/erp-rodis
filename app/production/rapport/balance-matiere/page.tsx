@@ -91,6 +91,7 @@ const PAGE_SIZE = 200;
 
 type SearchParams = Promise<{
   produit?: string;
+  code?: string;
   page?: string;
   date_debut?: string;
   date_fin?: string;
@@ -104,9 +105,10 @@ export default async function RapportBalanceMatierePage({
   noStore();
   const params = await searchParams;
   const produitFilter = (params.produit || "").trim().toLowerCase();
+  const codeFilter = (params.code || "").trim().toLowerCase();
   const dateDebutFilter = (params.date_debut || "").trim();
   const dateFinFilter = (params.date_fin || "").trim();
-  const hasFilters = Boolean(produitFilter || dateDebutFilter || dateFinFilter);
+  const hasFilters = Boolean(produitFilter || codeFilter || dateDebutFilter || dateFinFilter);
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
 
   // Meme raisonnement que Rapport Ecarts : sans recherche, fenetre par
@@ -435,6 +437,9 @@ export default async function RapportBalanceMatierePage({
   const produitOptions = [...new Set(allRows.map((row) => row.produit).filter((p) => p && p !== "-"))]
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
     .map((label, id) => ({ id, label }));
+  const codeOptions = [...new Set(allRows.map((row) => row.code).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+    .map((label, id) => ({ id, label }));
 
   const rows = allRows
     .filter((row) => {
@@ -443,6 +448,7 @@ export default async function RapportBalanceMatierePage({
       // fini de consommer son vrac, donc l'ecart matiere serait trompeur.
       if (row.statut !== "Termine" && row.statut !== "Termine Manuel") return false;
       if (produitFilter && !row.produit.toLowerCase().includes(produitFilter)) return false;
+      if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
       if (dateDebutFilter && row.date < dateDebutFilter) return false;
       if (dateFinFilter && row.date > dateFinFilter) return false;
       return true;
@@ -464,6 +470,7 @@ export default async function RapportBalanceMatierePage({
     const qs = new URLSearchParams();
     qs.set("page", String(page));
     if (params.produit) qs.set("produit", params.produit);
+    if (params.code) qs.set("code", params.code);
     if (params.date_debut) qs.set("date_debut", params.date_debut);
     if (params.date_fin) qs.set("date_fin", params.date_fin);
     return `/production/rapport/balance-matiere?${qs.toString()}`;
@@ -501,12 +508,18 @@ export default async function RapportBalanceMatierePage({
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]">
             <SearchableFilterInput
               name="produit"
               defaultValue={params.produit || ""}
               options={produitOptions}
               placeholder="Produit"
+            />
+            <SearchableFilterInput
+              name="code"
+              defaultValue={params.code || ""}
+              options={codeOptions}
+              placeholder="Code"
             />
             <button
               type="submit"
@@ -523,7 +536,7 @@ export default async function RapportBalanceMatierePage({
               </Link>
             ) : null}
 
-            <div className="flex flex-wrap items-end gap-4 sm:col-span-3">
+            <div className="flex flex-wrap items-end gap-4 sm:col-span-4">
               <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Date programme depuis
                 <input
