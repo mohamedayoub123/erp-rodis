@@ -36,6 +36,13 @@ const TILES: Tile[] = [
     description: "Chaque Test labo enregistre, avec toutes les valeurs mesurees (pH, viscosite, couleur...).",
   },
   {
+    label: "Revue Processus",
+    href: "/qualite/revue-processus",
+    pageKey: "qualiteRevueProcessus",
+    icon: "\u{1F4C8}",
+    description: "Revues de processus (PR4 - indicateurs qualite/production).",
+  },
+  {
     label: "NC Confidentiel",
     href: "/qualite/nc-confidentiel",
     pageKey: "qualiteNcConfidentiel",

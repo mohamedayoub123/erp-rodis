@@ -648,6 +648,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "qualiteRevueProcessus",
+    module: "Qualite",
+    label: "Revue Processus (PR4 - indicateurs)",
+    pathPrefixes: ["/qualite/revue-processus"],
+    hasWrite: false,
+  },
+  {
     key: "qualiteNcConfidentiel",
     module: "Qualite",
     label: "NC Confidentiel (audit interne)",
