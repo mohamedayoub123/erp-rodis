@@ -47,6 +47,24 @@ type CommandeRow = {
     | null;
 };
 
+// Meme mapping que app/commandes/page.tsx (formatStatus) - les statuts
+// "techniques" (FIFO_PARTIEL/FIFO_CALCULE/SAISIE_WEB) ne doivent jamais
+// s'afficher tels quels, ils comptent comme "En cours" partout dans
+// l'appli.
+function formatStatus(value: string | null | undefined) {
+  const status = (value || "").toUpperCase();
+
+  if (status === "LIVREE") return "Livree";
+  if (status === "BL_TRANSFORME") return "BL transforme";
+  if (status === "STAND") return "Stand";
+  if (status === "EN_COURS") return "En cours";
+  if (status === "FIFO_PARTIEL") return "En cours";
+  if (status === "FIFO_CALCULE") return "En cours";
+  if (status === "SAISIE_WEB") return "En cours";
+
+  return value || "-";
+}
+
 function colorClasses(couleur: string | null) {
   switch (couleur) {
     case "ROUGE":
@@ -393,7 +411,7 @@ export default async function DashboardPage() {
                     <p className="font-semibold text-white">3. Commande a finir</p>
                     <p className="mt-1 text-slate-300">
                       {topCommandeAlert
-                        ? `${topCommandeAlert.numero_proforma} pour ${topCommandeAlert.client} en statut ${topCommandeAlert.statut}.`
+                        ? `${topCommandeAlert.numero_proforma} pour ${topCommandeAlert.client} en statut ${formatStatus(topCommandeAlert.statut)}.`
                         : "Aucune commande en attente visible."}
                     </p>
                     <Link
@@ -670,7 +688,7 @@ export default async function DashboardPage() {
                               {commande.numero_proforma}
                             </p>
                             <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-white">
-                              {commande.statut}
+                              {formatStatus(commande.statut)}
                             </span>
                           </div>
                           <p className="mt-2 text-sm text-slate-600">
