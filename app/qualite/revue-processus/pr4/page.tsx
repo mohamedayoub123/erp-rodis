@@ -710,6 +710,18 @@ function extractPretStockDateToken(commentaire: string | null | undefined) {
   return token ? token.replace("PRET_STOCK_DATE:", "").trim() : "";
 }
 
+// Meme encodage que DATE_TRANSITION_ dans app/commandes/actions.ts - repli
+// quand une commande saute directement de Stand vers BL transforme/Livree
+// sans jamais avoir eu de STATUT_DATE_EN_COURS explicite : le temps passe
+// en Stand ne doit pas compter dans le delai (meme regle que Rapport Delai
+// Commande / Statistique livraison).
+function extractTransitionDateToken(commentaire: string | null | undefined, transitionKey: string) {
+  if (!commentaire) return "";
+  const parts = commentaire.split("|").map((part) => part.trim());
+  const token = parts.find((part) => part.startsWith(`DATE_TRANSITION_${transitionKey}:`));
+  return token ? token.replace(`DATE_TRANSITION_${transitionKey}:`, "").trim() : "";
+}
+
 // Meme regroupement que statutBucket dans Rapport Delai Commande : les
 // statuts "techniques" (FIFO_PARTIEL/FIFO_CALCULE/SAISIE_WEB) comptent
 // comme "En cours" - sinon ces commandes disparaissaient du calcul.
@@ -753,10 +765,13 @@ async function fetchDelaiLivraisonMonthly(): Promise<Map<string, { commande: num
     const current = byMonth.get(mois) ?? { commande: 0, depasse: 0 };
     current.commande += 1;
 
-    // Repli sur la date de creation quand STATUT_DATE_EN_COURS n'a jamais
-    // ete enregistre - meme correctif que Rapport Delai Commande.
+    // Meme ordre de priorite que Rapport Delai Commande : STATUT_DATE_EN_COURS,
+    // sinon la date de sortie du Stand (le temps EN Stand ne compte pas),
+    // sinon la date de creation en dernier recours.
     const dateEnCours =
-      extractStatusDateToken(row.commentaire, "EN_COURS") || (row.created_at || "").slice(0, 10);
+      extractStatusDateToken(row.commentaire, "EN_COURS") ||
+      extractTransitionDateToken(row.commentaire, "STAND_ENCOURS") ||
+      (row.created_at || "").slice(0, 10);
     const datePret = extractPretStockDateToken(row.commentaire);
     const referenceFin = datePret || todayIso;
 
@@ -1018,6 +1033,7 @@ export default async function Pr4Page() {
     label: string;
     cible: string;
     rowBg: string;
+    rowBgSolid: string;
     manuelKey?: ManuelKey;
     subRows: { label: string; getValue: (r: MonthRow) => string }[];
   }[] = [
@@ -1026,6 +1042,7 @@ export default async function Pr4Page() {
       label: "Evolution production par rapport a N-1",
       cible: "-",
       rowBg: "bg-blue-50/60",
+      rowBgSolid: "bg-blue-50",
       manuelKey: "carton",
       subRows: [{ label: "Totale carton fabrique", getValue: (r) => fmt(r.cartonFabrique) }],
     },
@@ -1034,6 +1051,7 @@ export default async function Pr4Page() {
       label: "Ordre de production acheves dans les temps",
       cible: "98%",
       rowBg: "bg-orange-50/60",
+      rowBgSolid: "bg-orange-50",
       subRows: [
         { label: "Totale programme donne par carton", getValue: (r) => fmt(r.cartonCommande) },
         { label: "% fabrique par rapport a programme", getValue: (r) => r.pctProgrammeLabel },
@@ -1044,6 +1062,7 @@ export default async function Pr4Page() {
       label: "Taux d'utilisation moyen capacite de production",
       cible: "-",
       rowBg: "bg-teal-50/60",
+      rowBgSolid: "bg-teal-50",
       manuelKey: "capacite",
       subRows: [{ label: "% capacite machines conditionnement", getValue: (r) => r.capaciteLabel }],
     },
@@ -1052,6 +1071,7 @@ export default async function Pr4Page() {
       label: "Taux d'heures supplementaires par personne",
       cible: "2%",
       rowBg: "bg-amber-50/60",
+      rowBgSolid: "bg-amber-50",
       subRows: [{ label: "% heure supplementaire", getValue: (r) => r.heuresSupplementairesLabel }],
     },
     {
@@ -1059,6 +1079,7 @@ export default async function Pr4Page() {
       label: "Taux de fabrication non-conforme",
       cible: "< 0,5%",
       rowBg: "bg-pink-50/60",
+      rowBgSolid: "bg-pink-50",
       manuelKey: "testLabo",
       subRows: [
         { label: "Totale preparation", getValue: (r) => fmt(r.preparations) },
@@ -1071,6 +1092,7 @@ export default async function Pr4Page() {
       label: "Taux de derogation",
       cible: "< 10%",
       rowBg: "bg-lime-50/60",
+      rowBgSolid: "bg-lime-50",
       manuelKey: "testLabo",
       subRows: [
         { label: "Totale preparation", getValue: (r) => fmt(r.preparations) },
@@ -1083,6 +1105,7 @@ export default async function Pr4Page() {
       label: "Balance matiere",
       cible: "-0,5% < X < +0,5%",
       rowBg: "bg-purple-50/60",
+      rowBgSolid: "bg-purple-50",
       manuelKey: "balance",
       subRows: [
         { label: "Totale vrac commande (kg)", getValue: (r) => r.vracFabriqueKgLabel },
@@ -1095,6 +1118,7 @@ export default async function Pr4Page() {
       label: "Taux d'arret globale",
       cible: "< 5%",
       rowBg: "bg-blue-50/60",
+      rowBgSolid: "bg-blue-50",
       manuelKey: "arret",
       subRows: [
         { label: "Temps d'arret (min)", getValue: (r) => fmt(r.arretMinutes) },
@@ -1107,6 +1131,7 @@ export default async function Pr4Page() {
       label: "Taux suivi formation",
       cible: "90%",
       rowBg: "bg-orange-50/60",
+      rowBgSolid: "bg-orange-50",
       subRows: [
         { label: "Nb formation a faire", getValue: (r) => fmt(r.formationAFaire) },
         { label: "Nb formation realisee", getValue: (r) => fmt(r.formationRealisee) },
@@ -1118,6 +1143,7 @@ export default async function Pr4Page() {
       label: "Taux dechets globale",
       cible: "< 1%",
       rowBg: "bg-teal-50/60",
+      rowBgSolid: "bg-teal-50",
       manuelKey: "dechets",
       subRows: [
         { label: "Totale production (pieces)", getValue: (r) => r.piecesLabel },
@@ -1130,6 +1156,7 @@ export default async function Pr4Page() {
       label: "Taux de reclamation produit non conforme / prod",
       cible: "< 0,2%",
       rowBg: "bg-amber-50/60",
+      rowBgSolid: "bg-amber-50",
       subRows: [
         { label: "Qt retournee", getValue: (r) => fmt(r.qtRetourneeNc) },
         { label: "Qt fabriquee (pieces)", getValue: (r) => r.piecesLabel },
@@ -1141,6 +1168,7 @@ export default async function Pr4Page() {
       label: "Respect du delai de livraison",
       cible: "90%",
       rowBg: "bg-pink-50/60",
+      rowBgSolid: "bg-pink-50",
       manuelKey: "delai",
       subRows: [
         { label: "Qt commande", getValue: (r) => fmt(r.qtCommandeLivraison) },
@@ -1153,6 +1181,7 @@ export default async function Pr4Page() {
       label: "Prix de revient 1 carton (journalier cosmetique + energie cosmetique)",
       cible: "-",
       rowBg: "bg-lime-50/60",
+      rowBgSolid: "bg-lime-50",
       manuelKey: "prixCarton",
       subRows: [{ label: "Cout carton (FCFA)", getValue: (r) => r.prixCartonLabel }],
     },
@@ -1279,38 +1308,43 @@ export default async function Pr4Page() {
                   {INDICATEUR_ROWS.map((indicateur) => {
                     const lastSubRow = indicateur.subRows[indicateur.subRows.length - 1];
                     const action = monthRows[0] ? lastSubRow.getValue(monthRows[0]) : "-";
+                    // Colonnes fixes (sticky) : fond OPAQUE obligatoire (rowBgSolid),
+                    // sinon le contenu des colonnes mois qui defilent en dessous
+                    // transparait a travers (rowBg reste volontairement translucide
+                    // "/60" pour les cellules non-sticky plus loin).
+                    const rowBgSolid = indicateur.rowBgSolid;
                     return indicateur.subRows.map((subRow, subIndex) => (
                       <tr key={`${indicateur.numero}-${subIndex}`} className="border-t border-slate-100">
                         {subIndex === 0 ? (
                           <>
                             <td
                               rowSpan={indicateur.subRows.length}
-                              className={`sticky left-0 z-10 w-[56px] min-w-[56px] max-w-[56px] border border-slate-200 ${indicateur.rowBg} px-3 py-2 align-top font-semibold text-slate-500`}
+                              className={`sticky left-0 z-10 w-[56px] min-w-[56px] max-w-[56px] border border-slate-200 ${rowBgSolid} px-3 py-2 align-top font-semibold text-slate-500`}
                             >
                               {indicateur.numero}
                             </td>
                             <td
                               rowSpan={indicateur.subRows.length}
-                              className={`sticky left-[56px] z-10 w-[200px] min-w-[200px] max-w-[200px] border border-slate-200 ${indicateur.rowBg} px-3 py-2 align-top text-slate-900`}
+                              className={`sticky left-[56px] z-10 w-[200px] min-w-[200px] max-w-[200px] border border-slate-200 ${rowBgSolid} px-3 py-2 align-top text-slate-900`}
                             >
                               {indicateur.label}
                             </td>
                             <td
                               rowSpan={indicateur.subRows.length}
-                              className={`sticky left-[256px] z-10 w-[110px] min-w-[110px] max-w-[110px] border border-slate-200 ${indicateur.rowBg} px-3 py-2 align-top text-slate-600`}
+                              className={`sticky left-[256px] z-10 w-[110px] min-w-[110px] max-w-[110px] border border-slate-200 ${rowBgSolid} px-3 py-2 align-top text-slate-600`}
                             >
                               {indicateur.cible}
                             </td>
                             <td
                               rowSpan={indicateur.subRows.length}
-                              className={`sticky left-[366px] z-10 w-[90px] min-w-[90px] max-w-[90px] border border-slate-200 ${indicateur.rowBg} px-3 py-2 align-top font-semibold text-slate-900`}
+                              className={`sticky left-[366px] z-10 w-[90px] min-w-[90px] max-w-[90px] border border-slate-200 ${rowBgSolid} px-3 py-2 align-top font-semibold text-slate-900`}
                             >
                               {action}
                             </td>
                           </>
                         ) : null}
                         <td
-                          className={`sticky left-[456px] z-10 w-[220px] min-w-[220px] max-w-[220px] border border-slate-200 ${indicateur.rowBg} px-3 py-2 text-xs text-slate-500`}
+                          className={`sticky left-[456px] z-10 w-[220px] min-w-[220px] max-w-[220px] border border-slate-200 ${rowBgSolid} px-3 py-2 text-xs text-slate-500`}
                         >
                           {subRow.label}
                           {subIndex === 0 && indicateur.manuelKey ? (
