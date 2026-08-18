@@ -239,9 +239,12 @@ function applyTransitionDateComment(
 ) {
   const upperStatus = String(statusValue || "").trim().toUpperCase();
 
+  // "STAND_ENCOURS" doit representer la date de SORTIE du Stand - ne
+  // jamais la poser quand le statut cible EST Stand (creation directe en
+  // Stand, ou retour en Stand), sinon une commande encore en attente se
+  // retrouvait avec une date "en cours" alors qu'elle n'a jamais bouge.
   if (
     upperStatus === "EN_COURS" ||
-    upperStatus === "STAND" ||
     upperStatus === "FIFO_PARTIEL" ||
     upperStatus === "FIFO_CALCULE" ||
     upperStatus === "SAISIE_WEB"
