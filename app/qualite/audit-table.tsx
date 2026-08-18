@@ -240,26 +240,26 @@ function AttachmentsCell({
           onClick={() => setIsOpen(false)}
         >
           <div
-            className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 shadow-xl"
+            className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-800">Pieces jointes</h3>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-slate-800">Pieces jointes</h3>
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="text-lg leading-none text-slate-400 hover:text-slate-700"
+                className="text-2xl leading-none text-slate-400 hover:text-slate-700"
                 aria-label="Fermer"
               >
                 ✕
               </button>
             </div>
             {files.length === 0 ? (
-              <p className="text-[12px] text-slate-400">Aucun fichier attache.</p>
+              <p className="text-base text-slate-400">Aucun fichier attache.</p>
             ) : (
-              <div className="grid gap-2">
+              <div className="grid gap-3">
                 {files.map((file) => (
-                  <div key={file.path} className="flex items-center gap-2 rounded border border-slate-200 p-1.5">
+                  <div key={file.path} className="flex items-center gap-3 rounded-lg border border-slate-200 p-3">
                     {isImageFile(file.name) ? (
                       thumbnails[file.path] ? (
                         <button
@@ -272,16 +272,16 @@ function AttachmentsCell({
                           <img
                             src={thumbnails[file.path]}
                             alt={file.name}
-                            className="h-12 w-12 rounded object-cover"
+                            className="h-20 w-20 rounded-lg object-cover"
                           />
                         </button>
                       ) : (
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-slate-100 text-[10px] text-slate-400">
+                        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-sm text-slate-400">
                           ...
                         </div>
                       )
                     ) : (
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-slate-100 text-lg">
+                      <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-3xl">
                         📄
                       </div>
                     )}
@@ -289,7 +289,7 @@ function AttachmentsCell({
                       type="button"
                       onClick={() => handleView(file.path)}
                       disabled={isPending}
-                      className="flex-1 truncate text-left text-[12px] text-sky-700 hover:underline disabled:opacity-60"
+                      className="flex-1 truncate text-left text-base text-sky-700 hover:underline disabled:opacity-60"
                       title={file.name}
                     >
                       {file.name}
@@ -299,7 +299,7 @@ function AttachmentsCell({
                         type="button"
                         onClick={() => handleDelete(file.path)}
                         disabled={isPending}
-                        className="shrink-0 text-[12px] font-bold text-red-600 disabled:opacity-60"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xl font-bold text-red-600 hover:bg-red-50 disabled:opacity-60"
                         title="Supprimer ce fichier"
                       >
                         x
@@ -310,8 +310,8 @@ function AttachmentsCell({
               </div>
             )}
             {canWrite ? (
-              <div className="mt-3 flex flex-col gap-2">
-                <label className="text-[11px] text-slate-600">
+              <div className="mt-4 flex flex-col gap-3">
+                <label className="text-sm text-slate-600">
                   <span className="block font-semibold text-slate-500">Fichiers</span>
                   <input
                     ref={inputRef}
@@ -319,10 +319,10 @@ function AttachmentsCell({
                     multiple
                     onChange={(e) => handleUpload(e.target.files)}
                     disabled={isPending}
-                    className="mt-0.5"
+                    className="mt-1"
                   />
                 </label>
-                <label className="text-[11px] text-slate-600">
+                <label className="text-sm text-slate-600">
                   <span className="block font-semibold text-slate-500">Ou un dossier entier</span>
                   <input
                     ref={folderInputRef}
@@ -330,12 +330,12 @@ function AttachmentsCell({
                     multiple
                     onChange={(e) => handleUpload(e.target.files)}
                     disabled={isPending}
-                    className="mt-0.5"
+                    className="mt-1"
                   />
                 </label>
               </div>
             ) : null}
-            {error ? <p className="mt-2 text-[11px] font-semibold text-red-700">{error}</p> : null}
+            {error ? <p className="mt-3 text-sm font-semibold text-red-700">{error}</p> : null}
           </div>
         </div>
       ) : null}
