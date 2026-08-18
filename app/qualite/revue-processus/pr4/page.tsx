@@ -637,27 +637,6 @@ async function fetchManuelByMonth(): Promise<{ rows: ManuelRow[]; byMonth: Map<s
   return { rows, byMonth };
 }
 
-// Legende des indicateurs (numero, cible, methode de calcul) - reprend
-// mot pour mot le fichier Excel ISO ("cible" et la colonne sans titre a
-// cote de l'indicateur, qui decrit ce qui est mesure). Purement statique,
-// affichee en haut de page comme dans l'Excel - la valeur "actuelle" de
-// chaque ligne vient du dernier mois calcule (monthRows[0]).
-const INDICATEURS_LEGENDE = [
-  { numero: "1", label: "Evolution production par rapport a N-1", cible: "-", methode: "Totale carton fabrique", key: "cartonFabrique" as const },
-  { numero: "2", label: "Ordre de production acheves dans les temps", cible: "98%", methode: "Totale programme donne par carton", key: "pctProgrammeLabel" as const },
-  { numero: "3", label: "Taux d'utilisation moyen capacite de production", cible: "-", methode: "% capacite des machines", key: "capaciteLabel" as const },
-  { numero: "4", label: "Taux d'heures supplementaires par personne", cible: "2%", methode: "% d'heure supplementaire", key: "heuresSupplementairesLabel" as const },
-  { numero: "5", label: "Taux de fabrication non-conforme", cible: "< 0,5%", methode: "Totale preparation / a detruire", key: "pctADetruireLabel" as const },
-  { numero: "6", label: "Taux de derogation", cible: "< 10%", methode: "Totale preparation / sous derogation", key: "pctSousDerogationLabel" as const },
-  { numero: "7", label: "Balance matiere", cible: "-0,5% < X < +0,5%", methode: "Vrac fabrique vs carton fabrique (kg)", key: "pctEcartLabel" as const },
-  { numero: "8", label: "Taux d'arret globale", cible: "< 5%", methode: "Temps d'arret / temps de travail", key: "pctArretLabel" as const },
-  { numero: "9", label: "Taux suivi formation", cible: "90%", methode: "Nb formation a faire / realisee", key: "pctFormationLabel" as const },
-  { numero: "10", label: "Taux dechets globale", cible: "< 1%", methode: "Totale production / totale dechet", key: "pctDechetsLabel" as const },
-  { numero: "11", label: "Taux de reclamation produit non conforme / prod", cible: "< 0,2%", methode: "Qt retournee / qt fabriquee", key: "pctReclamationNcLabel" as const },
-  { numero: "12", label: "Respect du delai de livraison", cible: "90%", methode: "Qt commande / qt livree a temps", key: "pctLivraisonLabel" as const },
-  { numero: "13", label: "Prix de revient 1 carton (journalier cosmetique + energie cosmetique)", cible: "-", methode: "Cout carton", key: "prixCartonLabel" as const },
-];
-
 const EXPORT_COLUMNS = [
   { label: "Mois", key: "moisLabel" },
   { label: "1 - Nb carton fabrique", key: "cartonFabrique" },
@@ -803,8 +782,10 @@ export default async function Pr4Page() {
         capacite,
         capaciteLabel: fmtPct(capacite, 0),
         preparations: testLabo.total,
+        aDetruireCount: testLabo.aDetruire,
         pctADetruire,
         pctADetruireLabel: fmtPct(pctADetruire),
+        sousDerogationCount: testLabo.sousDerogation,
         pctSousDerogation,
         pctSousDerogationLabel: fmtPct(pctSousDerogation),
         vracFabriqueKg: balance.vracFabrique,
@@ -855,6 +836,146 @@ export default async function Pr4Page() {
   // EXPORT_COLUMNS comptent de toute facon.
   const exportRows = monthRows.map(({ isManuel: _isManuel, ...row }) => row);
 
+  // Meme mise en forme que le fichier Excel : indicateurs en ligne (avec
+  // #/cible/methode empiles en sous-lignes numerateur-denominateur-%), mois
+  // en colonne du plus ancien au plus recent - monthRows est trie du plus
+  // recent au plus ancien pour le tableau mensuel plus haut, on l'inverse
+  // ici seulement pour cette vue.
+  const monthRowsAscending = [...monthRows].reverse();
+  type MonthRow = (typeof monthRows)[number];
+
+  type ManuelKey = keyof MonthRow["isManuel"];
+
+  const INDICATEUR_ROWS: {
+    numero: string;
+    label: string;
+    cible: string;
+    manuelKey?: ManuelKey;
+    subRows: { label: string; getValue: (r: MonthRow) => string }[];
+  }[] = [
+    {
+      numero: "1",
+      label: "Evolution production par rapport a N-1",
+      cible: "-",
+      manuelKey: "carton",
+      subRows: [{ label: "Totale carton fabrique", getValue: (r) => fmt(r.cartonFabrique) }],
+    },
+    {
+      numero: "2",
+      label: "Ordre de production acheves dans les temps",
+      cible: "98%",
+      subRows: [
+        { label: "Totale programme donne par carton", getValue: (r) => fmt(r.cartonCommande) },
+        { label: "% fabrique par rapport a programme", getValue: (r) => r.pctProgrammeLabel },
+      ],
+    },
+    {
+      numero: "3",
+      label: "Taux d'utilisation moyen capacite de production",
+      cible: "-",
+      manuelKey: "capacite",
+      subRows: [{ label: "% capacite des machines", getValue: (r) => r.capaciteLabel }],
+    },
+    {
+      numero: "4",
+      label: "Taux d'heures supplementaires par personne",
+      cible: "2%",
+      subRows: [{ label: "% heure supplementaire", getValue: (r) => r.heuresSupplementairesLabel }],
+    },
+    {
+      numero: "5",
+      label: "Taux de fabrication non-conforme",
+      cible: "< 0,5%",
+      manuelKey: "testLabo",
+      subRows: [
+        { label: "Totale preparation", getValue: (r) => fmt(r.preparations) },
+        { label: "Totale preparation non conforme (a detruire)", getValue: (r) => fmt(r.aDetruireCount) },
+        { label: "% de non conforme", getValue: (r) => r.pctADetruireLabel },
+      ],
+    },
+    {
+      numero: "6",
+      label: "Taux de derogation",
+      cible: "< 10%",
+      manuelKey: "testLabo",
+      subRows: [
+        { label: "Totale preparation", getValue: (r) => fmt(r.preparations) },
+        { label: "Totale preparation en derogation", getValue: (r) => fmt(r.sousDerogationCount) },
+        { label: "% de derogation", getValue: (r) => r.pctSousDerogationLabel },
+      ],
+    },
+    {
+      numero: "7",
+      label: "Balance matiere",
+      cible: "-0,5% < X < +0,5%",
+      manuelKey: "balance",
+      subRows: [
+        { label: "Totale vrac fabrique (kg)", getValue: (r) => r.vracFabriqueKgLabel },
+        { label: "Carton fabrique converti (kg)", getValue: (r) => r.cartonFabriqueKgLabel },
+        { label: "% de perte", getValue: (r) => r.pctEcartLabel },
+      ],
+    },
+    {
+      numero: "8",
+      label: "Taux d'arret globale",
+      cible: "< 5%",
+      manuelKey: "arret",
+      subRows: [
+        { label: "Temps d'arret (min)", getValue: (r) => fmt(r.arretMinutes) },
+        { label: "Temps de travail (min)", getValue: (r) => fmt(r.travailMinutes) },
+        { label: "% de perte en temps", getValue: (r) => r.pctArretLabel },
+      ],
+    },
+    {
+      numero: "9",
+      label: "Taux suivi formation",
+      cible: "90%",
+      subRows: [
+        { label: "Nb formation a faire", getValue: (r) => fmt(r.formationAFaire) },
+        { label: "Nb formation realisee", getValue: (r) => fmt(r.formationRealisee) },
+        { label: "% formation realisee", getValue: (r) => r.pctFormationLabel },
+      ],
+    },
+    {
+      numero: "10",
+      label: "Taux dechets globale",
+      cible: "< 1%",
+      manuelKey: "dechets",
+      subRows: [
+        { label: "Totale production (pieces)", getValue: (r) => r.piecesLabel },
+        { label: "Totale dechet (pieces)", getValue: (r) => r.dechetLabel },
+        { label: "% de dechet", getValue: (r) => r.pctDechetsLabel },
+      ],
+    },
+    {
+      numero: "11",
+      label: "Taux de reclamation produit non conforme / prod",
+      cible: "< 0,2%",
+      subRows: [
+        { label: "Qt retournee", getValue: (r) => fmt(r.qtRetourneeNc) },
+        { label: "Qt fabriquee (pieces)", getValue: (r) => r.piecesLabel },
+        { label: "% de retour NC", getValue: (r) => r.pctReclamationNcLabel },
+      ],
+    },
+    {
+      numero: "12",
+      label: "Respect du delai de livraison",
+      cible: "90%",
+      subRows: [
+        { label: "Qt commande", getValue: (r) => fmt(r.qtCommandeLivraison) },
+        { label: "Qt livree a temps", getValue: (r) => fmt(r.qtLivreeATemps) },
+        { label: "% delai respecte", getValue: (r) => r.pctLivraisonLabel },
+      ],
+    },
+    {
+      numero: "13",
+      label: "Prix de revient 1 carton (journalier cosmetique + energie cosmetique)",
+      cible: "-",
+      manuelKey: "prixCarton",
+      subRows: [{ label: "Cout carton (FCFA)", getValue: (r) => r.prixCartonLabel }],
+    },
+  ];
+
   function ManuelBadge() {
     return (
       <span className="ml-1 rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold text-violet-700">
@@ -889,47 +1010,6 @@ export default async function Pr4Page() {
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <div className="border-b border-slate-100 px-5 py-4">
-            <h2 className="text-sm font-bold text-slate-900">Tableau des objectifs</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Cible et methode de calcul, comme dans le fichier Excel - la derniere colonne montre la valeur du
-              dernier mois calcule ci-dessous.
-            </p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
-              <thead className="bg-slate-50 text-slate-950">
-                <tr>
-                  <th className="px-4 py-2 font-semibold">#</th>
-                  <th className="px-4 py-2 font-semibold">Indicateur</th>
-                  <th className="px-4 py-2 font-semibold">Cible</th>
-                  <th className="px-4 py-2 font-semibold">Methode de calcul</th>
-                  <th className="px-4 py-2 font-semibold">
-                    Action ({monthRows[0] ? monthRows[0].moisLabel : "-"})
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {INDICATEURS_LEGENDE.map((indicateur) => (
-                  <tr key={indicateur.numero} className="border-t border-slate-100">
-                    <td className="px-4 py-2 font-semibold text-slate-500">{indicateur.numero}</td>
-                    <td className="px-4 py-2 text-slate-900">{indicateur.label}</td>
-                    <td className="px-4 py-2 text-slate-600">{indicateur.cible}</td>
-                    <td className="px-4 py-2 text-slate-500">{indicateur.methode}</td>
-                    <td className="px-4 py-2 font-semibold text-violet-700">
-                      {monthRows[0]
-                        ? indicateur.key === "cartonFabrique"
-                          ? fmt(monthRows[0].cartonFabrique)
-                          : String(monthRows[0][indicateur.key])
-                        : "-"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
 
         <section className="rounded-[1.75rem] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <p className="font-semibold">A savoir</p>
@@ -980,194 +1060,82 @@ export default async function Pr4Page() {
           </div>
         ) : (
           <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 className="text-sm font-bold text-slate-900">Tableau des indicateurs</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Meme mise en forme que le fichier Excel : indicateurs en ligne (cible + methode de calcul),
+                mois en colonne du plus ancien au plus recent.
+              </p>
+            </div>
             <div className="max-h-[75vh] overflow-auto">
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
-                <thead className="text-slate-950">
+                <thead className="sticky top-0 z-20 bg-slate-100 text-slate-950">
                   <tr>
-                    <th rowSpan={2} className="sticky top-0 left-0 z-20 bg-slate-100 px-4 py-3 font-semibold">
-                      Mois
+                    <th className="border border-slate-200 px-3 py-2 font-semibold">#</th>
+                    <th className="border border-slate-200 px-3 py-2 font-semibold">Indicateur</th>
+                    <th className="border border-slate-200 px-3 py-2 font-semibold">Cible</th>
+                    <th className="border border-slate-200 px-3 py-2 font-semibold">
+                      Action ({monthRows[0] ? monthRows[0].moisLabel : "-"})
                     </th>
-                    <th colSpan={1} className="sticky top-0 z-10 bg-blue-50 px-4 py-2 text-center font-semibold text-blue-800">
-                      1 - Evolution production
-                    </th>
-                    <th colSpan={3} className="sticky top-0 z-10 bg-orange-50 px-4 py-2 text-center font-semibold text-orange-800">
-                      2 - Programme fait dans les temps (cible 98%)
-                    </th>
-                    <th colSpan={1} className="sticky top-0 z-10 bg-sky-50 px-4 py-2 text-center font-semibold text-sky-800">
-                      3 - Capacite machines
-                    </th>
-                    <th colSpan={1} className="sticky top-0 z-10 bg-fuchsia-50 px-4 py-2 text-center font-semibold text-fuchsia-800">
-                      4 - Heures supp. (cible 2%)
-                    </th>
-                    <th colSpan={3} className="sticky top-0 z-10 bg-violet-50 px-4 py-2 text-center font-semibold text-violet-800">
-                      5/6 - Test Labo (non conforme &lt; 0,5% / derogation &lt; 10%)
-                    </th>
-                    <th colSpan={3} className="sticky top-0 z-10 bg-emerald-50 px-4 py-2 text-center font-semibold text-emerald-800">
-                      7 - Balance matiere (-0,5% a +0,5%)
-                    </th>
-                    <th colSpan={3} className="sticky top-0 z-10 bg-red-50 px-4 py-2 text-center font-semibold text-red-800">
-                      8 - Taux d&apos;arret (cible &lt; 5%)
-                    </th>
-                    <th colSpan={3} className="sticky top-0 z-10 bg-cyan-50 px-4 py-2 text-center font-semibold text-cyan-800">
-                      9 - Formation (cible 90%)
-                    </th>
-                    <th colSpan={3} className="sticky top-0 z-10 bg-amber-50 px-4 py-2 text-center font-semibold text-amber-800">
-                      10 - Dechets (cible &lt; 1%)
-                    </th>
-                    <th colSpan={2} className="sticky top-0 z-10 bg-rose-50 px-4 py-2 text-center font-semibold text-rose-800">
-                      11 - Reclamation NC (cible &lt; 0,2%)
-                    </th>
-                    <th colSpan={3} className="sticky top-0 z-10 bg-indigo-50 px-4 py-2 text-center font-semibold text-indigo-800">
-                      12 - Delai livraison (cible 90%)
-                    </th>
-                    <th colSpan={1} className="sticky top-0 z-10 bg-green-50 px-4 py-2 text-center font-semibold text-green-800">
-                      13 - Prix de revient carton
-                    </th>
-                  </tr>
-                  <tr>
-                    <th className="sticky top-[41px] z-10 bg-blue-50/70 px-3 py-2 font-medium text-blue-800">Nb carton fabrique</th>
-                    <th className="sticky top-[41px] z-10 bg-orange-50/70 px-3 py-2 font-medium text-orange-800">Commande</th>
-                    <th className="sticky top-[41px] z-10 bg-orange-50/70 px-3 py-2 font-medium text-orange-800">Fabrique</th>
-                    <th className="sticky top-[41px] z-10 bg-orange-50/70 px-3 py-2 font-medium text-orange-800">%</th>
-                    <th className="sticky top-[41px] z-10 bg-sky-50/70 px-3 py-2 font-medium text-sky-800">%</th>
-                    <th className="sticky top-[41px] z-10 bg-fuchsia-50/70 px-3 py-2 font-medium text-fuchsia-800">%</th>
-                    <th className="sticky top-[41px] z-10 bg-violet-50/70 px-3 py-2 font-medium text-violet-800">Preparations</th>
-                    <th className="sticky top-[41px] z-10 bg-violet-50/70 px-3 py-2 font-medium text-violet-800">% detruit</th>
-                    <th className="sticky top-[41px] z-10 bg-violet-50/70 px-3 py-2 font-medium text-violet-800">% derogation</th>
-                    <th className="sticky top-[41px] z-10 bg-emerald-50/70 px-3 py-2 font-medium text-emerald-800">Vrac (kg)</th>
-                    <th className="sticky top-[41px] z-10 bg-emerald-50/70 px-3 py-2 font-medium text-emerald-800">Carton (kg)</th>
-                    <th className="sticky top-[41px] z-10 bg-emerald-50/70 px-3 py-2 font-medium text-emerald-800">% ecart</th>
-                    <th className="sticky top-[41px] z-10 bg-red-50/70 px-3 py-2 font-medium text-red-800">Arret (min)</th>
-                    <th className="sticky top-[41px] z-10 bg-red-50/70 px-3 py-2 font-medium text-red-800">Travail (min)</th>
-                    <th className="sticky top-[41px] z-10 bg-red-50/70 px-3 py-2 font-medium text-red-800">%</th>
-                    <th className="sticky top-[41px] z-10 bg-cyan-50/70 px-3 py-2 font-medium text-cyan-800">A faire</th>
-                    <th className="sticky top-[41px] z-10 bg-cyan-50/70 px-3 py-2 font-medium text-cyan-800">Realisee</th>
-                    <th className="sticky top-[41px] z-10 bg-cyan-50/70 px-3 py-2 font-medium text-cyan-800">%</th>
-                    <th className="sticky top-[41px] z-10 bg-amber-50/70 px-3 py-2 font-medium text-amber-800">Pieces</th>
-                    <th className="sticky top-[41px] z-10 bg-amber-50/70 px-3 py-2 font-medium text-amber-800">Dechets</th>
-                    <th className="sticky top-[41px] z-10 bg-amber-50/70 px-3 py-2 font-medium text-amber-800">%</th>
-                    <th className="sticky top-[41px] z-10 bg-rose-50/70 px-3 py-2 font-medium text-rose-800">Qt retournee</th>
-                    <th className="sticky top-[41px] z-10 bg-rose-50/70 px-3 py-2 font-medium text-rose-800">%</th>
-                    <th className="sticky top-[41px] z-10 bg-indigo-50/70 px-3 py-2 font-medium text-indigo-800">Commande</th>
-                    <th className="sticky top-[41px] z-10 bg-indigo-50/70 px-3 py-2 font-medium text-indigo-800">Livree a temps</th>
-                    <th className="sticky top-[41px] z-10 bg-indigo-50/70 px-3 py-2 font-medium text-indigo-800">%</th>
-                    <th className="sticky top-[41px] z-10 bg-green-50/70 px-3 py-2 font-medium text-green-800">FCFA/carton</th>
+                    <th className="border border-slate-200 px-3 py-2 font-semibold">Methode de calcul</th>
+                    {monthRowsAscending.map((row) => (
+                      <th key={row.mois} className="border border-slate-200 px-3 py-2 text-center font-semibold">
+                        {row.moisLabel}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {monthRows.map((row) => (
-                    <tr key={row.mois} className="border-t border-slate-100">
-                      <td className="sticky left-0 z-10 bg-white px-4 py-3 font-semibold text-slate-900">
-                        {row.moisLabel}
-                      </td>
-                      <td className="bg-blue-50/20 px-3 py-3 text-slate-600">
-                        {fmt(row.cartonFabrique)}
-                        {row.isManuel.carton ? <ManuelBadge /> : null}
-                      </td>
-                      <td className="bg-orange-50/20 px-3 py-3 text-slate-600">{fmt(row.cartonCommande)}</td>
-                      <td className="bg-orange-50/20 px-3 py-3 text-slate-600">{fmt(row.cartonFabrique)}</td>
-                      <td
-                        className={`bg-orange-50/20 px-3 py-3 font-semibold ${
-                          row.pctProgramme !== null && row.pctProgramme < 98 ? "text-red-700" : "text-emerald-700"
-                        }`}
-                      >
-                        {row.pctProgrammeLabel}
-                      </td>
-                      <td className="bg-sky-50/20 px-3 py-3 text-slate-600">
-                        {row.capaciteLabel}
-                        {row.isManuel.capacite ? <ManuelBadge /> : null}
-                      </td>
-                      <td className="bg-fuchsia-50/20 px-3 py-3 text-slate-600">{row.heuresSupplementairesLabel}</td>
-                      <td className="bg-violet-50/20 px-3 py-3 text-slate-600">
-                        {fmt(row.preparations)}
-                        {row.isManuel.testLabo ? <ManuelBadge /> : null}
-                      </td>
-                      <td
-                        className={`bg-violet-50/20 px-3 py-3 font-semibold ${
-                          row.pctADetruire !== null && row.pctADetruire >= 0.5 ? "text-red-700" : "text-slate-600"
-                        }`}
-                      >
-                        {row.pctADetruireLabel}
-                      </td>
-                      <td
-                        className={`bg-violet-50/20 px-3 py-3 font-semibold ${
-                          row.pctSousDerogation !== null && row.pctSousDerogation >= 10 ? "text-red-700" : "text-slate-600"
-                        }`}
-                      >
-                        {row.pctSousDerogationLabel}
-                      </td>
-                      <td className="bg-emerald-50/20 px-3 py-3 text-slate-600">
-                        {row.vracFabriqueKgLabel}
-                        {row.isManuel.balance ? <ManuelBadge /> : null}
-                      </td>
-                      <td className="bg-emerald-50/20 px-3 py-3 text-slate-600">{row.cartonFabriqueKgLabel}</td>
-                      <td
-                        className={`bg-emerald-50/20 px-3 py-3 font-semibold ${
-                          row.pctEcart !== null && Math.abs(row.pctEcart) > 0.5 ? "text-red-700" : "text-slate-600"
-                        }`}
-                      >
-                        {row.pctEcartLabel}
-                      </td>
-                      <td className="bg-red-50/20 px-3 py-3 text-slate-600">
-                        {fmt(row.arretMinutes)}
-                        {row.isManuel.arret ? <ManuelBadge /> : null}
-                      </td>
-                      <td className="bg-red-50/20 px-3 py-3 text-slate-600">{fmt(row.travailMinutes)}</td>
-                      <td
-                        className={`bg-red-50/20 px-3 py-3 font-semibold ${
-                          row.pctArret !== null && row.pctArret >= 5 ? "text-red-700" : "text-slate-600"
-                        }`}
-                      >
-                        {row.pctArretLabel}
-                      </td>
-                      <td className="bg-cyan-50/20 px-3 py-3 text-slate-600">{fmt(row.formationAFaire)}</td>
-                      <td className="bg-cyan-50/20 px-3 py-3 text-slate-600">{fmt(row.formationRealisee)}</td>
-                      <td
-                        className={`bg-cyan-50/20 px-3 py-3 font-semibold ${
-                          row.pctFormationLabel !== "-" && row.formationRealisee < row.formationAFaire
-                            ? "text-red-700"
-                            : "text-slate-600"
-                        }`}
-                      >
-                        {row.pctFormationLabel}
-                      </td>
-                      <td className="bg-amber-50/20 px-3 py-3 text-slate-600">
-                        {row.piecesLabel}
-                        {row.isManuel.dechets ? <ManuelBadge /> : null}
-                      </td>
-                      <td className="bg-amber-50/20 px-3 py-3 text-slate-600">{row.dechetLabel}</td>
-                      <td
-                        className={`bg-amber-50/20 px-3 py-3 font-semibold ${
-                          row.pctDechets !== null && row.pctDechets >= 1 ? "text-red-700" : "text-slate-600"
-                        }`}
-                      >
-                        {row.pctDechetsLabel}
-                      </td>
-                      <td className="bg-rose-50/20 px-3 py-3 text-slate-600">{fmt(row.qtRetourneeNc)}</td>
-                      <td
-                        className={`bg-rose-50/20 px-3 py-3 font-semibold ${
-                          row.pctReclamationNcLabel !== "-" && row.qtRetourneeNc > 0 ? "text-red-700" : "text-slate-600"
-                        }`}
-                      >
-                        {row.pctReclamationNcLabel}
-                      </td>
-                      <td className="bg-indigo-50/20 px-3 py-3 text-slate-600">{fmt(row.qtCommandeLivraison)}</td>
-                      <td className="bg-indigo-50/20 px-3 py-3 text-slate-600">{fmt(row.qtLivreeATemps)}</td>
-                      <td
-                        className={`bg-indigo-50/20 px-3 py-3 font-semibold ${
-                          row.pctLivraisonLabel !== "-" && row.qtLivreeATemps < row.qtCommandeLivraison
-                            ? "text-red-700"
-                            : "text-slate-600"
-                        }`}
-                      >
-                        {row.pctLivraisonLabel}
-                      </td>
-                      <td className="bg-green-50/20 px-3 py-3 font-semibold text-green-800">
-                        {row.prixCartonLabel}
-                        {row.isManuel.prixCarton ? <ManuelBadge /> : null}
-                      </td>
-                    </tr>
-                  ))}
+                  {INDICATEUR_ROWS.map((indicateur) => {
+                    const lastSubRow = indicateur.subRows[indicateur.subRows.length - 1];
+                    const action = monthRows[0] ? lastSubRow.getValue(monthRows[0]) : "-";
+                    return indicateur.subRows.map((subRow, subIndex) => (
+                      <tr key={`${indicateur.numero}-${subIndex}`} className="border-t border-slate-100">
+                        {subIndex === 0 ? (
+                          <>
+                            <td
+                              rowSpan={indicateur.subRows.length}
+                              className="sticky left-0 z-10 w-[56px] min-w-[56px] max-w-[56px] border border-slate-200 bg-white px-3 py-2 align-top font-semibold text-slate-500"
+                            >
+                              {indicateur.numero}
+                            </td>
+                            <td
+                              rowSpan={indicateur.subRows.length}
+                              className="sticky left-[56px] z-10 border border-slate-200 bg-white px-3 py-2 align-top text-slate-900"
+                            >
+                              {indicateur.label}
+                            </td>
+                            <td
+                              rowSpan={indicateur.subRows.length}
+                              className="border border-slate-200 bg-slate-50 px-3 py-2 align-top text-slate-600"
+                            >
+                              {indicateur.cible}
+                            </td>
+                            <td
+                              rowSpan={indicateur.subRows.length}
+                              className="border border-slate-200 bg-violet-50 px-3 py-2 align-top font-semibold text-violet-700"
+                            >
+                              {action}
+                            </td>
+                          </>
+                        ) : null}
+                        <td className="border border-slate-200 px-3 py-2 text-xs text-slate-500">
+                          {subRow.label}
+                          {subIndex === 0 && indicateur.manuelKey ? (
+                            <span className="ml-1 text-[9px] text-violet-500">(m)</span>
+                          ) : null}
+                        </td>
+                        {monthRowsAscending.map((row) => (
+                          <td key={row.mois} className="border border-slate-200 px-3 py-2 text-right text-slate-700">
+                            {subRow.getValue(row)}
+                            {subIndex === 0 && indicateur.manuelKey && row.isManuel[indicateur.manuelKey] ? (
+                              <ManuelBadge />
+                            ) : null}
+                          </td>
+                        ))}
+                      </tr>
+                    ));
+                  })}
                 </tbody>
               </table>
             </div>
