@@ -50,11 +50,16 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
   if (!yearOptions.includes(currentYear)) yearOptions.unshift(currentYear);
 
   const selectedYear = Number(params.annee) || yearOptions[0] || currentYear;
+  // L'annee demandee dans l'URL peut ne pas encore exister (ex: on cree
+  // 2028 pour la premiere fois) - toujours l'afficher comme onglet actif
+  // meme sans aucune ligne, sinon rien ne montre qu'on y est.
+  if (!yearOptions.includes(selectedYear)) {
+    yearOptions.push(selectedYear);
+    yearOptions.sort((a, b) => b - a);
+  }
   const rowsForYear = allRows.filter((row) => row.annee === selectedYear);
   const trainingRows = rowsForYear.filter((row) => !row.est_bilan);
   const bilanRows = rowsForYear.filter((row) => row.est_bilan);
-
-  const formYearOptions = Array.from({ length: 6 }, (_, i) => currentYear - 4 + i);
 
   const exportRows = rowsForYear.map((row) => {
     const base: Record<string, string | number | null> = {
@@ -106,7 +111,7 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             {yearOptions.map((year) => (
               <Link
                 key={year}
@@ -118,10 +123,26 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
                 {year}
               </Link>
             ))}
+            {canEdit ? (
+              <form method="get" className="flex items-center gap-1">
+                <input
+                  type="number"
+                  name="annee"
+                  placeholder={String(currentYear + 1)}
+                  className="w-24 rounded-full border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none"
+                />
+                <button
+                  type="submit"
+                  className="rounded-full border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-700"
+                >
+                  + Nouvelle annee
+                </button>
+              </form>
+            ) : null}
           </div>
         </section>
 
-        {canEdit ? <FormationForm rows={allRows} yearOptions={formYearOptions} currentYear={selectedYear} /> : null}
+        {canEdit ? <FormationForm rows={allRows} currentYear={selectedYear} /> : null}
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="border-b border-slate-100 px-5 py-4">

@@ -7,11 +7,9 @@ import { MOIS_FIELD_KEYS, type FormationRow } from "./fields";
 
 export function FormationForm({
   rows,
-  yearOptions,
   currentYear,
 }: {
   rows: FormationRow[];
-  yearOptions: number[];
   currentYear: number;
 }) {
   const [annee, setAnnee] = useState(currentYear);
@@ -37,21 +35,16 @@ export function FormationForm({
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Annee
-            <select
+            <input
+              type="number"
               name="annee"
-              defaultValue={annee}
+              value={annee}
               onChange={(e) => {
-                setAnnee(Number(e.target.value));
+                setAnnee(Number(e.target.value) || currentYear);
                 setSelectedId("new");
               }}
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-            >
-              {yearOptions.map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-500 lg:col-span-3">
             Ligne existante
