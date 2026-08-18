@@ -85,30 +85,23 @@ function revalidateCommandeBcMpPages() {
   revalidatePath("/dashboard");
 }
 
-type ImportEvenementForCleanup = {
-  bc_ligne_id: number;
-  lot_stock_id: number | null;
-};
-
-// Une ligne de commande peut avoir ete receptionnee (Reception depuis le
-// detail d'un dossier Import), ce qui a credite une ligne de stock reelle -
-// a appeler avant de supprimer des lignes de commande, sinon ce stock reste
-// credite alors que la commande qui l'a genere n'existe plus.
-async function releaseStockForBcLignes(bcLigneIds: number[]) {
+// Une ligne de commande peut avoir deja ete receptionnee (Reception depuis
+// le detail d'un dossier Import), ce qui a credite une vraie ligne de
+// stock - dans ce cas on interdit la suppression au lieu de supprimer ce
+// stock en silence (demande explicite : avertir que c'est deja importe
+// plutot que de laisser supprimer et perdre la tracabilite du stock reel).
+async function ensureNoImportsForBcLignes(bcLigneIds: number[]) {
   if (bcLigneIds.length === 0) return;
 
-  const { data: importRows } = await supabaseServer
+  const { data: importRows, error } = await supabaseServer
     .from("bons_commande_mp_imports")
-    .select("bc_ligne_id, lot_stock_id")
+    .select("bc_ligne_id")
     .in("bc_ligne_id", bcLigneIds);
 
-  const lotIds = ((importRows ?? []) as ImportEvenementForCleanup[])
-    .map((row) => row.lot_stock_id)
-    .filter((id): id is number => id !== null);
+  if (error) throw new Error(error.message);
 
-  if (lotIds.length > 0) {
-    const { error } = await supabaseServer.from("lots_stock_matiere_premiere").delete().in("id", lotIds);
-    if (error) throw new Error(error.message);
+  if ((importRows ?? []).length > 0) {
+    throw new Error("Cette commande a deja ete importee (reception effectuee) - impossible de la supprimer.");
   }
 }
 
@@ -479,7 +472,7 @@ export async function deleteCommandeBcLigneAction(formData: FormData) {
 
   const code = (ligneRow as { code: string } | null)?.code ?? null;
 
-  await releaseStockForBcLignes([bcId]);
+  await ensureNoImportsForBcLignes([bcId]);
 
   const { error } = await supabaseServer
     .from("bons_commande_matiere_premiere")
@@ -505,7 +498,8 @@ export async function deleteCommandeBcLigneAction(formData: FormData) {
 }
 
 // Supprime tout un BC (toutes les lignes/articles qui partagent le meme
-// code), avec le stock deja credite par une eventuelle reception.
+// code) - refuse si une des lignes a deja ete importee (voir
+// ensureNoImportsForBcLignes).
 export async function deleteCommandeBcGroupAction(formData: FormData) {
   await requireDeleteAccess();
 
@@ -526,7 +520,7 @@ export async function deleteCommandeBcGroupAction(formData: FormData) {
 
   const bcIds = ((lignes ?? []) as { id: number }[]).map((row) => row.id);
 
-  await releaseStockForBcLignes(bcIds);
+  await ensureNoImportsForBcLignes(bcIds);
 
   const { error } = await supabaseServer.from("bons_commande_matiere_premiere").delete().eq("code", code);
 
