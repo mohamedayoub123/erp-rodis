@@ -71,13 +71,18 @@ function AttachmentsCell({
   // "webkitdirectory" (selection d'un dossier entier plutot que fichier par
   // fichier) n'existe pas dans les types JSX standard - on le pose a la
   // main sur l'element une fois monte. Supporte par tous les navigateurs de
-  // bureau modernes (Chrome/Edge/Firefox).
+  // bureau modernes (Chrome/Edge/Firefox). Le champ n'existe dans le DOM
+  // que quand le cadre est ouvert (isOpen) - sans isOpen en dependance, cet
+  // effet ne tournait qu'au tout premier montage du composant (isOpen
+  // encore false, ref encore null) et ne se relancait jamais, donc
+  // l'attribut n'etait en fait JAMAIS pose : le navigateur ouvrait un
+  // selecteur de fichiers classique au lieu du selecteur de dossier.
   useEffect(() => {
     if (folderInputRef.current) {
       folderInputRef.current.setAttribute("webkitdirectory", "");
       folderInputRef.current.setAttribute("directory", "");
     }
-  }, []);
+  }, [isOpen]);
 
   if (!rowId) {
     return <p className="mt-1 text-[11px] text-slate-400">Enregistre la ligne pour joindre un fichier.</p>;
