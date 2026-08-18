@@ -65,6 +65,7 @@ function AttachmentsCell({
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -116,6 +117,9 @@ function AttachmentsCell({
   function handleUpload(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
     setError("");
+    const allFiles = Array.from(fileList);
+    setUploadProgress({ done: 0, total: allFiles.length });
+    setIsOpen(true);
 
     startTransition(async () => {
       // Chaque fichier est envoye DIRECTEMENT au stockage Supabase depuis le
@@ -124,8 +128,7 @@ function AttachmentsCell({
       // refusent toute requete de plus de 4.5 Mo quel que soit le reglage
       // Next.js, ce qui bloquait deja les videos et aurait fini par bloquer
       // aussi les photos les plus lourdes.
-      const uploaded: AttachmentFile[] = [];
-      for (const file of Array.from(fileList)) {
+      for (const file of allFiles) {
         // Quand le fichier vient d'un dossier attache entier (input
         // webkitdirectory), webkitRelativePath garde le sous-chemin
         // ("MonDossier/sous-dossier/photo.jpg") - affiche tel quel pour
@@ -136,6 +139,7 @@ function AttachmentsCell({
         const slot = await createUploadSlotAction(rowId as number, file.name);
         if (!slot.ok || !slot.path || !slot.signedUrl) {
           setError(slot.message || `Erreur pendant l'envoi de "${displayName}".`);
+          setUploadProgress((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev));
           continue;
         }
         try {
@@ -146,40 +150,37 @@ function AttachmentsCell({
           });
           if (!response.ok) {
             setError(`Erreur pendant l'envoi de "${displayName}".`);
+            setUploadProgress((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev));
             continue;
           }
-          uploaded.push({ name: displayName, path: slot.path });
+
+          // Enregistre CE fichier tout de suite, un par un, au lieu
+          // d'attendre que TOUS les fichiers soient envoyes avant de tout
+          // enregistrer d'un coup - avec un gros dossier (beaucoup de
+          // fichiers, envoi long), une interruption en cours de route
+          // (fermeture d'onglet, coupure reseau) perdait alors TOUT ce qui
+          // avait deja ete envoye faute d'avoir ete confirme cote base.
+          const uploadedFile: AttachmentFile = { name: displayName, path: slot.path };
+          const result = await confirmUploadAction(rowId as number, [uploadedFile]);
+          if (!result.ok) {
+            setError(result.message || `Erreur pendant l'enregistrement de "${displayName}".`);
+          } else {
+            setFiles((prev) => [...prev, uploadedFile]);
+            if (isImageFile(uploadedFile.name)) {
+              const urlResult = await getFileUrlAction(uploadedFile.path);
+              if (urlResult.ok && urlResult.url) {
+                const thumbnailUrl = urlResult.url;
+                setThumbnails((prev) => ({ ...prev, [uploadedFile.path]: thumbnailUrl }));
+              }
+            }
+          }
         } catch {
           setError(`Erreur pendant l'envoi de "${displayName}".`);
         }
+        setUploadProgress((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev));
       }
 
-      if (uploaded.length > 0) {
-        const result = await confirmUploadAction(rowId as number, uploaded);
-        if (!result.ok) {
-          setError(result.message || "Erreur pendant l'enregistrement.");
-        } else {
-          setFiles((prev) => [...prev, ...uploaded]);
-          setIsOpen(true);
-          // Vignette immediate pour les photos qu'on vient d'envoyer.
-          const newImages = uploaded.filter((f) => isImageFile(f.name));
-          if (newImages.length > 0) {
-            const entries = await Promise.all(
-              newImages.map(async (f) => {
-                const r = await getFileUrlAction(f.path);
-                return r.ok && r.url ? ([f.path, r.url] as const) : null;
-              })
-            );
-            const next: Record<string, string> = {};
-            for (const entry of entries) {
-              if (entry) next[entry[0]] = entry[1];
-            }
-            if (Object.keys(next).length > 0) {
-              setThumbnails((prev) => ({ ...prev, ...next }));
-            }
-          }
-        }
-      }
+      setUploadProgress(null);
       if (inputRef.current) inputRef.current.value = "";
       if (folderInputRef.current) folderInputRef.current.value = "";
     });
@@ -232,7 +233,9 @@ function AttachmentsCell({
         onClick={handleOpen}
         className="text-[11px] font-semibold text-violet-700 hover:underline"
       >
-        📎 {files.length > 0 ? `${files.length} fichier${files.length > 1 ? "s" : ""}` : "Joindre"}
+        {uploadProgress
+          ? `⏳ Envoi ${uploadProgress.done}/${uploadProgress.total}...`
+          : `📎 ${files.length > 0 ? `${files.length} fichier${files.length > 1 ? "s" : ""}` : "Joindre"}`}
       </button>
       {isOpen ? (
         <div
@@ -254,6 +257,25 @@ function AttachmentsCell({
                 ✕
               </button>
             </div>
+            {uploadProgress ? (
+              <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3">
+                <p className="text-sm font-semibold text-violet-800">
+                  Envoi en cours : {uploadProgress.done} / {uploadProgress.total} fichier
+                  {uploadProgress.total > 1 ? "s" : ""}
+                </p>
+                <p className="mt-1 text-xs text-violet-700">
+                  Ne ferme pas cette page tant que l&apos;envoi n&apos;est pas termine.
+                </p>
+                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-violet-100">
+                  <div
+                    className="h-full rounded-full bg-violet-600 transition-all"
+                    style={{
+                      width: `${uploadProgress.total > 0 ? Math.round((uploadProgress.done / uploadProgress.total) * 100) : 0}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
             {files.length === 0 ? (
               <p className="text-base text-slate-400">Aucun fichier attache.</p>
             ) : (
