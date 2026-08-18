@@ -244,7 +244,13 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
     { key: "r4", label: "Cout / carton - journalier + energie totale", color: "#eda100", values: monthRows.map((r) => r.r4 ?? 0) },
     { key: "r5", label: "Cout / carton - journalier + embauches + energie totale", color: "#e87ba4", values: monthRows.map((r) => r.r5 ?? 0) },
     { key: "r6", label: "Cout / carton - global (energie + salaires + depenses)", color: "#008300", values: monthRows.map((r) => r.r6 ?? 0) },
-    { key: "nbCarton", label: "Nb carton fabrique (divise par 100)", color: "#4a3aa7", values: monthRows.map((r) => r.nbCarton / 100) },
+    {
+      key: "nbCarton",
+      label: "Nb carton fabrique (divise par 100)",
+      color: "#4a3aa7",
+      values: monthRows.map((r) => r.nbCarton / 100),
+      displayValues: monthRows.map((r) => r.nbCarton),
+    },
   ];
 
   const exportRows = monthRows.map((row) => ({

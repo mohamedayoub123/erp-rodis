@@ -2,7 +2,17 @@
 
 import { useRef, useState } from "react";
 
-type Series = { key: string; label: string; color: string; values: number[] };
+type Series = {
+  key: string;
+  label: string;
+  color: string;
+  values: number[];
+  // Valeur reellement affichee (infobulle + dernier point) si differente de
+  // celle utilisee pour la position sur le graphe - ex: nb carton fabrique
+  // trace divise par 100 pour rester sur le meme axe que les couts, mais
+  // affiche en vrai (x100) au survol.
+  displayValues?: number[];
+};
 
 const WIDTH = 720;
 const HEIGHT = 320;
@@ -11,7 +21,11 @@ const PAD_RIGHT = 16;
 const PAD_TOP = 26;
 const PAD_BOTTOM = 40;
 const TOOLTIP_WIDTH = 190;
-const TOOLTIP_ROW_HEIGHT = 18;
+const HIT_RADIUS = 16;
+
+function displayValueOf(serie: Series, index: number) {
+  return serie.displayValues ? serie.displayValues[index] : serie.values[index];
+}
 
 // Evolution mensuelle commande vs fabrique, meme axe Y (les 2 en nombre de
 // cartons) - SVG fait maison (pas de bibliotheque de graphiques dans ce
@@ -20,14 +34,14 @@ const TOOLTIP_ROW_HEIGHT = 18;
 // vs #0284c7 (fabrique, meme bleu que le tableau) - ΔE normal-vision 30.6,
 // tous les checks passent.
 //
-// Survol (crosshair + infobulle) plutot qu'un chiffre fixe sur chaque
-// point : teste avec 7 series (Graphe Cout par Carton), les valeurs
-// proches se chevauchaient et devenaient illisibles en permanence -
-// l'infobulle au survol d'un mois montre toutes les valeurs de ce mois
-// sans jamais superposer de texte.
+// Survol point par point (pas un chiffre fixe sur chaque point, ni toutes
+// les series a la fois) : teste avec 7 series (Graphe Cout par Carton), un
+// chiffre fixe sur chaque point se chevauchait, et une infobulle listant
+// toutes les series a la fois etait trop chargee - le point le plus proche
+// de la souris affiche seulement sa propre valeur.
 export function CartonMensuelLineChart({ months, series }: { months: string[]; series: Series[] }) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [hovered, setHovered] = useState<{ seriesIndex: number; pointIndex: number } | null>(null);
 
   const maxValue = Math.max(1, ...series.flatMap((s) => s.values));
   const plotWidth = WIDTH - PAD_LEFT - PAD_RIGHT;
@@ -51,22 +65,43 @@ export function CartonMensuelLineChart({ months, series }: { months: string[]; s
     point.x = event.clientX;
     point.y = event.clientY;
     const local = point.matrixTransform(ctm.inverse());
-    const ratio = months.length <= 1 ? 0 : (local.x - PAD_LEFT) / plotWidth;
-    const index = Math.round(ratio * (months.length - 1));
-    setHoveredIndex(Math.max(0, Math.min(months.length - 1, index)));
+
+    let bestSeriesIndex = -1;
+    let bestPointIndex = -1;
+    let bestDistance = Infinity;
+    series.forEach((serie, seriesIndex) => {
+      serie.values.forEach((value, pointIndex) => {
+        const dx = local.x - xFor(pointIndex);
+        const dy = local.y - yFor(value);
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestSeriesIndex = seriesIndex;
+          bestPointIndex = pointIndex;
+        }
+      });
+    });
+
+    if (bestSeriesIndex >= 0 && bestDistance <= HIT_RADIUS) {
+      setHovered({ seriesIndex: bestSeriesIndex, pointIndex: bestPointIndex });
+    } else {
+      setHovered(null);
+    }
   }
 
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((fraction) => Math.round(maxValue * fraction));
 
-  const tooltipHeight = 26 + series.length * TOOLTIP_ROW_HEIGHT + 10;
-  const tooltipOverflowsRight = hoveredIndex !== null && xFor(hoveredIndex) + 10 + TOOLTIP_WIDTH > WIDTH - PAD_RIGHT;
-  const tooltipX =
-    hoveredIndex !== null
-      ? tooltipOverflowsRight
-        ? xFor(hoveredIndex) - 10 - TOOLTIP_WIDTH
-        : xFor(hoveredIndex) + 10
-      : 0;
-  const tooltipY = hoveredIndex !== null ? Math.min(PAD_TOP, HEIGHT - PAD_BOTTOM - tooltipHeight) : 0;
+  const hoveredSerie = hovered ? series[hovered.seriesIndex] : null;
+  const tooltipHeight = 46;
+  const tooltipOverflowsRight =
+    hovered && xFor(hovered.pointIndex) + 10 + TOOLTIP_WIDTH > WIDTH - PAD_RIGHT;
+  const tooltipX = hovered
+    ? tooltipOverflowsRight
+      ? xFor(hovered.pointIndex) - 10 - TOOLTIP_WIDTH
+      : xFor(hovered.pointIndex) + 10
+    : 0;
+  const tooltipYRaw = hoveredSerie && hovered ? yFor(hoveredSerie.values[hovered.pointIndex]) - tooltipHeight / 2 : 0;
+  const tooltipY = Math.min(Math.max(tooltipYRaw, PAD_TOP - 4), HEIGHT - PAD_BOTTOM - tooltipHeight + 4);
 
   return (
     <div className="flex h-full flex-col">
@@ -117,7 +152,7 @@ export function CartonMensuelLineChart({ months, series }: { months: string[]; s
               </text>
             ))}
 
-            {series.map((serie) => {
+            {series.map((serie, seriesIndex) => {
               const points = serie.values.map((value, index) => `${xFor(index)},${yFor(value)}`).join(" ");
               const lastIndex = serie.values.length - 1;
               return (
@@ -130,17 +165,21 @@ export function CartonMensuelLineChart({ months, series }: { months: string[]; s
                     strokeLinejoin="round"
                     strokeLinecap="round"
                   />
-                  {serie.values.map((value, index) => (
-                    <circle
-                      key={index}
-                      cx={xFor(index)}
-                      cy={yFor(value)}
-                      r={index === hoveredIndex ? 5 : 3.5}
-                      fill={serie.color}
-                      stroke="#fff"
-                      strokeWidth={index === hoveredIndex ? 2 : 1.5}
-                    />
-                  ))}
+                  {serie.values.map((value, index) => {
+                    const isHovered =
+                      hovered && hovered.seriesIndex === seriesIndex && hovered.pointIndex === index;
+                    return (
+                      <circle
+                        key={index}
+                        cx={xFor(index)}
+                        cy={yFor(value)}
+                        r={isHovered ? 5.5 : 3.5}
+                        fill={serie.color}
+                        stroke="#fff"
+                        strokeWidth={isHovered ? 2 : 1.5}
+                      />
+                    );
+                  })}
                   {lastIndex >= 0 ? (
                     <text
                       x={xFor(lastIndex) + 6}
@@ -149,51 +188,27 @@ export function CartonMensuelLineChart({ months, series }: { months: string[]; s
                       className="text-[11px] font-bold"
                       fill={serie.color}
                     >
-                      {Math.round(serie.values[lastIndex])}
+                      {Math.round(displayValueOf(serie, lastIndex)).toLocaleString("fr-FR")}
                     </text>
                   ) : null}
                 </g>
               );
             })}
 
-            {hoveredIndex !== null ? (
-              <>
-                <line
-                  x1={xFor(hoveredIndex)}
-                  x2={xFor(hoveredIndex)}
-                  y1={PAD_TOP}
-                  y2={HEIGHT - PAD_BOTTOM}
-                  stroke="#94a3b8"
-                  strokeWidth={1}
-                  strokeDasharray="3 3"
-                  pointerEvents="none"
-                />
-                <foreignObject
-                  x={tooltipX}
-                  y={tooltipY}
-                  width={TOOLTIP_WIDTH}
-                  height={tooltipHeight}
-                  pointerEvents="none"
-                >
-                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-lg">
-                    <p className="mb-1 font-bold text-slate-900">{months[hoveredIndex]}</p>
-                    <ul className="grid gap-0.5">
-                      {series.map((serie) => (
-                        <li key={serie.key} className="flex items-center gap-1.5 text-slate-600">
-                          <span
-                            className="h-2 w-2 shrink-0 rounded-full"
-                            style={{ backgroundColor: serie.color }}
-                          />
-                          <span className="flex-1 truncate">{serie.label}</span>
-                          <span className="font-semibold text-slate-900">
-                            {Math.round(serie.values[hoveredIndex]).toLocaleString("fr-FR")}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </foreignObject>
-              </>
+            {hovered && hoveredSerie ? (
+              <foreignObject x={tooltipX} y={tooltipY} width={TOOLTIP_WIDTH} height={tooltipHeight} pointerEvents="none">
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-lg">
+                  <p className="mb-0.5 truncate font-bold" style={{ color: hoveredSerie.color }}>
+                    {hoveredSerie.label}
+                  </p>
+                  <p className="text-slate-600">
+                    {months[hovered.pointIndex]} :{" "}
+                    <span className="font-semibold text-slate-900">
+                      {Math.round(displayValueOf(hoveredSerie, hovered.pointIndex)).toLocaleString("fr-FR")}
+                    </span>
+                  </p>
+                </div>
+              </foreignObject>
             ) : null}
 
             <rect
@@ -202,8 +217,9 @@ export function CartonMensuelLineChart({ months, series }: { months: string[]; s
               width={plotWidth}
               height={plotHeight}
               fill="transparent"
+              pointerEvents="all"
               onMouseMove={handleMove}
-              onMouseLeave={() => setHoveredIndex(null)}
+              onMouseLeave={() => setHovered(null)}
               style={{ cursor: "crosshair" }}
             />
           </svg>
