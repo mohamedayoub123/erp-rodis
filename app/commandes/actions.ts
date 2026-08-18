@@ -247,6 +247,25 @@ function statusDateKeyFor(statutValue: string | null | undefined): "EN_COURS" | 
   return "EN_COURS";
 }
 
+// "Pret dans le stock" (case a cocher a cote de chaque proforma dans la
+// liste des commandes) - encode dans commentaire comme les autres marqueurs
+// de cette fonction (STATUT_DATE_/DATE_TRANSITION_) plutot que d'ajouter une
+// colonne, pour ne pas avoir a migrer la table pour un simple flag+date.
+function upsertPretStockComment(commentaire: string | null | undefined, checked: boolean) {
+  const parts = (commentaire || "")
+    .split("|")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => part !== "PRET_STOCK:oui" && !part.startsWith("PRET_STOCK_DATE:"));
+
+  if (checked) {
+    parts.push("PRET_STOCK:oui");
+    parts.push(`PRET_STOCK_DATE:${new Date().toISOString().slice(0, 10)}`);
+  }
+
+  return parts.join(" | ");
+}
+
 // Ne pose la date "entree dans ce statut"/sa date de transition QUE la
 // premiere fois (token pas encore present) ou lors d'un vrai changement de
 // bucket (voir statutBucket) - jamais a chaque simple resauvegarde
@@ -1654,6 +1673,44 @@ export async function deleteProformaGroupAction(formData: FormData) {
     resume: `Commande ${numeroProforma}${client ? ` (${client})` : ""} supprimee entierement (${nombreCamions} camion${nombreCamions > 1 ? "s" : ""})`,
     avant: { commandes: (groupeAvantSuppression ?? []).map(splitCommandeSnapshot) },
   });
+
+  revalidateCommandeDependentPages();
+}
+
+// Coche/decoche "Pret dans le stock" pour TOUTE la proforma d'un coup
+// (tous les camions freres) - c'est un etat global de la commande, pas par
+// camion, meme regroupement que deleteProformaGroupAction ci-dessus. Le
+// commentaire de chaque camion garde ses propres marqueurs existants
+// (STATUT_DATE_, DATE_TRANSITION_...), donc chaque ligne est mise a jour
+// individuellement plutot qu'avec un seul .update() en masse.
+export async function togglePretStockAction(formData: FormData) {
+  await requireCommandesChangeStatusAccess();
+  const numeroProforma = String(formData.get("numero_proforma") || "").trim();
+  const checked = formData.get("pret_stock") === "on";
+
+  if (!numeroProforma) {
+    throw new Error("Proforma invalide.");
+  }
+
+  const { data: rows, error } = await supabaseServer
+    .from("commandes")
+    .select("id, commentaire")
+    .or(`numero_proforma.eq.${numeroProforma},numero_proforma.like.${numeroProforma}-%`);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  for (const row of (rows as { id: number; commentaire: string | null }[] | null) ?? []) {
+    const { error: updateError } = await supabaseServer
+      .from("commandes")
+      .update({ commentaire: upsertPretStockComment(row.commentaire, checked) })
+      .eq("id", row.id);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+  }
 
   revalidateCommandeDependentPages();
 }

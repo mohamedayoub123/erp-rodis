@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { cancelFifoBatchAction, changeCommandeStatusAction, deleteProformaGroupAction } from "./actions";
+import {
+  cancelFifoBatchAction,
+  changeCommandeStatusAction,
+  deleteProformaGroupAction,
+  togglePretStockAction,
+} from "./actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -13,6 +18,7 @@ import {
 } from "@/lib/stock-auth";
 import { formatDate } from "@/lib/format-date";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { PretStockToggle } from "./pret-stock-toggle";
 
 type SearchParams = Promise<{
   q?: string;
@@ -45,6 +51,8 @@ type ProformaGroup = {
   cartonTotal: number;
   statusCounts: { statut: string; count: number }[];
   openTargetId: number;
+  pretStock: boolean;
+  pretStockDate: string;
 };
 
 function extractTransitionDate(commentaire: string | null | undefined, transitionKey: string) {
@@ -53,6 +61,19 @@ function extractTransitionDate(commentaire: string | null | undefined, transitio
   const parts = commentaire.split("|").map((part) => part.trim());
   const token = parts.find((part) => part.startsWith(`DATE_TRANSITION_${transitionKey}:`));
   return token ? token.replace(`DATE_TRANSITION_${transitionKey}:`, "").trim() : "";
+}
+
+// Meme encodage que upsertPretStockComment cote actions.ts - lu ici depuis
+// le commentaire du 1er camion de la proforma (togglePretStockAction marque
+// toujours tous les camions freres a l'identique).
+function extractPretStock(commentaire: string | null | undefined) {
+  if (!commentaire) return { checked: false, date: "" };
+
+  const parts = commentaire.split("|").map((part) => part.trim());
+  const checked = parts.includes("PRET_STOCK:oui");
+  const dateToken = parts.find((part) => part.startsWith("PRET_STOCK_DATE:"));
+  const date = dateToken ? dateToken.replace("PRET_STOCK_DATE:", "").trim() : "";
+  return { checked, date };
 }
 
 function formatStatus(value: string | null) {
@@ -262,6 +283,7 @@ export default async function CommandesPage({
         if (!earliest) return row.created_at;
         return row.created_at < earliest ? row.created_at : earliest;
       }, null);
+      const pretStockInfo = extractPretStock(rows[0]?.commentaire);
 
       return {
         numeroProforma,
@@ -273,6 +295,8 @@ export default async function CommandesPage({
         cartonTotal: rows.reduce((sum, row) => sum + row.carton_total, 0),
         statusCounts,
         openTargetId: openTarget.id,
+        pretStock: pretStockInfo.checked,
+        pretStockDate: pretStockInfo.date,
       };
     }
   );
@@ -391,10 +415,30 @@ export default async function CommandesPage({
                   {proformaGroups.map((group) => (
                     <tr key={group.numeroProforma} className="border-t border-slate-100">
                       <td className="px-4 py-3 text-slate-600">{formatDate(group.createdAt)}</td>
-                      <td className="truncate px-4 py-3 font-semibold text-slate-900">
-                        <Link href={`/commandes/${group.openTargetId}`} className="hover:text-sky-700">
-                          {group.numeroProforma}
-                        </Link>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            href={`/commandes/${group.openTargetId}`}
+                            className="truncate hover:text-sky-700"
+                          >
+                            {group.numeroProforma}
+                          </Link>
+                          {canChangeStatusCommandes ? (
+                            <PretStockToggle
+                              numeroProforma={group.numeroProforma}
+                              checked={group.pretStock}
+                              date={group.pretStockDate}
+                              action={togglePretStockAction}
+                            />
+                          ) : group.pretStock ? (
+                            <span
+                              className="text-[10px] font-semibold text-emerald-700"
+                              title={`Pret en stock depuis le ${formatDate(group.pretStockDate)}`}
+                            >
+                              ✓ stock
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-slate-700">
                         <Link
