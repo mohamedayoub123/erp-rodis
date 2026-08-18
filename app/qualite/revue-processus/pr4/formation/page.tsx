@@ -21,7 +21,7 @@ import { MOIS_FIELD_KEYS, MOIS_NOMS, type FormationRow } from "./fields";
 async function fetchFormationRows(): Promise<FormationRow[]> {
   const monthCols = Array.from({ length: 12 }, (_, i) => {
     const n = i + 1;
-    return `m${n}_planifie, m${n}_date, m${n}_realise, m${n}_pieces_jointes`;
+    return `m${n}_planifie, m${n}_date, m${n}_pieces_jointes`;
   }).join(", ");
   const { data, error } = await supabaseServer
     .from("pr4_formation_plan")
@@ -161,7 +161,7 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
                         <td className="sticky left-[180px] z-10 w-[260px] min-w-[260px] max-w-[260px] border border-slate-200 bg-white px-3 py-2 text-slate-900">
                           {row.formation}
                         </td>
-                        {MOIS_FIELD_KEYS.map(({ mois, planifieKey, dateKey, realiseKey, piecesJointesKey }) => (
+                        {MOIS_FIELD_KEYS.map(({ mois, planifieKey, dateKey, piecesJointesKey }) => (
                           <FormationMonthCell
                             key={planifieKey}
                             rowId={row.id}
@@ -169,7 +169,6 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
                             annee={row.annee}
                             planifie={Boolean(row[planifieKey])}
                             date={row[dateKey] as string | null}
-                            realise={Boolean(row[realiseKey])}
                             initialFiles={(row[piecesJointesKey] as FormationRow["m1_pieces_jointes"]) ?? []}
                             canEdit={canEdit}
                           />
@@ -204,7 +203,7 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
                       <td className="w-[440px] min-w-[440px] max-w-[440px] border border-slate-200 bg-violet-50 px-3 py-2 font-semibold text-violet-800">
                         {row.formation}
                       </td>
-                      {MOIS_FIELD_KEYS.map(({ mois, planifieKey, dateKey, realiseKey, piecesJointesKey }) => (
+                      {MOIS_FIELD_KEYS.map(({ mois, planifieKey, dateKey, piecesJointesKey }) => (
                         <FormationMonthCell
                           key={planifieKey}
                           rowId={row.id}
@@ -212,7 +211,6 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
                           annee={row.annee}
                           planifie={Boolean(row[planifieKey])}
                           date={row[dateKey] as string | null}
-                          realise={Boolean(row[realiseKey])}
                           initialFiles={(row[piecesJointesKey] as FormationRow["m1_pieces_jointes"]) ?? []}
                           canEdit={canEdit}
                         />

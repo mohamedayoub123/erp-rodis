@@ -6,16 +6,18 @@ import {
   createFormationUploadSlotAction,
   deleteFormationFileAction,
   getFormationFileUrlAction,
+  updateFormationDateAction,
 } from "./actions";
 import type { AttachmentFile } from "./fields";
 
-// Statut de la cellule : vert si cochee "realise", rouge si le mois cible
-// (annee/mois de la colonne, pas le texte libre de date qui contient parfois
-// des listes comme "24&30/06/2025") est deja passe sans etre cochee, jaune
-// si planifie mais le mois n'est pas encore passe, "-" si pas planifie.
-function monthStatus(annee: number, mois: number, planifie: boolean, realise: boolean) {
+// Statut de la cellule : la date fait office d'indicateur "realise" -
+// vert des qu'une date est ecrite, rouge si le mois cible (annee/mois de la
+// colonne, pas forcement le texte de la date lui-meme) est deja passe sans
+// aucune date, jaune si planifie mais le mois n'est pas encore passe, "-"
+// si le mois n'est pas du tout planifie.
+function monthStatus(annee: number, mois: number, planifie: boolean, hasDate: boolean) {
   if (!planifie) return "none";
-  if (realise) return "done";
+  if (hasDate) return "done";
   const now = new Date();
   const overdue = annee < now.getFullYear() || (annee === now.getFullYear() && mois < now.getMonth() + 1);
   return overdue ? "late" : "pending";
@@ -34,7 +36,6 @@ export function FormationMonthCell({
   annee,
   planifie,
   date,
-  realise,
   initialFiles,
   canEdit,
 }: {
@@ -43,11 +44,14 @@ export function FormationMonthCell({
   annee: number;
   planifie: boolean;
   date: string | null;
-  realise: boolean;
   initialFiles: AttachmentFile[];
   canEdit: boolean;
 }) {
-  const status = monthStatus(annee, mois, planifie, realise);
+  const [dateState, setDateState] = useState(date ?? "");
+  const [planifieState, setPlanifieState] = useState(planifie);
+  const [dateBusy, setDateBusy] = useState(false);
+  const [editingDate, setEditingDate] = useState(false);
+  const status = monthStatus(annee, mois, planifieState, Boolean(dateState.trim()));
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<AttachmentFile[]>(initialFiles);
   const [busy, setBusy] = useState(false);
@@ -130,12 +134,27 @@ export function FormationMonthCell({
     setBusy(false);
   }
 
+  async function handleSaveDate(nextValue: string) {
+    setEditingDate(false);
+    if (nextValue === (date ?? "")) return;
+    setDateBusy(true);
+    const previousDate = dateState;
+    const previousPlanifie = planifieState;
+    setDateState(nextValue);
+    if (nextValue.trim()) setPlanifieState(true);
+    const result = await updateFormationDateAction(rowId, mois, nextValue);
+    if (!result.ok) {
+      setDateState(previousDate);
+      setPlanifieState(previousPlanifie);
+      setError(result.message || "Erreur pendant la mise a jour.");
+    }
+    setDateBusy(false);
+  }
+
   return (
     <td className={`relative border border-slate-200 px-3 py-2 text-center align-top ${STATUS_STYLES[status]}`}>
-      {status === "none" ? (
-        "-"
-      ) : (
-        <div>
+      <div>
+        {status !== "none" ? (
           <span
             className={`font-semibold ${
               status === "done" ? "text-emerald-700" : status === "late" ? "text-red-700" : "text-amber-700"
@@ -143,9 +162,37 @@ export function FormationMonthCell({
           >
             {status === "done" ? "✓" : status === "late" ? "✗" : "•"}
           </span>
-          {date ? <div className="mt-0.5 text-[10px] text-slate-500">{date}</div> : null}
-        </div>
-      )}
+        ) : null}
+
+        {canEdit ? (
+          editingDate ? (
+            <input
+              type="text"
+              autoFocus
+              defaultValue={dateState}
+              disabled={dateBusy}
+              placeholder="Date"
+              onBlur={(e) => handleSaveDate(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                if (e.key === "Escape") setEditingDate(false);
+              }}
+              className="mt-0.5 w-full rounded border border-slate-300 px-1 py-0.5 text-[10px] text-slate-900 outline-none"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditingDate(true)}
+              className="mt-0.5 block w-full truncate text-[10px] text-slate-500 hover:text-slate-800 hover:underline"
+              title="Ecrire la date une fois la formation faite"
+            >
+              {dateState || (status === "none" ? "-" : "ecrire date")}
+            </button>
+          )
+        ) : (
+          <div className="mt-0.5 text-[10px] text-slate-500">{dateState || (status === "none" ? "-" : "")}</div>
+        )}
+      </div>
 
       <button
         type="button"

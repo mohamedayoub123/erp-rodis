@@ -34,10 +34,9 @@ export async function saveFormationRowAction(formData: FormData) {
     est_bilan: estBilan,
     updated_at: new Date().toISOString(),
   };
-  for (const { planifieKey, dateKey, realiseKey } of MOIS_FIELD_KEYS) {
+  for (const { planifieKey, dateKey } of MOIS_FIELD_KEYS) {
     payload[planifieKey] = formData.get(planifieKey) === "on";
     payload[dateKey] = String(formData.get(dateKey) || "").trim() || null;
-    payload[realiseKey] = formData.get(realiseKey) === "on";
   }
 
   const { error } = id
@@ -49,6 +48,43 @@ export async function saveFormationRowAction(formData: FormData) {
   }
 
   revalidatePath("/qualite/revue-processus/pr4/formation");
+}
+
+// Ecrit directement la date d'un mois depuis le tableau (sans passer par le
+// formulaire complet) - la date fait office d'indicateur "realise" : ecrire
+// une date = c'est fait (vert), mois passe sans date = rate (rouge), mois
+// pas encore passe sans date = en attente (jaune).
+export async function updateFormationDateAction(
+  rowId: number,
+  mois: number,
+  date: string
+): Promise<{ ok: boolean; message?: string }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteRevueProcessus"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas modifier le plan de formation." };
+  }
+  if (!rowId || mois < 1 || mois > 12) {
+    return { ok: false, message: "Ligne invalide." };
+  }
+
+  const trimmed = date.trim();
+  const payload: Record<string, unknown> = {
+    [`m${mois}_date`]: trimmed || null,
+    updated_at: new Date().toISOString(),
+  };
+  // Ecrire une date marque automatiquement le mois "planifie" (sinon rien
+  // n'affiche la date tapee) - effacer la date ne re-decoche pas planifie,
+  // pour ne pas retirer un mois du plan par erreur en corrigeant juste une
+  // date.
+  if (trimmed) payload[`m${mois}_planifie`] = true;
+
+  const { error } = await supabaseServer.from(TABLE).update(payload).eq("id", rowId);
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+
+  revalidatePath("/qualite/revue-processus/pr4/formation");
+  return { ok: true };
 }
 
 export async function deleteFormationRowAction(formData: FormData) {
