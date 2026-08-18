@@ -37,7 +37,7 @@ export async function savePr4ManuelAction(formData: FormData) {
     throw new Error(error.message);
   }
 
-  revalidatePath("/qualite/revue-processus/pr4");
+  revalidatePath("/qualite/revue-processus/pr4/indicateurs");
 }
 
 export async function deletePr4ManuelAction(formData: FormData) {
@@ -58,5 +58,5 @@ export async function deletePr4ManuelAction(formData: FormData) {
     throw new Error(error.message);
   }
 
-  revalidatePath("/qualite/revue-processus/pr4");
+  revalidatePath("/qualite/revue-processus/pr4/indicateurs");
 }
