@@ -3,6 +3,8 @@ import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { supabaseServer } from "@/lib/supabase-server";
+import { formatDateTime } from "@/lib/format-date";
 import {
   computeProduitParCode,
   fetchAllCartonEntries,
@@ -10,11 +12,65 @@ import {
   fetchAllEmballageEntries,
   fetchAllProgrammeLignes,
   fetchAllVracEntries,
-  formatDate,
   groupCartonEntriesByLigne,
   splitLigneIntoDisplayRows,
   type ProgrammeLigneRow,
 } from "../data";
+
+type RapportDateRow = {
+  programme_ligne_id: number;
+  code: string;
+  date_saisie_fabrication: string | null;
+  date_saisie_conditionnement: string | null;
+  date_saisie_emballage: string | null;
+};
+
+// Date de saisie (quand la fiche a ete enregistree, pas la date de
+// production choisie dans le formulaire) - une par etape puisque
+// Fabrication/Conditionnement/Emballage peuvent etre saisis a des moments
+// differents pour le meme code. byCode = rapport scope a un code precis ;
+// legacyByLigne = repli "code vide" pour une ligne a un seul lot jamais
+// reouverte depuis le decoupage par code (meme repli que Suivi Production -
+// applique par l'appelant, pas ici, pour ne jamais l'utiliser sur une ligne
+// a plusieurs codes ou ce serait ambigu).
+async function fetchDateSaisieMaps(
+  ligneIds: number[],
+  stage: "vrac" | "carton" | "emballage"
+): Promise<{ byCode: Map<string, string | null>; legacyByLigne: Map<number, string | null> }> {
+  const byCode = new Map<string, string | null>();
+  const legacyByLigne = new Map<number, string | null>();
+  if (ligneIds.length === 0) return { byCode, legacyByLigne };
+
+  const column =
+    stage === "vrac"
+      ? "date_saisie_fabrication"
+      : stage === "carton"
+        ? "date_saisie_conditionnement"
+        : "date_saisie_emballage";
+
+  const rows: RapportDateRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("production_rapports")
+      .select(`programme_ligne_id, code, ${column}`)
+      .in("programme_ligne_id", ligneIds)
+      .range(from, from + pageSize - 1);
+    if (error) break;
+    const chunk = (data ?? []) as unknown as RapportDateRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  for (const row of rows) {
+    if (row.code) byCode.set(`${row.programme_ligne_id}::${row.code}`, row[column]);
+    else legacyByLigne.set(row.programme_ligne_id, row[column]);
+  }
+
+  return { byCode, legacyByLigne };
+}
 
 // Suivi par Etape : contrairement au Dashboard (les 3 etapes cote a cote
 // sur une seule vue) ou a Rapport Ecarts (toutes les lignes, terminees
@@ -80,7 +136,11 @@ export default async function SuiviParEtapePage({ searchParams }: { searchParams
     etape.stage === "emballage" ? fetchAllEmballageEntries() : Promise.resolve([]),
   ]);
 
-  const codeTermineRows = await fetchAllCodeTermineRows(lignes.map((ligne) => ligne.id));
+  const ligneIds = lignes.map((ligne) => ligne.id);
+  const [codeTermineRows, { byCode: dateSaisieByCode, legacyByLigne: dateSaisieLegacyByLigne }] = await Promise.all([
+    fetchAllCodeTermineRows(ligneIds),
+    fetchDateSaisieMaps(ligneIds, etape.stage),
+  ]);
   const terminatedCodes = new Set(
     codeTermineRows.map((row) => `${row.programme_ligne_id}::${row.code}::${row.stage}`)
   );
@@ -112,15 +172,13 @@ export default async function SuiviParEtapePage({ searchParams }: { searchParams
 
     const fabriqueByCode = computeProduitParCode(entriesForLigne, codes, (code) => demandeByCode.get(code) ?? 0);
 
-    // Derniere date d'activite pour cette etape/ce code - sert au tri "le
-    // plus recent en premier" ; repli sur la date programme si rien
-    // n'a encore ete saisi pour cette etape.
-    const derniereDateByCode = new Map<string, string>();
-    for (const entry of entriesForLigne) {
-      const current = derniereDateByCode.get(entry.code);
-      if (!current || entry.date_jour > current) derniereDateByCode.set(entry.code, entry.date_jour);
-    }
-
+    // Date de SAISIE du rapport (quand la fiche a ete enregistree, pas la
+    // date de production choisie dans le formulaire) - demande explicite,
+    // sert aussi au tri "le plus recent en premier". Repli sur le rapport
+    // legacy "code vide" seulement pour une ligne a un seul lot (sinon
+    // ambigu entre plusieurs codes), puis sur la date programme si rien
+    // n'a jamais ete saisi pour cette etape.
+    const isSingleCodeLigne = codes.length <= 1;
     return codes.map((code) => {
       const demande = demandeByCode.get(code) ?? 0;
       const fabrique = fabriqueByCode.get(code) ?? 0;
@@ -140,9 +198,14 @@ export default async function SuiviParEtapePage({ searchParams }: { searchParams
       // quantite theorique n'est pas atteinte (demande explicite).
       const reste = statut === "Termine" || statut === "Termine Manuel" ? 0 : Math.max(0, demande - fabrique);
 
+      const dateSaisie =
+        dateSaisieByCode.get(`${ligne.id}::${code}`) ??
+        (isSingleCodeLigne ? dateSaisieLegacyByLigne.get(ligne.id) : undefined) ??
+        null;
+
       return {
         key: `${ligne.id}::${code}`,
-        date: derniereDateByCode.get(code) ?? ligne.date_jour,
+        date: dateSaisie ?? ligne.date_jour,
         code,
         produit: ligne.produit || "-",
         statut,
@@ -162,9 +225,13 @@ export default async function SuiviParEtapePage({ searchParams }: { searchParams
 
   const rows = allRows
     .filter((row) => {
+      // "Pas commence" (rien fabrique du tout pour ce code sur cette
+      // etape) exclu d'office - demande explicite de ne montrer que ce
+      // qui a deja demarre.
+      if (row.statut === "Pas commence") return false;
       if (produitFilter && !row.produit.toLowerCase().includes(produitFilter)) return false;
       if (codeFilter && !row.code.toLowerCase().includes(codeFilter)) return false;
-      if (jourFilter && row.date !== jourFilter) return false;
+      if (jourFilter && row.date.slice(0, 10) !== jourFilter) return false;
       return true;
     })
     // Le plus recent en premier (demande explicite) - depart entre 2 lignes
@@ -273,7 +340,7 @@ export default async function SuiviParEtapePage({ searchParams }: { searchParams
                       <td className="px-4 py-3">
                         <StatutBadge statut={row.statut} />
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
+                      <td className="px-4 py-3 text-slate-600">{formatDateTime(row.date)}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{row.code}</td>
                       <td className="px-4 py-3 text-slate-600">{row.produit}</td>
                       <td className="bg-amber-50/30 px-4 py-3 text-slate-600">{Math.round(row.demande)}</td>
