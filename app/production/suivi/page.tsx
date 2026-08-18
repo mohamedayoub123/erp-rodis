@@ -6,6 +6,7 @@ import { getCurrentStockUser, getPageViewMap } from "@/lib/stock-auth";
 const TILES = [
   { label: "Dashboard", href: "/production/suivi/dashboard", pageKey: "productionSuiviDashboard" },
   { label: "Calendrier", href: "/production/suivi/calendrier", pageKey: "productionSuiviCalendrier" },
+  { label: "Suivi par Etape", href: "/production/suivi/en-cours", pageKey: "productionSuiviEnCours" },
 ] as const;
 
 export default async function SuiviProductionPage() {
