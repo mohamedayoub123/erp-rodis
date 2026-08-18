@@ -3,7 +3,9 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { hhmmDiffMinutes } from "@/lib/suivi-tirage-time";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   computeProduitParCode,
   fetchAllCartonEntries,
@@ -15,6 +17,9 @@ import {
   splitLigneIntoDisplayRows,
   type ProgrammeLigneRow,
 } from "../../../production/suivi/data";
+import { deletePr4ManuelAction } from "./actions";
+import { Pr4ManuelForm } from "./manuel-form";
+import type { ManuelRow } from "./fields";
 
 // PR4 - Indicateurs Cosmetique : reprend le fichier Excel de suivi ISO
 // "Objectif et INDICATEUR PR4 cosmetique.xlsx" (sheet "CALCULE INDICATEUR"),
@@ -609,6 +614,29 @@ async function fetchPrixCartonMonthly(cartonFabriqueByMonth: Map<string, number>
   return result;
 }
 
+// ---------------------------------------------------------------------
+// Saisie manuelle (mois anciens du fichier Excel, sans donnee automatique
+// dans l'ERP) - repli uniquement quand la source automatique n'a AUCUNE
+// donnee pour ce mois (pas juste une valeur a 0, qui peut etre reelle).
+// ---------------------------------------------------------------------
+async function fetchManuelByMonth(): Promise<{ rows: ManuelRow[]; byMonth: Map<string, ManuelRow> }> {
+  const { data, error } = await supabaseServer
+    .from("pr4_indicateurs_manuel")
+    .select(
+      "id, annee, mois, utilisateur, carton_commande, carton_fabrique, capacite_pct, test_labo_preparations, test_labo_a_detruire, test_labo_sous_derogation, vrac_fabrique_kg, carton_fabrique_kg, arret_minutes, travail_minutes, pieces_fabriquees, dechet_pieces, prix_carton"
+    )
+    .order("annee", { ascending: false })
+    .order("mois", { ascending: false });
+
+  if (error) return { rows: [], byMonth: new Map() };
+  const rows = (data ?? []) as unknown as ManuelRow[];
+  const byMonth = new Map<string, ManuelRow>();
+  for (const row of rows) {
+    byMonth.set(`${row.annee}-${String(row.mois).padStart(2, "0")}`, row);
+  }
+  return { rows, byMonth };
+}
+
 const EXPORT_COLUMNS = [
   { label: "Mois", key: "moisLabel" },
   { label: "1 - Nb carton fabrique", key: "cartonFabrique" },
@@ -633,9 +661,15 @@ const EXPORT_COLUMNS = [
 export default async function Pr4Page() {
   noStore();
 
-  const currentMoisKey = new Date().toISOString().slice(0, 7);
+  const currentUser = await getCurrentStockUser();
+  const canEdit = await canWritePageUser(currentUser, "qualiteRevueProcessus");
+  const canDelete = await canDeletePageUser(currentUser, "qualiteRevueProcessus");
 
-  const [cartonMonthly, testLaboMonthly, balanceMonthly, arretMonthly, dechetsMonthly, capaciteActuelle] =
+  const currentMoisKey = new Date().toISOString().slice(0, 7);
+  const currentYear = new Date().getFullYear();
+  const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - 4 + i);
+
+  const [cartonMonthly, testLaboMonthly, balanceMonthly, arretMonthly, dechetsMonthly, capaciteActuelle, manuel] =
     await Promise.all([
       fetchCartonMonthly(),
       fetchTestLaboMonthly(),
@@ -643,6 +677,7 @@ export default async function Pr4Page() {
       fetchTempsArretMonthly(),
       fetchDechetsMonthly(),
       fetchCapaciteActuelle(),
+      fetchManuelByMonth(),
     ]);
 
   const cartonFabriqueOnlyByMonth = new Map<string, number>(
@@ -657,18 +692,52 @@ export default async function Pr4Page() {
     ...arretMonthly.keys(),
     ...dechetsMonthly.keys(),
     ...prixCartonMonthly.keys(),
+    ...manuel.byMonth.keys(),
     currentMoisKey,
   ]);
 
   const monthRows = [...allMonthKeys]
     .sort((a, b) => b.localeCompare(a))
     .map((mois) => {
-      const carton = cartonMonthly.get(mois) ?? { commande: 0, fabrique: 0 };
-      const testLabo = testLaboMonthly.get(mois) ?? { total: 0, aDetruire: 0, sousDerogation: 0 };
-      const balance = balanceMonthly.get(mois) ?? { vracFabrique: 0, cartonFabriqueKg: 0 };
-      const arret = arretMonthly.get(mois) ?? { arret: 0, travail: 0 };
-      const dechets = dechetsMonthly.get(mois) ?? { pieces: 0, dechet: 0 };
-      const prixCarton = prixCartonMonthly.get(mois) ?? null;
+      const hasCartonAuto = cartonMonthly.has(mois);
+      const hasTestLaboAuto = testLaboMonthly.has(mois);
+      const hasBalanceAuto = balanceMonthly.has(mois);
+      const hasArretAuto = arretMonthly.has(mois);
+      const hasDechetsAuto = dechetsMonthly.has(mois);
+      const hasPrixCartonAuto = prixCartonMonthly.has(mois);
+      const manuelRow = manuel.byMonth.get(mois) ?? null;
+
+      const carton = hasCartonAuto
+        ? cartonMonthly.get(mois)!
+        : { commande: manuelRow?.carton_commande ?? 0, fabrique: manuelRow?.carton_fabrique ?? 0 };
+      const testLabo = hasTestLaboAuto
+        ? testLaboMonthly.get(mois)!
+        : {
+            total: manuelRow?.test_labo_preparations ?? 0,
+            aDetruire: manuelRow?.test_labo_a_detruire ?? 0,
+            sousDerogation: manuelRow?.test_labo_sous_derogation ?? 0,
+          };
+      const balance = hasBalanceAuto
+        ? balanceMonthly.get(mois)!
+        : { vracFabrique: manuelRow?.vrac_fabrique_kg ?? 0, cartonFabriqueKg: manuelRow?.carton_fabrique_kg ?? 0 };
+      const arret = hasArretAuto
+        ? arretMonthly.get(mois)!
+        : { arret: manuelRow?.arret_minutes ?? 0, travail: manuelRow?.travail_minutes ?? 0 };
+      const dechets = hasDechetsAuto
+        ? dechetsMonthly.get(mois)!
+        : { pieces: manuelRow?.pieces_fabriquees ?? 0, dechet: manuelRow?.dechet_pieces ?? 0 };
+      const prixCarton = hasPrixCartonAuto ? prixCartonMonthly.get(mois)! : manuelRow?.prix_carton ?? null;
+      const capacite = mois === currentMoisKey ? capaciteActuelle : manuelRow?.capacite_pct ?? null;
+
+      const isManuel = {
+        carton: !hasCartonAuto && Boolean(manuelRow),
+        testLabo: !hasTestLaboAuto && Boolean(manuelRow),
+        balance: !hasBalanceAuto && Boolean(manuelRow),
+        arret: !hasArretAuto && Boolean(manuelRow),
+        dechets: !hasDechetsAuto && Boolean(manuelRow),
+        prixCarton: !hasPrixCartonAuto && manuelRow?.prix_carton != null,
+        capacite: mois !== currentMoisKey && manuelRow?.capacite_pct != null,
+      };
 
       const pctProgramme = carton.commande > 0 ? (carton.fabrique / carton.commande) * 100 : null;
       const pctADetruire = testLabo.total > 0 ? (testLabo.aDetruire / testLabo.total) * 100 : null;
@@ -677,11 +746,11 @@ export default async function Pr4Page() {
         balance.vracFabrique > 0 ? ((balance.vracFabrique - balance.cartonFabriqueKg) / balance.vracFabrique) * 100 : null;
       const pctArret = arret.travail > 0 ? (arret.arret / arret.travail) * 100 : null;
       const pctDechets = dechets.pieces + dechets.dechet > 0 ? (dechets.dechet / (dechets.pieces + dechets.dechet)) * 100 : null;
-      const capacite = mois === currentMoisKey ? capaciteActuelle : null;
 
       return {
         mois,
         moisLabel: moisLabel(mois),
+        isManuel,
         cartonFabrique: carton.fabrique,
         cartonCommande: carton.commande,
         pctProgramme,
@@ -727,6 +796,19 @@ export default async function Pr4Page() {
         row.prixCarton !== null
     );
 
+  // ExportExcelButton attend des valeurs scalaires - isManuel (objet) n'a
+  // pas sa place dans l'export, seules les colonnes listees dans
+  // EXPORT_COLUMNS comptent de toute facon.
+  const exportRows = monthRows.map(({ isManuel: _isManuel, ...row }) => row);
+
+  function ManuelBadge() {
+    return (
+      <span className="ml-1 rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold text-violet-700">
+        manuel
+      </span>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f0ff_0%,#faf8ff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -744,7 +826,7 @@ export default async function Pr4Page() {
             <div className="flex items-center gap-3">
               <BackButton href="/qualite/revue-processus" label="Retour revue processus" />
               <ExportExcelButton
-                rows={monthRows}
+                rows={exportRows}
                 columns={EXPORT_COLUMNS}
                 filename={`pr4-indicateurs-${new Date().toISOString().slice(0, 10)}.xlsx`}
               />
@@ -767,6 +849,34 @@ export default async function Pr4Page() {
             </li>
           </ul>
         </section>
+
+        {canEdit ? (
+          <>
+            <Pr4ManuelForm rows={manuel.rows} yearOptions={yearOptions} currentYear={currentYear} />
+
+            {manuel.rows.length > 0 ? (
+              <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                <h2 className="mb-3 text-sm font-bold text-slate-900">Mois saisis manuellement</h2>
+                <ul className="flex flex-wrap gap-2">
+                  {manuel.rows.map((row) => (
+                    <li
+                      key={row.id}
+                      className="flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 py-1.5 pl-4 pr-2 text-xs font-semibold text-violet-700"
+                    >
+                      {moisLabel(`${row.annee}-${String(row.mois).padStart(2, "0")}`)}
+                      {canDelete ? (
+                        <form action={deletePr4ManuelAction}>
+                          <input type="hidden" name="id" value={row.id} />
+                          <DeleteIconButton label={`Supprimer la saisie manuelle de ${moisLabel(`${row.annee}-${String(row.mois).padStart(2, "0")}`)}`} />
+                        </form>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+          </>
+        ) : null}
 
         {monthRows.length === 0 ? (
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-8 text-center text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -833,7 +943,10 @@ export default async function Pr4Page() {
                       <td className="sticky left-0 z-10 bg-white px-4 py-3 font-semibold text-slate-900">
                         {row.moisLabel}
                       </td>
-                      <td className="bg-blue-50/20 px-3 py-3 text-slate-600">{fmt(row.cartonFabrique)}</td>
+                      <td className="bg-blue-50/20 px-3 py-3 text-slate-600">
+                        {fmt(row.cartonFabrique)}
+                        {row.isManuel.carton ? <ManuelBadge /> : null}
+                      </td>
                       <td className="bg-orange-50/20 px-3 py-3 text-slate-600">{fmt(row.cartonCommande)}</td>
                       <td className="bg-orange-50/20 px-3 py-3 text-slate-600">{fmt(row.cartonFabrique)}</td>
                       <td
@@ -843,8 +956,14 @@ export default async function Pr4Page() {
                       >
                         {row.pctProgrammeLabel}
                       </td>
-                      <td className="bg-sky-50/20 px-3 py-3 text-slate-600">{row.capaciteLabel}</td>
-                      <td className="bg-violet-50/20 px-3 py-3 text-slate-600">{fmt(row.preparations)}</td>
+                      <td className="bg-sky-50/20 px-3 py-3 text-slate-600">
+                        {row.capaciteLabel}
+                        {row.isManuel.capacite ? <ManuelBadge /> : null}
+                      </td>
+                      <td className="bg-violet-50/20 px-3 py-3 text-slate-600">
+                        {fmt(row.preparations)}
+                        {row.isManuel.testLabo ? <ManuelBadge /> : null}
+                      </td>
                       <td
                         className={`bg-violet-50/20 px-3 py-3 font-semibold ${
                           row.pctADetruire !== null && row.pctADetruire >= 0.5 ? "text-red-700" : "text-slate-600"
@@ -859,7 +978,10 @@ export default async function Pr4Page() {
                       >
                         {row.pctSousDerogationLabel}
                       </td>
-                      <td className="bg-emerald-50/20 px-3 py-3 text-slate-600">{row.vracFabriqueKgLabel}</td>
+                      <td className="bg-emerald-50/20 px-3 py-3 text-slate-600">
+                        {row.vracFabriqueKgLabel}
+                        {row.isManuel.balance ? <ManuelBadge /> : null}
+                      </td>
                       <td className="bg-emerald-50/20 px-3 py-3 text-slate-600">{row.cartonFabriqueKgLabel}</td>
                       <td
                         className={`bg-emerald-50/20 px-3 py-3 font-semibold ${
@@ -868,7 +990,10 @@ export default async function Pr4Page() {
                       >
                         {row.pctEcartLabel}
                       </td>
-                      <td className="bg-red-50/20 px-3 py-3 text-slate-600">{fmt(row.arretMinutes)}</td>
+                      <td className="bg-red-50/20 px-3 py-3 text-slate-600">
+                        {fmt(row.arretMinutes)}
+                        {row.isManuel.arret ? <ManuelBadge /> : null}
+                      </td>
                       <td className="bg-red-50/20 px-3 py-3 text-slate-600">{fmt(row.travailMinutes)}</td>
                       <td
                         className={`bg-red-50/20 px-3 py-3 font-semibold ${
@@ -877,7 +1002,10 @@ export default async function Pr4Page() {
                       >
                         {row.pctArretLabel}
                       </td>
-                      <td className="bg-amber-50/20 px-3 py-3 text-slate-600">{row.piecesLabel}</td>
+                      <td className="bg-amber-50/20 px-3 py-3 text-slate-600">
+                        {row.piecesLabel}
+                        {row.isManuel.dechets ? <ManuelBadge /> : null}
+                      </td>
                       <td className="bg-amber-50/20 px-3 py-3 text-slate-600">{row.dechetLabel}</td>
                       <td
                         className={`bg-amber-50/20 px-3 py-3 font-semibold ${
@@ -886,7 +1014,10 @@ export default async function Pr4Page() {
                       >
                         {row.pctDechetsLabel}
                       </td>
-                      <td className="bg-green-50/20 px-3 py-3 font-semibold text-green-800">{row.prixCartonLabel}</td>
+                      <td className="bg-green-50/20 px-3 py-3 font-semibold text-green-800">
+                        {row.prixCartonLabel}
+                        {row.isManuel.prixCarton ? <ManuelBadge /> : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
