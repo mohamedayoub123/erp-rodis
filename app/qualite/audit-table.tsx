@@ -23,10 +23,20 @@ function statusColorClasses(value: string | number | null | undefined): string {
   return "border-slate-200 bg-white text-slate-700";
 }
 
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "avif"]);
+
+function isImageFile(name: string): boolean {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  return IMAGE_EXTENSIONS.has(ext);
+}
+
 // Widget "pieces jointes" pour UNE colonne (ex: "N"). Gere sa propre liste de
 // fichiers independamment de rowsRef/handleSave - chaque ajout/suppression
 // est une vraie ecriture immediate (Storage + base), pas une modification en
-// attente du bouton "Enregistrer" general.
+// attente du bouton "Enregistrer" general. S'ouvre en cadre (modale) plutot
+// qu'en liste depliee sur place - avec vignette directement visible pour les
+// photos (recuperee a l'ouverture, pas au chargement de la page, pour ne pas
+// generer des URLs signees pour des lignes jamais consultees).
 function AttachmentsCell({
   rowId,
   canWrite,
@@ -51,13 +61,39 @@ function AttachmentsCell({
   deleteFileAction: (rowId: number, path: string) => Promise<{ ok: boolean; message?: string }>;
 }) {
   const [files, setFiles] = useState(initialFiles);
-  const [expanded, setExpanded] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   if (!rowId) {
     return <p className="mt-1 text-[11px] text-slate-400">Enregistre la ligne pour joindre un fichier.</p>;
+  }
+
+  function handleOpen() {
+    setError("");
+    setIsOpen(true);
+    // Vignettes des photos deja attachees, recuperees a l'ouverture du
+    // cadre seulement (pas pour les fichiers deja charges - evite de
+    // redemander une URL signee a chaque reouverture).
+    const imageFiles = files.filter((f) => isImageFile(f.name) && !thumbnails[f.path]);
+    if (imageFiles.length === 0) return;
+    startTransition(async () => {
+      const entries = await Promise.all(
+        imageFiles.map(async (f) => {
+          const result = await getFileUrlAction(f.path);
+          return result.ok && result.url ? ([f.path, result.url] as const) : null;
+        })
+      );
+      const next: Record<string, string> = {};
+      for (const entry of entries) {
+        if (entry) next[entry[0]] = entry[1];
+      }
+      if (Object.keys(next).length > 0) {
+        setThumbnails((prev) => ({ ...prev, ...next }));
+      }
+    });
   }
 
   function handleUpload(fileList: FileList | null) {
@@ -100,7 +136,24 @@ function AttachmentsCell({
           setError(result.message || "Erreur pendant l'enregistrement.");
         } else {
           setFiles((prev) => [...prev, ...uploaded]);
-          setExpanded(true);
+          setIsOpen(true);
+          // Vignette immediate pour les photos qu'on vient d'envoyer.
+          const newImages = uploaded.filter((f) => isImageFile(f.name));
+          if (newImages.length > 0) {
+            const entries = await Promise.all(
+              newImages.map(async (f) => {
+                const r = await getFileUrlAction(f.path);
+                return r.ok && r.url ? ([f.path, r.url] as const) : null;
+              })
+            );
+            const next: Record<string, string> = {};
+            for (const entry of entries) {
+              if (entry) next[entry[0]] = entry[1];
+            }
+            if (Object.keys(next).length > 0) {
+              setThumbnails((prev) => ({ ...prev, ...next }));
+            }
+          }
         }
       }
       if (inputRef.current) inputRef.current.value = "";
@@ -150,48 +203,98 @@ function AttachmentsCell({
     <div className="mt-1">
       <button
         type="button"
-        onClick={() => setExpanded((prev) => !prev)}
+        onClick={handleOpen}
         className="text-[11px] font-semibold text-violet-700 hover:underline"
       >
         📎 {files.length > 0 ? `${files.length} fichier${files.length > 1 ? "s" : ""}` : "Joindre"}
       </button>
-      {expanded ? (
-        <div className="mt-1 grid gap-1">
-          {files.map((file) => (
-            <div key={file.path} className="flex items-center gap-1">
+      {isOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setIsOpen(false)}
+        >
+          <div
+            className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-800">Pieces jointes</h3>
               <button
                 type="button"
-                onClick={() => handleView(file.path)}
-                disabled={isPending}
-                className="truncate text-left text-[11px] text-sky-700 hover:underline disabled:opacity-60"
-                title={file.name}
+                onClick={() => setIsOpen(false)}
+                className="text-lg leading-none text-slate-400 hover:text-slate-700"
+                aria-label="Fermer"
               >
-                {file.name}
+                ✕
               </button>
-              {canWrite ? (
-                <button
-                  type="button"
-                  onClick={() => handleDelete(file.path)}
-                  disabled={isPending}
-                  className="text-[11px] font-bold text-red-600 disabled:opacity-60"
-                  title="Supprimer ce fichier"
-                >
-                  x
-                </button>
-              ) : null}
             </div>
-          ))}
-          {canWrite ? (
-            <input
-              ref={inputRef}
-              type="file"
-              multiple
-              onChange={(e) => handleUpload(e.target.files)}
-              disabled={isPending}
-              className="mt-1 text-[11px]"
-            />
-          ) : null}
-          {error ? <p className="text-[11px] font-semibold text-red-700">{error}</p> : null}
+            {files.length === 0 ? (
+              <p className="text-[12px] text-slate-400">Aucun fichier attache.</p>
+            ) : (
+              <div className="grid gap-2">
+                {files.map((file) => (
+                  <div key={file.path} className="flex items-center gap-2 rounded border border-slate-200 p-1.5">
+                    {isImageFile(file.name) ? (
+                      thumbnails[file.path] ? (
+                        <button
+                          type="button"
+                          onClick={() => handleView(file.path)}
+                          disabled={isPending}
+                          className="shrink-0 disabled:opacity-60"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={thumbnails[file.path]}
+                            alt={file.name}
+                            className="h-12 w-12 rounded object-cover"
+                          />
+                        </button>
+                      ) : (
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-slate-100 text-[10px] text-slate-400">
+                          ...
+                        </div>
+                      )
+                    ) : (
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-slate-100 text-lg">
+                        📄
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleView(file.path)}
+                      disabled={isPending}
+                      className="flex-1 truncate text-left text-[12px] text-sky-700 hover:underline disabled:opacity-60"
+                      title={file.name}
+                    >
+                      {file.name}
+                    </button>
+                    {canWrite ? (
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(file.path)}
+                        disabled={isPending}
+                        className="shrink-0 text-[12px] font-bold text-red-600 disabled:opacity-60"
+                        title="Supprimer ce fichier"
+                      >
+                        x
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+            {canWrite ? (
+              <input
+                ref={inputRef}
+                type="file"
+                multiple
+                onChange={(e) => handleUpload(e.target.files)}
+                disabled={isPending}
+                className="mt-3 text-[11px]"
+              />
+            ) : null}
+            {error ? <p className="mt-2 text-[11px] font-semibold text-red-700">{error}</p> : null}
+          </div>
         </div>
       ) : null}
     </div>
