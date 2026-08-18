@@ -67,6 +67,16 @@ function formatMonthLabel(monthKey: string) {
   return new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(date);
 }
 
+// Meme regroupement que statutBucket dans app/commandes/actions.ts : les
+// statuts "techniques" (FIFO_PARTIEL/FIFO_CALCULE/SAISIE_WEB) comptent comme
+// "En cours" partout ailleurs dans l'appli (voir aussi formatStatus) - sans
+// ca, ces commandes disparaissaient du rapport au lieu d'etre comptees en
+// cours.
+function statutBucket(value: string | null | undefined) {
+  const v = (value || "").toUpperCase();
+  return v === "STAND" || v === "BL_TRANSFORME" || v === "LIVREE" ? v : "EN_COURS";
+}
+
 function daysBetween(fromValue: string, toValue: string) {
   const fromDate = new Date(`${fromValue.slice(0, 10)}T00:00:00`);
   const toDate = new Date(`${toValue.slice(0, 10)}T00:00:00`);
@@ -138,7 +148,8 @@ export default async function RapportDelaiCommandesPage() {
 
   for (const commande of commandes) {
     const statut = String(commande.statut || "").toUpperCase();
-    if (!["EN_COURS", "BL_TRANSFORME", "LIVREE"].includes(statut)) continue;
+    const bucket = statutBucket(statut);
+    if (bucket === "STAND") continue;
 
     const monthKey = getMonthKey(commande.created_at);
     if (!monthKey) continue;
@@ -160,7 +171,7 @@ export default async function RapportDelaiCommandesPage() {
     // que ca depasse deja 10 jours aujourd'hui, on la compte "depasse" et on
     // la liste plus bas avec sa quantite (demande explicite : voir combien
     // de carton est en attente, pas juste un compteur).
-    if (dateEnCours && statut === "EN_COURS") {
+    if (dateEnCours && bucket === "EN_COURS") {
       const jours = daysBetween(dateEnCours, todayIso);
       if (jours > DELAI_LIMITE_JOURS) {
         monthStat.depasse += 1;
