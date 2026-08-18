@@ -1021,10 +1021,8 @@ export default async function Pr4Page() {
 
   // Meme mise en forme que le fichier Excel : indicateurs en ligne (avec
   // #/cible/methode empiles en sous-lignes numerateur-denominateur-%), mois
-  // en colonne du plus ancien au plus recent - monthRows est trie du plus
-  // recent au plus ancien pour le tableau mensuel plus haut, on l'inverse
-  // ici seulement pour cette vue.
-  const monthRowsAscending = [...monthRows].reverse();
+  // en colonne du plus recent au plus ancien (aout 2026 en premier) - meme
+  // sens que monthRows lui-meme et que la Vue trimestrielle plus bas.
   type MonthRow = (typeof monthRows)[number];
 
   type ManuelKey = keyof MonthRow["isManuel"];
@@ -1250,6 +1248,14 @@ export default async function Pr4Page() {
   })();
   const quartersDescending = [...quarters].reverse();
 
+  // Un trimestre ne compte que si son 3eme mois est deja termine (strictement
+  // avant le mois en cours) - "123 456 789 101112", pas de chiffre tant que
+  // le mois 9 (ou 3/6/12) n'est pas fini normalement, meme si le mois en
+  // cours a deja des donnees partielles.
+  function isQuarterComplete(quarter: Quarter) {
+    return quarter.moisKeys[2] < currentMoisKey;
+  }
+
   function averageOverQuarter(quarter: Quarter, getValue: (r: MonthRow) => number | null) {
     const values = quarter.moisKeys
       .map((m) => monthRowByMois.get(m))
@@ -1261,14 +1267,8 @@ export default async function Pr4Page() {
   }
 
   function evolutionN1OverQuarter(quarter: Quarter) {
-    // Ne compare que les mois du trimestre REELLEMENT presents cote annee
-    // courante (ex: T3 en cours avec seulement juillet+aout) face aux memes
-    // mois de l'annee precedente - sinon un trimestre encore incomplet
-    // (mois futur compte comme 0) ferait paraitre une chute artificielle.
-    const moisPresents = quarter.moisKeys.filter((m) => monthRowByMois.has(m));
-    if (moisPresents.length === 0) return null;
-    const totalCourant = moisPresents.reduce((sum, m) => sum + (monthRowByMois.get(m)?.cartonFabrique ?? 0), 0);
-    const moisAnneePrecedente = moisPresents.map((m) => `${quarter.annee - 1}-${m.slice(5)}`);
+    const totalCourant = quarter.moisKeys.reduce((sum, m) => sum + (monthRowByMois.get(m)?.cartonFabrique ?? 0), 0);
+    const moisAnneePrecedente = quarter.moisKeys.map((m) => `${quarter.annee - 1}-${m.slice(5)}`);
     const aDonneeAnneePrecedente = moisAnneePrecedente.some((m) => monthRowByMois.has(m));
     if (!aDonneeAnneePrecedente) return null;
     const totalPrecedent = moisAnneePrecedente.reduce((sum, m) => sum + (monthRowByMois.get(m)?.cartonFabrique ?? 0), 0);
@@ -1277,6 +1277,7 @@ export default async function Pr4Page() {
   }
 
   function quarterValueLabel(indicateur: (typeof INDICATEUR_ROWS)[number], quarter: Quarter) {
+    if (!isQuarterComplete(quarter)) return "-";
     const value =
       indicateur.numero === "1" ? evolutionN1OverQuarter(quarter) : averageOverQuarter(quarter, indicateur.headlineValue);
     if (indicateur.numero === "1") return fmtPct(value);
@@ -1299,10 +1300,6 @@ export default async function Pr4Page() {
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">PR4 - Indicateurs Cosmetique</h1>
-              <p className="mt-2 text-sm text-slate-600">
-                Meme tableau que le fichier Excel ISO, calcule automatiquement depuis les rapports deja
-                suivis dans l&apos;ERP.
-              </p>
             </div>
 
             <div className="flex items-center gap-3">
@@ -1348,7 +1345,7 @@ export default async function Pr4Page() {
                     <th className="sticky left-[456px] z-30 w-[220px] min-w-[220px] max-w-[220px] border border-slate-200 bg-slate-100 px-3 py-2 font-semibold">
                       Methode de calcul
                     </th>
-                    {monthRowsAscending.map((row) => (
+                    {monthRows.map((row) => (
                       <th key={row.mois} className="border border-slate-200 px-3 py-2 text-center font-semibold">
                         {row.moisLabel}
                       </th>
@@ -1402,7 +1399,7 @@ export default async function Pr4Page() {
                             <span className="ml-1 text-[9px] text-violet-500">(m)</span>
                           ) : null}
                         </td>
-                        {monthRowsAscending.map((row) => (
+                        {monthRows.map((row) => (
                           <td
                             key={row.mois}
                             className={`border border-slate-200 ${indicateur.rowBg} px-3 py-2 text-right text-slate-700`}
@@ -1426,12 +1423,6 @@ export default async function Pr4Page() {
           <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="border-b border-slate-100 px-5 py-4">
               <h2 className="text-sm font-bold text-slate-900">Vue trimestrielle</h2>
-              <p className="mt-1 text-xs text-slate-500">
-                Sheet Excel &quot;INDICATEUR 2025&quot; : moyenne des 3 mois de chaque trimestre (T1
-                janv-mars, T2 avr-juin, T3 juil-sept, T4 oct-dec). L&apos;indicateur 1 (evolution vs
-                N-1) compare a la place le total du trimestre a celui du meme trimestre de
-                l&apos;annee precedente.
-              </p>
             </div>
             <div className="max-h-[75vh] overflow-auto">
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
