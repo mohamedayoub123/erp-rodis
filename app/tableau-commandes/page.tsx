@@ -1298,18 +1298,18 @@ function renderGenericFamilyTemplate(
               </colgroup>
               <thead>
                 <tr>
-                  <th className="sticky top-0 left-0 z-50 border border-slate-700 bg-white px-3 py-2 text-left text-xl font-medium text-slate-900">
+                  <th className="border border-slate-700 bg-white px-3 py-2 text-left text-xl font-medium text-slate-900">
                     {formatDateCell(new Date())}
                   </th>
                   <th
                     colSpan={Math.max(commandColumns.length, 1) + 4}
-                    className={`sticky top-0 z-10 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-center text-lg font-medium text-slate-950`}
+                    className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-center text-lg font-medium text-slate-950`}
                   >
                     {selectedFamille}
                   </th>
                 </tr>
                 <tr>
-                  <th className="sticky top-[90px] left-0 z-50 border border-slate-700 bg-[#62ff1b] px-2 py-1 text-center text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
+                  <th className="border border-slate-700 bg-[#62ff1b] px-2 py-1 text-center text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
                     &nbsp;
                   </th>
                   {commandColumns.length > 0 ? (
@@ -1317,7 +1317,7 @@ function renderGenericFamilyTemplate(
                       return (
                         <th
                           key={`status-${column.key}`}
-                          className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 whitespace-normal break-words`}
+                          className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 whitespace-normal break-words`}
                         >
                           <span
                             className={`inline-block rounded-sm px-3 py-1 text-[16px] font-medium uppercase ${getStatusCellClass(column.statut)}`}
@@ -1328,104 +1328,104 @@ function renderGenericFamilyTemplate(
                       );
                     })
                   ) : (
-                    <th className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
-                  <th className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
-                  <th className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
-                  <th className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
-                  <th className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
                 </tr>
                 <tr>
-                  <th className={`sticky top-[180px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-3 font-medium text-slate-950`}>
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-3 font-medium text-slate-950`}>
                     Client
                   </th>
                   {commandColumns.length > 0 ? (
                     visibleCommandColumns.map((column) => (
                       <th
                         key={`client-${column.key}`}
-                        className={`sticky top-[180px] z-12 border border-slate-700 px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
+                        className={`border border-slate-700 px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
                       >
                         {column.client || "\u00A0"}
                       </th>
                     ))
                   ) : (
-                    <th className={`sticky top-[180px] z-12 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-3`} />
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-3`} />
                   )}
-                  <th className={`sticky top-[180px] z-12 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
                     TOTAL
                   </th>
-                  <th className={`sticky top-[180px] z-12 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
                     STOCK
                   </th>
-                  <th className={`sticky top-[180px] z-12 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
                     RESTE
                   </th>
-                  <th className={`sticky top-[180px] z-12 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
                     Qt en cours de Conditionnement
                   </th>
                 </tr>
                 <tr>
-                  <th className={`sticky top-[320px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
                     NOMBRE DE CAMION
                   </th>
                   {commandColumns.length > 0 ? (
                     visibleCommandColumns.map((column) => (
                       <th
                         key={`truck-${column.key}`}
-                        className={`sticky top-[320px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
+                        className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
                       >
                         {formatTruckCount(column.nombre_camion)}
                       </th>
                     ))
                   ) : (
-                    <th className={`sticky top-[320px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
-                  <th className={`sticky top-[320px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[320px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[320px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[320px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                 </tr>
                 <tr>
-                  <th className={`sticky top-[410px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
                     tC
                   </th>
                   {commandColumns.length > 0 ? (
                     visibleCommandColumns.map((column) => (
                       <th
                         key={`tc-${column.key}`}
-                        className={`sticky top-[410px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
+                        className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
                       >
                         {column.mode_chargement || "\u00A0"}
                       </th>
                     ))
                   ) : (
-                    <th className={`sticky top-[410px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
-                  <th className={`sticky top-[410px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[410px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[410px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[410px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                 </tr>
                 <tr>
-                  <th className={`sticky top-[500px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
                     Proforma #
                   </th>
                   {commandColumns.length > 0 ? (
                     visibleCommandColumns.map((column) => (
                       <th
                         key={`proforma-${column.key}`}
-                        className={`sticky top-[500px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                        className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
                       >
                         {column.numero_proforma || "-"}
                       </th>
                     ))
                   ) : (
-                    <th className={`sticky top-[500px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
-                  <th className={`sticky top-[500px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[500px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[500px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
-                  <th className={`sticky top-[500px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                 </tr>
               </thead>
               <tbody>
@@ -2653,89 +2653,89 @@ export default async function TableauCommandesPage({
             <table className="min-w-[2200px] w-full border-separate border-spacing-0 text-center text-[16px]">
               <thead>
                 <tr>
-                  <th className="sticky top-0 left-0 z-50 border border-slate-700 bg-white px-3 py-2 text-left font-medium text-slate-900">
+                  <th className="border border-slate-700 bg-white px-3 py-2 text-left font-medium text-slate-900">
                     {formatDateCell(new Date())}
                   </th>
                   <th
                     colSpan={displayCommandColumns.length + 3}
-                    className="sticky top-0 z-10 border border-slate-700 bg-[#14989d] px-3 py-2 text-center text-lg font-medium text-slate-950"
+                    className="border border-slate-700 bg-[#14989d] px-3 py-2 text-center text-lg font-medium text-slate-950"
                   >
                     {selectedFamille}
                   </th>
                 </tr>
                 <tr>
-                  <th className="sticky top-[90px] left-0 z-50 border border-slate-700 bg-[#62ff1b] px-3 py-3 text-left text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
+                  <th className="border border-slate-700 bg-[#62ff1b] px-3 py-3 text-left text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
                     Tableau commandes
                   </th>
                   {displayCommandColumns.map((column) => (
-                    <th key={`status-${column.key}`} className="sticky top-[90px] z-11 border border-slate-700 bg-[#14989d] px-2 py-2">
+                    <th key={`status-${column.key}`} className="border border-slate-700 bg-[#14989d] px-2 py-2">
                       <span className="text-[16px] font-medium uppercase text-slate-950">
                         {column.mode_chargement.toLowerCase().includes("stand") ? "STAND" : ""}
                       </span>
                     </th>
                   ))}
-                  <th className="sticky top-[90px] z-11 border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
                     TOTAL
                   </th>
-                  <th className="sticky top-[90px] z-11 border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
                     STOCK
                   </th>
-                  <th className="sticky top-[90px] z-11 border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
                     RESTE
                   </th>
                 </tr>
                 <tr>
-                  <th className="sticky top-[180px] left-0 z-50 border border-slate-700 bg-[#14989d] px-3 py-3 font-medium text-slate-950">
+                  <th className="border border-slate-700 bg-[#14989d] px-3 py-3 font-medium text-slate-950">
                     Client
                   </th>
                   {displayCommandColumns.map((column) => (
                     <th
                       key={`client-${column.key}`}
-                      className="sticky top-[180px] z-12 border border-slate-700 bg-[#14989d] px-2 py-3 text-[16px] font-medium uppercase text-slate-950"
+                      className="border border-slate-700 bg-[#14989d] px-2 py-3 text-[16px] font-medium uppercase text-slate-950"
                     >
                       {column.client || "-"}
                     </th>
                   ))}
-                  <th className="sticky top-[180px] z-12 border border-slate-700 bg-[#14989d] px-2 py-3" />
-                  <th className="sticky top-[180px] z-12 border border-slate-700 bg-[#14989d] px-2 py-3" />
-                  <th className="sticky top-[180px] z-12 border border-slate-700 bg-[#14989d] px-2 py-3" />
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-3" />
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-3" />
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-3" />
                 </tr>
                 <tr>
-                  <th className="sticky top-[320px] left-0 z-50 border border-slate-700 bg-[#14989d] px-3 py-2 font-medium uppercase text-slate-950">
+                  <th className="border border-slate-700 bg-[#14989d] px-3 py-2 font-medium uppercase text-slate-950">
                     Nombre de camion / tc
                   </th>
                   {displayCommandColumns.map((column) => (
                     <th
                       key={`truck-${column.key}`}
-                      className="sticky top-[320px] z-13 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium uppercase text-slate-950"
+                      className="border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium uppercase text-slate-950"
                     >
                       <div>{formatTruckCount(column.nombre_camion)}</div>
                       <div>{column.mode_chargement || ""}</div>
                     </th>
                   ))}
-                  <th className="sticky top-[320px] z-13 border border-slate-700 bg-[#14989d] px-2 py-2" />
-                  <th className="sticky top-[320px] z-13 border border-slate-700 bg-[#14989d] px-2 py-2" />
-                  <th className="sticky top-[320px] z-13 border border-slate-700 bg-[#14989d] px-2 py-2" />
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2" />
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2" />
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2" />
                 </tr>
                 <tr>
-                  <th className="sticky top-[410px] left-0 z-50 border border-slate-700 bg-[#14989d] px-3 py-2 font-medium text-slate-950">
+                  <th className="border border-slate-700 bg-[#14989d] px-3 py-2 font-medium text-slate-950">
                     Proforma #
                   </th>
                   {displayCommandColumns.map((column) => (
                     <th
                       key={`proforma-${column.key}`}
-                      className="sticky top-[410px] z-14 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950"
+                      className="border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950"
                     >
                       {column.numero_proforma || "-"}
                     </th>
                   ))}
-                  <th className="sticky top-[410px] z-14 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
                     TOTAL
                   </th>
-                  <th className="sticky top-[410px] z-14 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
                     STOCK
                   </th>
-                  <th className="sticky top-[410px] z-14 border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
+                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
                     RESTE
                   </th>
                 </tr>
