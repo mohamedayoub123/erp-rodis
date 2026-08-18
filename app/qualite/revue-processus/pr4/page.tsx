@@ -3,9 +3,8 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
-import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { hhmmDiffMinutes } from "@/lib/suivi-tirage-time";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   computeProduitParCode,
   fetchAllCartonEntries,
@@ -18,7 +17,6 @@ import {
   splitLigneIntoDisplayRows,
   type ProgrammeLigneRow,
 } from "../../../production/suivi/data";
-import { deletePr4ManuelAction } from "./actions";
 import { Pr4ManuelForm } from "./manuel-form";
 import type { ManuelRow } from "./fields";
 
@@ -843,7 +841,6 @@ export default async function Pr4Page() {
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "qualiteRevueProcessus");
-  const canDelete = await canDeletePageUser(currentUser, "qualiteRevueProcessus");
 
   const currentMoisKey = new Date().toISOString().slice(0, 7);
   const currentYear = new Date().getFullYear();
@@ -987,15 +984,19 @@ export default async function Pr4Page() {
         pctDechetsLabel: fmtPct(pctDechets),
         prixCarton,
         prixCartonLabel: fmt(prixCarton, 1),
+        heuresSupplementairesPct,
         heuresSupplementairesLabel: fmtPct(heuresSupplementairesPct),
         formationAFaire,
         formationRealisee,
+        pctFormation,
         pctFormationLabel: fmtPct(pctFormation),
         qtRetourneeNc,
+        pctReclamationNc,
         pctReclamationNcLabel: fmtPct(pctReclamationNc),
         qtCommandeLivraison,
         qtLivreeATemps,
         qtDepasseLivraison,
+        pctLivraison,
         pctLivraisonLabel: fmtPct(pctLivraison),
       };
     })
@@ -1035,6 +1036,11 @@ export default async function Pr4Page() {
     rowBg: string;
     rowBgSolid: string;
     manuelKey?: ManuelKey;
+    // Valeur numerique "phare" de l'indicateur (derniere sous-ligne) et si
+    // elle se formate en % - utilise par la Vue trimestrielle plus bas pour
+    // moyenner sur 3 mois sans dependre des chaines deja formatees.
+    headlineValue: (r: MonthRow) => number | null;
+    isPercent: boolean;
     subRows: { label: string; getValue: (r: MonthRow) => string }[];
   }[] = [
     {
@@ -1044,6 +1050,8 @@ export default async function Pr4Page() {
       rowBg: "bg-blue-50/60",
       rowBgSolid: "bg-blue-50",
       manuelKey: "carton",
+      headlineValue: (r) => r.cartonFabrique,
+      isPercent: false,
       subRows: [{ label: "Totale carton fabrique", getValue: (r) => fmt(r.cartonFabrique) }],
     },
     {
@@ -1052,6 +1060,8 @@ export default async function Pr4Page() {
       cible: "98%",
       rowBg: "bg-orange-50/60",
       rowBgSolid: "bg-orange-50",
+      headlineValue: (r) => r.pctProgramme,
+      isPercent: true,
       subRows: [
         { label: "Totale programme donne par carton", getValue: (r) => fmt(r.cartonCommande) },
         { label: "% fabrique par rapport a programme", getValue: (r) => r.pctProgrammeLabel },
@@ -1064,6 +1074,8 @@ export default async function Pr4Page() {
       rowBg: "bg-teal-50/60",
       rowBgSolid: "bg-teal-50",
       manuelKey: "capacite",
+      headlineValue: (r) => r.capacite,
+      isPercent: true,
       subRows: [{ label: "% capacite machines conditionnement", getValue: (r) => r.capaciteLabel }],
     },
     {
@@ -1072,6 +1084,8 @@ export default async function Pr4Page() {
       cible: "2%",
       rowBg: "bg-amber-50/60",
       rowBgSolid: "bg-amber-50",
+      headlineValue: (r) => r.heuresSupplementairesPct,
+      isPercent: true,
       subRows: [{ label: "% heure supplementaire", getValue: (r) => r.heuresSupplementairesLabel }],
     },
     {
@@ -1081,6 +1095,8 @@ export default async function Pr4Page() {
       rowBg: "bg-pink-50/60",
       rowBgSolid: "bg-pink-50",
       manuelKey: "testLabo",
+      headlineValue: (r) => r.pctADetruire,
+      isPercent: true,
       subRows: [
         { label: "Totale preparation", getValue: (r) => fmt(r.preparations) },
         { label: "Totale preparation non conforme (a detruire)", getValue: (r) => fmt(r.aDetruireCount) },
@@ -1094,6 +1110,8 @@ export default async function Pr4Page() {
       rowBg: "bg-lime-50/60",
       rowBgSolid: "bg-lime-50",
       manuelKey: "testLabo",
+      headlineValue: (r) => r.pctSousDerogation,
+      isPercent: true,
       subRows: [
         { label: "Totale preparation", getValue: (r) => fmt(r.preparations) },
         { label: "Totale preparation en derogation", getValue: (r) => fmt(r.sousDerogationCount) },
@@ -1107,6 +1125,8 @@ export default async function Pr4Page() {
       rowBg: "bg-purple-50/60",
       rowBgSolid: "bg-purple-50",
       manuelKey: "balance",
+      headlineValue: (r) => r.pctEcart,
+      isPercent: true,
       subRows: [
         { label: "Totale vrac commande (kg)", getValue: (r) => r.vracFabriqueKgLabel },
         { label: "Carton fabrique converti (kg)", getValue: (r) => r.cartonFabriqueKgLabel },
@@ -1120,6 +1140,8 @@ export default async function Pr4Page() {
       rowBg: "bg-blue-50/60",
       rowBgSolid: "bg-blue-50",
       manuelKey: "arret",
+      headlineValue: (r) => r.pctArret,
+      isPercent: true,
       subRows: [
         { label: "Temps d'arret (min)", getValue: (r) => fmt(r.arretMinutes) },
         { label: "Temps de travail (min)", getValue: (r) => fmt(r.travailMinutes) },
@@ -1132,6 +1154,8 @@ export default async function Pr4Page() {
       cible: "90%",
       rowBg: "bg-orange-50/60",
       rowBgSolid: "bg-orange-50",
+      headlineValue: (r) => r.pctFormation,
+      isPercent: true,
       subRows: [
         { label: "Nb formation a faire", getValue: (r) => fmt(r.formationAFaire) },
         { label: "Nb formation realisee", getValue: (r) => fmt(r.formationRealisee) },
@@ -1145,6 +1169,8 @@ export default async function Pr4Page() {
       rowBg: "bg-teal-50/60",
       rowBgSolid: "bg-teal-50",
       manuelKey: "dechets",
+      headlineValue: (r) => r.pctDechets,
+      isPercent: true,
       subRows: [
         { label: "Totale production (pieces)", getValue: (r) => r.piecesLabel },
         { label: "Totale dechet (pieces)", getValue: (r) => r.dechetLabel },
@@ -1157,6 +1183,8 @@ export default async function Pr4Page() {
       cible: "< 0,2%",
       rowBg: "bg-amber-50/60",
       rowBgSolid: "bg-amber-50",
+      headlineValue: (r) => r.pctReclamationNc,
+      isPercent: true,
       subRows: [
         { label: "Qt retournee", getValue: (r) => fmt(r.qtRetourneeNc) },
         { label: "Qt fabriquee (pieces)", getValue: (r) => r.piecesLabel },
@@ -1170,6 +1198,8 @@ export default async function Pr4Page() {
       rowBg: "bg-pink-50/60",
       rowBgSolid: "bg-pink-50",
       manuelKey: "delai",
+      headlineValue: (r) => r.pctLivraison,
+      isPercent: true,
       subRows: [
         { label: "Qt commande", getValue: (r) => fmt(r.qtCommandeLivraison) },
         { label: "Depasse 10 jours", getValue: (r) => fmt(r.qtDepasseLivraison) },
@@ -1183,9 +1213,75 @@ export default async function Pr4Page() {
       rowBg: "bg-lime-50/60",
       rowBgSolid: "bg-lime-50",
       manuelKey: "prixCarton",
+      headlineValue: (r) => r.prixCarton,
+      isPercent: false,
       subRows: [{ label: "Cout carton (FCFA)", getValue: (r) => r.prixCartonLabel }],
     },
   ];
+
+  // ---------------------------------------------------------------------
+  // Vue trimestrielle (sheet Excel "INDICATEUR 2025") : reprend les memes
+  // valeurs phares deja calculees ci-dessus par mois et les regroupe par
+  // trimestre (T1 janv-mars, T2 avr-juin, T3 juil-sept, T4 oct-dec) -
+  // moyenne des mois disponibles dans le trimestre (les mois sans donnee
+  // sont ignores, pas comptes comme 0). L'indicateur 1 (evolution vs N-1)
+  // fait exception : demande explicite de comparer le total du trimestre
+  // de cette annee au total du MEME trimestre de l'annee precedente (%
+  // d'evolution), plutot qu'une simple moyenne sur 3 mois.
+  // ---------------------------------------------------------------------
+  const monthRowByMois = new Map(monthRows.map((row) => [row.mois, row]));
+
+  type Quarter = { key: string; label: string; annee: number; moisKeys: string[] };
+
+  const quarters: Quarter[] = (() => {
+    const annees = [...new Set(monthRows.map((row) => Number(row.mois.slice(0, 4))))].sort((a, b) => a - b);
+    const list: Quarter[] = [];
+    for (const annee of annees) {
+      for (let q = 1; q <= 4; q++) {
+        const moisKeys = [1, 2, 3].map((offset) => {
+          const m = (q - 1) * 3 + offset;
+          return `${annee}-${String(m).padStart(2, "0")}`;
+        });
+        if (!moisKeys.some((m) => monthRowByMois.has(m))) continue;
+        list.push({ key: `${annee}-T${q}`, label: `T${q} ${annee}`, annee, moisKeys });
+      }
+    }
+    return list;
+  })();
+  const quartersDescending = [...quarters].reverse();
+
+  function averageOverQuarter(quarter: Quarter, getValue: (r: MonthRow) => number | null) {
+    const values = quarter.moisKeys
+      .map((m) => monthRowByMois.get(m))
+      .filter((r): r is MonthRow => Boolean(r))
+      .map((r) => getValue(r))
+      .filter((v): v is number => v !== null && v !== undefined && !Number.isNaN(v));
+    if (values.length === 0) return null;
+    return values.reduce((a, b) => a + b, 0) / values.length;
+  }
+
+  function evolutionN1OverQuarter(quarter: Quarter) {
+    // Ne compare que les mois du trimestre REELLEMENT presents cote annee
+    // courante (ex: T3 en cours avec seulement juillet+aout) face aux memes
+    // mois de l'annee precedente - sinon un trimestre encore incomplet
+    // (mois futur compte comme 0) ferait paraitre une chute artificielle.
+    const moisPresents = quarter.moisKeys.filter((m) => monthRowByMois.has(m));
+    if (moisPresents.length === 0) return null;
+    const totalCourant = moisPresents.reduce((sum, m) => sum + (monthRowByMois.get(m)?.cartonFabrique ?? 0), 0);
+    const moisAnneePrecedente = moisPresents.map((m) => `${quarter.annee - 1}-${m.slice(5)}`);
+    const aDonneeAnneePrecedente = moisAnneePrecedente.some((m) => monthRowByMois.has(m));
+    if (!aDonneeAnneePrecedente) return null;
+    const totalPrecedent = moisAnneePrecedente.reduce((sum, m) => sum + (monthRowByMois.get(m)?.cartonFabrique ?? 0), 0);
+    if (totalPrecedent <= 0) return null;
+    return ((totalCourant - totalPrecedent) / totalPrecedent) * 100;
+  }
+
+  function quarterValueLabel(indicateur: (typeof INDICATEUR_ROWS)[number], quarter: Quarter) {
+    const value =
+      indicateur.numero === "1" ? evolutionN1OverQuarter(quarter) : averageOverQuarter(quarter, indicateur.headlineValue);
+    if (indicateur.numero === "1") return fmtPct(value);
+    return indicateur.isPercent ? fmtPct(value) : fmt(value, indicateur.numero === "13" ? 1 : 0);
+  }
 
   function ManuelBadge() {
     return (
@@ -1222,48 +1318,7 @@ export default async function Pr4Page() {
         </section>
 
 
-        <section className="rounded-[1.75rem] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <p className="font-semibold">A savoir</p>
-          <ul className="mt-2 list-disc space-y-1 pl-5">
-            <li>
-              <strong>% capacite machines conditionnement</strong> reflete l&apos;etat des machines au moment ou tu ouvres cette page
-              - ce n&apos;est pas historisable par mois, donc affiche seulement pour le mois en cours.
-            </li>
-            <li>
-              4 indicateurs (heures supplementaires, formation, reclamation produit non conforme, delai de
-              livraison) n&apos;ont aucune source automatique dans l&apos;ERP - saisis uniquement a la main via
-              &quot;+ Saisir un mois ancien&quot; ci-dessous.
-            </li>
-          </ul>
-        </section>
-
-        {canEdit ? (
-          <>
-            <Pr4ManuelForm rows={manuel.rows} yearOptions={yearOptions} currentYear={currentYear} />
-
-            {manuel.rows.length > 0 ? (
-              <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-                <h2 className="mb-3 text-sm font-bold text-slate-900">Mois saisis manuellement</h2>
-                <ul className="flex flex-wrap gap-2">
-                  {manuel.rows.map((row) => (
-                    <li
-                      key={row.id}
-                      className="flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 py-1.5 pl-4 pr-2 text-xs font-semibold text-violet-700"
-                    >
-                      {moisLabel(`${row.annee}-${String(row.mois).padStart(2, "0")}`)}
-                      {canDelete ? (
-                        <form action={deletePr4ManuelAction}>
-                          <input type="hidden" name="id" value={row.id} />
-                          <DeleteIconButton label={`Supprimer la saisie manuelle de ${moisLabel(`${row.annee}-${String(row.mois).padStart(2, "0")}`)}`} />
-                        </form>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-          </>
-        ) : null}
+        {canEdit ? <Pr4ManuelForm rows={manuel.rows} yearOptions={yearOptions} currentYear={currentYear} /> : null}
 
         {monthRows.length === 0 ? (
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-8 text-center text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -1273,10 +1328,6 @@ export default async function Pr4Page() {
           <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="border-b border-slate-100 px-5 py-4">
               <h2 className="text-sm font-bold text-slate-900">Tableau des indicateurs</h2>
-              <p className="mt-1 text-xs text-slate-500">
-                Meme mise en forme que le fichier Excel : indicateurs en ligne (cible + methode de calcul),
-                mois en colonne du plus ancien au plus recent.
-              </p>
             </div>
             <div className="max-h-[75vh] overflow-auto">
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
@@ -1365,6 +1416,71 @@ export default async function Pr4Page() {
                       </tr>
                     ));
                   })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {quarters.length === 0 ? null : (
+          <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 className="text-sm font-bold text-slate-900">Vue trimestrielle</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Sheet Excel &quot;INDICATEUR 2025&quot; : moyenne des 3 mois de chaque trimestre (T1
+                janv-mars, T2 avr-juin, T3 juil-sept, T4 oct-dec). L&apos;indicateur 1 (evolution vs
+                N-1) compare a la place le total du trimestre a celui du meme trimestre de
+                l&apos;annee precedente.
+              </p>
+            </div>
+            <div className="max-h-[75vh] overflow-auto">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="sticky top-0 z-20 bg-slate-100 text-slate-950">
+                  <tr>
+                    <th className="sticky left-0 z-30 w-[56px] min-w-[56px] max-w-[56px] border border-slate-200 bg-slate-100 px-3 py-2 font-semibold">
+                      #
+                    </th>
+                    <th className="sticky left-[56px] z-30 w-[280px] min-w-[280px] max-w-[280px] border border-slate-200 bg-slate-100 px-3 py-2 font-semibold">
+                      Indicateur
+                    </th>
+                    <th className="sticky left-[336px] z-30 w-[130px] min-w-[130px] max-w-[130px] border border-slate-200 bg-slate-100 px-3 py-2 font-semibold">
+                      Cible
+                    </th>
+                    {quartersDescending.map((quarter) => (
+                      <th key={quarter.key} className="border border-slate-200 px-3 py-2 text-center font-semibold">
+                        {quarter.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {INDICATEUR_ROWS.map((indicateur) => (
+                    <tr key={indicateur.numero} className="border-t border-slate-100">
+                      <td
+                        className={`sticky left-0 z-10 w-[56px] min-w-[56px] max-w-[56px] border border-slate-200 ${indicateur.rowBgSolid} px-3 py-2 font-semibold text-slate-500`}
+                      >
+                        {indicateur.numero}
+                      </td>
+                      <td
+                        className={`sticky left-[56px] z-10 w-[280px] min-w-[280px] max-w-[280px] border border-slate-200 ${indicateur.rowBgSolid} px-3 py-2 text-slate-900`}
+                      >
+                        {indicateur.label}
+                      </td>
+                      <td
+                        className={`sticky left-[336px] z-10 w-[130px] min-w-[130px] max-w-[130px] border border-slate-200 ${indicateur.rowBgSolid} px-3 py-2 text-slate-600`}
+                      >
+                        {indicateur.cible}
+                      </td>
+                      {quartersDescending.map((quarter) => (
+                        <td
+                          key={quarter.key}
+                          className={`border border-slate-200 ${indicateur.rowBg} px-3 py-2 text-right font-semibold text-slate-700`}
+                        >
+                          {quarterValueLabel(indicateur, quarter)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
