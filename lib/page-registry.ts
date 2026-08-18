@@ -122,6 +122,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "stockDelaiCommandesPf",
+    module: "Stock",
+    label: "Delai commande -> pret PF",
+    pathPrefixes: ["/stock/rapport/delai-commandes"],
+    hasWrite: false,
+  },
+  {
     key: "stockMatierePremiere",
     module: "Stock",
     label: "Stock Matiere Premiere",

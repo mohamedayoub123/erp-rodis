@@ -18,6 +18,14 @@ const TILES = [
     icon: "\u{1F3F7}\u{FE0F}",
     description: "Ecris un article : tous ses codes avec stock > 0, la quantite et la date de fabrication.",
   },
+  {
+    label: "Delai Commande -> Pret",
+    href: "/stock/rapport/delai-commandes",
+    pageKey: "stockDelaiCommandesPf",
+    icon: "⏱️",
+    description:
+      "Nb de camions par mois (en cours/BL/livre) et delai entre l'entree en cours et le marquage pret en stock.",
+  },
 ] as const;
 
 export default async function RapportPfPage() {
