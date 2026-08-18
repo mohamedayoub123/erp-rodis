@@ -66,6 +66,7 @@ function AttachmentsCell({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
+  const [pendingViewUrl, setPendingViewUrl] = useState<{ url: string; name: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -186,8 +187,9 @@ function AttachmentsCell({
     });
   }
 
-  function handleView(path: string) {
+  function handleView(path: string, name: string) {
     setError("");
+    setPendingViewUrl(null);
     // Ouvre l'onglet tout de suite (dans le clic, pendant que le navigateur
     // considere encore que c'est un geste de l'utilisateur) puis le
     // redirige une fois l'URL signee recuperee - sinon un "window.open"
@@ -204,11 +206,12 @@ function AttachmentsCell({
       if (win) {
         win.location.href = result.url;
       } else {
-        // Le navigateur a bloque meme l'ouverture de l'onglet vide (arrive
-        // dans certains navigateurs integres/mobiles tres restrictifs) -
-        // plutot que de retenter un window.open (bloque pour la meme
-        // raison), on navigue dans l'onglet actuel : ca marche partout.
-        window.location.href = result.url;
+        // Le navigateur a bloque l'ouverture de l'onglet - on ne navigue
+        // JAMAIS dans l'onglet actuel a sa place (ca ferait perdre la page
+        // ERP en cours, sans moyen simple d'y revenir). On propose a la
+        // place un vrai lien cliquable : un clic direct dessus passe
+        // toujours, meme quand un window.open programmatique est bloque.
+        setPendingViewUrl({ url: result.url, name });
       }
     });
   }
@@ -286,7 +289,7 @@ function AttachmentsCell({
                       thumbnails[file.path] ? (
                         <button
                           type="button"
-                          onClick={() => handleView(file.path)}
+                          onClick={() => handleView(file.path, file.name)}
                           disabled={isPending}
                           className="shrink-0 disabled:opacity-60"
                         >
@@ -309,7 +312,7 @@ function AttachmentsCell({
                     )}
                     <button
                       type="button"
-                      onClick={() => handleView(file.path)}
+                      onClick={() => handleView(file.path, file.name)}
                       disabled={isPending}
                       className="flex-1 truncate text-left text-base text-sky-700 hover:underline disabled:opacity-60"
                       title={file.name}
@@ -356,6 +359,21 @@ function AttachmentsCell({
                   />
                 </label>
               </div>
+            ) : null}
+            {pendingViewUrl ? (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Le navigateur a bloque l&apos;ouverture automatique du nouvel onglet -{" "}
+                <a
+                  href={pendingViewUrl.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold underline"
+                  onClick={() => setPendingViewUrl(null)}
+                >
+                  clique ici pour ouvrir &quot;{pendingViewUrl.name}&quot;
+                </a>
+                .
+              </p>
             ) : null}
             {error ? <p className="mt-3 text-sm font-semibold text-red-700">{error}</p> : null}
           </div>
