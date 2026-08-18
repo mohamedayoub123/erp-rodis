@@ -157,39 +157,43 @@ export default async function RapportDelaiCommandesPage() {
     const monthStat = getMonthStat(monthKey);
     monthStat.camions += 1;
 
-    const dateEnCours = extractStatusDate(commande.commentaire, "EN_COURS");
+    // Repli sur la date de creation quand STATUT_DATE_EN_COURS n'a jamais
+    // ete enregistre (ex: commande creee directement en BL/Livree, sans
+    // etre passee par un changement de statut qui aurait pose ce marqueur)
+    // - une commande a toujours une date de creation, donc plus jamais de
+    // "sans donnee" pour ce cas.
+    const dateEnCours =
+      extractStatusDate(commande.commentaire, "EN_COURS") || (commande.created_at || "").slice(0, 10);
     const datePret = extractPretStockDate(commande.commentaire);
 
-    if (dateEnCours && datePret) {
-      const jours = daysBetween(dateEnCours, datePret);
-      if (jours > DELAI_LIMITE_JOURS) monthStat.depasse += 1;
-      else monthStat.dansLesTemps += 1;
+    if (!dateEnCours) {
+      monthStat.sansDonnee += 1;
       continue;
     }
 
-    // Pas encore marquee "pret" : si la commande est TOUJOURS en cours et
-    // que ca depasse deja 10 jours aujourd'hui, on la compte "depasse" et on
-    // la liste plus bas avec sa quantite (demande explicite : voir combien
-    // de carton est en attente, pas juste un compteur).
-    if (dateEnCours && bucket === "EN_COURS") {
-      const jours = daysBetween(dateEnCours, todayIso);
-      if (jours > DELAI_LIMITE_JOURS) {
-        monthStat.depasse += 1;
-        enAttenteIds.push(commande.id);
-        enAttenteBase.push({
-          id: commande.id,
-          numeroProforma: commande.numero_proforma || "-",
-          client: commande.client || "-",
-          dateEnCours,
-          jours,
-        });
-      } else {
-        monthStat.dansLesTemps += 1;
-      }
-      continue;
-    }
+    // Pas encore marquee "pret" : on compare a AUJOURD'HUI plutot que de
+    // laisser en "sans donnee" - vrai pour n'importe quel statut (BL
+    // transforme et Livree compris), pas seulement En cours.
+    const referenceFin = datePret || todayIso;
+    const jours = daysBetween(dateEnCours, referenceFin);
+    const depasse = jours > DELAI_LIMITE_JOURS;
 
-    monthStat.sansDonnee += 1;
+    if (depasse) monthStat.depasse += 1;
+    else monthStat.dansLesTemps += 1;
+
+    // Liste actionnable ci-dessous : seulement les commandes ENCORE en
+    // cours, pas encore marquees pretes, et deja en retard - avec leur
+    // quantite (demande explicite : voir combien de carton est en attente).
+    if (!datePret && bucket === "EN_COURS" && depasse) {
+      enAttenteIds.push(commande.id);
+      enAttenteBase.push({
+        id: commande.id,
+        numeroProforma: commande.numero_proforma || "-",
+        client: commande.client || "-",
+        dateEnCours,
+        jours,
+      });
+    }
   }
 
   const cartonTotalById = await fetchCartonTotalByCommande(enAttenteIds);
