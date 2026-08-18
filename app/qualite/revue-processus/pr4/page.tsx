@@ -637,6 +637,27 @@ async function fetchManuelByMonth(): Promise<{ rows: ManuelRow[]; byMonth: Map<s
   return { rows, byMonth };
 }
 
+// Legende des indicateurs (numero, cible, methode de calcul) - reprend
+// mot pour mot le fichier Excel ISO ("cible" et la colonne sans titre a
+// cote de l'indicateur, qui decrit ce qui est mesure). Purement statique,
+// affichee en haut de page comme dans l'Excel - la valeur "actuelle" de
+// chaque ligne vient du dernier mois calcule (monthRows[0]).
+const INDICATEURS_LEGENDE = [
+  { numero: "1", label: "Evolution production par rapport a N-1", cible: "-", methode: "Totale carton fabrique", key: "cartonFabrique" as const },
+  { numero: "2", label: "Ordre de production acheves dans les temps", cible: "98%", methode: "Totale programme donne par carton", key: "pctProgrammeLabel" as const },
+  { numero: "3", label: "Taux d'utilisation moyen capacite de production", cible: "-", methode: "% capacite des machines", key: "capaciteLabel" as const },
+  { numero: "4", label: "Taux d'heures supplementaires par personne", cible: "2%", methode: "% d'heure supplementaire", key: "heuresSupplementairesLabel" as const },
+  { numero: "5", label: "Taux de fabrication non-conforme", cible: "< 0,5%", methode: "Totale preparation / a detruire", key: "pctADetruireLabel" as const },
+  { numero: "6", label: "Taux de derogation", cible: "< 10%", methode: "Totale preparation / sous derogation", key: "pctSousDerogationLabel" as const },
+  { numero: "7", label: "Balance matiere", cible: "-0,5% < X < +0,5%", methode: "Vrac fabrique vs carton fabrique (kg)", key: "pctEcartLabel" as const },
+  { numero: "8", label: "Taux d'arret globale", cible: "< 5%", methode: "Temps d'arret / temps de travail", key: "pctArretLabel" as const },
+  { numero: "9", label: "Taux suivi formation", cible: "90%", methode: "Nb formation a faire / realisee", key: "pctFormationLabel" as const },
+  { numero: "10", label: "Taux dechets globale", cible: "< 1%", methode: "Totale production / totale dechet", key: "pctDechetsLabel" as const },
+  { numero: "11", label: "Taux de reclamation produit non conforme / prod", cible: "< 0,2%", methode: "Qt retournee / qt fabriquee", key: "pctReclamationNcLabel" as const },
+  { numero: "12", label: "Respect du delai de livraison", cible: "90%", methode: "Qt commande / qt livree a temps", key: "pctLivraisonLabel" as const },
+  { numero: "13", label: "Prix de revient 1 carton (journalier cosmetique + energie cosmetique)", cible: "-", methode: "Cout carton", key: "prixCartonLabel" as const },
+];
+
 const EXPORT_COLUMNS = [
   { label: "Mois", key: "moisLabel" },
   { label: "1 - Nb carton fabrique", key: "cartonFabrique" },
@@ -865,6 +886,48 @@ export default async function Pr4Page() {
               />
               <RefreshButton />
             </div>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <h2 className="text-sm font-bold text-slate-900">Tableau des objectifs</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Cible et methode de calcul, comme dans le fichier Excel - la derniere colonne montre la valeur du
+              dernier mois calcule ci-dessous.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+              <thead className="bg-slate-50 text-slate-950">
+                <tr>
+                  <th className="px-4 py-2 font-semibold">#</th>
+                  <th className="px-4 py-2 font-semibold">Indicateur</th>
+                  <th className="px-4 py-2 font-semibold">Cible</th>
+                  <th className="px-4 py-2 font-semibold">Methode de calcul</th>
+                  <th className="px-4 py-2 font-semibold">
+                    Action ({monthRows[0] ? monthRows[0].moisLabel : "-"})
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {INDICATEURS_LEGENDE.map((indicateur) => (
+                  <tr key={indicateur.numero} className="border-t border-slate-100">
+                    <td className="px-4 py-2 font-semibold text-slate-500">{indicateur.numero}</td>
+                    <td className="px-4 py-2 text-slate-900">{indicateur.label}</td>
+                    <td className="px-4 py-2 text-slate-600">{indicateur.cible}</td>
+                    <td className="px-4 py-2 text-slate-500">{indicateur.methode}</td>
+                    <td className="px-4 py-2 font-semibold text-violet-700">
+                      {monthRows[0]
+                        ? indicateur.key === "cartonFabrique"
+                          ? fmt(monthRows[0].cartonFabrique)
+                          : String(monthRows[0][indicateur.key])
+                        : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </section>
 
