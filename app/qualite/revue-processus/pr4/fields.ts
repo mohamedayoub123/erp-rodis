@@ -17,6 +17,12 @@ export const MANUEL_FIELDS = [
   { key: "pieces_fabriquees", label: "Pieces fabriquees", group: "10 - Dechets" },
   { key: "dechet_pieces", label: "Dechets (pieces)", group: "10 - Dechets" },
   { key: "prix_carton", label: "Prix de revient 1 carton (FCFA)", group: "13 - Cout" },
+  { key: "heures_supplementaires_pct", label: "% heures supplementaires", group: "4 - Heures supplementaires" },
+  { key: "formation_a_faire", label: "Nb formation a faire", group: "9 - Formation" },
+  { key: "formation_realisee", label: "Nb formation realisee", group: "9 - Formation" },
+  { key: "qt_retournee_nc", label: "Qt retournee (non conforme)", group: "11 - Reclamation NC" },
+  { key: "qt_commande_livraison", label: "Qt commande", group: "12 - Delai livraison" },
+  { key: "qt_livree_a_temps", label: "Qt livree a temps", group: "12 - Delai livraison" },
 ] as const;
 
 export type FieldKey = (typeof MANUEL_FIELDS)[number]["key"];

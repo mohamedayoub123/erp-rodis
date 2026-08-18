@@ -8,10 +8,14 @@ import { MANUEL_FIELDS, MOIS_NOMS, type ManuelRow } from "./fields";
 const GROUPS = [
   "1/2 - Production",
   "3 - Capacite",
+  "4 - Heures supplementaires",
   "5/6 - Test Labo",
   "7 - Balance matiere",
   "8 - Taux d'arret",
+  "9 - Formation",
   "10 - Dechets",
+  "11 - Reclamation NC",
+  "12 - Delai livraison",
   "13 - Cout",
 ] as const;
 

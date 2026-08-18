@@ -623,7 +623,7 @@ async function fetchManuelByMonth(): Promise<{ rows: ManuelRow[]; byMonth: Map<s
   const { data, error } = await supabaseServer
     .from("pr4_indicateurs_manuel")
     .select(
-      "id, annee, mois, utilisateur, carton_commande, carton_fabrique, capacite_pct, test_labo_preparations, test_labo_a_detruire, test_labo_sous_derogation, vrac_fabrique_kg, carton_fabrique_kg, arret_minutes, travail_minutes, pieces_fabriquees, dechet_pieces, prix_carton"
+      "id, annee, mois, utilisateur, carton_commande, carton_fabrique, capacite_pct, test_labo_preparations, test_labo_a_detruire, test_labo_sous_derogation, vrac_fabrique_kg, carton_fabrique_kg, arret_minutes, travail_minutes, pieces_fabriquees, dechet_pieces, prix_carton, heures_supplementaires_pct, formation_a_faire, formation_realisee, qt_retournee_nc, qt_commande_livraison, qt_livree_a_temps"
     )
     .order("annee", { ascending: false })
     .order("mois", { ascending: false });
@@ -656,6 +656,15 @@ const EXPORT_COLUMNS = [
   { label: "10 - Dechets (pieces)", key: "dechetLabel" },
   { label: "10 - % dechets (cible < 1%)", key: "pctDechetsLabel" },
   { label: "13 - Prix de revient 1 carton (FCFA)", key: "prixCartonLabel" },
+  { label: "4 - % heures supplementaires (cible 2%)", key: "heuresSupplementairesLabel" },
+  { label: "9 - Nb formation a faire", key: "formationAFaire" },
+  { label: "9 - Nb formation realisee", key: "formationRealisee" },
+  { label: "9 - % formation realisee (cible 90%)", key: "pctFormationLabel" },
+  { label: "11 - Qt retournee non conforme", key: "qtRetourneeNc" },
+  { label: "11 - % reclamation NC (cible < 0,2%)", key: "pctReclamationNcLabel" },
+  { label: "12 - Qt commande", key: "qtCommandeLivraison" },
+  { label: "12 - Qt livree a temps", key: "qtLivreeATemps" },
+  { label: "12 - % delai livraison (cible 90%)", key: "pctLivraisonLabel" },
 ];
 
 export default async function Pr4Page() {
@@ -747,6 +756,21 @@ export default async function Pr4Page() {
       const pctArret = arret.travail > 0 ? (arret.arret / arret.travail) * 100 : null;
       const pctDechets = dechets.pieces + dechets.dechet > 0 ? (dechets.dechet / (dechets.pieces + dechets.dechet)) * 100 : null;
 
+      // Indicateurs 4/9/11/12 : aucune donnee automatique dans l'ERP pour
+      // l'instant - purement saisis a la main (l'utilisateur les reprend
+      // directement de son fichier Excel). Le denominateur de l'indicateur
+      // 11 (qt fabriquee) reutilise les pieces deja calculees pour
+      // l'indicateur 10, pour ne pas redemander le meme chiffre 2 fois.
+      const heuresSupplementairesPct = manuelRow?.heures_supplementaires_pct ?? null;
+      const formationAFaire = manuelRow?.formation_a_faire ?? 0;
+      const formationRealisee = manuelRow?.formation_realisee ?? 0;
+      const pctFormation = formationAFaire > 0 ? (formationRealisee / formationAFaire) * 100 : null;
+      const qtRetourneeNc = manuelRow?.qt_retournee_nc ?? 0;
+      const pctReclamationNc = dechets.pieces > 0 ? (qtRetourneeNc / dechets.pieces) * 100 : null;
+      const qtCommandeLivraison = manuelRow?.qt_commande_livraison ?? 0;
+      const qtLivreeATemps = manuelRow?.qt_livree_a_temps ?? 0;
+      const pctLivraison = qtCommandeLivraison > 0 ? (qtLivreeATemps / qtCommandeLivraison) * 100 : null;
+
       return {
         mois,
         moisLabel: moisLabel(mois),
@@ -780,6 +804,15 @@ export default async function Pr4Page() {
         pctDechetsLabel: fmtPct(pctDechets),
         prixCarton,
         prixCartonLabel: fmt(prixCarton, 1),
+        heuresSupplementairesLabel: fmtPct(heuresSupplementairesPct),
+        formationAFaire,
+        formationRealisee,
+        pctFormationLabel: fmtPct(pctFormation),
+        qtRetourneeNc,
+        pctReclamationNcLabel: fmtPct(pctReclamationNc),
+        qtCommandeLivraison,
+        qtLivreeATemps,
+        pctLivraisonLabel: fmtPct(pctLivraison),
       };
     })
     // Un mois sans aucune donnee sur aucun indicateur (juste ajoute pour le
@@ -843,9 +876,9 @@ export default async function Pr4Page() {
               - ce n&apos;est pas historisable par mois, donc affiche seulement pour le mois en cours.
             </li>
             <li>
-              4 indicateurs restent a mettre en place (aucune saisie ne les alimente encore) : taux d&apos;heures
-              supplementaires, taux suivi formation, taux de reclamation produit non conforme, respect du delai de
-              livraison.
+              4 indicateurs (heures supplementaires, formation, reclamation produit non conforme, delai de
+              livraison) n&apos;ont aucune source automatique dans l&apos;ERP - saisis uniquement a la main via
+              &quot;+ Saisir un mois ancien&quot; ci-dessous.
             </li>
           </ul>
         </section>
@@ -900,6 +933,9 @@ export default async function Pr4Page() {
                     <th colSpan={1} className="sticky top-0 z-10 bg-sky-50 px-4 py-2 text-center font-semibold text-sky-800">
                       3 - Capacite machines
                     </th>
+                    <th colSpan={1} className="sticky top-0 z-10 bg-fuchsia-50 px-4 py-2 text-center font-semibold text-fuchsia-800">
+                      4 - Heures supp. (cible 2%)
+                    </th>
                     <th colSpan={3} className="sticky top-0 z-10 bg-violet-50 px-4 py-2 text-center font-semibold text-violet-800">
                       5/6 - Test Labo (non conforme &lt; 0,5% / derogation &lt; 10%)
                     </th>
@@ -909,8 +945,17 @@ export default async function Pr4Page() {
                     <th colSpan={3} className="sticky top-0 z-10 bg-red-50 px-4 py-2 text-center font-semibold text-red-800">
                       8 - Taux d&apos;arret (cible &lt; 5%)
                     </th>
+                    <th colSpan={3} className="sticky top-0 z-10 bg-cyan-50 px-4 py-2 text-center font-semibold text-cyan-800">
+                      9 - Formation (cible 90%)
+                    </th>
                     <th colSpan={3} className="sticky top-0 z-10 bg-amber-50 px-4 py-2 text-center font-semibold text-amber-800">
                       10 - Dechets (cible &lt; 1%)
+                    </th>
+                    <th colSpan={2} className="sticky top-0 z-10 bg-rose-50 px-4 py-2 text-center font-semibold text-rose-800">
+                      11 - Reclamation NC (cible &lt; 0,2%)
+                    </th>
+                    <th colSpan={3} className="sticky top-0 z-10 bg-indigo-50 px-4 py-2 text-center font-semibold text-indigo-800">
+                      12 - Delai livraison (cible 90%)
                     </th>
                     <th colSpan={1} className="sticky top-0 z-10 bg-green-50 px-4 py-2 text-center font-semibold text-green-800">
                       13 - Prix de revient carton
@@ -922,6 +967,7 @@ export default async function Pr4Page() {
                     <th className="sticky top-[41px] z-10 bg-orange-50/70 px-3 py-2 font-medium text-orange-800">Fabrique</th>
                     <th className="sticky top-[41px] z-10 bg-orange-50/70 px-3 py-2 font-medium text-orange-800">%</th>
                     <th className="sticky top-[41px] z-10 bg-sky-50/70 px-3 py-2 font-medium text-sky-800">%</th>
+                    <th className="sticky top-[41px] z-10 bg-fuchsia-50/70 px-3 py-2 font-medium text-fuchsia-800">%</th>
                     <th className="sticky top-[41px] z-10 bg-violet-50/70 px-3 py-2 font-medium text-violet-800">Preparations</th>
                     <th className="sticky top-[41px] z-10 bg-violet-50/70 px-3 py-2 font-medium text-violet-800">% detruit</th>
                     <th className="sticky top-[41px] z-10 bg-violet-50/70 px-3 py-2 font-medium text-violet-800">% derogation</th>
@@ -931,9 +977,17 @@ export default async function Pr4Page() {
                     <th className="sticky top-[41px] z-10 bg-red-50/70 px-3 py-2 font-medium text-red-800">Arret (min)</th>
                     <th className="sticky top-[41px] z-10 bg-red-50/70 px-3 py-2 font-medium text-red-800">Travail (min)</th>
                     <th className="sticky top-[41px] z-10 bg-red-50/70 px-3 py-2 font-medium text-red-800">%</th>
+                    <th className="sticky top-[41px] z-10 bg-cyan-50/70 px-3 py-2 font-medium text-cyan-800">A faire</th>
+                    <th className="sticky top-[41px] z-10 bg-cyan-50/70 px-3 py-2 font-medium text-cyan-800">Realisee</th>
+                    <th className="sticky top-[41px] z-10 bg-cyan-50/70 px-3 py-2 font-medium text-cyan-800">%</th>
                     <th className="sticky top-[41px] z-10 bg-amber-50/70 px-3 py-2 font-medium text-amber-800">Pieces</th>
                     <th className="sticky top-[41px] z-10 bg-amber-50/70 px-3 py-2 font-medium text-amber-800">Dechets</th>
                     <th className="sticky top-[41px] z-10 bg-amber-50/70 px-3 py-2 font-medium text-amber-800">%</th>
+                    <th className="sticky top-[41px] z-10 bg-rose-50/70 px-3 py-2 font-medium text-rose-800">Qt retournee</th>
+                    <th className="sticky top-[41px] z-10 bg-rose-50/70 px-3 py-2 font-medium text-rose-800">%</th>
+                    <th className="sticky top-[41px] z-10 bg-indigo-50/70 px-3 py-2 font-medium text-indigo-800">Commande</th>
+                    <th className="sticky top-[41px] z-10 bg-indigo-50/70 px-3 py-2 font-medium text-indigo-800">Livree a temps</th>
+                    <th className="sticky top-[41px] z-10 bg-indigo-50/70 px-3 py-2 font-medium text-indigo-800">%</th>
                     <th className="sticky top-[41px] z-10 bg-green-50/70 px-3 py-2 font-medium text-green-800">FCFA/carton</th>
                   </tr>
                 </thead>
@@ -960,6 +1014,7 @@ export default async function Pr4Page() {
                         {row.capaciteLabel}
                         {row.isManuel.capacite ? <ManuelBadge /> : null}
                       </td>
+                      <td className="bg-fuchsia-50/20 px-3 py-3 text-slate-600">{row.heuresSupplementairesLabel}</td>
                       <td className="bg-violet-50/20 px-3 py-3 text-slate-600">
                         {fmt(row.preparations)}
                         {row.isManuel.testLabo ? <ManuelBadge /> : null}
@@ -1002,6 +1057,17 @@ export default async function Pr4Page() {
                       >
                         {row.pctArretLabel}
                       </td>
+                      <td className="bg-cyan-50/20 px-3 py-3 text-slate-600">{fmt(row.formationAFaire)}</td>
+                      <td className="bg-cyan-50/20 px-3 py-3 text-slate-600">{fmt(row.formationRealisee)}</td>
+                      <td
+                        className={`bg-cyan-50/20 px-3 py-3 font-semibold ${
+                          row.pctFormationLabel !== "-" && row.formationRealisee < row.formationAFaire
+                            ? "text-red-700"
+                            : "text-slate-600"
+                        }`}
+                      >
+                        {row.pctFormationLabel}
+                      </td>
                       <td className="bg-amber-50/20 px-3 py-3 text-slate-600">
                         {row.piecesLabel}
                         {row.isManuel.dechets ? <ManuelBadge /> : null}
@@ -1013,6 +1079,25 @@ export default async function Pr4Page() {
                         }`}
                       >
                         {row.pctDechetsLabel}
+                      </td>
+                      <td className="bg-rose-50/20 px-3 py-3 text-slate-600">{fmt(row.qtRetourneeNc)}</td>
+                      <td
+                        className={`bg-rose-50/20 px-3 py-3 font-semibold ${
+                          row.pctReclamationNcLabel !== "-" && row.qtRetourneeNc > 0 ? "text-red-700" : "text-slate-600"
+                        }`}
+                      >
+                        {row.pctReclamationNcLabel}
+                      </td>
+                      <td className="bg-indigo-50/20 px-3 py-3 text-slate-600">{fmt(row.qtCommandeLivraison)}</td>
+                      <td className="bg-indigo-50/20 px-3 py-3 text-slate-600">{fmt(row.qtLivreeATemps)}</td>
+                      <td
+                        className={`bg-indigo-50/20 px-3 py-3 font-semibold ${
+                          row.pctLivraisonLabel !== "-" && row.qtLivreeATemps < row.qtCommandeLivraison
+                            ? "text-red-700"
+                            : "text-slate-600"
+                        }`}
+                      >
+                        {row.pctLivraisonLabel}
                       </td>
                       <td className="bg-green-50/20 px-3 py-3 font-semibold text-green-800">
                         {row.prixCartonLabel}
