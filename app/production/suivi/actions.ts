@@ -3,13 +3,45 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { fetchTotalStockInDepot, fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
 
 function revalidateSuiviPages() {
   revalidatePath("/production/suivi");
   revalidatePath("/production/suivi/dashboard");
   revalidatePath("/production/suivi/calendrier");
+  revalidatePath("/production/suivi/en-cours");
+  revalidatePath("/production/suivi-production");
+  revalidatePath("/production/rapport/ecarts");
+}
+
+// Supprime TOUT le programme (la ligne entiere - tous ses codes, toutes
+// les etapes deja saisies) directement depuis le Dashboard, pour corriger
+// une erreur de saisie sans devoir aller chercher la ligne ailleurs (ex:
+// Programme par ligne) - demande explicite. Meme suppression que
+// deleteProgrammeLigneRapportAction (Rapport Ecarts), gardee separee pour
+// sa propre permission (productionSuiviDashboard) plutot que d'emprunter
+// celle d'un autre rapport.
+export async function deleteProgrammeLigneDashboardAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canDeletePageUser(currentUser, "productionSuiviDashboard"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer ce programme.");
+  }
+
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+
+  if (!ligneId) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const { error } = await supabaseServer.from("programme_lignes").delete().eq("id", ligneId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateSuiviPages();
 }
 
 type CodeTermineStage = "vrac" | "carton" | "emballage" | "pesage" | "salle_conditionnement";

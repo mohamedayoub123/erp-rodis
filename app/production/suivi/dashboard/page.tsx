@@ -16,8 +16,9 @@ import {
   markVracTermineAction,
   renameLotCodeAction,
 } from "../actions";
-import { getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { canDeletePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { LotCodeCell } from "./lot-code-cell";
+import { DeleteProgrammeLigneButton } from "./delete-programme-ligne-button";
 import {
   buildPdLabelByCode,
   computeProduitParCode,
@@ -220,6 +221,7 @@ export default async function PlanningDashboardPage({
   // utilisateurs voient le Dashboard exactement comme avant, ces 2 sections
   // en moins.
   const isAdmin = canEditLotCode;
+  const canDeleteLigne = await canDeletePageUser(currentUser, "productionSuiviDashboard");
 
   const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
   const articleById = new Map(articles.map((article) => [article.id, article]));
@@ -595,12 +597,13 @@ export default async function PlanningDashboardPage({
                     <th className="px-4 py-3 font-semibold">Restant</th>
                     <th className="px-4 py-3 font-semibold">Rapport</th>
                     <th className="px-4 py-3 font-semibold">Action</th>
+                    {canDeleteLigne ? <th className="px-4 py-3 font-semibold">Suppr.</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {vracRows.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={canDeleteLigne ? 10 : 9} className="px-4 py-6 text-center text-sm text-slate-500">
                         {hasFilters
                           ? "Aucun resultat pour ce filtre."
                           : "Rien en cours (tout est termine ou vide)."}
@@ -652,6 +655,14 @@ export default async function PlanningDashboardPage({
                         <td className="px-4 py-3">
                           <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markVracTermineAction} />
                         </td>
+                        {canDeleteLigne ? (
+                          <td className="px-4 py-3">
+                            <DeleteProgrammeLigneButton
+                              ligneId={row.ligne.id}
+                              produit={vracLabelFromName(row.ligne.produit) || row.ligne.produit || row.code}
+                            />
+                          </td>
+                        ) : null}
                       </tr>
                     ))
                   )}
@@ -689,12 +700,13 @@ export default async function PlanningDashboardPage({
                     <th className="px-4 py-3 font-semibold">Restant</th>
                     <th className="px-4 py-3 font-semibold">Rapport</th>
                     <th className="px-4 py-3 font-semibold">Action</th>
+                    {canDeleteLigne ? <th className="px-4 py-3 font-semibold">Suppr.</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {cartonRows.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={canDeleteLigne ? 10 : 9} className="px-4 py-6 text-center text-sm text-slate-500">
                         {hasFilters
                           ? "Aucun resultat pour ce filtre."
                           : "Rien en cours (tout est termine ou vide)."}
@@ -732,6 +744,11 @@ export default async function PlanningDashboardPage({
                         <td className="px-4 py-3">
                           <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markCartonTermineAction} />
                         </td>
+                        {canDeleteLigne ? (
+                          <td className="px-4 py-3">
+                            <DeleteProgrammeLigneButton ligneId={row.ligne.id} produit={row.ligne.produit || row.code} />
+                          </td>
+                        ) : null}
                       </tr>
                     ))
                   )}
@@ -766,12 +783,13 @@ export default async function PlanningDashboardPage({
                     <th className="px-4 py-3 font-semibold">Qt</th>
                     <th className="px-4 py-3 font-semibold">Rapport</th>
                     <th className="px-4 py-3 font-semibold">Action</th>
+                    {canDeleteLigne ? <th className="px-4 py-3 font-semibold">Suppr.</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {emballageRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={canDeleteLigne ? 7 : 6} className="px-4 py-6 text-center text-sm text-slate-500">
                         {hasFilters
                           ? "Aucun resultat pour ce filtre."
                           : "Rien a emballer pour le moment."}
@@ -813,6 +831,11 @@ export default async function PlanningDashboardPage({
                             </form>
                           </div>
                         </td>
+                        {canDeleteLigne ? (
+                          <td className="px-4 py-3">
+                            <DeleteProgrammeLigneButton ligneId={row.ligne.id} produit={row.ligne.produit || row.code} />
+                          </td>
+                        ) : null}
                       </tr>
                     ))
                   )}
