@@ -7,7 +7,7 @@ import { PAGE_REGISTRY, findPageForPath, type PageDefinition } from "./page-regi
 const STOCK_AUTH_COOKIE = "stock_edit_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 const STOCK_AUTH_SECRET = process.env.STOCK_AUTH_SECRET;
-const ADMIN_USERS = new Set(["mayoub"]);
+const ADMIN_USERS = new Set(["mayoub", "ayoub"]);
 const MAX_FAILED_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
 
