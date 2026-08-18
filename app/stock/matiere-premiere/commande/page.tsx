@@ -124,7 +124,7 @@ async function fetchAllDossierStatuts() {
 }
 
 type SearchParams = Promise<{
-  statut?: string;
+  statut?: string | string[];
   article?: string;
   code?: string;
   doss_erp?: string;
@@ -136,7 +136,10 @@ type SearchParams = Promise<{
 export default async function CommandeMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
   const params = await searchParams;
-  const statutFilter = params.statut || "";
+  // Plusieurs cases "Statut" peuvent etre cochees a la fois - Next.js ne
+  // renvoie un tableau que quand il y a 2+ valeurs pour la meme cle dans
+  // l'URL (?statut=A&statut=B), une seule reste une simple chaine.
+  const statutFilter = params.statut ? (Array.isArray(params.statut) ? params.statut : [params.statut]) : [];
   const articleFilter = (params.article || "").trim();
   const codeFilter = (params.code || "").trim().toLowerCase();
   const dossErpFilter = (params.doss_erp || "").trim().toLowerCase();
@@ -144,7 +147,13 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
   const dateDebutFilter = (params.date_debut || "").trim();
   const dateFinFilter = (params.date_fin || "").trim();
   const hasFilters = Boolean(
-    statutFilter || articleFilter || codeFilter || dossErpFilter || doss4dFilter || dateDebutFilter || dateFinFilter
+    statutFilter.length > 0 ||
+      articleFilter ||
+      codeFilter ||
+      dossErpFilter ||
+      doss4dFilter ||
+      dateDebutFilter ||
+      dateFinFilter
   );
 
   const currentUser = await getCurrentStockUser();
@@ -202,7 +211,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
       };
     })
     .filter((group) => {
-      if (statutFilter && group.statut !== statutFilter) return false;
+      if (statutFilter.length > 0 && !statutFilter.includes(group.statut)) return false;
       if (codeFilter && !group.codes.some((code) => code.toLowerCase().includes(codeFilter))) return false;
       if (dossErpFilter && !(group.nDossErp || "").toLowerCase().includes(dossErpFilter)) return false;
       if (doss4dFilter && !(group.nDoss4d || "").toLowerCase().includes(doss4dFilter)) return false;
@@ -283,18 +292,24 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
               options={doss4dOptions}
               placeholder="Doss. 4D"
             />
-            <select
-              name="statut"
-              defaultValue={statutFilter}
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-            >
-              <option value="">Tous les statuts</option>
-              {STATUT_DOSSIER_MP_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+            <fieldset className="rounded-2xl border border-slate-200 px-4 py-2.5">
+              <legend className="px-1 text-xs font-semibold text-slate-500">
+                Statut (plusieurs possibles)
+              </legend>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 pt-0.5">
+                {STATUT_DOSSIER_MP_OPTIONS.map((option) => (
+                  <label key={option} className="flex items-center gap-1.5 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      name="statut"
+                      value={option}
+                      defaultChecked={statutFilter.includes(option)}
+                    />
+                    {option}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Date recente depuis
               <input
