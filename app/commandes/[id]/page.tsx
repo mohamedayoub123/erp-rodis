@@ -1128,7 +1128,10 @@ export default async function CommandeDetailPage({
                             name="current_viewed_id"
                             value={selectedCommande.id}
                           />
-                          <DeleteIconButton label={`Supprimer camion ${truck.truckNumber}`} />
+                          <DeleteIconButton
+                            label={`Supprimer camion ${truck.truckNumber}`}
+                            confirmMessage={`Supprimer le camion ${truck.truckNumber} de la proforma ${getBaseProforma(selectedCommande.numero_proforma)} ? Cette action est definitive.`}
+                          />
                         </form>
                       ) : null}
                     </div>

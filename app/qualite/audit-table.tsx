@@ -188,6 +188,7 @@ function AttachmentsCell({
   }
 
   function handleDelete(path: string) {
+    if (!window.confirm("Supprimer ce fichier ? Cette action est definitive.")) return;
     setError("");
     startTransition(async () => {
       const result = await deleteFileAction(rowId as number, path);
@@ -435,6 +436,7 @@ export function AuditTable({
   function removeRow(key: string) {
     const row = rowsRef.current[key];
     if (row?.id) {
+      if (!window.confirm("Supprimer cette ligne ? Cette action est definitive.")) return;
       setIsDeleting(key);
       startTransition(async () => {
         try {

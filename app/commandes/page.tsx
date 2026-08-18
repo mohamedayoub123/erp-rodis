@@ -548,7 +548,9 @@ export default async function CommandesPage({
                           {canDeleteCommandes ? (
                             <form action={deleteProformaGroupAction}>
                               <input type="hidden" name="numero_proforma" value={group.numeroProforma} />
-                              <DeleteIconButton />
+                              <DeleteIconButton
+                                confirmMessage={`Supprimer toute la commande ${group.numeroProforma} (${group.client}) ? Ca efface les ${group.rows.length} camion${group.rows.length > 1 ? "s" : ""} et tout ce qui a deja ete despatche dessus. Cette action est definitive.`}
+                              />
                             </form>
                           ) : null}
                         </div>

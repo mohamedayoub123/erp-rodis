@@ -1,11 +1,20 @@
+"use client";
+
+// Icone corbeille partagee par toute l'appli (BC/Import, Stock, Depots,
+// Commandes, Articles...) - demande explicite : toute suppression doit
+// d'abord demander une autorisation oui/non, jamais partir directement.
+// Un seul window.confirm() ici protege tous les appelants d'un coup, sans
+// avoir a modifier chacun des ~40 endroits qui l'utilisent.
 export function DeleteIconButton({
   label = "Supprimer",
+  confirmMessage,
   formAction,
   formNoValidate,
   name,
   value,
 }: {
   label?: string;
+  confirmMessage?: string;
   formAction?: (formData: FormData) => void | Promise<void>;
   formNoValidate?: boolean;
   name?: string;
@@ -20,6 +29,11 @@ export function DeleteIconButton({
       formNoValidate={formNoValidate}
       name={name}
       value={value}
+      onClick={(event) => {
+        if (!window.confirm(confirmMessage || `${label} ? Cette action est definitive.`)) {
+          event.preventDefault();
+        }
+      }}
       className="flex h-9 w-9 items-center justify-center rounded-full border border-red-200 text-red-700 transition hover:bg-red-50"
     >
       <svg
