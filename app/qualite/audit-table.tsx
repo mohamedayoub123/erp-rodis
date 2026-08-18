@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[] };
 
@@ -66,6 +66,18 @@ function AttachmentsCell({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+
+  // "webkitdirectory" (selection d'un dossier entier plutot que fichier par
+  // fichier) n'existe pas dans les types JSX standard - on le pose a la
+  // main sur l'element une fois monte. Supporte par tous les navigateurs de
+  // bureau modernes (Chrome/Edge/Firefox).
+  useEffect(() => {
+    if (folderInputRef.current) {
+      folderInputRef.current.setAttribute("webkitdirectory", "");
+      folderInputRef.current.setAttribute("directory", "");
+    }
+  }, []);
 
   if (!rowId) {
     return <p className="mt-1 text-[11px] text-slate-400">Enregistre la ligne pour joindre un fichier.</p>;
@@ -109,9 +121,16 @@ function AttachmentsCell({
       // aussi les photos les plus lourdes.
       const uploaded: AttachmentFile[] = [];
       for (const file of Array.from(fileList)) {
+        // Quand le fichier vient d'un dossier attache entier (input
+        // webkitdirectory), webkitRelativePath garde le sous-chemin
+        // ("MonDossier/sous-dossier/photo.jpg") - affiche tel quel pour
+        // qu'on sache d'ou vient chaque fichier une fois tout aplati dans
+        // la liste des pieces jointes. slot.path (le chemin de stockage
+        // reel) reste base uniquement sur file.name, pas ce chemin.
+        const displayName = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
         const slot = await createUploadSlotAction(rowId as number, file.name);
         if (!slot.ok || !slot.path || !slot.signedUrl) {
-          setError(slot.message || `Erreur pendant l'envoi de "${file.name}".`);
+          setError(slot.message || `Erreur pendant l'envoi de "${displayName}".`);
           continue;
         }
         try {
@@ -121,12 +140,12 @@ function AttachmentsCell({
             body: file,
           });
           if (!response.ok) {
-            setError(`Erreur pendant l'envoi de "${file.name}".`);
+            setError(`Erreur pendant l'envoi de "${displayName}".`);
             continue;
           }
-          uploaded.push({ name: file.name, path: slot.path });
+          uploaded.push({ name: displayName, path: slot.path });
         } catch {
-          setError(`Erreur pendant l'envoi de "${file.name}".`);
+          setError(`Erreur pendant l'envoi de "${displayName}".`);
         }
       }
 
@@ -157,6 +176,7 @@ function AttachmentsCell({
         }
       }
       if (inputRef.current) inputRef.current.value = "";
+      if (folderInputRef.current) folderInputRef.current.value = "";
     });
   }
 
@@ -285,14 +305,30 @@ function AttachmentsCell({
               </div>
             )}
             {canWrite ? (
-              <input
-                ref={inputRef}
-                type="file"
-                multiple
-                onChange={(e) => handleUpload(e.target.files)}
-                disabled={isPending}
-                className="mt-3 text-[11px]"
-              />
+              <div className="mt-3 flex flex-col gap-2">
+                <label className="text-[11px] text-slate-600">
+                  <span className="block font-semibold text-slate-500">Fichiers</span>
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    multiple
+                    onChange={(e) => handleUpload(e.target.files)}
+                    disabled={isPending}
+                    className="mt-0.5"
+                  />
+                </label>
+                <label className="text-[11px] text-slate-600">
+                  <span className="block font-semibold text-slate-500">Ou un dossier entier</span>
+                  <input
+                    ref={folderInputRef}
+                    type="file"
+                    multiple
+                    onChange={(e) => handleUpload(e.target.files)}
+                    disabled={isPending}
+                    className="mt-0.5"
+                  />
+                </label>
+              </div>
             ) : null}
             {error ? <p className="mt-2 text-[11px] font-semibold text-red-700">{error}</p> : null}
           </div>
