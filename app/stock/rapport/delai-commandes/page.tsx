@@ -43,6 +43,20 @@ function extractStatusDate(commentaire: string | null | undefined, statusKey: st
   return token ? token.replace(`STATUT_DATE_${statusKey}:`, "").trim() : "";
 }
 
+// Meme encodage que DATE_TRANSITION_ dans app/commandes/actions.ts - pose
+// des qu'une commande quitte le statut Stand, MEME si elle saute
+// directement vers BL transforme/Livree sans jamais avoir eu de statut "En
+// cours" explicite (STATUT_DATE_EN_COURS reste alors vide). Sert de repli :
+// le temps passe en Stand ne doit jamais compter dans le delai (meme regle
+// que "Statistique livraison").
+function extractTransitionDate(commentaire: string | null | undefined, transitionKey: string) {
+  if (!commentaire) return "";
+
+  const parts = commentaire.split("|").map((part) => part.trim());
+  const token = parts.find((part) => part.startsWith(`DATE_TRANSITION_${transitionKey}:`));
+  return token ? token.replace(`DATE_TRANSITION_${transitionKey}:`, "").trim() : "";
+}
+
 // Meme encodage que PRET_STOCK_DATE dans app/commandes/actions.ts
 // (upsertPretStockComment, case "Pret en stock" sur la liste des commandes).
 function extractPretStockDate(commentaire: string | null | undefined) {
@@ -157,13 +171,20 @@ export default async function RapportDelaiCommandesPage() {
     const monthStat = getMonthStat(monthKey);
     monthStat.camions += 1;
 
-    // Repli sur la date de creation quand STATUT_DATE_EN_COURS n'a jamais
-    // ete enregistre (ex: commande creee directement en BL/Livree, sans
-    // etre passee par un changement de statut qui aurait pose ce marqueur)
-    // - une commande a toujours une date de creation, donc plus jamais de
-    // "sans donnee" pour ce cas.
+    // Ordre de priorite pour la date de depart :
+    // 1) STATUT_DATE_EN_COURS - cas normal, la commande est passee par le
+    //    statut "En cours" explicitement.
+    // 2) DATE_TRANSITION_STAND_ENCOURS - la commande a saute directement de
+    //    Stand vers BL transforme/Livree (vu sur des commandes importees
+    //    puis changees de statut en une fois) : c'est la date ou elle a
+    //    quitte le Stand, le temps EN Stand avant ca ne compte pas (meme
+    //    regle que Statistique livraison).
+    // 3) Date de creation - dernier recours si aucun des 2 marqueurs
+    //    n'existe (une commande a toujours une date de creation).
     const dateEnCours =
-      extractStatusDate(commande.commentaire, "EN_COURS") || (commande.created_at || "").slice(0, 10);
+      extractStatusDate(commande.commentaire, "EN_COURS") ||
+      extractTransitionDate(commande.commentaire, "STAND_ENCOURS") ||
+      (commande.created_at || "").slice(0, 10);
     const datePret = extractPretStockDate(commande.commentaire);
 
     if (!dateEnCours) {

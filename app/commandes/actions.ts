@@ -175,6 +175,19 @@ function upsertStatusDateComment(
   return parts.join(" | ");
 }
 
+// Retire les marqueurs commencant par l'un de ces prefixes (utilise pour
+// invalider une date devenue perimee, ex: date "en cours" quand la commande
+// repasse en Stand).
+function clearCommentTokens(commentaire: string | null | undefined, prefixes: string[]) {
+  const parts = (commentaire || "")
+    .split("|")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => !prefixes.some((prefix) => part.startsWith(prefix)));
+
+  return parts.join(" | ");
+}
+
 function applyStatusDateComment(
   commentaire: string | null | undefined,
   statusValue: string | null | undefined
@@ -182,7 +195,15 @@ function applyStatusDateComment(
   const upperStatus = String(statusValue || "").trim().toUpperCase();
 
   if (upperStatus === "STAND") {
-    return upsertStatusDateComment(commentaire, "STAND");
+    // Retour en Stand : la date "en cours" precedente n'est plus valable -
+    // la commande redevient en attente. Sans ca, une commande qui repasse
+    // Stand -> En cours -> Stand -> En cours gardait sa toute premiere date
+    // "en cours", faussant tout calcul de delai fait a partir d'elle.
+    const cleared = clearCommentTokens(commentaire, [
+      "STATUT_DATE_EN_COURS:",
+      "DATE_TRANSITION_STAND_ENCOURS:",
+    ]);
+    return upsertStatusDateComment(cleared, "STAND");
   }
 
   if (upperStatus === "BL_TRANSFORME") {
