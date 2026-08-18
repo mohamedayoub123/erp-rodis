@@ -5,17 +5,12 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
-type ArticlePfRow = {
-  id: number;
+type StockActuelPfRpcRow = {
+  article_id: number;
   nom_article: string;
   type_article: string | null;
-};
-
-type MouvementRow = {
-  article_id: number | null;
-  qte_entree: number;
-  qte_sortie: number;
-  numero_lot: string | null;
+  stock_actuel: number;
+  codes: string[] | null;
 };
 
 type StockRow = {
@@ -26,50 +21,15 @@ type StockRow = {
   codes: string[];
 };
 
-async function fetchAllArticlesPf() {
-  const rows: ArticlePfRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("articles")
-      .select("id, nom_article, type_article")
-      .range(from, from + pageSize - 1);
-
-    if (error) return { rows, error };
-
-    const chunk = (data ?? []) as ArticlePfRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
-}
-
-async function fetchAllMouvements() {
-  const rows: MouvementRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock")
-      .select("article_id, qte_entree, qte_sortie, numero_lot")
-      .range(from, from + pageSize - 1);
-
-    if (error) return { rows, error };
-
-    const chunk = (data ?? []) as MouvementRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
+// Le stock par article (somme de tous les mouvements TE/TS) est calcule
+// directement en base (fonction stock_actuel_pf_rows, voir
+// scripts/sql/add_stock_actuel_rpcs.sql) - avant, cette page rapatriait
+// TOUTE la table lots_stock (un journal de mouvements qui ne fait que
+// grossir, 16 000+ lignes) pour la sommer en JS a chaque chargement.
+async function fetchStockActuelPf() {
+  const { data, error } = await supabaseServer.rpc("stock_actuel_pf_rows");
+  if (error) return { rows: [] as StockActuelPfRpcRow[], error };
+  return { rows: (data ?? []) as StockActuelPfRpcRow[], error: null };
 }
 
 function formatNumber(value: number) {
@@ -86,49 +46,27 @@ export default async function StockActuelPfPage({ searchParams }: { searchParams
   const categorieFilter = (params.categorie || "").trim().toLowerCase();
   const hasFilters = Boolean(articleFilter || codeFilter || categorieFilter);
 
-  const [{ rows: articles, error: articlesError }, { rows: mouvements, error: mouvementsError }] =
-    await Promise.all([fetchAllArticlesPf(), fetchAllMouvements()]);
+  const { rows: rpcRows, error } = await fetchStockActuelPf();
 
-  const error = articlesError || mouvementsError;
-
-  // Stock actuel = somme entree-sortie de tous les mouvements de l'article
-  // (meme calcul que Stock MP/Stock Alert MP) - "codes" retient chaque
-  // numero de lot deja vu pour cet article, pour que le filtre Code puisse
-  // retrouver l'article a partir d'un lot precis meme si ce report reste
-  // par article.
-  const stockByArticle = new Map<number, number>();
-  const codesByArticle = new Map<number, Set<string>>();
-  for (const row of mouvements) {
-    if (!row.article_id) continue;
-    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-    stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
-
-    const code = (row.numero_lot || "").trim();
-    if (code) {
-      const set = codesByArticle.get(row.article_id) ?? new Set<string>();
-      set.add(code);
-      codesByArticle.set(row.article_id, set);
-    }
-  }
-
-  const stockRows: StockRow[] = articles
-    .map((article) => ({
-      article_id: article.id,
-      nom_article: article.nom_article,
-      type_article: article.type_article,
-      stock_actuel: stockByArticle.get(article.id) ?? 0,
-      codes: [...(codesByArticle.get(article.id) ?? [])],
+  const stockRows: StockRow[] = rpcRows
+    .map((row) => ({
+      article_id: row.article_id,
+      nom_article: row.nom_article,
+      type_article: row.type_article,
+      stock_actuel: Number(row.stock_actuel ?? 0),
+      codes: row.codes ?? [],
     }))
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
     .filter((row) => !codeFilter || row.codes.some((code) => code.toLowerCase().includes(codeFilter)))
     .filter((row) => !categorieFilter || (row.type_article || "").toLowerCase().includes(categorieFilter))
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
-  const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map(
-    (label, index) => ({ id: index, label })
-  );
+  const articleOptions = [...new Set(rpcRows.map((row) => row.nom_article))].map((label, index) => ({
+    id: index,
+    label,
+  }));
   const categorieOptions = (
-    [...new Set(articles.map((article) => article.type_article).filter(Boolean))] as string[]
+    [...new Set(rpcRows.map((row) => row.type_article).filter(Boolean))] as string[]
   ).map((label, index) => ({ id: index, label }));
 
   return (

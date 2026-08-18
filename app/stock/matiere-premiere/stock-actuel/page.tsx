@@ -8,18 +8,13 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { matchesArticleSearch } from "@/lib/article-search";
 import { encodeDossierId } from "../commande/dossier-id";
 
-type ArticleMpRow = {
-  id: number;
+type StockActuelMpRpcRow = {
+  article_id: number;
   nom_article: string;
   categorie: string | null;
   unite: string | null;
-};
-
-type MouvementRow = {
-  article_id: number | null;
-  qte_entree: number;
-  qte_sortie: number;
-  numero_lot: string | null;
+  stock_actuel: number;
+  codes: string[] | null;
 };
 
 type BcLigneRow = {
@@ -63,50 +58,15 @@ type StockRow = {
   importRefs: DossierRef[];
 };
 
-async function fetchAllArticlesMp() {
-  const rows: ArticleMpRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite")
-      .range(from, from + pageSize - 1);
-
-    if (error) return { rows, error };
-
-    const chunk = (data ?? []) as ArticleMpRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
-}
-
-async function fetchAllMouvements() {
-  const rows: MouvementRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select("article_id, qte_entree, qte_sortie, numero_lot")
-      .range(from, from + pageSize - 1);
-
-    if (error) return { rows, error };
-
-    const chunk = (data ?? []) as MouvementRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
+// Le stock par article (somme de tous les mouvements TE/TS) est calcule
+// directement en base (fonction stock_actuel_mp_rows, voir
+// scripts/sql/add_stock_actuel_rpcs.sql) - avant, cette page rapatriait
+// TOUTE la table lots_stock_matiere_premiere (un journal de mouvements qui
+// ne fait que grossir) pour la sommer en JS a chaque chargement.
+async function fetchStockActuelMp() {
+  const { data, error } = await supabaseServer.rpc("stock_actuel_mp_rows");
+  if (error) return { rows: [] as StockActuelMpRpcRow[], error };
+  return { rows: (data ?? []) as StockActuelMpRpcRow[], error: null };
 }
 
 async function fetchAllBcLignes() {
@@ -175,36 +135,11 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
 
   const [
     { rows: articles, error: articlesError },
-    { rows: mouvements, error: mouvementsError },
     { rows: bcLignes, error: bcError },
     { rows: importEvenements, error: importError },
-  ] = await Promise.all([
-    fetchAllArticlesMp(),
-    fetchAllMouvements(),
-    fetchAllBcLignes(),
-    fetchAllImportEvenements(),
-  ]);
+  ] = await Promise.all([fetchStockActuelMp(), fetchAllBcLignes(), fetchAllImportEvenements()]);
 
-  const error = articlesError || mouvementsError || bcError || importError;
-
-  // Stock actuel = somme entree-sortie de tous les mouvements de l'article
-  // (meme calcul que Stock Alert MP) - "codes" retient chaque numero de lot
-  // deja vu pour cet article, pour que le filtre Code puisse retrouver
-  // l'article a partir d'un lot precis meme si ce report reste par article.
-  const stockByArticle = new Map<number, number>();
-  const codesByArticle = new Map<number, Set<string>>();
-  for (const row of mouvements) {
-    if (!row.article_id) continue;
-    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-    stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
-
-    const code = (row.numero_lot || "").trim();
-    if (code) {
-      const set = codesByArticle.get(row.article_id) ?? new Set<string>();
-      set.add(code);
-      codesByArticle.set(row.article_id, set);
-    }
-  }
+  const error = articlesError || bcError || importError;
 
   // Pour chaque article, retrouve les BC (avec leur doss.) qui le
   // concernent, et via leurs lignes les evenements d'import (meme logique
@@ -247,14 +182,14 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
 
   const stockRows: StockRow[] = articles
     .map((article) => ({
-      article_id: article.id,
+      article_id: article.article_id,
       nom_article: article.nom_article,
       categorie: article.categorie,
       unite: article.unite,
-      stock_actuel: stockByArticle.get(article.id) ?? 0,
-      codes: [...(codesByArticle.get(article.id) ?? [])],
-      bcRefs: bcRefsByArticle.get(article.id) ?? [],
-      importRefs: [...(importRefsByArticle.get(article.id)?.values() ?? [])],
+      stock_actuel: Number(article.stock_actuel ?? 0),
+      codes: article.codes ?? [],
+      bcRefs: bcRefsByArticle.get(article.article_id) ?? [],
+      importRefs: [...(importRefsByArticle.get(article.article_id)?.values() ?? [])],
     }))
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
     .filter((row) => !codeFilter || row.codes.some((code) => code.toLowerCase().includes(codeFilter)))
@@ -268,7 +203,7 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
   const categorieOptions = ([...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]).map(
     (label, id) => ({ id, label })
   );
-  const codeOptions = [...new Set(mouvements.map((row) => (row.numero_lot || "").trim()).filter(Boolean))]
+  const codeOptions = [...new Set(articles.flatMap((article) => article.codes ?? []))]
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
     .map((label, id) => ({ id, label }));
 
