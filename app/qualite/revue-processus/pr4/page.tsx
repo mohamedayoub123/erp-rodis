@@ -10,6 +10,7 @@ import {
   computeProduitParCode,
   fetchAllCartonEntries,
   fetchAllCodeTermineRows,
+  fetchAllEmballageEntries,
   fetchAllProgrammeLignes,
   fetchAllVracEntries,
   fetchArticleKgFactorsByIds,
@@ -107,9 +108,10 @@ async function fetchCartonMonthly(): Promise<Map<string, { commande: number; fab
 }
 
 // ---------------------------------------------------------------------
-// Indicateur 3 : capacite machines - instantane "en ce moment" (memes
-// regles que Rapport Capacite Machines), rattache uniquement au mois en
-// cours.
+// Indicateur 3 : capacite machines - instantane "en ce moment" de la
+// capacite CONDITIONNEMENT uniquement (carte "Capacite Conditionnement" du
+// Rapport Capacite Machines, pas la capacite globale toutes machines),
+// rattache uniquement au mois en cours.
 // ---------------------------------------------------------------------
 function normalizeMachine(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
@@ -118,7 +120,8 @@ function normalizeMachine(value: string | null | undefined) {
 async function fetchCapaciteActuelle(): Promise<number | null> {
   const { data: machinesData } = await supabaseServer.from("machines").select("id, nom, type");
   const machines = (machinesData ?? []) as { id: number; nom: string; type: string | null }[];
-  if (machines.length === 0) return null;
+  const conditionnementMachines = machines.filter((m) => normalizeMachine(m.type) === "conditionnement");
+  if (conditionnementMachines.length === 0) return null;
 
   const { data: lignesData } = await supabaseServer
     .from("programme_lignes")
@@ -126,29 +129,14 @@ async function fetchCapaciteActuelle(): Promise<number | null> {
     .or("programme_termine.eq.false,programme_termine.is.null")
     .eq("exclu_rapports", false);
   const lignesActives = (lignesData ?? []) as { id: number; chaine: string | null }[];
-  const ligneIds = lignesActives.map((l) => l.id);
 
   const activeChaineNames = new Set(lignesActives.map((l) => normalizeMachine(l.chaine)).filter(Boolean));
 
-  let activeMachineNamesFabrication = new Set<string>();
-  if (ligneIds.length > 0) {
-    const { data: rapportsData } = await supabaseServer
-      .from("production_rapports")
-      .select("machine")
-      .in("programme_ligne_id", ligneIds)
-      .not("machine", "is", null);
-    activeMachineNamesFabrication = new Set(
-      ((rapportsData ?? []) as { machine: string | null }[]).map((r) => normalizeMachine(r.machine)).filter(Boolean)
-    );
-  }
+  const activeCount = conditionnementMachines.filter((machine) =>
+    activeChaineNames.has(normalizeMachine(machine.nom))
+  ).length;
 
-  const activeCount = machines.filter((machine) => {
-    const key = normalizeMachine(machine.nom);
-    const isFabrication = normalizeMachine(machine.type) === "fabrication";
-    return isFabrication ? activeMachineNamesFabrication.has(key) : activeChaineNames.has(key);
-  }).length;
-
-  return (activeCount / machines.length) * 100;
+  return (activeCount / conditionnementMachines.length) * 100;
 }
 
 // ---------------------------------------------------------------------
@@ -207,9 +195,10 @@ async function fetchTestLaboMonthly(): Promise<Map<string, { total: number; aDet
 }
 
 // ---------------------------------------------------------------------
-// Indicateur 7 : balance matiere - vrac fabrique vs carton fabrique (kg)
-// par mois - meme logique (union-find + cascade famille) que Rapport
-// Balance Matiere, dupliquee volontairement (meme convention que ce
+// Indicateur 7 : balance matiere - vrac commande vs carton fabrique
+// converti en kg ("vrac tire"), par mois - meme logique (union-find +
+// cascade famille + statut Termine des codes) que les KPI globaux du
+// Rapport Balance Matiere, dupliquee volontairement (meme convention que ce
 // rapport lui-meme vis-a-vis de Rapport Ecarts).
 // ---------------------------------------------------------------------
 type PoidsReelRow = { programme_ligne_id: number; code: string; poids_reel: number | null };
@@ -291,15 +280,20 @@ function cascadeFamily(tuples: { key: string; demande: number }[], totalPool: nu
   return result;
 }
 
-async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracFabrique: number; cartonFabriqueKg: number }>> {
-  const [{ rows: lignes }, vracEntries, cartonEntries] = await Promise.all([
+async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracCommande: number; cartonFabriqueKg: number }>> {
+  const [{ rows: lignes }, vracEntries, cartonEntries, emballageEntries] = await Promise.all([
     fetchAllProgrammeLignes(),
     fetchAllVracEntries(),
     fetchAllCartonEntries(),
+    fetchAllEmballageEntries(),
   ]);
 
   const articleFactors = await fetchArticleKgFactorsByIds(lignes.map((ligne) => ligne.article_id));
   const poidsReelByKey = await fetchPoidsReelByLigneCode(lignes.map((ligne) => ligne.id));
+  const codeTermineRows = await fetchAllCodeTermineRows(lignes.map((ligne) => ligne.id));
+  const terminatedCodes = new Set(
+    codeTermineRows.map((row) => `${row.programme_ligne_id}::${row.code}::${row.stage}`)
+  );
 
   function sumEntries(entries: { quantite: number }[]) {
     return entries.reduce((sum, entry) => sum + Number(entry.quantite), 0);
@@ -307,6 +301,7 @@ async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracFabrique:
 
   const vracByLigne = groupCartonEntriesByLigne(vracEntries);
   const cartonByLigne = groupCartonEntriesByLigne(cartonEntries);
+  const emballageByLigne = groupCartonEntriesByLigne(emballageEntries);
 
   type Base = {
     ligne: ProgrammeLigneRow;
@@ -315,6 +310,7 @@ async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracFabrique:
     vracFabrique: number;
     cartonDemande: number;
     cartonFabrique: number;
+    cartonEmballe: number;
   };
 
   const lignesWithLot = lignes.filter((ligne) => ligne.numero_lot);
@@ -348,6 +344,7 @@ async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracFabrique:
         vracFabrique: vracFabriqueByCode.get(code) ?? 0,
         cartonDemande: cartonDemandeByCode.get(code) ?? 0,
         cartonFabrique: cartonFabriqueByCode.get(code) ?? 0,
+        cartonEmballe: 0,
       });
     }
   }
@@ -394,10 +391,80 @@ async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracFabrique:
     }
   }
 
-  const byMonth = new Map<string, { vracFabrique: number; cartonFabriqueKg: number }>();
+  // Emballage n'entre pas dans la balance matiere elle-meme mais reste
+  // necessaire pour reproduire le meme statut "Termine" que Rapport Balance
+  // Matiere (un code dont le vrac+carton sont finis mais l'emballage pas
+  // encore reste "En cours" la-bas, donc ici aussi - sinon les totaux
+  // divergeraient du rapport de reference).
+  for (const ligne of lignesWithLot) {
+    const codes = ligneOwnCodes(ligne);
+    const emballageEntriesForLigne = (emballageByLigne.get(ligne.id) ?? []) as { code: string; quantite: number }[];
+    const emballageProduitByCode = computeProduitParCode(
+      emballageEntriesForLigne,
+      codes,
+      (code) => baseByKey.get(`${ligne.id}::${code}`)?.cartonFabrique ?? 0
+    );
+    for (const code of codes) {
+      const key = `${ligne.id}::${code}`;
+      const base = baseByKey.get(key);
+      if (!base) continue;
+      baseByKey.set(key, { ...base, cartonEmballe: emballageProduitByCode.get(code) ?? 0 });
+    }
+  }
+
+  for (const ligneIds of familyByRoot.values()) {
+    if (ligneIds.length <= 1) continue;
+    const orderedIds = [...ligneIds].sort((a, b) => a - b);
+    const tupleKeys = orderedIds.flatMap((ligneId) =>
+      ligneOwnCodes(lignesById.get(ligneId)!).map((code) => `${ligneId}::${code}`)
+    );
+    const familyEmballagePool = orderedIds.reduce(
+      (sum, id) => sum + sumEntries((emballageByLigne.get(id) ?? []) as { quantite: number }[]),
+      0
+    );
+    const emballageByTuple = cascadeFamily(
+      tupleKeys.map((key) => ({ key, demande: baseByKey.get(key)?.cartonFabrique ?? 0 })),
+      familyEmballagePool
+    );
+    for (const key of tupleKeys) {
+      const base = baseByKey.get(key);
+      if (!base) continue;
+      baseByKey.set(key, { ...base, cartonEmballe: emballageByTuple.get(key) ?? 0 });
+    }
+  }
+
+  const byMonth = new Map<string, { vracCommande: number; cartonFabriqueKg: number }>();
   for (const base of baseByKey.values()) {
     const mois = (base.ligne.date_jour || "").slice(0, 7);
     if (mois.length !== 7) continue;
+
+    // Meme statut que Rapport Balance Matiere : seuls les codes dont le
+    // vrac, le carton ET l'emballage sont finis (naturellement ou "Fin
+    // programme") entrent dans le calcul - un code encore en cours
+    // fausserait l'ecart.
+    const vracManuel = Boolean(
+      base.ligne.programme_termine ||
+        base.ligne.vrac_termine ||
+        terminatedCodes.has(`${base.ligne.id}::${base.code}::vrac`)
+    );
+    const vracOk = vracManuel || base.vracDemande <= 0 || base.vracFabrique >= base.vracDemande;
+    const cartonManuel = Boolean(
+      base.ligne.programme_termine ||
+        base.ligne.carton_termine ||
+        terminatedCodes.has(`${base.ligne.id}::${base.code}::carton`)
+    );
+    const cartonOk = cartonManuel || base.cartonDemande <= 0 || base.cartonFabrique >= base.cartonDemande;
+    const emballageManuel = Boolean(
+      base.ligne.programme_termine ||
+        base.ligne.emballage_termine ||
+        terminatedCodes.has(`${base.ligne.id}::${base.code}::emballage`)
+    );
+    const emballageOk =
+      emballageManuel ||
+      base.cartonDemande <= 0 ||
+      (base.cartonFabrique > 0 && base.cartonEmballe >= base.cartonFabrique);
+    if (!vracOk || !cartonOk || !emballageOk) continue;
+    if (base.vracDemande <= 0 && base.vracFabrique <= 0 && base.cartonFabrique <= 0) continue;
 
     const factor = base.ligne.article_id ? articleFactors.get(base.ligne.article_id) : undefined;
     const pieceParCarton = factor?.pieceParCarton ?? null;
@@ -406,10 +473,8 @@ async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracFabrique:
     const canConvert = pieceParCarton !== null && contenance !== null && pieceParCarton > 0 && contenance > 0;
     const cartonFabriqueKg = canConvert ? base.cartonFabrique * (pieceParCarton as number) * (contenance as number) : 0;
 
-    if (base.vracFabrique <= 0 && cartonFabriqueKg <= 0) continue;
-
-    const current = byMonth.get(mois) ?? { vracFabrique: 0, cartonFabriqueKg: 0 };
-    current.vracFabrique += base.vracFabrique;
+    const current = byMonth.get(mois) ?? { vracCommande: 0, cartonFabriqueKg: 0 };
+    current.vracCommande += base.vracDemande;
     current.cartonFabriqueKg += cartonFabriqueKg;
     byMonth.set(mois, current);
   }
@@ -615,6 +680,97 @@ async function fetchPrixCartonMonthly(cartonFabriqueByMonth: Map<string, number>
 }
 
 // ---------------------------------------------------------------------
+// Indicateur 12 : respect du delai de livraison - meme logique que
+// Rapport "Delai commande -> pret" (app/stock/rapport/delai-commandes),
+// dupliquee volontairement (meme convention que Rapport Balance Matiere
+// vis-a-vis de Rapport Ecarts). Commande = toutes les commandes ce mois-la
+// sauf statut STAND ; depasse = celles dont le delai entree-en-cours -> pret
+// en stock (ou aujourd'hui si pas encore pret) depasse 10 jours.
+// ---------------------------------------------------------------------
+const DELAI_LIMITE_JOURS = 10;
+
+type DelaiCommandeRow = {
+  statut: string | null;
+  commentaire: string | null;
+  created_at: string | null;
+};
+
+function extractStatusDateToken(commentaire: string | null | undefined, statusKey: string) {
+  if (!commentaire) return "";
+  const parts = commentaire.split("|").map((part) => part.trim());
+  const token = parts.find((part) => part.startsWith(`STATUT_DATE_${statusKey}:`));
+  return token ? token.replace(`STATUT_DATE_${statusKey}:`, "").trim() : "";
+}
+
+function extractPretStockDateToken(commentaire: string | null | undefined) {
+  if (!commentaire) return "";
+  const parts = commentaire.split("|").map((part) => part.trim());
+  if (!parts.includes("PRET_STOCK:oui")) return "";
+  const token = parts.find((part) => part.startsWith("PRET_STOCK_DATE:"));
+  return token ? token.replace("PRET_STOCK_DATE:", "").trim() : "";
+}
+
+// Meme regroupement que statutBucket dans Rapport Delai Commande : les
+// statuts "techniques" (FIFO_PARTIEL/FIFO_CALCULE/SAISIE_WEB) comptent
+// comme "En cours" - sinon ces commandes disparaissaient du calcul.
+function statutBucket(value: string | null | undefined) {
+  const v = (value || "").toUpperCase();
+  return v === "STAND" || v === "BL_TRANSFORME" || v === "LIVREE" ? v : "EN_COURS";
+}
+
+function daysBetweenDates(fromValue: string, toValue: string) {
+  const fromDate = new Date(`${fromValue.slice(0, 10)}T00:00:00`);
+  const toDate = new Date(`${toValue.slice(0, 10)}T00:00:00`);
+  return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);
+}
+
+async function fetchDelaiLivraisonMonthly(): Promise<Map<string, { commande: number; depasse: number }>> {
+  const rows: DelaiCommandeRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("commandes")
+      .select("statut, commentaire, created_at")
+      .range(from, from + pageSize - 1);
+    if (error) break;
+    const chunk = (data ?? []) as DelaiCommandeRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const byMonth = new Map<string, { commande: number; depasse: number }>();
+
+  for (const row of rows) {
+    const bucket = statutBucket(row.statut);
+    if (bucket === "STAND") continue;
+
+    const mois = (row.created_at || "").slice(0, 7);
+    if (mois.length !== 7) continue;
+
+    const current = byMonth.get(mois) ?? { commande: 0, depasse: 0 };
+    current.commande += 1;
+
+    // Repli sur la date de creation quand STATUT_DATE_EN_COURS n'a jamais
+    // ete enregistre - meme correctif que Rapport Delai Commande.
+    const dateEnCours =
+      extractStatusDateToken(row.commentaire, "EN_COURS") || (row.created_at || "").slice(0, 10);
+    const datePret = extractPretStockDateToken(row.commentaire);
+    const referenceFin = datePret || todayIso;
+
+    if (dateEnCours && daysBetweenDates(dateEnCours, referenceFin) > DELAI_LIMITE_JOURS) {
+      current.depasse += 1;
+    }
+
+    byMonth.set(mois, current);
+  }
+
+  return byMonth;
+}
+
+// ---------------------------------------------------------------------
 // Saisie manuelle (mois anciens du fichier Excel, sans donnee automatique
 // dans l'ERP) - repli uniquement quand la source automatique n'a AUCUNE
 // donnee pour ce mois (pas juste une valeur a 0, qui peut etre reelle).
@@ -642,11 +798,11 @@ const EXPORT_COLUMNS = [
   { label: "1 - Nb carton fabrique", key: "cartonFabrique" },
   { label: "2 - Carton commande", key: "cartonCommande" },
   { label: "2 - % programme fait dans les temps (cible 98%)", key: "pctProgrammeLabel" },
-  { label: "3 - % capacite machines (mois en cours seulement)", key: "capaciteLabel" },
+  { label: "3 - % capacite machines conditionnement (mois en cours seulement)", key: "capaciteLabel" },
   { label: "5/6 - Preparations Test Labo", key: "preparations" },
   { label: "5 - % non conforme detruit (cible < 0,5%)", key: "pctADetruireLabel" },
   { label: "6 - % sous derogation (cible < 10%)", key: "pctSousDerogationLabel" },
-  { label: "7 - Vrac fabrique (kg)", key: "vracFabriqueKgLabel" },
+  { label: "7 - Vrac commande (kg)", key: "vracFabriqueKgLabel" },
   { label: "7 - Carton fabrique (kg)", key: "cartonFabriqueKgLabel" },
   { label: "7 - % ecart balance matiere (cible -0,5% a +0,5%)", key: "pctEcartLabel" },
   { label: "8 - Temps arret (min)", key: "arretMinutes" },
@@ -678,13 +834,14 @@ export default async function Pr4Page() {
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - 4 + i);
 
-  const [cartonMonthly, testLaboMonthly, balanceMonthly, arretMonthly, dechetsMonthly, capaciteActuelle, manuel] =
+  const [cartonMonthly, testLaboMonthly, balanceMonthly, arretMonthly, dechetsMonthly, delaiMonthly, capaciteActuelle, manuel] =
     await Promise.all([
       fetchCartonMonthly(),
       fetchTestLaboMonthly(),
       fetchBalanceMatiereMonthly(),
       fetchTempsArretMonthly(),
       fetchDechetsMonthly(),
+      fetchDelaiLivraisonMonthly(),
       fetchCapaciteActuelle(),
       fetchManuelByMonth(),
     ]);
@@ -700,6 +857,7 @@ export default async function Pr4Page() {
     ...balanceMonthly.keys(),
     ...arretMonthly.keys(),
     ...dechetsMonthly.keys(),
+    ...delaiMonthly.keys(),
     ...prixCartonMonthly.keys(),
     ...manuel.byMonth.keys(),
     currentMoisKey,
@@ -714,6 +872,7 @@ export default async function Pr4Page() {
       const hasArretAuto = arretMonthly.has(mois);
       const hasDechetsAuto = dechetsMonthly.has(mois);
       const hasPrixCartonAuto = prixCartonMonthly.has(mois);
+      const hasDelaiAuto = delaiMonthly.has(mois);
       const manuelRow = manuel.byMonth.get(mois) ?? null;
 
       const carton = hasCartonAuto
@@ -728,7 +887,7 @@ export default async function Pr4Page() {
           };
       const balance = hasBalanceAuto
         ? balanceMonthly.get(mois)!
-        : { vracFabrique: manuelRow?.vrac_fabrique_kg ?? 0, cartonFabriqueKg: manuelRow?.carton_fabrique_kg ?? 0 };
+        : { vracCommande: manuelRow?.vrac_fabrique_kg ?? 0, cartonFabriqueKg: manuelRow?.carton_fabrique_kg ?? 0 };
       const arret = hasArretAuto
         ? arretMonthly.get(mois)!
         : { arret: manuelRow?.arret_minutes ?? 0, travail: manuelRow?.travail_minutes ?? 0 };
@@ -746,13 +905,14 @@ export default async function Pr4Page() {
         dechets: !hasDechetsAuto && Boolean(manuelRow),
         prixCarton: !hasPrixCartonAuto && manuelRow?.prix_carton != null,
         capacite: mois !== currentMoisKey && manuelRow?.capacite_pct != null,
+        delai: !hasDelaiAuto && Boolean(manuelRow),
       };
 
       const pctProgramme = carton.commande > 0 ? (carton.fabrique / carton.commande) * 100 : null;
       const pctADetruire = testLabo.total > 0 ? (testLabo.aDetruire / testLabo.total) * 100 : null;
       const pctSousDerogation = testLabo.total > 0 ? (testLabo.sousDerogation / testLabo.total) * 100 : null;
       const pctEcart =
-        balance.vracFabrique > 0 ? ((balance.vracFabrique - balance.cartonFabriqueKg) / balance.vracFabrique) * 100 : null;
+        balance.vracCommande > 0 ? ((balance.vracCommande - balance.cartonFabriqueKg) / balance.vracCommande) * 100 : null;
       const pctArret = arret.travail > 0 ? (arret.arret / arret.travail) * 100 : null;
       const pctDechets = dechets.pieces + dechets.dechet > 0 ? (dechets.dechet / (dechets.pieces + dechets.dechet)) * 100 : null;
 
@@ -767,8 +927,14 @@ export default async function Pr4Page() {
       const pctFormation = formationAFaire > 0 ? (formationRealisee / formationAFaire) * 100 : null;
       const qtRetourneeNc = manuelRow?.qt_retournee_nc ?? 0;
       const pctReclamationNc = dechets.pieces > 0 ? (qtRetourneeNc / dechets.pieces) * 100 : null;
-      const qtCommandeLivraison = manuelRow?.qt_commande_livraison ?? 0;
-      const qtLivreeATemps = manuelRow?.qt_livree_a_temps ?? 0;
+      const delaiAuto = hasDelaiAuto ? delaiMonthly.get(mois)! : null;
+      const qtCommandeLivraison = hasDelaiAuto ? delaiAuto!.commande : manuelRow?.qt_commande_livraison ?? 0;
+      const qtLivreeATemps = hasDelaiAuto
+        ? delaiAuto!.commande - delaiAuto!.depasse
+        : manuelRow?.qt_livree_a_temps ?? 0;
+      const qtDepasseLivraison = hasDelaiAuto
+        ? delaiAuto!.depasse
+        : Math.max(0, (manuelRow?.qt_commande_livraison ?? 0) - (manuelRow?.qt_livree_a_temps ?? 0));
       const pctLivraison = qtCommandeLivraison > 0 ? (qtLivreeATemps / qtCommandeLivraison) * 100 : null;
 
       return {
@@ -788,8 +954,8 @@ export default async function Pr4Page() {
         sousDerogationCount: testLabo.sousDerogation,
         pctSousDerogation,
         pctSousDerogationLabel: fmtPct(pctSousDerogation),
-        vracFabriqueKg: balance.vracFabrique,
-        vracFabriqueKgLabel: fmt(balance.vracFabrique),
+        vracFabriqueKg: balance.vracCommande,
+        vracFabriqueKgLabel: fmt(balance.vracCommande),
         cartonFabriqueKgBalance: balance.cartonFabriqueKg,
         cartonFabriqueKgLabel: fmt(balance.cartonFabriqueKg),
         pctEcart,
@@ -814,6 +980,7 @@ export default async function Pr4Page() {
         pctReclamationNcLabel: fmtPct(pctReclamationNc),
         qtCommandeLivraison,
         qtLivreeATemps,
+        qtDepasseLivraison,
         pctLivraisonLabel: fmtPct(pctLivraison),
       };
     })
@@ -850,6 +1017,7 @@ export default async function Pr4Page() {
     numero: string;
     label: string;
     cible: string;
+    rowBg: string;
     manuelKey?: ManuelKey;
     subRows: { label: string; getValue: (r: MonthRow) => string }[];
   }[] = [
@@ -857,6 +1025,7 @@ export default async function Pr4Page() {
       numero: "1",
       label: "Evolution production par rapport a N-1",
       cible: "-",
+      rowBg: "bg-blue-50/60",
       manuelKey: "carton",
       subRows: [{ label: "Totale carton fabrique", getValue: (r) => fmt(r.cartonFabrique) }],
     },
@@ -864,6 +1033,7 @@ export default async function Pr4Page() {
       numero: "2",
       label: "Ordre de production acheves dans les temps",
       cible: "98%",
+      rowBg: "bg-orange-50/60",
       subRows: [
         { label: "Totale programme donne par carton", getValue: (r) => fmt(r.cartonCommande) },
         { label: "% fabrique par rapport a programme", getValue: (r) => r.pctProgrammeLabel },
@@ -873,19 +1043,22 @@ export default async function Pr4Page() {
       numero: "3",
       label: "Taux d'utilisation moyen capacite de production",
       cible: "-",
+      rowBg: "bg-teal-50/60",
       manuelKey: "capacite",
-      subRows: [{ label: "% capacite des machines", getValue: (r) => r.capaciteLabel }],
+      subRows: [{ label: "% capacite machines conditionnement", getValue: (r) => r.capaciteLabel }],
     },
     {
       numero: "4",
       label: "Taux d'heures supplementaires par personne",
       cible: "2%",
+      rowBg: "bg-amber-50/60",
       subRows: [{ label: "% heure supplementaire", getValue: (r) => r.heuresSupplementairesLabel }],
     },
     {
       numero: "5",
       label: "Taux de fabrication non-conforme",
       cible: "< 0,5%",
+      rowBg: "bg-pink-50/60",
       manuelKey: "testLabo",
       subRows: [
         { label: "Totale preparation", getValue: (r) => fmt(r.preparations) },
@@ -897,6 +1070,7 @@ export default async function Pr4Page() {
       numero: "6",
       label: "Taux de derogation",
       cible: "< 10%",
+      rowBg: "bg-lime-50/60",
       manuelKey: "testLabo",
       subRows: [
         { label: "Totale preparation", getValue: (r) => fmt(r.preparations) },
@@ -908,9 +1082,10 @@ export default async function Pr4Page() {
       numero: "7",
       label: "Balance matiere",
       cible: "-0,5% < X < +0,5%",
+      rowBg: "bg-purple-50/60",
       manuelKey: "balance",
       subRows: [
-        { label: "Totale vrac fabrique (kg)", getValue: (r) => r.vracFabriqueKgLabel },
+        { label: "Totale vrac commande (kg)", getValue: (r) => r.vracFabriqueKgLabel },
         { label: "Carton fabrique converti (kg)", getValue: (r) => r.cartonFabriqueKgLabel },
         { label: "% de perte", getValue: (r) => r.pctEcartLabel },
       ],
@@ -919,6 +1094,7 @@ export default async function Pr4Page() {
       numero: "8",
       label: "Taux d'arret globale",
       cible: "< 5%",
+      rowBg: "bg-blue-50/60",
       manuelKey: "arret",
       subRows: [
         { label: "Temps d'arret (min)", getValue: (r) => fmt(r.arretMinutes) },
@@ -930,6 +1106,7 @@ export default async function Pr4Page() {
       numero: "9",
       label: "Taux suivi formation",
       cible: "90%",
+      rowBg: "bg-orange-50/60",
       subRows: [
         { label: "Nb formation a faire", getValue: (r) => fmt(r.formationAFaire) },
         { label: "Nb formation realisee", getValue: (r) => fmt(r.formationRealisee) },
@@ -940,6 +1117,7 @@ export default async function Pr4Page() {
       numero: "10",
       label: "Taux dechets globale",
       cible: "< 1%",
+      rowBg: "bg-teal-50/60",
       manuelKey: "dechets",
       subRows: [
         { label: "Totale production (pieces)", getValue: (r) => r.piecesLabel },
@@ -951,6 +1129,7 @@ export default async function Pr4Page() {
       numero: "11",
       label: "Taux de reclamation produit non conforme / prod",
       cible: "< 0,2%",
+      rowBg: "bg-amber-50/60",
       subRows: [
         { label: "Qt retournee", getValue: (r) => fmt(r.qtRetourneeNc) },
         { label: "Qt fabriquee (pieces)", getValue: (r) => r.piecesLabel },
@@ -961,9 +1140,11 @@ export default async function Pr4Page() {
       numero: "12",
       label: "Respect du delai de livraison",
       cible: "90%",
+      rowBg: "bg-pink-50/60",
+      manuelKey: "delai",
       subRows: [
         { label: "Qt commande", getValue: (r) => fmt(r.qtCommandeLivraison) },
-        { label: "Qt livree a temps", getValue: (r) => fmt(r.qtLivreeATemps) },
+        { label: "Depasse 10 jours", getValue: (r) => fmt(r.qtDepasseLivraison) },
         { label: "% delai respecte", getValue: (r) => r.pctLivraisonLabel },
       ],
     },
@@ -971,6 +1152,7 @@ export default async function Pr4Page() {
       numero: "13",
       label: "Prix de revient 1 carton (journalier cosmetique + energie cosmetique)",
       cible: "-",
+      rowBg: "bg-lime-50/60",
       manuelKey: "prixCarton",
       subRows: [{ label: "Cout carton (FCFA)", getValue: (r) => r.prixCartonLabel }],
     },
@@ -1015,7 +1197,7 @@ export default async function Pr4Page() {
           <p className="font-semibold">A savoir</p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li>
-              <strong>% capacite machines</strong> reflete l&apos;etat des machines au moment ou tu ouvres cette page
+              <strong>% capacite machines conditionnement</strong> reflete l&apos;etat des machines au moment ou tu ouvres cette page
               - ce n&apos;est pas historisable par mois, donc affiche seulement pour le mois en cours.
             </li>
             <li>
@@ -1071,13 +1253,21 @@ export default async function Pr4Page() {
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="sticky top-0 z-20 bg-slate-100 text-slate-950">
                   <tr>
-                    <th className="border border-slate-200 px-3 py-2 font-semibold">#</th>
-                    <th className="border border-slate-200 px-3 py-2 font-semibold">Indicateur</th>
-                    <th className="border border-slate-200 px-3 py-2 font-semibold">Cible</th>
-                    <th className="border border-slate-200 px-3 py-2 font-semibold">
+                    <th className="sticky left-0 z-30 w-[56px] min-w-[56px] max-w-[56px] border border-slate-200 bg-slate-100 px-3 py-2 font-semibold">
+                      #
+                    </th>
+                    <th className="sticky left-[56px] z-30 w-[200px] min-w-[200px] max-w-[200px] border border-slate-200 bg-slate-100 px-3 py-2 font-semibold">
+                      Indicateur
+                    </th>
+                    <th className="sticky left-[256px] z-30 w-[110px] min-w-[110px] max-w-[110px] border border-slate-200 bg-slate-100 px-3 py-2 font-semibold">
+                      Cible
+                    </th>
+                    <th className="sticky left-[366px] z-30 w-[90px] min-w-[90px] max-w-[90px] border border-slate-200 bg-slate-100 px-3 py-2 font-semibold">
                       Action ({monthRows[0] ? monthRows[0].moisLabel : "-"})
                     </th>
-                    <th className="border border-slate-200 px-3 py-2 font-semibold">Methode de calcul</th>
+                    <th className="sticky left-[456px] z-30 w-[220px] min-w-[220px] max-w-[220px] border border-slate-200 bg-slate-100 px-3 py-2 font-semibold">
+                      Methode de calcul
+                    </th>
                     {monthRowsAscending.map((row) => (
                       <th key={row.mois} className="border border-slate-200 px-3 py-2 text-center font-semibold">
                         {row.moisLabel}
@@ -1095,38 +1285,43 @@ export default async function Pr4Page() {
                           <>
                             <td
                               rowSpan={indicateur.subRows.length}
-                              className="sticky left-0 z-10 w-[56px] min-w-[56px] max-w-[56px] border border-slate-200 bg-white px-3 py-2 align-top font-semibold text-slate-500"
+                              className={`sticky left-0 z-10 w-[56px] min-w-[56px] max-w-[56px] border border-slate-200 ${indicateur.rowBg} px-3 py-2 align-top font-semibold text-slate-500`}
                             >
                               {indicateur.numero}
                             </td>
                             <td
                               rowSpan={indicateur.subRows.length}
-                              className="sticky left-[56px] z-10 border border-slate-200 bg-white px-3 py-2 align-top text-slate-900"
+                              className={`sticky left-[56px] z-10 w-[200px] min-w-[200px] max-w-[200px] border border-slate-200 ${indicateur.rowBg} px-3 py-2 align-top text-slate-900`}
                             >
                               {indicateur.label}
                             </td>
                             <td
                               rowSpan={indicateur.subRows.length}
-                              className="border border-slate-200 bg-slate-50 px-3 py-2 align-top text-slate-600"
+                              className={`sticky left-[256px] z-10 w-[110px] min-w-[110px] max-w-[110px] border border-slate-200 ${indicateur.rowBg} px-3 py-2 align-top text-slate-600`}
                             >
                               {indicateur.cible}
                             </td>
                             <td
                               rowSpan={indicateur.subRows.length}
-                              className="border border-slate-200 bg-violet-50 px-3 py-2 align-top font-semibold text-violet-700"
+                              className={`sticky left-[366px] z-10 w-[90px] min-w-[90px] max-w-[90px] border border-slate-200 ${indicateur.rowBg} px-3 py-2 align-top font-semibold text-slate-900`}
                             >
                               {action}
                             </td>
                           </>
                         ) : null}
-                        <td className="border border-slate-200 px-3 py-2 text-xs text-slate-500">
+                        <td
+                          className={`sticky left-[456px] z-10 w-[220px] min-w-[220px] max-w-[220px] border border-slate-200 ${indicateur.rowBg} px-3 py-2 text-xs text-slate-500`}
+                        >
                           {subRow.label}
                           {subIndex === 0 && indicateur.manuelKey ? (
                             <span className="ml-1 text-[9px] text-violet-500">(m)</span>
                           ) : null}
                         </td>
                         {monthRowsAscending.map((row) => (
-                          <td key={row.mois} className="border border-slate-200 px-3 py-2 text-right text-slate-700">
+                          <td
+                            key={row.mois}
+                            className={`border border-slate-200 ${indicateur.rowBg} px-3 py-2 text-right text-slate-700`}
+                          >
                             {subRow.getValue(row)}
                             {subIndex === 0 && indicateur.manuelKey && row.isManuel[indicateur.manuelKey] ? (
                               <ManuelBadge />
