@@ -2170,14 +2170,19 @@ export default async function TableauCommandesPage({
             (
               await supabaseServer
                 .from("articles")
-                .select("id, nom_article, gamme")
+                .select("id, nom_article, gamme, nature")
                 .ilike("gamme", ilikePatternForFamily(selectedFamille))
                 .order("nom_article", { ascending: true })
             ).data as
-              | { id: number; nom_article: string | null; gamme: string | null }[]
+              | { id: number; nom_article: string | null; gamme: string | null; nature: string | null }[]
               | null
           ) ?? []
-        ).filter((row) => gammeMatchesSelectedFamily(String(row.gamme || ""), selectedFamille))
+        )
+          .filter((row) => gammeMatchesSelectedFamily(String(row.gamme || ""), selectedFamille))
+          // Le vrac (matiere non conditionnee) n'a pas sa place dans le
+          // tableau de dispatch camion - seuls les articles finis/emballes
+          // s'y commandent et s'y chargent.
+          .filter((row) => row.nature !== "vrac")
       : [];
 
   const genericFamilyCommandesData =
