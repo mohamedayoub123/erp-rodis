@@ -431,6 +431,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "productionSuiviEnCours",
+    module: "Production",
+    label: "Suivi par Etape",
+    pathPrefixes: ["/production/suivi/en-cours"],
+    hasWrite: false,
+  },
+  {
     key: "productionSuiviProductionListe",
     module: "Production",
     label: "Suivi Production (liste, supprimer)",
