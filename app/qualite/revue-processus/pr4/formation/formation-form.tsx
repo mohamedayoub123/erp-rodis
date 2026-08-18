@@ -110,7 +110,7 @@ export function FormationForm({
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">Mois planifies</p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {MOIS_FIELD_KEYS.map(({ planifieKey, dateKey, label }) => (
+            {MOIS_FIELD_KEYS.map(({ planifieKey, dateKey, realiseKey, label }) => (
               <div key={planifieKey} className="rounded-2xl border border-slate-200 p-3">
                 <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
                   <input
@@ -128,6 +128,15 @@ export function FormationForm({
                   defaultValue={(existing?.[dateKey] as string | null) ?? ""}
                   className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-normal text-slate-900 outline-none"
                 />
+                <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-emerald-700">
+                  <input
+                    type="checkbox"
+                    name={realiseKey}
+                    defaultChecked={Boolean(existing?.[realiseKey])}
+                    className="h-4 w-4"
+                  />
+                  Realise
+                </label>
               </div>
             ))}
           </div>

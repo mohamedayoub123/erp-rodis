@@ -8,35 +8,30 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteFormationRowAction } from "./actions";
 import { FormationForm } from "./formation-form";
+import { FormationMonthCell } from "./formation-month-cell";
 import { MOIS_FIELD_KEYS, MOIS_NOMS, type FormationRow } from "./fields";
 
 // PR4 > Formation : reprend le fichier Excel "GFPC-ENR-015 Plan de
 // formation cosmetique.xlsx" (1 sheet par annee) - categorie/formation en
 // ligne, mois en colonne, "x" + detail de date par mois planifie. Import
 // historique 2024-2026 fait une fois via script, cette page sert ensuite a
-// consulter et corriger/ajouter des lignes.
+// consulter et corriger/ajouter des lignes. "Realise" + pieces jointes par
+// mois ajoutes ensuite (couleur vert/rouge/jaune, fichier ou dossier attache
+// a l'endroit ou la date est saisie).
 async function fetchFormationRows(): Promise<FormationRow[]> {
+  const monthCols = Array.from({ length: 12 }, (_, i) => {
+    const n = i + 1;
+    return `m${n}_planifie, m${n}_date, m${n}_realise, m${n}_pieces_jointes`;
+  }).join(", ");
   const { data, error } = await supabaseServer
     .from("pr4_formation_plan")
-    .select(
-      "id, annee, categorie, formation, ordre, est_bilan, m1_planifie, m1_date, m2_planifie, m2_date, m3_planifie, m3_date, m4_planifie, m4_date, m5_planifie, m5_date, m6_planifie, m6_date, m7_planifie, m7_date, m8_planifie, m8_date, m9_planifie, m9_date, m10_planifie, m10_date, m11_planifie, m11_date, m12_planifie, m12_date"
-    )
+    .select(`id, annee, categorie, formation, ordre, est_bilan, ${monthCols}`)
     .order("annee", { ascending: false })
     .order("est_bilan", { ascending: true })
     .order("ordre", { ascending: true });
 
   if (error) return [];
   return (data ?? []) as unknown as FormationRow[];
-}
-
-function MonthCell({ planifie, date }: { planifie: boolean; date: string | null }) {
-  if (!planifie) return <td className="border border-slate-200 px-3 py-2 text-center text-slate-300">-</td>;
-  return (
-    <td className="border border-slate-200 bg-emerald-50/60 px-3 py-2 text-center">
-      <span className="font-semibold text-emerald-700">✓</span>
-      {date ? <div className="mt-0.5 text-[10px] text-emerald-700/70">{date}</div> : null}
-    </td>
-  );
 }
 
 type SearchParams = Promise<{ annee?: string }>;
@@ -166,8 +161,18 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
                         <td className="sticky left-[180px] z-10 w-[260px] min-w-[260px] max-w-[260px] border border-slate-200 bg-white px-3 py-2 text-slate-900">
                           {row.formation}
                         </td>
-                        {MOIS_FIELD_KEYS.map(({ planifieKey, dateKey }) => (
-                          <MonthCell key={planifieKey} planifie={Boolean(row[planifieKey])} date={row[dateKey] as string | null} />
+                        {MOIS_FIELD_KEYS.map(({ mois, planifieKey, dateKey, realiseKey, piecesJointesKey }) => (
+                          <FormationMonthCell
+                            key={planifieKey}
+                            rowId={row.id}
+                            mois={mois}
+                            annee={row.annee}
+                            planifie={Boolean(row[planifieKey])}
+                            date={row[dateKey] as string | null}
+                            realise={Boolean(row[realiseKey])}
+                            initialFiles={(row[piecesJointesKey] as FormationRow["m1_pieces_jointes"]) ?? []}
+                            canEdit={canEdit}
+                          />
                         ))}
                         {canDelete ? (
                           <td className="border border-slate-200 px-3 py-2 text-center">
@@ -199,8 +204,18 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
                       <td className="w-[440px] min-w-[440px] max-w-[440px] border border-slate-200 bg-violet-50 px-3 py-2 font-semibold text-violet-800">
                         {row.formation}
                       </td>
-                      {MOIS_FIELD_KEYS.map(({ planifieKey, dateKey }) => (
-                        <MonthCell key={planifieKey} planifie={Boolean(row[planifieKey])} date={row[dateKey] as string | null} />
+                      {MOIS_FIELD_KEYS.map(({ mois, planifieKey, dateKey, realiseKey, piecesJointesKey }) => (
+                        <FormationMonthCell
+                          key={planifieKey}
+                          rowId={row.id}
+                          mois={mois}
+                          annee={row.annee}
+                          planifie={Boolean(row[planifieKey])}
+                          date={row[dateKey] as string | null}
+                          realise={Boolean(row[realiseKey])}
+                          initialFiles={(row[piecesJointesKey] as FormationRow["m1_pieces_jointes"]) ?? []}
+                          canEdit={canEdit}
+                        />
                       ))}
                       {canDelete ? (
                         <td className="border border-slate-200 px-3 py-2 text-center">
