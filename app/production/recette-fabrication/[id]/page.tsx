@@ -13,6 +13,7 @@ import {
 } from "../actions";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { fetchCoutsMoyenMp, computeRecetteCost } from "@/lib/prix-revient";
+import { canVoirPrixUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 type ArticlePfRow = {
   id: number;
@@ -66,6 +67,7 @@ export default async function RecetteFabricationDetailPage({
   noStore();
   const { id } = await params;
   const articlePfId = Number(id);
+  const canVoirPrix = await canVoirPrixUser(await getCurrentStockUser());
 
   const { data: articlePf } = await supabaseServer
     .from("articles")
@@ -172,8 +174,12 @@ export default async function RecetteFabricationDetailPage({
                     <th className="px-6 py-4 font-semibold">Article MP</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Quantite / %</th>
-                    <th className="px-6 py-4 font-semibold">Prix unitaire (dernier achat)</th>
-                    <th className="px-6 py-4 font-semibold">Cout</th>
+                    {canVoirPrix ? (
+                      <>
+                        <th className="px-6 py-4 font-semibold">Prix unitaire (dernier achat)</th>
+                        <th className="px-6 py-4 font-semibold">Cout</th>
+                      </>
+                    ) : null}
                     <th className="px-6 py-4 font-semibold"></th>
                   </tr>
                 </thead>
@@ -190,13 +196,17 @@ export default async function RecetteFabricationDetailPage({
                           })}%`
                         : ""}
                     </td>
-                    <td></td>
-                    <td className="px-6 py-3 font-semibold text-slate-900">
-                      {coutTotal.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA
-                      {lignesSansPrix.length > 0 ? (
-                        <span className="ml-1 font-normal text-amber-700">(partiel)</span>
-                      ) : null}
-                    </td>
+                    {canVoirPrix ? (
+                      <>
+                        <td></td>
+                        <td className="px-6 py-3 font-semibold text-slate-900">
+                          {coutTotal.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA
+                          {lignesSansPrix.length > 0 ? (
+                            <span className="ml-1 font-normal text-amber-700">(partiel)</span>
+                          ) : null}
+                        </td>
+                      </>
+                    ) : null}
                     <td></td>
                   </tr>
                 </tfoot>
@@ -229,14 +239,20 @@ export default async function RecetteFabricationDetailPage({
                             </SubmitButton>
                           </form>
                         </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {coutInfo ? `${coutInfo.coutFcfa.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA` : "-"}
-                        </td>
-                        <td className="px-6 py-4 font-semibold text-slate-900">
-                          {coutLigne !== null
-                            ? `${coutLigne.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
-                            : "-"}
-                        </td>
+                        {canVoirPrix ? (
+                          <>
+                            <td className="px-6 py-4 text-slate-600">
+                              {coutInfo
+                                ? `${coutInfo.coutFcfa.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA`
+                                : "-"}
+                            </td>
+                            <td className="px-6 py-4 font-semibold text-slate-900">
+                              {coutLigne !== null
+                                ? `${coutLigne.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
+                                : "-"}
+                            </td>
+                          </>
+                        ) : null}
                         <td className="px-6 py-4">
                           <form action={deleteRecetteLigneAction}>
                             <input type="hidden" name="page_key" value="recetteFabrication" />
@@ -259,6 +275,7 @@ export default async function RecetteFabricationDetailPage({
           )}
         </section>
 
+        {canVoirPrix ? (
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">Prix de revient du vrac</h2>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -282,6 +299,7 @@ export default async function RecetteFabricationDetailPage({
             </p>
           ) : null}
         </section>
+        ) : null}
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <h2 className="mb-4 text-lg font-bold text-slate-900">Ajouter un article MP a la formule</h2>

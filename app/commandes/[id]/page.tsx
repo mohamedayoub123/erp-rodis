@@ -12,7 +12,7 @@ import {
   updateManualCommandeAction,
 } from "../actions";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeleteCommandesUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeleteCommandesUser, canVoirPrixUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { PrintButton } from "./print-button";
 import { formatDate } from "@/lib/format-date";
 import { LignesCommandeField } from "./lignes-commande-field";
@@ -689,6 +689,7 @@ export default async function CommandeDetailPage({
   const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
   const canEditCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
   const canDeleteCommandes = await canDeleteCommandesUser(currentStockUser);
+  const canVoirPrix = await canVoirPrixUser(currentStockUser);
 
   const [{ data: selectedCommandeData }, { data: fifoData }, commandesData, articleOptions] =
     await Promise.all([
@@ -960,8 +961,12 @@ export default async function CommandeDetailPage({
                   <th className="px-4 py-3 font-semibold">Disponible 4 mois</th>
                   <th className="px-4 py-3 font-semibold">Disponible 6 mois</th>
                   <th className="px-4 py-3 font-semibold">Manque total</th>
-                  <th className="px-4 py-3 font-semibold">Prix/carton</th>
-                  <th className="px-4 py-3 font-semibold">Prix ligne</th>
+                  {canVoirPrix ? (
+                    <>
+                      <th className="px-4 py-3 font-semibold">Prix/carton</th>
+                      <th className="px-4 py-3 font-semibold">Prix ligne</th>
+                    </>
+                  ) : null}
                   <th className="px-4 py-3 font-semibold">Volume (m3)</th>
                   <th className="px-4 py-3 font-semibold">Poids brut (kg)</th>
                 </tr>
@@ -971,12 +976,14 @@ export default async function CommandeDetailPage({
                   <td className="px-4 py-3 font-semibold text-slate-900" colSpan={7}>
                     Total commande
                   </td>
-                  <td className="px-4 py-3 font-semibold text-slate-900" colSpan={2}>
-                    {prixTotalCommande.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA
-                    {prixCommandeIncomplet ? (
-                      <span className="ml-1 font-normal text-amber-700">(partiel - articles sans prix)</span>
-                    ) : null}
-                  </td>
+                  {canVoirPrix ? (
+                    <td className="px-4 py-3 font-semibold text-slate-900" colSpan={2}>
+                      {prixTotalCommande.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA
+                      {prixCommandeIncomplet ? (
+                        <span className="ml-1 font-normal text-amber-700">(partiel - articles sans prix)</span>
+                      ) : null}
+                    </td>
+                  ) : null}
                   <td className="px-4 py-3 font-semibold text-slate-900">
                     {volumeTotalCommande.toLocaleString("fr-FR", { maximumFractionDigits: 3 })} m3
                   </td>
@@ -1033,16 +1040,20 @@ export default async function CommandeDetailPage({
                         {Number(articleAvailability.sixMonths || 0)}
                       </td>
                       <td className="px-4 py-3 font-semibold text-red-600">{manqueTotal}</td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {coutInfo?.coutParCarton !== null && coutInfo?.coutParCarton !== undefined
-                          ? `${coutInfo.coutParCarton.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA`
-                          : "-"}
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">
-                        {prixLigne !== null
-                          ? `${prixLigne.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
-                          : "-"}
-                      </td>
+                      {canVoirPrix ? (
+                        <>
+                          <td className="px-4 py-3 text-slate-600">
+                            {coutInfo?.coutParCarton !== null && coutInfo?.coutParCarton !== undefined
+                              ? `${coutInfo.coutParCarton.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA`
+                              : "-"}
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-slate-900">
+                            {prixLigne !== null
+                              ? `${prixLigne.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
+                              : "-"}
+                          </td>
+                        </>
+                      ) : null}
                       <td className="px-4 py-3 text-slate-700">
                         {volumeLigne !== null
                           ? volumeLigne.toLocaleString("fr-FR", { maximumFractionDigits: 3 })

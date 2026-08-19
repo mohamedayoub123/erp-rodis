@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canVoirPrixUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -118,6 +118,7 @@ export default async function CommandeBcMpDetailPage({
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "commandeBcMp");
   const canDelete = await canDeletePageUser(currentUser, "commandeBcMp");
+  const canVoirPrix = await canVoirPrixUser(currentUser);
 
   const { rows, error } = await fetchGroup(code);
 
@@ -211,8 +212,12 @@ export default async function CommandeBcMpDetailPage({
                       <th className="px-4 py-3 font-semibold">Fournisseur</th>
                       <th className="px-4 py-3 font-semibold">Dossier 4D</th>
                       <th className="px-4 py-3 font-semibold">Qte commandee</th>
-                      <th className="px-4 py-3 font-semibold">Prix unitaire</th>
-                      <th className="px-4 py-3 font-semibold">Montant</th>
+                      {canVoirPrix ? (
+                        <>
+                          <th className="px-4 py-3 font-semibold">Prix unitaire</th>
+                          <th className="px-4 py-3 font-semibold">Montant</th>
+                        </>
+                      ) : null}
                       <th className="px-4 py-3 font-semibold">Qte importee</th>
                       <th className="px-4 py-3 font-semibold">Reste a importer</th>
                       <th className="px-4 py-3 font-semibold">Historique import</th>
@@ -242,16 +247,20 @@ export default async function CommandeBcMpDetailPage({
                           <td className="px-4 py-3 text-slate-600">{row.fournisseur || "-"}</td>
                           <td className="px-4 py-3 text-slate-600">{row.n_doss_4d || "-"}</td>
                           <td className="px-4 py-3 text-slate-900">{quantite}</td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {prixUnitaire != null
-                              ? `${prixUnitaire.toLocaleString("fr-FR")}${
-                                  row.devise && row.devise !== "FCFA" ? ` ${row.devise}` : ""
-                                }`
-                              : "-"}
-                          </td>
-                          <td className="px-4 py-3 font-semibold text-slate-900">
-                            {montant != null ? `${montant.toLocaleString("fr-FR")} FCFA` : "-"}
-                          </td>
+                          {canVoirPrix ? (
+                            <>
+                              <td className="px-4 py-3 text-slate-600">
+                                {prixUnitaire != null
+                                  ? `${prixUnitaire.toLocaleString("fr-FR")}${
+                                      row.devise && row.devise !== "FCFA" ? ` ${row.devise}` : ""
+                                    }`
+                                  : "-"}
+                              </td>
+                              <td className="px-4 py-3 font-semibold text-slate-900">
+                                {montant != null ? `${montant.toLocaleString("fr-FR")} FCFA` : "-"}
+                              </td>
+                            </>
+                          ) : null}
                           <td className="px-4 py-3 text-slate-600">{quantiteImportee}</td>
                           <td className="px-4 py-3 font-semibold text-slate-900">{reste}</td>
                           <td className="px-4 py-3 text-slate-600">
@@ -351,23 +360,27 @@ export default async function CommandeBcMpDetailPage({
                                           required
                                         />
                                       </label>
-                                      <label className="grid gap-1 text-xs text-slate-500">
-                                        Prix unitaire
-                                        <input
-                                          type="number"
-                                          step="0.01"
-                                          min="0"
-                                          name="prix_unitaire"
-                                          defaultValue={prixUnitaire ?? ""}
-                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                        />
-                                      </label>
-                                      <div className="text-xs text-slate-500">
-                                        <DeviseTauxFormField
-                                          deviseDefaultValue={row.devise}
-                                          tauxDefaultValue={row.taux_change}
-                                        />
-                                      </div>
+                                      {canVoirPrix ? (
+                                        <>
+                                          <label className="grid gap-1 text-xs text-slate-500">
+                                            Prix unitaire
+                                            <input
+                                              type="number"
+                                              step="0.01"
+                                              min="0"
+                                              name="prix_unitaire"
+                                              defaultValue={prixUnitaire ?? ""}
+                                              className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                            />
+                                          </label>
+                                          <div className="text-xs text-slate-500">
+                                            <DeviseTauxFormField
+                                              deviseDefaultValue={row.devise}
+                                              tauxDefaultValue={row.taux_change}
+                                            />
+                                          </div>
+                                        </>
+                                      ) : null}
                                       <label className="grid gap-1 text-xs text-slate-500">
                                         Doss 4D
                                         <input
@@ -472,7 +485,7 @@ export default async function CommandeBcMpDetailPage({
             {canEdit ? (
               <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
                 <h2 className="mb-3 text-lg font-bold text-slate-900">Ajouter un article a ce BC</h2>
-                <AddArticleForm code={code} articleOptions={articleOptions} />
+                <AddArticleForm code={code} articleOptions={articleOptions} canVoirPrix={canVoirPrix} />
               </section>
             ) : null}
           </>

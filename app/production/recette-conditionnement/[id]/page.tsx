@@ -13,6 +13,7 @@ import {
 } from "../../recette-fabrication/actions";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { fetchCoutsMoyenMp, computeRecetteCost, fetchCoutVracParKg } from "@/lib/prix-revient";
+import { canVoirPrixUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 type ArticlePfRow = {
   id: number;
@@ -99,6 +100,7 @@ export default async function RecetteConditionnementDetailPage({
   noStore();
   const { id } = await params;
   const articlePfId = Number(id);
+  const canVoirPrix = await canVoirPrixUser(await getCurrentStockUser());
 
   const { data: articlePf } = await supabaseServer
     .from("articles")
@@ -237,8 +239,12 @@ export default async function RecetteConditionnementDetailPage({
                     <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Quantite</th>
-                    <th className="px-6 py-4 font-semibold">Prix unitaire (dernier achat)</th>
-                    <th className="px-6 py-4 font-semibold">Cout</th>
+                    {canVoirPrix ? (
+                      <>
+                        <th className="px-6 py-4 font-semibold">Prix unitaire (dernier achat)</th>
+                        <th className="px-6 py-4 font-semibold">Cout</th>
+                      </>
+                    ) : null}
                     <th className="px-6 py-4 font-semibold"></th>
                   </tr>
                 </thead>
@@ -272,16 +278,20 @@ export default async function RecetteConditionnementDetailPage({
                           ) : null}
                         </form>
                       </td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {coutVrac && coutVrac.coutParKg !== null
-                          ? `${coutVrac.coutParKg.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA/kg`
-                          : "-"}
-                      </td>
-                      <td className="px-6 py-4 font-semibold text-slate-900">
-                        {coutVracUtilise !== null
-                          ? `${coutVracUtilise.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
-                          : "-"}
-                      </td>
+                      {canVoirPrix ? (
+                        <>
+                          <td className="px-6 py-4 text-slate-600">
+                            {coutVrac && coutVrac.coutParKg !== null
+                              ? `${coutVrac.coutParKg.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA/kg`
+                              : "-"}
+                          </td>
+                          <td className="px-6 py-4 font-semibold text-slate-900">
+                            {coutVracUtilise !== null
+                              ? `${coutVracUtilise.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
+                              : "-"}
+                          </td>
+                        </>
+                      ) : null}
                       <td className="px-6 py-4">
                         <form action={updateQuantiteBaseAction}>
                           <input type="hidden" name="page_key" value="recetteConditionnement" />
@@ -330,14 +340,20 @@ export default async function RecetteConditionnementDetailPage({
                             </SubmitButton>
                           </form>
                         </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {coutInfo ? `${coutInfo.coutFcfa.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA` : "-"}
-                        </td>
-                        <td className="px-6 py-4 font-semibold text-slate-900">
-                          {coutLigne !== null
-                            ? `${coutLigne.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
-                            : "-"}
-                        </td>
+                        {canVoirPrix ? (
+                          <>
+                            <td className="px-6 py-4 text-slate-600">
+                              {coutInfo
+                                ? `${coutInfo.coutFcfa.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA`
+                                : "-"}
+                            </td>
+                            <td className="px-6 py-4 font-semibold text-slate-900">
+                              {coutLigne !== null
+                                ? `${coutLigne.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
+                                : "-"}
+                            </td>
+                          </>
+                        ) : null}
                         <td className="px-6 py-4">
                           <form action={deleteRecetteLigneAction}>
                             <input type="hidden" name="page_key" value="recetteConditionnement" />
@@ -360,47 +376,49 @@ export default async function RecetteConditionnementDetailPage({
           )}
         </section>
 
-        <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">Prix de revient</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <p className="text-xs font-semibold text-slate-500">Cout du vrac utilise</p>
-              <p className="mt-1 text-xl font-black text-slate-900">
-                {coutVracUtilise !== null
-                  ? `${coutVracUtilise.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
-                  : "-"}
-              </p>
+        {canVoirPrix ? (
+          <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+            <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">Prix de revient</h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <p className="text-xs font-semibold text-slate-500">Cout du vrac utilise</p>
+                <p className="mt-1 text-xl font-black text-slate-900">
+                  {coutVracUtilise !== null
+                    ? `${coutVracUtilise.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
+                    : "-"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-500">Cout conditionnement</p>
+                <p className="mt-1 text-xl font-black text-slate-900">
+                  {coutConditionnement.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-500">Cout par carton</p>
+                <p className="mt-1 text-xl font-black text-slate-900">
+                  {coutParCarton !== null
+                    ? `${coutParCarton.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA`
+                    : "-"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-500">Cout par piece</p>
+                <p className="mt-1 text-xl font-black text-slate-900">
+                  {coutParPiece !== null
+                    ? `${coutParPiece.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA`
+                    : "-"}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-500">Cout conditionnement</p>
-              <p className="mt-1 text-xl font-black text-slate-900">
-                {coutConditionnement.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA
+            {lignesSansPrixTotal > 0 ? (
+              <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                {lignesSansPrixTotal} article{lignesSansPrixTotal > 1 ? "s" : ""} sans prix connu (vrac ou
+                conditionnement) - cout partiel, incomplet.
               </p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-500">Cout par carton</p>
-              <p className="mt-1 text-xl font-black text-slate-900">
-                {coutParCarton !== null
-                  ? `${coutParCarton.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA`
-                  : "-"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-500">Cout par piece</p>
-              <p className="mt-1 text-xl font-black text-slate-900">
-                {coutParPiece !== null
-                  ? `${coutParPiece.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA`
-                  : "-"}
-              </p>
-            </div>
-          </div>
-          {lignesSansPrixTotal > 0 ? (
-            <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-              {lignesSansPrixTotal} article{lignesSansPrixTotal > 1 ? "s" : ""} sans prix connu (vrac ou
-              conditionnement) - cout partiel, incomplet.
-            </p>
-          ) : null}
-        </section>
+            ) : null}
+          </section>
+        ) : null}
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <h2 className="mb-4 text-lg font-bold text-slate-900">Ajouter un article a la formule</h2>

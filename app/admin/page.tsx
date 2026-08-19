@@ -617,6 +617,19 @@ export default async function AdminPage({
                             className="h-4 w-4 rounded border-slate-300"
                           />
                         </div>
+
+                        <div className="flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50/40 px-4 py-3">
+                          <p className="text-sm font-semibold text-slate-800">
+                            Voir les prix (BC MP, lots, recettes, commandes)
+                          </p>
+                          <input
+                            type="checkbox"
+                            name="voirPrix"
+                            defaultChecked={user.permissions.voirPrix}
+                            disabled={user.isAdmin}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                        </div>
                       </div>
 
                       {!user.isAdmin ? (

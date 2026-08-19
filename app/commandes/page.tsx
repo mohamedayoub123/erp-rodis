@@ -13,6 +13,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import {
   canChangeStatusCommandesUser,
   canDeleteCommandesUser,
+  canVoirPrixUser,
   canWritePageUser,
   getCurrentStockUser,
 } from "@/lib/stock-auth";
@@ -54,8 +55,6 @@ type ProformaGroup = {
   modeChargement: string | null;
   createdAt: string | null;
   rows: CommandeRow[];
-  lignesTotal: number;
-  cartonTotal: number;
   statusCounts: { statut: string; count: number }[];
   openTargetId: number;
   pretStock: boolean;
@@ -198,6 +197,7 @@ export default async function CommandesPage({
   const canEditCommandeDetail = await canWritePageUser(currentStockUser, "commandesDetail");
   const canDeleteCommandes = await canDeleteCommandesUser(currentStockUser);
   const canChangeStatusCommandes = await canChangeStatusCommandesUser(currentStockUser);
+  const canVoirPrix = await canVoirPrixUser(currentStockUser);
   const params = await searchParams;
   const q = (params.q || "").trim();
   const statut = (params.statut || "").trim().toUpperCase();
@@ -349,8 +349,6 @@ export default async function CommandesPage({
         modeChargement: rows[0].mode_chargement,
         createdAt,
         rows,
-        lignesTotal: rows.reduce((sum, row) => sum + row.lignes_count, 0),
-        cartonTotal: rows.reduce((sum, row) => sum + row.carton_total, 0),
         statusCounts,
         openTargetId: openTarget.id,
         pretStock: pretStockInfo.checked,
@@ -454,7 +452,7 @@ export default async function CommandesPage({
                   <col style={{ width: "70px" }} />
                   <col style={{ width: "110px" }} />
                   <col style={{ width: "150px" }} />
-                  <col style={{ width: "110px" }} />
+                  {canVoirPrix ? <col style={{ width: "110px" }} /> : null}
                   <col style={{ width: "120px" }} />
                   <col style={{ width: "170px" }} />
                 </colgroup>
@@ -469,7 +467,7 @@ export default async function CommandesPage({
                     <th className="px-4 py-3 font-semibold">Type camion</th>
                     <th className="px-4 py-3 font-semibold">Lignes</th>
                     <th className="px-4 py-3 font-semibold">Total carton</th>
-                    <th className="px-4 py-3 font-semibold">Prix total</th>
+                    {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix total</th> : null}
                     <th className="px-4 py-3 font-semibold">Volume (m3)</th>
                     <th className="px-4 py-3 font-semibold">Poids brut (kg)</th>
                     <th className="px-4 py-3 font-semibold">Actions</th>
@@ -599,22 +597,40 @@ export default async function CommandesPage({
                       <td className="truncate px-4 py-3 text-slate-600">
                         {group.modeChargement || "-"}
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{group.lignesTotal}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{group.cartonTotal}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">
+                      <td className="px-4 py-3 text-slate-600">
                         <div className="flex flex-col gap-2">
                           {group.rows.map((row) => (
                             <div key={row.id} className="whitespace-nowrap">
-                              {row.prix_total !== null
-                                ? `${row.prix_total.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
-                                : "-"}
-                              {row.prix_incomplet ? (
-                                <span className="ml-1 text-xs font-normal text-amber-700">(partiel)</span>
-                              ) : null}
+                              {row.lignes_count}
                             </div>
                           ))}
                         </div>
                       </td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        <div className="flex flex-col gap-2">
+                          {group.rows.map((row) => (
+                            <div key={row.id} className="whitespace-nowrap">
+                              {row.carton_total}
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      {canVoirPrix ? (
+                        <td className="px-4 py-3 font-semibold text-slate-900">
+                          <div className="flex flex-col gap-2">
+                            {group.rows.map((row) => (
+                              <div key={row.id} className="whitespace-nowrap">
+                                {row.prix_total !== null
+                                  ? `${row.prix_total.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
+                                  : "-"}
+                                {row.prix_incomplet ? (
+                                  <span className="ml-1 text-xs font-normal text-amber-700">(partiel)</span>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      ) : null}
                       <td className="px-4 py-3 text-slate-700">
                         <div className="flex flex-col gap-2">
                           {group.rows.map((row) => (

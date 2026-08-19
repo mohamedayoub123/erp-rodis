@@ -193,6 +193,7 @@ export async function updateUserPermissionsAction(formData: FormData) {
     deleteCommandes: readPermissionFlag(formData, "deleteCommandes"),
     changeStatusCommandes: readPermissionFlag(formData, "changeStatusCommandes"),
     manageUsers: readPermissionFlag(formData, "manageUsers"),
+    voirPrix: readPermissionFlag(formData, "voirPrix"),
   };
 
   const updated = await updateUserPermissions(username, nextPermissions);

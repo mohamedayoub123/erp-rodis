@@ -6,7 +6,15 @@ import { matchesArticleSearch } from "@/lib/article-search";
 import { DEVISE_OPTIONS } from "@/lib/devise-options";
 import { addArticleToCommandeBcAction } from "../actions";
 
-export function AddArticleForm({ code, articleOptions }: { code: string; articleOptions: string[] }) {
+export function AddArticleForm({
+  code,
+  articleOptions,
+  canVoirPrix,
+}: {
+  code: string;
+  articleOptions: string[];
+  canVoirPrix: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [articleInput, setArticleInput] = useState("");
@@ -62,7 +70,7 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
+    <div className={`grid gap-3 ${canVoirPrix ? "sm:grid-cols-[1fr_auto_auto_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
       <div className="relative">
         <input
           type="text"
@@ -106,15 +114,17 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
         placeholder="Quantite"
         className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
       />
-      <input
-        type="number"
-        step="0.01"
-        min="0"
-        value={prixUnitaire}
-        onChange={(event) => setPrixUnitaire(event.target.value)}
-        placeholder="Prix unitaire"
-        className="w-36 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-      />
+      {canVoirPrix ? (
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={prixUnitaire}
+          onChange={(event) => setPrixUnitaire(event.target.value)}
+          placeholder="Prix unitaire"
+          className="w-36 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+        />
+      ) : null}
       <button
         type="button"
         onClick={submit}
@@ -123,30 +133,32 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
       >
         {isPending ? "Ajout..." : "Ajouter article"}
       </button>
-      <div className="flex flex-wrap items-center gap-2 sm:col-span-4">
-        <select
-          value={devise}
-          onChange={(event) => setDevise(event.target.value)}
-          className="rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-        >
-          {DEVISE_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-        {devise !== "FCFA" ? (
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={tauxChange}
-            onChange={(event) => setTauxChange(event.target.value)}
-            placeholder={`Taux (1 ${devise} = ? FCFA)`}
-            className="w-44 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-          />
-        ) : null}
-      </div>
+      {canVoirPrix ? (
+        <div className="flex flex-wrap items-center gap-2 sm:col-span-4">
+          <select
+            value={devise}
+            onChange={(event) => setDevise(event.target.value)}
+            className="rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+          >
+            {DEVISE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          {devise !== "FCFA" ? (
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={tauxChange}
+              onChange={(event) => setTauxChange(event.target.value)}
+              placeholder={`Taux (1 ${devise} = ? FCFA)`}
+              className="w-44 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+            />
+          ) : null}
+        </div>
+      ) : null}
       {errorMessage ? <p className="text-xs font-semibold text-red-700 sm:col-span-4">{errorMessage}</p> : null}
     </div>
   );

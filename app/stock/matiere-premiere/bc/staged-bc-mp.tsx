@@ -15,7 +15,13 @@ type PendingLigne = {
   tauxChange: number | null;
 };
 
-export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
+export function StagedBcMp({
+  articleOptions,
+  canVoirPrix,
+}: {
+  articleOptions: string[];
+  canVoirPrix: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [articleInput, setArticleInput] = useState("");
@@ -127,7 +133,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
     <div className="grid gap-6">
       <div>
         <h2 className="mb-3 text-lg font-bold text-slate-900">Ajouter des articles</h2>
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
+        <div className={`grid gap-3 ${canVoirPrix ? "sm:grid-cols-[1fr_auto_auto_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
           <div className="relative">
             <input
               type="text"
@@ -172,15 +178,17 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
             placeholder="Quantite"
             className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={prixUnitaire}
-            onChange={(event) => setPrixUnitaire(event.target.value)}
-            placeholder="Prix unitaire"
-            className="w-36 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-          />
+          {canVoirPrix ? (
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={prixUnitaire}
+              onChange={(event) => setPrixUnitaire(event.target.value)}
+              placeholder="Prix unitaire"
+              className="w-36 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+          ) : null}
           <button
             type="button"
             onClick={addLigne}
@@ -189,30 +197,32 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
             Ajouter article
           </button>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <select
-            value={devise}
-            onChange={(event) => setDevise(event.target.value)}
-            className="rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-          >
-            {DEVISE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-          {devise !== "FCFA" ? (
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={tauxChange}
-              onChange={(event) => setTauxChange(event.target.value)}
-              placeholder={`Taux (1 ${devise} = ? FCFA)`}
-              className="w-44 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-            />
-          ) : null}
-        </div>
+        {canVoirPrix ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <select
+              value={devise}
+              onChange={(event) => setDevise(event.target.value)}
+              className="rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+            >
+              {DEVISE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            {devise !== "FCFA" ? (
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={tauxChange}
+                onChange={(event) => setTauxChange(event.target.value)}
+                placeholder={`Taux (1 ${devise} = ? FCFA)`}
+                className="w-44 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+              />
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {lignes.length > 0 ? (
@@ -222,7 +232,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
               <tr>
                 <th className="px-4 py-3 font-semibold">Article</th>
                 <th className="px-4 py-3 font-semibold">Quantite</th>
-                <th className="px-4 py-3 font-semibold">Prix unitaire</th>
+                {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix unitaire</th> : null}
                 <th className="px-4 py-3 font-semibold"></th>
               </tr>
             </thead>
@@ -231,11 +241,13 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
                 <tr key={`${ligne.article}-${index}`} className="border-t border-slate-100">
                   <td className="px-4 py-3 font-medium text-slate-900">{ligne.article}</td>
                   <td className="px-4 py-3 text-slate-600">{ligne.quantite}</td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {ligne.prixUnitaire != null
-                      ? `${ligne.prixUnitaire}${ligne.devise !== "FCFA" ? ` ${ligne.devise}` : ""}`
-                      : "-"}
-                  </td>
+                  {canVoirPrix ? (
+                    <td className="px-4 py-3 text-slate-600">
+                      {ligne.prixUnitaire != null
+                        ? `${ligne.prixUnitaire}${ligne.devise !== "FCFA" ? ` ${ligne.devise}` : ""}`
+                        : "-"}
+                    </td>
+                  ) : null}
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"
@@ -252,7 +264,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
               <tr className="border-t border-slate-200 bg-slate-50">
                 <td className="px-4 py-3 font-semibold text-slate-900">Total</td>
                 <td className="px-4 py-3 font-semibold text-slate-900">{totalQuantite}</td>
-                <td></td>
+                {canVoirPrix ? <td></td> : null}
                 <td></td>
               </tr>
             </tfoot>

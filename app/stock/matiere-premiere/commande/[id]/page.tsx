@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canVoirPrixUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
@@ -102,6 +102,7 @@ export default async function ImportMpDossierPage({
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "commandeMp");
   const canDelete = await canDeletePageUser(currentUser, "commandeMp");
+  const canVoirPrix = await canVoirPrixUser(currentUser);
 
   const { rows, error } = await fetchImportsForDossier(nDoss4d, nDossErp);
 
@@ -190,7 +191,7 @@ export default async function ImportMpDossierPage({
                     <tr>
                       <th className="px-4 py-3 font-semibold">BC</th>
                       <th className="px-4 py-3 font-semibold">Article</th>
-                      <th className="px-4 py-3 font-semibold">Prix unitaire</th>
+                      {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix unitaire</th> : null}
                       <th className="px-4 py-3 font-semibold">Qte a receptionner</th>
                       <th className="px-4 py-3 font-semibold">Statut</th>
                       {canEdit || canDelete ? <th className="px-4 py-3 font-semibold">Action</th> : null}
@@ -223,9 +224,11 @@ export default async function ImportMpDossierPage({
                           <td className="px-4 py-3 font-medium text-slate-900">
                             {ligne.article_label || "-"}
                           </td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {formatPrix(ligne.prix_unitaire, ligne.devise)}
-                          </td>
+                          {canVoirPrix ? (
+                            <td className="px-4 py-3 text-slate-600">
+                              {formatPrix(ligne.prix_unitaire, ligne.devise)}
+                            </td>
+                          ) : null}
                           <td className="px-4 py-3 font-semibold text-slate-900">{quantiteAReceptionner}</td>
                           <td className="px-4 py-3">
                             <span
@@ -291,23 +294,27 @@ export default async function ImportMpDossierPage({
                                           required
                                         />
                                       </label>
-                                      <label className="grid gap-1 text-xs text-slate-500">
-                                        Prix unitaire (reel)
-                                        <input
-                                          type="number"
-                                          step="0.01"
-                                          min="0"
-                                          name="prix_unitaire"
-                                          defaultValue={ligne.prix_unitaire ?? ""}
-                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                        />
-                                      </label>
-                                      <div className="text-xs text-slate-500">
-                                        <DeviseTauxFormField
-                                          deviseDefaultValue={ligne.devise}
-                                          tauxDefaultValue={ligne.taux_change}
-                                        />
-                                      </div>
+                                      {canVoirPrix ? (
+                                        <>
+                                          <label className="grid gap-1 text-xs text-slate-500">
+                                            Prix unitaire (reel)
+                                            <input
+                                              type="number"
+                                              step="0.01"
+                                              min="0"
+                                              name="prix_unitaire"
+                                              defaultValue={ligne.prix_unitaire ?? ""}
+                                              className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                            />
+                                          </label>
+                                          <div className="text-xs text-slate-500">
+                                            <DeviseTauxFormField
+                                              deviseDefaultValue={ligne.devise}
+                                              tauxDefaultValue={ligne.taux_change}
+                                            />
+                                          </div>
+                                        </>
+                                      ) : null}
                                       <SubmitButton
                                         pendingLabel="Enregistrement..."
                                         className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
@@ -352,7 +359,7 @@ export default async function ImportMpDossierPage({
                       <th className="px-4 py-3 font-semibold">BC</th>
                       <th className="px-4 py-3 font-semibold">Article</th>
                       <th className="px-4 py-3 font-semibold">Qte importee</th>
-                      <th className="px-4 py-3 font-semibold">Prix unitaire</th>
+                      {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix unitaire</th> : null}
                       <th className="px-4 py-3 font-semibold">Lot</th>
                       <th className="px-4 py-3 font-semibold">Date fabrication</th>
                       <th className="px-4 py-3 font-semibold">Date expiration</th>
@@ -380,9 +387,11 @@ export default async function ImportMpDossierPage({
                             {ligne?.article_label || "-"}
                           </td>
                           <td className="px-4 py-3 text-slate-900">{row.quantite_importee}</td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {formatPrix(lotData?.prix_unitaire ?? null, lotData?.devise ?? null)}
-                          </td>
+                          {canVoirPrix ? (
+                            <td className="px-4 py-3 text-slate-600">
+                              {formatPrix(lotData?.prix_unitaire ?? null, lotData?.devise ?? null)}
+                            </td>
+                          ) : null}
                           <td className="px-4 py-3 text-slate-600">{row.numero_lot || "-"}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_fabrication)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_expiration)}</td>

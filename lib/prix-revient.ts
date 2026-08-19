@@ -128,7 +128,14 @@ type ArticlePfCoutRow = {
   quantite_recette_base: number | null;
   vrac_article_id: number | null;
   vrac_quantite_recette: number | null;
+  contenance: number | null;
+  piece_par_carton: number | null;
 };
+
+function round(value: number, decimals = 3) {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
 
 type RecetteLigneRow = { article_pf_id: number; article_mp_id: number; quantite: number };
 
@@ -147,7 +154,7 @@ export async function fetchCoutsParCartonProduitsFinis(
 
   const { data: articlesData } = await supabaseServer
     .from("articles")
-    .select("id, quantite_recette_base, vrac_article_id, vrac_quantite_recette")
+    .select("id, quantite_recette_base, vrac_article_id, vrac_quantite_recette, contenance, piece_par_carton")
     .in("id", ids);
   const articles = (articlesData ?? []) as ArticlePfCoutRow[];
   const articleById = new Map(articles.map((article) => [article.id, article]));
@@ -207,9 +214,19 @@ export async function fetchCoutsParCartonProduitsFinis(
     let coutVracUtilise = 0;
     let lignesSansPrixVrac: number[] = [];
     if (article.vrac_article_id) {
+      // Meme repli que la page recette-conditionnement : si la quantite de
+      // vrac necessaire n'a pas ete saisie a la main, on la calcule depuis
+      // contenance * piece_par_carton (pour 1 carton), plutot que de traiter
+      // le cout vrac comme 0/absent.
+      const qtVracAuto =
+        article.contenance && article.piece_par_carton
+          ? round((article.quantite_recette_base || 1) * article.piece_par_carton * article.contenance, 3)
+          : null;
+      const qtVracNecessaire = article.vrac_quantite_recette ?? qtVracAuto;
+
       const coutVrac = coutVracParId.get(article.vrac_article_id);
-      if (coutVrac?.coutParKg !== null && coutVrac?.coutParKg !== undefined && article.vrac_quantite_recette) {
-        coutVracUtilise = coutVrac.coutParKg * article.vrac_quantite_recette;
+      if (coutVrac?.coutParKg !== null && coutVrac?.coutParKg !== undefined && qtVracNecessaire) {
+        coutVracUtilise = coutVrac.coutParKg * qtVracNecessaire;
       }
       lignesSansPrixVrac = coutVrac?.lignesSansPrix ?? [];
     }

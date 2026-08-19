@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canVoirPrixUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { StagedBcMp } from "../staged-bc-mp";
@@ -31,6 +31,7 @@ async function fetchArticleOptions() {
 export default async function NouvelleCommandeBcMpPage() {
   const currentUser = await getCurrentStockUser();
   const canWriteNouvelle = await canWritePageUser(currentUser, "commandeBcMpNouvelle");
+  const canVoirPrix = await canVoirPrixUser(currentUser);
   const articleOptions = await fetchArticleOptions();
 
   return (
@@ -64,7 +65,7 @@ export default async function NouvelleCommandeBcMpPage() {
               Lecture seule : ajout de commande cache pour cet utilisateur.
             </p>
           ) : (
-            <StagedBcMp articleOptions={articleOptions} />
+            <StagedBcMp articleOptions={articleOptions} canVoirPrix={canVoirPrix} />
           )}
         </section>
       </div>

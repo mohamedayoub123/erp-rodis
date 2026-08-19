@@ -21,6 +21,9 @@ export type StockPermissions = {
   deleteCommandes: boolean;
   changeStatusCommandes: boolean;
   manageUsers: boolean;
+  // Voir les prix/couts (BC MP, lots, recettes, commandes) - a part du
+  // systeme page par page, un seul reglage transversal comme manageUsers.
+  voirPrix: boolean;
 };
 
 // Forme stockee cote base : peut etre l'ancien format (module) ou le
@@ -118,6 +121,7 @@ function getDefaultPermissions(username: string): StockPermissions {
     deleteCommandes: isAdmin,
     changeStatusCommandes: isAdmin,
     manageUsers: isAdmin,
+    voirPrix: isAdmin,
   };
 }
 
@@ -219,6 +223,11 @@ function normalizeUserRecord(
         ? source.changeStatusCommandes
         : legacyEditCommandes ?? defaults.changeStatusCommandes,
     manageUsers: isAdmin ? true : !!source.manageUsers,
+    voirPrix: isAdmin
+      ? true
+      : typeof source.voirPrix === "boolean"
+        ? source.voirPrix
+        : defaults.voirPrix,
   };
 
   return {
@@ -496,6 +505,11 @@ export async function canChangeStatusCommandesUser(username: string | null | und
   return permissions.changeStatusCommandes;
 }
 
+export async function canVoirPrixUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.voirPrix;
+}
+
 export async function canViewPathForUser(username: string | null | undefined, pathname: string): Promise<boolean> {
   if (pathname === "/" || pathname.startsWith("/test-supabase")) {
     return true;
@@ -608,6 +622,7 @@ export async function updateUserPermissions(
     deleteCommandes: boolean;
     changeStatusCommandes: boolean;
     manageUsers: boolean;
+    voirPrix: boolean;
   }
 ) {
   const normalized = username.trim().toLowerCase();
@@ -632,6 +647,7 @@ export async function updateUserPermissions(
     deleteCommandes: !!nextPermissions.deleteCommandes,
     changeStatusCommandes: !!nextPermissions.changeStatusCommandes,
     manageUsers: !!nextPermissions.manageUsers,
+    voirPrix: !!nextPermissions.voirPrix,
   };
 
   await writeUsers(users);

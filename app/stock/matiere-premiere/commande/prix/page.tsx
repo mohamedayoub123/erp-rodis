@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canVoirPrixUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { AccesPrixRefuse } from "@/app/_components/acces-prix-refuse";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SubmitButton } from "@/app/_components/submit-button";
@@ -139,6 +140,11 @@ export default async function CommandeMpPrixPage({ searchParams }: { searchParam
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "commandeMp");
+  const canVoirPrix = await canVoirPrixUser(currentUser);
+
+  if (!canVoirPrix) {
+    return <AccesPrixRefuse />;
+  }
 
   const [{ rows: allRows, error }, articlesMp, nbSansPrix] = await Promise.all([
     fetchLots(afficherTous),
