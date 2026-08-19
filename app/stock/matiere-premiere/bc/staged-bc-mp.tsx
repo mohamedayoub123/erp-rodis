@@ -4,12 +4,15 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { DateJmaInput } from "@/app/_components/date-jma-input";
+import { DEVISE_OPTIONS } from "@/lib/devise-options";
 import { createCommandeBcBatchAction } from "./actions";
 
 type PendingLigne = {
   article: string;
   quantite: number;
   prixUnitaire: number | null;
+  devise: string;
+  tauxChange: number | null;
 };
 
 export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
@@ -19,6 +22,8 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
   const [showArticleOptions, setShowArticleOptions] = useState(false);
   const [quantite, setQuantite] = useState("");
   const [prixUnitaire, setPrixUnitaire] = useState("");
+  const [devise, setDevise] = useState("FCFA");
+  const [tauxChange, setTauxChange] = useState("");
   const [dateCommande, setDateCommande] = useState("");
   const [nDoss4d, setNDoss4d] = useState("");
   const [nDossErp, setNDossErp] = useState("");
@@ -46,6 +51,8 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
     const qty = Number(quantite.replace(",", "."));
     const prixTrim = prixUnitaire.trim().replace(",", ".");
     const prix = prixTrim ? Number(prixTrim) : null;
+    const tauxTrim = tauxChange.trim().replace(",", ".");
+    const taux = tauxTrim ? Number(tauxTrim) : null;
 
     if (!articleInput.trim() || !qty || qty <= 0) {
       setErrorMessage("Choisis un article et une quantite valide avant d'ajouter.");
@@ -57,11 +64,27 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
       return;
     }
 
+    if (prix !== null && devise !== "FCFA" && (taux === null || Number.isNaN(taux) || taux <= 0)) {
+      setErrorMessage("Taux de change invalide.");
+      return;
+    }
+
     setErrorMessage("");
-    setLignes((current) => [...current, { article: articleInput.trim(), quantite: qty, prixUnitaire: prix }]);
+    setLignes((current) => [
+      ...current,
+      {
+        article: articleInput.trim(),
+        quantite: qty,
+        prixUnitaire: prix,
+        devise,
+        tauxChange: devise !== "FCFA" ? taux : null,
+      },
+    ]);
     setArticleInput("");
     setQuantite("");
     setPrixUnitaire("");
+    setDevise("FCFA");
+    setTauxChange("");
   }
 
   function removeLigne(index: number) {
@@ -166,6 +189,30 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
             Ajouter article
           </button>
         </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <select
+            value={devise}
+            onChange={(event) => setDevise(event.target.value)}
+            className="rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+          >
+            {DEVISE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          {devise !== "FCFA" ? (
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={tauxChange}
+              onChange={(event) => setTauxChange(event.target.value)}
+              placeholder={`Taux (1 ${devise} = ? FCFA)`}
+              className="w-44 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+            />
+          ) : null}
+        </div>
       </div>
 
       {lignes.length > 0 ? (
@@ -184,7 +231,11 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
                 <tr key={`${ligne.article}-${index}`} className="border-t border-slate-100">
                   <td className="px-4 py-3 font-medium text-slate-900">{ligne.article}</td>
                   <td className="px-4 py-3 text-slate-600">{ligne.quantite}</td>
-                  <td className="px-4 py-3 text-slate-600">{ligne.prixUnitaire ?? "-"}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {ligne.prixUnitaire != null
+                      ? `${ligne.prixUnitaire}${ligne.devise !== "FCFA" ? ` ${ligne.devise}` : ""}`
+                      : "-"}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"

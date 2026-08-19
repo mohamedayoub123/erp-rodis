@@ -5,12 +5,19 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { STATUT_DOSSIER_MP_OPTIONS } from "../commande/constants";
+import { DEVISE_OPTIONS } from "@/lib/devise-options";
 
 type PendingBcLigne = {
   article: string;
   quantite: number;
   prixUnitaire: number | null;
+  devise: string;
+  tauxChange: number | null;
 };
+
+function resolveDevise(value: string | null | undefined) {
+  return (DEVISE_OPTIONS as readonly string[]).includes(value || "") ? (value as string) : "FCFA";
+}
 
 // Cle de correspondance article: recalculee ici depuis nom_article des deux
 // cotes (pas depuis la colonne article_normalise stockee, dont le format a
@@ -156,12 +163,20 @@ export async function createCommandeBcBatchAction(formData: FormData) {
       const articleRow = articleByNormalise.get(normalizeArticle(articleName));
 
       const prixUnitaire = ligne.prixUnitaire != null ? Number(ligne.prixUnitaire) : null;
+      const prixValide = prixUnitaire != null && !Number.isNaN(prixUnitaire) ? prixUnitaire : null;
+      const devise = resolveDevise(ligne.devise);
+      const tauxChange = ligne.tauxChange != null ? Number(ligne.tauxChange) : null;
+      const tauxValide = tauxChange != null && !Number.isNaN(tauxChange) && tauxChange > 0 ? tauxChange : null;
+
+      if (prixValide !== null && devise !== "FCFA" && tauxValide === null) return null;
 
       return {
         article_id: articleRow?.id ?? null,
         article_label: articleRow?.nom_article ?? articleName,
         quantite,
-        prix_unitaire: prixUnitaire != null && !Number.isNaN(prixUnitaire) ? prixUnitaire : null,
+        prix_unitaire: prixValide,
+        devise,
+        taux_change: devise !== "FCFA" ? tauxValide : null,
         n_doss_4d: nDoss4d,
         n_doss_erp: nDossErp,
         fournisseur,
@@ -207,6 +222,9 @@ export async function addArticleToCommandeBcAction(formData: FormData) {
   const quantite = Number(String(formData.get("quantite") || "").replace(",", "."));
   const prixUnitaireRaw = String(formData.get("prix_unitaire") || "").trim().replace(",", ".");
   const prixUnitaire = prixUnitaireRaw ? Number(prixUnitaireRaw) : null;
+  const devise = resolveDevise(String(formData.get("devise") || ""));
+  const tauxChangeRaw = String(formData.get("taux_change") || "").trim().replace(",", ".");
+  const tauxChange = tauxChangeRaw ? Number(tauxChangeRaw) : null;
 
   if (!code) {
     throw new Error("Commande invalide.");
@@ -218,6 +236,10 @@ export async function addArticleToCommandeBcAction(formData: FormData) {
 
   if (prixUnitaireRaw && (prixUnitaire === null || Number.isNaN(prixUnitaire) || prixUnitaire < 0)) {
     throw new Error("Prix unitaire invalide.");
+  }
+
+  if (prixUnitaire !== null && devise !== "FCFA" && (tauxChange === null || Number.isNaN(tauxChange) || tauxChange <= 0)) {
+    throw new Error("Taux de change invalide.");
   }
 
   const { data: existingLigne, error: existingError } = await supabaseServer
@@ -243,6 +265,8 @@ export async function addArticleToCommandeBcAction(formData: FormData) {
       article_label: articleRow?.nom_article ?? articleName,
       quantite,
       prix_unitaire: prixUnitaire,
+      devise,
+      taux_change: devise !== "FCFA" ? tauxChange : null,
       n_doss_4d: (existingLigne as { n_doss_4d: string | null }).n_doss_4d,
       n_doss_erp: (existingLigne as { n_doss_erp: string | null }).n_doss_erp,
       fournisseur: (existingLigne as { fournisseur: string | null }).fournisseur,
@@ -399,9 +423,16 @@ export async function updateCommandeBcLigneAction(formData: FormData) {
 
   const prixUnitaireRaw = String(formData.get("prix_unitaire") || "").trim().replace(",", ".");
   const prixUnitaire = prixUnitaireRaw ? Number(prixUnitaireRaw) : null;
+  const devise = resolveDevise(String(formData.get("devise") || ""));
+  const tauxChangeRaw = String(formData.get("taux_change") || "").trim().replace(",", ".");
+  const tauxChange = tauxChangeRaw ? Number(tauxChangeRaw) : null;
 
   if (prixUnitaireRaw && (prixUnitaire === null || Number.isNaN(prixUnitaire) || prixUnitaire < 0)) {
     throw new Error("Prix unitaire invalide.");
+  }
+
+  if (prixUnitaire !== null && devise !== "FCFA" && (tauxChange === null || Number.isNaN(tauxChange) || tauxChange <= 0)) {
+    throw new Error("Taux de change invalide.");
   }
 
   const { error } = await supabaseServer
@@ -409,6 +440,8 @@ export async function updateCommandeBcLigneAction(formData: FormData) {
     .update({
       quantite,
       prix_unitaire: prixUnitaire,
+      devise,
+      taux_change: devise !== "FCFA" ? tauxChange : null,
       n_doss_4d: parseOptionalText(formData, "n_doss_4d"),
       n_doss_erp: parseOptionalText(formData, "n_doss_erp"),
     })

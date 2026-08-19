@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { DEVISE_OPTIONS } from "@/lib/devise-options";
 import { addArticleToCommandeBcAction } from "../actions";
 
 export function AddArticleForm({ code, articleOptions }: { code: string; articleOptions: string[] }) {
@@ -12,6 +13,8 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
   const [showOptions, setShowOptions] = useState(false);
   const [quantite, setQuantite] = useState("");
   const [prixUnitaire, setPrixUnitaire] = useState("");
+  const [devise, setDevise] = useState("FCFA");
+  const [tauxChange, setTauxChange] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
   const filteredArticles = useMemo(
@@ -21,9 +24,16 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
 
   function submit() {
     const qty = Number(quantite.replace(",", "."));
+    const prixTrim = prixUnitaire.trim();
+    const tauxTrim = tauxChange.trim().replace(",", ".");
 
     if (!articleInput.trim() || !qty || qty <= 0) {
       setErrorMessage("Choisis un article et une quantite valide.");
+      return;
+    }
+
+    if (prixTrim && devise !== "FCFA" && (!tauxTrim || Number.isNaN(Number(tauxTrim)) || Number(tauxTrim) <= 0)) {
+      setErrorMessage("Taux de change invalide.");
       return;
     }
 
@@ -32,7 +42,9 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
     formData.set("code", code);
     formData.set("article", articleInput.trim());
     formData.set("quantite", String(qty));
-    formData.set("prix_unitaire", prixUnitaire.trim());
+    formData.set("prix_unitaire", prixTrim);
+    formData.set("devise", devise);
+    formData.set("taux_change", devise !== "FCFA" ? tauxTrim : "");
 
     startTransition(async () => {
       try {
@@ -40,6 +52,8 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
         setArticleInput("");
         setQuantite("");
         setPrixUnitaire("");
+        setDevise("FCFA");
+        setTauxChange("");
         router.refresh();
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'ajout.");
@@ -109,6 +123,30 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
       >
         {isPending ? "Ajout..." : "Ajouter article"}
       </button>
+      <div className="flex flex-wrap items-center gap-2 sm:col-span-4">
+        <select
+          value={devise}
+          onChange={(event) => setDevise(event.target.value)}
+          className="rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+        >
+          {DEVISE_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        {devise !== "FCFA" ? (
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            value={tauxChange}
+            onChange={(event) => setTauxChange(event.target.value)}
+            placeholder={`Taux (1 ${devise} = ? FCFA)`}
+            className="w-44 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+          />
+        ) : null}
+      </div>
       {errorMessage ? <p className="text-xs font-semibold text-red-700 sm:col-span-4">{errorMessage}</p> : null}
     </div>
   );
