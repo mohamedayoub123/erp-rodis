@@ -120,3 +120,111 @@ export async function fetchCoutVracParKg(vracArticleId: number): Promise<CoutVra
     lignesSansPrix,
   };
 }
+
+export type CoutCartonInfo = { coutParCarton: number | null; lignesSansPrix: number[] };
+
+type ArticlePfCoutRow = {
+  id: number;
+  quantite_recette_base: number | null;
+  vrac_article_id: number | null;
+  vrac_quantite_recette: number | null;
+};
+
+type RecetteLigneRow = { article_pf_id: number; article_mp_id: number; quantite: number };
+
+// Meme calcul que la carte "Prix de revient" de recette-conditionnement/[id]/page.tsx
+// (cout du vrac utilise + cout des articles de conditionnement, divise par
+// le nombre de cartons du lot), mais chiffre PLUSIEURS produits finis en une
+// poignee de requetes au lieu d'une par article - utilise par les pages
+// Commandes (une commande a plusieurs lignes/articles, potentiellement
+// beaucoup de commandes listees a la fois).
+export async function fetchCoutsParCartonProduitsFinis(
+  articlePfIds: number[]
+): Promise<Map<number, CoutCartonInfo>> {
+  const result = new Map<number, CoutCartonInfo>();
+  const ids = [...new Set(articlePfIds)];
+  if (ids.length === 0) return result;
+
+  const { data: articlesData } = await supabaseServer
+    .from("articles")
+    .select("id, quantite_recette_base, vrac_article_id, vrac_quantite_recette")
+    .in("id", ids);
+  const articles = (articlesData ?? []) as ArticlePfCoutRow[];
+  const articleById = new Map(articles.map((article) => [article.id, article]));
+
+  const vracIds = [
+    ...new Set(articles.map((article) => article.vrac_article_id).filter((id): id is number => id !== null)),
+  ];
+
+  const [{ data: vracArticlesData }, { data: lignesData }] = await Promise.all([
+    vracIds.length > 0
+      ? supabaseServer.from("articles").select("id, quantite_recette_base").in("id", vracIds)
+      : Promise.resolve({ data: [] as { id: number; quantite_recette_base: number | null }[] }),
+    supabaseServer
+      .from("recettes_pf")
+      .select("article_pf_id, article_mp_id, quantite")
+      .in("article_pf_id", [...ids, ...vracIds]),
+  ]);
+
+  const quantiteBaseByVrac = new Map(
+    ((vracArticlesData ?? []) as { id: number; quantite_recette_base: number | null }[]).map((vrac) => [
+      vrac.id,
+      vrac.quantite_recette_base,
+    ])
+  );
+
+  const lignesByPf = new Map<number, { article_mp_id: number; quantite: number }[]>();
+  for (const ligne of (lignesData ?? []) as RecetteLigneRow[]) {
+    const list = lignesByPf.get(ligne.article_pf_id) ?? [];
+    list.push({ article_mp_id: ligne.article_mp_id, quantite: ligne.quantite });
+    lignesByPf.set(ligne.article_pf_id, list);
+  }
+
+  const allMpIds = [...lignesByPf.values()].flat().map((ligne) => ligne.article_mp_id);
+  const couts = await fetchCoutsMoyenMp(allMpIds);
+
+  const coutVracParId = new Map<number, { coutParKg: number | null; lignesSansPrix: number[] }>();
+  for (const vracId of vracIds) {
+    const lignes = lignesByPf.get(vracId) ?? [];
+    const { coutTotal, lignesSansPrix } = computeRecetteCost(lignes, couts);
+    const quantiteBase = quantiteBaseByVrac.get(vracId) ?? null;
+    coutVracParId.set(vracId, {
+      coutParKg: quantiteBase && quantiteBase > 0 ? coutTotal / quantiteBase : null,
+      lignesSansPrix,
+    });
+  }
+
+  for (const id of ids) {
+    const article = articleById.get(id);
+    if (!article) continue;
+
+    const lignesConditionnement = lignesByPf.get(id) ?? [];
+    const { coutTotal: coutConditionnement, lignesSansPrix: lignesSansPrixConditionnement } = computeRecetteCost(
+      lignesConditionnement,
+      couts
+    );
+
+    let coutVracUtilise = 0;
+    let lignesSansPrixVrac: number[] = [];
+    if (article.vrac_article_id) {
+      const coutVrac = coutVracParId.get(article.vrac_article_id);
+      if (coutVrac?.coutParKg !== null && coutVrac?.coutParKg !== undefined && article.vrac_quantite_recette) {
+        coutVracUtilise = coutVrac.coutParKg * article.vrac_quantite_recette;
+      }
+      lignesSansPrixVrac = coutVrac?.lignesSansPrix ?? [];
+    }
+
+    const coutTotal = coutVracUtilise + coutConditionnement;
+    const coutParCarton =
+      article.quantite_recette_base && article.quantite_recette_base > 0
+        ? coutTotal / article.quantite_recette_base
+        : null;
+
+    result.set(id, {
+      coutParCarton,
+      lignesSansPrix: [...lignesSansPrixConditionnement, ...lignesSansPrixVrac],
+    });
+  }
+
+  return result;
+}

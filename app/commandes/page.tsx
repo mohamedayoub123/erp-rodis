@@ -19,6 +19,8 @@ import {
 import { formatDate } from "@/lib/format-date";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { PretStockToggle } from "./pret-stock-toggle";
+import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
+import { fetchDimensionsProduitsFinis, volumeCartonM3 } from "@/lib/dimensions-produit";
 
 type SearchParams = Promise<{
   q?: string;
@@ -39,6 +41,11 @@ type CommandeListRow = {
 type CommandeRow = CommandeListRow & {
   lignes_count: number;
   carton_total: number;
+  prix_total: number | null;
+  prix_incomplet: boolean;
+  volume_total: number | null;
+  poids_total: number | null;
+  dimensions_incomplet: boolean;
 };
 
 type ProformaGroup = {
@@ -49,6 +56,11 @@ type ProformaGroup = {
   rows: CommandeRow[];
   lignesTotal: number;
   cartonTotal: number;
+  prixTotal: number | null;
+  prixIncomplet: boolean;
+  volumeTotal: number | null;
+  poidsTotal: number | null;
+  dimensionsIncomplet: boolean;
   statusCounts: { statut: string; count: number }[];
   openTargetId: number;
   pretStock: boolean;
@@ -220,23 +232,40 @@ export default async function CommandesPage({
   const commandeListRows = (data as CommandeListRow[] | null) ?? [];
   const commandeIds = commandeListRows.map((commande) => commande.id);
 
-  // The list only ever displays a line COUNT + total carton per order, so
-  // fetch just commande_id/quantite_demandee here instead of embedding full
-  // lines + article joins for all 300 orders on every page load.
+  // La liste affiche compte de lignes + total carton + prix total par
+  // commande - il faut donc aussi l'article_id de chaque ligne (pas juste
+  // quantite_demandee) pour chiffrer le prix (cout par carton, voir
+  // lib/prix-revient.ts) par article commande.
   const [{ data: lignesCountData }, dispatchedCommandeIds] = await Promise.all([
     commandeIds.length > 0
       ? supabaseServer
           .from("commande_lignes")
-          .select("commande_id, quantite_demandee")
+          .select("commande_id, article_id, quantite_demandee")
           .in("commande_id", commandeIds)
-      : Promise.resolve({ data: [] as { commande_id: number; quantite_demandee: number | null }[] }),
+      : Promise.resolve({
+          data: [] as { commande_id: number; article_id: number | null; quantite_demandee: number | null }[],
+        }),
     fetchDispatchedCommandeIds(commandeIds),
+  ]);
+
+  const lignesRows =
+    (lignesCountData as { commande_id: number; article_id: number | null; quantite_demandee: number | null }[] | null) ??
+    [];
+
+  const articleIdsPourLignes = lignesRows.map((row) => row.article_id).filter((id): id is number => id !== null);
+  const [coutsParCarton, dimensionsParArticle] = await Promise.all([
+    fetchCoutsParCartonProduitsFinis(articleIdsPourLignes),
+    fetchDimensionsProduitsFinis(articleIdsPourLignes),
   ]);
 
   const lignesCountByCommande = new Map<number, number>();
   const cartonTotalByCommande = new Map<number, number>();
-  for (const row of (lignesCountData as { commande_id: number; quantite_demandee: number | null }[] | null) ??
-    []) {
+  const prixTotalByCommande = new Map<number, number>();
+  const prixIncompletByCommande = new Map<number, boolean>();
+  const volumeTotalByCommande = new Map<number, number>();
+  const poidsTotalByCommande = new Map<number, number>();
+  const dimensionsIncompletByCommande = new Map<number, boolean>();
+  for (const row of lignesRows) {
     lignesCountByCommande.set(
       row.commande_id,
       (lignesCountByCommande.get(row.commande_id) ?? 0) + 1
@@ -245,12 +274,46 @@ export default async function CommandesPage({
       row.commande_id,
       (cartonTotalByCommande.get(row.commande_id) ?? 0) + Number(row.quantite_demandee ?? 0)
     );
+
+    const coutInfo = row.article_id !== null ? coutsParCarton.get(row.article_id) : undefined;
+    if (coutInfo?.coutParCarton !== null && coutInfo?.coutParCarton !== undefined) {
+      prixTotalByCommande.set(
+        row.commande_id,
+        (prixTotalByCommande.get(row.commande_id) ?? 0) + Number(row.quantite_demandee ?? 0) * coutInfo.coutParCarton
+      );
+    } else {
+      prixIncompletByCommande.set(row.commande_id, true);
+    }
+
+    const dim = row.article_id !== null ? dimensionsParArticle.get(row.article_id) : undefined;
+    const volumeCarton = volumeCartonM3(dim);
+    if (volumeCarton !== null) {
+      volumeTotalByCommande.set(
+        row.commande_id,
+        (volumeTotalByCommande.get(row.commande_id) ?? 0) + Number(row.quantite_demandee ?? 0) * volumeCarton
+      );
+    } else {
+      dimensionsIncompletByCommande.set(row.commande_id, true);
+    }
+    if (dim?.poidsBrut !== null && dim?.poidsBrut !== undefined) {
+      poidsTotalByCommande.set(
+        row.commande_id,
+        (poidsTotalByCommande.get(row.commande_id) ?? 0) + Number(row.quantite_demandee ?? 0) * dim.poidsBrut
+      );
+    } else {
+      dimensionsIncompletByCommande.set(row.commande_id, true);
+    }
   }
 
   const commandes: CommandeRow[] = commandeListRows.map((commande) => ({
     ...commande,
     lignes_count: lignesCountByCommande.get(commande.id) ?? 0,
     carton_total: cartonTotalByCommande.get(commande.id) ?? 0,
+    prix_total: prixTotalByCommande.has(commande.id) ? (prixTotalByCommande.get(commande.id) as number) : null,
+    prix_incomplet: prixIncompletByCommande.get(commande.id) ?? false,
+    volume_total: volumeTotalByCommande.has(commande.id) ? (volumeTotalByCommande.get(commande.id) as number) : null,
+    poids_total: poidsTotalByCommande.has(commande.id) ? (poidsTotalByCommande.get(commande.id) as number) : null,
+    dimensions_incomplet: dimensionsIncompletByCommande.get(commande.id) ?? false,
   }));
 
   // One truck/container = one commande row (see createManualCommandeAction),
@@ -293,6 +356,17 @@ export default async function CommandesPage({
         rows,
         lignesTotal: rows.reduce((sum, row) => sum + row.lignes_count, 0),
         cartonTotal: rows.reduce((sum, row) => sum + row.carton_total, 0),
+        prixTotal: rows.some((row) => row.prix_total !== null)
+          ? rows.reduce((sum, row) => sum + (row.prix_total ?? 0), 0)
+          : null,
+        prixIncomplet: rows.some((row) => row.prix_incomplet),
+        volumeTotal: rows.some((row) => row.volume_total !== null)
+          ? rows.reduce((sum, row) => sum + (row.volume_total ?? 0), 0)
+          : null,
+        poidsTotal: rows.some((row) => row.poids_total !== null)
+          ? rows.reduce((sum, row) => sum + (row.poids_total ?? 0), 0)
+          : null,
+        dimensionsIncomplet: rows.some((row) => row.dimensions_incomplet),
         statusCounts,
         openTargetId: openTarget.id,
         pretStock: pretStockInfo.checked,
@@ -395,6 +469,9 @@ export default async function CommandesPage({
                   <col style={{ width: "110px" }} />
                   <col style={{ width: "70px" }} />
                   <col style={{ width: "110px" }} />
+                  <col style={{ width: "150px" }} />
+                  <col style={{ width: "110px" }} />
+                  <col style={{ width: "120px" }} />
                   <col style={{ width: "170px" }} />
                 </colgroup>
                 <thead className="bg-slate-50 text-slate-500">
@@ -408,6 +485,9 @@ export default async function CommandesPage({
                     <th className="px-4 py-3 font-semibold">Type camion</th>
                     <th className="px-4 py-3 font-semibold">Lignes</th>
                     <th className="px-4 py-3 font-semibold">Total carton</th>
+                    <th className="px-4 py-3 font-semibold">Prix total</th>
+                    <th className="px-4 py-3 font-semibold">Volume (m3)</th>
+                    <th className="px-4 py-3 font-semibold">Poids brut (kg)</th>
                     <th className="px-4 py-3 font-semibold">Actions</th>
                   </tr>
                 </thead>
@@ -537,6 +617,27 @@ export default async function CommandesPage({
                       </td>
                       <td className="px-4 py-3 text-slate-600">{group.lignesTotal}</td>
                       <td className="px-4 py-3 font-semibold text-slate-900">{group.cartonTotal}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {group.prixTotal !== null
+                          ? `${group.prixTotal.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
+                          : "-"}
+                        {group.prixIncomplet ? (
+                          <span className="ml-1 text-xs font-normal text-amber-700">(partiel)</span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {group.volumeTotal !== null
+                          ? group.volumeTotal.toLocaleString("fr-FR", { maximumFractionDigits: 3 })
+                          : "-"}
+                        {group.dimensionsIncomplet ? (
+                          <span className="ml-1 text-xs font-normal text-amber-700">(partiel)</span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {group.poidsTotal !== null
+                          ? group.poidsTotal.toLocaleString("fr-FR", { maximumFractionDigits: 1 })
+                          : "-"}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <Link
