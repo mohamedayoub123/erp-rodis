@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { createMachineAction } from "./actions";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { TYPE_PRODUIT_OPTIONS } from "./type-produit-options";
@@ -13,9 +16,13 @@ const ZONE_OPTIONS = [
   "Semi auto",
   "Manuel",
 ];
+const NOUVELLE_ZONE = "__nouvelle_zone__";
 const TYPE_OPTIONS = ["Fabrication", "Conditionnement", "Emballage"];
 
 export function AddMachineForm() {
+  const [zone, setZone] = useState("");
+  const [zoneLibre, setZoneLibre] = useState(false);
+
   return (
     <form
       action={createMachineAction}
@@ -33,18 +40,51 @@ export function AddMachineForm() {
       </label>
       <label className="grid gap-1 text-xs font-semibold text-slate-500">
         Zone
-        <select
-          name="zone"
-          defaultValue=""
-          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-        >
-          <option value="">-</option>
-          {ZONE_OPTIONS.map((zone) => (
-            <option key={zone} value={zone}>
-              {zone}
-            </option>
-          ))}
-        </select>
+        {zoneLibre ? (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              name="zone"
+              value={zone}
+              onChange={(event) => setZone(event.target.value)}
+              autoFocus
+              placeholder="Nom de la nouvelle zone"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setZoneLibre(false);
+                setZone("");
+              }}
+              className="rounded-full px-2 py-1 text-xs font-semibold text-slate-400 hover:text-slate-600"
+            >
+              Annuler
+            </button>
+          </div>
+        ) : (
+          <select
+            name="zone"
+            value={zone}
+            onChange={(event) => {
+              if (event.target.value === NOUVELLE_ZONE) {
+                setZoneLibre(true);
+                setZone("");
+              } else {
+                setZone(event.target.value);
+              }
+            }}
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+          >
+            <option value="">-</option>
+            {ZONE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+            <option value={NOUVELLE_ZONE}>+ Nouvelle zone</option>
+          </select>
+        )}
       </label>
       <label className="grid gap-1 text-xs font-semibold text-slate-500">
         Type

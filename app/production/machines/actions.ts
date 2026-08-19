@@ -90,6 +90,16 @@ export async function deleteMachineAction(formData: FormData) {
   const { error } = await supabaseServer.from("machines").delete().eq("id", id);
 
   if (error) {
+    // Code Postgres 23503 = violation de cle etrangere - une machine deja
+    // citee dans un programme (machine_fabrication_id/conditionnement_id/
+    // emballage_id, voir create_programmes.sql) ne peut pas etre supprimee
+    // sans casser cet historique. Message clair au lieu de laisser
+    // l'erreur brute Postgres remonter jusqu'a l'ecran d'erreur generique.
+    if (error.code === "23503") {
+      throw new Error(
+        "Cette machine est deja utilisee dans un ou plusieurs programmes de production - impossible de la supprimer."
+      );
+    }
     throw new Error(error.message);
   }
 
