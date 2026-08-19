@@ -1,15 +1,14 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { convertirEnFcfa } from "@/lib/prix-devise";
 
-export type CoutMpInfo = { coutFcfa: number; source: "stock" | "historique" | "bc" };
+export type CoutMpInfo = { coutFcfa: number; source: "lot" | "bc" };
 
 type LotRow = {
   article_id: number;
-  qte_entree: number;
-  qte_sortie: number;
   prix_unitaire: number | null;
   devise: string | null;
   taux_change: number | null;
+  date_reception: string | null;
 };
 
 type BcLigneRow = {
@@ -20,24 +19,15 @@ type BcLigneRow = {
   date_jour: string | null;
 };
 
-function weightedAverage(entries: { qte: number; prixFcfa: number }[]): number | null {
-  const poidsTotal = entries.reduce((sum, entry) => sum + entry.qte, 0);
-  if (poidsTotal <= 0) return null;
-  const somme = entries.reduce((sum, entry) => sum + entry.qte * entry.prixFcfa, 0);
-  return somme / poidsTotal;
-}
-
-// Cout moyen pondere (CUMP) par article MP, avec repli en cascade pour ne
-// jamais traiter silencieusement un article sans prix connu comme un cout
-// de 0 :
-//  1. moyenne ponderee des lots ENCORE en stock (qte_entree - qte_sortie > 0)
-//     qui ont un prix connu - le cas normal.
-//  2. si aucun lot en stock n'a de prix (stock epuise / jamais receptionne
-//     avec prix) : moyenne ponderee de tous les lots deja receptionnes,
-//     prix connu, sans filtrer sur le stock restant.
-//  3. si aucun lot du tout : prix de la ligne BC la plus recente (prix
-//     negocie, pas encore receptionne).
-//  4. sinon : absent de la map retournee (prix inconnu).
+// Dernier prix d'achat par article MP (pas une moyenne - le prix change
+// souvent d'un achat a l'autre et l'utilisateur veut voir le prix du DERNIER
+// achat dans la formule), avec repli pour ne jamais traiter silencieusement
+// un article sans prix connu comme un cout de 0 :
+//  1. prix du lot le plus recemment receptionne (prix reel paye) pour cet
+//     article.
+//  2. si aucun lot receptionne avec prix : prix de la ligne BC la plus
+//     recente (prix negocie, pas encore receptionne).
+//  3. sinon : absent de la map retournee (prix inconnu).
 export async function fetchCoutsMoyenMp(articleMpIds: number[]): Promise<Map<number, CoutMpInfo>> {
   const result = new Map<number, CoutMpInfo>();
   const ids = [...new Set(articleMpIds)];
@@ -45,44 +35,17 @@ export async function fetchCoutsMoyenMp(articleMpIds: number[]): Promise<Map<num
 
   const { data: lotsData } = await supabaseServer
     .from("lots_stock_matiere_premiere")
-    .select("article_id, qte_entree, qte_sortie, prix_unitaire, devise, taux_change")
+    .select("article_id, prix_unitaire, devise, taux_change, date_reception")
     .in("article_id", ids)
-    .not("prix_unitaire", "is", null);
+    .not("prix_unitaire", "is", null)
+    .order("date_reception", { ascending: false });
 
   const lots = (lotsData ?? []) as LotRow[];
-
-  const enStockParArticle = new Map<number, { qte: number; prixFcfa: number }[]>();
-  const tousLotsParArticle = new Map<number, { qte: number; prixFcfa: number }[]>();
-
   for (const lot of lots) {
+    if (result.has(lot.article_id)) continue;
     const prixFcfa = convertirEnFcfa(lot.prix_unitaire, lot.devise, lot.taux_change);
     if (prixFcfa === null) continue;
-    const restant = Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0);
-
-    const tousList = tousLotsParArticle.get(lot.article_id) ?? [];
-    tousList.push({ qte: Number(lot.qte_entree ?? 0), prixFcfa });
-    tousLotsParArticle.set(lot.article_id, tousList);
-
-    if (restant > 0) {
-      const stockList = enStockParArticle.get(lot.article_id) ?? [];
-      stockList.push({ qte: restant, prixFcfa });
-      enStockParArticle.set(lot.article_id, stockList);
-    }
-  }
-
-  for (const id of ids) {
-    const enStock = enStockParArticle.get(id);
-    const moyenneStock = enStock ? weightedAverage(enStock) : null;
-    if (moyenneStock !== null) {
-      result.set(id, { coutFcfa: moyenneStock, source: "stock" });
-      continue;
-    }
-
-    const tous = tousLotsParArticle.get(id);
-    const moyenneTous = tous ? weightedAverage(tous) : null;
-    if (moyenneTous !== null) {
-      result.set(id, { coutFcfa: moyenneTous, source: "historique" });
-    }
+    result.set(lot.article_id, { coutFcfa: prixFcfa, source: "lot" });
   }
 
   const idsRestants = ids.filter((id) => !result.has(id));

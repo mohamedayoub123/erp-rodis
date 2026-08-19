@@ -172,7 +172,7 @@ export default async function RecetteFabricationDetailPage({
                     <th className="px-6 py-4 font-semibold">Article MP</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Quantite / %</th>
-                    <th className="px-6 py-4 font-semibold">Prix unitaire (cout moyen)</th>
+                    <th className="px-6 py-4 font-semibold">Prix unitaire (dernier achat)</th>
                     <th className="px-6 py-4 font-semibold">Cout</th>
                     <th className="px-6 py-4 font-semibold"></th>
                   </tr>
