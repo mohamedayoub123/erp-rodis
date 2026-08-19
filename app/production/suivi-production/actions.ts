@@ -738,13 +738,17 @@ export async function saveEmballageRapportAction(formData: FormData) {
   // emballage) au lieu de la date automatique (aujourd'hui, valeur par
   // defaut) - c'est ce qui alimente la colonne "Date emballage" de Suivi
   // Production. L'emballage se saisit comme un AJOUT (voir Conditionnement
-  // plus haut, meme conclusion apres le cas WA1219) - dernierEntreeQuantiteIdentique
-  // evite seulement un doublon EXACT (resaisie sans rien changer).
-  if (
-    quantite &&
-    quantite > 0 &&
-    !(await dernierEntreeQuantiteIdentique("production_emballage_entries", ligneId, code, quantite))
-  ) {
+  // plus haut, meme conclusion apres le cas WA1219).
+  //
+  // PAS de dernierEntreeQuantiteIdentique ici, contrairement a Vrac/Carton :
+  // ce champ "quantite" repart TOUJOURS de 0 sur ce formulaire (pas de
+  // colonne dediee sur production_rapports pour le pre-remplir avec la
+  // derniere valeur, contrairement a qt_fabriquer pour Conditionnement) -
+  // "meme quantite que la derniere fois" ne peut donc jamais venir d'une
+  // reouverture-resaisie-sans-rien-changer, seulement d'une 2e fournee
+  // reelle de la meme taille (cas reel observe : KI0298, 2 fournees de 39
+  // cartons chacune, la 2e silencieusement ignoree par cette verification).
+  if (quantite && quantite > 0) {
     const { error: emballageError } = await supabaseServer.from("production_emballage_entries").insert([
       {
         programme_ligne_id: ligneId,
