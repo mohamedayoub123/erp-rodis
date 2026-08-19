@@ -91,9 +91,15 @@ export async function createReceptionMpAction(formData: FormData) {
   const dateReception = parseOptionalText(formData, "date_reception");
   const nDoss4dImport = parseOptionalText(formData, "n_doss_4d_import");
   const nDossErpImport = parseOptionalText(formData, "n_doss_erp_import");
+  const prixUnitaireRaw = String(formData.get("prix_unitaire") || "").trim().replace(",", ".");
+  const prixUnitaire = prixUnitaireRaw ? Number(prixUnitaireRaw) : null;
 
   if (!bcLigneId || quantiteImportee === null || Number.isNaN(quantiteImportee) || quantiteImportee <= 0) {
     throw new Error("Quantite receptionnee invalide.");
+  }
+
+  if (prixUnitaireRaw && (prixUnitaire === null || Number.isNaN(prixUnitaire) || prixUnitaire < 0)) {
+    throw new Error("Prix unitaire invalide.");
   }
 
   if (!numeroLot) {
@@ -285,6 +291,7 @@ export async function createReceptionMpAction(formData: FormData) {
         date_expiration: dateExpiration,
         qte_entree: quantiteImportee,
         qte_sortie: 0,
+        prix_unitaire: prixUnitaire,
         unite,
         fournisseur,
         n_doss_erp: nDossErpImport,

@@ -9,6 +9,7 @@ import { createCommandeBcBatchAction } from "./actions";
 type PendingLigne = {
   article: string;
   quantite: number;
+  prixUnitaire: number | null;
 };
 
 export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
@@ -17,6 +18,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
   const [articleInput, setArticleInput] = useState("");
   const [showArticleOptions, setShowArticleOptions] = useState(false);
   const [quantite, setQuantite] = useState("");
+  const [prixUnitaire, setPrixUnitaire] = useState("");
   const [dateCommande, setDateCommande] = useState("");
   const [nDoss4d, setNDoss4d] = useState("");
   const [nDossErp, setNDossErp] = useState("");
@@ -42,16 +44,24 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
 
   function addLigne() {
     const qty = Number(quantite.replace(",", "."));
+    const prixTrim = prixUnitaire.trim().replace(",", ".");
+    const prix = prixTrim ? Number(prixTrim) : null;
 
     if (!articleInput.trim() || !qty || qty <= 0) {
       setErrorMessage("Choisis un article et une quantite valide avant d'ajouter.");
       return;
     }
 
+    if (prixTrim && (prix === null || Number.isNaN(prix) || prix < 0)) {
+      setErrorMessage("Prix unitaire invalide.");
+      return;
+    }
+
     setErrorMessage("");
-    setLignes((current) => [...current, { article: articleInput.trim(), quantite: qty }]);
+    setLignes((current) => [...current, { article: articleInput.trim(), quantite: qty, prixUnitaire: prix }]);
     setArticleInput("");
     setQuantite("");
+    setPrixUnitaire("");
   }
 
   function removeLigne(index: number) {
@@ -94,7 +104,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
     <div className="grid gap-6">
       <div>
         <h2 className="mb-3 text-lg font-bold text-slate-900">Ajouter des articles</h2>
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
           <div className="relative">
             <input
               type="text"
@@ -139,6 +149,15 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
             placeholder="Quantite"
             className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            value={prixUnitaire}
+            onChange={(event) => setPrixUnitaire(event.target.value)}
+            placeholder="Prix unitaire"
+            className="w-36 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+          />
           <button
             type="button"
             onClick={addLigne}
@@ -156,6 +175,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
               <tr>
                 <th className="px-4 py-3 font-semibold">Article</th>
                 <th className="px-4 py-3 font-semibold">Quantite</th>
+                <th className="px-4 py-3 font-semibold">Prix unitaire</th>
                 <th className="px-4 py-3 font-semibold"></th>
               </tr>
             </thead>
@@ -164,6 +184,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
                 <tr key={`${ligne.article}-${index}`} className="border-t border-slate-100">
                   <td className="px-4 py-3 font-medium text-slate-900">{ligne.article}</td>
                   <td className="px-4 py-3 text-slate-600">{ligne.quantite}</td>
+                  <td className="px-4 py-3 text-slate-600">{ligne.prixUnitaire ?? "-"}</td>
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"
@@ -180,6 +201,7 @@ export function StagedBcMp({ articleOptions }: { articleOptions: string[] }) {
               <tr className="border-t border-slate-200 bg-slate-50">
                 <td className="px-4 py-3 font-semibold text-slate-900">Total</td>
                 <td className="px-4 py-3 font-semibold text-slate-900">{totalQuantite}</td>
+                <td></td>
                 <td></td>
               </tr>
             </tfoot>

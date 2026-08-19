@@ -9,6 +9,7 @@ import { STATUT_DOSSIER_MP_OPTIONS } from "../commande/constants";
 type PendingBcLigne = {
   article: string;
   quantite: number;
+  prixUnitaire: number | null;
 };
 
 // Cle de correspondance article: recalculee ici depuis nom_article des deux
@@ -154,10 +155,13 @@ export async function createCommandeBcBatchAction(formData: FormData) {
 
       const articleRow = articleByNormalise.get(normalizeArticle(articleName));
 
+      const prixUnitaire = ligne.prixUnitaire != null ? Number(ligne.prixUnitaire) : null;
+
       return {
         article_id: articleRow?.id ?? null,
         article_label: articleRow?.nom_article ?? articleName,
         quantite,
+        prix_unitaire: prixUnitaire != null && !Number.isNaN(prixUnitaire) ? prixUnitaire : null,
         n_doss_4d: nDoss4d,
         n_doss_erp: nDossErp,
         fournisseur,
@@ -201,6 +205,8 @@ export async function addArticleToCommandeBcAction(formData: FormData) {
   const code = String(formData.get("code") || "").trim();
   const articleName = String(formData.get("article") || "").trim();
   const quantite = Number(String(formData.get("quantite") || "").replace(",", "."));
+  const prixUnitaireRaw = String(formData.get("prix_unitaire") || "").trim().replace(",", ".");
+  const prixUnitaire = prixUnitaireRaw ? Number(prixUnitaireRaw) : null;
 
   if (!code) {
     throw new Error("Commande invalide.");
@@ -208,6 +214,10 @@ export async function addArticleToCommandeBcAction(formData: FormData) {
 
   if (!articleName || !quantite || quantite <= 0) {
     throw new Error("Choisis un article et une quantite valide.");
+  }
+
+  if (prixUnitaireRaw && (prixUnitaire === null || Number.isNaN(prixUnitaire) || prixUnitaire < 0)) {
+    throw new Error("Prix unitaire invalide.");
   }
 
   const { data: existingLigne, error: existingError } = await supabaseServer
@@ -232,6 +242,7 @@ export async function addArticleToCommandeBcAction(formData: FormData) {
       article_id: articleRow?.id ?? null,
       article_label: articleRow?.nom_article ?? articleName,
       quantite,
+      prix_unitaire: prixUnitaire,
       n_doss_4d: (existingLigne as { n_doss_4d: string | null }).n_doss_4d,
       n_doss_erp: (existingLigne as { n_doss_erp: string | null }).n_doss_erp,
       fournisseur: (existingLigne as { fournisseur: string | null }).fournisseur,
@@ -386,10 +397,18 @@ export async function updateCommandeBcLigneAction(formData: FormData) {
     throw new Error("Quantite invalide.");
   }
 
+  const prixUnitaireRaw = String(formData.get("prix_unitaire") || "").trim().replace(",", ".");
+  const prixUnitaire = prixUnitaireRaw ? Number(prixUnitaireRaw) : null;
+
+  if (prixUnitaireRaw && (prixUnitaire === null || Number.isNaN(prixUnitaire) || prixUnitaire < 0)) {
+    throw new Error("Prix unitaire invalide.");
+  }
+
   const { error } = await supabaseServer
     .from("bons_commande_matiere_premiere")
     .update({
       quantite,
+      prix_unitaire: prixUnitaire,
       n_doss_4d: parseOptionalText(formData, "n_doss_4d"),
       n_doss_erp: parseOptionalText(formData, "n_doss_erp"),
     })

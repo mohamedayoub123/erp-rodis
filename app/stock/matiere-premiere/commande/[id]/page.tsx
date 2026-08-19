@@ -33,6 +33,7 @@ type BcLigneRow = {
   code: string;
   article_label: string | null;
   statut: string | null;
+  prix_unitaire: number | null;
 };
 
 async function fetchImportsForDossier(nDoss4d: string | null, nDossErp: string | null) {
@@ -54,10 +55,27 @@ async function fetchBcLignes(ligneIds: number[]) {
 
   const { data } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id, code, article_label, statut")
+    .select("id, code, article_label, statut, prix_unitaire")
     .in("id", ligneIds);
 
   return (data ?? []) as BcLigneRow[];
+}
+
+// Le prix REEL d'une reception vit sur la ligne de stock qu'elle a creee
+// (lots_stock_matiere_premiere.prix_unitaire), pas sur l'evenement d'import
+// lui-meme - petite requete a part pour l'afficher dans "Historique des
+// receptions" sans dupliquer le prix a 2 endroits.
+async function fetchLotPrices(lotIds: number[]) {
+  if (lotIds.length === 0) return new Map<number, number | null>();
+
+  const { data } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .select("id, prix_unitaire")
+    .in("id", lotIds);
+
+  return new Map(
+    ((data ?? []) as { id: number; prix_unitaire: number | null }[]).map((row) => [row.id, row.prix_unitaire])
+  );
 }
 
 export default async function ImportMpDossierPage({
@@ -80,6 +98,8 @@ export default async function ImportMpDossierPage({
 
   const bcLignes = await fetchBcLignes([...new Set(rows.map((row) => row.bc_ligne_id))]);
   const ligneById = new Map(bcLignes.map((ligne) => [ligne.id, ligne]));
+  const lotIds = rows.map((row) => row.lot_stock_id).filter((lotId): lotId is number => lotId !== null);
+  const lotPriceById = await fetchLotPrices(lotIds);
 
   // "Receptionnee" ne compte que les evenements issus d'une vraie Reception
   // (lot_stock_id renseigne, stock reellement credite) - un simple "Creer
@@ -157,6 +177,7 @@ export default async function ImportMpDossierPage({
                     <tr>
                       <th className="px-4 py-3 font-semibold">BC</th>
                       <th className="px-4 py-3 font-semibold">Article</th>
+                      <th className="px-4 py-3 font-semibold">Prix unitaire</th>
                       <th className="px-4 py-3 font-semibold">Qte a receptionner</th>
                       <th className="px-4 py-3 font-semibold">Statut</th>
                       {canEdit || canDelete ? <th className="px-4 py-3 font-semibold">Action</th> : null}
@@ -188,6 +209,9 @@ export default async function ImportMpDossierPage({
                           </td>
                           <td className="px-4 py-3 font-medium text-slate-900">
                             {ligne.article_label || "-"}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {ligne.prix_unitaire != null ? ligne.prix_unitaire.toLocaleString("fr-FR") : "-"}
                           </td>
                           <td className="px-4 py-3 font-semibold text-slate-900">{quantiteAReceptionner}</td>
                           <td className="px-4 py-3">
@@ -254,6 +278,17 @@ export default async function ImportMpDossierPage({
                                           required
                                         />
                                       </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Prix unitaire (reel)
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          name="prix_unitaire"
+                                          defaultValue={ligne.prix_unitaire ?? ""}
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
                                       <SubmitButton
                                         pendingLabel="Enregistrement..."
                                         className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
@@ -298,6 +333,7 @@ export default async function ImportMpDossierPage({
                       <th className="px-4 py-3 font-semibold">BC</th>
                       <th className="px-4 py-3 font-semibold">Article</th>
                       <th className="px-4 py-3 font-semibold">Qte importee</th>
+                      <th className="px-4 py-3 font-semibold">Prix unitaire</th>
                       <th className="px-4 py-3 font-semibold">Lot</th>
                       <th className="px-4 py-3 font-semibold">Date fabrication</th>
                       <th className="px-4 py-3 font-semibold">Date expiration</th>
@@ -308,6 +344,7 @@ export default async function ImportMpDossierPage({
                   <tbody>
                     {receptionRows.map((row) => {
                       const ligne = ligneById.get(row.bc_ligne_id);
+                      const prixReel = row.lot_stock_id !== null ? lotPriceById.get(row.lot_stock_id) : null;
 
                       return (
                         <tr key={row.id} className="border-t border-slate-100">
@@ -324,6 +361,9 @@ export default async function ImportMpDossierPage({
                             {ligne?.article_label || "-"}
                           </td>
                           <td className="px-4 py-3 text-slate-900">{row.quantite_importee}</td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {prixReel != null ? prixReel.toLocaleString("fr-FR") : "-"}
+                          </td>
                           <td className="px-4 py-3 text-slate-600">{row.numero_lot || "-"}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_fabrication)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_expiration)}</td>
