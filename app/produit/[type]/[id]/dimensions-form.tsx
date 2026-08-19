@@ -38,6 +38,22 @@ function formatValue(value: number | null) {
   return value === null ? "-" : value.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 }
 
+// Volume carton = Longueur x Largeur x Hauteur (cm), affiche en litres
+// (dm3, unite habituelle pour le chargement/transport) - jamais enregistre
+// en base, uniquement calcule a l'affichage a partir des 3 dimensions.
+function volumeLitres(longueur: number | null, largeur: number | null, hauteur: number | null): number | null {
+  if (longueur === null || largeur === null || hauteur === null) return null;
+  if (longueur <= 0 || largeur <= 0 || hauteur <= 0) return null;
+  return (longueur * largeur * hauteur) / 1000;
+}
+
+function parseInputNumber(raw: string): number | null {
+  const trimmed = raw.trim().replace(",", ".");
+  if (!trimmed) return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : null;
+}
+
 export function ProduitDimensionsForm({
   type,
   articleId,
@@ -58,6 +74,8 @@ export function ProduitDimensionsForm({
       dimensions.poids_brut !== null;
     if (!hasAny) return null;
 
+    const volume = volumeLitres(dimensions.longueur, dimensions.largeur, dimensions.hauteur);
+
     return (
       <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-600">
         <span>Longueur : {formatValue(dimensions.longueur)} cm</span>
@@ -65,9 +83,15 @@ export function ProduitDimensionsForm({
         <span>Hauteur : {formatValue(dimensions.hauteur)} cm</span>
         <span>Poids net : {formatValue(dimensions.poids_net)} kg</span>
         <span>Poids brut : {formatValue(dimensions.poids_brut)} kg</span>
+        {volume !== null ? <span className="font-semibold text-slate-800">Volume carton : {formatValue(volume)} L</span> : null}
       </div>
     );
   }
+
+  const [longueur, setLongueur] = useState(dimensions.longueur);
+  const [largeur, setLargeur] = useState(dimensions.largeur);
+  const [hauteur, setHauteur] = useState(dimensions.hauteur);
+  const volume = volumeLitres(longueur, largeur, hauteur);
 
   return (
     <form action={updateProduitDimensionsAction} className="mt-4 flex flex-wrap items-end gap-3">
@@ -79,7 +103,8 @@ export function ProduitDimensionsForm({
           type="number"
           step="0.01"
           name="longueur"
-          defaultValue={dimensions.longueur ?? ""}
+          value={longueur ?? ""}
+          onChange={(event) => setLongueur(parseInputNumber(event.target.value))}
           className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none"
         />
       </label>
@@ -89,7 +114,8 @@ export function ProduitDimensionsForm({
           type="number"
           step="0.01"
           name="largeur"
-          defaultValue={dimensions.largeur ?? ""}
+          value={largeur ?? ""}
+          onChange={(event) => setLargeur(parseInputNumber(event.target.value))}
           className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none"
         />
       </label>
@@ -99,10 +125,17 @@ export function ProduitDimensionsForm({
           type="number"
           step="0.01"
           name="hauteur"
-          defaultValue={dimensions.hauteur ?? ""}
+          value={hauteur ?? ""}
+          onChange={(event) => setHauteur(parseInputNumber(event.target.value))}
           className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none"
         />
       </label>
+      <div className="grid gap-1 text-xs font-semibold text-slate-500">
+        Volume carton
+        <p className="px-1 py-2 text-sm font-semibold text-slate-800">
+          {volume !== null ? `${formatValue(volume)} L` : "-"}
+        </p>
+      </div>
       <label className="grid gap-1 text-xs font-semibold text-slate-500">
         Poids net (kg)
         <input

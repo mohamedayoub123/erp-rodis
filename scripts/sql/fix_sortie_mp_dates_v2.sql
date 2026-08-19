@@ -146,18 +146,23 @@ grant execute on function public.stock_mp_record_sortie_batch(jsonb) to service_
 -- chaque sortie qui n'en a aucune, en reprenant la ligne la plus recente
 -- du meme article+lot qui, elle, en a une. Ne touche jamais une ligne
 -- d'entree (deja correcte) ni une sortie qui a deja une date.
+--
+-- Postgres n'autorise pas LATERAL a referencer la table cible d'un UPDATE
+-- (erreur 42P10) - precalcule donc d'abord, pour chaque (article_id,
+-- code_normalise), la ligne datee la plus recente via DISTINCT ON, puis
+-- joint normalement (pas LATERAL) cette liste precalculee.
 update public.lots_stock_matiere_premiere s
 set date_fabrication = src.date_fabrication,
     date_expiration = src.date_expiration
-from lateral (
-  select date_fabrication, date_expiration
-  from public.lots_stock_matiere_premiere src
-  where src.article_id = s.article_id
-    and src.code_normalise = s.code_normalise
-    and (src.date_fabrication is not null or src.date_expiration is not null)
-  order by src.date_jour desc, src.id desc
-  limit 1
+from (
+  select distinct on (article_id, code_normalise)
+    article_id, code_normalise, date_fabrication, date_expiration
+  from public.lots_stock_matiere_premiere
+  where date_fabrication is not null or date_expiration is not null
+  order by article_id, code_normalise, date_jour desc, id desc
 ) src
-where s.source_import in ('web:sortie-mp', 'web:sortie-mp-admin')
+where s.article_id = src.article_id
+  and s.code_normalise = src.code_normalise
+  and s.source_import in ('web:sortie-mp', 'web:sortie-mp-admin')
   and s.date_fabrication is null
   and s.date_expiration is null;
