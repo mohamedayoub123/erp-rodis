@@ -7,6 +7,8 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { formatDate } from "@/lib/format-date";
+import { convertirEnFcfa } from "@/lib/prix-devise";
+import { DeviseTauxFormField } from "@/app/_components/devise-taux-input";
 import {
   createImportEvenementAction,
   deleteCommandeBcLigneAction,
@@ -54,6 +56,8 @@ type CommandeBcRow = {
   article_label: string | null;
   quantite: number | null;
   prix_unitaire: number | null;
+  devise: string | null;
+  taux_change: number | null;
   n_doss_4d: string | null;
   n_doss_erp: string | null;
   fournisseur: string | null;
@@ -74,7 +78,9 @@ type ImportEvenementRow = {
 async function fetchGroup(code: string) {
   const { data, error } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id, code, article_label, quantite, prix_unitaire, n_doss_4d, n_doss_erp, fournisseur, date_jour, statut")
+    .select(
+      "id, code, article_label, quantite, prix_unitaire, devise, taux_change, n_doss_4d, n_doss_erp, fournisseur, date_jour, statut"
+    )
     .eq("code", code)
     .order("id", { ascending: true });
 
@@ -225,7 +231,8 @@ export default async function CommandeBcMpDetailPage({
                       const statut = computeStatutBc(quantite, quantiteImportee, row.statut);
                       const reste = quantite - quantiteImportee;
                       const prixUnitaire = row.prix_unitaire;
-                      const montant = prixUnitaire != null ? quantite * prixUnitaire : null;
+                      const prixUnitaireFcfa = convertirEnFcfa(prixUnitaire, row.devise, row.taux_change);
+                      const montant = prixUnitaireFcfa != null ? quantite * prixUnitaireFcfa : null;
 
                       return (
                         <tr key={row.id} className="border-t border-slate-100 align-top">
@@ -236,10 +243,14 @@ export default async function CommandeBcMpDetailPage({
                           <td className="px-4 py-3 text-slate-600">{row.n_doss_4d || "-"}</td>
                           <td className="px-4 py-3 text-slate-900">{quantite}</td>
                           <td className="px-4 py-3 text-slate-600">
-                            {prixUnitaire != null ? prixUnitaire.toLocaleString("fr-FR") : "-"}
+                            {prixUnitaire != null
+                              ? `${prixUnitaire.toLocaleString("fr-FR")}${
+                                  row.devise && row.devise !== "FCFA" ? ` ${row.devise}` : ""
+                                }`
+                              : "-"}
                           </td>
                           <td className="px-4 py-3 font-semibold text-slate-900">
-                            {montant != null ? montant.toLocaleString("fr-FR") : "-"}
+                            {montant != null ? `${montant.toLocaleString("fr-FR")} FCFA` : "-"}
                           </td>
                           <td className="px-4 py-3 text-slate-600">{quantiteImportee}</td>
                           <td className="px-4 py-3 font-semibold text-slate-900">{reste}</td>
@@ -351,6 +362,12 @@ export default async function CommandeBcMpDetailPage({
                                           className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                         />
                                       </label>
+                                      <div className="text-xs text-slate-500">
+                                        <DeviseTauxFormField
+                                          deviseDefaultValue={row.devise}
+                                          tauxDefaultValue={row.taux_change}
+                                        />
+                                      </div>
                                       <label className="grid gap-1 text-xs text-slate-500">
                                         Doss 4D
                                         <input

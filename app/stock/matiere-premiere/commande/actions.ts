@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { STATUT_DOSSIER_MP_OPTIONS } from "./constants";
+import { DEVISE_OPTIONS } from "@/lib/devise-options";
+
+function resolveDevise(value: string | null | undefined) {
+  return (DEVISE_OPTIONS as readonly string[]).includes(value || "") ? (value as string) : "FCFA";
+}
 
 function parseOptionalText(formData: FormData, name: string) {
   const raw = String(formData.get(name) || "").trim();
@@ -93,6 +98,9 @@ export async function createReceptionMpAction(formData: FormData) {
   const nDossErpImport = parseOptionalText(formData, "n_doss_erp_import");
   const prixUnitaireRaw = String(formData.get("prix_unitaire") || "").trim().replace(",", ".");
   const prixUnitaire = prixUnitaireRaw ? Number(prixUnitaireRaw) : null;
+  const devise = resolveDevise(String(formData.get("devise") || ""));
+  const tauxChangeRaw = String(formData.get("taux_change") || "").trim().replace(",", ".");
+  const tauxChange = tauxChangeRaw ? Number(tauxChangeRaw) : null;
 
   if (!bcLigneId || quantiteImportee === null || Number.isNaN(quantiteImportee) || quantiteImportee <= 0) {
     throw new Error("Quantite receptionnee invalide.");
@@ -100,6 +108,10 @@ export async function createReceptionMpAction(formData: FormData) {
 
   if (prixUnitaireRaw && (prixUnitaire === null || Number.isNaN(prixUnitaire) || prixUnitaire < 0)) {
     throw new Error("Prix unitaire invalide.");
+  }
+
+  if (prixUnitaire !== null && devise !== "FCFA" && (tauxChange === null || Number.isNaN(tauxChange) || tauxChange <= 0)) {
+    throw new Error("Taux de change invalide.");
   }
 
   if (!numeroLot) {
@@ -292,6 +304,8 @@ export async function createReceptionMpAction(formData: FormData) {
         qte_entree: quantiteImportee,
         qte_sortie: 0,
         prix_unitaire: prixUnitaire,
+        devise,
+        taux_change: devise !== "FCFA" ? tauxChange : null,
         unite,
         fournisseur,
         n_doss_erp: nDossErpImport,
