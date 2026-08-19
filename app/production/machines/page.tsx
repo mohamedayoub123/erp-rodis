@@ -10,6 +10,7 @@ import { deleteMachineAction } from "./actions";
 import { AddMachineForm } from "./add-machine-form";
 import { MachineTypeProduitSelect } from "./type-produit-select";
 import { MachineNomCell, MachineZoneCell } from "./machine-cells";
+import { TYPE_PRODUIT_OPTIONS } from "./type-produit-options";
 
 type MachineRow = {
   id: number;
@@ -32,6 +33,35 @@ async function fetchAllMachines(): Promise<{ rows: MachineRow[]; error: { messag
   return { rows: (data ?? []) as MachineRow[], error: null };
 }
 
+// Types de produit reellement utilises par les Articles Produit Fini
+// (articles.type_article) - fusionnes avec la liste de base (TYPE_PRODUIT_OPTIONS)
+// pour qu'un nouveau type saisi sur un article PF apparaisse ici sans avoir
+// a modifier le code.
+async function fetchArticleTypeProduits(): Promise<string[]> {
+  const values = new Set<string>();
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("type_article")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as { type_article: string | null }[];
+    for (const row of chunk) {
+      if (row.type_article && row.type_article.trim()) values.add(row.type_article.trim());
+    }
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return [...values];
+}
+
 type SearchParams = Promise<{ zone?: string; nom?: string }>;
 
 export default async function MachinesPage({ searchParams }: { searchParams: SearchParams }) {
@@ -45,9 +75,19 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
   const canEdit = await canWritePageUser(currentUser, "machines");
   const canDelete = await canDeletePageUser(currentUser, "machines");
 
-  const { rows: allRows, error } = await fetchAllMachines();
+  const [{ rows: allRows, error }, articleTypeProduits] = await Promise.all([
+    fetchAllMachines(),
+    fetchArticleTypeProduits(),
+  ]);
+
+  const typeProduitOptions = [...new Set([...TYPE_PRODUIT_OPTIONS, ...articleTypeProduits])].sort((a, b) =>
+    a.localeCompare(b, "fr", { sensitivity: "base" })
+  );
 
   const distinctZones = [...new Set(allRows.map((m) => m.zone).filter(Boolean))].sort((a, b) =>
+    (a as string).localeCompare(b as string, "fr", { sensitivity: "base" })
+  ) as string[];
+  const distinctTypes = [...new Set(allRows.map((m) => m.type).filter(Boolean))].sort((a, b) =>
     (a as string).localeCompare(b as string, "fr", { sensitivity: "base" })
   ) as string[];
   const machineOptions = allRows.map((m) => ({ id: m.id, label: m.nom }));
@@ -86,7 +126,11 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
             <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-sky-700 marker:content-none">
               + Ajouter machine
             </summary>
-            <AddMachineForm />
+            <AddMachineForm
+              existingZones={distinctZones}
+              existingTypes={distinctTypes}
+              typeProduitOptions={typeProduitOptions}
+            />
           </details>
         ) : null}
 
@@ -162,7 +206,7 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
                       <td className="px-6 py-4 text-slate-600">{machine.type || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {canEdit ? (
-                          <MachineTypeProduitSelect machine={machine} />
+                          <MachineTypeProduitSelect machine={machine} typeProduitOptions={typeProduitOptions} />
                         ) : (
                           (machine.type_produit && machine.type_produit.length > 0
                             ? machine.type_produit.join(", ")
