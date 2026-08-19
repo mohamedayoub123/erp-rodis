@@ -16,6 +16,23 @@ import {
   postToInvoiceOrderAction,
   updateAllLigneLotsAction,
 } from "../actions";
+import { TransferOrderLignesEditor } from "../lignes-editor";
+
+async function fetchAllArticles<T>(table: string, select: string) {
+  const rows: T[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer.from(table).select(select).range(from, from + pageSize - 1);
+    if (error) return rows;
+    rows.push(...((data ?? []) as T[]));
+    if ((data ?? []).length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
 
 type TransferOrderRow = {
   id: number;
@@ -56,27 +73,42 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
   const canEdit = await canWritePageUser(currentUser, "depots");
   const canDelete = await canDeletePageUser(currentUser, "depots");
 
-  const [{ data: transferOrderData }, { data: lignesData }, { data: depotsData }, { data: invoiceOrdersData }] =
-    await Promise.all([
-      supabaseServer
-        .from("transfer_orders")
-        .select(
-          "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp, numero"
-        )
-        .eq("id", transferOrderId)
-        .maybeSingle(),
-      supabaseServer
-        .from("transfer_order_lignes")
-        .select("id, article_type, article_id, quantite_demandee")
-        .eq("transfer_order_id", transferOrderId)
-        .order("id", { ascending: true }),
-      supabaseServer.from("depots").select("id, nom"),
-      supabaseServer
-        .from("invoice_orders")
-        .select("id, statut, date_jour, created_at, numero")
-        .eq("transfer_order_id", transferOrderId)
-        .order("created_at", { ascending: true }),
-    ]);
+  const [
+    { data: transferOrderData },
+    { data: lignesData },
+    { data: depotsData },
+    { data: invoiceOrdersData },
+    articlesMpRows,
+    articlesPfRows,
+  ] = await Promise.all([
+    supabaseServer
+      .from("transfer_orders")
+      .select(
+        "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp, numero"
+      )
+      .eq("id", transferOrderId)
+      .maybeSingle(),
+    supabaseServer
+      .from("transfer_order_lignes")
+      .select("id, article_type, article_id, quantite_demandee")
+      .eq("transfer_order_id", transferOrderId)
+      .order("id", { ascending: true }),
+    supabaseServer.from("depots").select("id, nom"),
+    supabaseServer
+      .from("invoice_orders")
+      .select("id, statut, date_jour, created_at, numero")
+      .eq("transfer_order_id", transferOrderId)
+      .order("created_at", { ascending: true }),
+    fetchAllArticles<{ id: number; nom_article: string }>("articles_matiere_premiere", "id, nom_article"),
+    fetchAllArticles<{ id: number; nom_article: string }>("articles", "id, nom_article"),
+  ]);
+
+  const articlesMp = articlesMpRows
+    .map((a) => ({ id: a.id, label: a.nom_article }))
+    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+  const articlesPf = articlesPfRows
+    .map((a) => ({ id: a.id, label: a.nom_article }))
+    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
 
   const transferOrder = transferOrderData as TransferOrderRow | null;
   if (!transferOrder) {
@@ -196,15 +228,6 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                   Voir {invoiceOrderCodeById.get(io.id) ?? `TI.${io.id}`}
                 </Link>
               ))}
-              {canEditLots ? (
-                <button
-                  type="submit"
-                  form="lots-form"
-                  className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                >
-                  Enregistrer
-                </button>
-              ) : null}
               {canDelete ? (
                 <form action={deleteTransferOrderAction}>
                   <input type="hidden" name="transfer_order_id" value={transferOrderId} />
@@ -243,92 +266,24 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
             </div>
           </section>
         ) : (
-        <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form id="lots-form" action={updateAllLigneLotsAction} className="grid gap-4 p-6">
-            <input type="hidden" name="transfer_order_id" value={transferOrderId} />
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-6 py-4 font-semibold">Article</th>
-                    <th className="px-6 py-4 font-semibold">Demande</th>
-                    <th className="px-6 py-4 font-semibold">Numero de lot</th>
-                    <th className="px-6 py-4 font-semibold">Disponible</th>
-                    <th className="px-6 py-4 font-semibold">Quantite a transferer</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lignesEnrichies.flatMap((ligne) => {
-                    const lotsChoisis = lotsByLigneId.get(ligne.id) ?? [];
-
-                    if (ligne.lotsDisponibles.length === 0) {
-                      return [
-                        <tr key={`${ligne.id}-vide`} className="border-t border-slate-100">
-                          <td className="px-6 py-4 font-medium text-slate-900">{ligne.nom}</td>
-                          <td className="px-6 py-4 text-slate-600">
-                            {ligne.quantite_demandee.toLocaleString("fr-FR")}
-                          </td>
-                          <td className="px-6 py-4 text-slate-400" colSpan={3}>
-                            Aucun lot disponible dans le depot source.
-                          </td>
-                        </tr>,
-                      ];
-                    }
-
-                    // Seuls les lots reellement choisis (FEFO a l'approbation, ou
-                    // deja modifies) affichent une ligne - pas tous les lots
-                    // disponibles de l'article. Le lot reste modifiable via la
-                    // liste deroulante (les autres lots de cet article dans le
-                    // depot source), pour ne jamais faire sortir un lot non
-                    // voulu.
-                    const rows = lotsChoisis.length > 0 ? lotsChoisis : [{ numero_lot: null, quantite: 0 }];
-
-                    return rows.map((choisi, index) => {
-                      const disponible =
-                        ligne.lotsDisponibles.find((lot) => lot.numeroLot === (choisi.numero_lot || ""))?.solde ?? 0;
-                      return (
-                        <tr key={`${ligne.id}-${index}`} className="border-t border-slate-100">
-                          <td className="px-6 py-4 font-medium text-slate-900">{index === 0 ? ligne.nom : ""}</td>
-                          <td className="px-6 py-4 text-slate-600">
-                            {index === 0 ? ligne.quantite_demandee.toLocaleString("fr-FR") : ""}
-                          </td>
-                          <td className="px-6 py-4">
-                            <input type="hidden" name="ligne_id" value={ligne.id} />
-                            <select
-                              name="numero_lot"
-                              defaultValue={choisi.numero_lot ?? ""}
-                              disabled={!canEditLots}
-                              className="w-56 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
-                            >
-                              {ligne.lotsDisponibles.map((lot) => (
-                                <option key={lot.numeroLot} value={lot.numeroLot}>
-                                  {lot.numeroLot || "(sans numero)"} - disponible : {lot.solde.toLocaleString("fr-FR")}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="px-6 py-4 text-slate-600">{disponible.toLocaleString("fr-FR")}</td>
-                          <td className="px-6 py-4">
-                            <input
-                              type="number"
-                              step="0.001"
-                              min="0"
-                              max={disponible}
-                              name="quantite"
-                              defaultValue={choisi.quantite ?? 0}
-                              disabled={!canEditLots}
-                              className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
-                            />
-                          </td>
-                        </tr>
-                      );
-                    });
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </form>
-        </section>
+          <TransferOrderLignesEditor
+            transferOrderId={transferOrderId}
+            lignes={lignesEnrichies.map((ligne) => ({
+              id: ligne.id,
+              nom: ligne.nom,
+              article_type: ligne.article_type,
+              article_id: ligne.article_id,
+              quantite_demandee: ligne.quantite_demandee,
+              lotsDisponibles: ligne.lotsDisponibles,
+            }))}
+            lotsByLigneId={Object.fromEntries(
+              lignesEnrichies.map((ligne) => [ligne.id, lotsByLigneId.get(ligne.id) ?? []])
+            )}
+            articlesMp={articlesMp}
+            articlesPf={articlesPf}
+            updateAction={updateAllLigneLotsAction}
+            canEditLignes={canEditLots}
+          />
         )}
       </div>
     </main>

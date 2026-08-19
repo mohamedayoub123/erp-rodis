@@ -313,6 +313,83 @@ export async function approveTransferOrderAction(formData: FormData) {
 // confiance au seul "max" du champ HTML, qui ne suit pas forcement le lot
 // choisi si le lot a ete change dans la liste) - impossible de transferer
 // plus que ce qui existe vraiment.
+// Ligne(s) cochees "Supprimer" dans le mode Modifier - supprimees avant tout
+// le reste (leurs lots avec, ON DELETE CASCADE cote table
+// transfer_order_ligne_lots... verifie explicitement ici quand meme pour ne
+// pas dependre silencieusement du schema).
+async function deleteFlaggedLignes(formData: FormData): Promise<Set<number>> {
+  const ids = formData
+    .getAll("supprimer_ligne_id")
+    .map((raw) => Number(raw || "0"))
+    .filter((id) => id > 0);
+
+  if (ids.length === 0) return new Set();
+
+  const { error: lotsError } = await supabaseServer
+    .from("transfer_order_ligne_lots")
+    .delete()
+    .in("transfer_order_ligne_id", ids);
+  if (lotsError) throw new Error(lotsError.message);
+
+  const { error: lignesError } = await supabaseServer.from("transfer_order_lignes").delete().in("id", ids);
+  if (lignesError) throw new Error(lignesError.message);
+
+  return new Set(ids);
+}
+
+// Changement d'article sur une ligne existante (mode Modifier) - les lots
+// deja choisis appartenaient a l'ancien article, donc invalides pour le
+// nouveau : supprimes ici, l'utilisateur doit rouvrir Modifier pour choisir
+// un lot du nouvel article (pas de rafraichissement en direct cote client
+// pour rester simple).
+async function applyArticleChanges(formData: FormData, skipIds: Set<number>) {
+  const ligneIds = formData.getAll("article_change_ligne_id").map((raw) => Number(raw || "0"));
+  const newTypes = formData.getAll("new_article_type");
+  const newArticleIds = formData.getAll("new_article_id");
+
+  const candidateIds = ligneIds.filter(
+    (id, index) => id > 0 && !skipIds.has(id) && Number(newArticleIds[index] || "0") > 0
+  );
+  if (candidateIds.length === 0) return;
+
+  // Chaque ligne envoie toujours sa selection actuelle (meme si elle n'a pas
+  // ete touchee) - compare contre l'article DEJA enregistre pour ne
+  // reellement traiter (et donc effacer les lots) que les lignes ou
+  // l'article a vraiment change, pas a chaque Enregistrer.
+  const { data: currentLignesData } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("id, article_type, article_id")
+    .in("id", candidateIds);
+  const currentById = new Map(
+    ((currentLignesData ?? []) as { id: number; article_type: ArticleType; article_id: number }[]).map((l) => [
+      l.id,
+      l,
+    ])
+  );
+
+  for (let index = 0; index < ligneIds.length; index += 1) {
+    const ligneId = ligneIds[index];
+    const articleId = Number(newArticleIds[index] || "0");
+    const articleType = parseArticleType(newTypes[index]);
+    if (ligneId <= 0 || articleId <= 0 || skipIds.has(ligneId)) continue;
+
+    const current = currentById.get(ligneId);
+    if (!current || (current.article_type === articleType && current.article_id === articleId)) continue;
+
+    const { error: updateError } = await supabaseServer
+      .from("transfer_order_lignes")
+      .update({ article_type: articleType, article_id: articleId })
+      .eq("id", ligneId);
+    if (updateError) throw new Error(updateError.message);
+
+    const { error: clearLotsError } = await supabaseServer
+      .from("transfer_order_ligne_lots")
+      .delete()
+      .eq("transfer_order_ligne_id", ligneId);
+    if (clearLotsError) throw new Error(clearLotsError.message);
+  }
+}
+
 export async function updateAllLigneLotsAction(formData: FormData) {
   await requireWriteAccess();
 
@@ -332,76 +409,87 @@ export async function updateAllLigneLotsAction(formData: FormData) {
   }
   const depotSourceId = (transferOrderData as { depot_source_id: number }).depot_source_id;
 
+  const deletedLigneIds = await deleteFlaggedLignes(formData);
+  await applyArticleChanges(formData, deletedLigneIds);
+
   const ligneIdsRaw = formData.getAll("ligne_id");
   const numeroLots = formData.getAll("numero_lot");
   const quantites = formData.getAll("quantite");
 
-  const rows = ligneIdsRaw.map((ligneIdRaw, index) => ({
-    ligneId: Number(ligneIdRaw || "0"),
-    numeroLot: String(numeroLots[index] || "").trim() || null,
-    quantite: Number(String(quantites[index] || "0").replace(",", ".")),
-  }));
+  // Filtre APRES avoir associe chaque ligne_id a son numero_lot/quantite par
+  // index (formData.getAll renvoie 3 tableaux paralleles) - filtrer
+  // ligneIdsRaw seul avant de zipper aurait decale ces index et associe le
+  // lot/quantite d'une ligne a une autre.
+  const rows = ligneIdsRaw
+    .map((ligneIdRaw, index) => ({
+      ligneId: Number(ligneIdRaw || "0"),
+      numeroLot: String(numeroLots[index] || "").trim() || null,
+      quantite: Number(String(quantites[index] || "0").replace(",", ".")),
+    }))
+    .filter((row) => !deletedLigneIds.has(row.ligneId));
 
   const ligneIds = [...new Set(rows.map((r) => r.ligneId).filter((id) => id > 0))];
-  if (ligneIds.length === 0) {
-    throw new Error("Aucune ligne a enregistrer.");
-  }
+  // Rien a faire ici (lot/quantite) ne veut pas forcement dire rien a faire
+  // du tout - une suppression ou un changement d'article seul (deja
+  // enregistres au-dessus) doit quand meme revalider la page normalement,
+  // pas repartir en erreur.
+  if (ligneIds.length > 0) {
+    const { data: lignesData, error: lignesError } = await supabaseServer
+      .from("transfer_order_lignes")
+      .select("id, article_type, article_id")
+      .in("id", ligneIds);
 
-  const { data: lignesData, error: lignesError } = await supabaseServer
-    .from("transfer_order_lignes")
-    .select("id, article_type, article_id")
-    .in("id", ligneIds);
-
-  if (lignesError) {
-    throw new Error(lignesError.message);
-  }
-
-  const ligneById = new Map(
-    ((lignesData ?? []) as { id: number; article_type: ArticleType; article_id: number }[]).map((l) => [l.id, l])
-  );
-
-  const lotsCache = new Map<string, Awaited<ReturnType<typeof fetchLotsInDepot>>>();
-  const allocations: typeof rows = [];
-
-  for (const row of rows) {
-    if (row.ligneId <= 0 || row.quantite <= 0) continue;
-    const ligne = ligneById.get(row.ligneId);
-    if (!ligne) continue;
-
-    const cacheKey = `${ligne.article_type}::${ligne.article_id}`;
-    let lots = lotsCache.get(cacheKey);
-    if (!lots) {
-      lots = await fetchLotsInDepot(ligne.article_type, ligne.article_id, depotSourceId, transferOrderId);
-      lotsCache.set(cacheKey, lots);
+    if (lignesError) {
+      throw new Error(lignesError.message);
     }
 
-    const disponible = lots.find((l) => l.numeroLot === (row.numeroLot ?? ""))?.solde ?? 0;
-    const quantite = Math.round(Math.min(row.quantite, disponible) * 1000) / 1000;
-    if (quantite <= 0) continue;
-
-    allocations.push({ ...row, quantite });
-  }
-
-  const { error: deleteError } = await supabaseServer
-    .from("transfer_order_ligne_lots")
-    .delete()
-    .in("transfer_order_ligne_id", ligneIds);
-
-  if (deleteError) {
-    throw new Error(deleteError.message);
-  }
-
-  if (allocations.length > 0) {
-    const { error: insertError } = await supabaseServer.from("transfer_order_ligne_lots").insert(
-      allocations.map((r) => ({
-        transfer_order_ligne_id: r.ligneId,
-        numero_lot: r.numeroLot,
-        quantite: r.quantite,
-      }))
+    const ligneById = new Map(
+      ((lignesData ?? []) as { id: number; article_type: ArticleType; article_id: number }[]).map((l) => [l.id, l])
     );
 
-    if (insertError) {
-      throw new Error(insertError.message);
+    const lotsCache = new Map<string, Awaited<ReturnType<typeof fetchLotsInDepot>>>();
+    const allocations: typeof rows = [];
+
+    for (const row of rows) {
+      if (row.ligneId <= 0 || row.quantite <= 0) continue;
+      const ligne = ligneById.get(row.ligneId);
+      if (!ligne) continue;
+
+      const cacheKey = `${ligne.article_type}::${ligne.article_id}`;
+      let lots = lotsCache.get(cacheKey);
+      if (!lots) {
+        lots = await fetchLotsInDepot(ligne.article_type, ligne.article_id, depotSourceId, transferOrderId);
+        lotsCache.set(cacheKey, lots);
+      }
+
+      const disponible = lots.find((l) => l.numeroLot === (row.numeroLot ?? ""))?.solde ?? 0;
+      const quantite = Math.round(Math.min(row.quantite, disponible) * 1000) / 1000;
+      if (quantite <= 0) continue;
+
+      allocations.push({ ...row, quantite });
+    }
+
+    const { error: deleteError } = await supabaseServer
+      .from("transfer_order_ligne_lots")
+      .delete()
+      .in("transfer_order_ligne_id", ligneIds);
+
+    if (deleteError) {
+      throw new Error(deleteError.message);
+    }
+
+    if (allocations.length > 0) {
+      const { error: insertError } = await supabaseServer.from("transfer_order_ligne_lots").insert(
+        allocations.map((r) => ({
+          transfer_order_ligne_id: r.ligneId,
+          numero_lot: r.numeroLot,
+          quantite: r.quantite,
+        }))
+      );
+
+      if (insertError) {
+        throw new Error(insertError.message);
+      }
     }
   }
 
