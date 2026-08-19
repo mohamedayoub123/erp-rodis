@@ -170,6 +170,22 @@ export default async function RecetteFabricationDetailPage({
                     <th className="px-6 py-4 font-semibold"></th>
                   </tr>
                 </thead>
+                <tfoot>
+                  <tr className="border-t border-slate-200 bg-slate-50">
+                    <td className="px-6 py-3 font-semibold text-slate-900" colSpan={2}>
+                      Total
+                    </td>
+                    <td className="px-6 py-3 font-semibold text-slate-900">
+                      {sommeLignes.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
+                      {totalQuantite > 0
+                        ? ` / ${((sommeLignes / totalQuantite) * 100).toLocaleString("fr-FR", {
+                            maximumFractionDigits: 2,
+                          })}%`
+                        : ""}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
                 <tbody>
                   {lignes.map((ligne) => {
                     const articleMp = mpById.get(ligne.article_mp_id);

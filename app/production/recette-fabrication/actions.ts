@@ -22,6 +22,43 @@ function parseQuantite(formData: FormData) {
   return Number.isNaN(value) ? 0 : value;
 }
 
+// Empeche le total des lignes MP d'une recette de depasser la quantite
+// totale du lot declaree (articles.quantite_recette_base, = 100% du lot) -
+// pas de verification si cette base n'est pas renseignee (rien a comparer).
+async function ensureTotalWithinBase(
+  articlePfId: number,
+  quantiteAjoutee: number,
+  options: { excludeLigneId?: number; excludeMpArticleId?: number } = {}
+) {
+  const { data: articleRow } = await supabaseServer
+    .from("articles")
+    .select("quantite_recette_base")
+    .eq("id", articlePfId)
+    .maybeSingle();
+
+  const quantiteBase = (articleRow as { quantite_recette_base: number | null } | null)?.quantite_recette_base;
+  if (!quantiteBase || quantiteBase <= 0) return;
+
+  const { data: lignesRows } = await supabaseServer
+    .from("recettes_pf")
+    .select("id, article_mp_id, quantite")
+    .eq("article_pf_id", articlePfId);
+
+  const autresLignes = ((lignesRows ?? []) as { id: number; article_mp_id: number; quantite: number }[]).filter(
+    (ligne) =>
+      ligne.id !== options.excludeLigneId && ligne.article_mp_id !== options.excludeMpArticleId
+  );
+  const sommeAutres = autresLignes.reduce((total, ligne) => total + Number(ligne.quantite ?? 0), 0);
+  const nouveauTotal = sommeAutres + quantiteAjoutee;
+
+  if (nouveauTotal > quantiteBase + 0.0001) {
+    const pct = ((nouveauTotal / quantiteBase) * 100).toFixed(1);
+    throw new Error(
+      `Le total de la recette depasserait 100% du lot (${nouveauTotal.toFixed(3)} / ${quantiteBase} = ${pct}%).`
+    );
+  }
+}
+
 function revalidateRecettePages(articlePfId: number) {
   revalidatePath("/production/recette-fabrication");
   revalidatePath(`/production/recette-fabrication/${articlePfId}`);
@@ -44,6 +81,8 @@ export async function addRecetteLigneAction(formData: FormData) {
   if (!articlePfId || !articleMpId) {
     throw new Error("Article MP invalide.");
   }
+
+  await ensureTotalWithinBase(articlePfId, quantite, { excludeMpArticleId: articleMpId });
 
   const { error } = await supabaseServer
     .from("recettes_pf")
@@ -94,6 +133,7 @@ export async function addRecetteOuVracAction(formData: FormData) {
     }
   } else {
     const quantite = parseQuantite(formData);
+    await ensureTotalWithinBase(articlePfId, quantite, { excludeMpArticleId: combinedId });
     const { error } = await supabaseServer
       .from("recettes_pf")
       .upsert(
@@ -264,6 +304,8 @@ export async function updateRecetteLigneAction(formData: FormData) {
   if (!ligneId) {
     throw new Error("Ligne invalide.");
   }
+
+  await ensureTotalWithinBase(articlePfId, quantite, { excludeLigneId: ligneId });
 
   const { error } = await supabaseServer
     .from("recettes_pf")
