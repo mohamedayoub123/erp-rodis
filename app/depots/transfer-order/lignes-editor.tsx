@@ -1,11 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useFormStatus } from "react-dom";
 import { ProduitPickerField } from "@/app/production/suivi-production/produit-picker-field";
 import { SubmitButton } from "@/app/_components/submit-button";
 import type { ArticleType } from "./stock-lots";
 
 type LotChoisi = { numero_lot: string | null; quantite: number };
+
+// Doit etre un enfant du <form> pour lire son etat via useFormStatus() - des
+// que "Enregistrer" finit reellement son aller-retour serveur (transition
+// pending true -> false, pas juste au clic), referme le mode Modifier :
+// demande explicite, on ne reste pas en edition apres avoir sauvegarde, il
+// faut recliquer "Modifier" pour continuer.
+function CloseEditingWhenSaved({ onSaved }: { onSaved: () => void }) {
+  const { pending } = useFormStatus();
+  const wasPending = useRef(false);
+
+  useEffect(() => {
+    if (wasPending.current && !pending) {
+      onSaved();
+    }
+    wasPending.current = pending;
+  }, [pending, onSaved]);
+
+  return null;
+}
 
 type LigneRow = {
   id: number;
@@ -105,6 +125,7 @@ export function TransferOrderLignesEditor({
   return (
     <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
       <form action={updateAction} className="grid gap-4 p-6">
+        <CloseEditingWhenSaved onSaved={() => setIsEditing(false)} />
         <input type="hidden" name="transfer_order_id" value={transferOrderId} />
 
         <div className="flex items-center justify-between">

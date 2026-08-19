@@ -6,7 +6,6 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
-import { SubmitButton } from "@/app/_components/submit-button";
 import { formatDate } from "@/lib/format-date";
 import { type ArticleType } from "../../transfer-order/stock-lots";
 import {
@@ -15,6 +14,7 @@ import {
   updateInvoiceOrderLignesAction,
   validateInvoiceOrderAction,
 } from "../actions";
+import { InvoiceOrderLignesEditor } from "../lignes-editor";
 
 type InvoiceOrderRow = {
   id: number;
@@ -86,6 +86,7 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
   const invoiceLignes = (invoiceLignesData ?? []) as InvoiceLigneRow[];
 
   const canEditLignes = canEdit && invoiceOrder.statut === "draft";
+  const canValidate = canEditLignes;
 
   const invoiceLignesEnrichies = await Promise.all(
     invoiceLignes.map(async (invoiceLigne) => {
@@ -131,26 +132,6 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
               >
                 Voir le Transfer Order
               </Link>
-              {canEditLignes ? (
-                <button
-                  type="submit"
-                  form="invoice-lignes-form"
-                  className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                >
-                  Enregistrer
-                </button>
-              ) : null}
-              {canEdit && invoiceOrder.statut === "draft" ? (
-                <form action={validateInvoiceOrderAction}>
-                  <input type="hidden" name="invoice_order_id" value={invoiceOrderId} />
-                  <SubmitButton
-                    pendingLabel="Approbation..."
-                    className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
-                  >
-                    Approuver
-                  </SubmitButton>
-                </form>
-              ) : null}
               {canDelete ? (
                 <form action={deleteInvoiceOrderAction}>
                   <input type="hidden" name="invoice_order_id" value={invoiceOrderId} />
@@ -161,78 +142,21 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
-          <form id="invoice-lignes-form" action={updateInvoiceOrderLignesAction} className="p-6">
-            <input type="hidden" name="invoice_order_id" value={invoiceOrderId} />
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-6 py-4 font-semibold">Article</th>
-                    <th className="px-6 py-4 font-semibold">Type</th>
-                    <th className="px-6 py-4 font-semibold">Lot</th>
-                    <th className="px-6 py-4 font-semibold">Quantite</th>
-                    {canEditLignes ? <th className="px-6 py-4 font-semibold"></th> : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoiceLignesEnrichies.length === 0 ? (
-                    <tr>
-                      <td className="px-6 py-4 text-slate-400" colSpan={5}>
-                        Aucune ligne - tout a deja ete livre ou efface.
-                      </td>
-                    </tr>
-                  ) : (
-                    invoiceLignesEnrichies.map((ligne) => (
-                      <tr key={ligne.id} className="border-t border-slate-100">
-                        <td className="px-6 py-4 font-medium text-slate-900">{ligne.nom}</td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {ligne.articleType === "MP" ? "Matiere premiere" : "Produit fini"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">{ligne.numero_lot || "-"}</td>
-                        <td className="px-6 py-4">
-                          {canEditLignes ? (
-                            <>
-                              <input type="hidden" name="invoice_order_ligne_id" value={ligne.id} />
-                              <input
-                                type="number"
-                                step="0.001"
-                                min="0"
-                                max={ligne.quantite}
-                                name="quantite"
-                                defaultValue={ligne.quantite}
-                                className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                              />
-                            </>
-                          ) : (
-                            ligne.quantite.toLocaleString("fr-FR")
-                          )}
-                        </td>
-                        {canEditLignes ? (
-                          <td className="px-6 py-4">
-                            <DeleteIconButton
-                              label="Supprimer cette ligne"
-                              formAction={deleteInvoiceOrderLigneAction}
-                              formNoValidate
-                              name="delete_invoice_order_ligne_id"
-                              value={ligne.id}
-                            />
-                          </td>
-                        ) : null}
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {canEditLignes ? (
-              <p className="mt-3 px-1 text-xs text-slate-500">
-                La quantite ne peut etre que diminuee (jamais augmentee). Mets 0 pour ne pas livrer une ligne - elle
-                repart automatiquement sur le Transfer Order.
-              </p>
-            ) : null}
-          </form>
-        </section>
+        <InvoiceOrderLignesEditor
+          invoiceOrderId={invoiceOrderId}
+          lignes={invoiceLignesEnrichies.map((ligne) => ({
+            id: ligne.id,
+            nom: ligne.nom,
+            articleType: ligne.articleType,
+            numero_lot: ligne.numero_lot,
+            quantite: ligne.quantite,
+          }))}
+          canEditLignes={canEditLignes}
+          canValidate={canValidate}
+          updateAction={updateInvoiceOrderLignesAction}
+          validateAction={validateInvoiceOrderAction}
+          deleteLigneAction={deleteInvoiceOrderLigneAction}
+        />
       </div>
     </main>
   );
