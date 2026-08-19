@@ -136,9 +136,14 @@ export default async function AdminPage({
   // Un module peut apparaitre dans plusieurs sections (ex: "Articles" a des
   // pages en Gestion Stock PF et d'autres en Gestion Stock MP) - on ne
   // montre, dans chaque section, que les pages qui appartiennent vraiment a
-  // cette section, pas tout le module.
+  // cette section, pas tout le module. Les pages "reservees" (defaultView
+  // false - Entrepot/Produit/Charges Usine...) remontent en tete de liste,
+  // sinon elles se perdent dans un module de 30+ pages (demande explicite,
+  // l'admin ne les trouvait pas).
   function pagesForModuleInSection(moduleKey: ModuleKey, section: AdminSection) {
-    return (pagesByModule.get(moduleKey) ?? []).filter((page) => sectionForPage(page) === section);
+    return (pagesByModule.get(moduleKey) ?? [])
+      .filter((page) => sectionForPage(page) === section)
+      .sort((a, b) => Number(a.defaultView === false ? 0 : 1) - Number(b.defaultView === false ? 0 : 1));
   }
 
   return (
@@ -509,8 +514,20 @@ export default async function AdminPage({
                                           </thead>
                                           <tbody>
                                             {pages.map((page) => (
-                                              <tr key={page.key} className="border-t border-slate-200">
-                                                <td className="px-4 py-2 font-medium text-slate-800">{page.label}</td>
+                                              <tr
+                                                key={page.key}
+                                                className={`border-t border-slate-200 ${
+                                                  page.defaultView === false ? "bg-amber-50/60" : ""
+                                                }`}
+                                              >
+                                                <td className="px-4 py-2 font-medium text-slate-800">
+                                                  {page.label}
+                                                  {page.defaultView === false ? (
+                                                    <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                                                      Reserve
+                                                    </span>
+                                                  ) : null}
+                                                </td>
                                                 <td className="px-4 py-2 text-center">
                                                   <input
                                                     type="checkbox"
