@@ -199,6 +199,40 @@ export async function markCartonTermineAction(formData: FormData) {
   }
 }
 
+// Annule un "Fin programme" Conditionnement clique par erreur - supprime
+// juste la ligne production_code_termine (stage "carton") pour ce code, ce
+// qui le fait immediatement reapparaitre dans la colonne Conditionnement du
+// Dashboard (isCodeTerminated ne le trouve plus). Ne touche pas aux
+// reservations MP (releaseRemainingMpReserve porte sur le stage separe
+// "salle_conditionnement", jamais "carton").
+export async function unmarkCartonTermineAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
+  }
+
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+
+  if (!ligneId || !code) {
+    throw new Error("Ligne ou code invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("production_code_termine")
+    .delete()
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", "carton");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateSuiviPages();
+}
+
 // Utilise par la page "Besoin" quand l'utilisateur choisit/change un
 // article MP sur une ligne (ligne auto-calculee depuis la recette ou
 // ligne ajoutee a la main) - renvoie l'unite, le disponible reel (stock -
