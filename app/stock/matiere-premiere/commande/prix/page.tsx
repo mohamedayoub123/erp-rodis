@@ -40,17 +40,46 @@ const LIMITE_TOUS = 500;
 // de grosses quantites - ex. LANETTE SX 256 359) juste sans suivi par lot
 // individuel a l'epoque. Les exclure avait cache des vrais articles a
 // prix manquant (signale par l'utilisateur avec LANETTE SX).
+//
+// "sans prix" doit paginer (.range()) et non se fier a un seul appel : le
+// client Supabase plafonne silencieusement chaque requete a 1000 lignes,
+// donc avec ~4600 lignes sans prix un seul appel triait/tronquait aux 1000
+// plus recentes et cachait des vrais articles plus anciens (ex. BASE
+// BEAUTY PINK 678446, ACIDE CITRIQUE) sans aucune erreur visible.
 async function fetchLots(afficherTous: boolean) {
-  let query = supabaseServer
-    .from("lots_stock_matiere_premiere")
-    .select("id, numero_lot, article_id, fournisseur, date_reception, qte_entree, unite, prix_unitaire, devise, taux_change")
-    .gt("qte_entree", 0)
-    .order("date_reception", { ascending: false });
+  if (afficherTous) {
+    const { data, error } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .select("id, numero_lot, article_id, fournisseur, date_reception, qte_entree, unite, prix_unitaire, devise, taux_change")
+      .gt("qte_entree", 0)
+      .order("date_reception", { ascending: false })
+      .limit(LIMITE_TOUS);
+    return { rows: (data ?? []) as LotRow[], error };
+  }
 
-  query = afficherTous ? query.limit(LIMITE_TOUS) : query.is("prix_unitaire", null);
+  const rows: LotRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
 
-  const { data, error } = await query;
-  return { rows: (data ?? []) as LotRow[], error };
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .select("id, numero_lot, article_id, fournisseur, date_reception, qte_entree, unite, prix_unitaire, devise, taux_change")
+      .gt("qte_entree", 0)
+      .is("prix_unitaire", null)
+      .order("date_reception", { ascending: false })
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as LotRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
 }
 
 async function countLotsSansPrix() {
