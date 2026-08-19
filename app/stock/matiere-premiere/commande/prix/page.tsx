@@ -30,20 +30,20 @@ const LIMITE_TOUS = 500;
 
 // lots_stock_matiere_premiere est un journal qui ne fait que grossir (voir
 // meme remarque sur stock-actuel/page.tsx) - jamais le rapatrier en entier
-// cote JS. Le filtre "sans prix" se fait cote base (rapide, ensemble
-// borne) ; "tous" est plafonne aux plus recents pour rester rapide.
+// cote JS. Le filtre "sans prix" se fait cote base (rapide) ; "tous" est
+// plafonne aux plus recents pour rester rapide.
 //
-// "ancien_lot" (~40 000 lignes, qte_entree = 0) est un marqueur de donnees
-// historiques importees en masse avant le suivi par lot individuel - pas de
-// vrai lot identifiable, un prix n'aurait aucun sens dessus. Exclu partout
-// ici (confirme en base : 41 986 lignes "sans prix" au total dont 40 379
-// "ancien_lot" et 37 371 a qte_entree=0 - seulement ~386 lignes sont de
-// vrais lots recents a completer).
+// qte_entree > 0 exclut uniquement les lignes de SORTIE (consommation,
+// source_import "web:sortie-mp" - qte_entree=0/qte_sortie>0, jamais de prix
+// a avoir) - PAS numero_lot="ancien_lot" : ce marqueur couvre aussi de
+// vraies entrees historiques (source_import "excel:historique-mp", parfois
+// de grosses quantites - ex. LANETTE SX 256 359) juste sans suivi par lot
+// individuel a l'epoque. Les exclure avait cache des vrais articles a
+// prix manquant (signale par l'utilisateur avec LANETTE SX).
 async function fetchLots(afficherTous: boolean) {
   let query = supabaseServer
     .from("lots_stock_matiere_premiere")
     .select("id, numero_lot, article_id, fournisseur, date_reception, qte_entree, unite, prix_unitaire, devise, taux_change")
-    .neq("numero_lot", "ancien_lot")
     .gt("qte_entree", 0)
     .order("date_reception", { ascending: false });
 
@@ -58,7 +58,6 @@ async function countLotsSansPrix() {
     .from("lots_stock_matiere_premiere")
     .select("id", { count: "exact", head: true })
     .is("prix_unitaire", null)
-    .neq("numero_lot", "ancien_lot")
     .gt("qte_entree", 0);
   return count ?? 0;
 }
