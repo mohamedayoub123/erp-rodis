@@ -76,6 +76,47 @@ function revalidateCommandeMpPages() {
   revalidatePath("/dashboard");
 }
 
+// Corrige/remplit le prix d'un lot deja receptionne (page "Prix des lots
+// MP") - les lots receptionnes avant l'ajout du prix, ou receptionnes sans,
+// n'ont sinon aucune autre facon de le renseigner apres coup.
+export async function updateLotPrixAction(formData: FormData) {
+  await requireEditAccess();
+
+  const lotId = Number(String(formData.get("lot_id") || "0"));
+  if (!lotId) {
+    throw new Error("Lot invalide.");
+  }
+
+  const prixUnitaireRaw = String(formData.get("prix_unitaire") || "").trim().replace(",", ".");
+  const prixUnitaire = prixUnitaireRaw ? Number(prixUnitaireRaw) : null;
+  const devise = resolveDevise(String(formData.get("devise") || ""));
+  const tauxChangeRaw = String(formData.get("taux_change") || "").trim().replace(",", ".");
+  const tauxChange = tauxChangeRaw ? Number(tauxChangeRaw) : null;
+
+  if (prixUnitaireRaw && (prixUnitaire === null || Number.isNaN(prixUnitaire) || prixUnitaire < 0)) {
+    throw new Error("Prix unitaire invalide.");
+  }
+
+  if (prixUnitaire !== null && devise !== "FCFA" && (tauxChange === null || Number.isNaN(tauxChange) || tauxChange <= 0)) {
+    throw new Error("Taux de change invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .update({
+      prix_unitaire: prixUnitaire,
+      devise,
+      taux_change: devise !== "FCFA" ? tauxChange : null,
+    })
+    .eq("id", lotId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateCommandeMpPages();
+}
+
 // Enregistre une reception (numero de lot, dates, quantite) pour une ligne
 // de commande, depuis le detail d'un dossier Import. Contrairement a
 // "Creer import" (bc/actions.ts), la quantite receptionnee peut etre plus

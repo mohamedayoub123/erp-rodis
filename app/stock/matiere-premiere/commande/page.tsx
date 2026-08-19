@@ -263,6 +263,12 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
           <div className="flex flex-wrap gap-3">
             <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
             <RefreshButton />
+            <Link
+              href="/stock/matiere-premiere/commande/prix"
+              className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Prix des lots
+            </Link>
           </div>
         </div>
 
