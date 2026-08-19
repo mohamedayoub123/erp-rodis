@@ -22,6 +22,8 @@ import type { CodeOption } from "./fifo-code-picker";
 import { FifoResultsTable, type FifoResultRowData } from "./fifo-results-table";
 import { FifoAddLigneForm } from "./fifo-add-ligne-form";
 import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
+import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
+import { fetchDimensionsProduitsFinis, volumeCartonM3 } from "@/lib/dimensions-produit";
 
 type CommandeDetailRow = {
   id: number;
@@ -797,6 +799,40 @@ export default async function CommandeDetailPage({
       sortedCommandeLignes.map((ligne) => Number(ligne.article_id)).filter((value) => value > 0)
     ),
   ];
+
+  // Prix = cout par carton du produit fini (recette Conditionnement, voir
+  // lib/prix-revient.ts) - pas un prix de vente saisi a la main, juste ce
+  // que la commande coute a fabriquer.
+  const [coutsParCarton, dimensionsParArticle] = await Promise.all([
+    fetchCoutsParCartonProduitsFinis(selectedArticleIds),
+    fetchDimensionsProduitsFinis(selectedArticleIds),
+  ]);
+  let prixTotalCommande = 0;
+  let prixCommandeIncomplet = false;
+  let volumeTotalCommande = 0;
+  let poidsTotalCommande = 0;
+  let dimensionsCommandeIncomplet = false;
+  for (const ligne of sortedCommandeLignes) {
+    const coutInfo = coutsParCarton.get(Number(ligne.article_id));
+    if (coutInfo?.coutParCarton !== null && coutInfo?.coutParCarton !== undefined) {
+      prixTotalCommande += Number(ligne.quantite_demandee ?? 0) * coutInfo.coutParCarton;
+    } else {
+      prixCommandeIncomplet = true;
+    }
+
+    const dim = dimensionsParArticle.get(Number(ligne.article_id));
+    const volumeCarton = volumeCartonM3(dim);
+    if (volumeCarton !== null) {
+      volumeTotalCommande += Number(ligne.quantite_demandee ?? 0) * volumeCarton;
+    } else {
+      dimensionsCommandeIncomplet = true;
+    }
+    if (dim?.poidsBrut !== null && dim?.poidsBrut !== undefined) {
+      poidsTotalCommande += Number(ligne.quantite_demandee ?? 0) * dim.poidsBrut;
+    } else {
+      dimensionsCommandeIncomplet = true;
+    }
+  }
   const availabilityMap = await getArticleAvailabilityMap(selectedArticleIds);
 
   const isContainer = isContainerMode(selectedCommande.mode_chargement);
@@ -924,8 +960,34 @@ export default async function CommandeDetailPage({
                   <th className="px-4 py-3 font-semibold">Disponible 4 mois</th>
                   <th className="px-4 py-3 font-semibold">Disponible 6 mois</th>
                   <th className="px-4 py-3 font-semibold">Manque total</th>
+                  <th className="px-4 py-3 font-semibold">Prix/carton</th>
+                  <th className="px-4 py-3 font-semibold">Prix ligne</th>
+                  <th className="px-4 py-3 font-semibold">Volume (m3)</th>
+                  <th className="px-4 py-3 font-semibold">Poids brut (kg)</th>
                 </tr>
               </thead>
+              <tfoot>
+                <tr className="border-t border-slate-200 bg-white">
+                  <td className="px-4 py-3 font-semibold text-slate-900" colSpan={7}>
+                    Total commande
+                  </td>
+                  <td className="px-4 py-3 font-semibold text-slate-900" colSpan={2}>
+                    {prixTotalCommande.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA
+                    {prixCommandeIncomplet ? (
+                      <span className="ml-1 font-normal text-amber-700">(partiel - articles sans prix)</span>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3 font-semibold text-slate-900">
+                    {volumeTotalCommande.toLocaleString("fr-FR", { maximumFractionDigits: 3 })} m3
+                  </td>
+                  <td className="px-4 py-3 font-semibold text-slate-900">
+                    {poidsTotalCommande.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} kg
+                    {dimensionsCommandeIncomplet ? (
+                      <span className="ml-1 font-normal text-amber-700">(partiel)</span>
+                    ) : null}
+                  </td>
+                </tr>
+              </tfoot>
               <tbody>
                 {sortedCommandeLignes.map((ligne) => {
                   const articleAvailability = availabilityMap.get(Number(ligne.article_id)) ?? {
@@ -938,6 +1000,19 @@ export default async function CommandeDetailPage({
                     0,
                     Number(ligne.quantite_demandee || 0) - Number(articleAvailability.total || 0)
                   );
+                  const coutInfo = coutsParCarton.get(Number(ligne.article_id));
+                  const prixLigne =
+                    coutInfo?.coutParCarton !== null && coutInfo?.coutParCarton !== undefined
+                      ? Number(ligne.quantite_demandee ?? 0) * coutInfo.coutParCarton
+                      : null;
+                  const dim = dimensionsParArticle.get(Number(ligne.article_id));
+                  const volumeCartonLigne = volumeCartonM3(dim);
+                  const volumeLigne =
+                    volumeCartonLigne !== null ? Number(ligne.quantite_demandee ?? 0) * volumeCartonLigne : null;
+                  const poidsLigne =
+                    dim?.poidsBrut !== null && dim?.poidsBrut !== undefined
+                      ? Number(ligne.quantite_demandee ?? 0) * dim.poidsBrut
+                      : null;
 
                   return (
                     <tr key={ligne.id} className="border-t border-slate-200">
@@ -958,6 +1033,26 @@ export default async function CommandeDetailPage({
                         {Number(articleAvailability.sixMonths || 0)}
                       </td>
                       <td className="px-4 py-3 font-semibold text-red-600">{manqueTotal}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {coutInfo?.coutParCarton !== null && coutInfo?.coutParCarton !== undefined
+                          ? `${coutInfo.coutParCarton.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA`
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {prixLigne !== null
+                          ? `${prixLigne.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {volumeLigne !== null
+                          ? volumeLigne.toLocaleString("fr-FR", { maximumFractionDigits: 3 })
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {poidsLigne !== null
+                          ? poidsLigne.toLocaleString("fr-FR", { maximumFractionDigits: 1 })
+                          : "-"}
+                      </td>
                     </tr>
                   );
                 })}
