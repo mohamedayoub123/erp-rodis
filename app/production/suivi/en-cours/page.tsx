@@ -6,6 +6,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { supabaseServer } from "@/lib/supabase-server";
 import { formatDateTime } from "@/lib/format-date";
 import {
+  buildPdLabelByCode,
   computeProduitParCode,
   fetchAllCartonEntries,
   fetchAllCodeTermineRows,
@@ -13,6 +14,7 @@ import {
   fetchAllProgrammeLignes,
   fetchAllVracEntries,
   groupCartonEntriesByLigne,
+  pdLabelsForNumeroLot,
   splitLigneIntoDisplayRows,
   type ProgrammeLigneRow,
 } from "../data";
@@ -129,11 +131,12 @@ export default async function SuiviParEtapePage({ searchParams }: { searchParams
   // Programmes encore actifs uniquement (meme filtre que le Dashboard) -
   // "en cours" veut dire le PROGRAMME n'est pas ferme, pas que cette etape
   // precise ne l'est pas (voir le repli Reste=0 plus bas).
-  const [{ rows: lignes }, vracEntries, cartonEntries, emballageEntries] = await Promise.all([
+  const [{ rows: lignes }, vracEntries, cartonEntries, emballageEntries, pdLabelByCode] = await Promise.all([
     fetchAllProgrammeLignes({ activeOnly: true }),
     etape.stage === "vrac" ? fetchAllVracEntries() : Promise.resolve([]),
     etape.stage === "carton" || etape.stage === "emballage" ? fetchAllCartonEntries() : Promise.resolve([]),
     etape.stage === "emballage" ? fetchAllEmballageEntries() : Promise.resolve([]),
+    buildPdLabelByCode(),
   ]);
 
   const ligneIds = lignes.map((ligne) => ligne.id);
@@ -207,6 +210,7 @@ export default async function SuiviParEtapePage({ searchParams }: { searchParams
         key: `${ligne.id}::${code}`,
         date: dateSaisie ?? ligne.date_jour,
         code,
+        pdLabel: pdLabelsForNumeroLot(code, pdLabelByCode),
         produit: ligne.produit || "-",
         statut,
         demande,
@@ -328,6 +332,7 @@ export default async function SuiviParEtapePage({ searchParams }: { searchParams
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Statut</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Code</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">PD</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Article</th>
                     <th className="sticky top-0 z-10 bg-amber-50 px-4 py-3 font-semibold text-amber-800">Qt commandee</th>
                     <th className="sticky top-0 z-10 bg-sky-50 px-4 py-3 font-semibold text-sky-800">Qt fabriquee</th>
@@ -342,6 +347,7 @@ export default async function SuiviParEtapePage({ searchParams }: { searchParams
                       </td>
                       <td className="px-4 py-3 text-slate-600">{formatDateTime(row.date)}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{row.code}</td>
+                      <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                       <td className="px-4 py-3 text-slate-600">{row.produit}</td>
                       <td className="bg-amber-50/30 px-4 py-3 text-slate-600">{Math.round(row.demande)}</td>
                       <td className="bg-sky-50/30 px-4 py-3 text-slate-600">{Math.round(row.fabrique)}</td>

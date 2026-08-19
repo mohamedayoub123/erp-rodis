@@ -280,15 +280,34 @@ function splitLigneByCode(
   const codes = (ligne.numero_lot || "").split(",").map((code) => code.trim()).filter(Boolean);
   const detail = ligne.numero_lot_detail ?? [];
 
-  if (codes.length <= 1 || detail.length !== codes.length) {
+  // Un code peut apparaitre PLUSIEURS FOIS dans numero_lot_detail (ex:
+  // KI0299 scinde en 2 lots physiques apres coup, 600 puis 200) - regroupe
+  // par code (somme vrac/carton) plutot que d'exiger un nombre EXACT
+  // d'entrees egal au nombre de codes. L'ancienne comparaison stricte
+  // (detail.length !== codes.length) faisait retomber TOUTE la ligne sur
+  // l'affichage combine "KI0298, KI0299" des qu'UN SEUL code avait ete
+  // scinde plus tard - un code jamais retrouve par aucun rapport/entree
+  // (qui restent eux scopes par code individuel), donc affiche vide meme
+  // quand les vraies donnees existent (cas reel : ligne 7632).
+  const byCode = new Map<string, { code: string; vrac: number | null; carton: number | null }>();
+  for (const entry of detail) {
+    const code = entry.code || "-";
+    const existing = byCode.get(code);
+    if (existing) {
+      existing.vrac = (existing.vrac ?? 0) + (entry.qt_vrac ?? 0);
+      existing.carton = (existing.carton ?? 0) + (entry.qt_carton ?? 0);
+    } else {
+      byCode.set(code, { code, vrac: entry.qt_vrac, carton: entry.qt_carton });
+    }
+  }
+
+  const detailCouvreTousLesCodes = codes.length > 1 && codes.every((code) => byCode.has(code));
+
+  if (!detailCouvreTousLesCodes) {
     return [{ code: ligne.numero_lot || "-", vrac: ligne.vrac_a_fabriquer, carton: ligne.qt_carton }];
   }
 
-  return detail.map((entry) => ({
-    code: entry.code || "-",
-    vrac: entry.qt_vrac,
-    carton: entry.qt_carton,
-  }));
+  return codes.map((code) => byCode.get(code)!);
 }
 
 async function fetchAllRows<T>(
