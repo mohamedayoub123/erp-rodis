@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ProduitTabs } from "./produit-tabs";
+import { ProduitDimensionsForm } from "./dimensions-form";
 
 export default async function ProduitDetailLayout({
   children,
@@ -24,12 +26,29 @@ export default async function ProduitDetailLayout({
   }
 
   const table = type === "mp" ? "articles_matiere_premiere" : "articles";
-  const { data } = await supabaseServer.from(table).select("nom_article").eq("id", articleId).maybeSingle();
-  const nomArticle = (data as { nom_article: string } | null)?.nom_article;
+  const [{ data }, currentUser] = await Promise.all([
+    supabaseServer
+      .from(table)
+      .select("nom_article, longueur, largeur, hauteur, poids_net, poids_brut")
+      .eq("id", articleId)
+      .maybeSingle(),
+    getCurrentStockUser(),
+  ]);
+  const article = data as {
+    nom_article: string;
+    longueur: number | null;
+    largeur: number | null;
+    hauteur: number | null;
+    poids_net: number | null;
+    poids_brut: number | null;
+  } | null;
+  const nomArticle = article?.nom_article;
 
   if (!nomArticle) {
     notFound();
   }
+
+  const canWrite = await canWritePageUser(currentUser, "produit");
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -52,6 +71,19 @@ export default async function ProduitDetailLayout({
           <div className="mt-4">
             <ProduitTabs type={type} id={articleId} />
           </div>
+
+          <ProduitDimensionsForm
+            type={type}
+            articleId={articleId}
+            dimensions={{
+              longueur: article?.longueur ?? null,
+              largeur: article?.largeur ?? null,
+              hauteur: article?.hauteur ?? null,
+              poids_net: article?.poids_net ?? null,
+              poids_brut: article?.poids_brut ?? null,
+            }}
+            canWrite={canWrite}
+          />
         </section>
 
         {children}
