@@ -838,11 +838,25 @@ async function assignDispatcherCodesAndInsert(
     // upsertPendingArticleCodeUpdates plus bas, applique seulement quand
     // Ravitailleur confirme le programme). Seul le nettoyage des zones
     // dispatcher (independant de tout ca) reste ici.
+    //
+    // Efface TOUTE la zone (pas seulement les paires zone+chaine exactes du
+    // catalogue ZONE_GROUPS) - une ligne dispatcher deja ecrite pour cette
+    // zone avec un "chaine" different (ex: dispatchee depuis "Programme"/MB,
+    // qui utilise le nom libre de la machine plutot que le catalogue fixe)
+    // ne matchait jamais une paire exacte et restait visible indefiniment
+    // sur Ravitailleur meme apres un nouveau Dispatch qui aurait du la
+    // remplacer. La grille "Programme par ligne" couvre de toute facon
+    // TOUJOURS les 6 zones entieres (voir affectedZoneChaine plus haut,
+    // construit sur ZONE_GROUPS en entier), donc elargir a "toute la zone"
+    // ne remplace rien de plus que ce que ce Save avait deja l'intention
+    // d'ecraser.
     finalCodeUpdatesByArticleId = codeUpdatesByArticleId;
-    if (affectedZoneChaine.length > 0) {
-      const { error: clearZonesError } = await supabaseServer.rpc("programme_dispatcher_clear_zones", {
-        p_pairs: affectedZoneChaine,
-      });
+    const affectedZones = [...new Set(affectedZoneChaine.map((pair) => pair.zone))];
+    if (affectedZones.length > 0) {
+      const { error: clearZonesError } = await supabaseServer
+        .from("programme_dispatcher_lignes")
+        .delete()
+        .in("zone", affectedZones);
       if (clearZonesError) {
         throw new Error(clearZonesError.message);
       }
