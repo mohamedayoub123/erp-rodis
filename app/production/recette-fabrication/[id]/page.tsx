@@ -12,6 +12,7 @@ import {
   updateQuantiteBaseAction,
 } from "../actions";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { fetchCoutsMoyenMp, computeRecetteCost } from "@/lib/prix-revient";
 
 type ArticlePfRow = {
   id: number;
@@ -101,6 +102,10 @@ export default async function RecetteFabricationDetailPage({
   // (comportement precedent, pour les recettes pas encore mises a jour).
   const totalQuantite = quantiteBase !== null && quantiteBase !== undefined && quantiteBase > 0 ? quantiteBase : sommeLignes;
 
+  const coutsMp = await fetchCoutsMoyenMp(lignes.map((ligne) => ligne.article_mp_id));
+  const { coutTotal, lignesSansPrix } = computeRecetteCost(lignes, coutsMp);
+  const coutParKg = quantiteBase && quantiteBase > 0 ? coutTotal / quantiteBase : null;
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
@@ -167,6 +172,8 @@ export default async function RecetteFabricationDetailPage({
                     <th className="px-6 py-4 font-semibold">Article MP</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Quantite / %</th>
+                    <th className="px-6 py-4 font-semibold">Prix unitaire (cout moyen)</th>
+                    <th className="px-6 py-4 font-semibold">Cout</th>
                     <th className="px-6 py-4 font-semibold"></th>
                   </tr>
                 </thead>
@@ -184,11 +191,20 @@ export default async function RecetteFabricationDetailPage({
                         : ""}
                     </td>
                     <td></td>
+                    <td className="px-6 py-3 font-semibold text-slate-900">
+                      {coutTotal.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA
+                      {lignesSansPrix.length > 0 ? (
+                        <span className="ml-1 font-normal text-amber-700">(partiel)</span>
+                      ) : null}
+                    </td>
+                    <td></td>
                   </tr>
                 </tfoot>
                 <tbody>
                   {lignes.map((ligne) => {
                     const articleMp = mpById.get(ligne.article_mp_id);
+                    const coutInfo = coutsMp.get(ligne.article_mp_id);
+                    const coutLigne = coutInfo ? Number(ligne.quantite ?? 0) * coutInfo.coutFcfa : null;
                     return (
                       <tr key={ligne.id} className="border-t border-slate-100">
                         <td className="px-6 py-4 font-medium text-slate-900">
@@ -213,6 +229,14 @@ export default async function RecetteFabricationDetailPage({
                             </SubmitButton>
                           </form>
                         </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {coutInfo ? `${coutInfo.coutFcfa.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA` : "-"}
+                        </td>
+                        <td className="px-6 py-4 font-semibold text-slate-900">
+                          {coutLigne !== null
+                            ? `${coutLigne.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
+                            : "-"}
+                        </td>
                         <td className="px-6 py-4">
                           <form action={deleteRecetteLigneAction}>
                             <input type="hidden" name="page_key" value="recetteFabrication" />
@@ -233,6 +257,30 @@ export default async function RecetteFabricationDetailPage({
               </table>
             </div>
           )}
+        </section>
+
+        <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500">Prix de revient du vrac</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-xs font-semibold text-slate-500">Cout total du lot</p>
+              <p className="mt-1 text-2xl font-black text-slate-900">
+                {coutTotal.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500">Cout par kg</p>
+              <p className="mt-1 text-2xl font-black text-slate-900">
+                {coutParKg !== null ? `${coutParKg.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA` : "-"}
+              </p>
+            </div>
+          </div>
+          {lignesSansPrix.length > 0 ? (
+            <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+              {lignesSansPrix.length} article{lignesSansPrix.length > 1 ? "s" : ""} sans prix connu - cout partiel,
+              incomplet.
+            </p>
+          ) : null}
         </section>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
