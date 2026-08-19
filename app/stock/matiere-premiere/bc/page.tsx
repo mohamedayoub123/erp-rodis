@@ -270,6 +270,12 @@ export default async function CommandeBcMpPage({ searchParams }: { searchParams:
           <div className="flex flex-wrap gap-3">
             <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
             <RefreshButton />
+            <Link
+              href="/stock/matiere-premiere/bc/prix"
+              className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Prix des BC
+            </Link>
             {canWriteNouvelle ? (
               <Link
                 href="/stock/matiere-premiere/bc/nouvelle"
