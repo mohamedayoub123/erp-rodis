@@ -484,6 +484,10 @@ export default async function AdminPage({
                                   return (
                                     <details
                                       key={`${section}-${moduleKey}`}
+                                      // Un seul module dans cette section (Entrepot/Produit/Charges
+                                      // Usine) : ouvert par defaut pour donner l'acces en un clic
+                                      // (celui de la section), sans sous-menu a ouvrir en plus.
+                                      open={modulesInSection.length === 1}
                                       className="group rounded-2xl border border-slate-200 bg-white"
                                     >
                                       <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800">

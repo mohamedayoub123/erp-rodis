@@ -16,11 +16,13 @@ export type ModuleKey =
   | "Planning"
   | "Mouvements"
   | "Production"
-  | "ProductionReserve"
   | "Qualite"
   | "Statistique"
   | "Clients"
-  | "General";
+  | "General"
+  | "Entrepot"
+  | "Produit"
+  | "ChargesUsine";
 
 export type PageDefinition = {
   key: string;
@@ -44,11 +46,13 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   Planning: "Planning",
   Mouvements: "Mouvements",
   Production: "Production",
-  ProductionReserve: "Entrepot & Produit",
   Qualite: "Qualite",
   Statistique: "Statistique",
   Clients: "Client",
   General: "General",
+  Entrepot: "Entrepot",
+  Produit: "Produit",
+  ChargesUsine: "Charges Usine",
 };
 
 export const PAGE_REGISTRY: PageDefinition[] = [
@@ -563,20 +567,19 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   // moment (defaultView false) - aucun utilisateur existant n'avait deja
   // acces a ces cles (brand new), donc rien n'est retire a personne. A
   // ouvrir plus tard via l'ecran Admin (ou en repassant defaultView a true)
-  // quand le module aura ete valide. Module dedie "ProductionReserve" (pas
-  // juste "Production") : demande explicite pour ne pas les enterrer dans
-  // le sous-menu Production (30+ pages) - elles apparaissent maintenant
-  // comme leur propre entree directement sous la section PRODUCTION.
+  // quand le module aura ete valide. Chacune a sa PROPRE section admin
+  // (Entrepot, Produit - voir sectionForPage) : demande explicite pour
+  // donner l'acces en un seul clic, sans passer par un sous-menu.
   {
     key: "depots",
-    module: "ProductionReserve",
+    module: "Entrepot",
     label: "Entrepot (creer, stock, transferts) - reserve admin pour le moment",
     pathPrefixes: ["/depots"],
     defaultView: false,
   },
   {
     key: "produit",
-    module: "ProductionReserve",
+    module: "Produit",
     label: "Produit (liste unifiee, stock par depot, statistique) - reserve admin pour le moment",
     pathPrefixes: ["/produit"],
     defaultView: false,
@@ -770,7 +773,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   // monde par defaut - corrige ici.)
   {
     key: "chargesHub",
-    module: "General",
+    module: "ChargesUsine",
     label: "Charges Usine",
     pathPrefixes: ["/charges"],
     defaultView: false,
@@ -782,21 +785,38 @@ export const PAGE_REGISTRY: PageDefinition[] = [
 // premiere" partagent le meme module que leur equivalent produit fini
 // (ex: stockMatierePremiere est module "Stock" comme "stock") mais doivent
 // apparaitre sous Gestion Stock MP, pas Gestion Stock PF.
-export type AdminSection = "GestionStockPf" | "GestionStockMp" | "Production" | "Qualite" | "Autre";
+export type AdminSection =
+  | "GestionStockPf"
+  | "GestionStockMp"
+  | "Production"
+  | "Qualite"
+  | "Entrepot"
+  | "Produit"
+  | "ChargesUsine"
+  | "Autre";
 
 export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   GestionStockPf: "Gestion Stock PF",
   GestionStockMp: "Gestion Stock MP",
   Production: "Production",
   Qualite: "Qualite",
+  Entrepot: "Entrepot",
+  Produit: "Produit",
+  ChargesUsine: "Charges Usine",
   Autre: "Autre",
 };
 
+// Entrepot/Produit/Charges Usine ont leur PROPRE section admin (pas nichees
+// dans Production/Autre) : demande explicite pour donner l'acces en un
+// clic, sans passer par un sous-menu.
 export const ADMIN_SECTION_ORDER: AdminSection[] = [
   "GestionStockPf",
   "GestionStockMp",
   "Production",
   "Qualite",
+  "Entrepot",
+  "Produit",
+  "ChargesUsine",
   "Autre",
 ];
 
@@ -828,7 +848,10 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
 
 export function sectionForPage(page: PageDefinition): AdminSection {
   if (MATIERE_PREMIERE_PAGE_KEYS.has(page.key)) return "GestionStockMp";
-  if (page.module === "Production" || page.module === "ProductionReserve") return "Production";
+  if (page.module === "Entrepot") return "Entrepot";
+  if (page.module === "Produit") return "Produit";
+  if (page.module === "ChargesUsine") return "ChargesUsine";
+  if (page.module === "Production") return "Production";
   if (page.module === "Qualite") return "Qualite";
   if (page.module === "Planning" || page.module === "General") return "Autre";
   return "GestionStockPf";
