@@ -13,4 +13,7 @@ export const TYPE_PRODUIT_OPTIONS = [
   "savon",
   "serum",
   "talc",
+  "tube clarifiant",
+  "tube menthole",
+  "tube pate dentifrice",
 ];
