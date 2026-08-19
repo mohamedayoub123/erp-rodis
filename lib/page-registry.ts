@@ -16,6 +16,7 @@ export type ModuleKey =
   | "Planning"
   | "Mouvements"
   | "Production"
+  | "ProductionReserve"
   | "Qualite"
   | "Statistique"
   | "Clients"
@@ -43,6 +44,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   Planning: "Planning",
   Mouvements: "Mouvements",
   Production: "Production",
+  ProductionReserve: "Entrepot & Produit",
   Qualite: "Qualite",
   Statistique: "Statistique",
   Clients: "Client",
@@ -561,17 +563,20 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   // moment (defaultView false) - aucun utilisateur existant n'avait deja
   // acces a ces cles (brand new), donc rien n'est retire a personne. A
   // ouvrir plus tard via l'ecran Admin (ou en repassant defaultView a true)
-  // quand le module aura ete valide.
+  // quand le module aura ete valide. Module dedie "ProductionReserve" (pas
+  // juste "Production") : demande explicite pour ne pas les enterrer dans
+  // le sous-menu Production (30+ pages) - elles apparaissent maintenant
+  // comme leur propre entree directement sous la section PRODUCTION.
   {
     key: "depots",
-    module: "Production",
+    module: "ProductionReserve",
     label: "Entrepot (creer, stock, transferts) - reserve admin pour le moment",
     pathPrefixes: ["/depots"],
     defaultView: false,
   },
   {
     key: "produit",
-    module: "Production",
+    module: "ProductionReserve",
     label: "Produit (liste unifiee, stock par depot, statistique) - reserve admin pour le moment",
     pathPrefixes: ["/produit"],
     defaultView: false,
@@ -823,7 +828,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
 
 export function sectionForPage(page: PageDefinition): AdminSection {
   if (MATIERE_PREMIERE_PAGE_KEYS.has(page.key)) return "GestionStockMp";
-  if (page.module === "Production") return "Production";
+  if (page.module === "Production" || page.module === "ProductionReserve") return "Production";
   if (page.module === "Qualite") return "Qualite";
   if (page.module === "Planning" || page.module === "General") return "Autre";
   return "GestionStockPf";

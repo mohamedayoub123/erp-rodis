@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -180,7 +181,11 @@ export default async function ImportMpDossierPage({
 
                       return (
                         <tr key={ligne.id} className="border-t border-slate-100 align-top">
-                          <td className="px-4 py-3 font-semibold text-sky-700">{ligne.code}</td>
+                          <td className="px-4 py-3 font-semibold text-sky-700">
+                            <Link href={`/stock/matiere-premiere/bc/${ligne.code}`} className="hover:underline">
+                              {ligne.code}
+                            </Link>
+                          </td>
                           <td className="px-4 py-3 font-medium text-slate-900">
                             {ligne.article_label || "-"}
                           </td>
@@ -307,7 +312,13 @@ export default async function ImportMpDossierPage({
                       return (
                         <tr key={row.id} className="border-t border-slate-100">
                           <td className="px-4 py-3 font-semibold text-sky-700">
-                            {ligne?.code || "-"}
+                            {ligne?.code ? (
+                              <Link href={`/stock/matiere-premiere/bc/${ligne.code}`} className="hover:underline">
+                                {ligne.code}
+                              </Link>
+                            ) : (
+                              "-"
+                            )}
                           </td>
                           <td className="px-4 py-3 font-medium text-slate-900">
                             {ligne?.article_label || "-"}
