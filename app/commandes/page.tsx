@@ -56,11 +56,6 @@ type ProformaGroup = {
   rows: CommandeRow[];
   lignesTotal: number;
   cartonTotal: number;
-  prixTotal: number | null;
-  prixIncomplet: boolean;
-  volumeTotal: number | null;
-  poidsTotal: number | null;
-  dimensionsIncomplet: boolean;
   statusCounts: { statut: string; count: number }[];
   openTargetId: number;
   pretStock: boolean;
@@ -356,17 +351,6 @@ export default async function CommandesPage({
         rows,
         lignesTotal: rows.reduce((sum, row) => sum + row.lignes_count, 0),
         cartonTotal: rows.reduce((sum, row) => sum + row.carton_total, 0),
-        prixTotal: rows.some((row) => row.prix_total !== null)
-          ? rows.reduce((sum, row) => sum + (row.prix_total ?? 0), 0)
-          : null,
-        prixIncomplet: rows.some((row) => row.prix_incomplet),
-        volumeTotal: rows.some((row) => row.volume_total !== null)
-          ? rows.reduce((sum, row) => sum + (row.volume_total ?? 0), 0)
-          : null,
-        poidsTotal: rows.some((row) => row.poids_total !== null)
-          ? rows.reduce((sum, row) => sum + (row.poids_total ?? 0), 0)
-          : null,
-        dimensionsIncomplet: rows.some((row) => row.dimensions_incomplet),
         statusCounts,
         openTargetId: openTarget.id,
         pretStock: pretStockInfo.checked,
@@ -618,25 +602,43 @@ export default async function CommandesPage({
                       <td className="px-4 py-3 text-slate-600">{group.lignesTotal}</td>
                       <td className="px-4 py-3 font-semibold text-slate-900">{group.cartonTotal}</td>
                       <td className="px-4 py-3 font-semibold text-slate-900">
-                        {group.prixTotal !== null
-                          ? `${group.prixTotal.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
-                          : "-"}
-                        {group.prixIncomplet ? (
-                          <span className="ml-1 text-xs font-normal text-amber-700">(partiel)</span>
-                        ) : null}
+                        <div className="flex flex-col gap-2">
+                          {group.rows.map((row) => (
+                            <div key={row.id} className="whitespace-nowrap">
+                              {row.prix_total !== null
+                                ? `${row.prix_total.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
+                                : "-"}
+                              {row.prix_incomplet ? (
+                                <span className="ml-1 text-xs font-normal text-amber-700">(partiel)</span>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-slate-700">
-                        {group.volumeTotal !== null
-                          ? group.volumeTotal.toLocaleString("fr-FR", { maximumFractionDigits: 3 })
-                          : "-"}
-                        {group.dimensionsIncomplet ? (
-                          <span className="ml-1 text-xs font-normal text-amber-700">(partiel)</span>
-                        ) : null}
+                        <div className="flex flex-col gap-2">
+                          {group.rows.map((row) => (
+                            <div key={row.id} className="whitespace-nowrap">
+                              {row.volume_total !== null
+                                ? row.volume_total.toLocaleString("fr-FR", { maximumFractionDigits: 3 })
+                                : "-"}
+                              {row.dimensions_incomplet ? (
+                                <span className="ml-1 text-xs font-normal text-amber-700">(partiel)</span>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-slate-700">
-                        {group.poidsTotal !== null
-                          ? group.poidsTotal.toLocaleString("fr-FR", { maximumFractionDigits: 1 })
-                          : "-"}
+                        <div className="flex flex-col gap-2">
+                          {group.rows.map((row) => (
+                            <div key={row.id} className="whitespace-nowrap">
+                              {row.poids_total !== null
+                                ? row.poids_total.toLocaleString("fr-FR", { maximumFractionDigits: 1 })
+                                : "-"}
+                            </div>
+                          ))}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-2">
