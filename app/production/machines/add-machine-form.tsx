@@ -3,26 +3,87 @@
 import { useState } from "react";
 import { createMachineAction } from "./actions";
 import { SubmitButton } from "@/app/_components/submit-button";
-import { TYPE_PRODUIT_OPTIONS } from "./type-produit-options";
 
-const ZONE_OPTIONS = [
-  "B1Z1",
-  "B1Z2",
-  "B4Z1",
-  "B4Z2",
-  "B4Z3",
-  "D",
-  "Automatique",
-  "Semi auto",
-  "Manuel",
-];
-const NOUVELLE_ZONE = "__nouvelle_zone__";
-const TYPE_OPTIONS = ["Fabrication", "Conditionnement", "Emballage"];
+const NOUVELLE_VALEUR = "__nouvelle_valeur__";
 
-export function AddMachineForm() {
-  const [zone, setZone] = useState("");
-  const [zoneLibre, setZoneLibre] = useState(false);
+// Menu deroulant avec une option "+ Nouveau ..." qui bascule vers un champ
+// libre - le meme <input name="..."> porte la valeur choisie dans le menu
+// OU tapee dans le champ libre, donc le formulaire parent n'a rien de plus
+// a gerer.
+function SelectWithAddOption({
+  name,
+  options,
+  addLabel,
+  addPlaceholder,
+}: {
+  name: string;
+  options: string[];
+  addLabel: string;
+  addPlaceholder: string;
+}) {
+  const [value, setValue] = useState("");
+  const [libre, setLibre] = useState(false);
 
+  if (libre) {
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          name={name}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          autoFocus
+          placeholder={addPlaceholder}
+          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            setLibre(false);
+            setValue("");
+          }}
+          className="rounded-full px-2 py-1 text-xs font-semibold text-slate-400 hover:text-slate-600"
+        >
+          Annuler
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <select
+      name={name}
+      value={value}
+      onChange={(event) => {
+        if (event.target.value === NOUVELLE_VALEUR) {
+          setLibre(true);
+          setValue("");
+        } else {
+          setValue(event.target.value);
+        }
+      }}
+      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+    >
+      <option value="">-</option>
+      {options.map((option) => (
+        <option key={option} value={option}>
+          {option}
+        </option>
+      ))}
+      <option value={NOUVELLE_VALEUR}>{addLabel}</option>
+    </select>
+  );
+}
+
+export function AddMachineForm({
+  existingZones,
+  existingTypes,
+  typeProduitOptions,
+}: {
+  existingZones: string[];
+  existingTypes: string[];
+  typeProduitOptions: string[];
+}) {
   return (
     <form
       action={createMachineAction}
@@ -40,71 +101,26 @@ export function AddMachineForm() {
       </label>
       <label className="grid gap-1 text-xs font-semibold text-slate-500">
         Zone
-        {zoneLibre ? (
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              name="zone"
-              value={zone}
-              onChange={(event) => setZone(event.target.value)}
-              autoFocus
-              placeholder="Nom de la nouvelle zone"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setZoneLibre(false);
-                setZone("");
-              }}
-              className="rounded-full px-2 py-1 text-xs font-semibold text-slate-400 hover:text-slate-600"
-            >
-              Annuler
-            </button>
-          </div>
-        ) : (
-          <select
-            name="zone"
-            value={zone}
-            onChange={(event) => {
-              if (event.target.value === NOUVELLE_ZONE) {
-                setZoneLibre(true);
-                setZone("");
-              } else {
-                setZone(event.target.value);
-              }
-            }}
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-          >
-            <option value="">-</option>
-            {ZONE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-            <option value={NOUVELLE_ZONE}>+ Nouvelle zone</option>
-          </select>
-        )}
+        <SelectWithAddOption
+          name="zone"
+          options={existingZones}
+          addLabel="+ Nouvelle zone"
+          addPlaceholder="Nom de la nouvelle zone"
+        />
       </label>
       <label className="grid gap-1 text-xs font-semibold text-slate-500">
         Type
-        <select
+        <SelectWithAddOption
           name="type"
-          defaultValue=""
-          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-        >
-          <option value="">-</option>
-          {TYPE_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+          options={existingTypes}
+          addLabel="+ Nouveau type"
+          addPlaceholder="Nom du nouveau type"
+        />
       </label>
       <div className="grid gap-1 text-xs font-semibold text-slate-500">
         Type(s) de produit
         <div className="flex flex-wrap gap-3 rounded-2xl border border-slate-200 px-4 py-3">
-          {TYPE_PRODUIT_OPTIONS.map((option) => (
+          {typeProduitOptions.map((option) => (
             <label key={option} className="flex items-center gap-1.5 text-sm font-normal text-slate-700">
               <input type="checkbox" name="type_produit" value={option} />
               {option}

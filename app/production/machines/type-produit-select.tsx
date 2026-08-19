@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { updateMachineAction } from "./actions";
-import { TYPE_PRODUIT_OPTIONS } from "./type-produit-options";
 
 // Petit indicateur "Enregistre" affiche juste apres la fin d'une
 // soumission (transition pending true -> false) - doit etre un enfant du
@@ -33,8 +32,10 @@ function SavedIndicator() {
 // de produit changent ici.
 export function MachineTypeProduitSelect({
   machine,
+  typeProduitOptions,
 }: {
   machine: { id: number; nom: string; zone: string | null; type: string | null; type_produit: string[] | null };
+  typeProduitOptions: string[];
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const selected = machine.type_produit ?? [];
@@ -50,7 +51,7 @@ export function MachineTypeProduitSelect({
           {selected.length > 0 ? selected.join(", ") : "-"}
         </summary>
         <div className="absolute left-0 top-full z-20 mt-1 grid w-48 gap-1.5 rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-          {TYPE_PRODUIT_OPTIONS.map((option) => (
+          {typeProduitOptions.map((option) => (
             <label key={option} className="flex items-center gap-2 text-sm text-slate-700">
               <input
                 type="checkbox"
