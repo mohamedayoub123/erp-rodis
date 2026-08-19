@@ -5,8 +5,10 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { DeviseTauxFormField } from "@/app/_components/devise-taux-input";
 import { formatDate } from "@/lib/format-date";
+import { matchesArticleSearch } from "@/lib/article-search";
 import { updateLotPrixAction } from "../actions";
 
 type LotRow = {
@@ -84,7 +86,17 @@ async function fetchAllArticlesMp() {
   return rows;
 }
 
-type SearchParams = Promise<{ tous?: string }>;
+type SearchParams = Promise<{ tous?: string; lot?: string; article?: string }>;
+
+// Garde tout filtre actif quand on bascule sans prix / tous les lots.
+function toggleHref(tous: boolean, lotFilter: string, articleFilter: string) {
+  const qs = new URLSearchParams();
+  if (tous) qs.set("tous", "1");
+  if (lotFilter) qs.set("lot", lotFilter);
+  if (articleFilter) qs.set("article", articleFilter);
+  const query = qs.toString();
+  return `/stock/matiere-premiere/commande/prix${query ? `?${query}` : ""}`;
+}
 
 // Meme principe que "Prix des BC MP" (/stock/matiere-premiere/bc/prix) mais
 // pour les lots deja receptionnes - un lot cree avant l'ajout du prix, ou
@@ -94,16 +106,31 @@ export default async function CommandeMpPrixPage({ searchParams }: { searchParam
   noStore();
   const params = await searchParams;
   const afficherTous = params.tous === "1";
+  const lotFilter = (params.lot || "").trim().toLowerCase();
+  const articleFilter = (params.article || "").trim();
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "commandeMp");
 
-  const [{ rows, error }, articlesMp, nbSansPrix] = await Promise.all([
+  const [{ rows: allRows, error }, articlesMp, nbSansPrix] = await Promise.all([
     fetchLots(afficherTous),
     fetchAllArticlesMp(),
     countLotsSansPrix(),
   ]);
   const mpById = new Map(articlesMp.map((article) => [article.id, article]));
+
+  const rows = allRows.filter((row) => {
+    if (lotFilter && !(row.numero_lot || "").toLowerCase().includes(lotFilter)) return false;
+    if (articleFilter) {
+      const nomArticle = row.article_id ? mpById.get(row.article_id)?.nom_article ?? "" : "";
+      if (!matchesArticleSearch(nomArticle, articleFilter)) return false;
+    }
+    return true;
+  });
+
+  const articleOptions = articlesMp
+    .map((article) => ({ id: article.id, label: article.nom_article }))
+    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -127,7 +154,7 @@ export default async function CommandeMpPrixPage({ searchParams }: { searchParam
         <section className="rounded-[2rem] border border-black/5 bg-white p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <div className="flex items-center gap-3 text-sm">
             <Link
-              href="/stock/matiere-premiere/commande/prix"
+              href={toggleHref(false, lotFilter, articleFilter)}
               className={`rounded-full px-4 py-2 font-semibold transition ${
                 afficherTous ? "border border-slate-200 text-slate-700" : "bg-slate-950 text-white"
               }`}
@@ -135,7 +162,7 @@ export default async function CommandeMpPrixPage({ searchParams }: { searchParam
               Sans prix uniquement
             </Link>
             <Link
-              href="/stock/matiere-premiere/commande/prix?tous=1"
+              href={toggleHref(true, lotFilter, articleFilter)}
               className={`rounded-full px-4 py-2 font-semibold transition ${
                 afficherTous ? "bg-slate-950 text-white" : "border border-slate-200 text-slate-700"
               }`}
@@ -148,6 +175,34 @@ export default async function CommandeMpPrixPage({ searchParams }: { searchParam
               Limite aux {LIMITE_TOUS} lots les plus recents (table trop volumineuse pour tout afficher).
             </p>
           ) : null}
+
+          <form className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]">
+            {afficherTous ? <input type="hidden" name="tous" value="1" /> : null}
+            <input
+              type="text"
+              name="lot"
+              defaultValue={params.lot || ""}
+              placeholder="Numero de lot"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <SearchableFilterInput
+              name="article"
+              defaultValue={params.article || ""}
+              options={articleOptions}
+              placeholder="Article"
+            />
+            <button type="submit" className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
+              Filtrer
+            </button>
+            {lotFilter || articleFilter ? (
+              <Link
+                href={toggleHref(afficherTous, "", "")}
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+              >
+                Effacer
+              </Link>
+            ) : null}
+          </form>
         </section>
 
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
@@ -157,7 +212,11 @@ export default async function CommandeMpPrixPage({ searchParams }: { searchParam
             </div>
           ) : rows.length === 0 ? (
             <div className="px-6 py-8 text-sm text-slate-500">
-              {afficherTous ? "Aucun lot pour le moment." : "Tous les lots ont deja un prix."}
+              {lotFilter || articleFilter
+                ? "Aucun resultat pour ce filtre."
+                : afficherTous
+                  ? "Aucun lot pour le moment."
+                  : "Tous les lots ont deja un prix."}
             </div>
           ) : (
             <div className="max-h-[75vh] overflow-auto">
