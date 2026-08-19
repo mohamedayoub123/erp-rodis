@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
@@ -8,6 +7,7 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { deleteMachineAction } from "./actions";
 import { AddMachineForm } from "./add-machine-form";
 import { MachineTypeProduitSelect } from "./type-produit-select";
+import { MachineNomCell, MachineZoneCell } from "./machine-cells";
 
 type MachineRow = {
   id: number;
@@ -93,14 +93,11 @@ export default async function MachinesPage() {
                   {rows.map((machine) => (
                     <tr key={machine.id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-semibold text-slate-900">
-                        <Link
-                          href={`/production/machines/${machine.id}`}
-                          className="text-sky-700 underline"
-                        >
-                          {machine.nom}
-                        </Link>
+                        <MachineNomCell machine={machine} canEdit={canEdit} />
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{machine.zone || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">
+                        <MachineZoneCell machine={machine} canEdit={canEdit} />
+                      </td>
                       <td className="px-6 py-4 text-slate-600">{machine.type || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {canEdit ? (
