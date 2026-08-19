@@ -18,6 +18,7 @@ import {
 } from "../actions";
 import { canDeletePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { LotCodeCell } from "./lot-code-cell";
+import { SingleDayFilter } from "./single-day-filter";
 import { DeleteProgrammeLigneButton } from "./delete-programme-ligne-button";
 import {
   buildPdLabelByCode,
@@ -545,6 +546,9 @@ export default async function PlanningDashboardPage({
             ) : null}
 
             <div className="flex flex-wrap items-end gap-4 sm:col-span-6">
+              <SingleDayFilter
+                defaultValue={dateDebutFilter && dateDebutFilter === dateFinFilter ? dateDebutFilter : ""}
+              />
               <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Date programme depuis
                 <input
