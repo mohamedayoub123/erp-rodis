@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useFormStatus } from "react-dom";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 
@@ -11,6 +12,29 @@ type LigneRow = {
   numero_lot: string | null;
   quantite: number;
 };
+
+// Doit etre un enfant du <form> pour lire son etat via useFormStatus() -
+// des que "Enregistrer" finit reellement son aller-retour serveur
+// (transition pending true -> false, pas juste au clic), remet isDirty a
+// false. Sans ca, isDirty restait bloque a true APRES un Enregistrer
+// reussi (revalidatePath re-rend le Server Component avec les nouvelles
+// donnees mais ne remonte pas ce composant client, donc son state ne se
+// reinitialise jamais tout seul) - "Enregistrer" restait allume et
+// "Approuver" restait eteint indefiniment meme apres une sauvegarde qui
+// avait pourtant reussi.
+function ResetDirtyWhenSaved({ onSaved }: { onSaved: () => void }) {
+  const { pending } = useFormStatus();
+  const wasPending = useRef(false);
+
+  useEffect(() => {
+    if (wasPending.current && !pending) {
+      onSaved();
+    }
+    wasPending.current = pending;
+  }, [pending, onSaved]);
+
+  return null;
+}
 
 // Empeche d'appuyer "Approuver" avec une quantite tout juste modifiee mais
 // pas encore enregistree - avant, "Approuver" etait un formulaire tout a
@@ -66,10 +90,11 @@ export function InvoiceOrderLignesEditor({
         (plus fiable que l'ancien attribut form="invoice-lignes-form" sur un
         bouton place ailleurs dans le DOM) - SubmitButton exige d'etre
         descendant du <form> qu'il soumet pour lire son etat via
-        useFormStatus(). Pas de reset optimiste de isDirty au clic non plus :
-        la sauvegarde est un vrai aller-retour serveur, le rechargement de
-        page normal apres coup suffit a repartir propre. */}
+        useFormStatus(). isDirty se reinitialise via ResetDirtyWhenSaved
+        (pas au clic - seulement quand le formulaire a reellement fini son
+        aller-retour serveur). */}
         <form action={updateAction} className="p-6">
+          <ResetDirtyWhenSaved onSaved={() => setIsDirty(false)} />
           <input type="hidden" name="invoice_order_id" value={invoiceOrderId} />
           {canEditLignes ? (
             <div className="mb-4">

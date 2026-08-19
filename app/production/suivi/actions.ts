@@ -70,9 +70,10 @@ async function markCodeTermine(formData: FormData, stage: CodeTermineStage): Pro
 
   const { data, error } = await supabaseServer
     .from("production_code_termine")
-    .upsert([{ programme_ligne_id: ligneId, code, stage, numero_lot: numeroLot }], {
-      onConflict: "programme_ligne_id,code,stage",
-    })
+    .upsert(
+      [{ programme_ligne_id: ligneId, code, stage, numero_lot: numeroLot, utilisateur: currentUser }],
+      { onConflict: "programme_ligne_id,code,stage" }
+    )
     .select("id")
     .single();
 

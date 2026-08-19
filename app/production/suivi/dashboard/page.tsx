@@ -15,7 +15,6 @@ import {
   markEmballageTermineAction,
   markVracTermineAction,
   renameLotCodeAction,
-  unmarkCartonTermineAction,
 } from "../actions";
 import { canDeletePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { LotCodeCell } from "./lot-code-cell";
@@ -73,25 +72,6 @@ function FinProgrammeButton({
         className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
       >
         Fin programme
-      </SubmitButton>
-    </form>
-  );
-}
-
-// Permet de revenir sur un "Fin programme" Conditionnement clique par
-// erreur - le code redevient immediatement visible dans le tableau
-// Conditionnement ci-dessus des que cette ligne production_code_termine
-// disparait.
-function AnnulerFinProgrammeButton({ ligneId, code }: { ligneId: number; code: string }) {
-  return (
-    <form action={unmarkCartonTermineAction}>
-      <input type="hidden" name="ligne_id" value={ligneId} />
-      <input type="hidden" name="code" value={code} />
-      <SubmitButton
-        pendingLabel="..."
-        className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
-      >
-        Annuler
       </SubmitButton>
     </form>
   );
@@ -417,13 +397,6 @@ export default async function PlanningDashboardPage({
   // entierement realisee garde donc pour toujours un "restant" theorique
   // juste en dessous de 1 et ne disparaissait jamais du Dashboard. Moins
   // d'un carton restant = plus rien a faire concretement.
-  // Codes Conditionnement fermes par "Fin programme" (ligne enlevee de
-  // cartonRows par isCodeTerminated ci-dessous) - listes a part pour
-  // pouvoir les rouvrir via "Annuler" si le clic etait une erreur.
-  const terminatedCartonRows = codeRows.filter((row) =>
-    terminatedCodes.has(`${row.ligne.id}::${row.code}::carton`)
-  );
-
   const vracRows = codeRows
     .filter(
       (row) =>
@@ -710,9 +683,19 @@ export default async function PlanningDashboardPage({
                   +
                 </Link>
               </div>
-              <p className="text-xs text-slate-500">
-                {Math.round(totalCartonProduit)} / {Math.round(totalCartonPrevu)} produit
-              </p>
+              <div className="flex items-center gap-3">
+                <p className="text-xs text-slate-500">
+                  {Math.round(totalCartonProduit)} / {Math.round(totalCartonPrevu)} produit
+                </p>
+                {isAdmin ? (
+                  <Link
+                    href="/production/suivi/dashboard/historique-fin-programme"
+                    className="text-xs font-semibold text-sky-700 underline"
+                  >
+                    Historique Fin programme
+                  </Link>
+                ) : null}
+              </div>
             </div>
             <div className="max-h-[70vh] overflow-y-auto">
               <table className="w-full text-left text-sm">
@@ -783,51 +766,6 @@ export default async function PlanningDashboardPage({
               </table>
             </div>
           </div>
-
-          <details className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <summary className="cursor-pointer select-none px-5 py-4 text-sm font-semibold text-slate-600">
-              Codes Conditionnement termines ({terminatedCartonRows.length}) - clique pour "Annuler" un "Fin
-              programme" fait par erreur
-            </summary>
-            <div className="border-t border-slate-100 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3 font-semibold">Date</th>
-                    <th className="px-4 py-3 font-semibold">Chaine</th>
-                    <th className="px-4 py-3 font-semibold">Produit</th>
-                    <th className="px-4 py-3 font-semibold">Code</th>
-                    <th className="px-4 py-3 font-semibold">PD</th>
-                    <th className="px-4 py-3 font-semibold">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {terminatedCartonRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500">
-                        Aucun code Conditionnement termine pour le moment.
-                      </td>
-                    </tr>
-                  ) : (
-                    terminatedCartonRows.map((row) => (
-                      <tr key={`termine-${row.ligne.id}-${row.code}`} className="border-t border-slate-100">
-                        <td className="px-4 py-3 text-slate-600">{formatDate(row.ligne.date_jour)}</td>
-                        <td className="px-4 py-3 font-medium text-slate-900">
-                          {row.ligne.zone} / {row.ligne.chaine}
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{row.code}</td>
-                        <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
-                        <td className="px-4 py-3">
-                          <AnnulerFinProgrammeButton ligneId={row.ligne.id} code={row.code} />
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </details>
 
           <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
