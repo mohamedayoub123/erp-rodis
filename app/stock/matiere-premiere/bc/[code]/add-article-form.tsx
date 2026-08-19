@@ -11,6 +11,7 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
   const [articleInput, setArticleInput] = useState("");
   const [showOptions, setShowOptions] = useState(false);
   const [quantite, setQuantite] = useState("");
+  const [prixUnitaire, setPrixUnitaire] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
   const filteredArticles = useMemo(
@@ -31,12 +32,14 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
     formData.set("code", code);
     formData.set("article", articleInput.trim());
     formData.set("quantite", String(qty));
+    formData.set("prix_unitaire", prixUnitaire.trim());
 
     startTransition(async () => {
       try {
         await addArticleToCommandeBcAction(formData);
         setArticleInput("");
         setQuantite("");
+        setPrixUnitaire("");
         router.refresh();
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'ajout.");
@@ -45,7 +48,7 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+    <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
       <div className="relative">
         <input
           type="text"
@@ -89,6 +92,15 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
         placeholder="Quantite"
         className="w-32 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
       />
+      <input
+        type="number"
+        step="0.01"
+        min="0"
+        value={prixUnitaire}
+        onChange={(event) => setPrixUnitaire(event.target.value)}
+        placeholder="Prix unitaire"
+        className="w-36 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+      />
       <button
         type="button"
         onClick={submit}
@@ -97,7 +109,7 @@ export function AddArticleForm({ code, articleOptions }: { code: string; article
       >
         {isPending ? "Ajout..." : "Ajouter article"}
       </button>
-      {errorMessage ? <p className="text-xs font-semibold text-red-700 sm:col-span-3">{errorMessage}</p> : null}
+      {errorMessage ? <p className="text-xs font-semibold text-red-700 sm:col-span-4">{errorMessage}</p> : null}
     </div>
   );
 }

@@ -53,6 +53,7 @@ type CommandeBcRow = {
   code: string;
   article_label: string | null;
   quantite: number | null;
+  prix_unitaire: number | null;
   n_doss_4d: string | null;
   n_doss_erp: string | null;
   fournisseur: string | null;
@@ -73,7 +74,7 @@ type ImportEvenementRow = {
 async function fetchGroup(code: string) {
   const { data, error } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id, code, article_label, quantite, n_doss_4d, n_doss_erp, fournisseur, date_jour, statut")
+    .select("id, code, article_label, quantite, prix_unitaire, n_doss_4d, n_doss_erp, fournisseur, date_jour, statut")
     .eq("code", code)
     .order("id", { ascending: true });
 
@@ -204,6 +205,8 @@ export default async function CommandeBcMpDetailPage({
                       <th className="px-4 py-3 font-semibold">Fournisseur</th>
                       <th className="px-4 py-3 font-semibold">Dossier 4D</th>
                       <th className="px-4 py-3 font-semibold">Qte commandee</th>
+                      <th className="px-4 py-3 font-semibold">Prix unitaire</th>
+                      <th className="px-4 py-3 font-semibold">Montant</th>
                       <th className="px-4 py-3 font-semibold">Qte importee</th>
                       <th className="px-4 py-3 font-semibold">Reste a importer</th>
                       <th className="px-4 py-3 font-semibold">Historique import</th>
@@ -221,6 +224,8 @@ export default async function CommandeBcMpDetailPage({
                       );
                       const statut = computeStatutBc(quantite, quantiteImportee, row.statut);
                       const reste = quantite - quantiteImportee;
+                      const prixUnitaire = row.prix_unitaire;
+                      const montant = prixUnitaire != null ? quantite * prixUnitaire : null;
 
                       return (
                         <tr key={row.id} className="border-t border-slate-100 align-top">
@@ -230,6 +235,12 @@ export default async function CommandeBcMpDetailPage({
                           <td className="px-4 py-3 text-slate-600">{row.fournisseur || "-"}</td>
                           <td className="px-4 py-3 text-slate-600">{row.n_doss_4d || "-"}</td>
                           <td className="px-4 py-3 text-slate-900">{quantite}</td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {prixUnitaire != null ? prixUnitaire.toLocaleString("fr-FR") : "-"}
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-slate-900">
+                            {montant != null ? montant.toLocaleString("fr-FR") : "-"}
+                          </td>
                           <td className="px-4 py-3 text-slate-600">{quantiteImportee}</td>
                           <td className="px-4 py-3 font-semibold text-slate-900">{reste}</td>
                           <td className="px-4 py-3 text-slate-600">
@@ -327,6 +338,17 @@ export default async function CommandeBcMpDetailPage({
                                           defaultValue={quantite}
                                           className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                           required
+                                        />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Prix unitaire
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          name="prix_unitaire"
+                                          defaultValue={prixUnitaire ?? ""}
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                         />
                                       </label>
                                       <label className="grid gap-1 text-xs text-slate-500">
