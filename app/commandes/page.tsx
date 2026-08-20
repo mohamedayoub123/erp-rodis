@@ -184,6 +184,40 @@ async function fetchDispatchedCommandeIds(commandeIds: number[]): Promise<Set<nu
   return dispatched;
 }
 
+// Toutes les lignes de commande pour ces commandes (pagine par 1000 -
+// Supabase plafonne silencieusement une requete sans .range() a 1000
+// lignes, ce qui faisait disparaitre Lignes/Total carton/Prix/Volume/Poids
+// sur des commandes entieres des que le total de lignes depassait 1000).
+async function fetchAllCommandeLignes(
+  commandeIds: number[]
+): Promise<{ commande_id: number; article_id: number | null; quantite_demandee: number | null }[]> {
+  const rows: { commande_id: number; article_id: number | null; quantite_demandee: number | null }[] = [];
+  if (commandeIds.length === 0) return rows;
+
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("commande_lignes")
+      .select("commande_id, article_id, quantite_demandee")
+      .in("commande_id", commandeIds)
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk =
+      (data as { commande_id: number; article_id: number | null; quantite_demandee: number | null }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 export default async function CommandesPage({
   searchParams,
 }: {
@@ -231,21 +265,10 @@ export default async function CommandesPage({
   // commande - il faut donc aussi l'article_id de chaque ligne (pas juste
   // quantite_demandee) pour chiffrer le prix (cout par carton, voir
   // lib/prix-revient.ts) par article commande.
-  const [{ data: lignesCountData }, dispatchedCommandeIds] = await Promise.all([
-    commandeIds.length > 0
-      ? supabaseServer
-          .from("commande_lignes")
-          .select("commande_id, article_id, quantite_demandee")
-          .in("commande_id", commandeIds)
-      : Promise.resolve({
-          data: [] as { commande_id: number; article_id: number | null; quantite_demandee: number | null }[],
-        }),
+  const [lignesRows, dispatchedCommandeIds] = await Promise.all([
+    fetchAllCommandeLignes(commandeIds),
     fetchDispatchedCommandeIds(commandeIds),
   ]);
-
-  const lignesRows =
-    (lignesCountData as { commande_id: number; article_id: number | null; quantite_demandee: number | null }[] | null) ??
-    [];
 
   const articleIdsPourLignes = lignesRows.map((row) => row.article_id).filter((id): id is number => id !== null);
   const [coutsParCarton, dimensionsParArticle] = await Promise.all([
