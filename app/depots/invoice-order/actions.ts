@@ -593,3 +593,23 @@ export async function validateInvoiceOrderAction(formData: FormData) {
   revalidatePath(`/depots/transfer-order/${transferOrder.id}`);
   revalidatePath("/depots");
 }
+
+export async function updateInvoiceOrderRemarqueAction(formData: FormData) {
+  await requireWriteAccess();
+
+  const invoiceOrderId = Number(formData.get("invoice_order_id") || "0");
+  if (!invoiceOrderId) {
+    throw new Error("Transfer Invoice invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("invoice_orders")
+    .update({ remarque: String(formData.get("remarque") || "").trim() || null })
+    .eq("id", invoiceOrderId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath(`/depots/invoice-order/${invoiceOrderId}`);
+}

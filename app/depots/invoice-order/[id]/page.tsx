@@ -6,12 +6,14 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { RemarqueField } from "@/app/_components/remarque-field";
 import { formatDate } from "@/lib/format-date";
 import { type ArticleType } from "../../transfer-order/stock-lots";
 import {
   deleteInvoiceOrderAction,
   deleteInvoiceOrderLigneAction,
   updateInvoiceOrderLignesAction,
+  updateInvoiceOrderRemarqueAction,
   validateInvoiceOrderAction,
 } from "../actions";
 import { InvoiceOrderLignesEditor } from "../lignes-editor";
@@ -23,6 +25,7 @@ type InvoiceOrderRow = {
   date_jour: string;
   created_at: string;
   numero: number | null;
+  remarque: string | null;
 };
 type TransferOrderRow = { id: number; depot_source_id: number; depot_destination_id: number };
 type LigneRow = { id: number; article_type: ArticleType; article_id: number };
@@ -48,7 +51,7 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
 
   const { data: invoiceOrderData } = await supabaseServer
     .from("invoice_orders")
-    .select("id, transfer_order_id, statut, date_jour, created_at, numero")
+    .select("id, transfer_order_id, statut, date_jour, created_at, numero, remarque")
     .eq("id", invoiceOrderId)
     .maybeSingle();
 
@@ -139,6 +142,16 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
                 </form>
               ) : null}
             </div>
+          </div>
+
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <RemarqueField
+              action={updateInvoiceOrderRemarqueAction}
+              hiddenName="invoice_order_id"
+              hiddenValue={invoiceOrderId}
+              remarque={invoiceOrder.remarque}
+              canEdit={canEdit}
+            />
           </div>
         </section>
 

@@ -7,6 +7,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { RemarqueField } from "@/app/_components/remarque-field";
 import { formatDate } from "@/lib/format-date";
 import { fetchLotsInDepot, type ArticleType } from "../stock-lots";
 import {
@@ -15,6 +16,7 @@ import {
   deleteTransferOrderAction,
   postToInvoiceOrderAction,
   updateAllLigneLotsAction,
+  updateTransferOrderRemarqueAction,
 } from "../actions";
 import { TransferOrderLignesEditor } from "../lignes-editor";
 
@@ -44,6 +46,7 @@ type TransferOrderRow = {
   famille_produit: string | null;
   type_mp: string | null;
   numero: number | null;
+  remarque: string | null;
 };
 type LigneRow = { id: number; article_type: ArticleType; article_id: number; quantite_demandee: number };
 type LigneLotRow = { transfer_order_ligne_id: number; numero_lot: string | null; quantite: number };
@@ -84,7 +87,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
     supabaseServer
       .from("transfer_orders")
       .select(
-        "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp, numero"
+        "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp, numero, remarque"
       )
       .eq("id", transferOrderId)
       .maybeSingle(),
@@ -235,6 +238,16 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
                 </form>
               ) : null}
             </div>
+          </div>
+
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <RemarqueField
+              action={updateTransferOrderRemarqueAction}
+              hiddenName="transfer_order_id"
+              hiddenValue={transferOrderId}
+              remarque={transferOrder.remarque}
+              canEdit={canEdit}
+            />
           </div>
         </section>
 

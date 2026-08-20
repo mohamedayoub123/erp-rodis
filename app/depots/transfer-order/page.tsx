@@ -127,6 +127,16 @@ export default async function TransferOrderListPage() {
 
               <TransferOrderLinesForm depots={depots} articlesMp={articlesMp} articlesPf={articlesPf} />
 
+              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                Remarque
+                <textarea
+                  name="remarque"
+                  rows={2}
+                  placeholder="Note optionnelle"
+                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                />
+              </label>
+
               <div>
                 <SubmitButton
                   pendingLabel="Creation..."

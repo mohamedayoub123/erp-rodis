@@ -101,6 +101,7 @@ export async function createTransferOrderAction(formData: FormData) {
       date_jour: dateJour,
       cree_par: currentUser,
       numero: await nextTransferOrderNumero(dateJour),
+      remarque: String(formData.get("remarque") || "").trim() || null,
     })
     .select("id")
     .single();
@@ -696,4 +697,24 @@ export async function deleteTransferOrderAction(formData: FormData) {
   revalidatePath("/depots/transfer-order");
   revalidatePath("/depots/invoice-order");
   redirect("/depots/transfer-order");
+}
+
+export async function updateTransferOrderRemarqueAction(formData: FormData) {
+  await requireWriteAccess();
+
+  const transferOrderId = Number(formData.get("transfer_order_id") || "0");
+  if (!transferOrderId) {
+    throw new Error("Transfer Order invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("transfer_orders")
+    .update({ remarque: String(formData.get("remarque") || "").trim() || null })
+    .eq("id", transferOrderId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath(`/depots/transfer-order/${transferOrderId}`);
 }
