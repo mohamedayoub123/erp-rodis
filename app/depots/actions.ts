@@ -65,6 +65,71 @@ export async function deleteDepotAction(formData: FormData) {
   revalidatePath("/articles/matiere-premiere");
 }
 
+function stockTableForType(articleType: ArticleType) {
+  return articleType === "MP" ? "lots_stock_matiere_premiere" : "lots_stock";
+}
+
+// Solde actuel + deja reserve pour un article+lot precis dans UN depot -
+// partage entre la correction ligne par ligne et la correction en lot, pour
+// ne jamais dupliquer cette logique (voir updateDepotLotStockAction/
+// updateDepotStockBatchAction).
+async function computeSoldeEtReserve(
+  articleType: ArticleType,
+  articleId: number,
+  numeroLot: string,
+  depotId: number
+): Promise<{ solde: number; reserve: number; table: string }> {
+  const table = stockTableForType(articleType);
+  const articlesTable = articleType === "MP" ? "articles_matiere_premiere" : "articles";
+
+  const { data: articleData } = await supabaseServer
+    .from(articlesTable)
+    .select("depot_id")
+    .eq("id", articleId)
+    .maybeSingle();
+  const defaultDepotId = (articleData as { depot_id: number | null } | null)?.depot_id ?? null;
+
+  const { data: lotsData, error: lotsError } = await supabaseServer
+    .from(table)
+    .select("qte_entree, qte_sortie, depot_id, numero_lot")
+    .eq("article_id", articleId);
+
+  if (lotsError) {
+    throw new Error(lotsError.message);
+  }
+
+  let solde = 0;
+  for (const lot of (lotsData ?? []) as {
+    qte_entree: number;
+    qte_sortie: number;
+    depot_id: number | null;
+    numero_lot: string | null;
+  }[]) {
+    if ((lot.numero_lot || "").trim() !== numeroLot) continue;
+    const effectiveDepotId = lot.depot_id ?? defaultDepotId;
+    if (effectiveDepotId !== depotId) continue;
+    solde += Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0);
+  }
+
+  const reservedByLot = await fetchReservedByLot(articleType, articleId, depotId);
+  let reserve = reservedByLot.get(numeroLot) ?? 0;
+
+  if (articleType === "MP") {
+    const { data: reserveData } = await supabaseServer
+      .from("production_mp_reserve")
+      .select("quantite")
+      .eq("depot_id", depotId)
+      .eq("article_mp_id", articleId)
+      .eq("numero_lot", numeroLot);
+    reserve += ((reserveData ?? []) as { quantite: number }[]).reduce(
+      (sum, r) => sum + Number(r.quantite ?? 0),
+      0
+    );
+  }
+
+  return { solde, reserve, table };
+}
+
 // Corrige le stock d'un article+lot precis dans un depot (fiche
 // /depots/[id]) - insere une ligne d'ajustement (entree ou sortie, jamais
 // une modification des lignes existantes) pour amener le solde a la
@@ -93,53 +158,7 @@ export async function updateDepotLotStockAction(formData: FormData) {
     throw new Error("La quantite ne peut pas etre negative.");
   }
 
-  const table = articleType === "MP" ? "lots_stock_matiere_premiere" : "lots_stock";
-  const articlesTable = articleType === "MP" ? "articles_matiere_premiere" : "articles";
-
-  const { data: articleData } = await supabaseServer
-    .from(articlesTable)
-    .select("depot_id")
-    .eq("id", articleId)
-    .maybeSingle();
-  const defaultDepotId = (articleData as { depot_id: number | null } | null)?.depot_id ?? null;
-
-  const { data: lotsData, error: lotsError } = await supabaseServer
-    .from(table)
-    .select("qte_entree, qte_sortie, depot_id, numero_lot")
-    .eq("article_id", articleId);
-
-  if (lotsError) {
-    throw new Error(lotsError.message);
-  }
-
-  let currentSolde = 0;
-  for (const lot of (lotsData ?? []) as {
-    qte_entree: number;
-    qte_sortie: number;
-    depot_id: number | null;
-    numero_lot: string | null;
-  }[]) {
-    if ((lot.numero_lot || "").trim() !== numeroLot) continue;
-    const effectiveDepotId = lot.depot_id ?? defaultDepotId;
-    if (effectiveDepotId !== depotId) continue;
-    currentSolde += Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0);
-  }
-
-  const reservedByLot = await fetchReservedByLot(articleType, articleId, depotId);
-  let reserve = reservedByLot.get(numeroLot) ?? 0;
-
-  if (articleType === "MP") {
-    const { data: reserveData } = await supabaseServer
-      .from("production_mp_reserve")
-      .select("quantite")
-      .eq("depot_id", depotId)
-      .eq("article_mp_id", articleId)
-      .eq("numero_lot", numeroLot);
-    reserve += ((reserveData ?? []) as { quantite: number }[]).reduce(
-      (sum, r) => sum + Number(r.quantite ?? 0),
-      0
-    );
-  }
+  const { solde, reserve, table } = await computeSoldeEtReserve(articleType, articleId, numeroLot, depotId);
 
   if (nouvelleQuantite < reserve - 1e-6) {
     throw new Error(
@@ -147,7 +166,7 @@ export async function updateDepotLotStockAction(formData: FormData) {
     );
   }
 
-  const delta = nouvelleQuantite - currentSolde;
+  const delta = nouvelleQuantite - solde;
   if (Math.abs(delta) < 1e-9) {
     return;
   }
@@ -166,6 +185,99 @@ export async function updateDepotLotStockAction(formData: FormData) {
 
   if (insertError) {
     throw new Error(insertError.message);
+  }
+
+  revalidatePath(`/depots/${depotId}`);
+}
+
+// Meme correction que updateDepotLotStockAction, mais pour PLUSIEURS
+// articles/lots en une seule saisie ("+ Ajouter une ligne", meme motif que
+// Transfer Order) - demande explicite : "changer tout le stock d'un coup".
+// Valide TOUTES les lignes (solde, reserve) avant d'ecrire quoi que ce soit :
+// si une seule ligne descendrait sous sa reservation, aucune correction
+// n'est appliquee (tout ou rien), plutot que d'appliquer les lignes
+// valides et laisser l'utilisateur deviner laquelle a echoue.
+export async function updateDepotStockBatchAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "depots"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier le stock des depots.");
+  }
+
+  const depotId = Number(formData.get("depot_id") || "0");
+  if (!depotId) {
+    throw new Error("Depot invalide.");
+  }
+
+  const articleTypes = formData.getAll("article_type");
+  const articleIds = formData.getAll("article_id");
+  const numeroLots = formData.getAll("numero_lot");
+  const nouvellesQuantites = formData.getAll("nouvelle_quantite");
+
+  const lignes = articleIds
+    .map((raw, index) => ({
+      articleType: (String(articleTypes[index] || "") === "MP" ? "MP" : "PF") as ArticleType,
+      articleId: Number(raw || "0"),
+      numeroLot: String(numeroLots[index] || "").trim(),
+      nouvelleQuantite: Number(String(nouvellesQuantites[index] || "").trim().replace(",", ".")),
+    }))
+    .filter((ligne) => ligne.articleId > 0 && ligne.numeroLot);
+
+  if (lignes.length === 0) {
+    throw new Error("Ajoute au moins une ligne valide (article, numero de lot, quantite).");
+  }
+
+  const aCorreger: { table: string; insert: Record<string, unknown> }[] = [];
+
+  for (const ligne of lignes) {
+    if (Number.isNaN(ligne.nouvelleQuantite) || ligne.nouvelleQuantite < 0) {
+      throw new Error(`Quantite invalide pour le lot ${ligne.numeroLot}.`);
+    }
+
+    const { solde, reserve, table } = await computeSoldeEtReserve(
+      ligne.articleType,
+      ligne.articleId,
+      ligne.numeroLot,
+      depotId
+    );
+
+    if (ligne.nouvelleQuantite < reserve - 1e-6) {
+      throw new Error(
+        `Lot ${ligne.numeroLot} : impossible de descendre sous ${reserve.toLocaleString("fr-FR")}, deja reserve par ailleurs.`
+      );
+    }
+
+    const delta = ligne.nouvelleQuantite - solde;
+    if (Math.abs(delta) < 1e-9) continue;
+
+    aCorreger.push({
+      table,
+      insert: {
+        article_id: ligne.articleId,
+        numero_lot: ligne.numeroLot,
+        code_normalise: ligne.numeroLot.toUpperCase(),
+        date_jour: new Date().toISOString().slice(0, 10),
+        qte_entree: delta > 0 ? delta : 0,
+        qte_sortie: delta < 0 ? -delta : 0,
+        depot_id: depotId,
+        utilisateur: currentUser,
+        note: "Correction de stock en lot (fiche Depot)",
+      },
+    });
+  }
+
+  const byTable = new Map<string, Record<string, unknown>[]>();
+  for (const item of aCorreger) {
+    const list = byTable.get(item.table) ?? [];
+    list.push(item.insert);
+    byTable.set(item.table, list);
+  }
+
+  for (const [table, rows] of byTable.entries()) {
+    const { error } = await supabaseServer.from(table).insert(rows);
+    if (error) {
+      throw new Error(error.message);
+    }
   }
 
   revalidatePath(`/depots/${depotId}`);

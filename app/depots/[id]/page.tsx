@@ -6,6 +6,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { LotStockCell } from "./lot-stock-cell";
+import { DepotStockBatchForm } from "./stock-batch-form";
 
 type DepotRow = { id: number; nom: string };
 type ArticlePfRow = { id: number; nom_article: string; nature: string | null; depot_id: number | null };
@@ -170,6 +171,12 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
 
   const articlePfById = new Map(articlesPf.map((a) => [a.id, a]));
   const articleMpById = new Map(articlesMp.map((a) => [a.id, a]));
+  const articlesPfOptions = articlesPf
+    .map((a) => ({ id: a.id, label: a.nom_article }))
+    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+  const articlesMpOptions = articlesMp
+    .map((a) => ({ id: a.id, label: a.nom_article }))
+    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
   const depotIdByArticlePfId = new Map(articlesPf.map((a) => [a.id, a.depot_id]));
   const depotIdByArticleMpId = new Map(articlesMp.map((a) => [a.id, a.depot_id]));
 
@@ -281,6 +288,15 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
             </div>
           </div>
         </section>
+
+        {canEdit ? (
+          <details className="group overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-sky-700 marker:content-none">
+              + Corriger le stock (plusieurs articles/lots d&apos;un coup)
+            </summary>
+            <DepotStockBatchForm depotId={depotId} articlesMp={articlesMpOptions} articlesPf={articlesPfOptions} />
+          </details>
+        ) : null}
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <h2 className="border-b border-slate-100 px-6 py-4 text-sm font-bold uppercase tracking-wide text-slate-500">
