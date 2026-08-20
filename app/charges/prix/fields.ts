@@ -8,6 +8,7 @@ export const PRIX_FIELDS = [
   { key: "prix_essence", label: "Prix Essence (par litre)" },
   { key: "prix_gasoil", label: "Prix Gasoil (par litre)" },
   { key: "prix_kwh", label: "Prix Electricite (par kWh)" },
+  { key: "prix_heure_journalier", label: "Prix 1h Journalier" },
 ] as const;
 
 export type FieldKey = (typeof PRIX_FIELDS)[number]["key"];

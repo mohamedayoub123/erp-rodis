@@ -96,7 +96,7 @@ export default async function ChargesPage() {
                 href="/charges/prix"
                 className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100"
               >
-                Prix carburant
+                Tarifs
               </Link>
               <BackButton href="/" label="Retour accueil" />
               <RefreshButton />

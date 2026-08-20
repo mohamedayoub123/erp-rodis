@@ -43,10 +43,10 @@ export default async function PrixCarburantPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-700">ERP Rodis</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Prix Carburant</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Tarifs</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Prix au litre saisi chaque mois - sert a calculer automatiquement le cout gaz/essence/gasoil
-                sur la page Charges Usine a partir des litres consommes.
+                Prix/tarifs saisis chaque mois (gaz, essence, gasoil, electricite, main d&apos;oeuvre) - servent
+                a calculer automatiquement les couts sur la page Charges Usine a partir des quantites consommees.
               </p>
             </div>
 
