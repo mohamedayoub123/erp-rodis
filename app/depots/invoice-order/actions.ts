@@ -394,7 +394,7 @@ export async function validateInvoiceOrderAction(formData: FormData) {
 
   const { data: invoiceOrderData, error: invoiceOrderError } = await supabaseServer
     .from("invoice_orders")
-    .select("id, transfer_order_id, statut")
+    .select("id, transfer_order_id, statut, numero, date_jour")
     .eq("id", invoiceOrderId)
     .maybeSingle();
 
@@ -402,7 +402,15 @@ export async function validateInvoiceOrderAction(formData: FormData) {
     throw new Error("Transfer Invoice introuvable.");
   }
 
-  const invoiceOrder = invoiceOrderData as { id: number; transfer_order_id: number; statut: string };
+  const invoiceOrder = invoiceOrderData as {
+    id: number;
+    transfer_order_id: number;
+    statut: string;
+    numero: number;
+    date_jour: string;
+  };
+  // Meme convention que transfer-order/page.tsx (computeTiCodesByTransferOrderId).
+  const tiCode = `TI.${invoiceOrder.date_jour.slice(0, 4)}.${invoiceOrder.numero}`;
 
   if (invoiceOrder.statut === "valide") {
     throw new Error("Cet Transfer Invoice est deja valide.");
@@ -462,6 +470,22 @@ export async function validateInvoiceOrderAction(formData: FormData) {
     ((allLignesData ?? []) as { id: number; article_type: ArticleType; article_id: number }[]).map((l) => [l.id, l])
   );
 
+  const { data: depotsData, error: depotsError } = await supabaseServer
+    .from("depots")
+    .select("id, nom")
+    .in("id", [transferOrder.depot_source_id, transferOrder.depot_destination_id]);
+
+  if (depotsError) {
+    throw new Error(depotsError.message);
+  }
+
+  const depotNomById = new Map(((depotsData ?? []) as { id: number; nom: string }[]).map((d) => [d.id, d.nom]));
+  const depotSourceNom = depotNomById.get(transferOrder.depot_source_id) ?? `Depot #${transferOrder.depot_source_id}`;
+  const depotDestinationNom =
+    depotNomById.get(transferOrder.depot_destination_id) ?? `Depot #${transferOrder.depot_destination_id}`;
+  const noteSortie = `${tiCode} - Transfert vers ${depotDestinationNom}`;
+  const noteEntree = `${tiCode} - Transfert depuis ${depotSourceNom}`;
+
   for (const invoiceLigne of invoiceLignes) {
     // Deja traitee (relance apres une premiere tentative qui a echoue en
     // cours de route, ex: collision de sequence id sur lots_stock*) - ne
@@ -473,7 +497,6 @@ export async function validateInvoiceOrderAction(formData: FormData) {
     if (!ligne) continue;
 
     const table = stockTableFor(ligne.article_type);
-    const notePrefix = "Transfer Order";
 
     const { data: sortieRow, error: sortieError } = await supabaseServer
       .from(table)
@@ -485,7 +508,7 @@ export async function validateInvoiceOrderAction(formData: FormData) {
         depot_id: transferOrder.depot_source_id,
         date_jour: transferOrder.date_jour,
         utilisateur: currentUser,
-        note: notePrefix,
+        note: noteSortie,
       })
       .select("id")
       .single();
@@ -504,7 +527,7 @@ export async function validateInvoiceOrderAction(formData: FormData) {
         depot_id: transferOrder.depot_destination_id,
         date_jour: transferOrder.date_jour,
         utilisateur: currentUser,
-        note: notePrefix,
+        note: noteEntree,
       })
       .select("id")
       .single();

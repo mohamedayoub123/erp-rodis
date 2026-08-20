@@ -503,10 +503,53 @@ async function fetchAllArticleCodeRows(): Promise<AllArticleCodeRow[]> {
   return rows;
 }
 
+type PendingCodeFields = { code_manu: string | null; code_auto: string | null };
+
+// Le code confirme (articles.code_manu/code_auto) ne suffit pas comme seed :
+// un Dispatch pose son code en ATTENTE (pending_article_code_updates) tant
+// que le programme n'est pas confirme sur Ravitailleur (voir
+// upsertPendingArticleCodeUpdates plus bas) - potentiellement des heures ou
+// des jours. Un 2e Dispatch de la meme famille pendant ce delai relisait
+// jusqu'ici le meme "articles.code_auto" pas-encore-avance et regenerait
+// EXACTEMENT les memes codes qu'un Dispatch pas encore confirme, sur une
+// AUTRE contenance de la famille - bug reel observe en prod (AA4240V a
+// AA4243V generes 2 fois a 1 jour d'intervalle, groupe_id 7745 puis 7793).
+// L'index unique de programme_dispatcher_lignes ne l'attrape pas : il est
+// scope par article_id (voir add_programme_dispatcher_code_unique_include_article.sql,
+// necessaire pour laisser 2 contenances differentes coexister sur la meme
+// chaine), donc un meme code sur 2 article_id DIFFERENTS de la meme famille
+// passe au travers. Le seed doit donc aussi tenir compte de tout code
+// pending non confirme, pour n'importe quel groupe_id, de la meme famille.
+async function fetchPendingCodesByArticleId(): Promise<Map<number, PendingCodeFields>> {
+  const map = new Map<number, PendingCodeFields>();
+  const { data, error } = await supabaseServer
+    .from("pending_article_code_updates")
+    .select("article_id, code_manu, code_auto");
+
+  if (error) return map;
+
+  for (const row of (data as { article_id: number; code_manu: string | null; code_auto: string | null }[] | null) ?? []) {
+    const existing = map.get(row.article_id) ?? { code_manu: null, code_auto: null };
+    for (const field of ["code_manu", "code_auto"] as const) {
+      const candidate = row[field];
+      if (!candidate) continue;
+      const candidateNum = extractTrailingNumber(candidate);
+      const existingNum = existing[field] ? extractTrailingNumber(existing[field]!) : null;
+      if (candidateNum !== null && (existingNum === null || candidateNum > existingNum)) {
+        existing[field] = candidate;
+      }
+    }
+    map.set(row.article_id, existing);
+  }
+
+  return map;
+}
+
 async function generateAutoCodes(
   draftRows: DispatcherDraftRow[],
   articleInfoById: Map<number, ArticleFullInfo>,
-  allArticles: AllArticleCodeRow[]
+  allArticles: AllArticleCodeRow[],
+  pendingCodesByArticleId: Map<number, PendingCodeFields>
 ): Promise<{ codesByRowIndex: Map<number, string>; codeUpdatesByArticleId: Map<number, { code_manu?: string; code_auto?: string }> }> {
   const codesByRowIndex = new Map<number, string>();
   const codeUpdatesByArticleId = new Map<number, { code_manu?: string; code_auto?: string }>();
@@ -574,6 +617,21 @@ async function generateAutoCodes(
 
       for (const row of familyRows) {
         const current = field === "code_manu" ? row.code_manu : row.code_auto;
+        if (!current) continue;
+        const num = extractTrailingNumber(current);
+        if (num !== null && num > seedNumber) {
+          seedNumber = num;
+          seedCode = current;
+        }
+      }
+
+      // Meme recherche de max, mais sur les codes encore en attente de
+      // confirmation (voir fetchPendingCodesByArticleId) - sans ca, un 2e
+      // Dispatch de la meme famille avant confirmation du 1er repart du
+      // meme seed perime et regenere les memes codes.
+      for (const articleId of familyArticleIds) {
+        const pending = pendingCodesByArticleId.get(articleId);
+        const current = field === "code_manu" ? pending?.code_manu : pending?.code_auto;
         if (!current) continue;
         const num = extractTrailingNumber(current);
         if (num !== null && num > seedNumber) {
@@ -719,9 +777,10 @@ async function assignDispatcherCodesAndInsert(
   rowIds: number[]
 ): Promise<void> {
   const articleIds = [...new Set(filledRows.map((row) => row.article_id as number))];
-  const [articleInfoById, allArticleCodeRows] = await Promise.all([
+  const [articleInfoById, allArticleCodeRows, pendingCodesByArticleId] = await Promise.all([
     fetchArticleInfoMap(articleIds),
     fetchAllArticleCodeRows(),
+    fetchPendingCodesByArticleId(),
   ]);
 
   // Deux "Save"/"Dispatch" lances a quelques millisecondes d'ecart sur la
@@ -742,10 +801,13 @@ async function assignDispatcherCodesAndInsert(
   for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
     const draftRows = buildDispatcherDraftRows(filledRows, articleInfoById);
     const articleCodeRowsForAttempt = attempt === 1 ? allArticleCodeRows : await fetchAllArticleCodeRows();
+    const pendingCodesForAttempt =
+      attempt === 1 ? pendingCodesByArticleId : await fetchPendingCodesByArticleId();
     const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(
       draftRows,
       articleInfoById,
-      articleCodeRowsForAttempt
+      articleCodeRowsForAttempt,
+      pendingCodesForAttempt
     );
 
     const rawDispatcherPayload = draftRows.map((row, index) => ({
