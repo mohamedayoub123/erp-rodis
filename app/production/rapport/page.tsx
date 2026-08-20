@@ -61,6 +61,14 @@ const TILES = [
     icon: "\u{1F5D1}\u{FE0F}",
     description: "Par code : pieces fabriquees vs pieces jetees (dechet), et le % de dechet.",
   },
+  {
+    label: "Cout Reel (piece/gramme)",
+    href: "/production/rapport/cout-reel",
+    pageKey: "productionRapportCoutReel",
+    icon: "\u{1F4B0}",
+    description:
+      "Par article : cout reel (vrac/conditionnement, electricite machine, journaliers) sur une periode.",
+  },
 ] as const;
 
 export default async function RapportPage() {

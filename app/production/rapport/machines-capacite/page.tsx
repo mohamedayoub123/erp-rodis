@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { normalizeMachineName as normalize } from "@/lib/machine-match";
 
 // Capacite usine = combien de machines tournent EN CE MOMENT sur les 3
 // (ou N) qui existent - "3 machines, je travaille avec les 3 = 100%",
@@ -17,10 +18,6 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 //   - autres types (Conditionnement...) : la chaine de la ligne de
 //     programme (programme_lignes.chaine) rapprochee du nom de la machine
 //     (ex: machine "chaine 1" <-> programme_lignes.chaine "CHAINE 1").
-function normalize(value: string | null | undefined) {
-  return (value || "").trim().toLowerCase();
-}
-
 type MachineRow = { id: number; nom: string; zone: string | null; type: string | null };
 
 type LigneActive = {

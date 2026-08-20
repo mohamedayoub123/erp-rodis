@@ -620,6 +620,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "productionRapportCoutReel",
+    module: "Production",
+    label: "Rapport Cout Reel (piece/gramme)",
+    pathPrefixes: ["/production/rapport/cout-reel"],
+    hasWrite: false,
+  },
+  {
     key: "productionRapportCartonMensuel",
     module: "Production",
     label: "Rapport Carton Mensuel",

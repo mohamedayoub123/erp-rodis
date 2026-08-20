@@ -188,6 +188,18 @@ export default async function NouvelleFicheFabricationPage() {
                       ))}
                     </select>
                   </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Nb de journaliers
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      name="nb_journaliers_fabrication"
+                      defaultValue="0"
+                      required
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
                 </div>
               </div>
 

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { saveFabricationRapportAction } from "../../actions";
 import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { combineTempsJourMois, splitTempsJourMois } from "@/lib/suivi-tirage-time";
 
 const TYPE_FABRICATION_OPTIONS = [
   "Automatique",
@@ -45,6 +46,7 @@ type RapportInfo = {
   temps_envoi_echantillon_labo: string | null;
   temps_fin_test: string | null;
   temps_vidange: string | null;
+  nb_journaliers_fabrication: number | null;
   vrac_fabrique: number | null;
   qt_vrac_recupere: number | null;
   code_vrac_recupere: string | null;
@@ -64,25 +66,6 @@ type RapportInfo = {
 
 const inputClass =
   "rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none";
-
-// Une preparation peut s'etaler sur plusieurs jours (ex: debut un soir,
-// echantillon envoye le lendemain) - chaque "temps" garde donc aussi son
-// jour/mois, pas seulement l'heure. Stocke en un seul texte "JJ/MM HH:MM"
-// (mois nomme cote saisie pour eviter l'ambiguite jour/mois d'un champ date
-// natif, meme raison que DateJmaFormField) pour rester dans la meme colonne
-// texte existante, sans migration de base necessaire.
-function splitTempsJourMois(value: string | null | undefined) {
-  const match = (value || "").match(/^(\d{1,2})\/(\d{2})\s+(\d{2}:\d{2})$/);
-  if (match) {
-    return { day: match[1], month: match[2], time: match[3] };
-  }
-  return { day: "", month: "", time: value || "" };
-}
-
-function combineTempsJourMois(day: string, month: string, time: string) {
-  if (!time) return "";
-  return day && month ? `${day.padStart(2, "0")}/${month} ${time}` : time;
-}
 
 export function TempsField({
   label,
@@ -221,6 +204,18 @@ export function FabricationForm({
                 </option>
               ))}
             </select>
+          </label>
+          <label className="grid gap-1 text-xs font-semibold text-slate-500">
+            Nb de journaliers
+            <input
+              type="number"
+              step="1"
+              min="0"
+              name="nb_journaliers_fabrication"
+              defaultValue={rapport?.nb_journaliers_fabrication ?? "0"}
+              required
+              className={inputClass}
+            />
           </label>
         </div>
       </div>

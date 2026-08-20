@@ -479,6 +479,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
       cuve_3_poids: parseOptionalNumber(formData, "cuve_3_poids"),
       cuve_4_numero: parseOptionalText(formData, "cuve_4_numero"),
       cuve_4_poids: parseOptionalNumber(formData, "cuve_4_poids"),
+      nb_journaliers_fabrication: parseOptionalNumber(formData, "nb_journaliers_fabrication"),
       temps_debut_preparation: parseOptionalText(formData, "temps_debut_preparation"),
       temps_envoi_echantillon_labo: parseOptionalText(formData, "temps_envoi_echantillon_labo"),
       temps_fin_test: parseOptionalText(formData, "temps_fin_test"),
