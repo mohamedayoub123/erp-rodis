@@ -127,13 +127,29 @@ async function fetchCartonTotalByCommande(commandeIds: number[]) {
   const totals = new Map<number, number>();
   if (commandeIds.length === 0) return totals;
 
-  const { data } = await supabaseServer
-    .from("commande_lignes")
-    .select("commande_id, quantite_demandee")
-    .in("commande_id", commandeIds);
+  let from = 0;
+  const pageSize = 1000;
 
-  for (const row of (data as { commande_id: number; quantite_demandee: number | null }[] | null) ?? []) {
-    totals.set(row.commande_id, (totals.get(row.commande_id) ?? 0) + Number(row.quantite_demandee ?? 0));
+  // Meme plafond PostgREST ~1000 lignes que fetchAllCommandesForDelaiReport
+  // ci-dessus - sans pagination ici, les commandes dont les lignes tombent
+  // apres la 1000e etaient comptees a 0 carton au lieu de leur vrai total.
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("commande_lignes")
+      .select("commande_id, quantite_demandee")
+      .in("commande_id", commandeIds)
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { commande_id: number; quantite_demandee: number | null }[] | null) ?? [];
+    for (const row of chunk) {
+      totals.set(row.commande_id, (totals.get(row.commande_id) ?? 0) + Number(row.quantite_demandee ?? 0));
+    }
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
   }
 
   return totals;
