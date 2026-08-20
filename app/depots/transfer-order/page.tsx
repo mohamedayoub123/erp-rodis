@@ -18,11 +18,10 @@ type TransferOrderRow = {
   statut: string;
   date_jour: string;
   created_at: string;
-  famille_produit: string | null;
-  type_mp: string | null;
   numero: number | null;
   remarque: string | null;
 };
+type InvoiceOrderRow = { id: number; transfer_order_id: number; numero: number | null; date_jour: string };
 
 async function fetchAll<T>(table: string, select: string) {
   const rows: T[] = [];
@@ -50,34 +49,83 @@ function computeCodes(rows: TransferOrderRow[]): Map<number, string> {
   return codeById;
 }
 
+// Meme convention de code que invoice-order/page.tsx (TI.annee.numero) - un
+// Transfer Order peut avoir plusieurs Transfer Invoice au fil du temps
+// (livraisons partielles, voir postToInvoiceOrderAction), tous regroupes
+// ici pour que le filtre "Numero TI" les trouve tous.
+function computeTiCodesByTransferOrderId(rows: InvoiceOrderRow[]): Map<number, string[]> {
+  const map = new Map<number, string[]>();
+  for (const row of rows) {
+    const code = `TI.${row.date_jour.slice(0, 4)}.${row.numero ?? row.id}`;
+    const list = map.get(row.transfer_order_id) ?? [];
+    list.push(code);
+    map.set(row.transfer_order_id, list);
+  }
+  return map;
+}
+
 const STATUT_LABELS: Record<string, string> = {
   en_attente: "En attente",
   approuve: "Approuve",
   poste: "Poste",
 };
 
-export default async function TransferOrderListPage() {
+type SearchParams = Promise<{
+  depotSource?: string;
+  depotDestination?: string;
+  numeroTo?: string;
+  numeroTi?: string;
+  remarque?: string;
+}>;
+
+export default async function TransferOrderListPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
+  const params = await searchParams;
+  const depotSourceFilter = params.depotSource || "";
+  const depotDestinationFilter = params.depotDestination || "";
+  const numeroToFilter = (params.numeroTo || "").trim().toLowerCase();
+  const numeroTiFilter = (params.numeroTi || "").trim().toLowerCase();
+  const remarqueFilter = (params.remarque || "").trim().toLowerCase();
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "depots");
   const canDelete = await canDeletePageUser(currentUser, "depots");
 
-  const [{ rows: depots }, { rows: transferOrders, error }, { rows: articlesMpRows }, { rows: articlesPfRows }] =
-    await Promise.all([
-      fetchAll<DepotRow>("depots", "id, nom"),
-      fetchAll<TransferOrderRow>(
-        "transfer_orders",
-        "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp, numero, remarque"
-      ),
-      fetchAll<{ id: number; nom_article: string }>("articles_matiere_premiere", "id, nom_article"),
-      fetchAll<{ id: number; nom_article: string }>("articles", "id, nom_article"),
-    ]);
+  const [
+    { rows: depots },
+    { rows: transferOrders, error },
+    { rows: invoiceOrders },
+    { rows: articlesMpRows },
+    { rows: articlesPfRows },
+  ] = await Promise.all([
+    fetchAll<DepotRow>("depots", "id, nom"),
+    fetchAll<TransferOrderRow>(
+      "transfer_orders",
+      "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, numero, remarque"
+    ),
+    fetchAll<InvoiceOrderRow>("invoice_orders", "id, transfer_order_id, numero, date_jour"),
+    fetchAll<{ id: number; nom_article: string }>("articles_matiere_premiere", "id, nom_article"),
+    fetchAll<{ id: number; nom_article: string }>("articles", "id, nom_article"),
+  ]);
 
   const depotNomById = new Map(depots.map((d) => [d.id, d.nom]));
   const codeById = computeCodes(transferOrders);
-  const sortedTransferOrders = [...transferOrders].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  const tiCodesById = computeTiCodesByTransferOrderId(invoiceOrders);
+  const sortedTransferOrders = [...transferOrders]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .filter((row) => {
+      if (depotSourceFilter && String(row.depot_source_id) !== depotSourceFilter) return false;
+      if (depotDestinationFilter && String(row.depot_destination_id) !== depotDestinationFilter) return false;
+      if (numeroToFilter && !(codeById.get(row.id) || "").toLowerCase().includes(numeroToFilter)) return false;
+      if (numeroTiFilter) {
+        const tiCodes = tiCodesById.get(row.id) ?? [];
+        if (!tiCodes.some((code) => code.toLowerCase().includes(numeroTiFilter))) return false;
+      }
+      if (remarqueFilter && !(row.remarque || "").toLowerCase().includes(remarqueFilter)) return false;
+      return true;
+    });
+  const hasActiveFilter = Boolean(
+    depotSourceFilter || depotDestinationFilter || numeroToFilter || numeroTiFilter || remarqueFilter
   );
 
   const articlesMp = articlesMpRows
@@ -150,6 +198,84 @@ export default async function TransferOrderListPage() {
           </details>
         ) : null}
 
+        <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <form className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              De
+              <select
+                name="depotSource"
+                defaultValue={depotSourceFilter}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              >
+                <option value="">Tous</option>
+                {depots.map((depot) => (
+                  <option key={depot.id} value={depot.id}>
+                    {depot.nom}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Vers
+              <select
+                name="depotDestination"
+                defaultValue={depotDestinationFilter}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              >
+                <option value="">Tous</option>
+                {depots.map((depot) => (
+                  <option key={depot.id} value={depot.id}>
+                    {depot.nom}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Numero TO
+              <input
+                type="text"
+                name="numeroTo"
+                defaultValue={params.numeroTo || ""}
+                placeholder="Ex: TO.2026.5"
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Numero TI
+              <input
+                type="text"
+                name="numeroTi"
+                defaultValue={params.numeroTi || ""}
+                placeholder="Ex: TI.2026.3"
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Remarque
+              <input
+                type="text"
+                name="remarque"
+                defaultValue={params.remarque || ""}
+                placeholder="Recherche libre"
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              />
+            </label>
+            <div className="flex items-end gap-3 sm:col-span-3 lg:col-span-5">
+              <button type="submit" className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
+                Filtrer
+              </button>
+              {hasActiveFilter ? (
+                <Link
+                  href="/depots/transfer-order"
+                  className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+                >
+                  Effacer
+                </Link>
+              ) : null}
+            </div>
+          </form>
+        </section>
+
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           {error ? (
             <div className="px-6 py-8">
@@ -165,8 +291,6 @@ export default async function TransferOrderListPage() {
                 <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Code</th>
-                    <th className="px-6 py-4 font-semibold">Famille</th>
-                    <th className="px-6 py-4 font-semibold">Type</th>
                     <th className="px-6 py-4 font-semibold">Date</th>
                     <th className="px-6 py-4 font-semibold">De</th>
                     <th className="px-6 py-4 font-semibold">Vers</th>
@@ -182,20 +306,6 @@ export default async function TransferOrderListPage() {
                         <Link href={`/depots/transfer-order/${row.id}`} className="text-sky-700 underline">
                           {codeById.get(row.id)}
                         </Link>
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">{row.famille_produit ?? "-"}</td>
-                      <td className="px-6 py-4">
-                        {row.type_mp ? (
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                              row.type_mp === "MP" ? "bg-violet-50 text-violet-700" : "bg-amber-50 text-amber-700"
-                            }`}
-                          >
-                            {row.type_mp}
-                          </span>
-                        ) : (
-                          "-"
-                        )}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{formatDate(row.date_jour)}</td>
                       <td className="px-6 py-4 text-slate-600">{depotNomById.get(row.depot_source_id) ?? "-"}</td>
