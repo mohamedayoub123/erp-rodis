@@ -25,11 +25,20 @@ function parseQuantite(formData: FormData) {
 // Empeche le total des lignes MP d'une recette de depasser la quantite
 // totale du lot declaree (articles.quantite_recette_base, = 100% du lot) -
 // pas de verification si cette base n'est pas renseignee (rien a comparer).
+// Uniquement pour Fabrication : quantite_recette_base y est le poids (kg) du
+// lot de vrac, et chaque ligne MP est une part de ce meme poids (somme <=
+// 100% a du sens). En Conditionnement, quantite_recette_base est un nombre
+// de CARTONS et chaque ligne est un nombre de PIECES d'emballage par carton
+// (SLEEVE, CARTON, ETIQUETTE...) - des grandeurs sans rapport, la somme des
+// lignes n'a aucune raison de rester sous quantite_recette_base.
 async function ensureTotalWithinBase(
+  pageKey: "recetteFabrication" | "recetteConditionnement",
   articlePfId: number,
   quantiteAjoutee: number,
   options: { excludeLigneId?: number; excludeMpArticleId?: number } = {}
 ) {
+  if (pageKey !== "recetteFabrication") return;
+
   const { data: articleRow } = await supabaseServer
     .from("articles")
     .select("quantite_recette_base")
@@ -82,7 +91,7 @@ export async function addRecetteLigneAction(formData: FormData) {
     throw new Error("Article MP invalide.");
   }
 
-  await ensureTotalWithinBase(articlePfId, quantite, { excludeMpArticleId: articleMpId });
+  await ensureTotalWithinBase(pageKey, articlePfId, quantite, { excludeMpArticleId: articleMpId });
 
   const { error } = await supabaseServer
     .from("recettes_pf")
@@ -133,7 +142,7 @@ export async function addRecetteOuVracAction(formData: FormData) {
     }
   } else {
     const quantite = parseQuantite(formData);
-    await ensureTotalWithinBase(articlePfId, quantite, { excludeMpArticleId: combinedId });
+    await ensureTotalWithinBase(pageKey, articlePfId, quantite, { excludeMpArticleId: combinedId });
     const { error } = await supabaseServer
       .from("recettes_pf")
       .upsert(
@@ -305,7 +314,7 @@ export async function updateRecetteLigneAction(formData: FormData) {
     throw new Error("Ligne invalide.");
   }
 
-  await ensureTotalWithinBase(articlePfId, quantite, { excludeLigneId: ligneId });
+  await ensureTotalWithinBase(pageKey, articlePfId, quantite, { excludeLigneId: ligneId });
 
   const { error } = await supabaseServer
     .from("recettes_pf")
