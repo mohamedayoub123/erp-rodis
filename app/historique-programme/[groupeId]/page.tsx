@@ -136,6 +136,14 @@ export default async function HistoriqueProgrammeDetailPage({
                 </Link>
               ) : null}
               {canRelaunch ? (
+                <Link
+                  href={`/historique-programme/${groupeIdNumber}/stock`}
+                  className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                >
+                  Verifier stock
+                </Link>
+              ) : null}
+              {canRelaunch ? (
                 <form action={dispatchExistingProgrammeLigneGroupAction}>
                   <input type="hidden" name="groupe_id" value={groupeIdNumber} />
                   <SubmitButton

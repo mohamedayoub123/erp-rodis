@@ -403,9 +403,7 @@ function LigneRowCells({
 
   return (
     <>
-      <td className="px-4 py-3 text-slate-700">
-        {selectedArticle?.type || (machineTypeProduit.length === 1 ? machineTypeProduit[0] : "-")}
-      </td>
+      <td className="px-4 py-3 text-slate-700">{selectedArticle?.type || "-"}</td>
       <td className="px-4 py-3">
         <ProduitCell articles={compatibleArticles} initialLabel={selectedArticle?.label} onSelect={handleSelectArticle} />
       </td>
@@ -430,6 +428,7 @@ function ProgrammeRow({
   zoneLabel,
   zoneMachineOptions,
   defaultMachine,
+  canChangerMachine,
   articles,
   fabricationMachines,
   prefillArticle,
@@ -447,6 +446,11 @@ function ProgrammeRow({
   zoneLabel: string;
   zoneMachineOptions: LigneRow[];
   defaultMachine: LigneRow;
+  // "Changer Machine Conditionnement" (permission admin) - sans elle, la
+  // machine reste affichee en texte fixe, comme avant (comportement par
+  // defaut demande : "si je ecrit une fois il faut qu'il reste toujours la
+  // meme").
+  canChangerMachine: boolean;
   articles: ArticleOption[];
   fabricationMachines: FabricationMachineOption[];
   prefillArticle: ArticleOption | null;
@@ -480,25 +484,30 @@ function ProgrammeRow({
     <tr className="border-t border-slate-100 align-top">
       <td className="px-4 py-3 font-medium text-slate-900">{zoneLabel}</td>
       <td className="px-4 py-3">
-        <MachineConditionnementSelect
-          options={zoneMachineOptions}
-          value={machine.machineId}
-          onChange={(nextMachine) => {
-            setMachine(nextMachine);
-            setTypeArticle("");
-            setResetToken((token) => token + 1);
-            onUpdate({
-              machineId: nextMachine.machineId,
-              chaine: nextMachine.chaine,
-              articleId: null,
-              produit: "",
-              typeArticle: "",
-              vracAFabriquer: null,
-              qtCarton: null,
-            });
-          }}
-        />
+        {canChangerMachine ? (
+          <MachineConditionnementSelect
+            options={zoneMachineOptions}
+            value={machine.machineId}
+            onChange={(nextMachine) => {
+              setMachine(nextMachine);
+              setTypeArticle("");
+              setResetToken((token) => token + 1);
+              onUpdate({
+                machineId: nextMachine.machineId,
+                chaine: nextMachine.chaine,
+                articleId: null,
+                produit: "",
+                typeArticle: "",
+                vracAFabriquer: null,
+                qtCarton: null,
+              });
+            }}
+          />
+        ) : (
+          <span className="font-medium text-slate-900">{machine.chaine}</span>
+        )}
       </td>
+      <td className="px-4 py-3 text-slate-700">{machine.typeProduit.join(", ") || "-"}</td>
       <LigneRowCells
         key={resetToken}
         articles={articles}
@@ -556,12 +565,14 @@ export function ProgrammeLigneTable({
   fabricationMachines,
   prefillLignes = [],
   prefillRemarque = "",
+  canChangerMachine,
 }: {
   zoneGroups: LigneRow[][];
   articles: ArticleOption[];
   fabricationMachines: FabricationMachineOption[];
   prefillLignes?: PrefillLigne[];
   prefillRemarque?: string;
+  canChangerMachine: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -824,7 +835,8 @@ export function ProgrammeLigneTable({
           <tr>
             <th className="px-4 py-3 font-semibold">Zone</th>
             <th className="px-4 py-3 font-semibold">Machine Conditionnement</th>
-            <th className="px-4 py-3 font-semibold">Type</th>
+            <th className="px-4 py-3 font-semibold">Type machine conditionnement</th>
+            <th className="px-4 py-3 font-semibold">Type produit</th>
             <th className="px-4 py-3 font-semibold">Produit</th>
             <th className="px-4 py-3 font-semibold">Qt carton</th>
             <th className="px-4 py-3 font-semibold">Vrac a fabriquer</th>
@@ -839,7 +851,7 @@ export function ProgrammeLigneTable({
             <Fragment key={`group-${groupIndex}`}>
               {groupIndex > 0 ? (
                 <tr key={`divider-${groupIndex}`}>
-                  <td colSpan={10} className="bg-slate-300 px-4 py-2" />
+                  <td colSpan={11} className="bg-slate-300 px-4 py-2" />
                 </tr>
               ) : null}
               {group.flatMap((row, rowIndex) => {
@@ -861,6 +873,7 @@ export function ProgrammeLigneTable({
                       zoneLabel={subIndex === 0 ? row.zone : ""}
                       zoneMachineOptions={group}
                       defaultMachine={row}
+                      canChangerMachine={canChangerMachine}
                       articles={articles}
                       fabricationMachines={fabricationMachines}
                       prefillArticle={prefillArticle}

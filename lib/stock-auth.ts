@@ -24,6 +24,12 @@ export type StockPermissions = {
   // Voir les prix/couts (BC MP, lots, recettes, commandes) - a part du
   // systeme page par page, un seul reglage transversal comme manageUsers.
   voirPrix: boolean;
+  // Changer la machine Conditionnement d'une ligne sur "Programme par
+  // ligne" (le picker existe pour tout le monde qui a "write" sur cette
+  // page, mais rester sur la machine par defaut de la grille doit etre le
+  // comportement normal - seuls les utilisateurs coches ici peuvent la
+  // changer).
+  changerMachineConditionnement: boolean;
 };
 
 // Forme stockee cote base : peut etre l'ancien format (module) ou le
@@ -122,6 +128,7 @@ function getDefaultPermissions(username: string): StockPermissions {
     changeStatusCommandes: isAdmin,
     manageUsers: isAdmin,
     voirPrix: isAdmin,
+    changerMachineConditionnement: isAdmin,
   };
 }
 
@@ -228,6 +235,11 @@ function normalizeUserRecord(
       : typeof source.voirPrix === "boolean"
         ? source.voirPrix
         : defaults.voirPrix,
+    changerMachineConditionnement: isAdmin
+      ? true
+      : typeof source.changerMachineConditionnement === "boolean"
+        ? source.changerMachineConditionnement
+        : defaults.changerMachineConditionnement,
   };
 
   return {
@@ -510,6 +522,11 @@ export async function canVoirPrixUser(username: string | null | undefined) {
   return permissions.voirPrix;
 }
 
+export async function canChangerMachineConditionnementUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.changerMachineConditionnement;
+}
+
 export async function canViewPathForUser(username: string | null | undefined, pathname: string): Promise<boolean> {
   if (pathname === "/" || pathname.startsWith("/test-supabase")) {
     return true;
@@ -623,6 +640,7 @@ export async function updateUserPermissions(
     changeStatusCommandes: boolean;
     manageUsers: boolean;
     voirPrix: boolean;
+    changerMachineConditionnement: boolean;
   }
 ) {
   const normalized = username.trim().toLowerCase();
@@ -648,6 +666,7 @@ export async function updateUserPermissions(
     changeStatusCommandes: !!nextPermissions.changeStatusCommandes,
     manageUsers: !!nextPermissions.manageUsers,
     voirPrix: !!nextPermissions.voirPrix,
+    changerMachineConditionnement: !!nextPermissions.changerMachineConditionnement,
   };
 
   await writeUsers(users);

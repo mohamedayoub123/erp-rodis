@@ -630,6 +630,19 @@ export default async function AdminPage({
                             className="h-4 w-4 rounded border-slate-300"
                           />
                         </div>
+
+                        <div className="flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50/40 px-4 py-3">
+                          <p className="text-sm font-semibold text-slate-800">
+                            Changer la Machine Conditionnement (Programme par ligne)
+                          </p>
+                          <input
+                            type="checkbox"
+                            name="changerMachineConditionnement"
+                            defaultChecked={user.permissions.changerMachineConditionnement}
+                            disabled={user.isAdmin}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                        </div>
                       </div>
 
                       {!user.isAdmin ? (

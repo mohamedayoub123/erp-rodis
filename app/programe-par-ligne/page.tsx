@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
+import { canChangerMachineConditionnementUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   ProgrammeLigneTable,
   type ArticleOption,
@@ -161,11 +162,14 @@ export default async function ProgrameParLignePage({
   const params = await searchParams;
   const prefillGroupeId = Number(params.groupe_id || "0") || null;
 
-  const [articles, prefillLignes, zoneGroups, fabricationMachines] = await Promise.all([
+  const currentUser = await getCurrentStockUser();
+
+  const [articles, prefillLignes, zoneGroups, fabricationMachines, canChangerMachine] = await Promise.all([
     fetchAllArticleOptions(),
     prefillGroupeId ? fetchPrefillLignes(prefillGroupeId) : Promise.resolve([]),
     fetchConditionnementZoneGroups(),
     fetchFabricationMachines(),
+    canChangerMachineConditionnementUser(currentUser),
   ]);
 
   return (
@@ -203,6 +207,7 @@ export default async function ProgrameParLignePage({
               fabricationMachines={fabricationMachines}
               prefillLignes={prefillLignes}
               prefillRemarque={prefillLignes[0]?.remarque || ""}
+              canChangerMachine={canChangerMachine}
             />
           </div>
         </section>
