@@ -115,28 +115,25 @@ export default async function ImportMpDossierPage({
   const lotIds = rows.map((row) => row.lot_stock_id).filter((lotId): lotId is number => lotId !== null);
   const lotDataById = await fetchLotPrices(lotIds);
 
-  // "Receptionnee" ne compte que les evenements issus d'une vraie Reception
-  // (lot_stock_id renseigne, stock reellement credite) - un simple "Creer
-  // import" depuis le BC (avant la Reception) ne compte pas comme recu.
-  // "Importee" = uniquement les evenements "Creer import" (lot_stock_id
-  // null) - la ligne qu'une Reception cree dans cette meme table (pour
-  // l'historique) ne doit PAS s'ajouter au total arrive, sinon receptionner
-  // fait gonfler artificiellement "a receptionner" au lieu de le faire
-  // redescendre a 0.
-  // "A receptionner" = ce qui est deja arrive dans ce dossier moins ce qui a
-  // deja ete reellement receptionne - PAS la quantite commandee au total,
-  // qui peut concerner d'autres dossiers pas encore arrives du tout.
+  // "Importee" = uniquement les evenements "Creer import" encore ouverts
+  // (lot_stock_id null) - chaque ligne "Creer import" declare un lot arrive
+  // au dossier INDEPENDANT des autres (ex: 3 lots distincts 7140/10320/24120
+  // sous le meme dossier). Receptionner un de ces lots met a jour SA PROPRE
+  // ligne (quantite reduite ou lot_stock_id renseigne si receptionne en
+  // entier - voir createReceptionMpAction) - il ne faut donc PAS soustraire
+  // en plus le total receptionne des AUTRES lots du dossier, sinon un lot
+  // encore intact et jamais touche (ex: 24120) se retrouve affiche comme
+  // partiellement receptionne juste parce qu'un autre lot du meme dossier
+  // l'a ete (bug confirme : 24120 affichait "6660 a receptionner" au lieu
+  // de 24120, a cause des receptions separees de 10320 et 7140).
+  // "A receptionner" = uniquement ce qui reste ENCORE ouvert (lot_stock_id
+  // null) - PAS la quantite commandee au total, qui peut concerner d'autres
+  // dossiers pas encore arrives du tout.
   const quantiteImporteeParLigne = new Map<number, number>();
-  const quantiteReceptionneeParLigne = new Map<number, number>();
   for (const row of rows) {
-    if (row.lot_stock_id === null) {
-      const importeeCurrent = quantiteImporteeParLigne.get(row.bc_ligne_id) ?? 0;
-      quantiteImporteeParLigne.set(row.bc_ligne_id, importeeCurrent + Number(row.quantite_importee ?? 0));
-      continue;
-    }
-
-    const current = quantiteReceptionneeParLigne.get(row.bc_ligne_id) ?? 0;
-    quantiteReceptionneeParLigne.set(row.bc_ligne_id, current + Number(row.quantite_importee ?? 0));
+    if (row.lot_stock_id !== null) continue;
+    const importeeCurrent = quantiteImporteeParLigne.get(row.bc_ligne_id) ?? 0;
+    quantiteImporteeParLigne.set(row.bc_ligne_id, importeeCurrent + Number(row.quantite_importee ?? 0));
   }
 
   // L'historique n'affiche que les vraies Receptions (lot_stock_id
@@ -199,9 +196,7 @@ export default async function ImportMpDossierPage({
                   </thead>
                   <tbody>
                     {bcLignes.map((ligne) => {
-                      const quantiteReceptionnee = quantiteReceptionneeParLigne.get(ligne.id) ?? 0;
-                      const quantiteImportee = quantiteImporteeParLigne.get(ligne.id) ?? 0;
-                      const quantiteAReceptionner = Math.max(0, quantiteImportee - quantiteReceptionnee);
+                      const quantiteAReceptionner = quantiteImporteeParLigne.get(ligne.id) ?? 0;
                       // ligne.statut vient de bons_commande_matiere_premiere - une seule
                       // valeur par ligne BC, pas par dossier. Un article qui arrive en
                       // plusieurs dossiers (chacun avec sa propre reception, voir
