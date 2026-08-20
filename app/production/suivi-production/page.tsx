@@ -1083,14 +1083,40 @@ export default async function SuiviProductionListPage({
                         </td>
 
                         <td className="px-6 py-4">
-                          {canDelete ? (
-                            <DeleteRowButton
-                              fabricationId={row.fabrication?.entryId}
-                              conditionnementId={row.conditionnement?.entryId}
-                              emballageId={row.emballage?.entryId}
-                              rapportId={row.isGeneral ? row.generalRapportId : null}
-                            />
-                          ) : null}
+                          <div className="flex flex-wrap items-center gap-2">
+                            {showFab ? (
+                              <Link
+                                href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.displayCode)}`}
+                                className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400"
+                              >
+                                Modifier fab.
+                              </Link>
+                            ) : null}
+                            {showCond ? (
+                              <Link
+                                href={`/production/suivi-production/conditionnement/${row.ligne.id}?code=${encodeURIComponent(row.displayCode)}`}
+                                className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400"
+                              >
+                                Modifier cond.
+                              </Link>
+                            ) : null}
+                            {showEmb ? (
+                              <Link
+                                href={`/production/suivi-production/emballage/${row.ligne.id}?code=${encodeURIComponent(row.displayCode)}`}
+                                className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400"
+                              >
+                                Modifier emb.
+                              </Link>
+                            ) : null}
+                            {canDelete ? (
+                              <DeleteRowButton
+                                fabricationId={row.fabrication?.entryId}
+                                conditionnementId={row.conditionnement?.entryId}
+                                emballageId={row.emballage?.entryId}
+                                rapportId={row.isGeneral ? row.generalRapportId : null}
+                              />
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     );
