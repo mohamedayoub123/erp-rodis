@@ -190,6 +190,74 @@ export async function updateDepotLotStockAction(formData: FormData) {
   revalidatePath(`/depots/${depotId}`);
 }
 
+// Aligne AUTOMATIQUEMENT le stock de TOUS les articles/lots d'un depot sur
+// leur quantite deja reservee (Transfer Order + Salle de pesage/
+// conditionnement pour la MP) - demande explicite "operation automatique
+// sur tous les articles". Un lot pas du tout reserve tombe donc a 0 : le
+// bouton cote page.tsx affiche une confirmation explicite avant d'envoyer,
+// cette action elle-meme ne re-demande rien (deja protegee par
+// canWritePageUser). Solde/reserve viennent directement de ce que la page
+// affichait au moment du clic (memes valeurs que le tableau a l'ecran),
+// pas recalcules ici - simple et coherent avec ce que l'utilisateur voit.
+export async function syncDepotStockToReserveAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "depots"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier le stock des depots.");
+  }
+
+  const depotId = Number(formData.get("depot_id") || "0");
+  if (!depotId) {
+    throw new Error("Depot invalide.");
+  }
+
+  const articleTypes = formData.getAll("article_type");
+  const articleIds = formData.getAll("article_id");
+  const numeroLots = formData.getAll("numero_lot");
+  const soldes = formData.getAll("solde");
+  const reserves = formData.getAll("reserve");
+
+  const byTable = new Map<string, Record<string, unknown>[]>();
+
+  for (let i = 0; i < articleIds.length; i++) {
+    const articleType: ArticleType = String(articleTypes[i] || "") === "MP" ? "MP" : "PF";
+    const articleId = Number(articleIds[i] || "0");
+    const numeroLot = String(numeroLots[i] || "").trim();
+    const solde = Number(soldes[i] || "0");
+    const reserve = Number(reserves[i] || "0");
+
+    if (!articleId) continue;
+
+    const delta = reserve - solde;
+    if (Math.abs(delta) < 1e-9) continue;
+
+    const table = stockTableForType(articleType);
+    const list = byTable.get(table) ?? [];
+    list.push({
+      article_id: articleId,
+      numero_lot: numeroLot,
+      code_normalise: numeroLot.toUpperCase(),
+      date_jour: new Date().toISOString().slice(0, 10),
+      qte_entree: delta > 0 ? delta : 0,
+      qte_sortie: delta < 0 ? -delta : 0,
+      depot_id: depotId,
+      utilisateur: currentUser,
+      note: "Alignement stock = reserve, tous articles (fiche Depot)",
+    });
+    byTable.set(table, list);
+  }
+
+  for (const [table, rows] of byTable.entries()) {
+    if (rows.length === 0) continue;
+    const { error } = await supabaseServer.from(table).insert(rows);
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  revalidatePath(`/depots/${depotId}`);
+}
+
 // Meme correction que updateDepotLotStockAction, mais pour PLUSIEURS
 // articles/lots en une seule saisie ("+ Ajouter une ligne", meme motif que
 // Transfer Order) - demande explicite : "changer tout le stock d'un coup".

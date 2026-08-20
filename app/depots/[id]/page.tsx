@@ -7,6 +7,8 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { LotStockCell } from "./lot-stock-cell";
 import { DepotStockBatchForm } from "./stock-batch-form";
+import { SyncStockButton } from "./sync-stock-button";
+import { syncDepotStockToReserveAction } from "../actions";
 
 type DepotRow = { id: number; nom: string };
 type ArticlePfRow = { id: number; nom_article: string; nature: string | null; depot_id: number | null };
@@ -288,6 +290,41 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
             </div>
           </div>
         </section>
+
+        {canEdit ? (
+          <section className="rounded-[1.75rem] border border-amber-200 bg-amber-50/60 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <p className="text-sm font-semibold text-amber-900">
+              Aligner automatiquement tout le stock de ce depot sur ce qui est deja reserve
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              Chaque article/lot du depot est mis a jour pour que son Stock devienne exactement
+              egal a son Reserve actuel (visible dans les tableaux ci-dessous) - ce qui n&apos;est
+              pas du tout reserve tombe a 0.
+            </p>
+            <form action={syncDepotStockToReserveAction} className="mt-4">
+              <input type="hidden" name="depot_id" value={depotId} />
+              {stockPf.map((row) => (
+                <span key={`pf-${row.id}`}>
+                  <input type="hidden" name="article_type" value="PF" />
+                  <input type="hidden" name="article_id" value={row.articleId} />
+                  <input type="hidden" name="numero_lot" value={row.numeroLot} />
+                  <input type="hidden" name="solde" value={row.solde} />
+                  <input type="hidden" name="reserve" value={row.reserve} />
+                </span>
+              ))}
+              {stockMp.map((row) => (
+                <span key={`mp-${row.id}`}>
+                  <input type="hidden" name="article_type" value="MP" />
+                  <input type="hidden" name="article_id" value={row.articleId} />
+                  <input type="hidden" name="numero_lot" value={row.numeroLot} />
+                  <input type="hidden" name="solde" value={row.solde} />
+                  <input type="hidden" name="reserve" value={row.reserve} />
+                </span>
+              ))}
+              <SyncStockButton />
+            </form>
+          </section>
+        ) : null}
 
         {canEdit ? (
           <details className="group overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
