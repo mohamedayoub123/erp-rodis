@@ -5,7 +5,6 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { fetchReservedByLot } from "../transfer-order/stock-lots";
 import { LotStockCell } from "./lot-stock-cell";
 
 type DepotRow = { id: number; nom: string };
@@ -87,6 +86,58 @@ function deriveVracStatusByLot(lots: LotRow[]): Map<string, string> {
   return map;
 }
 
+// Reservation Transfer Order deja promise sur ce depot, par article puis
+// par numero de lot - remplace un fetchReservedByLot appele UNE FOIS PAR
+// ARTICLE distinct du depot (3 requetes chacun, page tres lente des que le
+// depot a beaucoup d'articles) par une seule serie de requetes partant du
+// DEPOT (transfer_orders de ce depot -> leurs lignes -> leurs lots), quel
+// que soit le nombre d'articles concernes.
+async function fetchReservedByLotForDepot(
+  depotId: number
+): Promise<{ pf: Map<number, Map<string, number>>; mp: Map<number, Map<string, number>> }> {
+  const pf = new Map<number, Map<string, number>>();
+  const mp = new Map<number, Map<string, number>>();
+
+  const { data: transferOrdersData } = await supabaseServer
+    .from("transfer_orders")
+    .select("id")
+    .eq("depot_source_id", depotId);
+  const transferOrderIds = ((transferOrdersData ?? []) as { id: number }[]).map((t) => t.id);
+  if (transferOrderIds.length === 0) return { pf, mp };
+
+  const { data: lignesData } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("id, article_type, article_id")
+    .in("transfer_order_id", transferOrderIds);
+  const lignes = (lignesData ?? []) as { id: number; article_type: string; article_id: number }[];
+  if (lignes.length === 0) return { pf, mp };
+
+  const ligneById = new Map(lignes.map((l) => [l.id, l]));
+  const { data: ligneLotsData } = await supabaseServer
+    .from("transfer_order_ligne_lots")
+    .select("transfer_order_ligne_id, numero_lot, quantite")
+    .in(
+      "transfer_order_ligne_id",
+      lignes.map((l) => l.id)
+    );
+
+  for (const row of (ligneLotsData ?? []) as {
+    transfer_order_ligne_id: number;
+    numero_lot: string | null;
+    quantite: number;
+  }[]) {
+    const ligne = ligneById.get(row.transfer_order_ligne_id);
+    if (!ligne) continue;
+    const target = ligne.article_type === "MP" ? mp : pf;
+    const byLot = target.get(ligne.article_id) ?? new Map<string, number>();
+    const key = row.numero_lot || "";
+    byLot.set(key, (byLot.get(key) ?? 0) + Number(row.quantite ?? 0));
+    target.set(ligne.article_id, byLot);
+  }
+
+  return { pf, mp };
+}
+
 export default async function DepotDetailPage({ params }: { params: Promise<{ id: string }> }) {
   noStore();
   const { id } = await params;
@@ -128,27 +179,10 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
 
   // Deja reserve par un Transfer Order approuve (PF et MP), PAR NUMERO DE
   // LOT precis - a deduire du solde reel de ce meme lot pour afficher ce
-  // qui reste vraiment libre, meme principe que la page Produit
-  // (fetchReservedByLot).
-  const pfArticleIds = [...new Set(soldePfByLot.map((row) => row.articleId))];
+  // qui reste vraiment libre, meme principe que la page Produit.
   const mpArticleIds = [...new Set(soldeMpByLot.map((row) => row.articleId))];
-
-  const [reservedPfByLotEntries, reservedMpTransferByLotEntries] = await Promise.all([
-    Promise.all(
-      pfArticleIds.map(async (articleId) => {
-        const map = await fetchReservedByLot("PF", articleId, depotId);
-        return [articleId, map] as const;
-      })
-    ),
-    Promise.all(
-      mpArticleIds.map(async (articleId) => {
-        const map = await fetchReservedByLot("MP", articleId, depotId);
-        return [articleId, map] as const;
-      })
-    ),
-  ]);
-  const reservedPfByLotByArticle = new Map(reservedPfByLotEntries);
-  const reservedMpTransferByLotByArticle = new Map(reservedMpTransferByLotEntries);
+  const { pf: reservedPfByLotByArticle, mp: reservedMpTransferByLotByArticle } =
+    await fetchReservedByLotForDepot(depotId);
 
   // En plus des Transfer Order, une MP peut aussi etre reservee par une
   // validation Salle de pesage/conditionnement (production_mp_reserve, avec
