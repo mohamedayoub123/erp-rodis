@@ -785,6 +785,19 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/charges"],
     defaultView: false,
   },
+  // Page d'accueil "Cout" (tuile accueil) - regroupe Charges Usine (deja
+  // ci-dessus) et Cout Reel (Production > Rapport, deja son propre
+  // productionRapportCoutReel) sous un seul point d'entree accessible
+  // directement depuis Accueil, sans repasser par Production. Meme
+  // restriction que chargesHub (contient des couts/salaires).
+  {
+    key: "coutHub",
+    module: "ChargesUsine",
+    label: "Cout (accueil - regroupe Charges Usine + Cout Reel)",
+    pathPrefixes: ["/cout"],
+    hasWrite: false,
+    defaultView: false,
+  },
 ];
 
 // Regroupement affiche dans l'admin (Gestion Stock PF / Gestion Stock MP /
