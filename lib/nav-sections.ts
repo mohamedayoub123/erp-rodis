@@ -144,6 +144,13 @@ export const navItems: NavItem[] = [
     matchPrefixes: ["/cout", "/charges", "/production/rapport/cout-reel"],
     subLinks: [],
   },
+  {
+    href: "/comptabilite",
+    label: "Comptabilite",
+    pageKey: "comptabilite",
+    matchPrefixes: ["/comptabilite"],
+    subLinks: [],
+  },
   { href: "/admin", label: "Admin", adminOnly: true },
 ];
 

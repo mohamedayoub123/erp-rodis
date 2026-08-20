@@ -22,7 +22,8 @@ export type ModuleKey =
   | "General"
   | "Entrepot"
   | "Produit"
-  | "ChargesUsine";
+  | "ChargesUsine"
+  | "Comptabilite";
 
 export type PageDefinition = {
   key: string;
@@ -53,6 +54,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   Entrepot: "Entrepot",
   Produit: "Produit",
   ChargesUsine: "Charges Usine",
+  Comptabilite: "Comptabilite",
 };
 
 export const PAGE_REGISTRY: PageDefinition[] = [
@@ -798,6 +800,17 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
     defaultView: false,
   },
+  // Module vide pour l'instant (contenu pas encore defini) - cache pour
+  // tout le monde par defaut, visible seulement pour l'admin tant qu'aucun
+  // acces n'est accorde explicitement ici.
+  {
+    key: "comptabilite",
+    module: "Comptabilite",
+    label: "Comptabilite",
+    pathPrefixes: ["/comptabilite"],
+    defaultView: false,
+    defaultWrite: false,
+  },
 ];
 
 // Regroupement affiche dans l'admin (Gestion Stock PF / Gestion Stock MP /
@@ -813,6 +826,7 @@ export type AdminSection =
   | "Entrepot"
   | "Produit"
   | "ChargesUsine"
+  | "Comptabilite"
   | "Autre";
 
 export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
@@ -823,12 +837,13 @@ export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   Entrepot: "Entrepot",
   Produit: "Produit",
   ChargesUsine: "Charges Usine",
+  Comptabilite: "Comptabilite",
   Autre: "Autre",
 };
 
 // Entrepot/Produit/Charges Usine ont leur PROPRE section admin (pas nichees
 // dans Production/Autre) : demande explicite pour donner l'acces en un
-// clic, sans passer par un sous-menu.
+// clic, sans passer par un sous-menu. Comptabilite pareil (module a part).
 export const ADMIN_SECTION_ORDER: AdminSection[] = [
   "GestionStockPf",
   "GestionStockMp",
@@ -837,6 +852,7 @@ export const ADMIN_SECTION_ORDER: AdminSection[] = [
   "Entrepot",
   "Produit",
   "ChargesUsine",
+  "Comptabilite",
   "Autre",
 ];
 
@@ -871,6 +887,7 @@ export function sectionForPage(page: PageDefinition): AdminSection {
   if (page.module === "Entrepot") return "Entrepot";
   if (page.module === "Produit") return "Produit";
   if (page.module === "ChargesUsine") return "ChargesUsine";
+  if (page.module === "Comptabilite") return "Comptabilite";
   if (page.module === "Production") return "Production";
   if (page.module === "Qualite") return "Qualite";
   if (page.module === "Planning" || page.module === "General") return "Autre";

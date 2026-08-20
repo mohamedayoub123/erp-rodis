@@ -3,8 +3,10 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchPlCodeByGroupeId } from "@/lib/programme-numbering";
+import { autoCreateTransferOrdersFromProgrammeLigneAction } from "./actions";
 
 type ProgrammeLigneRow = {
   article_id: number | null;
@@ -84,6 +86,7 @@ export default async function HistoriqueProgrammeVerifierStockPage({
   // calcul est adapte).
   const canView = await canWritePageUser(currentUser, "programeParLigne");
   if (!canView) notFound();
+  const canCreateTransferOrders = await canWritePageUser(currentUser, "depots");
 
   const { data: lignesData, error } = await supabaseServer
     .from("programme_lignes")
@@ -198,6 +201,33 @@ export default async function HistoriqueProgrammeVerifierStockPage({
     }))
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
+  // "Creer les Transfer Order" bloque si ce programme est deja entierement
+  // couvert par des Transfer Order existants (meme logique que Programme
+  // MB, via source_groupe_id_programme_ligne au lieu de
+  // source_numero_programme) - reste possible si aucun n'existe encore, ou
+  // si un manque de stock au moment de leur creation n'a pas couvert tout
+  // le besoin.
+  const { data: existingTransferOrdersData } = await supabaseServer
+    .from("transfer_orders")
+    .select("id")
+    .eq("source_groupe_id_programme_ligne", groupeIdNumber);
+  const existingTransferOrderIds = ((existingTransferOrdersData ?? []) as { id: number }[]).map((t) => t.id);
+
+  let dejaEntierementCouvert = false;
+  if (existingTransferOrderIds.length > 0) {
+    const { data: existingLignesData } = await supabaseServer
+      .from("transfer_order_lignes")
+      .select("article_id, quantite_demandee")
+      .in("transfer_order_id", existingTransferOrderIds)
+      .eq("article_type", "MP");
+    const couvertParMp = new Map<number, number>();
+    for (const l of (existingLignesData ?? []) as { article_id: number; quantite_demandee: number }[]) {
+      couvertParMp.set(l.article_id, (couvertParMp.get(l.article_id) ?? 0) + Number(l.quantite_demandee ?? 0));
+    }
+    dejaEntierementCouvert = mpIds.every((mpId) => (couvertParMp.get(mpId) ?? 0) + 1e-6 >= (besoinParMp.get(mpId) ?? 0));
+  }
+  const peutCreerTransferOrders = existingTransferOrderIds.length === 0 || !dejaEntierementCouvert;
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -219,9 +249,27 @@ export default async function HistoriqueProgrammeVerifierStockPage({
             <div className="flex items-center gap-3">
               <BackButton href={`/historique-programme/${groupeIdNumber}`} label="Retour" />
               <RefreshButton />
+              {canCreateTransferOrders && peutCreerTransferOrders ? (
+                <form action={autoCreateTransferOrdersFromProgrammeLigneAction}>
+                  <input type="hidden" name="groupe_id" value={groupeIdNumber} />
+                  <SubmitButton
+                    pendingLabel="Creation..."
+                    className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+                  >
+                    Creer les Transfer Order
+                  </SubmitButton>
+                </form>
+              ) : null}
             </div>
           </div>
         </section>
+
+        {!peutCreerTransferOrders ? (
+          <div className="rounded-[2rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-medium text-amber-800">
+            Des Transfer Order couvrant tout le besoin de ce programme existent deja. Supprime-les
+            d&apos;abord (page Transfer Order) si tu veux en recreer.
+          </div>
+        ) : null}
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           {error || finalError ? (
