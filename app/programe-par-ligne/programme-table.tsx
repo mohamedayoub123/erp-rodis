@@ -276,6 +276,38 @@ function MachineFabricationAndPlateformeCells({
   );
 }
 
+// Machine Conditionnement modifiable par ligne - liste limitee aux machines
+// de la MEME zone (demande explicite : "si le zone est b1z1... je choisis
+// les chaines de cette zone seulement"). La zone elle-meme reste fixe, seule
+// la machine a l'interieur peut changer.
+function MachineConditionnementSelect({
+  options,
+  value,
+  onChange,
+}: {
+  options: LigneRow[];
+  value: number;
+  onChange: (machine: LigneRow) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(event) => {
+        const nextId = Number(event.target.value);
+        const nextMachine = options.find((m) => m.machineId === nextId);
+        if (nextMachine) onChange(nextMachine);
+      }}
+      className="w-40 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+    >
+      {options.map((m) => (
+        <option key={m.machineId} value={m.machineId}>
+          {m.chaine}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 // Champ libre, independant du code MB1/MB2/MB3 auto-genere au Save - ce
 // que l'utilisateur ecrit ici est sauvegarde tel quel, jamais remplace.
 function ProgrameCell({
@@ -346,10 +378,16 @@ function LigneRowCells({
 
   function handleSelectArticle(article: ArticleOption | null) {
     setSelectedArticle(article);
+    // Recalcule aussi Qt carton ici, pas seulement dans handleVracChange :
+    // si le Vrac est tape AVANT de choisir le Produit, computeQtCarton
+    // n'avait encore aucun article et renvoyait null - sans ce recalcul,
+    // Qt carton restait bloque a vide meme apres avoir choisi le Produit.
+    const nextQtCarton = computeQtCarton(vracNumber, article);
     onUpdate({
       articleId: article?.id ?? null,
       produit: article?.label ?? "",
       typeArticle: article?.type ?? "",
+      qtCarton: nextQtCarton,
     });
   }
 
@@ -365,7 +403,9 @@ function LigneRowCells({
 
   return (
     <>
-      <td className="px-4 py-3 text-slate-700">{selectedArticle?.type || "-"}</td>
+      <td className="px-4 py-3 text-slate-700">
+        {selectedArticle?.type || (machineTypeProduit.length === 1 ? machineTypeProduit[0] : "-")}
+      </td>
       <td className="px-4 py-3">
         <ProduitCell articles={compatibleArticles} initialLabel={selectedArticle?.label} onSelect={handleSelectArticle} />
       </td>
@@ -388,9 +428,9 @@ function LigneRowCells({
 
 function ProgrammeRow({
   zoneLabel,
-  chaineLabel,
+  zoneMachineOptions,
+  defaultMachine,
   articles,
-  machineTypeProduit,
   fabricationMachines,
   prefillArticle,
   prefillVracInput,
@@ -405,9 +445,9 @@ function ProgrammeRow({
   onUpdate,
 }: {
   zoneLabel: string;
-  chaineLabel: string;
+  zoneMachineOptions: LigneRow[];
+  defaultMachine: LigneRow;
   articles: ArticleOption[];
-  machineTypeProduit: string[];
   fabricationMachines: FabricationMachineOption[];
   prefillArticle: ArticleOption | null;
   prefillVracInput?: string;
@@ -425,16 +465,46 @@ function ProgrammeRow({
   // le picker Machine Fabrication doit se filtrer en direct des que le
   // Produit change sur cette meme ligne.
   const [typeArticle, setTypeArticle] = useState(prefillTypeArticle || "");
+  // Machine Conditionnement modifiable (demande explicite) - part du
+  // positionnement par defaut de la grille, reste changeable ensuite parmi
+  // les machines de la meme zone.
+  const [machine, setMachine] = useState<LigneRow>(defaultMachine);
+  // Incremente a chaque changement de machine (jamais au 1er rendu) pour
+  // forcer un remontage "propre" de LigneRowCells qui vide le Produit/Vrac
+  // choisis avant (potentiellement incompatibles avec la nouvelle machine) -
+  // le prefill historique ne doit s'appliquer qu'une seule fois, au tout
+  // premier rendu.
+  const [resetToken, setResetToken] = useState(0);
 
   return (
     <tr className="border-t border-slate-100 align-top">
       <td className="px-4 py-3 font-medium text-slate-900">{zoneLabel}</td>
-      <td className="px-4 py-3 font-medium text-slate-900">{chaineLabel}</td>
+      <td className="px-4 py-3">
+        <MachineConditionnementSelect
+          options={zoneMachineOptions}
+          value={machine.machineId}
+          onChange={(nextMachine) => {
+            setMachine(nextMachine);
+            setTypeArticle("");
+            setResetToken((token) => token + 1);
+            onUpdate({
+              machineId: nextMachine.machineId,
+              chaine: nextMachine.chaine,
+              articleId: null,
+              produit: "",
+              typeArticle: "",
+              vracAFabriquer: null,
+              qtCarton: null,
+            });
+          }}
+        />
+      </td>
       <LigneRowCells
+        key={resetToken}
         articles={articles}
-        machineTypeProduit={machineTypeProduit}
-        initialArticle={prefillArticle}
-        initialVracInput={prefillVracInput}
+        machineTypeProduit={machine.typeProduit}
+        initialArticle={resetToken === 0 ? prefillArticle : null}
+        initialVracInput={resetToken === 0 ? prefillVracInput : undefined}
         onUpdate={(partial) => {
           if (partial.typeArticle !== undefined) setTypeArticle(partial.typeArticle);
           onUpdate(partial);
@@ -789,9 +859,9 @@ export function ProgrammeLigneTable({
                     <ProgrammeRow
                       key={key}
                       zoneLabel={subIndex === 0 ? row.zone : ""}
-                      chaineLabel={subIndex === 0 ? row.chaine : ""}
+                      zoneMachineOptions={group}
+                      defaultMachine={row}
                       articles={articles}
-                      machineTypeProduit={row.typeProduit}
                       fabricationMachines={fabricationMachines}
                       prefillArticle={prefillArticle}
                       prefillVracInput={
