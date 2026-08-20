@@ -278,7 +278,7 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Graphe Cout par Carton</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Cout par carton fabrique (journalier, cosmetique, energie, embauches, global) compare au nb
-                carton fabrique, mois par mois - calcule depuis Charges Usine, Prix Carburant et la
+                carton fabrique, mois par mois - calcule depuis Charges Usine, Tarifs et la
                 production reelle.
               </p>
             </div>

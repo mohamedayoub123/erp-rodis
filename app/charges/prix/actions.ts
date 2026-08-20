@@ -33,6 +33,7 @@ export async function savePrixCarburantAction(formData: FormData) {
       prix_essence: toNumberOrNull(formData.get("prix_essence")),
       prix_gasoil: toNumberOrNull(formData.get("prix_gasoil")),
       prix_kwh: toNumberOrNull(formData.get("prix_kwh")),
+      prix_heure_journalier: toNumberOrNull(formData.get("prix_heure_journalier")),
       utilisateur: currentUser,
       date_saisie: new Date().toISOString(),
     },
