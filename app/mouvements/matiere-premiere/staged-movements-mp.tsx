@@ -106,7 +106,30 @@ export function EntreePanelMp({
   function addRow() {
     const qty = Number(quantite.replace(",", "."));
 
-    if (!selectedArticle || !numeroLot.trim() || !dateReception || !qty || qty <= 0) {
+    // Avant, un champ manquant ne faisait RIEN (ni ligne ajoutee, ni
+    // message) - vu comme "le bouton ne repond pas" (cas reel : article
+    // tape a la main qui ne correspondait a aucun article existant, "+"
+    // silencieux). Chaque cas donne maintenant un message precis.
+    if (!selectedArticle) {
+      setMessage("");
+      setErrorMessage(
+        "Article introuvable - choisis-le dans la liste qui s'affiche (s'il n'existe pas encore, cree-le d'abord dans Articles Matiere Premiere)."
+      );
+      return;
+    }
+    if (!numeroLot.trim()) {
+      setMessage("");
+      setErrorMessage("Numero de lot obligatoire.");
+      return;
+    }
+    if (!dateReception) {
+      setMessage("");
+      setErrorMessage("Date de reception obligatoire.");
+      return;
+    }
+    if (!qty || qty <= 0) {
+      setMessage("");
+      setErrorMessage("Quantite invalide.");
       return;
     }
 
@@ -515,7 +538,28 @@ export function SortiePanelMp({
   function addRow() {
     const qty = Number(quantite.replace(",", "."));
 
-    if (!selectedArticle || !numeroLot.trim() || !dateSortie || !qty || qty <= 0) {
+    // Meme correctif que le panneau Entree (addRow) : un champ manquant ne
+    // faisait RIEN avant (ni ligne ajoutee, ni message).
+    if (!selectedArticle) {
+      setMessage("");
+      setErrorMessage(
+        "Article introuvable - choisis-le dans la liste qui s'affiche (s'il n'existe pas encore, cree-le d'abord dans Articles Matiere Premiere)."
+      );
+      return;
+    }
+    if (!numeroLot.trim()) {
+      setMessage("");
+      setErrorMessage("Numero de lot obligatoire.");
+      return;
+    }
+    if (!dateSortie) {
+      setMessage("");
+      setErrorMessage("Date de sortie obligatoire.");
+      return;
+    }
+    if (!qty || qty <= 0) {
+      setMessage("");
+      setErrorMessage("Quantite invalide.");
       return;
     }
 
