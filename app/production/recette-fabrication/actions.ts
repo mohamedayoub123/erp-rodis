@@ -195,16 +195,22 @@ export async function createRecetteCompleteAction(formData: FormData) {
     }))
     .filter((ligne) => ligne.article_mp_id > 0);
 
-  if (lignes.length === 0) {
-    throw new Error("Ajoute au moins un article MP a la recette.");
+  // En Conditionnement, le vrac utilise peut etre choisi seul (les articles
+  // MP d'emballage s'ajoutent ensuite au fil de l'eau depuis la page detail)
+  // - seule Fabrication exige au moins une ligne MP, faute de quoi il n'y a
+  // rien du tout a enregistrer.
+  if (lignes.length === 0 && !(pageKey === "recetteConditionnement" && vracArticleId)) {
+    throw new Error("Ajoute au moins un article MP (ou choisis un vrac) a la recette.");
   }
 
-  const { error } = await supabaseServer
-    .from("recettes_pf")
-    .upsert(lignes, { onConflict: "article_pf_id,article_mp_id" });
+  if (lignes.length > 0) {
+    const { error } = await supabaseServer
+      .from("recettes_pf")
+      .upsert(lignes, { onConflict: "article_pf_id,article_mp_id" });
 
-  if (error) {
-    throw new Error(error.message);
+    if (error) {
+      throw new Error(error.message);
+    }
   }
 
   const articleFields: Record<string, unknown> = {};
