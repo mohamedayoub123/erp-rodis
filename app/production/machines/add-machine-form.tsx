@@ -117,6 +117,16 @@ export function AddMachineForm({
           addPlaceholder="Nom du nouveau type"
         />
       </label>
+      <label className="grid gap-1 text-xs font-semibold text-slate-500">
+        Consommation electrique (kW)
+        <input
+          type="number"
+          step="0.01"
+          name="consommation_electrique_kw"
+          placeholder="0"
+          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+        />
+      </label>
       <div className="grid gap-1 text-xs font-semibold text-slate-500">
         Type(s) de produit
         <div className="flex flex-wrap gap-3 rounded-2xl border border-slate-200 px-4 py-3">

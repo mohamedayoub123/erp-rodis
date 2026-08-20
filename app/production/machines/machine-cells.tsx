@@ -5,20 +5,40 @@ import Link from "next/link";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { updateMachineAction } from "./actions";
 
-type Machine = { id: number; nom: string; zone: string | null; type: string | null; type_produit: string[] | null };
+type Machine = {
+  id: number;
+  nom: string;
+  zone: string | null;
+  type: string | null;
+  type_produit: string[] | null;
+  consommation_electrique_kw: number | null;
+};
 
 // Champs caches communs pour ne PAS ecraser les autres colonnes de la
 // machine quand on enregistre juste le nom OU juste la zone -
-// updateMachineAction remplace toujours les 4 champs (pas de patch
+// updateMachineAction remplace toujours les 5 champs (pas de patch
 // partiel cote base), donc chaque petit formulaire doit renvoyer les
 // valeurs actuelles de tout ce qu'il ne modifie pas lui-meme.
-function HiddenMachineFields({ machine, excludeNom, excludeZone }: { machine: Machine; excludeNom?: boolean; excludeZone?: boolean }) {
+function HiddenMachineFields({
+  machine,
+  excludeNom,
+  excludeZone,
+  excludeConso,
+}: {
+  machine: Machine;
+  excludeNom?: boolean;
+  excludeZone?: boolean;
+  excludeConso?: boolean;
+}) {
   return (
     <>
       <input type="hidden" name="id" value={machine.id} />
       {excludeNom ? null : <input type="hidden" name="nom" value={machine.nom} />}
       {excludeZone ? null : <input type="hidden" name="zone" value={machine.zone ?? ""} />}
       <input type="hidden" name="type" value={machine.type ?? ""} />
+      {excludeConso ? null : (
+        <input type="hidden" name="consommation_electrique_kw" value={machine.consommation_electrique_kw ?? ""} />
+      )}
       {(machine.type_produit ?? []).map((tp) => (
         <input key={tp} type="hidden" name="type_produit" value={tp} />
       ))}
@@ -94,6 +114,29 @@ export function MachineZoneCell({ machine, canEdit }: { machine: Machine; canEdi
         name="zone"
         defaultValue={machine.zone ?? ""}
         className="w-24 rounded border border-slate-200 px-1.5 py-1 text-sm text-slate-700 focus:border-sky-400 focus:outline-none"
+      />
+      <SubmitButton
+        pendingLabel="..."
+        className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200"
+      >
+        OK
+      </SubmitButton>
+    </form>
+  );
+}
+
+export function MachineConsoCell({ machine, canEdit }: { machine: Machine; canEdit: boolean }) {
+  if (!canEdit) return <>{machine.consommation_electrique_kw ?? "-"}</>;
+
+  return (
+    <form action={updateMachineAction} className="flex items-center gap-1">
+      <HiddenMachineFields machine={machine} excludeConso />
+      <input
+        type="number"
+        step="0.01"
+        name="consommation_electrique_kw"
+        defaultValue={machine.consommation_electrique_kw ?? ""}
+        className="w-20 rounded border border-slate-200 px-1.5 py-1 text-sm text-slate-700 focus:border-sky-400 focus:outline-none"
       />
       <SubmitButton
         pendingLabel="..."

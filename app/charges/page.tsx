@@ -12,14 +12,17 @@ import { CARTON_MANUEL_FIELD, MOIS_NOMS, NUMERIC_FIELDS, type ChargeRow, type Fi
 // Champs de consommation carburant (litres) qui ont un cout calcule via le
 // prix du litre saisi sur /charges/prix pour le meme mois - gasoil
 // plastique/cosmetique partagent le meme prix (un seul carburant physique).
+// Electricite (kWh) suit le meme principe depuis l'ajout de Prix Electricite.
 const COST_FIELDS = [
   { key: "gaz", priceKey: "prix_gaz", label: "Cout Gaz" },
   { key: "essence", priceKey: "prix_essence", label: "Cout Essence" },
   { key: "gasoil_plastique", priceKey: "prix_gasoil", label: "Cout Gasoil Plastique" },
   { key: "gasoil_cosmetique", priceKey: "prix_gasoil", label: "Cout Gasoil Cosmetique" },
+  { key: "electricite_plastique", priceKey: "prix_kwh", label: "Cout Electricite Plastique" },
+  { key: "electricite_cosmetique", priceKey: "prix_kwh", label: "Cout Electricite Cosmetique" },
 ] as const satisfies readonly { key: FieldKey; priceKey: PrixFieldKey; label: string }[];
 
-const PRIX_FIELD_KEYS = ["prix_gaz", "prix_essence", "prix_gasoil"] as const;
+const PRIX_FIELD_KEYS = ["prix_gaz", "prix_essence", "prix_gasoil", "prix_kwh"] as const;
 type PrixFieldKey = (typeof PRIX_FIELD_KEYS)[number];
 
 type PrixRow = { annee: number; mois: number } & Record<PrixFieldKey, number | null>;

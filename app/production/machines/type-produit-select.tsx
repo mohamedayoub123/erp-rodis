@@ -34,7 +34,14 @@ export function MachineTypeProduitSelect({
   machine,
   typeProduitOptions,
 }: {
-  machine: { id: number; nom: string; zone: string | null; type: string | null; type_produit: string[] | null };
+  machine: {
+    id: number;
+    nom: string;
+    zone: string | null;
+    type: string | null;
+    type_produit: string[] | null;
+    consommation_electrique_kw: number | null;
+  };
   typeProduitOptions: string[];
 }) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -46,6 +53,7 @@ export function MachineTypeProduitSelect({
       <input type="hidden" name="nom" value={machine.nom} />
       <input type="hidden" name="zone" value={machine.zone ?? ""} />
       <input type="hidden" name="type" value={machine.type ?? ""} />
+      <input type="hidden" name="consommation_electrique_kw" value={machine.consommation_electrique_kw ?? ""} />
       <details className="relative">
         <summary className="min-w-[8rem] cursor-pointer list-none rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 marker:content-none">
           {selected.length > 0 ? selected.join(", ") : "-"}

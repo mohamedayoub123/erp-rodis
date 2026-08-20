@@ -9,7 +9,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { deleteMachineAction } from "./actions";
 import { AddMachineForm } from "./add-machine-form";
 import { MachineTypeProduitSelect } from "./type-produit-select";
-import { MachineNomCell, MachineZoneCell } from "./machine-cells";
+import { MachineConsoCell, MachineNomCell, MachineZoneCell } from "./machine-cells";
 import { TYPE_PRODUIT_OPTIONS } from "./type-produit-options";
 
 type MachineRow = {
@@ -18,6 +18,7 @@ type MachineRow = {
   zone: string | null;
   type: string | null;
   type_produit: string[] | null;
+  consommation_electrique_kw: number | null;
 };
 
 // Triee par zone d'abord (regroupe visuellement les machines d'une meme
@@ -25,7 +26,7 @@ type MachineRow = {
 async function fetchAllMachines(): Promise<{ rows: MachineRow[]; error: { message: string } | null }> {
   const { data, error } = await supabaseServer
     .from("machines")
-    .select("id, nom, zone, type, type_produit")
+    .select("id, nom, zone, type, type_produit, consommation_electrique_kw")
     .order("zone", { ascending: true, nullsFirst: false })
     .order("nom", { ascending: true });
 
@@ -191,6 +192,7 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Zone</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type de produit</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conso. electrique (kW)</th>
                     {canDelete ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
                 </thead>
@@ -212,6 +214,9 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
                             ? machine.type_produit.join(", ")
                             : "-")
                         )}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        <MachineConsoCell machine={machine} canEdit={canEdit} />
                       </td>
                       {canDelete ? (
                         <td className="px-6 py-4">
