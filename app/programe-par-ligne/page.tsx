@@ -1,10 +1,95 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { ProgrammeLigneTable, type ArticleOption, type PrefillLigne } from "./programme-table";
-import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
+import {
+  ProgrammeLigneTable,
+  type ArticleOption,
+  type FabricationMachineOption,
+  type LigneRow,
+  type PrefillLigne,
+} from "./programme-table";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+
+// Remplace l'ancienne liste fixe (lib/zone-chaine-list.ts, copiee d'un
+// Excel) par les vraies machines Conditionnement - chaque ligne de la
+// grille correspond desormais a une machine reelle (zone reelle, plus de
+// nom duplique entre zones comme avant avec "CHAINE 4" existant dans 3
+// zones), avec son type_produit accepte porte pour interdire un article
+// incompatible. lib/zone-chaine-list.ts reste utilise tel quel par
+// /ravitailleur-par-ligne (hors de ce lot).
+async function fetchConditionnementZoneGroups(): Promise<LigneRow[][]> {
+  const rows: { id: number; nom: string; zone: string | null; type_produit: string[] | null }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("machines")
+      .select("id, nom, zone, type_produit")
+      .eq("type", "Conditionnement")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+    const chunk =
+      (data as { id: number; nom: string; zone: string | null; type_produit: string[] | null }[] | null) ?? [];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const byZone = new Map<string, LigneRow[]>();
+  for (const machine of rows) {
+    const zone = machine.zone || "-";
+    const list = byZone.get(zone) ?? [];
+    list.push({
+      zone,
+      chaine: machine.nom,
+      machineId: machine.id,
+      typeProduit: machine.type_produit ?? [],
+    });
+    byZone.set(zone, list);
+  }
+
+  return [...byZone.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map(([, group]) => group.sort((a, b) => a.chaine.localeCompare(b.chaine, "fr", { sensitivity: "base" })));
+}
+
+// Le champ "zone" des machines de Fabrication ne contient PAS une vraie zone
+// physique mais Automatique/Manuel/Semi auto (deja pose par une autre
+// session) - utilise ici uniquement pour pre-remplir le Plateforme (M/A) de
+// la ligne des qu'une machine Fabrication est choisie, jamais pour filtrer
+// par zone.
+async function fetchFabricationMachines(): Promise<FabricationMachineOption[]> {
+  const rows: FabricationMachineOption[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("machines")
+      .select("id, nom, zone, type_produit")
+      .eq("type", "Fabrication")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+    const chunk =
+      (data as { id: number; nom: string; zone: string | null; type_produit: string[] | null }[] | null) ?? [];
+    rows.push(
+      ...chunk.map((m) => ({
+        id: m.id,
+        nom: m.nom,
+        categorie: m.zone,
+        typeProduit: m.type_produit ?? [],
+      }))
+    );
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows.sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
+}
 
 async function fetchAllArticleOptions(): Promise<ArticleOption[]> {
   const rows: ArticleOption[] = [];
@@ -56,7 +141,9 @@ async function fetchAllArticleOptions(): Promise<ArticleOption[]> {
 async function fetchPrefillLignes(groupeId: number): Promise<PrefillLigne[]> {
   const { data } = await supabaseServer
     .from("programme_lignes")
-    .select("zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe, remarque")
+    .select(
+      "zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, programe, remarque, machine_fabrication_id"
+    )
     .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`)
     .order("id", { ascending: true });
 
@@ -74,9 +161,11 @@ export default async function ProgrameParLignePage({
   const params = await searchParams;
   const prefillGroupeId = Number(params.groupe_id || "0") || null;
 
-  const [articles, prefillLignes] = await Promise.all([
+  const [articles, prefillLignes, zoneGroups, fabricationMachines] = await Promise.all([
     fetchAllArticleOptions(),
     prefillGroupeId ? fetchPrefillLignes(prefillGroupeId) : Promise.resolve([]),
+    fetchConditionnementZoneGroups(),
+    fetchFabricationMachines(),
   ]);
 
   return (
@@ -109,8 +198,9 @@ export default async function ProgrameParLignePage({
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="overflow-x-auto">
             <ProgrammeLigneTable
-              zoneGroups={ZONE_GROUPS}
+              zoneGroups={zoneGroups}
               articles={articles}
+              fabricationMachines={fabricationMachines}
               prefillLignes={prefillLignes}
               prefillRemarque={prefillLignes[0]?.remarque || ""}
             />

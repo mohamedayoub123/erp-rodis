@@ -10,6 +10,12 @@ import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 type PendingProgrammeRow = {
   zone: string;
   chaine: string;
+  // Machine Conditionnement/Fabrication reellement choisies pour cette
+  // ligne (voir programme-table.tsx) - optionnelles car absentes du chemin
+  // Dispatch differe depuis l'Historique (dispatchExistingProgrammeLigneGroupAction),
+  // qui reconstruit ce type sans ces 2 champs (hors de ce lot).
+  machine_id?: number | null;
+  machine_fabrication_id?: number | null;
   article_id: number | null;
   produit: string;
   type_article: string;
@@ -976,6 +982,58 @@ async function assignDispatcherCodesAndInsert(
   }
 }
 
+// Revalide cote serveur (jamais confiance au seul filtrage cote client) que
+// chaque article choisi est bien compatible avec la/les machine(s)
+// (Conditionnement + Fabrication) choisies sur sa ligne - une machine sans
+// type_produit configure (liste vide) n'est jamais bloquante, meme regle que
+// cote client (voir LigneRowCells/MachineFabricationSelect).
+async function validateMachineTypeCompatibility(filledRows: PendingProgrammeRow[]): Promise<string | null> {
+  const machineIds = new Set<number>();
+  for (const row of filledRows) {
+    if (row.machine_id) machineIds.add(row.machine_id);
+    if (row.machine_fabrication_id) machineIds.add(row.machine_fabrication_id);
+  }
+  if (machineIds.size === 0) return null;
+
+  const { data, error } = await supabaseServer
+    .from("machines")
+    .select("id, nom, type_produit")
+    .in("id", [...machineIds]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const machineById = new Map(
+    ((data ?? []) as { id: number; nom: string; type_produit: string[] | null }[]).map((machine) => [
+      machine.id,
+      machine,
+    ])
+  );
+
+  for (const row of filledRows) {
+    if (!row.type_article) continue;
+
+    if (row.machine_id) {
+      const machine = machineById.get(row.machine_id);
+      const typeProduit = machine?.type_produit ?? [];
+      if (typeProduit.length > 0 && !typeProduit.includes(row.type_article)) {
+        return `"${row.produit || "Cet article"}" (${row.type_article}) n'est pas compatible avec la machine Conditionnement "${machine?.nom ?? row.chaine}".`;
+      }
+    }
+
+    if (row.machine_fabrication_id) {
+      const machine = machineById.get(row.machine_fabrication_id);
+      const typeProduit = machine?.type_produit ?? [];
+      if (typeProduit.length > 0 && !typeProduit.includes(row.type_article)) {
+        return `"${row.produit || "Cet article"}" (${row.type_article}) n'est pas compatible avec la machine Fabrication "${machine?.nom ?? ""}".`;
+      }
+    }
+  }
+
+  return null;
+}
+
 async function performProgrammeLigneSave(
   filledRows: PendingProgrammeRow[],
   affectedZoneChaine: { zone: string; chaine: string }[],
@@ -1010,6 +1068,7 @@ async function performProgrammeLigneSave(
     vrac_a_fabriquer: row.vrac_a_fabriquer,
     plateforme: row.plateforme || null,
     programe: row.programe.trim() || null,
+    machine_fabrication_id: row.machine_fabrication_id ?? null,
     date_jour: dateJour,
     cree_par: creePar,
     remarque: remarque || null,
@@ -1130,6 +1189,11 @@ export async function saveProgrammeLigneBatchAction(
 
     if (filledRows.length === 0) {
       return { ok: false, message: "Choisis au moins un produit avant d'enregistrer." };
+    }
+
+    const incompatibilite = await validateMachineTypeCompatibility(filledRows);
+    if (incompatibilite) {
+      return { ok: false, message: incompatibilite };
     }
 
     // Remplace le contenu courant de chaque (zone, chaine) presente dans ce

@@ -22,6 +22,21 @@ const MOIS_OPTIONS = [
 export type LigneRow = {
   zone: string;
   chaine: string;
+  // Machine Conditionnement reelle derriere cette ligne (voir
+  // fetchConditionnementZoneGroups, page.tsx) - toujours fixe une fois la
+  // grille affichee, comme zone/chaine.
+  machineId: number;
+  typeProduit: string[];
+};
+
+// Machine de Fabrication proposee dans le nouveau picker par ligne -
+// "categorie" vient de machines.zone (Automatique/Manuel/Semi auto pour les
+// machines Fabrication, PAS une vraie zone - voir page.tsx).
+export type FabricationMachineOption = {
+  id: number;
+  nom: string;
+  categorie: string | null;
+  typeProduit: string[];
 };
 
 export type PrefillLigne = {
@@ -34,6 +49,7 @@ export type PrefillLigne = {
   vrac_a_fabriquer: number | null;
   plateforme: string | null;
   programe: string | null;
+  machine_fabrication_id?: number | null;
   remarque?: string | null;
 };
 
@@ -50,6 +66,7 @@ export type ArticleOption = {
 type RowState = {
   zone: string;
   chaine: string;
+  machineId: number;
   articleId: number | null;
   produit: string;
   typeArticle: string;
@@ -57,6 +74,7 @@ type RowState = {
   vracAFabriquer: number | null;
   plateforme: string;
   programe: string;
+  machineFabricationId: number | null;
 };
 
 function ProduitCell({
@@ -153,6 +171,111 @@ function PlateformeCell({
   );
 }
 
+// Categorie machine Fabrication (Automatique/Manuel/Semi auto, voir
+// machines.zone) -> valeur Plateforme (M/A) deduite automatiquement des
+// qu'une machine Fabrication est choisie. "Semi auto" ne force rien -
+// l'utilisateur choisit M ou A comme avant (decision actee).
+function plateformeFromCategorie(categorie: string | null): "M" | "A" | null {
+  const value = (categorie || "").trim().toLowerCase();
+  if (value === "automatique") return "A";
+  if (value === "manuel") return "M";
+  return null;
+}
+
+// Categorie machine Fabrication -> Plateforme (M/A) deduit + le `<select>`
+// lui-meme. Le remount de PlateformeCell (voir plus bas, "key" liee a la
+// machine choisie) applique la valeur deduite une seule fois au changement
+// de machine, sans reimposer la meme valeur a chaque re-render - reste
+// re-togglable a la main ensuite.
+function MachineFabricationSelect({
+  fabricationMachines,
+  typeArticle,
+  value,
+  onChange,
+}: {
+  fabricationMachines: FabricationMachineOption[];
+  typeArticle: string;
+  value: number | null;
+  onChange: (machineId: number | null, categorie: string | null) => void;
+}) {
+  // Sans article choisi : toutes les machines. Avec un type choisi : SEULES
+  // les machines compatibles apparaissent (jamais juste desactivees) -
+  // demande explicite ("il faut m'interdire de produire autre chose").
+  const options = typeArticle
+    ? fabricationMachines.filter((m) => m.typeProduit.includes(typeArticle))
+    : fabricationMachines;
+
+  return (
+    <select
+      value={value ?? ""}
+      onChange={(event) => {
+        const nextId = event.target.value ? Number(event.target.value) : null;
+        const nextMachine = fabricationMachines.find((m) => m.id === nextId) ?? null;
+        onChange(nextId, nextMachine?.categorie ?? null);
+      }}
+      className="w-40 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+    >
+      <option value="">Choisir...</option>
+      {options.map((machine) => (
+        <option key={machine.id} value={machine.id}>
+          {machine.nom}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// Machine Fabrication + Plateforme dans 2 colonnes separees (comme demande)
+// mais un seul etat reactif partage : choisir une machine deduit Plateforme
+// automatiquement (remount de PlateformeCell via sa key), tout en restant
+// re-togglable a la main ensuite.
+function MachineFabricationAndPlateformeCells({
+  fabricationMachines,
+  typeArticle,
+  initialMachineFabricationId,
+  initialPlateforme,
+  onUpdate,
+}: {
+  fabricationMachines: FabricationMachineOption[];
+  typeArticle: string;
+  initialMachineFabricationId?: number | null;
+  initialPlateforme?: string | null;
+  onUpdate: (partial: { machineFabricationId?: number | null; plateforme?: string }) => void;
+}) {
+  const [machineFabricationId, setMachineFabricationId] = useState<number | null>(
+    initialMachineFabricationId ?? null
+  );
+  const [categorie, setCategorie] = useState<string | null>(null);
+
+  return (
+    <>
+      <td className="px-4 py-3">
+        <MachineFabricationSelect
+          fabricationMachines={fabricationMachines}
+          typeArticle={typeArticle}
+          value={machineFabricationId}
+          onChange={(nextId, nextCategorie) => {
+            setMachineFabricationId(nextId);
+            setCategorie(nextCategorie);
+            const deduced = plateformeFromCategorie(nextCategorie);
+            onUpdate({
+              machineFabricationId: nextId,
+              ...(deduced ? { plateforme: deduced } : {}),
+            });
+          }}
+        />
+      </td>
+      <td className="px-4 py-3">
+        <PlateformeCell
+          key={machineFabricationId ?? "none"}
+          initialValue={(plateformeFromCategorie(categorie) ?? initialPlateforme ?? null) as "M" | "A" | null}
+          onChange={(value) => onUpdate({ plateforme: value })}
+        />
+      </td>
+    </>
+  );
+}
+
 // Champ libre, independant du code MB1/MB2/MB3 auto-genere au Save - ce
 // que l'utilisateur ecrit ici est sauvegarde tel quel, jamais remplace.
 function ProgrameCell({
@@ -193,11 +316,17 @@ function computeQtCarton(vrac: number, article: ArticleOption | null) {
 
 function LigneRowCells({
   articles,
+  machineTypeProduit,
   initialArticle,
   initialVracInput,
   onUpdate,
 }: {
   articles: ArticleOption[];
+  // Types acceptes par la machine Conditionnement de cette ligne - liste
+  // vide = machine pas encore configuree, aucune restriction (evite de
+  // bloquer une ligne existante juste parce que personne n'a encore rempli
+  // type_produit sur cette machine).
+  machineTypeProduit: string[];
   initialArticle?: ArticleOption | null;
   initialVracInput?: string;
   onUpdate: (partial: Partial<RowState>) => void;
@@ -207,6 +336,13 @@ function LigneRowCells({
 
   const vracNumber = Number(vracInput.replace(",", "."));
   const qtCarton = computeQtCarton(vracNumber, selectedArticle);
+
+  // Interdit de choisir un article que cette machine ne sait pas produire -
+  // filtre la liste elle-meme (jamais juste desactivee/avertie).
+  const compatibleArticles =
+    machineTypeProduit.length > 0
+      ? articles.filter((article) => machineTypeProduit.includes(article.type))
+      : articles;
 
   function handleSelectArticle(article: ArticleOption | null) {
     setSelectedArticle(article);
@@ -231,7 +367,7 @@ function LigneRowCells({
     <>
       <td className="px-4 py-3 text-slate-700">{selectedArticle?.type || "-"}</td>
       <td className="px-4 py-3">
-        <ProduitCell articles={articles} initialLabel={selectedArticle?.label} onSelect={handleSelectArticle} />
+        <ProduitCell articles={compatibleArticles} initialLabel={selectedArticle?.label} onSelect={handleSelectArticle} />
       </td>
       <td className="px-4 py-3 text-slate-700">
         {qtCarton !== null ? Math.round(qtCarton).toLocaleString("fr-FR") : "-"}
@@ -250,14 +386,110 @@ function LigneRowCells({
   );
 }
 
+function ProgrammeRow({
+  zoneLabel,
+  chaineLabel,
+  articles,
+  machineTypeProduit,
+  fabricationMachines,
+  prefillArticle,
+  prefillVracInput,
+  prefillTypeArticle,
+  prefillMachineFabricationId,
+  prefillPlateforme,
+  prefillProgramme,
+  isLast,
+  subRowCount,
+  onAddSubRow,
+  onRemoveSubRow,
+  onUpdate,
+}: {
+  zoneLabel: string;
+  chaineLabel: string;
+  articles: ArticleOption[];
+  machineTypeProduit: string[];
+  fabricationMachines: FabricationMachineOption[];
+  prefillArticle: ArticleOption | null;
+  prefillVracInput?: string;
+  prefillTypeArticle?: string | null;
+  prefillMachineFabricationId?: number | null;
+  prefillPlateforme?: string | null;
+  prefillProgramme?: string | null;
+  isLast: boolean;
+  subRowCount: number;
+  onAddSubRow: () => void;
+  onRemoveSubRow: () => void;
+  onUpdate: (partial: Partial<RowState>) => void;
+}) {
+  // Reactif (pas seulement dans rowsRef, qui ne redeclenche pas de rendu) -
+  // le picker Machine Fabrication doit se filtrer en direct des que le
+  // Produit change sur cette meme ligne.
+  const [typeArticle, setTypeArticle] = useState(prefillTypeArticle || "");
+
+  return (
+    <tr className="border-t border-slate-100 align-top">
+      <td className="px-4 py-3 font-medium text-slate-900">{zoneLabel}</td>
+      <td className="px-4 py-3 font-medium text-slate-900">{chaineLabel}</td>
+      <LigneRowCells
+        articles={articles}
+        machineTypeProduit={machineTypeProduit}
+        initialArticle={prefillArticle}
+        initialVracInput={prefillVracInput}
+        onUpdate={(partial) => {
+          if (partial.typeArticle !== undefined) setTypeArticle(partial.typeArticle);
+          onUpdate(partial);
+        }}
+      />
+      <MachineFabricationAndPlateformeCells
+        fabricationMachines={fabricationMachines}
+        typeArticle={typeArticle}
+        initialMachineFabricationId={prefillMachineFabricationId}
+        initialPlateforme={prefillPlateforme}
+        onUpdate={onUpdate}
+      />
+      <td className="px-4 py-3">
+        <ProgrameCell
+          initialValue={prefillProgramme || undefined}
+          onChange={(value) => onUpdate({ programe: value })}
+        />
+      </td>
+      <td className="px-4 py-3">
+        {isLast ? (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onAddSubRow}
+              title="Ajouter un article sur cette chaine"
+              className="h-9 w-9 rounded-xl border border-slate-200 bg-white text-lg font-bold text-slate-600 hover:border-slate-400"
+            >
+              +
+            </button>
+            {subRowCount > 1 ? (
+              <button
+                type="button"
+                onClick={onRemoveSubRow}
+                className="rounded-xl border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+              >
+                Annuler
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </td>
+    </tr>
+  );
+}
+
 export function ProgrammeLigneTable({
   zoneGroups,
   articles,
+  fabricationMachines,
   prefillLignes = [],
   prefillRemarque = "",
 }: {
   zoneGroups: LigneRow[][];
   articles: ArticleOption[];
+  fabricationMachines: FabricationMachineOption[];
   prefillLignes?: PrefillLigne[];
   prefillRemarque?: string;
 }) {
@@ -328,13 +560,14 @@ export function ProgrammeLigneTable({
     return subRowCounts[groupKey] ?? 1;
   }
 
-  function ensureRow(key: string, zone: string, chaine: string) {
+  function ensureRow(key: string, row: LigneRow) {
     if (!rowsRef.current[key]) {
       const prefill = prefillByKey.map.get(key);
       rowsRef.current[key] = prefill
         ? {
-            zone,
-            chaine,
+            zone: row.zone,
+            chaine: row.chaine,
+            machineId: row.machineId,
             articleId: prefill.article_id,
             produit: prefill.produit || "",
             typeArticle: prefill.type_article || "",
@@ -342,10 +575,12 @@ export function ProgrammeLigneTable({
             vracAFabriquer: prefill.vrac_a_fabriquer,
             plateforme: prefill.plateforme || "",
             programe: prefill.programe || "",
+            machineFabricationId: prefill.machine_fabrication_id ?? null,
           }
         : {
-            zone,
-            chaine,
+            zone: row.zone,
+            chaine: row.chaine,
+            machineId: row.machineId,
             articleId: null,
             produit: "",
             typeArticle: "",
@@ -353,6 +588,7 @@ export function ProgrammeLigneTable({
             vracAFabriquer: null,
             plateforme: "",
             programe: "",
+            machineFabricationId: null,
           };
     }
   }
@@ -389,6 +625,7 @@ export function ProgrammeLigneTable({
     const payload = Object.values(rowsRef.current).map((row) => ({
       zone: row.zone,
       chaine: row.chaine,
+      machine_id: row.machineId,
       article_id: row.articleId,
       produit: row.produit,
       type_article: row.typeArticle,
@@ -396,6 +633,7 @@ export function ProgrammeLigneTable({
       vrac_a_fabriquer: row.vracAFabriquer,
       plateforme: row.plateforme,
       programe: row.programe,
+      machine_fabrication_id: row.machineFabricationId,
     }));
 
     const formData = new FormData();
@@ -515,11 +753,12 @@ export function ProgrammeLigneTable({
         <thead className="bg-slate-50 text-slate-500">
           <tr>
             <th className="px-4 py-3 font-semibold">Zone</th>
-            <th className="px-4 py-3 font-semibold">Chaine</th>
+            <th className="px-4 py-3 font-semibold">Machine Conditionnement</th>
             <th className="px-4 py-3 font-semibold">Type</th>
             <th className="px-4 py-3 font-semibold">Produit</th>
             <th className="px-4 py-3 font-semibold">Qt carton</th>
             <th className="px-4 py-3 font-semibold">Vrac a fabriquer</th>
+            <th className="px-4 py-3 font-semibold">Machine Fabrication</th>
             <th className="px-4 py-3 font-semibold">Plateforme</th>
             <th className="px-4 py-3 font-semibold">Programme</th>
             <th className="px-4 py-3 font-semibold">Actions</th>
@@ -530,7 +769,7 @@ export function ProgrammeLigneTable({
             <Fragment key={`group-${groupIndex}`}>
               {groupIndex > 0 ? (
                 <tr key={`divider-${groupIndex}`}>
-                  <td colSpan={9} className="bg-slate-300 px-4 py-2" />
+                  <td colSpan={10} className="bg-slate-300 px-4 py-2" />
                 </tr>
               ) : null}
               {group.flatMap((row, rowIndex) => {
@@ -539,7 +778,7 @@ export function ProgrammeLigneTable({
 
                 return Array.from({ length: subRowCount }).map((_, subIndex) => {
                   const key = `${groupKey}-${subIndex}`;
-                  ensureRow(key, row.zone, row.chaine);
+                  ensureRow(key, row);
                   const isLast = subIndex === subRowCount - 1;
                   const prefill = prefillByKey.map.get(key);
                   const prefillArticle = prefill?.article_id
@@ -547,57 +786,27 @@ export function ProgrammeLigneTable({
                     : null;
 
                   return (
-                    <tr key={key} className="border-t border-slate-100 align-top">
-                      <td className="px-4 py-3 font-medium text-slate-900">
-                        {subIndex === 0 ? row.zone : ""}
-                      </td>
-                      <td className="px-4 py-3 font-medium text-slate-900">
-                        {subIndex === 0 ? row.chaine : ""}
-                      </td>
-                      <LigneRowCells
-                        articles={articles}
-                        initialArticle={prefillArticle}
-                        initialVracInput={
-                          prefill?.vrac_a_fabriquer != null ? String(prefill.vrac_a_fabriquer) : undefined
-                        }
-                        onUpdate={(partial) => updateRow(key, partial)}
-                      />
-                      <td className="px-4 py-3">
-                        <PlateformeCell
-                          initialValue={prefill?.plateforme as "M" | "A" | null | undefined}
-                          onChange={(value) => updateRow(key, { plateforme: value })}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <ProgrameCell
-                          initialValue={prefill?.programe || undefined}
-                          onChange={(value) => updateRow(key, { programe: value })}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        {isLast ? (
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => addSubRow(groupKey)}
-                              title="Ajouter un article sur cette chaine"
-                              className="h-9 w-9 rounded-xl border border-slate-200 bg-white text-lg font-bold text-slate-600 hover:border-slate-400"
-                            >
-                              +
-                            </button>
-                            {subRowCount > 1 ? (
-                              <button
-                                type="button"
-                                onClick={() => removeSubRow(groupKey, key)}
-                                className="rounded-xl border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
-                              >
-                                Annuler
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </td>
-                    </tr>
+                    <ProgrammeRow
+                      key={key}
+                      zoneLabel={subIndex === 0 ? row.zone : ""}
+                      chaineLabel={subIndex === 0 ? row.chaine : ""}
+                      articles={articles}
+                      machineTypeProduit={row.typeProduit}
+                      fabricationMachines={fabricationMachines}
+                      prefillArticle={prefillArticle}
+                      prefillVracInput={
+                        prefill?.vrac_a_fabriquer != null ? String(prefill.vrac_a_fabriquer) : undefined
+                      }
+                      prefillTypeArticle={prefill?.type_article}
+                      prefillMachineFabricationId={prefill?.machine_fabrication_id}
+                      prefillPlateforme={prefill?.plateforme}
+                      prefillProgramme={prefill?.programe}
+                      isLast={isLast}
+                      subRowCount={subRowCount}
+                      onAddSubRow={() => addSubRow(groupKey)}
+                      onRemoveSubRow={() => removeSubRow(groupKey, key)}
+                      onUpdate={(partial) => updateRow(key, partial)}
+                    />
                   );
                 });
               })}
