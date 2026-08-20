@@ -48,6 +48,14 @@ const NUMBER_ONLY_TOKEN_PATTERN = /^\d+(?:[.,]\d+)?$/;
 // famille pour qu'elles partagent un seul compteur de code (ex: "Creme Skin
 // Light Gt/Rgl/Std" doivent avoir le meme code, pas 3 codes separes).
 const PACKAGING_SIZE_TOKENS = new Set(["STD", "GT", "RGL"]);
+// "6Dz"/"9Dz"/"18Dz"... = nombre de douzaines par carton (conditionnement),
+// pas une contenance differente - a retirer comme les tailles/formats pour
+// que "Creme Matrix 50ml 18Dz" et "Creme Matrix 50ml 9Dz" (meme contenance,
+// juste un conditionnement carton different) partagent la meme famille de
+// code, au meme titre que Std/Gt/Rgl (bug reel : ces 2 articles avaient
+// chacun leur propre famille avant ce correctif, un code manuel tape sur
+// l'un ne se propageait jamais a l'autre).
+const DOZEN_COUNT_TOKEN_PATTERN = /^\d+DZ$/;
 
 export function detectArticleVariantFromName(name: string | null | undefined): string {
   const words = normalizeFamilyValue(name).split(" ");
@@ -81,6 +89,7 @@ export function detectArticleFamilyFromName(name: string | null | undefined): st
     const lastWord = words[words.length - 1];
     if (
       SIZE_TOKEN_PATTERN.test(lastWord) ||
+      DOZEN_COUNT_TOKEN_PATTERN.test(lastWord) ||
       PACKAGING_SIZE_TOKENS.has(lastWord) ||
       EXFOLIANT_TOKENS.has(lastWord) ||
       CLARIFIANT_TOKENS.has(lastWord) ||
