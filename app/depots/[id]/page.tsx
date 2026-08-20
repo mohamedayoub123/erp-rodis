@@ -2,9 +2,11 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { fetchReservedByLot } from "../transfer-order/stock-lots";
+import { LotStockCell } from "./lot-stock-cell";
 
 type DepotRow = { id: number; nom: string };
 type ArticlePfRow = { id: number; nom_article: string; nature: string | null; depot_id: number | null };
@@ -93,6 +95,9 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
     notFound();
   }
 
+  const currentUser = await getCurrentStockUser();
+  const canEdit = await canWritePageUser(currentUser, "depots");
+
   const [
     { data: depotData },
     { rows: articlesPf },
@@ -172,6 +177,7 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
       const reserve = reservedPfByLotByArticle.get(row.articleId)?.get(row.numeroLot) ?? 0;
       return {
         id: `${row.articleId}::${row.numeroLot}`,
+        articleId: row.articleId,
         nom: article?.nom_article ?? `#${row.articleId}`,
         numeroLot: row.numeroLot,
         nature: article?.nature ?? null,
@@ -194,6 +200,7 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
         (reservedMpProductionByArticleLot.get(key) ?? 0);
       return {
         id: key,
+        articleId: row.articleId,
         nom: article?.nom_article ?? `#${row.articleId}`,
         numeroLot: row.numeroLot,
         unite: article?.unite ?? null,
@@ -280,7 +287,17 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                           <span className="text-slate-400">-</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.solde)}</td>
+                      <td className="px-6 py-4 text-slate-600">
+                        <LotStockCell
+                          depotId={depotId}
+                          articleType="PF"
+                          articleId={row.articleId}
+                          numeroLot={row.numeroLot}
+                          solde={row.solde}
+                          reserve={row.reserve}
+                          canEdit={canEdit}
+                        />
+                      </td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.reserve > 1e-6 ? formatNumber(row.reserve) : "-"}
                       </td>
@@ -318,7 +335,17 @@ export default async function DepotDetailPage({ params }: { params: Promise<{ id
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
                       <td className="px-6 py-4 text-slate-600">{row.numeroLot || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatNumber(row.solde)}</td>
+                      <td className="px-6 py-4 text-slate-600">
+                        <LotStockCell
+                          depotId={depotId}
+                          articleType="MP"
+                          articleId={row.articleId}
+                          numeroLot={row.numeroLot}
+                          solde={row.solde}
+                          reserve={row.reserve}
+                          canEdit={canEdit}
+                        />
+                      </td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.reserve > 1e-6 ? formatNumber(row.reserve) : "-"}
                       </td>

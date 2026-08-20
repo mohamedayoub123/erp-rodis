@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { fetchReservedByLot, type ArticleType } from "./transfer-order/stock-lots";
 
 export async function createDepotAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
@@ -62,4 +63,110 @@ export async function deleteDepotAction(formData: FormData) {
   revalidatePath("/depots");
   revalidatePath("/articles/produit-fini");
   revalidatePath("/articles/matiere-premiere");
+}
+
+// Corrige le stock d'un article+lot precis dans un depot (fiche
+// /depots/[id]) - insere une ligne d'ajustement (entree ou sortie, jamais
+// une modification des lignes existantes) pour amener le solde a la
+// nouvelle quantite demandee. Ne descend jamais en dessous de ce qui est
+// deja reserve sur ce meme lot (Transfer Order en attente/approuve, ou
+// validation Salle de pesage/conditionnement pour la MP) - la reservation
+// existante n'est jamais touchee, seulement protegee.
+export async function updateDepotLotStockAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "depots"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier le stock des depots.");
+  }
+
+  const depotId = Number(formData.get("depot_id") || "0");
+  const articleType: ArticleType = String(formData.get("article_type") || "") === "MP" ? "MP" : "PF";
+  const articleId = Number(formData.get("article_id") || "0");
+  const numeroLot = String(formData.get("numero_lot") || "").trim();
+  const nouvelleQuantiteRaw = String(formData.get("nouvelle_quantite") || "").trim().replace(",", ".");
+  const nouvelleQuantite = Number(nouvelleQuantiteRaw);
+
+  if (!depotId || !articleId || nouvelleQuantiteRaw === "" || Number.isNaN(nouvelleQuantite)) {
+    throw new Error("Correction de stock invalide.");
+  }
+  if (nouvelleQuantite < 0) {
+    throw new Error("La quantite ne peut pas etre negative.");
+  }
+
+  const table = articleType === "MP" ? "lots_stock_matiere_premiere" : "lots_stock";
+  const articlesTable = articleType === "MP" ? "articles_matiere_premiere" : "articles";
+
+  const { data: articleData } = await supabaseServer
+    .from(articlesTable)
+    .select("depot_id")
+    .eq("id", articleId)
+    .maybeSingle();
+  const defaultDepotId = (articleData as { depot_id: number | null } | null)?.depot_id ?? null;
+
+  const { data: lotsData, error: lotsError } = await supabaseServer
+    .from(table)
+    .select("qte_entree, qte_sortie, depot_id, numero_lot")
+    .eq("article_id", articleId);
+
+  if (lotsError) {
+    throw new Error(lotsError.message);
+  }
+
+  let currentSolde = 0;
+  for (const lot of (lotsData ?? []) as {
+    qte_entree: number;
+    qte_sortie: number;
+    depot_id: number | null;
+    numero_lot: string | null;
+  }[]) {
+    if ((lot.numero_lot || "").trim() !== numeroLot) continue;
+    const effectiveDepotId = lot.depot_id ?? defaultDepotId;
+    if (effectiveDepotId !== depotId) continue;
+    currentSolde += Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0);
+  }
+
+  const reservedByLot = await fetchReservedByLot(articleType, articleId, depotId);
+  let reserve = reservedByLot.get(numeroLot) ?? 0;
+
+  if (articleType === "MP") {
+    const { data: reserveData } = await supabaseServer
+      .from("production_mp_reserve")
+      .select("quantite")
+      .eq("depot_id", depotId)
+      .eq("article_mp_id", articleId)
+      .eq("numero_lot", numeroLot);
+    reserve += ((reserveData ?? []) as { quantite: number }[]).reduce(
+      (sum, r) => sum + Number(r.quantite ?? 0),
+      0
+    );
+  }
+
+  if (nouvelleQuantite < reserve - 1e-6) {
+    throw new Error(
+      `Impossible de descendre sous ${reserve.toLocaleString("fr-FR")} : deja reserve par ailleurs sur ce lot.`
+    );
+  }
+
+  const delta = nouvelleQuantite - currentSolde;
+  if (Math.abs(delta) < 1e-9) {
+    return;
+  }
+
+  const { error: insertError } = await supabaseServer.from(table).insert({
+    article_id: articleId,
+    numero_lot: numeroLot,
+    code_normalise: numeroLot.toUpperCase(),
+    date_jour: new Date().toISOString().slice(0, 10),
+    qte_entree: delta > 0 ? delta : 0,
+    qte_sortie: delta < 0 ? -delta : 0,
+    depot_id: depotId,
+    utilisateur: currentUser,
+    note: "Correction de stock (fiche Depot)",
+  });
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  revalidatePath(`/depots/${depotId}`);
 }
