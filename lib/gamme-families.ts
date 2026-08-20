@@ -79,6 +79,7 @@ const FAMILY_SUBGAMMES: Record<string, { match: string }[]> = {
     { match: "mamassita" },
     { match: "amalia" },
     { match: "efficacite" },
+    { match: "dr johnson" },
   ],
 };
 

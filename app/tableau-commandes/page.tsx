@@ -152,6 +152,7 @@ const FAMILY_SUBGAMMES: Record<string, { label: string; match: string; bannerCla
     { label: "MAMASSITA", match: "mamassita", bannerClass: "bg-[#a6a6a6] text-white" },
     { label: "AMALIA", match: "amalia", bannerClass: "bg-[#a6a6a6] text-white" },
     { label: "EFFICACITE", match: "efficacite", bannerClass: "bg-[#a6a6a6] text-white" },
+    { label: "DR JOHNSON", match: "dr johnson", bannerClass: "bg-[#a6a6a6] text-white" },
   ],
 };
 
