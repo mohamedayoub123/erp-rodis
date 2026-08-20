@@ -15,6 +15,7 @@ type InvoiceOrderRow = {
   date_jour: string;
   created_at: string;
   numero: number | null;
+  remarque: string | null;
 };
 type TransferOrderRow = { id: number; depot_source_id: number; depot_destination_id: number };
 type DepotRow = { id: number; nom: string };
@@ -52,7 +53,10 @@ export default async function InvoiceOrderListPage() {
   const canDelete = await canDeletePageUser(currentUser, "depots");
 
   const [{ rows: invoiceOrders, error }, { rows: transferOrders }, { rows: depots }] = await Promise.all([
-    fetchAll<InvoiceOrderRow>("invoice_orders", "id, transfer_order_id, statut, date_jour, created_at, numero"),
+    fetchAll<InvoiceOrderRow>(
+      "invoice_orders",
+      "id, transfer_order_id, statut, date_jour, created_at, numero, remarque"
+    ),
     fetchAll<TransferOrderRow>("transfer_orders", "id, depot_source_id, depot_destination_id"),
     fetchAll<DepotRow>("depots", "id, nom"),
   ]);
@@ -106,6 +110,7 @@ export default async function InvoiceOrderListPage() {
                     <th className="px-6 py-4 font-semibold">De</th>
                     <th className="px-6 py-4 font-semibold">Vers</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
+                    <th className="px-6 py-4 font-semibold">Remarque</th>
                     {canDelete ? <th className="px-6 py-4 font-semibold"></th> : null}
                   </tr>
                 </thead>
@@ -136,6 +141,9 @@ export default async function InvoiceOrderListPage() {
                           >
                             {row.statut === "valide" ? "Approuve" : "En attente"}
                           </span>
+                        </td>
+                        <td className="max-w-xs truncate px-6 py-4 text-slate-600" title={row.remarque ?? ""}>
+                          {row.remarque || "-"}
                         </td>
                         {canDelete ? (
                           <td className="px-6 py-4">
