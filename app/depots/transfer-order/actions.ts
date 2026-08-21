@@ -349,7 +349,7 @@ export async function updateAllLigneLotsAction(formData: FormData) {
 
   const { data: lignesData, error: lignesError } = await supabaseServer
     .from("transfer_order_lignes")
-    .select("id, article_type, article_id")
+    .select("id, article_type, article_id, quantite_demandee")
     .in("id", ligneIds);
 
   if (lignesError) {
@@ -357,10 +357,28 @@ export async function updateAllLigneLotsAction(formData: FormData) {
   }
 
   const ligneById = new Map(
-    ((lignesData ?? []) as { id: number; article_type: ArticleType; article_id: number }[]).map((l) => [l.id, l])
+    (
+      (lignesData ?? []) as {
+        id: number;
+        article_type: ArticleType;
+        article_id: number;
+        quantite_demandee: number;
+      }[]
+    ).map((l) => [l.id, l])
   );
 
   const lotsCache = new Map<string, Awaited<ReturnType<typeof fetchLotsInDepot>>>();
+  // Solde restant PENDANT cet enregistrement (decremente au fur et a mesure) -
+  // sans ca, 2 lignes de lot du meme article/lot voyaient chacune le solde
+  // COMPLET independamment et pouvaient toutes les 2 etre acceptees, faisant
+  // depasser le total transfere au-dela de ce qui existe vraiment.
+  const remainingByCacheKeyAndLot = new Map<string, number>();
+  // Total deja alloue pour CETTE ligne PENDANT cet enregistrement - jamais
+  // depasser quantite_demandee, meme si l'utilisateur a change le lot d'une
+  // ligne existante sans retirer/ajuster une autre ligne de lot restee sur
+  // l'ancien total (bug remonte par l'utilisateur : demande 300, code
+  // change, 2 lignes de lot pour le meme lot totalisant plus que 300).
+  const allocatedByLigneId = new Map<number, number>();
   const allocations: typeof rows = [];
 
   for (const row of rows) {
@@ -375,10 +393,21 @@ export async function updateAllLigneLotsAction(formData: FormData) {
       lotsCache.set(cacheKey, lots);
     }
 
-    const disponible = lots.find((l) => l.numeroLot === (row.numeroLot ?? ""))?.solde ?? 0;
-    const quantite = Math.round(Math.min(row.quantite, disponible) * 1000) / 1000;
+    const remainingKey = `${cacheKey}::${row.numeroLot ?? ""}`;
+    if (!remainingByCacheKeyAndLot.has(remainingKey)) {
+      const disponible = lots.find((l) => l.numeroLot === (row.numeroLot ?? ""))?.solde ?? 0;
+      remainingByCacheKeyAndLot.set(remainingKey, disponible);
+    }
+    const remainingInLot = remainingByCacheKeyAndLot.get(remainingKey) ?? 0;
+
+    const dejaAlloue = allocatedByLigneId.get(row.ligneId) ?? 0;
+    const restantSurDemande = Math.max(0, ligne.quantite_demandee - dejaAlloue);
+
+    const quantite = Math.round(Math.min(row.quantite, remainingInLot, restantSurDemande) * 1000) / 1000;
     if (quantite <= 0) continue;
 
+    remainingByCacheKeyAndLot.set(remainingKey, remainingInLot - quantite);
+    allocatedByLigneId.set(row.ligneId, dejaAlloue + quantite);
     allocations.push({ ...row, quantite });
   }
 

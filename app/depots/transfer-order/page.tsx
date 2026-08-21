@@ -20,6 +20,7 @@ type TransferOrderRow = {
   famille_produit: string | null;
   type_mp: string | null;
   numero: number | null;
+  cree_par: string | null;
 };
 
 async function fetchAll<T>(table: string, select: string) {
@@ -66,7 +67,7 @@ export default async function TransferOrderListPage() {
       fetchAll<DepotRow>("depots", "id, nom"),
       fetchAll<TransferOrderRow>(
         "transfer_orders",
-        "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp, numero"
+        "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, famille_produit, type_mp, numero, cree_par"
       ),
       fetchAll<{ id: number; nom_article: string }>("articles_matiere_premiere", "id, nom_article"),
       fetchAll<{ id: number; nom_article: string }>("articles", "id, nom_article"),
@@ -158,6 +159,7 @@ export default async function TransferOrderListPage() {
                     <th className="px-6 py-4 font-semibold">Date</th>
                     <th className="px-6 py-4 font-semibold">De</th>
                     <th className="px-6 py-4 font-semibold">Vers</th>
+                    <th className="px-6 py-4 font-semibold">Cree par</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
                     {canDelete ? <th className="px-6 py-4 font-semibold"></th> : null}
                   </tr>
@@ -172,21 +174,22 @@ export default async function TransferOrderListPage() {
                       </td>
                       <td className="px-6 py-4 text-slate-600">{row.famille_produit ?? "-"}</td>
                       <td className="px-6 py-4">
-                        {row.type_mp ? (
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                              row.type_mp === "MP" ? "bg-violet-50 text-violet-700" : "bg-amber-50 text-amber-700"
-                            }`}
-                          >
-                            {row.type_mp}
-                          </span>
-                        ) : (
-                          "-"
-                        )}
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                            row.type_mp === "MP"
+                              ? "bg-violet-50 text-violet-700"
+                              : row.type_mp === "Conditionnement"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {row.type_mp === "MP" ? "Matiere premiere" : row.type_mp === "Conditionnement" ? "Conditionnement" : "Manuel"}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-slate-600">{formatDate(row.date_jour)}</td>
                       <td className="px-6 py-4 text-slate-600">{depotNomById.get(row.depot_source_id) ?? "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{depotNomById.get(row.depot_destination_id) ?? "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.cree_par ?? "-"}</td>
                       <td className="px-6 py-4">
                         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
                           {STATUT_LABELS[row.statut] ?? row.statut}
