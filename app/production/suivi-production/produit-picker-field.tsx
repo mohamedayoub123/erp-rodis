@@ -27,7 +27,7 @@ export function ProduitPickerField({
   defaultArticleId?: number | null;
   hiddenName?: string;
   textName?: string;
-  onSelect?: (articleId: number | null) => void;
+  onSelect?: (articleId: number | null, label?: string) => void;
 }) {
   const [value, setValue] = useState(defaultValue);
   const [articleId, setArticleId] = useState<number | null>(defaultArticleId);
@@ -59,7 +59,7 @@ export function ProduitPickerField({
     setValue(article.label);
     setArticleId(article.id);
     setShowDropdown(false);
-    onSelect?.(article.id);
+    onSelect?.(article.id, article.label);
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {

@@ -7,7 +7,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { formatDate } from "@/lib/format-date";
 import { vracLabelFromName } from "@/lib/gamme-families";
-import { fetchLotsInDepot, fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
+import { fetchBesoinArticleInfoAction } from "../../../actions";
 import { BesoinRowsEditor } from "./besoin-rows-editor";
 
 type LigneRow = { id: number; article_id: number | null; produit: string | null; date_jour: string };
@@ -126,39 +126,24 @@ export default async function BesoinBatchPage({
   const { data: depotBData } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
   const depotBId = (depotBData as { id: number } | null)?.id ?? null;
 
-  // Deja reserve par un AUTRE batch valide (voir validerBatchAction) - a
-  // deduire du stock reel Depot B, meme si ce stock n'a pas encore
-  // physiquement bouge (aucun Transfer Invoice valide pour cette reservation).
-  const reserveParMp = new Map<number, number>();
-  if (depotBId && mpIds.length > 0) {
-    const { data: reserveData } = await supabaseServer
-      .from("production_mp_reserve")
-      .select("article_mp_id, quantite")
-      .eq("depot_id", depotBId)
-      .in("article_mp_id", mpIds);
-    for (const r of (reserveData ?? []) as { article_mp_id: number; quantite: number }[]) {
-      reserveParMp.set(r.article_mp_id, (reserveParMp.get(r.article_mp_id) ?? 0) + Number(r.quantite));
-    }
-  }
-
+  // Meme fonction que la re-verification serveur (validerBatchAction) et
+  // que le picker cote client (fetchBesoinArticleInfoAction) - le
+  // disponible affiche ici doit toujours etre calcule PAR LOT, jamais sur
+  // le total de l'article (tous lots confondus), sinon un lot sans assez
+  // de stock apparait comme "OK" simplement parce qu'un AUTRE lot du meme
+  // article a le reste (voir la note dans actions.ts).
   const rows = await Promise.all(
     mpIds.map(async (mpId) => {
-      const [stockReel, lots] = await Promise.all([
-        depotBId ? fetchTotalStockInDepot("MP", mpId, depotBId) : Promise.resolve(0),
-        // Lots reellement presents au Depot B pour cette MP (ceux amenes
-        // par un Transfer Order approuve/poste) - le numero de lot choisi
-        // ici doit venir de la, jamais tape librement, pour rester
-        // coherent avec ce qui existe deja physiquement au Depot B.
-        depotBId ? fetchLotsInDepot("MP", mpId, depotBId) : Promise.resolve([]),
-      ]);
-      const reserve = reserveParMp.get(mpId) ?? 0;
+      const info = depotBId
+        ? await fetchBesoinArticleInfoAction(mpId, depotBId)
+        : { unite: null, disponible: 0, lots: [] as { numeroLot: string; solde: number }[] };
       return {
         id: mpId,
         nom: articleMpById.get(mpId)?.nom_article ?? `#${mpId}`,
         unite: articleMpById.get(mpId)?.unite ?? "-",
         besoin: round(besoinParMp.get(mpId) ?? 0),
-        stock: round(Math.max(0, stockReel - reserve)),
-        lots,
+        stock: round(info.disponible),
+        lots: info.lots,
       };
     })
   );

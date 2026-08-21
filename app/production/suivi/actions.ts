@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
-import { fetchTotalStockInDepot, fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
+import { fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
 
 function revalidateSuiviPages() {
   revalidatePath("/production/suivi");
@@ -234,6 +234,41 @@ export async function unmarkCartonTermineAction(formData: FormData) {
   revalidateSuiviPages();
 }
 
+// Lots reellement disponibles pour une MP dans un depot, pour la Salle de
+// pesage/conditionnement - solde net des Transfer Orders en cours (deja
+// fait par fetchLotsInDepot) ET des reservations Salle de pesage/
+// conditionnement (production_mp_reserve) deja posees sur CE MEME lot
+// precis. Partagee entre fetchBesoinArticleInfoAction (affichage) et
+// validerBatchAction (re-verification serveur) pour que les 2 restent
+// TOUJOURS coherents - avant, le disponible etait calcule sur le TOTAL de
+// l'article (tous lots confondus, fetchTotalStockInDepot) alors que la
+// validation ne consomme qu'UN SEUL lot choisi dans le select : un besoin
+// de 200kg pouvait etre valide en choisissant un lot qui n'en a que 100,
+// simplement parce qu'un AUTRE lot du meme article avait les 100 restants
+// (bug confirme, cas reel LANETTE SX 100kg + 100kg pour un besoin de 200kg).
+export type LotDisponible = { numeroLot: string; solde: number };
+
+async function fetchLotsDisponiblesPourBesoin(articleMpId: number, depotId: number): Promise<LotDisponible[]> {
+  const [lots, { data: reserveData }] = await Promise.all([
+    fetchLotsInDepot("MP", articleMpId, depotId),
+    supabaseServer
+      .from("production_mp_reserve")
+      .select("quantite, numero_lot")
+      .eq("depot_id", depotId)
+      .eq("article_mp_id", articleMpId),
+  ]);
+
+  const reserveParLot = new Map<string, number>();
+  for (const r of (reserveData ?? []) as { quantite: number; numero_lot: string | null }[]) {
+    const key = r.numero_lot || "";
+    reserveParLot.set(key, (reserveParLot.get(key) ?? 0) + Number(r.quantite ?? 0));
+  }
+
+  return lots
+    .map((l) => ({ numeroLot: l.numeroLot, solde: l.solde - (reserveParLot.get(l.numeroLot) ?? 0) }))
+    .filter((l) => l.solde > 1e-6);
+}
+
 // Utilise par la page "Besoin" quand l'utilisateur choisit/change un
 // article MP sur une ligne (ligne auto-calculee depuis la recette ou
 // ligne ajoutee a la main) - renvoie l'unite, le disponible reel (stock -
@@ -241,29 +276,18 @@ export async function unmarkCartonTermineAction(formData: FormData) {
 // page) et les lots existants au Depot B pour peupler le select.
 export async function fetchBesoinArticleInfoAction(articleMpId: number, depotId: number) {
   if (!articleMpId || !depotId) {
-    return { unite: "-", disponible: 0, lots: [] as { numeroLot: string; solde: number }[] };
+    return { unite: "-", disponible: 0, lots: [] as LotDisponible[] };
   }
 
-  const [{ data: articleData }, stockReel, lots, { data: reserveData }] = await Promise.all([
+  const [{ data: articleData }, lots] = await Promise.all([
     supabaseServer.from("articles_matiere_premiere").select("unite").eq("id", articleMpId).maybeSingle(),
-    fetchTotalStockInDepot("MP", articleMpId, depotId),
-    fetchLotsInDepot("MP", articleMpId, depotId),
-    supabaseServer
-      .from("production_mp_reserve")
-      .select("quantite")
-      .eq("depot_id", depotId)
-      .eq("article_mp_id", articleMpId),
+    fetchLotsDisponiblesPourBesoin(articleMpId, depotId),
   ]);
-
-  const dejaReserve = ((reserveData ?? []) as { quantite: number }[]).reduce(
-    (sum, r) => sum + Number(r.quantite ?? 0),
-    0
-  );
 
   return {
     unite: (articleData as { unite: string | null } | null)?.unite ?? "-",
-    disponible: Math.max(0, stockReel - dejaReserve),
-    lots: lots.map((l) => ({ numeroLot: l.numeroLot, solde: l.solde })),
+    disponible: lots.reduce((sum, l) => sum + l.solde, 0),
+    lots,
   };
 }
 
@@ -333,31 +357,42 @@ export async function validerBatchAction(formData: FormData) {
       .maybeSingle();
     depotBId = (depotBData as { id: number } | null)?.id ?? null;
 
-    // Recalcule le meme "stock reel - deja reserve ailleurs" que la page
-    // Besoin affiche deja (badge Insuffisant/OK) - jamais confiance aux
-    // champs caches du formulaire seuls, sinon la validation reste
-    // possible meme si le stock a bouge entre l'affichage et le clic.
-    // Bloque AVANT tout ecriture (markCodeTermine inclus) des qu'un seul
-    // article MP est en rupture.
+    // Recalcule le meme disponible PAR LOT que la page Besoin affiche deja
+    // (voir fetchLotsDisponiblesPourBesoin) - jamais confiance aux champs
+    // caches du formulaire seuls, sinon la validation reste possible meme
+    // si le stock a bouge entre l'affichage et le clic. La verification
+    // porte sur le LOT precis choisi, jamais sur le total de l'article :
+    // un besoin de 200kg couvert par 2 lots de 100kg doit forcement se
+    // traduire par 2 lignes de reservation (voir Dispatch auto cote
+    // client), jamais une seule ligne de 200kg sur un lot qui n'en a que
+    // 100 (bug confirme, cas reel LANETTE SX). Bloque AVANT tout ecriture
+    // (markCodeTermine inclus) des qu'un seul lot est en rupture.
     if (depotBId) {
+      // Cumule d'abord la demande par (article, lot) - plusieurs lignes du
+      // MEME formulaire (Dispatch auto ou ajout manuel) peuvent viser le
+      // meme lot, la verification doit porter sur leur somme.
+      const demandeParLot = new Map<string, number>();
       for (const r of reservations) {
-        const stockReel = await fetchTotalStockInDepot("MP", r.articleMpId, depotBId);
+        const key = `${r.articleMpId}|${r.numeroLot}`;
+        demandeParLot.set(key, (demandeParLot.get(key) ?? 0) + r.quantite);
+      }
 
-        const { data: reserveData } = await supabaseServer
-          .from("production_mp_reserve")
-          .select("quantite")
-          .eq("depot_id", depotBId)
-          .eq("article_mp_id", r.articleMpId);
-        const dejaReserve = ((reserveData ?? []) as { quantite: number }[]).reduce(
-          (sum, row) => sum + Number(row.quantite ?? 0),
-          0
-        );
-        const disponible = Math.max(0, stockReel - dejaReserve);
+      const articleMpIdsUniques = [...new Set(reservations.map((r) => r.articleMpId))];
+      const disponibleParLotParArticle = new Map<number, Map<string, number>>();
+      for (const articleMpId of articleMpIdsUniques) {
+        const lots = await fetchLotsDisponiblesPourBesoin(articleMpId, depotBId);
+        disponibleParLotParArticle.set(articleMpId, new Map(lots.map((l) => [l.numeroLot, l.solde])));
+      }
 
-        if (r.quantite > disponible + 1e-6) {
+      for (const r of reservations) {
+        const key = `${r.articleMpId}|${r.numeroLot}`;
+        const demandeTotale = demandeParLot.get(key) ?? 0;
+        const disponible = disponibleParLotParArticle.get(r.articleMpId)?.get(r.numeroLot) ?? 0;
+
+        if (demandeTotale > disponible + 1e-6) {
           redirect(
             `/production/suivi/dashboard/besoin/${ligneId}?code=${encodeURIComponent(code)}&stage=${besoinStage}&qt=${encodeURIComponent(qt)}&erreur=${encodeURIComponent(
-              "Stock Depot B insuffisant pour valider ce batch - verifie la colonne Disponible."
+              `Stock Depot B insuffisant sur le lot "${r.numeroLot}" - utilise Dispatch auto pour repartir sur plusieurs lots.`
             )}`
           );
         }
