@@ -64,61 +64,33 @@ export async function fetchAllArticleCodeRows(): Promise<AllArticleCodeRow[]> {
   return rows;
 }
 
-type PendingCodeByArticleId = Map<number, { code_manu: string | null; code_auto: string | null }>;
-
-// Tous les codes "en attente" (Dispatch deja fait, Ravitailleur pas encore
-// confirme) - lus SANS filtre par groupe_id, parce qu'un autre Dispatch pas
-// encore confirme sur la MEME famille (meme gamme+type, contenance
-// differente) doit quand meme faire avancer le compteur ici, sinon 2
-// Dispatchs distincts pas encore confirmes generent le meme code (bug de
-// doublon deja vu une fois : AA4240V-4243V generes 2 fois).
-export async function fetchAllPendingCodesByArticleId(): Promise<PendingCodeByArticleId> {
-  const map: PendingCodeByArticleId = new Map();
-
-  const { data, error } = await supabaseServer
-    .from("pending_article_code_updates")
-    .select("article_id, code_manu, code_auto");
-
-  if (error) return map;
-
-  for (const row of (data as { article_id: number; code_manu: string | null; code_auto: string | null }[] | null) ?? []) {
-    const current = map.get(row.article_id) ?? { code_manu: null, code_auto: null };
-
-    const currentManuNum = current.code_manu ? extractTrailingNumber(current.code_manu) : null;
-    const rowManuNum = row.code_manu ? extractTrailingNumber(row.code_manu) : null;
-    if (rowManuNum !== null && (currentManuNum === null || rowManuNum > currentManuNum)) {
-      current.code_manu = row.code_manu;
-    }
-
-    const currentAutoNum = current.code_auto ? extractTrailingNumber(current.code_auto) : null;
-    const rowAutoNum = row.code_auto ? extractTrailingNumber(row.code_auto) : null;
-    if (rowAutoNum !== null && (currentAutoNum === null || rowAutoNum > currentAutoNum)) {
-      current.code_auto = row.code_auto;
-    }
-
-    map.set(row.article_id, current);
-  }
-
-  return map;
-}
-
 // Genere automatiquement le code de chaque ligne dispatcher ou Plateforme
 // est M (utilise code_manu) ou A (utilise code_auto) : les articles d'une
 // meme gamme + type (ex: tous les "Lait" de la gamme "White Secret", toutes
-// contenances confondues) partagent UN seul compteur. Le code repart du
-// plus grand code deja connu dans la famille (pas seulement les articles
-// de ce Save, et pas seulement code_manu/code_auto - un Dispatch anterieur
-// pas encore confirme sur la meme famille compte aussi, voir
-// fetchAllPendingCodesByArticleId), incremente une fois par lot dispatcher,
-// en alternant/tournant entre les differentes contenances (round-robin). A
-// la fin, le dernier code genere est reecrit sur code_manu (ou code_auto)
-// de TOUTE la famille (gamme+type), pas seulement les contenances touchees
+// contenances confondues) partagent UN seul compteur. Le code repart
+// TOUJOURS du code deja enregistre sur l'article dans "Code par article"
+// (code_manu/code_auto), incremente une fois par lot dispatcher, en
+// alternant/tournant entre les differentes contenances (round-robin). A la
+// fin, le dernier code genere est reecrit sur code_manu (ou code_auto) de
+// TOUTE la famille (gamme+type), pas seulement les contenances touchees
 // ici.
+//
+// Ne consulte plus pending_article_code_updates pour choisir le depart (
+// contrairement a une version precedente) : ca semblait eviter un doublon
+// entre 2 Dispatchs consecutifs pas encore confirmes, mais un vieux
+// Dispatch de test jamais confirme (ni jamais efface) y laissait un code
+// pour toujours, qui gagnait alors sur une correction manuelle plus
+// recente faite sur "Code par article" - bug reel confirme (Lait WHITE
+// SECRET : code corrige a AA4250 sur "Code par article", le Dispatch
+// generait quand meme a partir d'un vieux AA4264V jamais nettoye). Le
+// risque de doublon entre 2 Dispatchs simultanes pas encore confirmes
+// reste (rare, attrape par le retry sur conflit d'insertion plus bas si
+// les 2 zones/chaines se recoupent) - prefere a un code qui ignore
+// silencieusement une correction manuelle.
 export async function generateAutoCodes(
   draftRows: DispatcherDraftRow[],
   articleInfoById: Map<number, ArticleFullInfo>,
-  allArticles: AllArticleCodeRow[],
-  pendingCodesByArticleId: PendingCodeByArticleId
+  allArticles: AllArticleCodeRow[]
 ): Promise<{ codesByRowIndex: Map<number, string>; codeUpdatesByArticleId: Map<number, { code_manu?: string; code_auto?: string }> }> {
   const codesByRowIndex = new Map<number, string>();
   const codeUpdatesByArticleId = new Map<number, { code_manu?: string; code_auto?: string }>();
@@ -166,18 +138,12 @@ export async function generateAutoCodes(
       let seedNumber = -1;
 
       for (const row of familyRows) {
-        const pendingForRow = pendingCodesByArticleId.get(row.id);
-        const candidates = [
-          field === "code_manu" ? row.code_manu : row.code_auto,
-          pendingForRow ? (field === "code_manu" ? pendingForRow.code_manu : pendingForRow.code_auto) : null,
-        ];
-        for (const candidate of candidates) {
-          if (!candidate) continue;
-          const num = extractTrailingNumber(candidate);
-          if (num !== null && num > seedNumber) {
-            seedNumber = num;
-            seedCode = candidate;
-          }
+        const current = field === "code_manu" ? row.code_manu : row.code_auto;
+        if (!current) continue;
+        const num = extractTrailingNumber(current);
+        if (num !== null && num > seedNumber) {
+          seedNumber = num;
+          seedCode = current;
         }
       }
 
@@ -290,10 +256,9 @@ export async function assignDispatcherCodesAndInsert(
   rowIds: number[]
 ): Promise<void> {
   const articleIds = [...new Set(filledRows.map((row) => row.article_id as number))];
-  const [articleInfoById, allArticleCodeRows, pendingCodesByArticleId] = await Promise.all([
+  const [articleInfoById, allArticleCodeRows] = await Promise.all([
     fetchArticleInfoMap(articleIds),
     fetchAllArticleCodeRows(),
-    fetchAllPendingCodesByArticleId(),
   ]);
 
   const MAX_CODE_ATTEMPTS = 6;
@@ -305,12 +270,10 @@ export async function assignDispatcherCodesAndInsert(
   for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
     const draftRows = buildDispatcherDraftRows(filledRows, articleInfoById);
     const articleCodeRowsForAttempt = attempt === 1 ? allArticleCodeRows : await fetchAllArticleCodeRows();
-    const pendingCodesForAttempt = attempt === 1 ? pendingCodesByArticleId : await fetchAllPendingCodesByArticleId();
     const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(
       draftRows,
       articleInfoById,
-      articleCodeRowsForAttempt,
-      pendingCodesForAttempt
+      articleCodeRowsForAttempt
     );
 
     const rawDispatcherPayload = draftRows.map((row, index) => ({
