@@ -239,12 +239,22 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
   try {
     const toutesLignes = [...payload, ...extraPayload];
     const quantiteParArticle = new Map<number, number>();
+    const lotsParArticle = new Map<number, Set<string>>();
     for (const ligne of toutesLignes) {
       quantiteParArticle.set(ligne.article_id, (quantiteParArticle.get(ligne.article_id) ?? 0) + ligne.qte_entree);
+      const lots = lotsParArticle.get(ligne.article_id) ?? new Set<string>();
+      if (ligne.numero_lot) lots.add(ligne.numero_lot);
+      lotsParArticle.set(ligne.article_id, lots);
     }
 
     const articleIds = [...quantiteParArticle.keys()];
-    const couts = await fetchCoutsParCartonProduitsFinis(articleIds);
+    const [couts, { data: articlesData }] = await Promise.all([
+      fetchCoutsParCartonProduitsFinis(articleIds),
+      supabaseServer.from("articles").select("id, nom_article").in("id", articleIds),
+    ]);
+    const nomArticleById = new Map(
+      ((articlesData ?? []) as { id: number; nom_article: string }[]).map((a) => [a.id, a.nom_article])
+    );
     const dateEcriture = new Date().toISOString().slice(0, 10);
 
     for (const [articleId, quantite] of quantiteParArticle) {
@@ -252,10 +262,12 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
       if (coutParCarton === null || coutParCarton === undefined) continue;
 
       const montant = coutParCarton * quantite;
+      const nomArticle = nomArticleById.get(articleId) ?? `#${articleId}`;
+      const lots = [...(lotsParArticle.get(articleId) ?? [])].join(", ");
       await creerEcriture({
         dateEcriture,
         pieceReference: String(groupeId),
-        libelle: `Entree production - article #${articleId}`,
+        libelle: `Entree production - ${nomArticle}${lots ? ` - ${lots}` : ""}`,
         sourceType: "entree_production",
         sourceId: `${groupeId}-${articleId}`,
         createdBy: currentUser,
