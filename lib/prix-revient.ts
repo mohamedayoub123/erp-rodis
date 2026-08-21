@@ -1,70 +1,67 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { convertirEnFcfa } from "@/lib/prix-devise";
+import { fetchLotsInDepot, allocateFefo } from "@/app/depots/transfer-order/stock-lots";
 
-export type CoutMpInfo = { coutFcfa: number; source: "lot" | "bc" };
-
-type LotRow = {
-  article_id: number;
-  prix_unitaire: number | null;
-  devise: string | null;
-  taux_change: number | null;
-  date_reception: string | null;
+export type CoutMpInfo = {
+  coutFcfa: number; // cout TOTAL pour la quantite demandee (pas un prix unitaire)
+  lots: { numeroLot: string; quantite: number; nDossErp: string | null; nDoss4d: string | null }[];
 };
 
-type BcLigneRow = {
-  article_id: number;
-  prix_unitaire: number | null;
-  devise: string | null;
-  taux_change: number | null;
-  date_jour: string | null;
-};
+let depotBIdCache: number | null | undefined;
 
-// Dernier prix d'achat par article MP (pas une moyenne - le prix change
-// souvent d'un achat a l'autre et l'utilisateur veut voir le prix du DERNIER
-// achat dans la formule), avec repli pour ne jamais traiter silencieusement
-// un article sans prix connu comme un cout de 0 :
-//  1. prix du lot le plus recemment receptionne (prix reel paye) pour cet
-//     article.
-//  2. si aucun lot receptionne avec prix : prix de la ligne BC la plus
-//     recente (prix negocie, pas encore receptionne).
-//  3. sinon : absent de la map retournee (prix inconnu).
-export async function fetchCoutsMoyenMp(articleMpIds: number[]): Promise<Map<number, CoutMpInfo>> {
+// Resolu une seule fois par process (le nom du depot ne change pas en cours
+// de route) - evite de re-chercher "Depot B" a chaque appel de cout.
+async function resoudreDepotBId(): Promise<number | null> {
+  if (depotBIdCache !== undefined) return depotBIdCache;
+  const { data } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
+  depotBIdCache = (data as { id: number } | null)?.id ?? null;
+  return depotBIdCache;
+}
+
+// Cout REEL d'une quantite de MP, tiree sur les lots physiquement presents a
+// Depot B (la ou la production consomme reellement) dans l'ordre FEFO (date
+// d'expiration la plus proche en premier) - jamais le "dernier prix connu"
+// toutes dates/tous depots confondus (un lot encore a Depot E, jamais
+// transfere, n'est pas physiquement consommable et ne doit jamais fixer le
+// prix). Si Depot B n'a pas assez de lots avec un prix connu pour couvrir
+// TOUTE la quantite demandee pour un article, cet article est absent de la
+// map retournee (jamais un cout partiel traite comme complet).
+export async function fetchCoutsReelsMpDepotB(
+  besoins: { articleMpId: number; quantite: number }[]
+): Promise<Map<number, CoutMpInfo>> {
   const result = new Map<number, CoutMpInfo>();
-  const ids = [...new Set(articleMpIds)];
-  if (ids.length === 0) return result;
+  const depotBId = await resoudreDepotBId();
+  if (!depotBId) return result;
 
-  const { data: lotsData } = await supabaseServer
-    .from("lots_stock_matiere_premiere")
-    .select("article_id, prix_unitaire, devise, taux_change, date_reception")
-    .in("article_id", ids)
-    .not("prix_unitaire", "is", null)
-    .order("date_reception", { ascending: false });
-
-  const lots = (lotsData ?? []) as LotRow[];
-  for (const lot of lots) {
-    if (result.has(lot.article_id)) continue;
-    const prixFcfa = convertirEnFcfa(lot.prix_unitaire, lot.devise, lot.taux_change);
-    if (prixFcfa === null) continue;
-    result.set(lot.article_id, { coutFcfa: prixFcfa, source: "lot" });
+  const parArticle = new Map<number, number>();
+  for (const b of besoins) {
+    if (b.quantite <= 0) continue;
+    parArticle.set(b.articleMpId, (parArticle.get(b.articleMpId) ?? 0) + b.quantite);
   }
 
-  const idsRestants = ids.filter((id) => !result.has(id));
-  if (idsRestants.length > 0) {
-    const { data: bcData } = await supabaseServer
-      .from("bons_commande_matiere_premiere")
-      .select("article_id, prix_unitaire, devise, taux_change, date_jour")
-      .in("article_id", idsRestants)
-      .not("prix_unitaire", "is", null)
-      .order("date_jour", { ascending: false });
+  await Promise.all(
+    [...parArticle.entries()].map(async ([articleMpId, quantite]) => {
+      const lots = await fetchLotsInDepot("MP", articleMpId, depotBId);
+      const lotsAvecPrix = lots.filter((l) => l.prixUnitaireFcfa !== null);
+      const { allocations, covered } = allocateFefo(lotsAvecPrix, quantite);
+      if (!covered) return;
 
-    const bcLignes = (bcData ?? []) as BcLigneRow[];
-    for (const ligne of bcLignes) {
-      if (result.has(ligne.article_id)) continue;
-      const prixFcfa = convertirEnFcfa(ligne.prix_unitaire, ligne.devise, ligne.taux_change);
-      if (prixFcfa === null) continue;
-      result.set(ligne.article_id, { coutFcfa: prixFcfa, source: "bc" });
-    }
-  }
+      const lotByNumero = new Map(lotsAvecPrix.map((l) => [l.numeroLot, l]));
+      let coutFcfa = 0;
+      const lotsUtilises: CoutMpInfo["lots"] = [];
+      for (const alloc of allocations) {
+        const lot = lotByNumero.get(alloc.numero_lot);
+        if (!lot || lot.prixUnitaireFcfa === null) return; // ne devrait pas arriver, garde-fou
+        coutFcfa += alloc.quantite * lot.prixUnitaireFcfa;
+        lotsUtilises.push({
+          numeroLot: alloc.numero_lot,
+          quantite: alloc.quantite,
+          nDossErp: lot.nDossErp,
+          nDoss4d: lot.nDoss4d,
+        });
+      }
+      result.set(articleMpId, { coutFcfa, lots: lotsUtilises });
+    })
+  );
 
   return result;
 }
@@ -82,7 +79,7 @@ export function computeRecetteCost(
       lignesSansPrix.push(ligne.article_mp_id);
       continue;
     }
-    coutTotal += Number(ligne.quantite ?? 0) * info.coutFcfa;
+    coutTotal += info.coutFcfa;
   }
 
   return { coutTotal, lignesSansPrix };
@@ -98,7 +95,16 @@ export type CoutVracInfo = {
 // Recharge la recette Fabrication du vrac (recettes_pf ou article_pf_id =
 // vracArticleId) pour chiffrer son cout par kg - reutilise depuis la page
 // Conditionnement pour ne pas dupliquer la logique de calcul.
-export async function fetchCoutVracParKg(vracArticleId: number): Promise<CoutVracInfo> {
+//
+// quantiteReelle (optionnel) : si connue (ex: un vrai vrac_fabrique), met a
+// l'echelle les quantites de la recette AVANT de resoudre le cout FEFO Depot
+// B, pour que le tirage sur les lots reflete la VRAIE quantite consommee
+// (pas seulement la base theorique) - le cout par kg n'est alors plus une
+// simple division lineaire, il peut refleter un melange de plusieurs lots a
+// des prix differents si la quantite reelle depasse ce qu'un seul lot
+// couvre. Sans ce parametre (affichage "Prix de revient" theorique), reste
+// base sur quantite_recette_base comme avant.
+export async function fetchCoutVracParKg(vracArticleId: number, quantiteReelle?: number): Promise<CoutVracInfo> {
   const [{ data: articleData }, { data: lignesData }] = await Promise.all([
     supabaseServer.from("articles").select("quantite_recette_base").eq("id", vracArticleId).maybeSingle(),
     supabaseServer
@@ -110,11 +116,17 @@ export async function fetchCoutVracParKg(vracArticleId: number): Promise<CoutVra
   const quantiteBase = (articleData as { quantite_recette_base: number | null } | null)?.quantite_recette_base ?? null;
   const lignes = (lignesData ?? []) as { article_mp_id: number; quantite: number }[];
 
-  const couts = await fetchCoutsMoyenMp(lignes.map((ligne) => ligne.article_mp_id));
-  const { coutTotal, lignesSansPrix } = computeRecetteCost(lignes, couts);
+  const quantiteUtilisee = quantiteReelle ?? quantiteBase ?? 0;
+  const ratio = quantiteBase && quantiteBase > 0 ? quantiteUtilisee / quantiteBase : 0;
+  const lignesEchelle = lignes.map((l) => ({ article_mp_id: l.article_mp_id, quantite: l.quantite * ratio }));
+
+  const couts = await fetchCoutsReelsMpDepotB(
+    lignesEchelle.map((l) => ({ articleMpId: l.article_mp_id, quantite: l.quantite }))
+  );
+  const { coutTotal, lignesSansPrix } = computeRecetteCost(lignesEchelle, couts);
 
   return {
-    coutParKg: quantiteBase && quantiteBase > 0 ? coutTotal / quantiteBase : null,
+    coutParKg: quantiteUtilisee > 0 ? coutTotal / quantiteUtilisee : null,
     coutTotal,
     quantiteBase,
     lignesSansPrix,
@@ -145,8 +157,19 @@ type RecetteLigneRow = { article_pf_id: number; article_mp_id: number; quantite:
 // poignee de requetes au lieu d'une par article - utilise par les pages
 // Commandes (une commande a plusieurs lignes/articles, potentiellement
 // beaucoup de commandes listees a la fois).
+//
+// quantitesReelles (optionnel) : article_pf_id -> vraie quantite de cartons
+// produite, pour couter par tirage FEFO reel Depot B plutot que par la seule
+// base theorique (meme principe que fetchCoutVracParKg). Limite connue : si
+// PLUSIEURS articles de ce lot partagent le meme vrac_article_id, chacun
+// resout son propre cout vrac independamment (chaque appel FEFO ne "voit"
+// pas ce que l'autre a deja pris sur les memes lots) - acceptable pour un
+// affichage/regroupement de commandes, pas pour 2 evenements comptables
+// simultanes sur le meme vrac (qui passent par fetchCoutVracParKg directement,
+// pas par cette fonction).
 export async function fetchCoutsParCartonProduitsFinis(
-  articlePfIds: number[]
+  articlePfIds: number[],
+  quantitesReelles?: Map<number, number>
 ): Promise<Map<number, CoutCartonInfo>> {
   const result = new Map<number, CoutCartonInfo>();
   const ids = [...new Set(articlePfIds)];
@@ -159,26 +182,10 @@ export async function fetchCoutsParCartonProduitsFinis(
   const articles = (articlesData ?? []) as ArticlePfCoutRow[];
   const articleById = new Map(articles.map((article) => [article.id, article]));
 
-  const vracIds = [
-    ...new Set(articles.map((article) => article.vrac_article_id).filter((id): id is number => id !== null)),
-  ];
-
-  const [{ data: vracArticlesData }, { data: lignesData }] = await Promise.all([
-    vracIds.length > 0
-      ? supabaseServer.from("articles").select("id, quantite_recette_base").in("id", vracIds)
-      : Promise.resolve({ data: [] as { id: number; quantite_recette_base: number | null }[] }),
-    supabaseServer
-      .from("recettes_pf")
-      .select("article_pf_id, article_mp_id, quantite")
-      .in("article_pf_id", [...ids, ...vracIds]),
-  ]);
-
-  const quantiteBaseByVrac = new Map(
-    ((vracArticlesData ?? []) as { id: number; quantite_recette_base: number | null }[]).map((vrac) => [
-      vrac.id,
-      vrac.quantite_recette_base,
-    ])
-  );
+  const { data: lignesData } = await supabaseServer
+    .from("recettes_pf")
+    .select("article_pf_id, article_mp_id, quantite")
+    .in("article_pf_id", ids);
 
   const lignesByPf = new Map<number, { article_mp_id: number; quantite: number }[]>();
   for (const ligne of (lignesData ?? []) as RecetteLigneRow[]) {
@@ -187,28 +194,38 @@ export async function fetchCoutsParCartonProduitsFinis(
     lignesByPf.set(ligne.article_pf_id, list);
   }
 
-  const allMpIds = [...lignesByPf.values()].flat().map((ligne) => ligne.article_mp_id);
-  const couts = await fetchCoutsMoyenMp(allMpIds);
-
-  const coutVracParId = new Map<number, { coutParKg: number | null; lignesSansPrix: number[] }>();
-  for (const vracId of vracIds) {
-    const lignes = lignesByPf.get(vracId) ?? [];
-    const { coutTotal, lignesSansPrix } = computeRecetteCost(lignes, couts);
-    const quantiteBase = quantiteBaseByVrac.get(vracId) ?? null;
-    coutVracParId.set(vracId, {
-      coutParKg: quantiteBase && quantiteBase > 0 ? coutTotal / quantiteBase : null,
-      lignesSansPrix,
-    });
+  const coutVracCache = new Map<string, CoutVracInfo>();
+  async function coutVracPourArticle(vracArticleId: number, quantiteReelleVrac: number | undefined) {
+    const cacheKey = `${vracArticleId}:${quantiteReelleVrac ?? "base"}`;
+    const cached = coutVracCache.get(cacheKey);
+    if (cached) return cached;
+    const info = await fetchCoutVracParKg(vracArticleId, quantiteReelleVrac);
+    coutVracCache.set(cacheKey, info);
+    return info;
   }
 
   for (const id of ids) {
     const article = articleById.get(id);
     if (!article) continue;
 
-    const lignesConditionnement = lignesByPf.get(id) ?? [];
+    const quantiteReelleCarton = quantitesReelles?.get(id);
+    const quantiteBaseCarton = article.quantite_recette_base;
+    const ratioCarton =
+      quantiteReelleCarton !== undefined && quantiteBaseCarton && quantiteBaseCarton > 0
+        ? quantiteReelleCarton / quantiteBaseCarton
+        : 1;
+
+    const lignesConditionnementBase = lignesByPf.get(id) ?? [];
+    const lignesConditionnement = lignesConditionnementBase.map((l) => ({
+      article_mp_id: l.article_mp_id,
+      quantite: l.quantite * ratioCarton,
+    }));
+    const coutsConditionnement = await fetchCoutsReelsMpDepotB(
+      lignesConditionnement.map((l) => ({ articleMpId: l.article_mp_id, quantite: l.quantite }))
+    );
     const { coutTotal: coutConditionnement, lignesSansPrix: lignesSansPrixConditionnement } = computeRecetteCost(
       lignesConditionnement,
-      couts
+      coutsConditionnement
     );
 
     let coutVracUtilise = 0;
@@ -220,22 +237,21 @@ export async function fetchCoutsParCartonProduitsFinis(
       // le cout vrac comme 0/absent.
       const qtVracAuto =
         article.contenance && article.piece_par_carton
-          ? round((article.quantite_recette_base || 1) * article.piece_par_carton * article.contenance, 3)
+          ? round((quantiteBaseCarton || 1) * article.piece_par_carton * article.contenance, 3)
           : null;
-      const qtVracNecessaire = article.vrac_quantite_recette ?? qtVracAuto;
+      const qtVracNecessaireBase = article.vrac_quantite_recette ?? qtVracAuto;
+      const qtVracReelleNecessaire = qtVracNecessaireBase !== null ? qtVracNecessaireBase * ratioCarton : undefined;
 
-      const coutVrac = coutVracParId.get(article.vrac_article_id);
-      if (coutVrac?.coutParKg !== null && coutVrac?.coutParKg !== undefined && qtVracNecessaire) {
-        coutVracUtilise = coutVrac.coutParKg * qtVracNecessaire;
+      const coutVrac = await coutVracPourArticle(article.vrac_article_id, qtVracReelleNecessaire);
+      if (coutVrac.coutParKg !== null && qtVracReelleNecessaire) {
+        coutVracUtilise = coutVrac.coutParKg * qtVracReelleNecessaire;
       }
-      lignesSansPrixVrac = coutVrac?.lignesSansPrix ?? [];
+      lignesSansPrixVrac = coutVrac.lignesSansPrix;
     }
 
-    const coutTotal = coutVracUtilise + coutConditionnement;
-    const coutParCarton =
-      article.quantite_recette_base && article.quantite_recette_base > 0
-        ? coutTotal / article.quantite_recette_base
-        : null;
+    const coutTotalPourQuantite = coutVracUtilise + coutConditionnement;
+    const quantiteUtiliseeCarton = quantiteReelleCarton ?? quantiteBaseCarton ?? 0;
+    const coutParCarton = quantiteUtiliseeCarton > 0 ? coutTotalPourQuantite / quantiteUtiliseeCarton : null;
 
     result.set(id, {
       coutParCarton,

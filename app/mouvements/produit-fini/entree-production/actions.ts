@@ -249,7 +249,7 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
 
     const articleIds = [...quantiteParArticle.keys()];
     const [couts, { data: articlesData }] = await Promise.all([
-      fetchCoutsParCartonProduitsFinis(articleIds),
+      fetchCoutsParCartonProduitsFinis(articleIds, quantiteParArticle),
       supabaseServer.from("articles").select("id, nom_article").in("id", articleIds),
     ]);
     const nomArticleById = new Map(

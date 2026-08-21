@@ -1,8 +1,20 @@
 import { supabaseServer } from "@/lib/supabase-server";
+import { convertirEnFcfa } from "@/lib/prix-devise";
 
 export type ArticleType = "MP" | "PF";
 
-export type DepotLot = { numeroLot: string; solde: number; dateTri: string | null };
+export type DepotLot = {
+  numeroLot: string;
+  solde: number;
+  dateTri: string | null;
+  // Prix reel du dossier d'achat qui a cree ce lot (FCFA, converti) - null
+  // pour un article PF (pas de prix par lot) ou un lot MP sans prix connu.
+  // Utilise par lib/prix-revient.ts pour couter par dossier reel (FEFO)
+  // plutot que par "dernier prix connu" toutes dates/tous depots confondus.
+  prixUnitaireFcfa: number | null;
+  nDossErp: string | null;
+  nDoss4d: string | null;
+};
 
 async function fetchAllRows<T>(table: string, select: string, articleId: number): Promise<T[]> {
   const rows: T[] = [];
@@ -139,11 +151,12 @@ export async function fetchLotsInDepot(
 ): Promise<DepotLot[]> {
   const table = stockTableFor(articleType);
   const dateField = articleType === "MP" ? "date_expiration" : "date_fabrication";
+  const prixFields = articleType === "MP" ? ", prix_unitaire, devise, taux_change, n_doss_erp, n_doss_4d" : "";
 
   const [rows, defaultDepotId, reservedByLot] = await Promise.all([
     fetchAllRows<{ numero_lot: string | null; qte_entree: number; qte_sortie: number; depot_id: number | null; [key: string]: unknown }>(
       table,
-      `numero_lot, qte_entree, qte_sortie, depot_id, ${dateField}`,
+      `numero_lot, qte_entree, qte_sortie, depot_id, ${dateField}${prixFields}`,
       articleId
     ),
     fetchArticleDefaultDepotId(articleType, articleId),
@@ -156,10 +169,25 @@ export async function fetchLotsInDepot(
     if (effectiveDepotId !== depotId) continue;
 
     const key = row.numero_lot || "";
-    const existing = byLot.get(key) ?? { numeroLot: key, solde: 0, dateTri: null };
+    const existing = byLot.get(key) ?? { numeroLot: key, solde: 0, dateTri: null, prixUnitaireFcfa: null, nDossErp: null, nDoss4d: null };
     existing.solde += Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
     const dateVal = (row[dateField] as string | null) ?? null;
     if (dateVal && !existing.dateTri) existing.dateTri = dateVal;
+
+    // Le prix/dossier vient de la ligne d'ENTREE (la reception qui a cree ce
+    // lot) - une ligne de sortie n'a jamais son propre prix. Premiere entree
+    // rencontree avec un prix connu qui gagne (un numero_lot ne devrait
+    // normalement correspondre qu'a UNE seule reception).
+    if (existing.prixUnitaireFcfa === null && Number(row.qte_entree ?? 0) > 0 && row.prix_unitaire != null) {
+      existing.prixUnitaireFcfa = convertirEnFcfa(
+        row.prix_unitaire as number,
+        (row.devise as string | null) ?? null,
+        (row.taux_change as number | null) ?? null
+      );
+      existing.nDossErp = (row.n_doss_erp as string | null) ?? null;
+      existing.nDoss4d = (row.n_doss_4d as string | null) ?? null;
+    }
+
     byLot.set(key, existing);
   }
 

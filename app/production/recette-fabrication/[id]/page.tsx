@@ -12,7 +12,7 @@ import {
   updateQuantiteBaseAction,
 } from "../actions";
 import { SubmitButton } from "@/app/_components/submit-button";
-import { fetchCoutsMoyenMp, computeRecetteCost } from "@/lib/prix-revient";
+import { fetchCoutsReelsMpDepotB, computeRecetteCost } from "@/lib/prix-revient";
 import { canVoirPrixUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 type ArticlePfRow = {
@@ -104,7 +104,9 @@ export default async function RecetteFabricationDetailPage({
   // (comportement precedent, pour les recettes pas encore mises a jour).
   const totalQuantite = quantiteBase !== null && quantiteBase !== undefined && quantiteBase > 0 ? quantiteBase : sommeLignes;
 
-  const coutsMp = await fetchCoutsMoyenMp(lignes.map((ligne) => ligne.article_mp_id));
+  const coutsMp = await fetchCoutsReelsMpDepotB(
+    lignes.map((ligne) => ({ articleMpId: ligne.article_mp_id, quantite: ligne.quantite }))
+  );
   const { coutTotal, lignesSansPrix } = computeRecetteCost(lignes, coutsMp);
   const coutParKg = quantiteBase && quantiteBase > 0 ? coutTotal / quantiteBase : null;
 

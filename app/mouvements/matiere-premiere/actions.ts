@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { fetchCoutsMoyenMp } from "@/lib/prix-revient";
+import { fetchCoutsReelsMpDepotB } from "@/lib/prix-revient";
 import { COMPTE_PERTES_STOCK, COMPTE_STOCK_MP, creerEcriture } from "@/lib/comptabilite";
 
 // Supprime une ligne de detail puis, si c'etait la derniere ligne de son
@@ -274,7 +274,9 @@ export async function createSortieMpBatchAction(formData: FormData) {
 
     const articleIds = [...parArticle.keys()];
     const [couts, { data: articlesData }] = await Promise.all([
-      fetchCoutsMoyenMp(articleIds),
+      fetchCoutsReelsMpDepotB(
+        [...parArticle.entries()].map(([articleId, info]) => ({ articleMpId: articleId, quantite: info.quantite }))
+      ),
       supabaseServer.from("articles_matiere_premiere").select("id, nom_article").in("id", articleIds),
     ]);
     const nomById = new Map(((articlesData ?? []) as { id: number; nom_article: string }[]).map((a) => [a.id, a.nom_article]));
@@ -282,11 +284,8 @@ export async function createSortieMpBatchAction(formData: FormData) {
     const batchRef = (rpcResult as { groupes?: number[] } | null)?.groupes?.[0] ?? Date.now();
 
     for (const [articleId, info] of parArticle) {
-      const coutFcfa = couts.get(articleId)?.coutFcfa;
-      if (coutFcfa === undefined) continue;
-
-      const montant = coutFcfa * info.quantite;
-      if (montant <= 0) continue;
+      const montant = couts.get(articleId)?.coutFcfa;
+      if (montant === undefined || montant <= 0) continue;
 
       const lotsTexte = [...info.lots].join(", ");
       await creerEcriture({

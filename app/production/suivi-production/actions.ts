@@ -644,9 +644,9 @@ export async function saveFabricationRapportAction(formData: FormData) {
       const vracArticleId = articleId ? await resolveVracArticleId(articleId) : null;
 
       if (vracArticleId) {
-        const coutVrac = await fetchCoutVracParKg(vracArticleId);
+        const coutVrac = await fetchCoutVracParKg(vracArticleId, vracFabrique);
         if (coutVrac.coutParKg !== null) {
-          const montant = coutVrac.coutParKg * vracFabrique;
+          const montant = coutVrac.coutTotal;
           await creerEcriture({
             dateEcriture: dateFabricationConditionnement || new Date().toISOString().slice(0, 10),
             pieceReference: code,

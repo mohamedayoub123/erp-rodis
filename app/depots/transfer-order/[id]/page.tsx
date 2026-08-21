@@ -176,7 +176,14 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
       for (const choisi of dejaChoisis) {
         const cle = choisi.numero_lot ?? "";
         if (!lotsDisponibles.some((l) => l.numeroLot === cle)) {
-          lotsDisponibles.push({ numeroLot: cle, solde: 0, dateTri: null });
+          lotsDisponibles.push({
+            numeroLot: cle,
+            solde: 0,
+            dateTri: null,
+            prixUnitaireFcfa: null,
+            nDossErp: null,
+            nDoss4d: null,
+          });
         }
       }
       return { ...ligne, nom, lotsDisponibles };

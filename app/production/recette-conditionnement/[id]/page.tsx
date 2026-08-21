@@ -12,7 +12,7 @@ import {
   updateVracQuantiteAction,
 } from "../../recette-fabrication/actions";
 import { SubmitButton } from "@/app/_components/submit-button";
-import { fetchCoutsMoyenMp, computeRecetteCost, fetchCoutVracParKg } from "@/lib/prix-revient";
+import { fetchCoutsReelsMpDepotB, computeRecetteCost, fetchCoutVracParKg } from "@/lib/prix-revient";
 import { canVoirPrixUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 type ArticlePfRow = {
@@ -153,7 +153,9 @@ export default async function RecetteConditionnementDetailPage({
       : null;
   const qtVracNecessaire = vracQuantiteRecette ?? qtVracAuto;
 
-  const coutsMp = await fetchCoutsMoyenMp(lignes.map((ligne) => ligne.article_mp_id));
+  const coutsMp = await fetchCoutsReelsMpDepotB(
+    lignes.map((ligne) => ({ articleMpId: ligne.article_mp_id, quantite: ligne.quantite }))
+  );
   const { coutTotal: coutConditionnement, lignesSansPrix: lignesSansPrixConditionnement } = computeRecetteCost(
     lignes,
     coutsMp

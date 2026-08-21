@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { fetchCoutsMoyenMp, computeRecetteCost, fetchCoutVracParKg } from "@/lib/prix-revient";
+import { fetchCoutsReelsMpDepotB, computeRecetteCost, fetchCoutVracParKg } from "@/lib/prix-revient";
 import { resolveVracArticleId } from "@/lib/vrac-article";
 import { normalizeMachineName } from "@/lib/machine-match";
 import { hhmmDiffMinutes, ddmmHhmmDiffMinutes } from "@/lib/suivi-tirage-time";
@@ -173,18 +173,31 @@ async function fetchArticle(articleId: number): Promise<ArticleRow | null> {
 // carton plutot qu'un total pour le lot theorique - ce module les multiplie
 // ensuite par la quantite REELLEMENT produite sur la periode, pas par
 // quantite_recette_base.
-async function fetchRatiosConditionnement(article: ArticleRow) {
+//
+// quantiteReelleTotale (optionnel) : quantite reellement produite sur la
+// periode - met a l'echelle les lignes de recette AVANT de resoudre le cout
+// FEFO Depot B (comme fetchCoutVracParKg), pour que le tirage sur les lots
+// reflete la VRAIE quantite consommee sur toute la periode plutot que juste
+// la base theorique.
+async function fetchRatiosConditionnement(article: ArticleRow, quantiteReelleTotale?: number) {
   const lignesConditionnement = await fetchRecettesPfLignes(article.id);
+  const quantiteBase = article.quantite_recette_base;
+  const ratio =
+    quantiteReelleTotale !== undefined && quantiteBase && quantiteBase > 0
+      ? quantiteReelleTotale / quantiteBase
+      : 1;
+  const lignesEchelle = lignesConditionnement.map((l) => ({ ...l, quantite: l.quantite * ratio }));
 
-  const coutsMp = await fetchCoutsMoyenMp(lignesConditionnement.map((l) => l.article_mp_id));
+  const coutsMp = await fetchCoutsReelsMpDepotB(
+    lignesEchelle.map((l) => ({ articleMpId: l.article_mp_id, quantite: l.quantite }))
+  );
   const { coutTotal: coutConditionnementLot, lignesSansPrix: lignesSansPrixConditionnement } = computeRecetteCost(
-    lignesConditionnement,
+    lignesEchelle,
     coutsMp
   );
 
-  const quantiteBase = article.quantite_recette_base;
-  const coutConditionnementParCarton =
-    quantiteBase && quantiteBase > 0 ? coutConditionnementLot / quantiteBase : null;
+  const quantiteUtilisee = quantiteReelleTotale ?? quantiteBase ?? 0;
+  const coutConditionnementParCarton = quantiteUtilisee > 0 ? coutConditionnementLot / quantiteUtilisee : null;
 
   const qtVracAuto =
     article.contenance && article.piece_par_carton
@@ -436,16 +449,16 @@ export async function computeCoutReelArticle(
   let coutParUnite: number | null = null;
 
   if (nature === "vrac") {
-    const coutVrac = await fetchCoutVracParKg(articleId);
+    const coutVrac = await fetchCoutVracParKg(articleId, quantiteTotaleProduite);
     coutParUnite = coutVrac.coutParKg;
-    coutVracReel = coutVrac.coutParKg !== null ? coutVrac.coutParKg * quantiteTotaleProduite : null;
+    coutVracReel = coutVrac.coutParKg !== null ? coutVrac.coutTotal : null;
     if (coutVrac.coutParKg === null) {
-      lignesIncertaines.push({ ligneId: 0, code: "", motifs: ["Cout par kg du vrac inconnu (MP sans prix)."] });
+      lignesIncertaines.push({ ligneId: 0, code: "", motifs: ["Cout par kg du vrac inconnu (MP sans prix a Depot B)."] });
     }
   } else {
     const vracArticleId = await resolveVracArticleId(articleId);
     const { coutConditionnementParCarton, qtVracParCarton, lignesSansPrixConditionnement } =
-      await fetchRatiosConditionnement(article);
+      await fetchRatiosConditionnement(article, quantiteTotaleProduite);
 
     coutConditionnementReel =
       coutConditionnementParCarton !== null ? coutConditionnementParCarton * quantiteTotaleProduite : null;
@@ -465,7 +478,8 @@ export async function computeCoutReelArticle(
 
     let coutVracParCarton: number | null = null;
     if (vracArticleId) {
-      const coutVrac = await fetchCoutVracParKg(vracArticleId);
+      const qtVracReelleNecessaire = qtVracParCarton !== null ? qtVracParCarton * quantiteTotaleProduite : undefined;
+      const coutVrac = await fetchCoutVracParKg(vracArticleId, qtVracReelleNecessaire);
       coutVracParCarton =
         coutVrac.coutParKg !== null && qtVracParCarton !== null ? coutVrac.coutParKg * qtVracParCarton : null;
       coutVracReel = coutVracParCarton !== null ? coutVracParCarton * quantiteTotaleProduite : null;
@@ -473,7 +487,7 @@ export async function computeCoutReelArticle(
         lignesIncertaines.push({
           ligneId: 0,
           code: "",
-          motifs: ["Cout du vrac utilise inconnu (prix MP ou quantite de vrac necessaire manquants)."],
+          motifs: ["Cout du vrac utilise inconnu (prix MP ou quantite de vrac necessaire manquants a Depot B)."],
         });
       }
     }

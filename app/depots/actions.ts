@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchReservedByLot, type ArticleType } from "./transfer-order/stock-lots";
-import { fetchCoutsMoyenMp } from "@/lib/prix-revient";
+import { fetchCoutsReelsMpDepotB } from "@/lib/prix-revient";
 import { COMPTE_PERTES_STOCK, COMPTE_STOCK_MP, creerEcriture } from "@/lib/comptabilite";
 
 // Ecriture comptable Perte sur stock (Debit Pertes / Credit Stock MP) - MP
@@ -14,12 +14,9 @@ import { COMPTE_PERTES_STOCK, COMPTE_STOCK_MP, creerEcriture } from "@/lib/compt
 // Try/catch qui n'interrompt jamais la correction de stock elle-meme.
 async function creerEcriturePerteMp(articleId: number, numeroLot: string, quantitePerdue: number, currentUser: string | null) {
   try {
-    const couts = await fetchCoutsMoyenMp([articleId]);
-    const coutFcfa = couts.get(articleId)?.coutFcfa;
-    if (coutFcfa === undefined) return;
-
-    const montant = coutFcfa * quantitePerdue;
-    if (montant <= 0) return;
+    const couts = await fetchCoutsReelsMpDepotB([{ articleMpId: articleId, quantite: quantitePerdue }]);
+    const montant = couts.get(articleId)?.coutFcfa;
+    if (montant === undefined || montant <= 0) return;
 
     const { data: articleData } = await supabaseServer
       .from("articles_matiere_premiere")
