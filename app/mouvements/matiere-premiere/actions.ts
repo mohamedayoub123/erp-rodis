@@ -123,6 +123,18 @@ export async function createEntreeMpBatchAction(formData: FormData) {
     throw new Error("Aucune entree a approuver.");
   }
 
+  // Sans depot, l'entree est invisible dans les colonnes "Disponible Depot"
+  // (Verifier Stock, TO/TI) et le filtre Depot de Stock MP - meme si la
+  // quantite existe bien en base.
+  const articleIds = [...new Set(rows.map((row) => Number(row.article_id)).filter(Boolean))];
+  const { data: articleDepotRows } = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select("id, depot_id")
+    .in("id", articleIds);
+  const depotIdByArticleId = new Map(
+    ((articleDepotRows as { id: number; depot_id: number | null }[] | null) ?? []).map((row) => [row.id, row.depot_id])
+  );
+
   const payload = rows.map((row) => {
     const articleId = Number(row.article_id);
     const quantite = Number(row.quantite);
@@ -144,6 +156,7 @@ export async function createEntreeMpBatchAction(formData: FormData) {
       qte_entree: quantite,
       qte_sortie: 0,
       unite: String(row.unite || "").trim() || null,
+      depot_id: depotIdByArticleId.get(articleId) ?? null,
       fournisseur: String(row.fournisseur || "").trim() || null,
       n_doss_erp: String(row.n_doss_erp || "").trim() || null,
       n_doss_4d: String(row.n_doss_4d || "").trim() || null,

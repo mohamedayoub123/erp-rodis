@@ -292,11 +292,15 @@ export async function createReceptionMpAction(formData: FormData) {
 
   const { data: articleRow } = await supabaseServer
     .from("articles_matiere_premiere")
-    .select("unite")
+    .select("unite, depot_id")
     .eq("id", articleId)
     .maybeSingle();
 
-  const unite = (articleRow as { unite: string | null } | null)?.unite ?? null;
+  const unite = (articleRow as { unite: string | null; depot_id: number | null } | null)?.unite ?? null;
+  // Sans depot, la reception est invisible dans les colonnes "Disponible
+  // Depot" (Verifier Stock, TO/TI) et le filtre Depot de Stock MP - meme si
+  // la quantite existe bien en base.
+  const depotId = (articleRow as { unite: string | null; depot_id: number | null } | null)?.depot_id ?? null;
 
   const fournisseur = parseOptionalText(formData, "fournisseur");
 
@@ -428,6 +432,7 @@ export async function createReceptionMpAction(formData: FormData) {
         devise,
         taux_change: devise !== "FCFA" ? tauxChange : null,
         unite,
+        depot_id: depotId,
         fournisseur,
         n_doss_erp: nDossErpImport,
         n_doss_4d: nDoss4dImport,
