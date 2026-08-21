@@ -13,6 +13,7 @@ import {
   COMPTE_VARIATION_STOCK_MP,
   creerEcriture,
   resoudreOuCreerFournisseur,
+  supprimerEcriturePourSource,
 } from "@/lib/comptabilite";
 
 // Sources d'ecritures comptables generees par une Reception (voir plus bas,
@@ -126,6 +127,71 @@ export async function updateLotPrixAction(formData: FormData) {
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  // Recalcule les 2 ecritures Achat/Stock MP de ce lot avec le prix
+  // corrige - jamais laissees figees sur l'ancien prix. Efface d'abord
+  // (que le nouveau prix soit connu ou non - un prix remis a vide/0 ne
+  // doit plus laisser d'ecriture derriere lui, jamais un montant devine).
+  // Try/catch qui n'interrompt jamais la correction de prix elle-meme.
+  try {
+    await supprimerEcriturePourSource("mp_achat", String(lotId));
+    await supprimerEcriturePourSource("mp_stock_entree", String(lotId));
+
+    if (prixUnitaire !== null && prixUnitaire > 0) {
+      const { data: lotData } = await supabaseServer
+        .from("lots_stock_matiere_premiere")
+        .select("article_id, qte_entree, fournisseur, date_reception, numero_lot")
+        .eq("id", lotId)
+        .maybeSingle();
+      const lot = lotData as {
+        article_id: number;
+        qte_entree: number;
+        fournisseur: string | null;
+        date_reception: string | null;
+        numero_lot: string;
+      } | null;
+
+      if (lot) {
+        const prixUnitaireFcfa = convertirEnFcfa(prixUnitaire, devise, tauxChange);
+        const montant = prixUnitaireFcfa !== null ? prixUnitaireFcfa * Number(lot.qte_entree) : null;
+
+        if (montant !== null && montant > 0) {
+          const currentUser = await getCurrentStockUser();
+          await resoudreOuCreerFournisseur(lot.fournisseur || "");
+          const libelleFournisseur = lot.fournisseur || "Fournisseur non precise";
+          const dateEcriture = lot.date_reception || new Date().toISOString().slice(0, 10);
+
+          await creerEcriture({
+            dateEcriture,
+            pieceReference: lot.numero_lot,
+            libelle: `Achat MP - ${lot.numero_lot} - ${libelleFournisseur}`,
+            sourceType: "mp_achat",
+            sourceId: String(lotId),
+            createdBy: currentUser,
+            lignes: [
+              { compteCode: COMPTE_ACHAT_MP, debit: montant, credit: 0 },
+              { compteCode: COMPTE_FOURNISSEURS, debit: 0, credit: montant },
+            ],
+          });
+
+          await creerEcriture({
+            dateEcriture,
+            pieceReference: lot.numero_lot,
+            libelle: `Entree stock MP - ${lot.numero_lot}`,
+            sourceType: "mp_stock_entree",
+            sourceId: String(lotId),
+            createdBy: currentUser,
+            lignes: [
+              { compteCode: COMPTE_STOCK_MP, debit: montant, credit: 0 },
+              { compteCode: COMPTE_VARIATION_STOCK_MP, debit: 0, credit: montant },
+            ],
+          });
+        }
+      }
+    }
+  } catch (comptaError) {
+    console.error("Ecriture comptable correction prix lot echouee:", comptaError);
   }
 
   revalidateCommandeMpPages();
