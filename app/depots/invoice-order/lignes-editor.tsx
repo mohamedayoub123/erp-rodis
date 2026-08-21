@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { LotSearchField } from "../transfer-order/lot-search-field";
 
 type LigneRow = {
   id: number;
@@ -136,18 +137,12 @@ export function InvoiceOrderLignesEditor({
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         {canEditLignes ? (
-                          <select
+                          <LotSearchField
                             name="numero_lot"
                             defaultValue={ligne.numero_lot ?? ""}
+                            lots={ligne.lotsDisponibles}
                             onChange={() => setIsDirty(true)}
-                            className="w-56 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
-                          >
-                            {ligne.lotsDisponibles.map((disp) => (
-                              <option key={disp.numeroLot} value={disp.numeroLot}>
-                                {disp.numeroLot || "(sans numero)"} - disponible : {disp.solde.toLocaleString("fr-FR")}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         ) : (
                           ligne.numero_lot || "-"
                         )}

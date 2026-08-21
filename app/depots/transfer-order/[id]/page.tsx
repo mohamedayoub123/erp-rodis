@@ -160,10 +160,25 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
 
   const lignesEnrichies = await Promise.all(
     lignes.map(async (ligne) => {
-      const [nom, lotsDisponibles] = await Promise.all([
+      const [nom, lotsDisponiblesBruts] = await Promise.all([
         fetchNomArticle(ligne.article_type, ligne.article_id),
         fetchLotsInDepot(ligne.article_type, ligne.article_id, transferOrder.depot_source_id, transferOrder.id),
       ]);
+      // Les lots deja choisis sur cette ligne (transfer_order_ligne_lots)
+      // doivent TOUJOURS rester des options du menu, meme si
+      // fetchLotsInDepot ne les retrouve plus (solde net tombe a 0/negatif
+      // une fois toutes les reservations recalculees, ou lot au solde reel
+      // tres bas) - sinon le menu de recherche perd silencieusement le lot
+      // deja assigne (bug reel signale : lot deja pris par "Flacon"
+      // invisible a la recherche, disparait a l'ouverture de Modifier).
+      const dejaChoisis = lotsByLigneId.get(ligne.id) ?? [];
+      const lotsDisponibles = [...lotsDisponiblesBruts];
+      for (const choisi of dejaChoisis) {
+        const cle = choisi.numero_lot ?? "";
+        if (!lotsDisponibles.some((l) => l.numeroLot === cle)) {
+          lotsDisponibles.push({ numeroLot: cle, solde: 0, dateTri: null });
+        }
+      }
       return { ...ligne, nom, lotsDisponibles };
     })
   );

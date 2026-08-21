@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { ProduitPickerField } from "@/app/production/suivi-production/produit-picker-field";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { LotSearchField } from "./lot-search-field";
 import type { ArticleType } from "./stock-lots";
 
 type LotChoisi = { numero_lot: string | null; quantite: number };
@@ -241,18 +242,12 @@ export function TransferOrderLignesEditor({
                     </td>
                     <td className="px-6 py-4">
                       <input type="hidden" name="ligne_id" value={ligne.id} />
-                      <select
+                      <LotSearchField
                         name="numero_lot"
                         defaultValue={lot.numero_lot ?? ""}
+                        lots={ligne.lotsDisponibles}
                         disabled={estSupprimee}
-                        className="w-56 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
-                      >
-                        {ligne.lotsDisponibles.map((disp) => (
-                          <option key={disp.numeroLot} value={disp.numeroLot}>
-                            {disp.numeroLot || "(sans numero)"} - disponible : {disp.solde.toLocaleString("fr-FR")}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </td>
                     <td className="px-6 py-4 text-slate-600">
                       {(
