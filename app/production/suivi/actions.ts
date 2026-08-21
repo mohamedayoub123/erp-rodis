@@ -86,16 +86,18 @@ async function markCodeTermine(formData: FormData, stage: CodeTermineStage): Pro
 }
 
 // "Fin programme" declare qu'aucune autre production ne viendra pour ce
-// code sur cette etape - la part de reservation MP jamais consommee (ex:
-// production arretee a 2950 sur 3000 prevus, 5kg encore "reserves" sans
-// jamais avoir ete sortis du stock reel, voir consommerReservationMp)
-// est traitee differemment selon l'etape :
-//  - Salle de conditionnement (carton/sleeve...) : jamais physiquement
-//    consommee si non utilisee, elle redevient simplement disponible.
-//  - Salle de pesage (matiere premiere Fabrication) : une fois pesee,
-//    elle est physiquement sortie de l'entrepot (emmenee vers la cuve)
-//    meme si le vrac produit est finalement moindre que prevu - elle ne
-//    revient jamais au stock, elle doit etre reellement deduite.
+// code sur cette etape - la part de reservation MP encore marquee
+// "reservee" a ce moment-la (ex: production arretee a 2950 sur 3000
+// prevus, ou tout simplement rien n'a decremente la reservation au fil
+// des saisies) doit etre reellement deduite du stock (consommerRemainingMpReserve),
+// que ce soit la Salle de pesage (matiere premiere Fabrication) OU la
+// Salle de conditionnement (carton/sleeve...) : dans les 2 cas, une fois
+// prelevee de l'entrepot elle ne revient jamais au stock, meme si la
+// quantite finalement produite differe de ce qui etait prevu - bug reel
+// corrige : la Salle de conditionnement faisait juste disparaitre la
+// reservation SANS creer de sortie de stock reelle, laissant le stock MP
+// inchange malgre une vraie production (cas confirme AA4263V, 313 cartons
+// produits, stock MP jamais sorti).
 async function fetchReservesRestantes(ligneId: number, code: string, stage: "pesage" | "salle_conditionnement") {
   const { data: codeTermineData } = await supabaseServer
     .from("production_code_termine")
@@ -123,28 +125,13 @@ async function fetchReservesRestantes(ligneId: number, code: string, stage: "pes
   return { codeTermine, reserves };
 }
 
-async function releaseRemainingMpReserve(
+async function consommerRemainingMpReserve(
   ligneId: number,
   code: string,
+  currentUser: string | null,
   stage: "pesage" | "salle_conditionnement"
 ) {
   const found = await fetchReservesRestantes(ligneId, code, stage);
-  if (!found || found.reserves.length === 0) return;
-
-  const { error } = await supabaseServer
-    .from("production_mp_reserve")
-    .update({ quantite: 0 })
-    .in(
-      "id",
-      found.reserves.map((r) => r.id)
-    );
-  if (error) {
-    throw new Error(error.message);
-  }
-}
-
-async function consommerRemainingMpReserve(ligneId: number, code: string, currentUser: string | null) {
-  const found = await fetchReservesRestantes(ligneId, code, "pesage");
   if (!found || found.reserves.length === 0) return;
 
   const dateJour = new Date().toISOString().slice(0, 10);
@@ -182,7 +169,7 @@ export async function markVracTermineAction(formData: FormData) {
   await markCodeTermine(formData, "vrac");
 
   if (ligneId && code) {
-    await consommerRemainingMpReserve(ligneId, code, currentUser);
+    await consommerRemainingMpReserve(ligneId, code, currentUser, "pesage");
   }
 }
 
@@ -190,13 +177,14 @@ export async function markVracTermineAction(formData: FormData) {
 // ne ferme plus Conditionnement/Emballage (et inversement) - chaque etape a
 // son propre flag "termine".
 export async function markCartonTermineAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();
 
   await markCodeTermine(formData, "carton");
 
   if (ligneId && code) {
-    await releaseRemainingMpReserve(ligneId, code, "salle_conditionnement");
+    await consommerRemainingMpReserve(ligneId, code, currentUser, "salle_conditionnement");
   }
 }
 
@@ -204,8 +192,9 @@ export async function markCartonTermineAction(formData: FormData) {
 // juste la ligne production_code_termine (stage "carton") pour ce code, ce
 // qui le fait immediatement reapparaitre dans la colonne Conditionnement du
 // Dashboard (isCodeTerminated ne le trouve plus). Ne touche pas aux
-// reservations MP (releaseRemainingMpReserve porte sur le stage separe
-// "salle_conditionnement", jamais "carton").
+// reservations MP (consommerRemainingMpReserve porte sur le stage separe
+// "salle_conditionnement", jamais "carton", et a deja cree la sortie de
+// stock reelle - annuler "carton" ne l'annule pas).
 export async function unmarkCartonTermineAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
@@ -421,8 +410,21 @@ export async function validerBatchAction(formData: FormData) {
   redirect("/production/suivi/dashboard");
 }
 
+// Filet de securite : si "Fin programme" Conditionnement n'a jamais ete
+// clique pour ce code (ex: on enchaine directement sur Emballage), sa
+// reservation MP "salle_conditionnement" resterait sinon indefiniment
+// bloquee sans jamais sortir du stock reel - consommerRemainingMpReserve
+// ne fait rien si elle a deja ete traitee (quantite deja a 0).
 export async function markEmballageTermineAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+
   await markCodeTermine(formData, "emballage");
+
+  if (ligneId && code) {
+    await consommerRemainingMpReserve(ligneId, code, currentUser, "salle_conditionnement");
+  }
 }
 
 export async function addCartonEntryAction(formData: FormData) {
