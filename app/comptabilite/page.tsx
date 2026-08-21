@@ -39,6 +39,18 @@ const TILES = [
     icon: "\u{1F3F7}\u{FE0F}",
     description: "Prix de revient et prix de vente (standard + clients speciaux) de chaque produit fini.",
   },
+  {
+    label: "Bilan",
+    href: "/comptabilite/bilan",
+    icon: "\u{1F3DB}\u{FE0F}",
+    description: "Actif / Passif au format SYSCOHADA - photo du patrimoine a aujourd'hui.",
+  },
+  {
+    label: "Compte de resultat",
+    href: "/comptabilite/compte-resultat",
+    icon: "\u{1F4C8}",
+    description: "Produits / Charges au format SYSCOHADA - resultat net de l'exercice.",
+  },
 ] as const;
 
 export default function ComptabilitePage() {

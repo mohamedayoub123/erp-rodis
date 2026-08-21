@@ -108,6 +108,52 @@ export async function supprimerEcriturePourSource(sourceType: string, sourceId: 
   }
 }
 
+// Solde (debit-credit) de CHAQUE compte du plan comptable, code compte ->
+// solde - calcul partage entre Balance, Bilan et Compte de resultat (evite
+// de refaire cette pagination/somme 3 fois avec un risque de divergence).
+export async function fetchSoldesParCompte(): Promise<Map<string, number>> {
+  const comptes: { id: number; code: string }[] = [];
+  const lignes: { compte_id: number; debit: number; credit: number }[] = [];
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabaseServer
+      .from("comptes_comptables")
+      .select("id, code")
+      .range(from, from + pageSize - 1);
+    if (error) break;
+    const chunk = (data as { id: number; code: string }[] | null) ?? [];
+    comptes.push(...chunk);
+    if (chunk.length < pageSize) break;
+  }
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabaseServer
+      .from("ecriture_lignes")
+      .select("compte_id, debit, credit")
+      .range(from, from + pageSize - 1);
+    if (error) break;
+    const chunk = (data as { compte_id: number; debit: number; credit: number }[] | null) ?? [];
+    lignes.push(...chunk);
+    if (chunk.length < pageSize) break;
+  }
+
+  const soldeByCompteId = new Map<number, number>();
+  for (const ligne of lignes) {
+    soldeByCompteId.set(
+      ligne.compte_id,
+      (soldeByCompteId.get(ligne.compte_id) ?? 0) + Number(ligne.debit ?? 0) - Number(ligne.credit ?? 0)
+    );
+  }
+
+  const soldeByCode = new Map<string, number>();
+  for (const compte of comptes) {
+    soldeByCode.set(compte.code, soldeByCompteId.get(compte.id) ?? 0);
+  }
+
+  return soldeByCode;
+}
+
 function normalizeFournisseur(value: string) {
   return value.replace(/ /g, "").trim().toUpperCase();
 }
