@@ -9,7 +9,14 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { deleteMachineAction } from "./actions";
 import { AddMachineForm } from "./add-machine-form";
 import { MachineTypeProduitSelect } from "./type-produit-select";
-import { MachineConsoCell, MachineEnergieCell, MachineNomCell, MachineZoneCell } from "./machine-cells";
+import {
+  MachineConsoCell,
+  MachineConsoGasoilCell,
+  MachineConsoGazCell,
+  MachineEnergieCell,
+  MachineNomCell,
+  MachineZoneCell,
+} from "./machine-cells";
 import { TYPE_PRODUIT_OPTIONS } from "./type-produit-options";
 
 type MachineRow = {
@@ -19,6 +26,8 @@ type MachineRow = {
   type: string | null;
   type_produit: string[] | null;
   consommation_electrique_kw: number | null;
+  consommation_gaz_litres_heure: number | null;
+  consommation_gasoil_litres_heure: number | null;
   energie_machine_ids: number[] | null;
 };
 
@@ -27,7 +36,9 @@ type MachineRow = {
 async function fetchAllMachines(): Promise<{ rows: MachineRow[]; error: { message: string } | null }> {
   const { data, error } = await supabaseServer
     .from("machines")
-    .select("id, nom, zone, type, type_produit, consommation_electrique_kw, energie_machine_ids")
+    .select(
+      "id, nom, zone, type, type_produit, consommation_electrique_kw, consommation_gaz_litres_heure, consommation_gasoil_litres_heure, energie_machine_ids"
+    )
     .order("zone", { ascending: true, nullsFirst: false })
     .order("nom", { ascending: true });
 
@@ -64,13 +75,14 @@ async function fetchArticleTypeProduits(): Promise<string[]> {
   return [...values];
 }
 
-type SearchParams = Promise<{ zone?: string; nom?: string }>;
+type SearchParams = Promise<{ zone?: string; type?: string; nom?: string }>;
 
 export default async function MachinesPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
 
   const params = await searchParams;
   const zoneFilter = (params.zone || "").trim();
+  const typeFilter = (params.type || "").trim();
   const nomFilter = (params.nom || "").trim().toLowerCase();
 
   const currentUser = await getCurrentStockUser();
@@ -99,9 +111,10 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
 
   const rows = allRows
     .filter((m) => !zoneFilter || m.zone === zoneFilter)
+    .filter((m) => !typeFilter || m.type === typeFilter)
     .filter((m) => !nomFilter || m.nom.toLowerCase().includes(nomFilter));
 
-  const hasFilters = Boolean(zoneFilter || nomFilter);
+  const hasFilters = Boolean(zoneFilter || typeFilter || nomFilter);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -141,7 +154,7 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
         ) : null}
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto_auto]">
             <select
               name="zone"
               defaultValue={zoneFilter}
@@ -151,6 +164,18 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
               {distinctZones.map((zone) => (
                 <option key={zone} value={zone}>
                   {zone}
+                </option>
+              ))}
+            </select>
+            <select
+              name="type"
+              defaultValue={typeFilter}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              <option value="">Tous les types</option>
+              {distinctTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
                 </option>
               ))}
             </select>
@@ -198,6 +223,8 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type de produit</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conso. electrique (kW)</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conso. gaz (L/h)</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conso. gasoil (L/h)</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Machine Energie</th>
                     {canDelete ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
@@ -223,6 +250,12 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         <MachineConsoCell machine={machine} canEdit={canEdit} />
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        <MachineConsoGazCell machine={machine} canEdit={canEdit} />
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        <MachineConsoGasoilCell machine={machine} canEdit={canEdit} />
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         <MachineEnergieCell machine={machine} canEdit={canEdit} energieOptions={energieOptions} />

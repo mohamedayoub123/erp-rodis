@@ -41,6 +41,8 @@ export function MachineTypeProduitSelect({
     type: string | null;
     type_produit: string[] | null;
     consommation_electrique_kw: number | null;
+    consommation_gaz_litres_heure: number | null;
+    consommation_gasoil_litres_heure: number | null;
     energie_machine_ids: number[] | null;
   };
   typeProduitOptions: string[];
@@ -55,6 +57,16 @@ export function MachineTypeProduitSelect({
       <input type="hidden" name="zone" value={machine.zone ?? ""} />
       <input type="hidden" name="type" value={machine.type ?? ""} />
       <input type="hidden" name="consommation_electrique_kw" value={machine.consommation_electrique_kw ?? ""} />
+      <input
+        type="hidden"
+        name="consommation_gaz_litres_heure"
+        value={machine.consommation_gaz_litres_heure ?? ""}
+      />
+      <input
+        type="hidden"
+        name="consommation_gasoil_litres_heure"
+        value={machine.consommation_gasoil_litres_heure ?? ""}
+      />
       {(machine.energie_machine_ids ?? []).map((id) => (
         <input key={id} type="hidden" name="energie_machine_ids" value={id} />
       ))}

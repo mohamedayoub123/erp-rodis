@@ -62,9 +62,18 @@ type MachineRow = {
   nom: string;
   type: string | null;
   consommation_electrique_kw: number | null;
+  consommation_gaz_litres_heure: number | null;
+  consommation_gasoil_litres_heure: number | null;
   energie_machine_ids: number[] | null;
 };
-type PrixMoisRow = { annee: number; mois: number; prix_kwh: number | null; prix_heure_journalier: number | null };
+type PrixMoisRow = {
+  annee: number;
+  mois: number;
+  prix_kwh: number | null;
+  prix_heure_journalier: number | null;
+  prix_gaz: number | null;
+  prix_gasoil: number | null;
+};
 type RapportCoutRow = {
   programme_ligne_id: number;
   code: string;
@@ -198,7 +207,7 @@ async function fetchPrixMoisMap(mois: string[]): Promise<Map<string, PrixMoisRow
   const annees = [...new Set(mois.map((m) => Number(m.slice(0, 4))))];
   const { data } = await supabaseServer
     .from("prix_carburant")
-    .select("annee, mois, prix_kwh, prix_heure_journalier")
+    .select("annee, mois, prix_kwh, prix_heure_journalier, prix_gaz, prix_gasoil")
     .in("annee", annees);
 
   for (const row of (data ?? []) as PrixMoisRow[]) {
@@ -308,19 +317,23 @@ function buildActiveMachinesByEnergieAndDate(
   return map;
 }
 
-// Part du cout d'une machine Energie partagee (ex: groupe electrogene 100kW
-// alimentant 10 machines) attribuee a CETTE machine pour CE jour : son kW
-// divise par le nombre de machines actives ce jour-la, x les heures de
-// CETTE machine, x le prix du kWh - s'AJOUTE au cout electrique propre de
-// la machine (consommation_electrique_kw), ne le remplace pas. Une machine
-// peut dependre de PLUSIEURS machines Energie a la fois (ex: un groupe
-// electrogene general + un compresseur d'air dedie) - chacune contribue sa
-// propre part independamment, sommees ici.
+// Part du cout d'une machine Energie partagee (ex: groupe electrogene
+// alimentant 10 machines) attribuee a CETTE machine pour CE jour : chaque
+// source de consommation qu'elle a (kW electrique, gaz, gasoil - une
+// machine Energie peut cumuler plusieurs, ex: un groupe electrogene tourne
+// au gasoil mais chauffe aussi au gaz) est divisee par le nombre de
+// machines actives ce jour-la, x les heures de CETTE machine, x son propre
+// prix (prix_kwh/prix_gaz/prix_gasoil du mois) - les 3 sont sommees.
+// S'AJOUTE au cout electrique propre de la machine (consommation_electrique_kw),
+// ne le remplace pas. Une machine peut dependre de PLUSIEURS machines
+// Energie a la fois (ex: un groupe electrogene general + un compresseur
+// d'air dedie) - chacune contribue sa propre part independamment, sommees
+// ici.
 function computeEnergieShareCout(
   machine: MachineRow | null | undefined,
   heures: number,
   date: string | null,
-  prixKwh: number | null,
+  prixMois: PrixMoisRow | undefined,
   energieMachineById: Map<number, MachineRow>,
   activeMachinesByEnergieAndDate: Map<string, Set<number>>,
   motifs: string[]
@@ -332,18 +345,34 @@ function computeEnergieShareCout(
   let total = 0;
   for (const energieId of energieIds) {
     const energieMachine = energieMachineById.get(energieId);
-    if (!energieMachine || energieMachine.consommation_electrique_kw === null) {
-      motifs.push(`Machine Energie liee a "${machine.nom}" introuvable ou sans kW renseigne.`);
-      continue;
-    }
-    if (prixKwh === null) {
-      motifs.push("Prix electricite (par kWh) non renseigne pour ce mois (part Energie).");
+    if (!energieMachine) {
+      motifs.push(`Machine Energie liee a "${machine.nom}" introuvable.`);
       continue;
     }
 
     const activeCount = Math.max(1, activeMachinesByEnergieAndDate.get(`${energieId}::${date}`)?.size ?? 1);
-    const partKwh = heures * (energieMachine.consommation_electrique_kw / activeCount);
-    total += partKwh * prixKwh;
+    let uneSourceUtilisee = false;
+
+    const sources: { conso: number | null; prix: number | null; label: string }[] = [
+      { conso: energieMachine.consommation_electrique_kw, prix: prixMois?.prix_kwh ?? null, label: "kWh" },
+      { conso: energieMachine.consommation_gaz_litres_heure, prix: prixMois?.prix_gaz ?? null, label: "gaz" },
+      { conso: energieMachine.consommation_gasoil_litres_heure, prix: prixMois?.prix_gasoil ?? null, label: "gasoil" },
+    ];
+
+    for (const source of sources) {
+      if (source.conso === null) continue;
+      if (source.prix === null) {
+        motifs.push(`Prix ${source.label} non renseigne pour ce mois (machine Energie "${energieMachine.nom}").`);
+        continue;
+      }
+      const part = heures * (source.conso / activeCount);
+      total += part * source.prix;
+      uneSourceUtilisee = true;
+    }
+
+    if (!uneSourceUtilisee && sources.every((s) => s.conso === null)) {
+      motifs.push(`Machine Energie "${energieMachine.nom}" sans consommation renseignee (kW, gaz ou gasoil).`);
+    }
   }
 
   return total;
@@ -474,7 +503,9 @@ export async function computeCoutReelArticle(
 
   const { data: machinesData } = await supabaseServer
     .from("machines")
-    .select("id, nom, type, consommation_electrique_kw, energie_machine_ids");
+    .select(
+      "id, nom, type, consommation_electrique_kw, consommation_gaz_litres_heure, consommation_gasoil_litres_heure, energie_machine_ids"
+    );
   const allMachines = (machinesData ?? []) as MachineRow[];
   const machineByName = new Map(allMachines.map((m) => [normalizeMachineName(m.nom), m]));
   const energieMachineById = new Map(allMachines.map((m) => [m.id, m]));
@@ -537,7 +568,7 @@ export async function computeCoutReelArticle(
           machine,
           heures,
           rapport.date_fabrication_conditionnement,
-          prixMois?.prix_kwh ?? null,
+          prixMois,
           energieMachineById,
           activeMachinesByEnergieAndDate,
           motifs
@@ -582,7 +613,7 @@ export async function computeCoutReelArticle(
         machine,
         heures,
         rapport.date_fabrication_conditionnement,
-        prixMois?.prix_kwh ?? null,
+        prixMois,
         energieMachineById,
         activeMachinesByEnergieAndDate,
         motifs

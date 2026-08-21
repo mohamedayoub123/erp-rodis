@@ -47,6 +47,8 @@ export async function createMachineAction(formData: FormData) {
     type: String(formData.get("type") || "").trim() || null,
     type_produit: toTypeProduitsArray(formData),
     consommation_electrique_kw: toNumberOrNull(formData.get("consommation_electrique_kw")),
+    consommation_gaz_litres_heure: toNumberOrNull(formData.get("consommation_gaz_litres_heure")),
+    consommation_gasoil_litres_heure: toNumberOrNull(formData.get("consommation_gasoil_litres_heure")),
     energie_machine_ids: toEnergieMachineIdsArray(formData),
   });
 
@@ -79,6 +81,8 @@ export async function updateMachineAction(formData: FormData) {
       type: String(formData.get("type") || "").trim() || null,
       type_produit: toTypeProduitsArray(formData),
       consommation_electrique_kw: toNumberOrNull(formData.get("consommation_electrique_kw")),
+      consommation_gaz_litres_heure: toNumberOrNull(formData.get("consommation_gaz_litres_heure")),
+      consommation_gasoil_litres_heure: toNumberOrNull(formData.get("consommation_gasoil_litres_heure")),
       energie_machine_ids: toEnergieMachineIdsArray(formData),
     })
     .eq("id", id);

@@ -12,12 +12,14 @@ type Machine = {
   type: string | null;
   type_produit: string[] | null;
   consommation_electrique_kw: number | null;
+  consommation_gaz_litres_heure: number | null;
+  consommation_gasoil_litres_heure: number | null;
   energie_machine_ids: number[] | null;
 };
 
 // Champs caches communs pour ne PAS ecraser les autres colonnes de la
 // machine quand on enregistre juste le nom OU juste la zone -
-// updateMachineAction remplace toujours les 6 champs (pas de patch
+// updateMachineAction remplace toujours les 8 champs (pas de patch
 // partiel cote base), donc chaque petit formulaire doit renvoyer les
 // valeurs actuelles de tout ce qu'il ne modifie pas lui-meme.
 function HiddenMachineFields({
@@ -25,12 +27,16 @@ function HiddenMachineFields({
   excludeNom,
   excludeZone,
   excludeConso,
+  excludeConsoGaz,
+  excludeConsoGasoil,
   excludeEnergie,
 }: {
   machine: Machine;
   excludeNom?: boolean;
   excludeZone?: boolean;
   excludeConso?: boolean;
+  excludeConsoGaz?: boolean;
+  excludeConsoGasoil?: boolean;
   excludeEnergie?: boolean;
 }) {
   return (
@@ -41,6 +47,20 @@ function HiddenMachineFields({
       <input type="hidden" name="type" value={machine.type ?? ""} />
       {excludeConso ? null : (
         <input type="hidden" name="consommation_electrique_kw" value={machine.consommation_electrique_kw ?? ""} />
+      )}
+      {excludeConsoGaz ? null : (
+        <input
+          type="hidden"
+          name="consommation_gaz_litres_heure"
+          value={machine.consommation_gaz_litres_heure ?? ""}
+        />
+      )}
+      {excludeConsoGasoil ? null : (
+        <input
+          type="hidden"
+          name="consommation_gasoil_litres_heure"
+          value={machine.consommation_gasoil_litres_heure ?? ""}
+        />
       )}
       {excludeEnergie
         ? null
@@ -201,6 +221,55 @@ export function MachineConsoCell({ machine, canEdit }: { machine: Machine; canEd
         step="0.01"
         name="consommation_electrique_kw"
         defaultValue={machine.consommation_electrique_kw ?? ""}
+        className="w-20 rounded border border-slate-200 px-1.5 py-1 text-sm text-slate-700 focus:border-sky-400 focus:outline-none"
+      />
+      <SubmitButton
+        pendingLabel="..."
+        className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200"
+      >
+        OK
+      </SubmitButton>
+    </form>
+  );
+}
+
+// Certaines machines Energie ne consomment pas QUE de l'electricite -
+// certaines tournent (aussi) au gaz ou au gasoil (voir
+// lib/cout-production-reel.ts pour le calcul de cout qui les combine).
+export function MachineConsoGazCell({ machine, canEdit }: { machine: Machine; canEdit: boolean }) {
+  if (!canEdit) return <>{machine.consommation_gaz_litres_heure ?? "-"}</>;
+
+  return (
+    <form action={updateMachineAction} className="flex items-center gap-1">
+      <HiddenMachineFields machine={machine} excludeConsoGaz />
+      <input
+        type="number"
+        step="0.01"
+        name="consommation_gaz_litres_heure"
+        defaultValue={machine.consommation_gaz_litres_heure ?? ""}
+        className="w-20 rounded border border-slate-200 px-1.5 py-1 text-sm text-slate-700 focus:border-sky-400 focus:outline-none"
+      />
+      <SubmitButton
+        pendingLabel="..."
+        className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200"
+      >
+        OK
+      </SubmitButton>
+    </form>
+  );
+}
+
+export function MachineConsoGasoilCell({ machine, canEdit }: { machine: Machine; canEdit: boolean }) {
+  if (!canEdit) return <>{machine.consommation_gasoil_litres_heure ?? "-"}</>;
+
+  return (
+    <form action={updateMachineAction} className="flex items-center gap-1">
+      <HiddenMachineFields machine={machine} excludeConsoGasoil />
+      <input
+        type="number"
+        step="0.01"
+        name="consommation_gasoil_litres_heure"
+        defaultValue={machine.consommation_gasoil_litres_heure ?? ""}
         className="w-20 rounded border border-slate-200 px-1.5 py-1 text-sm text-slate-700 focus:border-sky-400 focus:outline-none"
       />
       <SubmitButton
