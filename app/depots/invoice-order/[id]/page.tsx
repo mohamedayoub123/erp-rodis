@@ -8,7 +8,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { RemarqueField } from "@/app/_components/remarque-field";
 import { formatDate } from "@/lib/format-date";
-import { type ArticleType } from "../../transfer-order/stock-lots";
+import { fetchLotsInDepot, type ArticleType } from "../../transfer-order/stock-lots";
 import {
   deleteInvoiceOrderAction,
   deleteInvoiceOrderLigneAction,
@@ -95,7 +95,24 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
     invoiceLignes.map(async (invoiceLigne) => {
       const ligne = ligneById.get(invoiceLigne.transfer_order_ligne_id);
       const nom = ligne ? await fetchNomArticle(ligne.article_type, ligne.article_id) : `#${invoiceLigne.transfer_order_ligne_id}`;
-      return { ...invoiceLigne, nom, articleType: ligne?.article_type ?? null };
+      // Lots reellement disponibles au depot source MAINTENANT, pas
+      // seulement celui deja reserve par ce Transfer Order - possibilite
+      // de livrer un AUTRE lot que celui prevu au depart (demande
+      // explicite). Sa propre reservation est exclue du calcul (sinon le
+      // lot deja choisi se soustrairait de lui-meme et parairait moins
+      // disponible qu'il ne l'est).
+      const lotsDisponibles =
+        ligne && transferOrder
+          ? await fetchLotsInDepot(ligne.article_type, ligne.article_id, transferOrder.depot_source_id, transferOrder.id)
+          : [];
+      // Le lot deja choisi sur cette ligne doit toujours rester une option
+      // du menu, meme si fetchLotsInDepot ne le retrouve plus (ex: solde
+      // tombe a 0 ailleurs) - sinon le menu perd silencieusement la
+      // selection actuelle.
+      const lotsOptions = lotsDisponibles.some((lot) => lot.numeroLot === (invoiceLigne.numero_lot ?? ""))
+        ? lotsDisponibles
+        : [...lotsDisponibles, { numeroLot: invoiceLigne.numero_lot ?? "", solde: 0, dateTri: null }];
+      return { ...invoiceLigne, nom, articleType: ligne?.article_type ?? null, lotsDisponibles: lotsOptions };
     })
   );
 
@@ -163,6 +180,7 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
             articleType: ligne.articleType,
             numero_lot: ligne.numero_lot,
             quantite: ligne.quantite,
+            lotsDisponibles: ligne.lotsDisponibles,
           }))}
           canEditLignes={canEditLignes}
           canValidate={canValidate}

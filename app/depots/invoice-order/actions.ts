@@ -46,11 +46,13 @@ export async function updateInvoiceOrderLignesAction(formData: FormData) {
 
   const ligneIdsRaw = formData.getAll("invoice_order_ligne_id");
   const quantites = formData.getAll("quantite");
+  const numeroLots = formData.getAll("numero_lot");
 
   const rows = ligneIdsRaw
     .map((raw, index) => ({
       id: Number(raw || "0"),
       quantite: Number(String(quantites[index] || "0").replace(",", ".")),
+      numeroLot: String(numeroLots[index] ?? "").trim() || null,
     }))
     .filter((r) => r.id > 0);
 
@@ -60,7 +62,7 @@ export async function updateInvoiceOrderLignesAction(formData: FormData) {
 
   const { data: currentData, error: currentError } = await supabaseServer
     .from("invoice_order_lignes")
-    .select("id, quantite")
+    .select("id, transfer_order_ligne_id, quantite, numero_lot")
     .in(
       "id",
       rows.map((r) => r.id)
@@ -72,20 +74,33 @@ export async function updateInvoiceOrderLignesAction(formData: FormData) {
   }
 
   const currentById = new Map(
-    ((currentData ?? []) as { id: number; quantite: number }[]).map((r) => [r.id, r.quantite])
+    (
+      (currentData ?? []) as {
+        id: number;
+        transfer_order_ligne_id: number;
+        quantite: number;
+        numero_lot: string | null;
+      }[]
+    ).map((r) => [r.id, r])
   );
 
   const toDelete: number[] = [];
-  const toUpdate: { id: number; quantite: number }[] = [];
+  const toUpdate: { id: number; quantite: number; numeroLot: string | null; ancienNumeroLot: string | null; transferOrderLigneId: number }[] = [];
 
   for (const row of rows) {
     const current = currentById.get(row.id);
-    if (current === undefined) continue;
-    const clamped = Math.max(0, Math.min(row.quantite, current));
+    if (!current) continue;
+    const clamped = Math.max(0, Math.min(row.quantite, current.quantite));
     if (clamped <= 1e-9) {
       toDelete.push(row.id);
     } else {
-      toUpdate.push({ id: row.id, quantite: Math.round(clamped * 1000) / 1000 });
+      toUpdate.push({
+        id: row.id,
+        quantite: Math.round(clamped * 1000) / 1000,
+        numeroLot: row.numeroLot,
+        ancienNumeroLot: current.numero_lot,
+        transferOrderLigneId: current.transfer_order_ligne_id,
+      });
     }
   }
 
@@ -97,9 +112,28 @@ export async function updateInvoiceOrderLignesAction(formData: FormData) {
   for (const row of toUpdate) {
     const { error } = await supabaseServer
       .from("invoice_order_lignes")
-      .update({ quantite: row.quantite })
+      .update({ quantite: row.quantite, numero_lot: row.numeroLot })
       .eq("id", row.id);
     if (error) throw new Error(error.message);
+
+    // Le lot choisi ici peut differer de celui reserve par le Transfer
+    // Order source (l'utilisateur veut livrer un AUTRE lot que celui
+    // prevu) - la reservation du TO (transfer_order_ligne_lots) doit
+    // suivre le meme changement, sinon la reconciliation a la validation
+    // (voir validateInvoiceOrderAction, appariee par numero_lot) ne
+    // retrouve plus la ligne d'origine : le lot jamais livre resterait
+    // reserve pour toujours, et le nouveau lot livre ne serait jamais
+    // deduit de la reservation du TO.
+    if (row.numeroLot !== row.ancienNumeroLot) {
+      let syncQuery = supabaseServer
+        .from("transfer_order_ligne_lots")
+        .update({ numero_lot: row.numeroLot })
+        .eq("transfer_order_ligne_id", row.transferOrderLigneId);
+      syncQuery =
+        row.ancienNumeroLot === null ? syncQuery.is("numero_lot", null) : syncQuery.eq("numero_lot", row.ancienNumeroLot);
+      const { error: syncError } = await syncQuery;
+      if (syncError) throw new Error(syncError.message);
+    }
   }
 
   revalidatePath(`/depots/invoice-order/${invoiceOrderId}`);

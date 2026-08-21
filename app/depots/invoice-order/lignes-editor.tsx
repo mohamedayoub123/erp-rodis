@@ -11,6 +11,7 @@ type LigneRow = {
   articleType: "MP" | "PF" | null;
   numero_lot: string | null;
   quantite: number;
+  lotsDisponibles: { numeroLot: string; solde: number }[];
 };
 
 // Doit etre un enfant du <form> pour lire son etat via useFormStatus() -
@@ -132,7 +133,24 @@ export function InvoiceOrderLignesEditor({
                       <td className="px-6 py-4 text-slate-600">
                         {ligne.articleType === "MP" ? "Matiere premiere" : "Produit fini"}
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{ligne.numero_lot || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {canEditLignes ? (
+                          <select
+                            name="numero_lot"
+                            defaultValue={ligne.numero_lot ?? ""}
+                            onChange={() => setIsDirty(true)}
+                            className="w-56 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                          >
+                            {ligne.lotsDisponibles.map((disp) => (
+                              <option key={disp.numeroLot} value={disp.numeroLot}>
+                                {disp.numeroLot || "(sans numero)"} - disponible : {disp.solde.toLocaleString("fr-FR")}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          ligne.numero_lot || "-"
+                        )}
+                      </td>
                       <td className="px-6 py-4">
                         {canEditLignes ? (
                           <>
