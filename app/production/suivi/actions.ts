@@ -161,6 +161,30 @@ async function consommerRemainingMpReserve(
   }
 }
 
+// A la difference de consommerRemainingMpReserve (sortie de stock reelle),
+// celle-ci libere simplement la reservation SANS toucher au stock reel -
+// utilisee pour la Salle de conditionnement maintenant que chaque fournee
+// carton deduit deja sa part au fil de l'eau (voir consommerCartonProportionnel,
+// suivi-production/actions.ts) : ce qui reste encore "reserve" a "Fin
+// Programme" n'a jamais ete physiquement pris (production arretee en
+// cours de route, ou jamais commencee) - il redevient simplement
+// disponible au Depot B au lieu d'etre sorti du stock pour rien.
+async function releaseRemainingMpReserve(ligneId: number, code: string, stage: "pesage" | "salle_conditionnement") {
+  const found = await fetchReservesRestantes(ligneId, code, stage);
+  if (!found || found.reserves.length === 0) return;
+
+  const { error } = await supabaseServer
+    .from("production_mp_reserve")
+    .update({ quantite: 0 })
+    .in(
+      "id",
+      found.reserves.map((r) => r.id)
+    );
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 export async function markVracTermineAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
@@ -177,14 +201,13 @@ export async function markVracTermineAction(formData: FormData) {
 // ne ferme plus Conditionnement/Emballage (et inversement) - chaque etape a
 // son propre flag "termine".
 export async function markCartonTermineAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();
 
   await markCodeTermine(formData, "carton");
 
   if (ligneId && code) {
-    await consommerRemainingMpReserve(ligneId, code, currentUser, "salle_conditionnement");
+    await releaseRemainingMpReserve(ligneId, code, "salle_conditionnement");
   }
 }
 
@@ -448,14 +471,13 @@ export async function validerBatchAction(formData: FormData) {
 // bloquee sans jamais sortir du stock reel - consommerRemainingMpReserve
 // ne fait rien si elle a deja ete traitee (quantite deja a 0).
 export async function markEmballageTermineAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();
 
   await markCodeTermine(formData, "emballage");
 
   if (ligneId && code) {
-    await consommerRemainingMpReserve(ligneId, code, currentUser, "salle_conditionnement");
+    await releaseRemainingMpReserve(ligneId, code, "salle_conditionnement");
   }
 }
 

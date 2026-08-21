@@ -30,6 +30,92 @@ function revalidateRapportPages() {
   revalidatePath("/production/suivi/dashboard");
 }
 
+// Chaque fournee de carton reellement produite doit deduire sa PART de la
+// reservation MP tout de suite (pas seulement a "Fin Programme", qui peut
+// ne jamais arriver et laissait la reservation bloquee indefiniment - cas
+// reel confirme : Sleeve/Capsule/Flacon/Carton restes "reserves" pour
+// AA4263V malgre 313/313 cartons deja produits). Part proportionnelle a ce
+// que represente CETTE fournee sur le total prevu pour ce code (qtFabriquer
+// / cartonPrevu) - jamais plus que ce qui reste reellement reserve. Ce qui
+// n'est jamais produit (production arretee en cours de route) reste
+// reserve jusqu'a "Fin Programme", qui le LIBERE (redevient disponible
+// Depot B) plutot que de le consommer, puisque jamais physiquement pris.
+async function consommerCartonProportionnel(
+  ligneId: number,
+  code: string,
+  qtFabriquer: number,
+  currentUser: string | null
+) {
+  const { data: ligneData } = await supabaseServer
+    .from("programme_lignes")
+    .select("qt_carton, numero_lot_detail")
+    .eq("id", ligneId)
+    .maybeSingle();
+  const ligne = ligneData as
+    | { qt_carton: number | null; numero_lot_detail: { code: string; qt_carton: number | null }[] | null }
+    | null;
+  if (!ligne) return;
+
+  const detailMatch = (ligne.numero_lot_detail ?? []).find((d) => d.code === code);
+  const cartonPrevu = detailMatch?.qt_carton ?? ligne.qt_carton ?? null;
+  if (!cartonPrevu || cartonPrevu <= 0) return;
+
+  const { data: codeTermineData } = await supabaseServer
+    .from("production_code_termine")
+    .select("id")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", "salle_conditionnement")
+    .maybeSingle();
+  const codeTermine = codeTermineData as { id: number } | null;
+  if (!codeTermine) return;
+
+  const { data: reserveData } = await supabaseServer
+    .from("production_mp_reserve")
+    .select("id, article_mp_id, depot_id, quantite, quantite_initiale, numero_lot")
+    .eq("production_code_termine_id", codeTermine.id)
+    .gt("quantite", 0);
+  const reserves = (reserveData ?? []) as {
+    id: number;
+    article_mp_id: number;
+    depot_id: number;
+    quantite: number;
+    quantite_initiale: number;
+    numero_lot: string | null;
+  }[];
+  if (reserves.length === 0) return;
+
+  const ratio = Math.min(1, qtFabriquer / cartonPrevu);
+  const dateJour = new Date().toISOString().slice(0, 10);
+
+  for (const reserve of reserves) {
+    const aDeduire = Math.min(reserve.quantite, Math.round(reserve.quantite_initiale * ratio * 1000) / 1000);
+    if (aDeduire <= 1e-9) continue;
+
+    const { error: insertError } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
+      article_id: reserve.article_mp_id,
+      numero_lot: reserve.numero_lot,
+      qte_entree: 0,
+      qte_sortie: aDeduire,
+      depot_id: reserve.depot_id,
+      date_jour: dateJour,
+      utilisateur: currentUser,
+      note: "Consommation production",
+    });
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    const { error: updateError } = await supabaseServer
+      .from("production_mp_reserve")
+      .update({ quantite: reserve.quantite - aDeduire })
+      .eq("id", reserve.id);
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+  }
+}
+
 // La ligne appartient a un vrai programme dispatche (Programme MB OU
 // Programme par ligne) des que source_numero_programme OU groupe_id est
 // renseigne - une fiche "nouveau" (bouton "+" du Dashboard, cree a la
@@ -502,6 +588,10 @@ export async function saveConditionnementRapportAction(formData: FormData) {
 
   if (cartonInsert.error) {
     throw new Error(cartonInsert.error.message);
+  }
+
+  if (qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique) {
+    await consommerCartonProportionnel(ligneId, code, qtFabriquer, currentUser);
   }
 
   revalidateRapportPages();
