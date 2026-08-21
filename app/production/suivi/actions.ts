@@ -212,6 +212,7 @@ export async function fetchBesoinArticleInfoAction(articleMpId: number, depotId:
 // Redirige vers le Dashboard apres coup pour que la ligne validee
 // disparaisse immediatement.
 export async function validerBatchAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
   const besoinStage = String(formData.get("stage") || "") === "carton" ? "carton" : "vrac";
   const storedStage: CodeTermineStage = besoinStage === "carton" ? "salle_conditionnement" : "pesage";
 
@@ -301,18 +302,49 @@ export async function validerBatchAction(formData: FormData) {
   const codeTermineId = await markCodeTermine(formData, storedStage);
 
   if (reservations.length > 0 && depotBId) {
+    // Salle de pesage : une fois pesee, la MP est physiquement sortie de
+    // l'entrepot tout de suite (emmenee vers la cuve) - pas seulement
+    // "reservee" jusqu'a un eventuel Fin Programme plus tard, qui peut ne
+    // jamais arriver. quantite est donc ecrite a 0 des l'insertion (deja
+    // sortie reellement, voir l'insert lots_stock_matiere_premiere
+    // ci-dessous) ; quantite_initiale garde la trace de ce qui a ete pese.
+    // Salle de conditionnement reste purement une reservation ici (voir
+    // consommerRemainingMpReserve/releaseRemainingMpReserve a Fin
+    // Programme) : la MP n'est physiquement consommee que si elle sert
+    // vraiment, sinon elle redevient disponible.
+    const quantiteReservee = storedStage === "pesage" ? 0 : undefined;
+
     const { error: reserveError } = await supabaseServer.from("production_mp_reserve").insert(
       reservations.map((r) => ({
         production_code_termine_id: codeTermineId,
         article_mp_id: r.articleMpId,
         depot_id: depotBId,
-        quantite: r.quantite,
+        quantite: quantiteReservee ?? r.quantite,
         quantite_initiale: r.quantite,
         numero_lot: r.numeroLot,
       }))
     );
     if (reserveError) {
       throw new Error(reserveError.message);
+    }
+
+    if (storedStage === "pesage") {
+      const dateJour = new Date().toISOString().slice(0, 10);
+      const { error: sortieError } = await supabaseServer.from("lots_stock_matiere_premiere").insert(
+        reservations.map((r) => ({
+          article_id: r.articleMpId,
+          numero_lot: r.numeroLot,
+          qte_entree: 0,
+          qte_sortie: r.quantite,
+          depot_id: depotBId,
+          date_jour: dateJour,
+          utilisateur: currentUser,
+          note: "Consommation production (pesage)",
+        }))
+      );
+      if (sortieError) {
+        throw new Error(sortieError.message);
+      }
     }
   }
 
