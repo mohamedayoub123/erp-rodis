@@ -98,7 +98,7 @@ export default async function GrandLivrePage({ searchParams }: { searchParams: S
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-700">
                 Comptabilite
               </p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Grand livre</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Ecriture comptable</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Choisis un compte pour voir toutes ses lignes et le solde cumule.
               </p>

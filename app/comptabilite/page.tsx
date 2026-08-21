@@ -16,7 +16,7 @@ const TILES = [
     description: "Toutes les ecritures generees automatiquement, avec leurs lignes debit/credit.",
   },
   {
-    label: "Grand livre",
+    label: "Ecriture comptable",
     href: "/comptabilite/grand-livre",
     icon: "\u{1F4D6}",
     description: "Choisis un compte, vois toutes ses lignes avec le solde cumule.",
