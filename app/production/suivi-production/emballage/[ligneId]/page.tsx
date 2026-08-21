@@ -27,7 +27,19 @@ type LigneInfo = {
   numero_lot: string | null;
 };
 
+// date_emballage/date_peremption sont des proprietes du lot/code
+// (partagees entre fournees) - restent sur production_rapports.
 type RapportInfo = {
+  date_emballage: string | null;
+  date_peremption: string | null;
+};
+
+// Tout le reste est desormais porte PAR FOURNEE sur
+// production_emballage_entries (bug reel corrige : ecrase avant a chaque
+// nouvelle fournee du meme code) - ce formulaire se pre-remplit depuis la
+// fournee la PLUS RECENTE de ce (ligne, code) comme point de depart
+// pratique, sans plus jamais ecraser les fournees precedentes.
+type DerniereFourneeInfo = {
   emballage_machine: string | null;
   emballage_operateur: string | null;
   emballage_scotcheuse: string | null;
@@ -40,8 +52,6 @@ type RapportInfo = {
   emballage_arret_reglage: number | null;
   emballage_arret_coupure: number | null;
   emballage_arret_autre: number | null;
-  date_emballage: string | null;
-  date_peremption: string | null;
   utilisateur_emballage: string | null;
   date_saisie_emballage: string | null;
 };
@@ -68,10 +78,11 @@ export default async function RapportEmballagePage({
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionEmballage");
 
-  const RAPPORT_FIELDS =
-    "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_chef_zone, nb_journaliers_emballage, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, date_emballage, date_peremption, utilisateur_emballage, date_saisie_emballage";
+  const RAPPORT_FIELDS = "date_emballage, date_peremption";
+  const FOURNEE_FIELDS =
+    "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_chef_zone, nb_journaliers_emballage, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, utilisateur_emballage, date_saisie_emballage";
 
-  const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
+  const [{ data: ligneData }, { data: rapportData }, { data: fourneeData }] = await Promise.all([
     supabaseServer
       .from("programme_lignes")
       .select("id, zone, chaine, produit, date_jour, numero_lot")
@@ -83,24 +94,35 @@ export default async function RapportEmballagePage({
       .eq("programme_ligne_id", ligneIdNumber)
       .eq("code", code)
       .maybeSingle(),
+    supabaseServer
+      .from("production_emballage_entries")
+      .select(FOURNEE_FIELDS)
+      .eq("programme_ligne_id", ligneIdNumber)
+      .eq("code", code)
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const ligne = ligneData as LigneInfo | null;
-  let rapport = rapportData as RapportInfo | null;
+  const rapport = rapportData as RapportInfo | null;
+  let derniereFournee = fourneeData as DerniereFourneeInfo | null;
 
   // Meme repli que Conditionnement : seulement pour une ligne jamais
-  // decoupee en plusieurs lots, l'ancien rapport partage (code "") reste
+  // decoupee en plusieurs lots, l'ancienne fournee partagee (code "") reste
   // sans ambiguite le bon prefill.
-  if (!rapport && code) {
+  if (!derniereFournee && code) {
     const numeroLotCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
     if (numeroLotCodes.length <= 1) {
-      const { data: legacyRapport } = await supabaseServer
-        .from("production_rapports")
-        .select(RAPPORT_FIELDS)
+      const { data: legacyFournee } = await supabaseServer
+        .from("production_emballage_entries")
+        .select(FOURNEE_FIELDS)
         .eq("programme_ligne_id", ligneIdNumber)
         .eq("code", "")
+        .order("id", { ascending: false })
+        .limit(1)
         .maybeSingle();
-      rapport = legacyRapport as RapportInfo | null;
+      derniereFournee = legacyFournee as DerniereFourneeInfo | null;
     }
   }
 
@@ -124,11 +146,11 @@ export default async function RapportEmballagePage({
                 {formatDate(ligne.date_jour)} - {ligne.produit || "-"}
                 {code ? ` - Lot ${code}` : ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
               </p>
-              {rapport?.utilisateur_emballage ? (
+              {derniereFournee?.utilisateur_emballage ? (
                 <p className="mt-1 text-xs text-slate-500">
-                  Derniere saisie par {rapport.utilisateur_emballage}
-                  {rapport.date_saisie_emballage
-                    ? ` (${formatDateTime(rapport.date_saisie_emballage)})`
+                  Derniere saisie par {derniereFournee.utilisateur_emballage}
+                  {derniereFournee.date_saisie_emballage
+                    ? ` (${formatDateTime(derniereFournee.date_saisie_emballage)})`
                     : ""}
                 </p>
               ) : null}
@@ -175,7 +197,7 @@ export default async function RapportEmballagePage({
                     <input
                       type="text"
                       name="emballage_chef_zone"
-                      defaultValue={rapport?.emballage_chef_zone || ""}
+                      defaultValue={derniereFournee?.emballage_chef_zone || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -185,7 +207,7 @@ export default async function RapportEmballagePage({
                     <input
                       type="text"
                       name="emballage_machine"
-                      defaultValue={rapport?.emballage_machine || ""}
+                      defaultValue={derniereFournee?.emballage_machine || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -195,7 +217,7 @@ export default async function RapportEmballagePage({
                     <input
                       type="text"
                       name="emballage_operateur"
-                      defaultValue={rapport?.emballage_operateur || ""}
+                      defaultValue={derniereFournee?.emballage_operateur || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -205,7 +227,7 @@ export default async function RapportEmballagePage({
                     <input
                       type="text"
                       name="emballage_scotcheuse"
-                      defaultValue={rapport?.emballage_scotcheuse || ""}
+                      defaultValue={derniereFournee?.emballage_scotcheuse || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -217,7 +239,7 @@ export default async function RapportEmballagePage({
                       step="1"
                       min="0"
                       name="nb_journaliers_emballage"
-                      defaultValue={rapport?.nb_journaliers_emballage ?? "0"}
+                      defaultValue={derniereFournee?.nb_journaliers_emballage ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -233,7 +255,7 @@ export default async function RapportEmballagePage({
                     <input
                       type="time"
                       name="emballage_temps_demarrer"
-                      defaultValue={rapport?.emballage_temps_demarrer || ""}
+                      defaultValue={derniereFournee?.emballage_temps_demarrer || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -243,7 +265,7 @@ export default async function RapportEmballagePage({
                     <input
                       type="time"
                       name="emballage_temps_arret"
-                      defaultValue={rapport?.emballage_temps_arret || ""}
+                      defaultValue={derniereFournee?.emballage_temps_arret || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -265,7 +287,7 @@ export default async function RapportEmballagePage({
                         step="1"
                         min="0"
                         name={cause.field}
-                        defaultValue={rapport?.[cause.field] ?? "0"}
+                        defaultValue={derniereFournee?.[cause.field] ?? "0"}
                         required
                         className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                       />

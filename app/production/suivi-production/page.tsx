@@ -241,15 +241,73 @@ type RapportRow = {
   date_saisie_emballage: string | null;
 };
 
+// Champs Conditionnement/Emballage optionnels - presents seulement sur les
+// lignes venant de production_carton_entries/production_emballage_entries
+// respectivement (jamais sur production_vrac_entries). Portes directement
+// PAR FOURNEE depuis le correctif du bug d'ecrasement (voir
+// app/production/suivi-production/actions.ts) - avant, ces infos vivaient
+// sur production_rapports (une seule ligne par code, ecrasee a chaque
+// nouvelle fournee).
 type EntryRow = {
   id: number;
   programme_ligne_id: number;
   code: string;
   quantite: number;
   date_jour: string;
+  // Conditionnement
+  chef_zone?: string | null;
+  chef_ligne?: string | null;
+  ravitailleur?: string | null;
+  tireur?: string | null;
+  nb_journaliers_conditionnement?: number | null;
+  qt_fabriquer?: number | null;
+  cadence?: number | null;
+  poids_reel?: number | null;
+  dechet_sleeve?: number | null;
+  dechet_capsule?: number | null;
+  dechet_pompe?: number | null;
+  dechet_flacon?: number | null;
+  dechet_pot?: number | null;
+  dechet_etiquette?: number | null;
+  dechet_etui?: number | null;
+  arret_depot?: number | null;
+  arret_consommable_non_livre?: number | null;
+  arret_manque_conditionnement?: number | null;
+  arret_manque_vrac?: number | null;
+  arret_technique?: number | null;
+  arret_coupure_courant?: number | null;
+  arret_raclage_vrac?: number | null;
+  arret_changement_lot?: number | null;
+  arret_flacons_nc?: number | null;
+  arret_autre?: number | null;
+  temps_demarage_lot?: string | null;
+  temps_arret_batch?: string | null;
+  utilisateur_conditionnement?: string | null;
+  date_saisie_conditionnement?: string | null;
+  // Emballage
+  emballage_chef_zone?: string | null;
+  emballage_machine?: string | null;
+  emballage_operateur?: string | null;
+  emballage_scotcheuse?: string | null;
+  nb_journaliers_emballage?: number | null;
+  emballage_temps_demarrer?: string | null;
+  emballage_temps_arret?: string | null;
+  emballage_arret_changement_bobine?: number | null;
+  emballage_arret_technique?: number | null;
+  emballage_arret_reglage?: number | null;
+  emballage_arret_coupure?: number | null;
+  emballage_arret_autre?: number | null;
+  utilisateur_emballage?: string | null;
+  date_saisie_emballage?: string | null;
 };
 
-type StageEntry = { entryId: number; quantite: number; date: string };
+// StageEntry porte les memes champs optionnels que EntryRow (voir
+// toStageEntry, qui les copie tels quels) - {entryId, quantite, date} sont
+// les seuls garantis, tout le reste depend de la table d'origine.
+type StageEntry = Omit<EntryRow, "id" | "programme_ligne_id" | "code" | "date_jour"> & {
+  entryId: number;
+  date: string;
+};
 
 type DisplayRow = {
   key: string;
@@ -339,6 +397,16 @@ async function fetchAllRows<T>(
 const RAPPORT_COLUMNS =
   "id, programme_ligne_id, code, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, degre_alcool, stabilite, couleur, temperature_test, odeur, taux_humidite, pression_atmospherique, texture, remarque, disposition_qualite, sous_derogation, motif_derogation, date_prise_echantillon, heure_prise_echantillon, heure_debut_analyse, heure_fin_analyse, nom_labo, utilisateur_test_labo, date_saisie_test_labo, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
 
+// Champs Conditionnement/Emballage portes PAR FOURNEE (voir le commentaire
+// sur EntryRow) - selectionnes en plus des colonnes de base sur les tables
+// d'entree correspondantes, au lieu d'etre lus depuis production_rapports
+// (qui ne garde qu'une seule ligne par code, ecrasee a chaque fournee).
+const CARTON_ENTRY_COLUMNS =
+  "id, programme_ligne_id, code, quantite, date_jour, chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, utilisateur_conditionnement, date_saisie_conditionnement";
+
+const EMBALLAGE_ENTRY_COLUMNS =
+  "id, programme_ligne_id, code, quantite, date_jour, emballage_chef_zone, emballage_machine, emballage_operateur, emballage_scotcheuse, nb_journaliers_emballage, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, utilisateur_emballage, date_saisie_emballage";
+
 function groupEntriesByLigne(entries: EntryRow[]): Map<number, EntryRow[]> {
   const map = new Map<number, EntryRow[]>();
   for (const entry of entries) {
@@ -375,7 +443,9 @@ function entriesForSplit(ligneEntries: EntryRow[], code: string, isSingleCodeLig
 }
 
 function toStageEntry(entry: EntryRow | undefined): StageEntry | null {
-  return entry ? { entryId: entry.id, quantite: entry.quantite, date: entry.date_jour } : null;
+  if (!entry) return null;
+  const { id, programme_ligne_id: _ligneId, code: _code, date_jour, ...rest } = entry;
+  return { entryId: id, date: date_jour, ...rest };
 }
 
 // Une ligne affichee = un code. Fabrication/Conditionnement/Emballage
@@ -600,8 +670,8 @@ export default async function SuiviProductionListPage({
     ),
     fetchAllRows<RapportRow>("production_rapports", RAPPORT_COLUMNS),
     fetchAllRows<EntryRow>("production_vrac_entries", "id, programme_ligne_id, code, quantite, date_jour"),
-    fetchAllRows<EntryRow>("production_carton_entries", "id, programme_ligne_id, code, quantite, date_jour"),
-    fetchAllRows<EntryRow>("production_emballage_entries", "id, programme_ligne_id, code, quantite, date_jour"),
+    fetchAllRows<EntryRow>("production_carton_entries", CARTON_ENTRY_COLUMNS),
+    fetchAllRows<EntryRow>("production_emballage_entries", EMBALLAGE_ENTRY_COLUMNS),
   ]);
 
   const fetchError =
@@ -1003,32 +1073,36 @@ export default async function SuiviProductionListPage({
                         </td>
                         <td className="px-6 py-4 text-slate-600">{showCond ? row.ligne.zone : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showCond ? row.ligne.chaine : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.chef_zone || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.chef_ligne || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.ravitailleur || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.tireur || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.cadence ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.poids_reel ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.dechet_sleeve ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.dechet_capsule ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.dechet_pompe ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.dechet_flacon ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.dechet_pot ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.dechet_etiquette ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.chef_zone || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.chef_ligne || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.ravitailleur || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.tireur || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.cadence ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.poids_reel ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_sleeve ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_capsule ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_pompe ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_flacon ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_pot ?? "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_etiquette ?? "-" : "-"}</td>
                         {ARRET_LABELS.map(({ field }) => (
                           <td
                             key={field}
                             className={`px-6 py-4 ${
-                              showCond && Number(r?.[field] ?? 0) > 0
+                              showCond && Number(row.conditionnement?.[field] ?? 0) > 0
                                 ? "font-semibold text-red-700"
                                 : "text-slate-400"
                             }`}
                           >
-                            {showCond ? r?.[field] ?? "-" : "-"}
+                            {showCond ? row.conditionnement?.[field] ?? "-" : "-"}
                           </td>
                         ))}
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.temps_demarage_lot || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? r?.temps_arret_batch || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showCond ? row.conditionnement?.temps_demarage_lot || "-" : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showCond ? row.conditionnement?.temps_arret_batch || "-" : "-"}
+                        </td>
                         <td className="px-6 py-4 text-slate-600">
                           {showCond && r?.date_fabrication_conditionnement
                             ? formatDate(r.date_fabrication_conditionnement)
@@ -1045,41 +1119,45 @@ export default async function SuiviProductionListPage({
                               : "-"}
                         </td>
                         <td className="px-6 py-4 text-slate-600">
-                          {showCond ? r?.utilisateur_conditionnement || "-" : "-"}
+                          {showCond ? row.conditionnement?.utilisateur_conditionnement || "-" : "-"}
                         </td>
                         <td className="px-6 py-4 text-slate-600">
-                          {showCond ? formatDateTime(r?.date_saisie_conditionnement ?? null) : "-"}
+                          {showCond ? formatDateTime(row.conditionnement?.date_saisie_conditionnement ?? null) : "-"}
                         </td>
 
                         {/* Emballage */}
                         <td className="px-6 py-4 text-slate-900 font-semibold">
                           {row.emballage ? formatDate(row.emballage.date) : "-"}
                         </td>
-                        <td className="px-6 py-4 text-slate-600">{showEmb ? r?.emballage_machine || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showEmb ? r?.emballage_operateur || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showEmb ? r?.emballage_scotcheuse || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showEmb ? row.emballage?.emballage_machine || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showEmb ? row.emballage?.emballage_operateur || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showEmb ? row.emballage?.emballage_scotcheuse || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">
-                          {showEmb ? r?.emballage_temps_demarrer || "-" : "-"}
+                          {showEmb ? row.emballage?.emballage_temps_demarrer || "-" : "-"}
                         </td>
-                        <td className="px-6 py-4 text-slate-600">{showEmb ? r?.emballage_temps_arret || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showEmb ? row.emballage?.emballage_temps_arret || "-" : "-"}
+                        </td>
                         {EMBALLAGE_ARRET_LABELS.map(({ field }) => (
                           <td
                             key={field}
                             className={`px-6 py-4 ${
-                              showEmb && Number(r?.[field] ?? 0) > 0
+                              showEmb && Number(row.emballage?.[field] ?? 0) > 0
                                 ? "font-semibold text-red-700"
                                 : "text-slate-400"
                             }`}
                           >
-                            {showEmb ? r?.[field] ?? "-" : "-"}
+                            {showEmb ? row.emballage?.[field] ?? "-" : "-"}
                           </td>
                         ))}
                         <td className="px-6 py-4 font-semibold text-slate-900">
                           {row.emballage ? row.emballage.quantite : "-"}
                         </td>
-                        <td className="px-6 py-4 text-slate-600">{showEmb ? r?.utilisateur_emballage || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">
-                          {showEmb ? formatDateTime(r?.date_saisie_emballage ?? null) : "-"}
+                          {showEmb ? row.emballage?.utilisateur_emballage || "-" : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showEmb ? formatDateTime(row.emballage?.date_saisie_emballage ?? null) : "-"}
                         </td>
 
                         <td className="px-6 py-4">

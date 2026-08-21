@@ -37,7 +37,20 @@ type LigneInfo = {
   numero_lot: string | null;
 };
 
+// date_fabrication_conditionnement/date_peremption sont des proprietes du
+// lot/code (partagees entre fournees) - restent sur production_rapports.
 type RapportInfo = {
+  date_fabrication_conditionnement: string | null;
+  date_peremption: string | null;
+};
+
+// Tout le reste (chef/ravitailleur/dechets/arrets...) est desormais porte
+// PAR FOURNEE sur production_carton_entries (bug reel corrige : ecrase
+// avant a chaque nouvelle fournee du meme code) - ce formulaire se
+// pre-remplit depuis la fournee la PLUS RECENTE de ce (ligne, code) comme
+// point de depart pratique, sans plus jamais ecraser les fournees
+// precedentes (une nouvelle ligne est toujours creee au Save).
+type DerniereFourneeInfo = {
   chef_zone: string | null;
   chef_ligne: string | null;
   ravitailleur: string | null;
@@ -65,8 +78,6 @@ type RapportInfo = {
   arret_autre: number | null;
   temps_demarage_lot: string | null;
   temps_arret_batch: string | null;
-  date_fabrication_conditionnement: string | null;
-  date_peremption: string | null;
   utilisateur_conditionnement: string | null;
   date_saisie_conditionnement: string | null;
 };
@@ -96,10 +107,11 @@ export default async function RapportConditionnementPage({
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
 
-  const RAPPORT_FIELDS =
-    "chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, utilisateur_conditionnement, date_saisie_conditionnement";
+  const RAPPORT_FIELDS = "date_fabrication_conditionnement, date_peremption";
+  const FOURNEE_FIELDS =
+    "chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, utilisateur_conditionnement, date_saisie_conditionnement";
 
-  const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
+  const [{ data: ligneData }, { data: rapportData }, { data: fourneeData }] = await Promise.all([
     supabaseServer
       .from("programme_lignes")
       .select("id, zone, chaine, produit, date_jour, numero_lot")
@@ -111,26 +123,37 @@ export default async function RapportConditionnementPage({
       .eq("programme_ligne_id", ligneIdNumber)
       .eq("code", code)
       .maybeSingle(),
+    supabaseServer
+      .from("production_carton_entries")
+      .select(FOURNEE_FIELDS)
+      .eq("programme_ligne_id", ligneIdNumber)
+      .eq("code", code)
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const ligne = ligneData as LigneInfo | null;
-  let rapport = rapportData as RapportInfo | null;
+  const rapport = rapportData as RapportInfo | null;
+  let derniereFournee = fourneeData as DerniereFourneeInfo | null;
 
   // Rien saisi pour ce code precis depuis l'ajout du suivi par code : si
   // cette ligne n'a jamais ete decoupee en plusieurs lots (un seul code au
-  // total), l'ancien rapport partage (code "") reste sans ambiguite le bon
-  // prefill - sinon (plusieurs codes) on laisse le formulaire vide plutot
-  // que de reafficher a tort les donnees d'un AUTRE code.
-  if (!rapport && code) {
+  // total), l'ancienne fournee partagee (code "") reste sans ambiguite le
+  // bon prefill - sinon (plusieurs codes) on laisse le formulaire vide
+  // plutot que de reafficher a tort les donnees d'un AUTRE code.
+  if (!derniereFournee && code) {
     const numeroLotCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
     if (numeroLotCodes.length <= 1) {
-      const { data: legacyRapport } = await supabaseServer
-        .from("production_rapports")
-        .select(RAPPORT_FIELDS)
+      const { data: legacyFournee } = await supabaseServer
+        .from("production_carton_entries")
+        .select(FOURNEE_FIELDS)
         .eq("programme_ligne_id", ligneIdNumber)
         .eq("code", "")
+        .order("id", { ascending: false })
+        .limit(1)
         .maybeSingle();
-      rapport = legacyRapport as RapportInfo | null;
+      derniereFournee = legacyFournee as DerniereFourneeInfo | null;
     }
   }
 
@@ -171,11 +194,11 @@ export default async function RapportConditionnementPage({
                   {code ? ` - Lot ${code}` : ligne.numero_lot ? ` - Lot ${ligne.numero_lot}` : ""}
                 </span>
               </div>
-              {rapport?.utilisateur_conditionnement ? (
+              {derniereFournee?.utilisateur_conditionnement ? (
                 <p className="mt-1 text-xs text-slate-500">
-                  Derniere saisie par {rapport.utilisateur_conditionnement}
-                  {rapport.date_saisie_conditionnement
-                    ? ` (${formatDateTime(rapport.date_saisie_conditionnement)})`
+                  Derniere saisie par {derniereFournee.utilisateur_conditionnement}
+                  {derniereFournee.date_saisie_conditionnement
+                    ? ` (${formatDateTime(derniereFournee.date_saisie_conditionnement)})`
                     : ""}
                 </p>
               ) : null}
@@ -216,7 +239,7 @@ export default async function RapportConditionnementPage({
                     <input
                       type="text"
                       name="chef_zone"
-                      defaultValue={rapport?.chef_zone || ""}
+                      defaultValue={derniereFournee?.chef_zone || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -226,7 +249,7 @@ export default async function RapportConditionnementPage({
                     <input
                       type="text"
                       name="chef_ligne"
-                      defaultValue={rapport?.chef_ligne || ""}
+                      defaultValue={derniereFournee?.chef_ligne || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -236,7 +259,7 @@ export default async function RapportConditionnementPage({
                     <input
                       type="text"
                       name="ravitailleur"
-                      defaultValue={rapport?.ravitailleur || ""}
+                      defaultValue={derniereFournee?.ravitailleur || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -246,7 +269,7 @@ export default async function RapportConditionnementPage({
                     <input
                       type="text"
                       name="tireur"
-                      defaultValue={rapport?.tireur || ""}
+                      defaultValue={derniereFournee?.tireur || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -258,7 +281,7 @@ export default async function RapportConditionnementPage({
                       step="1"
                       min="0"
                       name="nb_journaliers_conditionnement"
-                      defaultValue={rapport?.nb_journaliers_conditionnement ?? "0"}
+                      defaultValue={derniereFournee?.nb_journaliers_conditionnement ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -279,7 +302,7 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="qt_fabriquer"
-                      defaultValue={rapport?.qt_fabriquer ?? "0"}
+                      defaultValue={derniereFournee?.qt_fabriquer ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -290,7 +313,7 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="cadence"
-                      defaultValue={rapport?.cadence ?? "0"}
+                      defaultValue={derniereFournee?.cadence ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -301,7 +324,7 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="poids_reel"
-                      defaultValue={rapport?.poids_reel ?? "0"}
+                      defaultValue={derniereFournee?.poids_reel ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -336,7 +359,7 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_sleeve"
-                      defaultValue={rapport?.dechet_sleeve ?? "0"}
+                      defaultValue={derniereFournee?.dechet_sleeve ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -347,7 +370,7 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_capsule"
-                      defaultValue={rapport?.dechet_capsule ?? "0"}
+                      defaultValue={derniereFournee?.dechet_capsule ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -358,7 +381,7 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_pompe"
-                      defaultValue={rapport?.dechet_pompe ?? "0"}
+                      defaultValue={derniereFournee?.dechet_pompe ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -369,7 +392,7 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_flacon"
-                      defaultValue={rapport?.dechet_flacon ?? "0"}
+                      defaultValue={derniereFournee?.dechet_flacon ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -380,7 +403,7 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_pot"
-                      defaultValue={rapport?.dechet_pot ?? "0"}
+                      defaultValue={derniereFournee?.dechet_pot ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -391,7 +414,7 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_etiquette"
-                      defaultValue={rapport?.dechet_etiquette ?? "0"}
+                      defaultValue={derniereFournee?.dechet_etiquette ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -402,7 +425,7 @@ export default async function RapportConditionnementPage({
                       type="number"
                       step="0.01"
                       name="dechet_etui"
-                      defaultValue={rapport?.dechet_etui ?? "0"}
+                      defaultValue={derniereFournee?.dechet_etui ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -424,7 +447,7 @@ export default async function RapportConditionnementPage({
                         step="1"
                         min="0"
                         name={cause.field}
-                        defaultValue={rapport?.[cause.field] ?? "0"}
+                        defaultValue={derniereFournee?.[cause.field] ?? "0"}
                         required
                         className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                       />
@@ -437,7 +460,7 @@ export default async function RapportConditionnementPage({
                     <input
                       type="time"
                       name="temps_demarage_lot"
-                      defaultValue={rapport?.temps_demarage_lot || ""}
+                      defaultValue={derniereFournee?.temps_demarage_lot || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
@@ -447,7 +470,7 @@ export default async function RapportConditionnementPage({
                     <input
                       type="time"
                       name="temps_arret_batch"
-                      defaultValue={rapport?.temps_arret_batch || ""}
+                      defaultValue={derniereFournee?.temps_arret_batch || ""}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />

@@ -366,50 +366,29 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
-  // upsertRapport (production_rapports) et la verification anti-doublon
-  // (dernierEntreeQuantiteIdentique) ne dependent pas l'une de l'autre -
-  // lancees en parallele ; l'insertion carton elle-meme n'a besoin
-  // d'attendre que la verification. NB: le Conditionnement se saisit en
-  // realite comme un AJOUT (chaque fournee produite depuis la derniere
-  // saisie), pas un total cumule - confirme par le cas WA1219 (240 puis 42
-  // etaient 2 vraies fournees distinctes, 282 au total) apres qu'un
-  // remplacement automatique ait par erreur efface la 2e. Seul un doublon
-  // EXACT (meme quantite que la toute derniere saisie - rouvrir la fiche
-  // et re-Enregistrer sans rien changer) est ignore ; toute quantite
-  // differente s'ajoute normalement.
+  // date_fabrication_conditionnement/date_peremption restent sur
+  // production_rapports (proprietes du LOT/code, pas de la fournee physique
+  // - la meme date vaut pour toutes les fournees d'un code, y compris celle
+  // saisie depuis Fabrication - voir fabrication-form.tsx). Tout le reste
+  // (chef/ravitailleur/dechets/arrets...) va desormais directement sur la
+  // ligne production_carton_entries de CETTE fournee (voir plus bas) - bug
+  // reel corrige : ces champs etaient avant ecrases a chaque nouvelle
+  // fournee du meme code (cas reel AA4238V, 3 fournees sur 3 chaines,
+  // seule la derniere survivait).
+  //
+  // upsertRapport et la verification anti-doublon (dernierEntreeQuantiteIdentique)
+  // ne dependent pas l'une de l'autre - lancees en parallele. NB: le
+  // Conditionnement se saisit en realite comme un AJOUT (chaque fournee
+  // produite depuis la derniere saisie), pas un total cumule - confirme par
+  // le cas WA1219 (240 puis 42 etaient 2 vraies fournees distinctes, 282 au
+  // total) apres qu'un remplacement automatique ait par erreur efface la
+  // 2e. Seul un doublon EXACT (meme quantite que la toute derniere saisie -
+  // rouvrir la fiche et re-Enregistrer sans rien changer) est ignore ;
+  // toute quantite differente s'ajoute normalement.
   const [, dejaCompteIdentique] = await Promise.all([
     upsertRapport(ligneId, code, {
-      chef_zone: parseOptionalText(formData, "chef_zone"),
-      chef_ligne: parseOptionalText(formData, "chef_ligne"),
-      ravitailleur: parseOptionalText(formData, "ravitailleur"),
-      tireur: parseOptionalText(formData, "tireur"),
-      nb_journaliers_conditionnement: parseOptionalNumber(formData, "nb_journaliers_conditionnement"),
-      qt_fabriquer: qtFabriquer,
-      cadence: parseOptionalNumber(formData, "cadence"),
-      poids_reel: parseOptionalNumber(formData, "poids_reel"),
-      dechet_sleeve: parseOptionalNumber(formData, "dechet_sleeve"),
-      dechet_capsule: parseOptionalNumber(formData, "dechet_capsule"),
-      dechet_pompe: parseOptionalNumber(formData, "dechet_pompe"),
-      dechet_flacon: parseOptionalNumber(formData, "dechet_flacon"),
-      dechet_pot: parseOptionalNumber(formData, "dechet_pot"),
-      dechet_etiquette: parseOptionalNumber(formData, "dechet_etiquette"),
-      dechet_etui: parseOptionalNumber(formData, "dechet_etui"),
-      arret_depot: parseOptionalNumber(formData, "arret_depot"),
-      arret_consommable_non_livre: parseOptionalNumber(formData, "arret_consommable_non_livre"),
-      arret_manque_conditionnement: parseOptionalNumber(formData, "arret_manque_conditionnement"),
-      arret_manque_vrac: parseOptionalNumber(formData, "arret_manque_vrac"),
-      arret_technique: parseOptionalNumber(formData, "arret_technique"),
-      arret_coupure_courant: parseOptionalNumber(formData, "arret_coupure_courant"),
-      arret_raclage_vrac: parseOptionalNumber(formData, "arret_raclage_vrac"),
-      arret_changement_lot: parseOptionalNumber(formData, "arret_changement_lot"),
-      arret_flacons_nc: parseOptionalNumber(formData, "arret_flacons_nc"),
-      arret_autre: parseOptionalNumber(formData, "arret_autre"),
-      temps_demarage_lot: parseOptionalText(formData, "temps_demarage_lot"),
-      temps_arret_batch: parseOptionalText(formData, "temps_arret_batch"),
       date_fabrication_conditionnement: dateFabricationConditionnement,
       date_peremption: parseOptionalText(formData, "date_peremption"),
-      utilisateur_conditionnement: currentUser,
-      date_saisie_conditionnement: new Date().toISOString(),
     }),
     qtFabriquer && qtFabriquer > 0
       ? dernierEntreeQuantiteIdentique("production_carton_entries", ligneId, code, qtFabriquer)
@@ -421,6 +400,9 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   // date_jour vient de la date saisie sur le rapport (Date fabrication) au
   // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
   // qui alimente la colonne "Date conditionnement" de Suivi Production.
+  // Toutes les infos de CETTE fournee (chef/ravitailleur/dechets/arrets...)
+  // sont portees directement par cette ligne, plus jamais partagees avec
+  // les autres fournees du meme code.
   const cartonInsert =
     qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique
       ? await supabaseServer.from("production_carton_entries").insert([
@@ -429,6 +411,35 @@ export async function saveConditionnementRapportAction(formData: FormData) {
             code,
             quantite: qtFabriquer,
             ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
+            chef_zone: parseOptionalText(formData, "chef_zone"),
+            chef_ligne: parseOptionalText(formData, "chef_ligne"),
+            ravitailleur: parseOptionalText(formData, "ravitailleur"),
+            tireur: parseOptionalText(formData, "tireur"),
+            nb_journaliers_conditionnement: parseOptionalNumber(formData, "nb_journaliers_conditionnement"),
+            qt_fabriquer: qtFabriquer,
+            cadence: parseOptionalNumber(formData, "cadence"),
+            poids_reel: parseOptionalNumber(formData, "poids_reel"),
+            dechet_sleeve: parseOptionalNumber(formData, "dechet_sleeve"),
+            dechet_capsule: parseOptionalNumber(formData, "dechet_capsule"),
+            dechet_pompe: parseOptionalNumber(formData, "dechet_pompe"),
+            dechet_flacon: parseOptionalNumber(formData, "dechet_flacon"),
+            dechet_pot: parseOptionalNumber(formData, "dechet_pot"),
+            dechet_etiquette: parseOptionalNumber(formData, "dechet_etiquette"),
+            dechet_etui: parseOptionalNumber(formData, "dechet_etui"),
+            arret_depot: parseOptionalNumber(formData, "arret_depot"),
+            arret_consommable_non_livre: parseOptionalNumber(formData, "arret_consommable_non_livre"),
+            arret_manque_conditionnement: parseOptionalNumber(formData, "arret_manque_conditionnement"),
+            arret_manque_vrac: parseOptionalNumber(formData, "arret_manque_vrac"),
+            arret_technique: parseOptionalNumber(formData, "arret_technique"),
+            arret_coupure_courant: parseOptionalNumber(formData, "arret_coupure_courant"),
+            arret_raclage_vrac: parseOptionalNumber(formData, "arret_raclage_vrac"),
+            arret_changement_lot: parseOptionalNumber(formData, "arret_changement_lot"),
+            arret_flacons_nc: parseOptionalNumber(formData, "arret_flacons_nc"),
+            arret_autre: parseOptionalNumber(formData, "arret_autre"),
+            temps_demarage_lot: parseOptionalText(formData, "temps_demarage_lot"),
+            temps_arret_batch: parseOptionalText(formData, "temps_arret_batch"),
+            utilisateur_conditionnement: currentUser,
+            date_saisie_conditionnement: new Date().toISOString(),
           },
         ])
       : { error: null };
@@ -751,22 +762,14 @@ export async function saveEmballageRapportAction(formData: FormData) {
   const quantite = parseOptionalNumber(formData, "quantite");
   const dateEmballage = parseOptionalText(formData, "date_emballage");
 
+  // date_emballage/date_peremption restent sur production_rapports
+  // (proprietes du lot/code) - tout le reste (chef/machine/operateur/
+  // scotcheuse/arrets/temps...) va desormais directement sur la ligne
+  // production_emballage_entries de CETTE fournee (meme correctif que
+  // Conditionnement juste au-dessus - bug reel d'ecrasement entre plusieurs
+  // fournees du meme code).
   const fields: Record<string, unknown> = {
-    emballage_chef_zone: parseOptionalText(formData, "emballage_chef_zone"),
-    emballage_machine: parseOptionalText(formData, "emballage_machine"),
-    emballage_operateur: parseOptionalText(formData, "emballage_operateur"),
-    emballage_scotcheuse: parseOptionalText(formData, "emballage_scotcheuse"),
-    nb_journaliers_emballage: parseOptionalNumber(formData, "nb_journaliers_emballage"),
-    emballage_temps_demarrer: parseOptionalText(formData, "emballage_temps_demarrer"),
-    emballage_temps_arret: parseOptionalText(formData, "emballage_temps_arret"),
-    emballage_arret_changement_bobine: parseOptionalNumber(formData, "emballage_arret_changement_bobine"),
-    emballage_arret_technique: parseOptionalNumber(formData, "emballage_arret_technique"),
-    emballage_arret_reglage: parseOptionalNumber(formData, "emballage_arret_reglage"),
-    emballage_arret_coupure: parseOptionalNumber(formData, "emballage_arret_coupure"),
-    emballage_arret_autre: parseOptionalNumber(formData, "emballage_arret_autre"),
     date_emballage: dateEmballage,
-    utilisateur_emballage: currentUser,
-    date_saisie_emballage: new Date().toISOString(),
   };
 
   // date_peremption vient normalement du rapport Conditionnement DEJA saisi
@@ -787,7 +790,9 @@ export async function saveEmballageRapportAction(formData: FormData) {
   // emballage) au lieu de la date automatique (aujourd'hui, valeur par
   // defaut) - c'est ce qui alimente la colonne "Date emballage" de Suivi
   // Production. L'emballage se saisit comme un AJOUT (voir Conditionnement
-  // plus haut, meme conclusion apres le cas WA1219).
+  // plus haut, meme conclusion apres le cas WA1219). Toutes les infos de
+  // CETTE fournee sont portees directement par cette ligne, plus jamais
+  // partagees avec les autres fournees du meme code.
   //
   // PAS de dernierEntreeQuantiteIdentique ici, contrairement a Vrac/Carton :
   // ce champ "quantite" repart TOUJOURS de 0 sur ce formulaire (pas de
@@ -804,6 +809,20 @@ export async function saveEmballageRapportAction(formData: FormData) {
         code,
         quantite,
         ...(dateEmballage ? { date_jour: dateEmballage } : {}),
+        emballage_chef_zone: parseOptionalText(formData, "emballage_chef_zone"),
+        emballage_machine: parseOptionalText(formData, "emballage_machine"),
+        emballage_operateur: parseOptionalText(formData, "emballage_operateur"),
+        emballage_scotcheuse: parseOptionalText(formData, "emballage_scotcheuse"),
+        nb_journaliers_emballage: parseOptionalNumber(formData, "nb_journaliers_emballage"),
+        emballage_temps_demarrer: parseOptionalText(formData, "emballage_temps_demarrer"),
+        emballage_temps_arret: parseOptionalText(formData, "emballage_temps_arret"),
+        emballage_arret_changement_bobine: parseOptionalNumber(formData, "emballage_arret_changement_bobine"),
+        emballage_arret_technique: parseOptionalNumber(formData, "emballage_arret_technique"),
+        emballage_arret_reglage: parseOptionalNumber(formData, "emballage_arret_reglage"),
+        emballage_arret_coupure: parseOptionalNumber(formData, "emballage_arret_coupure"),
+        emballage_arret_autre: parseOptionalNumber(formData, "emballage_arret_autre"),
+        utilisateur_emballage: currentUser,
+        date_saisie_emballage: new Date().toISOString(),
       },
     ]);
 
