@@ -108,12 +108,15 @@ export async function supprimerEcriturePourSource(sourceType: string, sourceId: 
   }
 }
 
+export type PeriodeComptable = { dateFrom?: string; dateTo?: string };
+
 // Solde (debit-credit) de CHAQUE compte du plan comptable, code compte ->
 // solde - calcul partage entre Balance, Bilan et Compte de resultat (evite
 // de refaire cette pagination/somme 3 fois avec un risque de divergence).
-export async function fetchSoldesParCompte(): Promise<Map<string, number>> {
+// periode optionnelle : Bilan l'utilise comme "a la date de" (dateTo seul,
+// cumul depuis le debut), Compte de resultat comme un vrai Du/Au.
+export async function fetchSoldesParCompte(periode?: PeriodeComptable): Promise<Map<string, number>> {
   const comptes: { id: number; code: string }[] = [];
-  const lignes: { compte_id: number; debit: number; credit: number }[] = [];
   const pageSize = 1000;
 
   for (let from = 0; ; from += pageSize) {
@@ -127,15 +130,52 @@ export async function fetchSoldesParCompte(): Promise<Map<string, number>> {
     if (chunk.length < pageSize) break;
   }
 
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabaseServer
-      .from("ecriture_lignes")
-      .select("compte_id, debit, credit")
-      .range(from, from + pageSize - 1);
-    if (error) break;
-    const chunk = (data as { compte_id: number; debit: number; credit: number }[] | null) ?? [];
-    lignes.push(...chunk);
-    if (chunk.length < pageSize) break;
+  let ecritureIds: number[] | null = null;
+  if (periode?.dateFrom || periode?.dateTo) {
+    const ecritures: { id: number }[] = [];
+    for (let from = 0; ; from += pageSize) {
+      let query = supabaseServer.from("ecritures_comptables").select("id");
+      if (periode.dateFrom) query = query.gte("date_ecriture", periode.dateFrom);
+      if (periode.dateTo) query = query.lte("date_ecriture", periode.dateTo);
+      const { data, error } = await query.range(from, from + pageSize - 1);
+      if (error) break;
+      const chunk = (data as { id: number }[] | null) ?? [];
+      ecritures.push(...chunk);
+      if (chunk.length < pageSize) break;
+    }
+    ecritureIds = ecritures.map((e) => e.id);
+  }
+
+  const lignes: { compte_id: number; debit: number; credit: number }[] = [];
+  if (ecritureIds === null) {
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabaseServer
+        .from("ecriture_lignes")
+        .select("compte_id, debit, credit")
+        .range(from, from + pageSize - 1);
+      if (error) break;
+      const chunk = (data as { compte_id: number; debit: number; credit: number }[] | null) ?? [];
+      lignes.push(...chunk);
+      if (chunk.length < pageSize) break;
+    }
+  } else if (ecritureIds.length > 0) {
+    // Pagine aussi la liste d'ids elle-meme (pas seulement les resultats) -
+    // un .in() avec des milliers d'ids ferait une URL demesuree sinon.
+    const idChunkSize = 500;
+    for (let i = 0; i < ecritureIds.length; i += idChunkSize) {
+      const idsChunk = ecritureIds.slice(i, i + idChunkSize);
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await supabaseServer
+          .from("ecriture_lignes")
+          .select("compte_id, debit, credit")
+          .in("ecriture_id", idsChunk)
+          .range(from, from + pageSize - 1);
+        if (error) break;
+        const chunk = (data as { compte_id: number; debit: number; credit: number }[] | null) ?? [];
+        lignes.push(...chunk);
+        if (chunk.length < pageSize) break;
+      }
+    }
   }
 
   const soldeByCompteId = new Map<number, number>();
@@ -156,6 +196,46 @@ export async function fetchSoldesParCompte(): Promise<Map<string, number>> {
 
 function normalizeFournisseur(value: string) {
   return value.replace(/ /g, "").trim().toUpperCase();
+}
+
+// Meme normalisation que app/clients/actions.ts (normalizeClient) - dupliquee
+// ici plutot qu'importee car ce fichier-la est "use server" cote page/UI,
+// celui-ci est un module partage sans directive.
+function normalizeClient(value: string) {
+  return value.replace(/ /g, "").trim().toUpperCase();
+}
+
+// Meme logique find-or-create que resoudreOuCreerFournisseur, appliquee a
+// clients - utilisee par le hook automatique de livraison de commande pour
+// ne jamais dupliquer un client deja connu sous un nom presque identique
+// (commandes.client est un texte libre, pas une vraie relation).
+export async function resoudreOuCreerClient(nomClient: string): Promise<number | null> {
+  const nom = nomClient.trim();
+  if (!nom) return null;
+
+  const normalise = normalizeClient(nom);
+
+  const { data: existing } = await supabaseServer
+    .from("clients")
+    .select("id")
+    .eq("client_normalise", normalise)
+    .maybeSingle();
+
+  if (existing) {
+    return (existing as { id: number }).id;
+  }
+
+  const { data: created, error } = await supabaseServer
+    .from("clients")
+    .insert([{ nom_client: nom, client_normalise: normalise }])
+    .select("id")
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (created as { id: number }).id;
 }
 
 // Meme logique find-or-create que normalizeClient/createClientAction

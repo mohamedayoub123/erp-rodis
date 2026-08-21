@@ -11,6 +11,16 @@ import {
 } from "@/lib/stock-auth";
 import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
 import { logAudit } from "@/lib/audit-log";
+import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
+import {
+  COMPTE_CLIENTS,
+  COMPTE_STOCK_PRODUIT_FINI,
+  COMPTE_VARIATION_STOCK_PF,
+  COMPTE_VENTES,
+  creerEcriture,
+  resoudreOuCreerClient,
+  supprimerEcriturePourSource,
+} from "@/lib/comptabilite";
 
 // Meme ordre que /articles/produit-fini et la page detail de la commande
 // (voir sortCommandeLignesByFamily dans [id]/page.tsx) - le Despatcher doit
@@ -1808,6 +1818,117 @@ export async function changeCommandeStatusAction(formData: FormData) {
   revalidateCommandeDependentPages(commandeId);
 }
 
+// Ecritures Vente (Debit Client / Credit Ventes) + Cout de la vente (Debit
+// Variation de stock PF / Credit Stock PF) au moment reel de la livraison
+// (deliverCommandeAction) - le seul moment ou une commande devient une vraie
+// sortie de stock. Quantite livree par article = fifo_resultats.quantite_chargee
+// (deja la source de verite du stock reellement sorti par stock_deliver_commande,
+// jamais recalculee autrement). 2 ecritures separees et independantes : le
+// prix de vente (article.prix_vente ou prix_vente_speciaux si ce client en a
+// un) et le cout de revient (fetchCoutsParCartonProduitsFinis) peuvent
+// chacun etre connus ou non independamment de l'autre - jamais un montant
+// devine, un article sans prix/cout connu est juste exclu de l'ecriture
+// correspondante (jamais un total partiel traite comme complet). Try/catch
+// qui n'interrompt jamais la livraison elle-meme si la comptabilite echoue.
+async function creerEcritureVente(commandeId: number, currentUser: string | null) {
+  try {
+    const sourceIdVente = `${commandeId}`;
+    await supprimerEcriturePourSource("commande_vente", sourceIdVente);
+    await supprimerEcriturePourSource("commande_cout_vente", sourceIdVente);
+
+    const { data: commande } = await supabaseServer
+      .from("commandes")
+      .select("client, numero_proforma")
+      .eq("id", commandeId)
+      .maybeSingle();
+    if (!commande) return;
+
+    const { data: fifoRows } = await supabaseServer
+      .from("fifo_resultats")
+      .select("article_id, quantite_chargee")
+      .eq("commande_id", commandeId);
+
+    const quantiteParArticle = new Map<number, number>();
+    for (const row of (fifoRows ?? []) as { article_id: number | null; quantite_chargee: number }[]) {
+      if (!row.article_id) continue;
+      quantiteParArticle.set(
+        row.article_id,
+        (quantiteParArticle.get(row.article_id) ?? 0) + Number(row.quantite_chargee ?? 0)
+      );
+    }
+    if (quantiteParArticle.size === 0) return;
+
+    const articleIds = [...quantiteParArticle.keys()];
+    const clientId = await resoudreOuCreerClient(commande.client || "");
+
+    const [{ data: articlesData }, { data: speciauxData }, coutsParArticle] = await Promise.all([
+      supabaseServer.from("articles").select("id, prix_vente").in("id", articleIds),
+      clientId
+        ? supabaseServer.from("prix_vente_speciaux").select("article_id, prix").eq("client_id", clientId).in("article_id", articleIds)
+        : Promise.resolve({ data: [] as { article_id: number; prix: number }[] }),
+      fetchCoutsParCartonProduitsFinis(articleIds, quantiteParArticle),
+    ]);
+
+    const prixStandardByArticle = new Map(
+      ((articlesData ?? []) as { id: number; prix_vente: number | null }[]).map((a) => [a.id, a.prix_vente])
+    );
+    const prixSpecialByArticle = new Map(
+      ((speciauxData ?? []) as { article_id: number; prix: number }[]).map((s) => [s.article_id, s.prix])
+    );
+
+    // Date de la LIVRAISON (aujourd'hui), pas la date de creation de la
+    // commande (date_commande) - la vente comptable a lieu au moment reel ou
+    // le stock sort, pas au moment ou la commande a ete passee.
+    const dateEcriture = new Date().toISOString().slice(0, 10);
+
+    let montantVente = 0;
+    for (const [articleId, quantite] of quantiteParArticle) {
+      const prix = prixSpecialByArticle.get(articleId) ?? prixStandardByArticle.get(articleId) ?? null;
+      if (prix === null || prix <= 0) continue;
+      montantVente += prix * quantite;
+    }
+
+    if (montantVente > 0 && clientId) {
+      await creerEcriture({
+        dateEcriture,
+        pieceReference: commande.numero_proforma || null,
+        libelle: `Vente - ${commande.numero_proforma || `#${commandeId}`} - ${commande.client || ""}`,
+        sourceType: "commande_vente",
+        sourceId: sourceIdVente,
+        createdBy: currentUser,
+        lignes: [
+          { compteCode: COMPTE_CLIENTS, debit: montantVente, credit: 0 },
+          { compteCode: COMPTE_VENTES, debit: 0, credit: montantVente },
+        ],
+      });
+    }
+
+    let montantCout = 0;
+    for (const [articleId, quantite] of quantiteParArticle) {
+      const coutInfo = coutsParArticle.get(articleId);
+      if (!coutInfo || coutInfo.coutParCarton === null || coutInfo.lignesSansPrix.length > 0) continue;
+      montantCout += coutInfo.coutParCarton * quantite;
+    }
+
+    if (montantCout > 0) {
+      await creerEcriture({
+        dateEcriture,
+        pieceReference: commande.numero_proforma || null,
+        libelle: `Cout de vente - ${commande.numero_proforma || `#${commandeId}`}`,
+        sourceType: "commande_cout_vente",
+        sourceId: sourceIdVente,
+        createdBy: currentUser,
+        lignes: [
+          { compteCode: COMPTE_VARIATION_STOCK_PF, debit: montantCout, credit: 0 },
+          { compteCode: COMPTE_STOCK_PRODUIT_FINI, debit: 0, credit: montantCout },
+        ],
+      });
+    }
+  } catch (comptaError) {
+    console.error("Ecriture comptable vente echouee:", comptaError);
+  }
+}
+
 export async function deliverCommandeAction(formData: FormData) {
   const commandeId = Number(String(formData.get("commande_id") || "0"));
   try {
@@ -1835,6 +1956,8 @@ export async function deliverCommandeAction(formData: FormData) {
   if (error) {
     throw new Error(error.message);
   }
+
+  await creerEcritureVente(commandeId, currentUser);
 
   await logAudit({
     utilisateur: currentUser,
