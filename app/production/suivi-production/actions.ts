@@ -389,10 +389,15 @@ export async function deleteSuiviProductionRowAction(targets: {
     throw new Error("Rien a supprimer.");
   }
 
-  const deletions: PromiseLike<{ error: { message: string } | null }>[] = [];
+  const deletions: PromiseLike<{ error: { message: string } | null } | void>[] = [];
 
   if (fabricationId) {
     deletions.push(supabaseServer.from("production_vrac_entries").delete().eq("id", fabricationId));
+    // Sans ca, l'ecriture comptable "fabrication_vrac" de ce vrac restait
+    // dans le Journal apres suppression de sa source (bug remonte par
+    // l'utilisateur : "si j'efface il faut que le montant parte aussi").
+    // Meme sourceId que celui qui la cree (voir plus haut, ligne ~725).
+    deletions.push(supprimerEcriturePourSource("fabrication_vrac", `${ligneId}-${code}`));
   }
   if (conditionnementId) {
     deletions.push(supabaseServer.from("production_carton_entries").delete().eq("id", conditionnementId));
@@ -409,7 +414,7 @@ export async function deleteSuiviProductionRowAction(targets: {
   }
 
   const results = await Promise.all(deletions);
-  const failed = results.find((result) => result.error);
+  const failed = results.find((result) => result?.error);
 
   if (failed?.error) {
     throw new Error(failed.error.message);
