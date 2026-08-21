@@ -68,6 +68,21 @@ export function LotSearchField({
           ))}
         </div>
       ) : null}
+      {/* Liste permanente sous le champ (pas seulement dans le menu qui se
+      ferme des qu'on clique ailleurs) - pour toujours voir d'un coup d'oeil
+      le stock de TOUS les lots de cet article, meme une fois un lot deja
+      choisi. */}
+      {!disabled ? (
+        <div className="mt-1 flex flex-col gap-0.5 text-xs text-slate-500">
+          {lots.length === 0
+            ? "Aucun lot disponible"
+            : lots.map((lot) => (
+                <span key={lot.numeroLot} className={lot.numeroLot === value ? "font-semibold text-slate-700" : ""}>
+                  {lot.numeroLot || "(sans numero)"} : {lot.solde.toLocaleString("fr-FR")}
+                </span>
+              ))}
+        </div>
+      ) : null}
     </div>
   );
 }
