@@ -12,11 +12,12 @@ type Machine = {
   type: string | null;
   type_produit: string[] | null;
   consommation_electrique_kw: number | null;
+  energie_machine_id: number | null;
 };
 
 // Champs caches communs pour ne PAS ecraser les autres colonnes de la
 // machine quand on enregistre juste le nom OU juste la zone -
-// updateMachineAction remplace toujours les 5 champs (pas de patch
+// updateMachineAction remplace toujours les 6 champs (pas de patch
 // partiel cote base), donc chaque petit formulaire doit renvoyer les
 // valeurs actuelles de tout ce qu'il ne modifie pas lui-meme.
 function HiddenMachineFields({
@@ -24,11 +25,13 @@ function HiddenMachineFields({
   excludeNom,
   excludeZone,
   excludeConso,
+  excludeEnergie,
 }: {
   machine: Machine;
   excludeNom?: boolean;
   excludeZone?: boolean;
   excludeConso?: boolean;
+  excludeEnergie?: boolean;
 }) {
   return (
     <>
@@ -38,6 +41,9 @@ function HiddenMachineFields({
       <input type="hidden" name="type" value={machine.type ?? ""} />
       {excludeConso ? null : (
         <input type="hidden" name="consommation_electrique_kw" value={machine.consommation_electrique_kw ?? ""} />
+      )}
+      {excludeEnergie ? null : (
+        <input type="hidden" name="energie_machine_id" value={machine.energie_machine_id ?? ""} />
       )}
       {(machine.type_produit ?? []).map((tp) => (
         <input key={tp} type="hidden" name="type_produit" value={tp} />
@@ -115,6 +121,51 @@ export function MachineZoneCell({ machine, canEdit }: { machine: Machine; canEdi
         defaultValue={machine.zone ?? ""}
         className="w-24 rounded border border-slate-200 px-1.5 py-1 text-sm text-slate-700 focus:border-sky-400 focus:outline-none"
       />
+      <SubmitButton
+        pendingLabel="..."
+        className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200"
+      >
+        OK
+      </SubmitButton>
+    </form>
+  );
+}
+
+// Quelle machine Energie (groupe electrogene...) alimente cette machine -
+// n'a de sens que pour une machine qui n'est PAS elle-meme de type
+// "Energie" (pas de chaine energie->energie). Le cout de la machine Energie
+// se divise ensuite entre toutes les machines qui la citent ici, actives un
+// jour donne (voir lib/cout-production-reel.ts).
+export function MachineEnergieCell({
+  machine,
+  canEdit,
+  energieOptions,
+}: {
+  machine: Machine;
+  canEdit: boolean;
+  energieOptions: { id: number; label: string }[];
+}) {
+  if (machine.type === "Energie") return <span className="text-slate-400">-</span>;
+
+  const current = energieOptions.find((option) => option.id === machine.energie_machine_id);
+
+  if (!canEdit) return <>{current?.label ?? "-"}</>;
+
+  return (
+    <form action={updateMachineAction} className="flex items-center gap-1">
+      <HiddenMachineFields machine={machine} excludeEnergie />
+      <select
+        name="energie_machine_id"
+        defaultValue={machine.energie_machine_id ?? ""}
+        className="rounded border border-slate-200 px-1.5 py-1 text-sm text-slate-700 focus:border-sky-400 focus:outline-none"
+      >
+        <option value="">-</option>
+        {energieOptions.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
       <SubmitButton
         pendingLabel="..."
         className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200"

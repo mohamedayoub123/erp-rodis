@@ -79,10 +79,12 @@ export function AddMachineForm({
   existingZones,
   existingTypes,
   typeProduitOptions,
+  energieOptions,
 }: {
   existingZones: string[];
   existingTypes: string[];
   typeProduitOptions: string[];
+  energieOptions: { id: number; label: string }[];
 }) {
   return (
     <form
@@ -126,6 +128,21 @@ export function AddMachineForm({
           placeholder="0"
           className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
         />
+      </label>
+      <label className="grid gap-1 text-xs font-semibold text-slate-500">
+        Machine Energie (si alimentee par une source partagee)
+        <select
+          name="energie_machine_id"
+          defaultValue=""
+          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+        >
+          <option value="">-</option>
+          {energieOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </label>
       <div className="grid gap-1 text-xs font-semibold text-slate-500">
         Type(s) de produit

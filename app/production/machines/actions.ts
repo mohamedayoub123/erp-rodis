@@ -36,6 +36,7 @@ export async function createMachineAction(formData: FormData) {
     type: String(formData.get("type") || "").trim() || null,
     type_produit: toTypeProduitsArray(formData),
     consommation_electrique_kw: toNumberOrNull(formData.get("consommation_electrique_kw")),
+    energie_machine_id: toNumberOrNull(formData.get("energie_machine_id")),
   });
 
   if (error) {
@@ -67,6 +68,7 @@ export async function updateMachineAction(formData: FormData) {
       type: String(formData.get("type") || "").trim() || null,
       type_produit: toTypeProduitsArray(formData),
       consommation_electrique_kw: toNumberOrNull(formData.get("consommation_electrique_kw")),
+      energie_machine_id: toNumberOrNull(formData.get("energie_machine_id")),
     })
     .eq("id", id);
 
