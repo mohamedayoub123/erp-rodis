@@ -296,7 +296,10 @@ export async function deleteSuiviProductionRowAction(targets: {
 
   const { fabricationId, conditionnementId, emballageId, rapportId, ligneId, code } = targets;
 
-  if (!fabricationId && !conditionnementId && !emballageId && !rapportId) {
+  // ligneId/code seuls (les 4 autres deja supprimes precedemment) restent
+  // un cas valide - c'est justement ce qui manquait pour finir de nettoyer
+  // une ligne dont il ne reste plus que ses marqueurs Besoin valide.
+  if (!fabricationId && !conditionnementId && !emballageId && !rapportId && !(ligneId && code)) {
     throw new Error("Rien a supprimer.");
   }
 
