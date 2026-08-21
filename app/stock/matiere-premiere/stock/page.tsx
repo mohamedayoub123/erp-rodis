@@ -106,6 +106,7 @@ type SearchParams = Promise<{
   month_to?: string;
   year?: string;
   hide_zero?: string;
+  depot_id?: string;
 }>;
 
 export default async function StockMatierePremiereStockPage({
@@ -130,6 +131,7 @@ export default async function StockMatierePremiereStockPage({
   const monthTo = parseMonthValue((params.month_to || "").trim());
   const selectedYear = parseYearValue((params.year || "").trim());
   const hideZeroStock = (params.hide_zero || "").trim() === "1";
+  const depotIdFilter = Number(params.depot_id || "0") || null;
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const from = (currentPage - 1) * PAGE_SIZE;
 
@@ -138,6 +140,7 @@ export default async function StockMatierePremiereStockPage({
     articleSuggestions,
     { data: yearsData },
     { data: codesData },
+    { data: depotsData },
     webSourceRows,
   ] = await Promise.all([
     supabaseServer.rpc("stock_mp_display_rows", {
@@ -149,18 +152,24 @@ export default async function StockMatierePremiereStockPage({
       p_month_to: monthTo || null,
       p_year: selectedYear || null,
       p_hide_zero: hideZeroStock,
+      p_depot_id: depotIdFilter,
       p_limit: PAGE_SIZE,
       p_offset: from,
     }),
     fetchAllArticleNomsMp(),
     supabaseServer.rpc("stock_mp_available_years"),
     supabaseServer.rpc("stock_mp_available_codes"),
+    supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
     fetchWebMouvementMpSourceRows(),
   ]);
 
   const pagedRows = (rowsData as DisplayRow[] | null) ?? [];
 
   const articleOptions = articleSuggestions.map((label, id) => ({ id, label }));
+  const depotOptions = ((depotsData as { id: number; nom: string }[] | null) ?? []).map((depot) => ({
+    id: depot.id,
+    label: depot.nom,
+  }));
   const availableYears = ((yearsData as { year: number }[] | null) ?? []).map((row) => row.year);
   const codeOptions = ((codesData as { code: string }[] | null) ?? []).map((row, id) => ({
     id,
@@ -193,6 +202,7 @@ export default async function StockMatierePremiereStockPage({
     if (monthTo) search.set("month_to", String(monthTo));
     if (selectedYear) search.set("year", String(selectedYear));
     if (hideZeroStock) search.set("hide_zero", "1");
+    if (depotIdFilter) search.set("depot_id", String(depotIdFilter));
     if (page > 1) search.set("page", String(page));
     const qs = search.toString();
     return qs ? `/stock/matiere-premiere/stock?${qs}` : "/stock/matiere-premiere/stock";
@@ -228,6 +238,7 @@ export default async function StockMatierePremiereStockPage({
                   monthTo,
                   year: selectedYear,
                   hideZero: hideZeroStock,
+                  depotId: depotIdFilter,
                 }}
               />
               <RefreshButton />
@@ -236,7 +247,7 @@ export default async function StockMatierePremiereStockPage({
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 lg:grid-cols-4 xl:grid-cols-5">
+          <form className="grid gap-3 lg:grid-cols-4 xl:grid-cols-6">
             <SearchableFilterInput
               name="q"
               defaultValue={q}
@@ -249,6 +260,18 @@ export default async function StockMatierePremiereStockPage({
               options={codeOptions}
               placeholder="Ecrire numero de lot..."
             />
+            <select
+              name="depot_id"
+              defaultValue={depotIdFilter ? String(depotIdFilter) : ""}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              <option value="">Tous les depots</option>
+              {depotOptions.map((depot) => (
+                <option key={depot.id} value={depot.id}>
+                  {depot.label}
+                </option>
+              ))}
+            </select>
             <input
               type="date"
               name="date_from"

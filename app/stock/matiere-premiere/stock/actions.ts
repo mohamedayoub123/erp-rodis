@@ -11,6 +11,7 @@ export type StockMpExportFilters = {
   monthTo: number;
   year: number;
   hideZero: boolean;
+  depotId: number | null;
 };
 
 type StockMpExportRow = {
@@ -55,6 +56,7 @@ export async function fetchStockMpExportRowsAction(filters: StockMpExportFilters
       p_month_to: filters.monthTo || null,
       p_year: filters.year || null,
       p_hide_zero: filters.hideZero,
+      p_depot_id: filters.depotId,
       p_limit: pageSize,
       p_offset: offset,
     });
