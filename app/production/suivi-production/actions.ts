@@ -645,7 +645,12 @@ export async function saveFabricationRapportAction(formData: FormData) {
 
       if (vracArticleId) {
         const coutVrac = await fetchCoutVracParKg(vracArticleId, vracFabrique);
-        if (coutVrac.coutParKg !== null) {
+        // lignesSansPrix.length === 0 obligatoire : un cout partiel (certains
+        // MP de la recette sans prix connu a Depot B) ne doit jamais generer
+        // une ecriture, meme a un montant non-nul - sinon un article ENTIEREMENT
+        // sans prix donne coutTotal=0 mais coutParKg=0 (pas null, 0/qte=0),
+        // ce qui passait a tort le garde-fou et creait une ecriture 0/0.
+        if (coutVrac.coutParKg !== null && coutVrac.lignesSansPrix.length === 0) {
           const montant = coutVrac.coutTotal;
           await creerEcriture({
             dateEcriture: dateFabricationConditionnement || new Date().toISOString().slice(0, 10),

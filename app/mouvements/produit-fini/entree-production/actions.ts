@@ -258,10 +258,14 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
     const dateEcriture = new Date().toISOString().slice(0, 10);
 
     for (const [articleId, quantite] of quantiteParArticle) {
-      const coutParCarton = couts.get(articleId)?.coutParCarton;
-      if (coutParCarton === null || coutParCarton === undefined) continue;
+      const coutInfo = couts.get(articleId);
+      // lignesSansPrix.length === 0 obligatoire (pas seulement coutParCarton
+      // non-nul) : un article ENTIEREMENT sans prix connu a Depot B donne
+      // coutTotal=0 donc coutParCarton=0/qte=0, qui passerait a tort le
+      // garde-fou coutParCarton!==null et creerait une ecriture 0/0.
+      if (!coutInfo || coutInfo.coutParCarton === null || coutInfo.lignesSansPrix.length > 0) continue;
 
-      const montant = coutParCarton * quantite;
+      const montant = coutInfo.coutParCarton * quantite;
       const nomArticle = nomArticleById.get(articleId) ?? `#${articleId}`;
       const lots = [...(lotsParArticle.get(articleId) ?? [])].join(", ");
       await creerEcriture({
