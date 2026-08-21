@@ -23,8 +23,13 @@ async function resoudreDepotBId(): Promise<number | null> {
 // toutes dates/tous depots confondus (un lot encore a Depot E, jamais
 // transfere, n'est pas physiquement consommable et ne doit jamais fixer le
 // prix). Si Depot B n'a pas assez de lots avec un prix connu pour couvrir
-// TOUTE la quantite demandee pour un article, cet article est absent de la
-// map retournee (jamais un cout partiel traite comme complet).
+// TOUTE la quantite demandee pour un article, seule la portion couverte par
+// un prix connu est chiffree - le reste (aucun prix connu, ou stock
+// insuffisant a prix connu) est ignore comme s'il n'existait pas, plutot
+// que de faire echouer tout le calcul pour un seul ingredient sans prix
+// (demande explicite : la tres grande majorite des articles MP n'ont
+// aujourd'hui aucun prix connu, un calcul "tout ou rien" ne donnait donc
+// quasiment jamais de cout du tout).
 export async function fetchCoutsReelsMpDepotB(
   besoins: { articleMpId: number; quantite: number }[]
 ): Promise<Map<number, CoutMpInfo>> {
@@ -42,15 +47,14 @@ export async function fetchCoutsReelsMpDepotB(
     [...parArticle.entries()].map(async ([articleMpId, quantite]) => {
       const lots = await fetchLotsInDepot("MP", articleMpId, depotBId);
       const lotsAvecPrix = lots.filter((l) => l.prixUnitaireFcfa !== null);
-      const { allocations, covered } = allocateFefo(lotsAvecPrix, quantite);
-      if (!covered) return;
+      const { allocations } = allocateFefo(lotsAvecPrix, quantite);
 
       const lotByNumero = new Map(lotsAvecPrix.map((l) => [l.numeroLot, l]));
       let coutFcfa = 0;
       const lotsUtilises: CoutMpInfo["lots"] = [];
       for (const alloc of allocations) {
         const lot = lotByNumero.get(alloc.numero_lot);
-        if (!lot || lot.prixUnitaireFcfa === null) return; // ne devrait pas arriver, garde-fou
+        if (!lot || lot.prixUnitaireFcfa === null) continue; // ne devrait pas arriver, garde-fou
         coutFcfa += alloc.quantite * lot.prixUnitaireFcfa;
         lotsUtilises.push({
           numeroLot: alloc.numero_lot,
