@@ -580,7 +580,7 @@ export async function renameLotCodeAction(formData: FormData) {
 
   const { data: ligneData, error: ligneError } = await supabaseServer
     .from("programme_lignes")
-    .select("id, numero_lot, numero_lot_detail")
+    .select("id, numero_lot, numero_lot_detail, groupe_id")
     .eq("id", ligneId)
     .maybeSingle();
 
@@ -592,6 +592,7 @@ export async function renameLotCodeAction(formData: FormData) {
     id: number;
     numero_lot: string | null;
     numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
+    groupe_id: number | null;
   };
 
   const codes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
@@ -641,6 +642,18 @@ export async function renameLotCodeAction(formData: FormData) {
       .update({ code: newCode })
       .eq("programme_ligne_id", ligneId)
       .eq("code", oldCode),
+    // Sans ca, le PD (PD1, PD2...) associe a ce code disparaissait apres un
+    // renommage - buildPdLabelByCode (suivi/data.ts) retrouve le PD via
+    // programme_dispatcher_history.code, jamais mise a jour ici avant (bug
+    // remonte par l'utilisateur : "si je change le code il faut pas que tu
+    // enleve le PD").
+    ligne.groupe_id
+      ? supabaseServer
+          .from("programme_dispatcher_history")
+          .update({ code: newCode })
+          .eq("groupe_id", ligne.groupe_id)
+          .eq("code", oldCode)
+      : Promise.resolve({ error: null }),
   ]);
 
   revalidateSuiviPages();
