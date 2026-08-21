@@ -173,12 +173,13 @@ function PlateformeCell({
 
 // Categorie machine Fabrication (Automatique/Manuel/Semi auto, voir
 // machines.zone) -> valeur Plateforme (M/A) deduite automatiquement des
-// qu'une machine Fabrication est choisie. "Semi auto" ne force rien -
-// l'utilisateur choisit M ou A comme avant (decision actee).
+// qu'une machine Fabrication est choisie. "Semi auto" compte comme "M"
+// (Manuel) - demande explicite : avant, elle ne forcait rien et finissait
+// par tomber sur "A" par defaut, ce qui n'est pas le comportement voulu.
 function plateformeFromCategorie(categorie: string | null): "M" | "A" | null {
   const value = (categorie || "").trim().toLowerCase();
   if (value === "automatique") return "A";
-  if (value === "manuel") return "M";
+  if (value === "manuel" || value === "semi auto") return "M";
   return null;
 }
 
