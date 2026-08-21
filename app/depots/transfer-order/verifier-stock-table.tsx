@@ -10,6 +10,7 @@ export type VerifierStockRow = {
   besoin: number;
   stock: number;
   disponibleDepotB: number | null;
+  disponibleDepotE: number | null;
 };
 
 // Tableau "Verifier stock" partage entre Programme par ligne et Programme
@@ -86,6 +87,7 @@ export function VerifierStockTable({
                   <th className="px-6 py-4 font-semibold">Unite</th>
                   <th className="px-6 py-4 font-semibold">Besoin</th>
                   <th className="px-6 py-4 font-semibold">Stock actuel</th>
+                  <th className="px-6 py-4 font-semibold">Disponible Depot E (non reserve)</th>
                   <th className="px-6 py-4 font-semibold">Disponible Depot B (non reserve)</th>
                   <th className="px-6 py-4 font-semibold"></th>
                 </tr>
@@ -116,6 +118,11 @@ export function VerifierStockTable({
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.stock.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {row.disponibleDepotE === null
+                          ? "-"
+                          : row.disponibleDepotE.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.disponibleDepotB === null

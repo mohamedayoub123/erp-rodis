@@ -51,6 +51,7 @@ export function TransferOrderLignesEditor({
   articlesPf,
   updateAction,
   canEditLignes,
+  depotSourceNom,
 }: {
   transferOrderId: number;
   lignes: LigneRow[];
@@ -59,6 +60,7 @@ export function TransferOrderLignesEditor({
   articlesPf: { id: number; label: string }[];
   updateAction: (formData: FormData) => void | Promise<void>;
   canEditLignes: boolean;
+  depotSourceNom: string;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [supprimees, setSupprimees] = useState<Set<number>>(new Set());
@@ -98,7 +100,7 @@ export function TransferOrderLignesEditor({
                 <th className="px-6 py-4 font-semibold">Article</th>
                 <th className="px-6 py-4 font-semibold">Demande</th>
                 <th className="px-6 py-4 font-semibold">Numero de lot</th>
-                <th className="px-6 py-4 font-semibold">Disponible au depot source</th>
+                <th className="px-6 py-4 font-semibold">Disponible {depotSourceNom}</th>
                 <th className="px-6 py-4 font-semibold">Quantite a transferer</th>
               </tr>
             </thead>
@@ -166,7 +168,7 @@ export function TransferOrderLignesEditor({
                 <th className="px-6 py-4 font-semibold">Article</th>
                 <th className="px-6 py-4 font-semibold">Demande</th>
                 <th className="px-6 py-4 font-semibold">Numero de lot</th>
-                <th className="px-6 py-4 font-semibold">Disponible</th>
+                <th className="px-6 py-4 font-semibold">Disponible {depotSourceNom}</th>
                 <th className="px-6 py-4 font-semibold">Quantite a transferer</th>
                 <th className="px-6 py-4 font-semibold">Supprimer</th>
               </tr>

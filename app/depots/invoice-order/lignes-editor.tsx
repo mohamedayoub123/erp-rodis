@@ -53,6 +53,7 @@ export function InvoiceOrderLignesEditor({
   updateAction,
   validateAction,
   deleteLigneAction,
+  depotSourceNom,
 }: {
   invoiceOrderId: number;
   lignes: LigneRow[];
@@ -61,6 +62,7 @@ export function InvoiceOrderLignesEditor({
   updateAction: (formData: FormData) => void | Promise<void>;
   validateAction: (formData: FormData) => void | Promise<void>;
   deleteLigneAction: (formData: FormData) => void | Promise<void>;
+  depotSourceNom: string;
 }) {
   const [isDirty, setIsDirty] = useState(false);
 
@@ -116,7 +118,7 @@ export function InvoiceOrderLignesEditor({
                   <th className="px-6 py-4 font-semibold">Article</th>
                   <th className="px-6 py-4 font-semibold">Type</th>
                   <th className="px-6 py-4 font-semibold">Lot</th>
-                  <th className="px-6 py-4 font-semibold">Disponible au depot source</th>
+                  <th className="px-6 py-4 font-semibold">Disponible {depotSourceNom}</th>
                   <th className="px-6 py-4 font-semibold">Quantite</th>
                   {canEditLignes ? <th className="px-6 py-4 font-semibold"></th> : null}
                 </tr>
