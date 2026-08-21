@@ -11,6 +11,7 @@ import { vracLabelFromName } from "@/lib/gamme-families";
 import { FabricationForm } from "./fabrication-form";
 import { messageSiTestLaboInvalide } from "../../actions";
 import { fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
+import { fetchMachinesByType } from "@/lib/machines-by-type";
 
 type LigneInfo = {
   id: number;
@@ -146,6 +147,8 @@ export default async function RapportFabricationPage({
     }
   }
 
+  const machines = await fetchMachinesByType("Fabrication");
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -207,6 +210,7 @@ export default async function RapportFabricationPage({
               code={code}
               rapport={rapport}
               vracRecupereLots={vracRecupereLots}
+              machines={machines}
             />
           )}
         </section>

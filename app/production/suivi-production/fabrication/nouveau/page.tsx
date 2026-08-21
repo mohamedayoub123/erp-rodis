@@ -9,6 +9,8 @@ import { createManualFabricationEntryAction } from "../../actions";
 import { ProduitPickerField } from "../../produit-picker-field";
 import { TempsField } from "../[ligneId]/fabrication-form";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { MachineSelectField } from "../../machine-select-field";
+import { fetchMachinesByType } from "@/lib/machines-by-type";
 
 const TYPE_FABRICATION_OPTIONS = [
   "Automatique",
@@ -67,6 +69,7 @@ export default async function NouvelleFicheFabricationPage() {
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionFabrication");
   const articles = await fetchAllArticles();
   const zoneChaineOptions = await fetchConditionnementZoneChaineOptions();
+  const machines = await fetchMachinesByType("Fabrication");
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -156,12 +159,7 @@ export default async function NouvelleFicheFabricationPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Machine
-                    <input
-                      type="text"
-                      name="machine"
-                      required
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                    />
+                    <MachineSelectField name="machine" defaultValue="" machines={machines} />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Preparateur

@@ -6,6 +6,7 @@ import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input
 import { SubmitButton } from "@/app/_components/submit-button";
 import { combineTempsJourMois, splitTempsJourMois } from "@/lib/suivi-tirage-time";
 import { LotSearchField } from "@/app/depots/transfer-order/lot-search-field";
+import { MachineSelectField } from "../../machine-select-field";
 
 const TYPE_FABRICATION_OPTIONS = [
   "Automatique",
@@ -127,11 +128,13 @@ export function FabricationForm({
   code,
   rapport,
   vracRecupereLots,
+  machines,
 }: {
   ligneId: number;
   code: string;
   rapport: RapportInfo | null;
   vracRecupereLots: { numeroLot: string; solde: number }[];
+  machines: { nom: string; typeProduit: string[] }[];
 }) {
   const [cuvesPoids, setCuvesPoids] = useState({
     cuve_1_poids: rapport?.cuve_1_poids ?? "0",
@@ -174,13 +177,7 @@ export function FabricationForm({
         <div className="grid gap-4 md:grid-cols-2">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Machine
-            <input
-              type="text"
-              name="machine"
-              defaultValue={rapport?.machine || ""}
-              required
-              className={inputClass}
-            />
+            <MachineSelectField name="machine" defaultValue={rapport?.machine || ""} machines={machines} />
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Preparateur

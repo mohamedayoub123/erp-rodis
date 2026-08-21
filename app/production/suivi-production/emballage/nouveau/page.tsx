@@ -8,6 +8,8 @@ import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionn
 import { createManualEmballageEntryAction } from "../../actions";
 import { ProduitPickerField } from "../../produit-picker-field";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { MachineSelectField } from "../../machine-select-field";
+import { fetchMachinesByType } from "@/lib/machines-by-type";
 
 const ARRET_CAUSES = [
   { field: "emballage_arret_changement_bobine", label: "ARRET CHANGEMENT BOBINE" },
@@ -50,6 +52,7 @@ export default async function NouvelleFicheEmballagePage() {
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionEmballage");
   const articles = await fetchAllArticles();
   const zoneChaineOptions = await fetchConditionnementZoneChaineOptions();
+  const machines = await fetchMachinesByType("Embalage");
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -154,12 +157,7 @@ export default async function NouvelleFicheEmballagePage() {
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Machine
-                    <input
-                      type="text"
-                      name="emballage_machine"
-                      required
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                    />
+                    <MachineSelectField name="emballage_machine" defaultValue="" machines={machines} />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Operateur

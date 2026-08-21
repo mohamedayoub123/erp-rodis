@@ -9,6 +9,8 @@ import { saveEmballageRapportAction } from "../../actions";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { formatDateTime } from "@/lib/format-date";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { MachineSelectField } from "../../machine-select-field";
+import { fetchMachinesByType } from "@/lib/machines-by-type";
 
 const ARRET_CAUSES = [
   { field: "emballage_arret_changement_bobine", label: "ARRET CHANGEMENT BOBINE" },
@@ -82,27 +84,29 @@ export default async function RapportEmballagePage({
   const FOURNEE_FIELDS =
     "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_chef_zone, nb_journaliers_emballage, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, utilisateur_emballage, date_saisie_emballage";
 
-  const [{ data: ligneData }, { data: rapportData }, { data: fourneeData }] = await Promise.all([
-    supabaseServer
-      .from("programme_lignes")
-      .select("id, zone, chaine, produit, date_jour, numero_lot")
-      .eq("id", ligneIdNumber)
-      .maybeSingle(),
-    supabaseServer
-      .from("production_rapports")
-      .select(RAPPORT_FIELDS)
-      .eq("programme_ligne_id", ligneIdNumber)
-      .eq("code", code)
-      .maybeSingle(),
-    supabaseServer
-      .from("production_emballage_entries")
-      .select(FOURNEE_FIELDS)
-      .eq("programme_ligne_id", ligneIdNumber)
-      .eq("code", code)
-      .order("id", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  const [{ data: ligneData }, { data: rapportData }, { data: fourneeData }, machines] =
+    await Promise.all([
+      supabaseServer
+        .from("programme_lignes")
+        .select("id, zone, chaine, produit, date_jour, numero_lot")
+        .eq("id", ligneIdNumber)
+        .maybeSingle(),
+      supabaseServer
+        .from("production_rapports")
+        .select(RAPPORT_FIELDS)
+        .eq("programme_ligne_id", ligneIdNumber)
+        .eq("code", code)
+        .maybeSingle(),
+      supabaseServer
+        .from("production_emballage_entries")
+        .select(FOURNEE_FIELDS)
+        .eq("programme_ligne_id", ligneIdNumber)
+        .eq("code", code)
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      fetchMachinesByType("Embalage"),
+    ]);
 
   const ligne = ligneData as LigneInfo | null;
   const rapport = rapportData as RapportInfo | null;
@@ -204,12 +208,10 @@ export default async function RapportEmballagePage({
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Machine
-                    <input
-                      type="text"
+                    <MachineSelectField
                       name="emballage_machine"
                       defaultValue={derniereFournee?.emballage_machine || ""}
-                      required
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                      machines={machines}
                     />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
