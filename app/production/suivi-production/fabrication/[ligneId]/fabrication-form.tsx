@@ -5,6 +5,7 @@ import { saveFabricationRapportAction } from "../../actions";
 import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { combineTempsJourMois, splitTempsJourMois } from "@/lib/suivi-tirage-time";
+import { LotSearchField } from "@/app/depots/transfer-order/lot-search-field";
 
 const TYPE_FABRICATION_OPTIONS = [
   "Automatique",
@@ -403,22 +404,11 @@ export function FabricationForm({
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Code vrac recupere
-            {vracRecupereLots.length === 0 ? (
-              <span className="text-xs font-semibold text-red-700">Aucun lot vrac au Depot B</span>
-            ) : (
-              <select
-                name="code_vrac_recupere"
-                defaultValue={rapport?.code_vrac_recupere || ""}
-                className={inputClass}
-              >
-                <option value="">Aucun</option>
-                {vracRecupereLots.map((lot) => (
-                  <option key={lot.numeroLot} value={lot.numeroLot}>
-                    {lot.numeroLot || "(sans numero)"} - dispo {lot.solde.toLocaleString("fr-FR")}
-                  </option>
-                ))}
-              </select>
-            )}
+            <LotSearchField
+              name="code_vrac_recupere"
+              defaultValue={rapport?.code_vrac_recupere || ""}
+              lots={vracRecupereLots}
+            />
           </label>
         </div>
       </div>
