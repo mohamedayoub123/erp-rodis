@@ -8,6 +8,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { formatDate } from "@/lib/format-date";
 import { encodeDossierId } from "../commande/dossier-id";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { computeStatutBc } from "../bc/constants";
 
 type ArticleMpRow = {
   id: number;
@@ -51,6 +52,7 @@ type BcLigneRow = {
   n_doss_4d: string | null;
   n_doss_erp: string | null;
   quantite: number | null;
+  statut: string | null;
 };
 
 type ImportEvenementRow = {
@@ -135,7 +137,7 @@ async function fetchAllBcLignes() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("bons_commande_matiere_premiere")
-      .select("id, article_id, code, n_doss_4d, n_doss_erp, quantite")
+      .select("id, article_id, code, n_doss_4d, n_doss_erp, quantite, statut")
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -285,21 +287,43 @@ export default async function StockAlerteMpPage({
     }
   }
 
+  // "Qte importee TOTALE" (tous evenements confondus, receptionnes ou pas)
+  // sert uniquement a calculer le statut (voir computeStatutBc) - a ne pas
+  // confondre avec importRefsByArticle plus bas, filtre sur lot_stock_id
+  // null pour l'affichage "en cours d'import pas encore receptionne". Sans
+  // ce total non filtre, un BC entierement receptionne retomberait a "Qte
+  // importee=0" (plus aucun evenement "encore ouvert" a sommer) et resterait
+  // affiche comme si sa quantite etait encore a commander - meme correctif
+  // que sur statistique/page.tsx et bc/page.tsx.
+  const quantiteImporteeTotaleByLigneId = new Map<number, number>();
+  for (const evenement of importEvenements) {
+    quantiteImporteeTotaleByLigneId.set(
+      evenement.bc_ligne_id,
+      (quantiteImporteeTotaleByLigneId.get(evenement.bc_ligne_id) ?? 0) + Number(evenement.quantite_importee ?? 0)
+    );
+  }
+
   // Pour chaque article, retrouve les BC (avec leur doss.) qui le
   // concernent, et via leurs lignes les evenements d'import (avec leur
   // propre doss., qui peut differer du doss. de la BC) - pour voir tout de
-  // suite si un article en alerte est deja commande/en cours d'import.
+  // suite si un article en alerte est deja commande/en cours d'import. Un BC
+  // deja Termine (entierement receptionne/transfere en stock) est exclu :
+  // sinon sa quantite commandee restait affichee ici pour toujours, meme
+  // apres avoir ete entierement receptionnee (bug reel signale).
   const bcRefsByArticle = new Map<number, BcRef[]>();
   const articleByLigneId = new Map<number, number>();
   for (const ligne of bcLignes) {
     if (!ligne.article_id) continue;
     articleByLigneId.set(ligne.id, ligne.article_id);
+    const quantite = Number(ligne.quantite ?? 0);
+    const quantiteImportee = quantiteImporteeTotaleByLigneId.get(ligne.id) ?? 0;
+    if (computeStatutBc(quantite, quantiteImportee, ligne.statut) === "Termine") continue;
     const list = bcRefsByArticle.get(ligne.article_id) ?? [];
     list.push({
       code: ligne.code,
       nDoss4d: ligne.n_doss_4d,
       nDossErp: ligne.n_doss_erp,
-      quantite: Number(ligne.quantite ?? 0),
+      quantite,
     });
     bcRefsByArticle.set(ligne.article_id, list);
   }
