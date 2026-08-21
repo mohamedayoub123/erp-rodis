@@ -11,6 +11,7 @@ import {
 } from "./programme-table";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { fetchMachinesConditionnement } from "@/lib/machines-conditionnement";
 
 // Remplace l'ancienne liste fixe (lib/zone-chaine-list.ts, copiee d'un
 // Excel) par les vraies machines Conditionnement - chaque ligne de la
@@ -20,36 +21,18 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 // incompatible. lib/zone-chaine-list.ts reste utilise tel quel par
 // /ravitailleur-par-ligne (hors de ce lot).
 async function fetchConditionnementZoneGroups(): Promise<LigneRow[][]> {
-  const rows: { id: number; nom: string; zone: string | null; type_produit: string[] | null }[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("machines")
-      .select("id, nom, zone, type_produit")
-      .eq("type", "Conditionnement")
-      .range(from, from + pageSize - 1);
-
-    if (error) break;
-    const chunk =
-      (data as { id: number; nom: string; zone: string | null; type_produit: string[] | null }[] | null) ?? [];
-    rows.push(...chunk);
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
+  const machines = await fetchMachinesConditionnement();
 
   const byZone = new Map<string, LigneRow[]>();
-  for (const machine of rows) {
-    const zone = machine.zone || "-";
-    const list = byZone.get(zone) ?? [];
+  for (const machine of machines) {
+    const list = byZone.get(machine.zone) ?? [];
     list.push({
-      zone,
+      zone: machine.zone,
       chaine: machine.nom,
       machineId: machine.id,
-      typeProduit: machine.type_produit ?? [],
+      typeProduit: machine.typeProduit,
     });
-    byZone.set(zone, list);
+    byZone.set(machine.zone, list);
   }
 
   return [...byZone.entries()]

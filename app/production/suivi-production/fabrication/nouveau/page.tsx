@@ -4,7 +4,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
-import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
+import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
 import { createManualFabricationEntryAction } from "../../actions";
 import { ProduitPickerField } from "../../produit-picker-field";
 import { TempsField } from "../[ligneId]/fabrication-form";
@@ -66,7 +66,7 @@ export default async function NouvelleFicheFabricationPage() {
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionFabrication");
   const articles = await fetchAllArticles();
-  const zoneChaineOptions = ZONE_GROUPS.flat();
+  const zoneChaineOptions = await fetchConditionnementZoneChaineOptions();
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">

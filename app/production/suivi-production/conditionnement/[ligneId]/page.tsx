@@ -6,7 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
 import { saveConditionnementRapportAction, messageSiConditionnementInvalide } from "../../actions";
-import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
+import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
 import { LigneZoneChaineEditor } from "./zone-chaine-editor";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { formatDateTime } from "@/lib/format-date";
@@ -106,6 +106,7 @@ export default async function RapportConditionnementPage({
 
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
+  const zoneChaineOptions = await fetchConditionnementZoneChaineOptions();
 
   const RAPPORT_FIELDS = "date_fabrication_conditionnement, date_peremption";
   const FOURNEE_FIELDS =
@@ -182,7 +183,7 @@ export default async function RapportConditionnementPage({
                     ligneId={ligne.id}
                     zone={ligne.zone}
                     chaine={ligne.chaine}
-                    options={ZONE_GROUPS.flat()}
+                    options={zoneChaineOptions}
                   />
                 ) : (
                   <span className="font-semibold text-slate-900">

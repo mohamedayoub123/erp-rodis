@@ -21,6 +21,15 @@ export function LigneZoneChaineEditor({
   const [errorMessage, setErrorMessage] = useState("");
   const [saved, setSaved] = useState(false);
 
+  // La liste vient des vraies machines Conditionnement (voir
+  // lib/machines-conditionnement.ts) - une ligne deja enregistree avec
+  // l'ancienne casse/liste fixe (ex: "CHAINE 4", jamais renommee toute
+  // seule vers "chaine 4" cote machines) doit quand meme s'afficher
+  // correctement ici, jamais un select qui parait vide/faux parce que sa
+  // valeur actuelle ne matche aucune option exacte.
+  const currentEstDansLaListe = options.some((o) => o.zone === zone && o.chaine === chaine);
+  const displayOptions = currentEstDansLaListe ? options : [{ zone, chaine }, ...options];
+
   function handleChange(value: string) {
     setSelected(value);
     setErrorMessage("");
@@ -45,7 +54,7 @@ export function LigneZoneChaineEditor({
         disabled={isPending}
         className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-900 outline-none disabled:opacity-60"
       >
-        {options.map((option) => (
+        {displayOptions.map((option) => (
           <option key={`${option.zone}::${option.chaine}`} value={`${option.zone}::${option.chaine}`}>
             {option.zone} / {option.chaine}
           </option>
