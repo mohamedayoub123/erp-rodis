@@ -151,6 +151,34 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
     besoinParGroupeMp.set(groupe, besoinMap);
   }
 
+  // Le Besoin affiche sur "Verifier stock" (agrege tous groupes confondus,
+  // un seul champ par article MP) peut avoir ete corrige a la main -
+  // "Deduire le disponible Depot B" par exemple. Un meme article MP peut en
+  // theorie retomber dans PLUSIEURS groupes (types de produit fini
+  // differents) - la correction globale est donc repartie au PRORATA sur
+  // chacun d'eux, pour ne jamais perdre la repartition par lot/depot deja
+  // calculee plus bas.
+  const besoinTotalOriginalParMp = new Map<number, number>();
+  for (const besoinMap of besoinParGroupeMp.values()) {
+    for (const [mpArticleId, besoin] of besoinMap.entries()) {
+      besoinTotalOriginalParMp.set(mpArticleId, (besoinTotalOriginalParMp.get(mpArticleId) ?? 0) + besoin);
+    }
+  }
+
+  for (const [mpArticleId, totalOriginal] of besoinTotalOriginalParMp.entries()) {
+    const overrideRaw = formData.get(`besoin_override_${mpArticleId}`);
+    if (overrideRaw === null) continue;
+    const override = Number(String(overrideRaw).replace(",", "."));
+    if (!Number.isFinite(override) || override < 0) continue;
+
+    const ratio = totalOriginal > 1e-9 ? override / totalOriginal : 0;
+    for (const besoinMap of besoinParGroupeMp.values()) {
+      const current = besoinMap.get(mpArticleId);
+      if (current === undefined) continue;
+      besoinMap.set(mpArticleId, current * ratio);
+    }
+  }
+
   const allMpIds = [...new Set([...besoinParGroupeMp.values()].flatMap((m) => [...m.keys()]))];
   const { data: articlesMpData } = await supabaseServer
     .from("articles_matiere_premiere")

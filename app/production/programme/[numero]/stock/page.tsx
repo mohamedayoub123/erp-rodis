@@ -5,8 +5,8 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { autoCreateTransferOrdersAction } from "./actions";
-import { SubmitButton } from "@/app/_components/submit-button";
 import { fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
+import { VerifierStockTable } from "@/app/depots/transfer-order/verifier-stock-table";
 
 type ProgrammeRow = {
   article_id: number;
@@ -221,17 +221,6 @@ export default async function ProgrammeVerifierStockPage({
           <div className="flex items-center gap-3">
             <BackButton href={`/production/programme/${numeroProgramme}`} label="Retour" />
             <RefreshButton />
-            {canCreateTransferOrders && peutCreerTransferOrders ? (
-              <form action={autoCreateTransferOrdersAction}>
-                <input type="hidden" name="numero_programme" value={numeroProgramme} />
-                <SubmitButton
-                  pendingLabel="Creation..."
-                  className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
-                >
-                  Creer les Transfer Order
-                </SubmitButton>
-              </form>
-            ) : null}
           </div>
         </div>
 
@@ -242,67 +231,15 @@ export default async function ProgrammeVerifierStockPage({
           </div>
         ) : null}
 
-        <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          {error || finalError ? (
-            <div className="px-6 py-8">
-              <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-                {(error || finalError)?.message}
-              </p>
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="px-6 py-8 text-sm text-slate-500">
-              Aucune recette trouvee pour les articles de ce programme.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-6 py-4 font-semibold">Article MP</th>
-                    <th className="px-6 py-4 font-semibold">Unite</th>
-                    <th className="px-6 py-4 font-semibold">Besoin</th>
-                    <th className="px-6 py-4 font-semibold">Stock actuel</th>
-                    <th className="px-6 py-4 font-semibold">Disponible Depot B (non reserve)</th>
-                    <th className="px-6 py-4 font-semibold"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    const insuffisant = row.besoin > row.stock;
-                    return (
-                      <tr key={row.id} className="border-t border-slate-100">
-                        <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
-                        <td className="px-6 py-4 text-slate-600">{row.unite}</td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {row.besoin.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {row.stock.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {row.disponibleDepotB === null
-                            ? "-"
-                            : row.disponibleDepotB.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
-                        </td>
-                        <td className="px-6 py-4">
-                          {insuffisant ? (
-                            <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
-                              Insuffisant
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                              OK
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        <VerifierStockTable
+          rows={rows}
+          errorMessage={(error || finalError)?.message}
+          createAction={autoCreateTransferOrdersAction}
+          hiddenFieldName="numero_programme"
+          hiddenFieldValue={numeroProgramme}
+          canCreateTransferOrders={canCreateTransferOrders}
+          peutCreerTransferOrders={peutCreerTransferOrders}
+        />
       </div>
     </main>
   );
