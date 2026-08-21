@@ -10,6 +10,7 @@ import { formatDateTime } from "@/lib/format-date";
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { FabricationForm } from "./fabrication-form";
 import { messageSiTestLaboInvalide } from "../../actions";
+import { fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
 
 type LigneInfo = {
   id: number;
@@ -18,6 +19,7 @@ type LigneInfo = {
   produit: string | null;
   date_jour: string;
   numero_lot: string | null;
+  article_id: number | null;
 };
 
 type RapportInfo = {
@@ -87,7 +89,7 @@ export default async function RapportFabricationPage({
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer
       .from("programme_lignes")
-      .select("id, zone, chaine, produit, date_jour, numero_lot")
+      .select("id, zone, chaine, produit, date_jour, numero_lot, article_id")
       .eq("id", ligneIdNumber)
       .maybeSingle(),
     supabaseServer
@@ -122,6 +124,27 @@ export default async function RapportFabricationPage({
   }
 
   const erreurTestLabo = await messageSiTestLaboInvalide(ligne.id, code);
+
+  // Lots de vrac deja au Depot B (ex: credites via Test labo "A recuperer")
+  // pour l'article vrac de cette ligne - le "Code vrac recupere" doit venir
+  // de la, jamais tape librement, pour que la quantite mixee dans un
+  // nouveau batch puisse etre reellement deduite du bon lot.
+  let vracRecupereLots: { numeroLot: string; solde: number }[] = [];
+  if (ligne.article_id) {
+    const { data: articleData } = await supabaseServer
+      .from("articles")
+      .select("vrac_article_id")
+      .eq("id", ligne.article_id)
+      .maybeSingle();
+    const vracArticleId = (articleData as { vrac_article_id: number | null } | null)?.vrac_article_id ?? null;
+
+    const { data: depotBData } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
+    const depotBId = (depotBData as { id: number } | null)?.id ?? null;
+
+    if (vracArticleId && depotBId) {
+      vracRecupereLots = await fetchLotsInDepot("PF", vracArticleId, depotBId);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -179,7 +202,12 @@ export default async function RapportFabricationPage({
               </Link>
             </div>
           ) : (
-            <FabricationForm ligneId={ligne.id} code={code} rapport={rapport} />
+            <FabricationForm
+              ligneId={ligne.id}
+              code={code}
+              rapport={rapport}
+              vracRecupereLots={vracRecupereLots}
+            />
           )}
         </section>
       </div>
