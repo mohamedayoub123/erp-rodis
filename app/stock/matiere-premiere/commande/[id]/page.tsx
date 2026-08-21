@@ -17,6 +17,7 @@ import {
   deleteImportEvenementAction,
 } from "../actions";
 import { statutBcBadgeClass, type StatutBc } from "../../bc/constants";
+import { convertirEnFcfa } from "@/lib/prix-devise";
 
 type ImportRow = {
   id: number;
@@ -42,6 +43,11 @@ type BcLigneRow = {
 function formatPrix(prix: number | null, devise: string | null) {
   if (prix == null) return "-";
   return `${prix.toLocaleString("fr-FR")}${devise && devise !== "FCFA" ? ` ${devise}` : ""}`;
+}
+
+function formatFcfa(prix: number | null) {
+  if (prix == null) return "-";
+  return `${prix.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`;
 }
 
 async function fetchImportsForDossier(nDoss4d: string | null, nDossErp: string | null) {
@@ -145,6 +151,32 @@ export default async function ImportMpDossierPage({
     0
   );
 
+  // Prix total = prix unitaire (converti en FCFA si devise etrangere) x
+  // quantite - une ligne sans prix connu ne compte pas dans le total
+  // general (jamais un montant devine), plutot que de le faire echouer
+  // silencieusement a 0.
+  const prixTotalParLigne = new Map<number, number | null>();
+  for (const ligne of bcLignes) {
+    const quantite = quantiteImporteeParLigne.get(ligne.id) ?? 0;
+    const prixFcfa = convertirEnFcfa(ligne.prix_unitaire, ligne.devise, ligne.taux_change);
+    prixTotalParLigne.set(ligne.id, prixFcfa !== null ? prixFcfa * quantite : null);
+  }
+  const totalGeneralLignes = [...prixTotalParLigne.values()].reduce(
+    (sum: number | null, v) => (v === null ? sum : (sum ?? 0) + v),
+    null
+  );
+
+  const prixTotalParReception = new Map<number, number | null>();
+  for (const row of receptionRows) {
+    const lotData = row.lot_stock_id !== null ? lotDataById.get(row.lot_stock_id) : null;
+    const prixFcfa = lotData ? convertirEnFcfa(lotData.prix_unitaire, lotData.devise, lotData.taux_change) : null;
+    prixTotalParReception.set(row.id, prixFcfa !== null ? prixFcfa * Number(row.quantite_importee ?? 0) : null);
+  }
+  const totalGeneralReceptions = [...prixTotalParReception.values()].reduce(
+    (sum: number | null, v) => (v === null ? sum : (sum ?? 0) + v),
+    null
+  );
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -190,6 +222,7 @@ export default async function ImportMpDossierPage({
                       <th className="px-4 py-3 font-semibold">Article</th>
                       {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix unitaire</th> : null}
                       <th className="px-4 py-3 font-semibold">Qte a receptionner</th>
+                      {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix total</th> : null}
                       <th className="px-4 py-3 font-semibold">Statut</th>
                       {canEdit || canDelete ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                     </tr>
@@ -225,6 +258,11 @@ export default async function ImportMpDossierPage({
                             </td>
                           ) : null}
                           <td className="px-4 py-3 font-semibold text-slate-900">{quantiteAReceptionner}</td>
+                          {canVoirPrix ? (
+                            <td className="px-4 py-3 font-semibold text-slate-900">
+                              {formatFcfa(prixTotalParLigne.get(ligne.id) ?? null)}
+                            </td>
+                          ) : null}
                           <td className="px-4 py-3">
                             <span
                               className={`rounded-full px-3 py-1 text-xs font-semibold ${statutBcBadgeClass(
@@ -334,6 +372,17 @@ export default async function ImportMpDossierPage({
                       );
                     })}
                   </tbody>
+                  {canVoirPrix ? (
+                    <tfoot>
+                      <tr className="border-t border-slate-200 bg-slate-50">
+                        <td className="px-4 py-3 font-semibold text-slate-900" colSpan={3}>
+                          Total
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-slate-900">{formatFcfa(totalGeneralLignes)}</td>
+                        <td colSpan={canEdit || canDelete ? 2 : 1}></td>
+                      </tr>
+                    </tfoot>
+                  ) : null}
                 </table>
               </div>
             </section>
@@ -355,6 +404,7 @@ export default async function ImportMpDossierPage({
                       <th className="px-4 py-3 font-semibold">Article</th>
                       <th className="px-4 py-3 font-semibold">Qte importee</th>
                       {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix unitaire</th> : null}
+                      {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix total</th> : null}
                       <th className="px-4 py-3 font-semibold">Lot</th>
                       <th className="px-4 py-3 font-semibold">Date fabrication</th>
                       <th className="px-4 py-3 font-semibold">Date expiration</th>
@@ -387,6 +437,11 @@ export default async function ImportMpDossierPage({
                               {formatPrix(lotData?.prix_unitaire ?? null, lotData?.devise ?? null)}
                             </td>
                           ) : null}
+                          {canVoirPrix ? (
+                            <td className="px-4 py-3 font-semibold text-slate-900">
+                              {formatFcfa(prixTotalParReception.get(row.id) ?? null)}
+                            </td>
+                          ) : null}
                           <td className="px-4 py-3 text-slate-600">{row.numero_lot || "-"}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_fabrication)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_expiration)}</td>
@@ -403,6 +458,19 @@ export default async function ImportMpDossierPage({
                       );
                     })}
                   </tbody>
+                  {canVoirPrix ? (
+                    <tfoot>
+                      <tr className="border-t border-slate-200 bg-slate-50">
+                        <td className="px-4 py-3 font-semibold text-slate-900" colSpan={4}>
+                          Total
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-slate-900">
+                          {formatFcfa(totalGeneralReceptions)}
+                        </td>
+                        <td colSpan={canDelete ? 5 : 4}></td>
+                      </tr>
+                    </tfoot>
+                  ) : null}
                 </table>
               </div>
               )}
