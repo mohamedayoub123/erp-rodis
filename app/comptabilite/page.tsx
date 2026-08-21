@@ -4,6 +4,12 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 
 const TILES = [
   {
+    label: "Balance des comptes",
+    href: "/comptabilite/balance",
+    icon: "\u{2696}\u{FE0F}",
+    description: "Tous les comptes en une fois : total debit/credit et solde - la valeur totale du stock.",
+  },
+  {
     label: "Journal",
     href: "/comptabilite/journal",
     icon: "\u{1F4D2}",
