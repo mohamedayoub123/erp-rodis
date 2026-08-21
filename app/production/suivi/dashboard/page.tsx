@@ -154,6 +154,50 @@ async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeTermineR
   return rows;
 }
 
+// Cles "ligneId::code" (vrac/carton) pour lesquelles une reservation MP
+// (pesage/salle_conditionnement) reste encore a consommer (quantite > 0) -
+// un code entierement produit (restant < 1) disparaissait jusqu'ici du
+// Dashboard AVEC son bouton "Fin programme", rendant la reservation
+// impossible a resoudre : plus aucune ligne pour cliquer dessus (bug reel
+// confirme : LANETTE SX reste "reserve" pour toujours, sans plus aucun
+// moyen de le consommer). Force ces codes a rester visibles tant qu'il
+// reste une reservation, meme deja 100% produits.
+async function fetchLignesAvecReserveEnAttente(ligneIds: number[]): Promise<Set<string>> {
+  const keys = new Set<string>();
+  if (ligneIds.length === 0) return keys;
+
+  const { data: codeTermineData } = await supabaseServer
+    .from("production_code_termine")
+    .select("id, programme_ligne_id, code, stage")
+    .in("programme_ligne_id", ligneIds)
+    .in("stage", ["pesage", "salle_conditionnement"]);
+
+  const codeTermineRows =
+    (codeTermineData as { id: number; programme_ligne_id: number; code: string; stage: string }[] | null) ?? [];
+  if (codeTermineRows.length === 0) return keys;
+
+  const { data: reserveData } = await supabaseServer
+    .from("production_mp_reserve")
+    .select("production_code_termine_id")
+    .in(
+      "production_code_termine_id",
+      codeTermineRows.map((row) => row.id)
+    )
+    .gt("quantite", 0);
+
+  const idsAvecReserve = new Set(
+    ((reserveData as { production_code_termine_id: number }[] | null) ?? []).map((row) => row.production_code_termine_id)
+  );
+
+  for (const row of codeTermineRows) {
+    if (!idsAvecReserve.has(row.id)) continue;
+    const displayStage = row.stage === "pesage" ? "vrac" : "carton";
+    keys.add(`${row.programme_ligne_id}::${row.code}::${displayStage}`);
+  }
+
+  return keys;
+}
+
 // Cles "ligneId::code" pour lesquelles un Test labo a deja ete enregistre
 // au moins une fois (utilisateur_test_labo rempli par saveTestLaboAction) -
 // utilise pour allumer le bouton Test labo en vert sur ce Dashboard.
@@ -254,13 +298,15 @@ export default async function PlanningDashboardPage({
 
   const activeLigneIds = allLignes.map((ligne) => ligne.id);
 
-  const [cartonEntries, vracEntries, emballageEntries, codeTermineRows, testLaboDoneKeys] = await Promise.all([
-    fetchAllCartonEntries(activeLigneIds),
-    fetchAllVracEntries(activeLigneIds),
-    fetchAllEmballageEntries(activeLigneIds),
-    fetchAllCodeTermineRows(activeLigneIds),
-    fetchTestLaboDoneKeys(activeLigneIds),
-  ]);
+  const [cartonEntries, vracEntries, emballageEntries, codeTermineRows, testLaboDoneKeys, lignesAvecReserveEnAttente] =
+    await Promise.all([
+      fetchAllCartonEntries(activeLigneIds),
+      fetchAllVracEntries(activeLigneIds),
+      fetchAllEmballageEntries(activeLigneIds),
+      fetchAllCodeTermineRows(activeLigneIds),
+      fetchTestLaboDoneKeys(activeLigneIds),
+      fetchLignesAvecReserveEnAttente(activeLigneIds),
+    ]);
 
   // Terminer UN code (Fabrication/Conditionnement/Emballage) ne doit jamais
   // cacher les autres codes de la MEME ligne (bug corrige : c'etait avant un
@@ -402,14 +448,14 @@ export default async function PlanningDashboardPage({
     .filter(
       (row) =>
         !isCodeTerminated(row.ligne.id, row.code, "vrac", row.codeCount, row.ligne.vrac_termine) &&
-        row.vracRestant >= 1
+        (row.vracRestant >= 1 || lignesAvecReserveEnAttente.has(`${row.ligne.id}::${row.code}::vrac`))
     )
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
   const cartonRows = codeRows
     .filter(
       (row) =>
         !isCodeTerminated(row.ligne.id, row.code, "carton", row.codeCount, row.ligne.carton_termine) &&
-        row.cartonRestant >= 1
+        (row.cartonRestant >= 1 || lignesAvecReserveEnAttente.has(`${row.ligne.id}::${row.code}::carton`))
     )
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
   const emballageRows = codeRows
