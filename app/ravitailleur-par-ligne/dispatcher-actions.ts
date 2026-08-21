@@ -14,6 +14,11 @@ import { extractTrailingNumber } from "@/lib/article-code-family";
 // leur propre code en attente pour le MEME article (2 dispatchs distincts
 // de la meme famille, aucun encore confirme) - garde le plus recent (le
 // numero le plus grand) par champ plutot que le dernier lu au hasard.
+// Compare aussi contre le code ACTUEL de l'article (pas seulement entre les
+// pending) : sans ca, confirmer un vieux Dispatch en attente ecrasait une
+// correction manuelle faite entretemps sur "Code par article" avec un
+// numero de pending plus ancien/plus petit (bug remonte par l'utilisateur -
+// "je change le code mais ca reprend toujours le dernier fait avant").
 async function applyPendingArticleCodeUpdates(groupeIds: number[]): Promise<void> {
   if (groupeIds.length === 0) return;
 
@@ -30,7 +35,22 @@ async function applyPendingArticleCodeUpdates(groupeIds: number[]): Promise<void
     (pendingRows as { article_id: number; code_manu: string | null; code_auto: string | null }[] | null) ?? [];
 
   if (rows.length > 0) {
+    const articleIds = [...new Set(rows.map((row) => row.article_id))];
+
+    const { data: currentArticleRows, error: currentFetchError } = await supabaseServer
+      .from("articles")
+      .select("id, code_manu, code_auto")
+      .in("id", articleIds);
+
+    if (currentFetchError) {
+      throw new Error(currentFetchError.message);
+    }
+
     const bestByArticleId = new Map<number, { code_manu: string | null; code_auto: string | null }>();
+
+    for (const row of (currentArticleRows as { id: number; code_manu: string | null; code_auto: string | null }[] | null) ?? []) {
+      bestByArticleId.set(row.id, { code_manu: row.code_manu, code_auto: row.code_auto });
+    }
 
     for (const row of rows) {
       const current = bestByArticleId.get(row.article_id) ?? { code_manu: null, code_auto: null };
