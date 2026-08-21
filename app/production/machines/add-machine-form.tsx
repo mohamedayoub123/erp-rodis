@@ -129,21 +129,21 @@ export function AddMachineForm({
           className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
         />
       </label>
-      <label className="grid gap-1 text-xs font-semibold text-slate-500">
-        Machine Energie (si alimentee par une source partagee)
-        <select
-          name="energie_machine_id"
-          defaultValue=""
-          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-        >
-          <option value="">-</option>
-          {energieOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="grid gap-1 text-xs font-semibold text-slate-500">
+        Machine(s) Energie (si alimentee par une ou plusieurs sources partagees)
+        <div className="flex flex-wrap gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+          {energieOptions.length === 0 ? (
+            <span className="text-sm font-normal text-slate-400">Aucune machine Energie creee.</span>
+          ) : (
+            energieOptions.map((option) => (
+              <label key={option.id} className="flex items-center gap-1.5 text-sm font-normal text-slate-700">
+                <input type="checkbox" name="energie_machine_ids" value={option.id} />
+                {option.label}
+              </label>
+            ))
+          )}
+        </div>
+      </div>
       <div className="grid gap-1 text-xs font-semibold text-slate-500">
         Type(s) de produit
         <div className="flex flex-wrap gap-3 rounded-2xl border border-slate-200 px-4 py-3">

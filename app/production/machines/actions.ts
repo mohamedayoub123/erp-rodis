@@ -18,6 +18,17 @@ function toTypeProduitsArray(formData: FormData) {
   return values.length > 0 ? values : null;
 }
 
+// Une machine peut dependre de plusieurs machines Energie a la fois (meme
+// convention que type_produit ci-dessus - checkboxes, meme nom de champ
+// repete).
+function toEnergieMachineIdsArray(formData: FormData) {
+  const values = formData
+    .getAll("energie_machine_ids")
+    .map((v) => Number(String(v).trim()))
+    .filter((v) => Number.isFinite(v) && v > 0);
+  return values.length > 0 ? values : null;
+}
+
 export async function createMachineAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
@@ -36,7 +47,7 @@ export async function createMachineAction(formData: FormData) {
     type: String(formData.get("type") || "").trim() || null,
     type_produit: toTypeProduitsArray(formData),
     consommation_electrique_kw: toNumberOrNull(formData.get("consommation_electrique_kw")),
-    energie_machine_id: toNumberOrNull(formData.get("energie_machine_id")),
+    energie_machine_ids: toEnergieMachineIdsArray(formData),
   });
 
   if (error) {
@@ -68,7 +79,7 @@ export async function updateMachineAction(formData: FormData) {
       type: String(formData.get("type") || "").trim() || null,
       type_produit: toTypeProduitsArray(formData),
       consommation_electrique_kw: toNumberOrNull(formData.get("consommation_electrique_kw")),
-      energie_machine_id: toNumberOrNull(formData.get("energie_machine_id")),
+      energie_machine_ids: toEnergieMachineIdsArray(formData),
     })
     .eq("id", id);
 

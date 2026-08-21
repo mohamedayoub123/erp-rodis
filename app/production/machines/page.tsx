@@ -19,7 +19,7 @@ type MachineRow = {
   type: string | null;
   type_produit: string[] | null;
   consommation_electrique_kw: number | null;
-  energie_machine_id: number | null;
+  energie_machine_ids: number[] | null;
 };
 
 // Triee par zone d'abord (regroupe visuellement les machines d'une meme
@@ -27,7 +27,7 @@ type MachineRow = {
 async function fetchAllMachines(): Promise<{ rows: MachineRow[]; error: { message: string } | null }> {
   const { data, error } = await supabaseServer
     .from("machines")
-    .select("id, nom, zone, type, type_produit, consommation_electrique_kw, energie_machine_id")
+    .select("id, nom, zone, type, type_produit, consommation_electrique_kw, energie_machine_ids")
     .order("zone", { ascending: true, nullsFirst: false })
     .order("nom", { ascending: true });
 

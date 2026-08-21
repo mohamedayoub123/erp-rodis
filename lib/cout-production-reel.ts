@@ -62,7 +62,7 @@ type MachineRow = {
   nom: string;
   type: string | null;
   consommation_electrique_kw: number | null;
-  energie_machine_id: number | null;
+  energie_machine_ids: number[] | null;
 };
 type PrixMoisRow = { annee: number; mois: number; prix_kwh: number | null; prix_heure_journalier: number | null };
 type RapportCoutRow = {
@@ -280,11 +280,13 @@ function buildActiveMachinesByEnergieAndDate(
   const map = new Map<string, Set<number>>();
 
   function markActive(machine: MachineRow | null | undefined, date: string | null) {
-    if (!machine?.energie_machine_id || !date) return;
-    const key = `${machine.energie_machine_id}::${date}`;
-    const set = map.get(key) ?? new Set<number>();
-    set.add(machine.id);
-    map.set(key, set);
+    if (!machine || !date) return;
+    for (const energieId of machine.energie_machine_ids ?? []) {
+      const key = `${energieId}::${date}`;
+      const set = map.get(key) ?? new Set<number>();
+      set.add(machine.id);
+      map.set(key, set);
+    }
   }
 
   for (const rapport of rapports) {
@@ -310,7 +312,10 @@ function buildActiveMachinesByEnergieAndDate(
 // alimentant 10 machines) attribuee a CETTE machine pour CE jour : son kW
 // divise par le nombre de machines actives ce jour-la, x les heures de
 // CETTE machine, x le prix du kWh - s'AJOUTE au cout electrique propre de
-// la machine (consommation_electrique_kw), ne le remplace pas.
+// la machine (consommation_electrique_kw), ne le remplace pas. Une machine
+// peut dependre de PLUSIEURS machines Energie a la fois (ex: un groupe
+// electrogene general + un compresseur d'air dedie) - chacune contribue sa
+// propre part independamment, sommees ici.
 function computeEnergieShareCout(
   machine: MachineRow | null | undefined,
   heures: number,
@@ -320,21 +325,28 @@ function computeEnergieShareCout(
   activeMachinesByEnergieAndDate: Map<string, Set<number>>,
   motifs: string[]
 ): number {
-  if (!machine?.energie_machine_id || !date) return 0;
+  if (!machine || !date) return 0;
+  const energieIds = machine.energie_machine_ids ?? [];
+  if (energieIds.length === 0) return 0;
 
-  const energieMachine = energieMachineById.get(machine.energie_machine_id);
-  if (!energieMachine || energieMachine.consommation_electrique_kw === null) {
-    motifs.push(`Machine Energie liee a "${machine.nom}" introuvable ou sans kW renseigne.`);
-    return 0;
-  }
-  if (prixKwh === null) {
-    motifs.push("Prix electricite (par kWh) non renseigne pour ce mois (part Energie).");
-    return 0;
+  let total = 0;
+  for (const energieId of energieIds) {
+    const energieMachine = energieMachineById.get(energieId);
+    if (!energieMachine || energieMachine.consommation_electrique_kw === null) {
+      motifs.push(`Machine Energie liee a "${machine.nom}" introuvable ou sans kW renseigne.`);
+      continue;
+    }
+    if (prixKwh === null) {
+      motifs.push("Prix electricite (par kWh) non renseigne pour ce mois (part Energie).");
+      continue;
+    }
+
+    const activeCount = Math.max(1, activeMachinesByEnergieAndDate.get(`${energieId}::${date}`)?.size ?? 1);
+    const partKwh = heures * (energieMachine.consommation_electrique_kw / activeCount);
+    total += partKwh * prixKwh;
   }
 
-  const activeCount = Math.max(1, activeMachinesByEnergieAndDate.get(`${machine.energie_machine_id}::${date}`)?.size ?? 1);
-  const partKwh = heures * (energieMachine.consommation_electrique_kw / activeCount);
-  return partKwh * prixKwh;
+  return total;
 }
 
 export async function computeCoutReelArticle(
@@ -462,7 +474,7 @@ export async function computeCoutReelArticle(
 
   const { data: machinesData } = await supabaseServer
     .from("machines")
-    .select("id, nom, type, consommation_electrique_kw, energie_machine_id");
+    .select("id, nom, type, consommation_electrique_kw, energie_machine_ids");
   const allMachines = (machinesData ?? []) as MachineRow[];
   const machineByName = new Map(allMachines.map((m) => [normalizeMachineName(m.nom), m]));
   const energieMachineById = new Map(allMachines.map((m) => [m.id, m]));

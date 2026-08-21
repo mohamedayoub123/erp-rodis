@@ -41,6 +41,7 @@ export function MachineTypeProduitSelect({
     type: string | null;
     type_produit: string[] | null;
     consommation_electrique_kw: number | null;
+    energie_machine_ids: number[] | null;
   };
   typeProduitOptions: string[];
 }) {
@@ -54,6 +55,9 @@ export function MachineTypeProduitSelect({
       <input type="hidden" name="zone" value={machine.zone ?? ""} />
       <input type="hidden" name="type" value={machine.type ?? ""} />
       <input type="hidden" name="consommation_electrique_kw" value={machine.consommation_electrique_kw ?? ""} />
+      {(machine.energie_machine_ids ?? []).map((id) => (
+        <input key={id} type="hidden" name="energie_machine_ids" value={id} />
+      ))}
       <details className="relative">
         <summary className="min-w-[8rem] cursor-pointer list-none rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 marker:content-none">
           {selected.length > 0 ? selected.join(", ") : "-"}

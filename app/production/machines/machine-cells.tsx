@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { updateMachineAction } from "./actions";
@@ -12,7 +12,7 @@ type Machine = {
   type: string | null;
   type_produit: string[] | null;
   consommation_electrique_kw: number | null;
-  energie_machine_id: number | null;
+  energie_machine_ids: number[] | null;
 };
 
 // Champs caches communs pour ne PAS ecraser les autres colonnes de la
@@ -42,9 +42,11 @@ function HiddenMachineFields({
       {excludeConso ? null : (
         <input type="hidden" name="consommation_electrique_kw" value={machine.consommation_electrique_kw ?? ""} />
       )}
-      {excludeEnergie ? null : (
-        <input type="hidden" name="energie_machine_id" value={machine.energie_machine_id ?? ""} />
-      )}
+      {excludeEnergie
+        ? null
+        : (machine.energie_machine_ids ?? []).map((id) => (
+            <input key={id} type="hidden" name="energie_machine_ids" value={id} />
+          ))}
       {(machine.type_produit ?? []).map((tp) => (
         <input key={tp} type="hidden" name="type_produit" value={tp} />
       ))}
@@ -131,11 +133,14 @@ export function MachineZoneCell({ machine, canEdit }: { machine: Machine; canEdi
   );
 }
 
-// Quelle machine Energie (groupe electrogene...) alimente cette machine -
-// n'a de sens que pour une machine qui n'est PAS elle-meme de type
-// "Energie" (pas de chaine energie->energie). Le cout de la machine Energie
-// se divise ensuite entre toutes les machines qui la citent ici, actives un
-// jour donne (voir lib/cout-production-reel.ts).
+// Quelle(s) machine(s) Energie (groupe electrogene...) alimentent cette
+// machine - une machine peut en dependre de plusieurs a la fois (ex: un
+// groupe electrogene general + un compresseur d'air dedie), d'ou des
+// checkboxes plutot qu'un choix unique. N'a de sens que pour une machine
+// qui n'est PAS elle-meme de type "Energie" (pas de chaine energie->energie).
+// Le cout de chaque machine Energie citee ici se divise ensuite entre
+// toutes les machines qui la citent, actives un jour donne (voir
+// lib/cout-production-reel.ts).
 export function MachineEnergieCell({
   machine,
   canEdit,
@@ -145,33 +150,42 @@ export function MachineEnergieCell({
   canEdit: boolean;
   energieOptions: { id: number; label: string }[];
 }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const selectedIds = machine.energie_machine_ids ?? [];
+  const selectedLabels = energieOptions.filter((option) => selectedIds.includes(option.id));
+
   if (machine.type === "Energie") return <span className="text-slate-400">-</span>;
 
-  const current = energieOptions.find((option) => option.id === machine.energie_machine_id);
-
-  if (!canEdit) return <>{current?.label ?? "-"}</>;
+  if (!canEdit) {
+    return <>{selectedLabels.length > 0 ? selectedLabels.map((option) => option.label).join(", ") : "-"}</>;
+  }
 
   return (
-    <form action={updateMachineAction} className="flex items-center gap-1">
+    <form ref={formRef} action={updateMachineAction}>
       <HiddenMachineFields machine={machine} excludeEnergie />
-      <select
-        name="energie_machine_id"
-        defaultValue={machine.energie_machine_id ?? ""}
-        className="rounded border border-slate-200 px-1.5 py-1 text-sm text-slate-700 focus:border-sky-400 focus:outline-none"
-      >
-        <option value="">-</option>
-        {energieOptions.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-      <SubmitButton
-        pendingLabel="..."
-        className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200"
-      >
-        OK
-      </SubmitButton>
+      <details className="relative">
+        <summary className="min-w-[8rem] cursor-pointer list-none rounded border border-slate-200 px-2 py-1 text-sm text-slate-700 marker:content-none">
+          {selectedLabels.length > 0 ? selectedLabels.map((option) => option.label).join(", ") : "-"}
+        </summary>
+        <div className="absolute left-0 top-full z-20 mt-1 grid w-56 gap-1.5 rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
+          {energieOptions.length === 0 ? (
+            <p className="text-xs text-slate-400">Aucune machine Energie creee.</p>
+          ) : (
+            energieOptions.map((option) => (
+              <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  name="energie_machine_ids"
+                  value={option.id}
+                  defaultChecked={selectedIds.includes(option.id)}
+                  onChange={() => formRef.current?.requestSubmit()}
+                />
+                {option.label}
+              </label>
+            ))
+          )}
+        </div>
+      </details>
     </form>
   );
 }
