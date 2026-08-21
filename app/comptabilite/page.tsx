@@ -27,6 +27,12 @@ const TILES = [
     icon: "\u{1F69A}",
     description: "Liste des fournisseurs - contrepartie des ecritures d'achat.",
   },
+  {
+    label: "Prix de vente",
+    href: "/comptabilite/prix-vente",
+    icon: "\u{1F3F7}\u{FE0F}",
+    description: "Prix de revient et prix de vente (standard + clients speciaux) de chaque produit fini.",
+  },
 ] as const;
 
 export default function ComptabilitePage() {
