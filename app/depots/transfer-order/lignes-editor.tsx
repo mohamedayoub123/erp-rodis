@@ -120,7 +120,23 @@ export function TransferOrderLignesEditor({
                       </td>
                       <td className="px-6 py-4 text-slate-600">{lot.numero_lot || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">
-                        {disponible === undefined ? "-" : disponible.toLocaleString("fr-FR")}
+                        {lot.numero_lot ? (
+                          disponible === undefined ? (
+                            "-"
+                          ) : (
+                            disponible.toLocaleString("fr-FR")
+                          )
+                        ) : ligne.lotsDisponibles.length > 0 ? (
+                          <div className="flex flex-col gap-0.5">
+                            {ligne.lotsDisponibles.map((disp) => (
+                              <span key={disp.numeroLot}>
+                                {disp.numeroLot || "(sans numero)"} : {disp.solde.toLocaleString("fr-FR")}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          "Aucun lot disponible"
+                        )}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{lot.quantite.toLocaleString("fr-FR")}</td>
                     </tr>
