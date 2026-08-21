@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -55,10 +56,17 @@ function RubriqueSection({ titre, lignes, total, totalLabel }: { titre: string; 
 // passif) - le Resultat net de l'exercice vient du Compte de resultat (jamais
 // recalcule 2 fois), Total Actif = Total Passif est garanti par la partie
 // double du grand livre, verifie en pied de page.
-export default async function BilanPage() {
+export default async function BilanPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ a_la_date?: string }>;
+}) {
   noStore();
 
-  const soldes = await fetchSoldesParCompte();
+  const params = await searchParams;
+  const aLaDate = (params.a_la_date || "").trim();
+
+  const soldes = await fetchSoldesParCompte({ dateTo: aLaDate || undefined });
   const cr = computeCompteResultat(soldes);
   const bilan = computeBilan(soldes, cr.resultatNet);
 
@@ -73,8 +81,9 @@ export default async function BilanPage() {
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-700">Comptabilite - SYSCOHADA</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Bilan</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Photo du patrimoine a aujourd&apos;hui - Actif (ce que l&apos;entreprise possede) et Passif (comment
-                c&apos;est finance), structure standard SYSCOHADA. Une rubrique sans compte branche affiche &quot;-&quot;.
+                Photo du patrimoine a la date choisie (par defaut : aujourd&apos;hui) - Actif (ce que
+                l&apos;entreprise possede) et Passif (comment c&apos;est finance), structure standard SYSCOHADA.
+                Une rubrique sans compte branche affiche &quot;-&quot;.
               </p>
             </div>
 
@@ -83,6 +92,31 @@ export default async function BilanPage() {
               <RefreshButton />
             </div>
           </div>
+        </section>
+
+        <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <form className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              A la date de
+              <input
+                type="date"
+                name="a_la_date"
+                defaultValue={aLaDate}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              />
+            </label>
+            <div className="flex items-end gap-2">
+              <button type="submit" className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
+                Filtrer
+              </button>
+              <Link
+                href="/comptabilite/bilan"
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+              >
+                Aujourd&apos;hui
+              </Link>
+            </div>
+          </form>
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2">

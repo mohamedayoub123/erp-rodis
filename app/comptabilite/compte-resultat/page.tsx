@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -37,10 +38,18 @@ function LigneRow({ ligne }: { ligne: LigneEtat }) {
 // Une rubrique sans compte branche (charges de personnel, resultat
 // financier...) affiche "-", pas 0 devine : la structure standard reste
 // complete, mais rien n'est invente.
-export default async function CompteResultatPage() {
+export default async function CompteResultatPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date_from?: string; date_to?: string }>;
+}) {
   noStore();
 
-  const soldes = await fetchSoldesParCompte();
+  const params = await searchParams;
+  const dateFrom = (params.date_from || "").trim();
+  const dateTo = (params.date_to || "").trim();
+
+  const soldes = await fetchSoldesParCompte({ dateFrom: dateFrom || undefined, dateTo: dateTo || undefined });
   const cr = computeCompteResultat(soldes);
 
   return (
@@ -52,8 +61,8 @@ export default async function CompteResultatPage() {
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-700">Comptabilite - SYSCOHADA</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Compte de resultat</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Produits et charges depuis le debut de la comptabilite (pas encore de filtre par periode) -
-                structure standard SYSCOHADA, une rubrique sans compte branche affiche &quot;-&quot;.
+                Produits et charges sur la periode choisie (par defaut : depuis le debut) - structure
+                standard SYSCOHADA, une rubrique sans compte branche affiche &quot;-&quot;.
               </p>
             </div>
 
@@ -62,6 +71,40 @@ export default async function CompteResultatPage() {
               <RefreshButton />
             </div>
           </div>
+        </section>
+
+        <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <form className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Du
+              <input
+                type="date"
+                name="date_from"
+                defaultValue={dateFrom}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Au
+              <input
+                type="date"
+                name="date_to"
+                defaultValue={dateTo}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              />
+            </label>
+            <div className="flex items-end gap-2">
+              <button type="submit" className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
+                Filtrer
+              </button>
+              <Link
+                href="/comptabilite/compte-resultat"
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+              >
+                Effacer
+              </Link>
+            </div>
+          </form>
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
