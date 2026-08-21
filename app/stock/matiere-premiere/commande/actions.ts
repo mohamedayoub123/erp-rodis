@@ -15,6 +15,11 @@ import {
   resoudreOuCreerFournisseur,
 } from "@/lib/comptabilite";
 
+// Sources d'ecritures comptables generees par une Reception (voir plus bas,
+// createReceptionMpAction) - reprises ici pour effacer les ecritures liees
+// quand la reception qui les a creees est elle-meme supprimee.
+const SOURCES_ECRITURE_RECEPTION_MP = ["mp_achat", "mp_stock_entree"];
+
 function resolveDevise(value: string | null | undefined) {
   return (DEVISE_OPTIONS as readonly string[]).includes(value || "") ? (value as string) : "FCFA";
 }
@@ -494,6 +499,22 @@ async function releaseStockForImportEvenements(rows: ImportEvenementForCleanup[]
   const ligneIds = [...new Set(rows.filter((row) => row.lot_stock_id !== null).map((row) => row.bc_ligne_id))];
 
   if (lotIds.length > 0) {
+    // Efface les ecritures comptables generees par la Reception (Achat/
+    // Fournisseur + Stock MP/Variation de stock) AVANT de supprimer le lot,
+    // sinon elles restent orphelines en comptabilite alors que le stock/
+    // l'import qui les a creees n'existe plus. Comme a la creation, jamais
+    // bloquant pour la vraie suppression de stock si ca echoue.
+    try {
+      const { error: ecritureError } = await supabaseServer
+        .from("ecritures_comptables")
+        .delete()
+        .in("source_type", SOURCES_ECRITURE_RECEPTION_MP)
+        .in("source_id", lotIds.map(String));
+      if (ecritureError) throw new Error(ecritureError.message);
+    } catch (comptaError) {
+      console.error("Suppression ecriture comptable reception MP echouee:", comptaError);
+    }
+
     const { error } = await supabaseServer.from("lots_stock_matiere_premiere").delete().in("id", lotIds);
     if (error) throw new Error(error.message);
   }
