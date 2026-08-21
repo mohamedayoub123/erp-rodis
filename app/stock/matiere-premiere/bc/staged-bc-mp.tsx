@@ -13,6 +13,9 @@ type PendingLigne = {
   prixUnitaire: number | null;
   devise: string;
   tauxChange: number | null;
+  // Optionnel - si vide, repli sur le fournisseur "par defaut" saisi une
+  // fois pour toute la commande (voir createCommandeBcBatchAction).
+  fournisseur: string | null;
 };
 
 export function StagedBcMp({
@@ -30,6 +33,7 @@ export function StagedBcMp({
   const [prixUnitaire, setPrixUnitaire] = useState("");
   const [devise, setDevise] = useState("FCFA");
   const [tauxChange, setTauxChange] = useState("");
+  const [fournisseurLigne, setFournisseurLigne] = useState("");
   const [dateCommande, setDateCommande] = useState("");
   const [nDoss4d, setNDoss4d] = useState("");
   const [nDossErp, setNDossErp] = useState("");
@@ -84,6 +88,7 @@ export function StagedBcMp({
         prixUnitaire: prix,
         devise,
         tauxChange: devise !== "FCFA" ? taux : null,
+        fournisseur: fournisseurLigne.trim() || null,
       },
     ]);
     setArticleInput("");
@@ -91,6 +96,7 @@ export function StagedBcMp({
     setPrixUnitaire("");
     setDevise("FCFA");
     setTauxChange("");
+    setFournisseurLigne("");
   }
 
   function removeLigne(index: number) {
@@ -133,7 +139,11 @@ export function StagedBcMp({
     <div className="grid gap-6">
       <div>
         <h2 className="mb-3 text-lg font-bold text-slate-900">Ajouter des articles</h2>
-        <div className={`grid gap-3 ${canVoirPrix ? "sm:grid-cols-[1fr_auto_auto_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
+        <div
+          className={`grid gap-3 ${
+            canVoirPrix ? "sm:grid-cols-[1fr_auto_auto_auto_auto]" : "sm:grid-cols-[1fr_auto_auto_auto]"
+          }`}
+        >
           <div className="relative">
             <input
               type="text"
@@ -189,6 +199,13 @@ export function StagedBcMp({
               className="w-36 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
           ) : null}
+          <input
+            type="text"
+            value={fournisseurLigne}
+            onChange={(event) => setFournisseurLigne(event.target.value)}
+            placeholder="Fournisseur (vide = celui du bas)"
+            className="w-56 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+          />
           <button
             type="button"
             onClick={addLigne}
@@ -233,6 +250,7 @@ export function StagedBcMp({
                 <th className="px-4 py-3 font-semibold">Article</th>
                 <th className="px-4 py-3 font-semibold">Quantite</th>
                 {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix unitaire</th> : null}
+                <th className="px-4 py-3 font-semibold">Fournisseur</th>
                 <th className="px-4 py-3 font-semibold"></th>
               </tr>
             </thead>
@@ -248,6 +266,9 @@ export function StagedBcMp({
                         : "-"}
                     </td>
                   ) : null}
+                  <td className="px-4 py-3 text-slate-600">
+                    {ligne.fournisseur || <span className="text-slate-400">(celui du bas)</span>}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"
@@ -265,6 +286,7 @@ export function StagedBcMp({
                 <td className="px-4 py-3 font-semibold text-slate-900">Total</td>
                 <td className="px-4 py-3 font-semibold text-slate-900">{totalQuantite}</td>
                 {canVoirPrix ? <td></td> : null}
+                <td></td>
                 <td></td>
               </tr>
             </tfoot>
@@ -296,12 +318,12 @@ export function StagedBcMp({
             />
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Fournisseur
+            Fournisseur par defaut
             <input
               type="text"
               value={fournisseur}
               onChange={(event) => setFournisseur(event.target.value)}
-              placeholder="Le meme pour tous les articles de ce BC"
+              placeholder="Utilise pour les articles sans fournisseur precise plus haut"
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
             />
           </label>

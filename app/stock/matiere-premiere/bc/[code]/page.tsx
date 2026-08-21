@@ -382,6 +382,15 @@ export default async function CommandeBcMpDetailPage({
                                         </>
                                       ) : null}
                                       <label className="grid gap-1 text-xs text-slate-500">
+                                        Fournisseur
+                                        <input
+                                          type="text"
+                                          name="fournisseur"
+                                          defaultValue={row.fournisseur || ""}
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
                                         Doss 4D
                                         <input
                                           type="text"

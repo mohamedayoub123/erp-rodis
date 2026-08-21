@@ -13,6 +13,9 @@ type PendingBcLigne = {
   prixUnitaire: number | null;
   devise: string;
   tauxChange: number | null;
+  // Optionnel - si vide, repli sur le fournisseur "par defaut" saisi une
+  // fois pour toute la commande (voir createCommandeBcBatchAction).
+  fournisseur?: string | null;
 };
 
 function resolveDevise(value: string | null | undefined) {
@@ -149,10 +152,11 @@ export async function createCommandeBcBatchAction(formData: FormData) {
   const nDoss4d = parseOptionalText(formData, "n_doss_4d");
   const nDossErp = parseOptionalText(formData, "n_doss_erp");
   const dateJour = parseOptionalText(formData, "date_jour");
-  // Le fournisseur d'un BC est presque toujours le meme pour tous ses
-  // articles - un seul champ, rempli une fois, applique a chaque ligne
-  // (meme principe que n_doss_4d/n_doss_erp ci-dessus).
-  const fournisseur = parseOptionalText(formData, "fournisseur");
+  // Le fournisseur d'un BC est le plus souvent le meme pour tous ses
+  // articles - un champ "par defaut" saisi une fois, applique a chaque
+  // ligne SAUF celles qui precisent leur propre fournisseur (ligne.fournisseur,
+  // cas d'un BC qui melange plusieurs fournisseurs sur des articles differents).
+  const fournisseurParDefaut = parseOptionalText(formData, "fournisseur");
 
   const rowsToInsert = lignes
     .map((ligne) => {
@@ -170,6 +174,8 @@ export async function createCommandeBcBatchAction(formData: FormData) {
 
       if (prixValide !== null && devise !== "FCFA" && tauxValide === null) return null;
 
+      const fournisseurLigne = String(ligne.fournisseur || "").trim();
+
       return {
         article_id: articleRow?.id ?? null,
         article_label: articleRow?.nom_article ?? articleName,
@@ -179,7 +185,7 @@ export async function createCommandeBcBatchAction(formData: FormData) {
         taux_change: devise !== "FCFA" ? tauxValide : null,
         n_doss_4d: nDoss4d,
         n_doss_erp: nDossErp,
-        fournisseur,
+        fournisseur: fournisseurLigne || fournisseurParDefaut,
       };
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -211,9 +217,11 @@ export async function createCommandeBcBatchAction(formData: FormData) {
 }
 
 // Ajoute un article de plus a un BC deja existant - copie le dossier
-// (n_doss_4d/n_doss_erp), le fournisseur et la date de la commande depuis
-// une ligne existante du meme code, pour rester coherent avec le reste du
-// BC sans redemander ces informations.
+// (n_doss_4d/n_doss_erp) et la date de la commande depuis une ligne
+// existante du meme code, pour rester coherent avec le reste du BC sans
+// redemander ces informations. Le fournisseur est copie de la meme facon
+// SAUF si un fournisseur different est explicitement saisi pour ce nouvel
+// article (cas d'un BC qui melange plusieurs fournisseurs).
 export async function addArticleToCommandeBcAction(formData: FormData) {
   await requireEditAccess();
 
@@ -225,6 +233,7 @@ export async function addArticleToCommandeBcAction(formData: FormData) {
   const devise = resolveDevise(String(formData.get("devise") || ""));
   const tauxChangeRaw = String(formData.get("taux_change") || "").trim().replace(",", ".");
   const tauxChange = tauxChangeRaw ? Number(tauxChangeRaw) : null;
+  const fournisseurOverride = String(formData.get("fournisseur") || "").trim();
 
   if (!code) {
     throw new Error("Commande invalide.");
@@ -269,7 +278,7 @@ export async function addArticleToCommandeBcAction(formData: FormData) {
       taux_change: devise !== "FCFA" ? tauxChange : null,
       n_doss_4d: (existingLigne as { n_doss_4d: string | null }).n_doss_4d,
       n_doss_erp: (existingLigne as { n_doss_erp: string | null }).n_doss_erp,
-      fournisseur: (existingLigne as { fournisseur: string | null }).fournisseur,
+      fournisseur: fournisseurOverride || (existingLigne as { fournisseur: string | null }).fournisseur,
       date_jour: (existingLigne as { date_jour: string | null }).date_jour,
     },
   ]);
@@ -444,6 +453,7 @@ export async function updateCommandeBcLigneAction(formData: FormData) {
       taux_change: devise !== "FCFA" ? tauxChange : null,
       n_doss_4d: parseOptionalText(formData, "n_doss_4d"),
       n_doss_erp: parseOptionalText(formData, "n_doss_erp"),
+      fournisseur: parseOptionalText(formData, "fournisseur"),
     })
     .eq("id", bcId);
 

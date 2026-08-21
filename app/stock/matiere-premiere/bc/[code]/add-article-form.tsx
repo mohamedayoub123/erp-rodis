@@ -23,6 +23,7 @@ export function AddArticleForm({
   const [prixUnitaire, setPrixUnitaire] = useState("");
   const [devise, setDevise] = useState("FCFA");
   const [tauxChange, setTauxChange] = useState("");
+  const [fournisseur, setFournisseur] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
   const filteredArticles = useMemo(
@@ -53,6 +54,7 @@ export function AddArticleForm({
     formData.set("prix_unitaire", prixTrim);
     formData.set("devise", devise);
     formData.set("taux_change", devise !== "FCFA" ? tauxTrim : "");
+    formData.set("fournisseur", fournisseur.trim());
 
     startTransition(async () => {
       try {
@@ -62,6 +64,7 @@ export function AddArticleForm({
         setPrixUnitaire("");
         setDevise("FCFA");
         setTauxChange("");
+        setFournisseur("");
         router.refresh();
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'ajout.");
@@ -70,7 +73,11 @@ export function AddArticleForm({
   }
 
   return (
-    <div className={`grid gap-3 ${canVoirPrix ? "sm:grid-cols-[1fr_auto_auto_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
+    <div
+      className={`grid gap-3 ${
+        canVoirPrix ? "sm:grid-cols-[1fr_auto_auto_auto_auto]" : "sm:grid-cols-[1fr_auto_auto_auto]"
+      }`}
+    >
       <div className="relative">
         <input
           type="text"
@@ -125,6 +132,13 @@ export function AddArticleForm({
           className="w-36 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
         />
       ) : null}
+      <input
+        type="text"
+        value={fournisseur}
+        onChange={(event) => setFournisseur(event.target.value)}
+        placeholder="Fournisseur (vide = meme que le reste du BC)"
+        className="w-56 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+      />
       <button
         type="button"
         onClick={submit}
@@ -134,7 +148,7 @@ export function AddArticleForm({
         {isPending ? "Ajout..." : "Ajouter article"}
       </button>
       {canVoirPrix ? (
-        <div className="flex flex-wrap items-center gap-2 sm:col-span-4">
+        <div className="flex flex-wrap items-center gap-2 sm:col-span-5">
           <select
             value={devise}
             onChange={(event) => setDevise(event.target.value)}
@@ -159,7 +173,11 @@ export function AddArticleForm({
           ) : null}
         </div>
       ) : null}
-      {errorMessage ? <p className="text-xs font-semibold text-red-700 sm:col-span-4">{errorMessage}</p> : null}
+      {errorMessage ? (
+        <p className={`text-xs font-semibold text-red-700 ${canVoirPrix ? "sm:col-span-5" : "sm:col-span-4"}`}>
+          {errorMessage}
+        </p>
+      ) : null}
     </div>
   );
 }
