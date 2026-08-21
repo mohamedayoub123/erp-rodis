@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
+import { COMPTE_EN_COURS_PRODUCTION, COMPTE_STOCK_PRODUIT_FINI, creerEcriture } from "@/lib/comptabilite";
 
 // Cree une entree stock produit fini a partir d'un groupe d'entrees
 // emballage (Suivi Production) qui partagent toutes la meme date - meme
@@ -228,6 +230,43 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
 
   if (markError) {
     throw new Error(markError.message);
+  }
+
+  // Ecriture comptable automatique (Produit fini/En-cours de production),
+  // une par article de ce lot - jamais generee si le cout de revient n'est
+  // pas connu (jamais un montant devine). Try/catch qui n'interrompt pas la
+  // validation du mouvement de stock si la comptabilite echoue.
+  try {
+    const toutesLignes = [...payload, ...extraPayload];
+    const quantiteParArticle = new Map<number, number>();
+    for (const ligne of toutesLignes) {
+      quantiteParArticle.set(ligne.article_id, (quantiteParArticle.get(ligne.article_id) ?? 0) + ligne.qte_entree);
+    }
+
+    const articleIds = [...quantiteParArticle.keys()];
+    const couts = await fetchCoutsParCartonProduitsFinis(articleIds);
+    const dateEcriture = new Date().toISOString().slice(0, 10);
+
+    for (const [articleId, quantite] of quantiteParArticle) {
+      const coutParCarton = couts.get(articleId)?.coutParCarton;
+      if (coutParCarton === null || coutParCarton === undefined) continue;
+
+      const montant = coutParCarton * quantite;
+      await creerEcriture({
+        dateEcriture,
+        pieceReference: String(groupeId),
+        libelle: `Entree production - article #${articleId}`,
+        sourceType: "entree_production",
+        sourceId: `${groupeId}-${articleId}`,
+        createdBy: currentUser,
+        lignes: [
+          { compteCode: COMPTE_STOCK_PRODUIT_FINI, debit: montant, credit: 0 },
+          { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: 0, credit: montant },
+        ],
+      });
+    }
+  } catch (comptaError) {
+    console.error("Ecriture comptable entree production echouee:", comptaError);
   }
 
   revalidatePath("/mouvements/produit-fini/entree-production");

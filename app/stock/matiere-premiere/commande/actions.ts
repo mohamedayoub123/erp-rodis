@@ -5,6 +5,15 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { STATUT_DOSSIER_MP_OPTIONS } from "./constants";
 import { DEVISE_OPTIONS } from "@/lib/devise-options";
+import { convertirEnFcfa } from "@/lib/prix-devise";
+import {
+  COMPTE_ACHAT_MP,
+  COMPTE_FOURNISSEURS,
+  COMPTE_STOCK_MP,
+  COMPTE_VARIATION_STOCK_MP,
+  creerEcriture,
+  resoudreOuCreerFournisseur,
+} from "@/lib/comptabilite";
 
 function resolveDevise(value: string | null | undefined) {
   return (DEVISE_OPTIONS as readonly string[]).includes(value || "") ? (value as string) : "FCFA";
@@ -422,6 +431,48 @@ export async function createReceptionMpAction(formData: FormData) {
       await supabaseServer
         .from("dossiers_import_mp_statut")
         .insert([{ n_doss_4d: nDoss4dImport, n_doss_erp: nDossErpImport, statut: receptionneRodis }]);
+    }
+  }
+
+  // Ecritures comptables automatiques (Achat/Fournisseur + Stock MP/Variation
+  // de stock) - jamais generees si le prix n'est pas connu (jamais un
+  // montant devine). Volontairement dans un try/catch qui n'interrompt pas
+  // la reception : la comptabilite est secondaire par rapport au vrai
+  // mouvement de stock, qui doit reussir meme si l'ecriture echoue.
+  const prixUnitaireFcfa = convertirEnFcfa(prixUnitaire, devise, tauxChange);
+  const montantFcfa = prixUnitaireFcfa !== null ? prixUnitaireFcfa * quantiteImportee : null;
+  if (montantFcfa !== null && montantFcfa > 0) {
+    try {
+      await resoudreOuCreerFournisseur(fournisseur || "");
+      const libelleFournisseur = fournisseur || "Fournisseur non precise";
+
+      await creerEcriture({
+        dateEcriture: dateReception,
+        pieceReference: numeroLot,
+        libelle: `Achat MP - ${numeroLot} - ${libelleFournisseur}`,
+        sourceType: "mp_achat",
+        sourceId: String(lotId),
+        createdBy: currentUser,
+        lignes: [
+          { compteCode: COMPTE_ACHAT_MP, debit: montantFcfa, credit: 0 },
+          { compteCode: COMPTE_FOURNISSEURS, debit: 0, credit: montantFcfa },
+        ],
+      });
+
+      await creerEcriture({
+        dateEcriture: dateReception,
+        pieceReference: numeroLot,
+        libelle: `Entree stock MP - ${numeroLot}`,
+        sourceType: "mp_stock_entree",
+        sourceId: String(lotId),
+        createdBy: currentUser,
+        lignes: [
+          { compteCode: COMPTE_STOCK_MP, debit: montantFcfa, credit: 0 },
+          { compteCode: COMPTE_VARIATION_STOCK_MP, debit: 0, credit: montantFcfa },
+        ],
+      });
+    } catch (comptaError) {
+      console.error("Ecriture comptable reception MP echouee:", comptaError);
     }
   }
 

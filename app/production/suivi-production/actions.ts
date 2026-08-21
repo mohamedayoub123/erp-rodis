@@ -5,6 +5,13 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { resolveVracArticleId } from "@/lib/vrac-article";
+import { fetchCoutVracParKg } from "@/lib/prix-revient";
+import {
+  COMPTE_EN_COURS_PRODUCTION,
+  COMPTE_STOCK_MP,
+  creerEcriture,
+  supprimerEcriturePourSource,
+} from "@/lib/comptabilite";
 
 function parseOptionalNumber(formData: FormData, name: string) {
   const raw = String(formData.get(name) || "").trim().replace(",", ".");
@@ -549,6 +556,47 @@ export async function saveFabricationRapportAction(formData: FormData) {
 
   if (vracInsert.error) {
     throw new Error(vracInsert.error.message);
+  }
+
+  // Ecriture comptable automatique (En-cours de production/Stock MP) - meme
+  // remplacement que production_vrac_entries (une Fabrication = un seul
+  // evenement, jamais un ajout), et jamais generee si le cout de la recette
+  // n'est pas connu (jamais un montant devine). Try/catch qui n'interrompt
+  // pas l'enregistrement du rapport si la comptabilite echoue.
+  if (vracFabrique && vracFabrique > 0) {
+    try {
+      const sourceId = `${ligneId}-${code}`;
+      await supprimerEcriturePourSource("fabrication_vrac", sourceId);
+
+      const { data: ligneData } = await supabaseServer
+        .from("programme_lignes")
+        .select("article_id")
+        .eq("id", ligneId)
+        .maybeSingle();
+      const articleId = (ligneData as { article_id: number | null } | null)?.article_id ?? null;
+      const vracArticleId = articleId ? await resolveVracArticleId(articleId) : null;
+
+      if (vracArticleId) {
+        const coutVrac = await fetchCoutVracParKg(vracArticleId);
+        if (coutVrac.coutParKg !== null) {
+          const montant = coutVrac.coutParKg * vracFabrique;
+          await creerEcriture({
+            dateEcriture: dateFabricationConditionnement || new Date().toISOString().slice(0, 10),
+            pieceReference: code,
+            libelle: `Fabrication - ${code}`,
+            sourceType: "fabrication_vrac",
+            sourceId,
+            createdBy: currentUser,
+            lignes: [
+              { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: montant, credit: 0 },
+              { compteCode: COMPTE_STOCK_MP, debit: 0, credit: montant },
+            ],
+          });
+        }
+      }
+    } catch (comptaError) {
+      console.error("Ecriture comptable fabrication echouee:", comptaError);
+    }
   }
 
   revalidateRapportPages();

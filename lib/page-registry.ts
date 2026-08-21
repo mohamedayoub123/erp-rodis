@@ -23,7 +23,8 @@ export type ModuleKey =
   | "Entrepot"
   | "Produit"
   | "ChargesUsine"
-  | "Comptabilite";
+  | "Comptabilite"
+  | "Fournisseurs";
 
 export type PageDefinition = {
   key: string;
@@ -55,6 +56,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   Produit: "Produit",
   ChargesUsine: "Charges Usine",
   Comptabilite: "Comptabilite",
+  Fournisseurs: "Fournisseurs",
 };
 
 export const PAGE_REGISTRY: PageDefinition[] = [
@@ -811,6 +813,16 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     defaultView: false,
     defaultWrite: false,
   },
+  // Fournisseurs (contrepartie de l'ecriture Achat/Fournisseur) - prive par
+  // defaut comme Comptabilite.
+  {
+    key: "fournisseurs",
+    module: "Fournisseurs",
+    label: "Fournisseurs",
+    pathPrefixes: ["/fournisseurs"],
+    defaultView: false,
+    defaultWrite: false,
+  },
 ];
 
 // Regroupement affiche dans l'admin (Gestion Stock PF / Gestion Stock MP /
@@ -887,7 +899,7 @@ export function sectionForPage(page: PageDefinition): AdminSection {
   if (page.module === "Entrepot") return "Entrepot";
   if (page.module === "Produit") return "Produit";
   if (page.module === "ChargesUsine") return "ChargesUsine";
-  if (page.module === "Comptabilite") return "Comptabilite";
+  if (page.module === "Comptabilite" || page.module === "Fournisseurs") return "Comptabilite";
   if (page.module === "Production") return "Production";
   if (page.module === "Qualite") return "Qualite";
   if (page.module === "Planning" || page.module === "General") return "Autre";

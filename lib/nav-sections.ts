@@ -148,7 +148,7 @@ export const navItems: NavItem[] = [
     href: "/comptabilite",
     label: "Comptabilite",
     pageKey: "comptabilite",
-    matchPrefixes: ["/comptabilite"],
+    matchPrefixes: ["/comptabilite", "/fournisseurs"],
     subLinks: [],
   },
   { href: "/admin", label: "Admin", adminOnly: true },
