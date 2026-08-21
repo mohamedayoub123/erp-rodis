@@ -23,6 +23,7 @@ export function DepotStockBatchForm({
   const [rowKeys, setRowKeys] = useState<number[]>([0]);
   const [nextKey, setNextKey] = useState(1);
   const [typeByKey, setTypeByKey] = useState<Record<number, "MP" | "PF">>({});
+  const [perteByKey, setPerteByKey] = useState<Record<number, boolean>>({});
 
   return (
     <form action={updateDepotStockBatchAction} className="grid gap-4 border-t border-slate-100 px-5 py-4">
@@ -81,6 +82,22 @@ export function DepotStockBatchForm({
                 required
                 className="w-36 shrink-0 rounded-2xl border border-slate-200 px-3 py-2.5 text-sm outline-none"
               />
+              {type === "MP" ? (
+                <label
+                  className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-slate-500"
+                  title="Genere une ecriture Perte sur stock si la quantite diminue"
+                >
+                  <input type="hidden" name="est_perte" value={perteByKey[key] ? "1" : "0"} />
+                  <input
+                    type="checkbox"
+                    checked={Boolean(perteByKey[key])}
+                    onChange={(e) => setPerteByKey((prev) => ({ ...prev, [key]: e.target.checked }))}
+                  />
+                  Perte
+                </label>
+              ) : (
+                <input type="hidden" name="est_perte" value="0" />
+              )}
               {rowKeys.length > 1 ? (
                 <button
                   type="button"

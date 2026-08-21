@@ -4,6 +4,46 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchReservedByLot, type ArticleType } from "./transfer-order/stock-lots";
+import { fetchCoutsMoyenMp } from "@/lib/prix-revient";
+import { COMPTE_PERTES_STOCK, COMPTE_STOCK_MP, creerEcriture } from "@/lib/comptabilite";
+
+// Ecriture comptable Perte sur stock (Debit Pertes / Credit Stock MP) - MP
+// uniquement (pas de compte de perte PF pour l'instant), et uniquement si
+// coche explicitement "C'est une perte" (jamais devine depuis une simple
+// correction de comptage). Jamais generee si le prix n'est pas connu.
+// Try/catch qui n'interrompt jamais la correction de stock elle-meme.
+async function creerEcriturePerteMp(articleId: number, numeroLot: string, quantitePerdue: number, currentUser: string | null) {
+  try {
+    const couts = await fetchCoutsMoyenMp([articleId]);
+    const coutFcfa = couts.get(articleId)?.coutFcfa;
+    if (coutFcfa === undefined) return;
+
+    const montant = coutFcfa * quantitePerdue;
+    if (montant <= 0) return;
+
+    const { data: articleData } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("nom_article")
+      .eq("id", articleId)
+      .maybeSingle();
+    const nomArticle = (articleData as { nom_article: string } | null)?.nom_article ?? `#${articleId}`;
+
+    await creerEcriture({
+      dateEcriture: new Date().toISOString().slice(0, 10),
+      pieceReference: numeroLot || null,
+      libelle: `Perte MP - ${nomArticle}${numeroLot ? ` - ${numeroLot}` : ""}`,
+      sourceType: "perte_mp_correction",
+      sourceId: `${articleId}-${numeroLot}-${Date.now()}`,
+      createdBy: currentUser,
+      lignes: [
+        { compteCode: COMPTE_PERTES_STOCK, debit: montant, credit: 0 },
+        { compteCode: COMPTE_STOCK_MP, debit: 0, credit: montant },
+      ],
+    });
+  } catch (comptaError) {
+    console.error("Ecriture comptable perte MP (correction stock) echouee:", comptaError);
+  }
+}
 
 export async function createDepotAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
@@ -150,6 +190,7 @@ export async function updateDepotLotStockAction(formData: FormData) {
   const numeroLot = String(formData.get("numero_lot") || "").trim();
   const nouvelleQuantiteRaw = String(formData.get("nouvelle_quantite") || "").trim().replace(",", ".");
   const nouvelleQuantite = Number(nouvelleQuantiteRaw);
+  const estPerte = String(formData.get("est_perte") || "") === "1";
 
   if (!depotId || !articleId || nouvelleQuantiteRaw === "" || Number.isNaN(nouvelleQuantite)) {
     throw new Error("Correction de stock invalide.");
@@ -185,6 +226,10 @@ export async function updateDepotLotStockAction(formData: FormData) {
 
   if (insertError) {
     throw new Error(insertError.message);
+  }
+
+  if (estPerte && delta < 0 && articleType === "MP") {
+    await creerEcriturePerteMp(articleId, numeroLot, -delta, currentUser);
   }
 
   revalidatePath(`/depots/${depotId}`);
@@ -281,6 +326,7 @@ export async function updateDepotStockBatchAction(formData: FormData) {
   const articleIds = formData.getAll("article_id");
   const numeroLots = formData.getAll("numero_lot");
   const nouvellesQuantites = formData.getAll("nouvelle_quantite");
+  const estPertes = formData.getAll("est_perte");
 
   const lignes = articleIds
     .map((raw, index) => ({
@@ -288,6 +334,7 @@ export async function updateDepotStockBatchAction(formData: FormData) {
       articleId: Number(raw || "0"),
       numeroLot: String(numeroLots[index] || "").trim(),
       nouvelleQuantite: Number(String(nouvellesQuantites[index] || "").trim().replace(",", ".")),
+      estPerte: String(estPertes[index] || "") === "1",
     }))
     .filter((ligne) => ligne.articleId > 0 && ligne.numeroLot);
 
@@ -295,7 +342,7 @@ export async function updateDepotStockBatchAction(formData: FormData) {
     throw new Error("Ajoute au moins une ligne valide (article, numero de lot, quantite).");
   }
 
-  const aCorreger: { table: string; insert: Record<string, unknown> }[] = [];
+  const aCorreger: { table: string; insert: Record<string, unknown>; perte?: { articleId: number; numeroLot: string; quantite: number } }[] = [];
 
   for (const ligne of lignes) {
     if (Number.isNaN(ligne.nouvelleQuantite) || ligne.nouvelleQuantite < 0) {
@@ -320,6 +367,10 @@ export async function updateDepotStockBatchAction(formData: FormData) {
 
     aCorreger.push({
       table,
+      perte:
+        ligne.estPerte && delta < 0 && ligne.articleType === "MP"
+          ? { articleId: ligne.articleId, numeroLot: ligne.numeroLot, quantite: -delta }
+          : undefined,
       insert: {
         article_id: ligne.articleId,
         numero_lot: ligne.numeroLot,
@@ -346,6 +397,11 @@ export async function updateDepotStockBatchAction(formData: FormData) {
     if (error) {
       throw new Error(error.message);
     }
+  }
+
+  for (const item of aCorreger) {
+    if (!item.perte) continue;
+    await creerEcriturePerteMp(item.perte.articleId, item.perte.numeroLot, item.perte.quantite, currentUser);
   }
 
   revalidatePath(`/depots/${depotId}`);

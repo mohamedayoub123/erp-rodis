@@ -68,6 +68,12 @@ export function LotStockCell({
         title={reserve > 1e-6 ? `Ne peut pas descendre sous ${formatNumber(reserve)} (deja reserve)` : undefined}
         className="w-24 rounded border border-slate-200 px-1.5 py-1 text-sm text-slate-700 focus:border-sky-400 focus:outline-none"
       />
+      {articleType === "MP" ? (
+        <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500" title="Genere une ecriture Perte sur stock si la quantite diminue">
+          <input type="checkbox" name="est_perte" value="1" />
+          Perte
+        </label>
+      ) : null}
       <SubmitButton
         pendingLabel="..."
         className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200"

@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { fetchCoutsMoyenMp } from "@/lib/prix-revient";
+import { COMPTE_PERTES_STOCK, COMPTE_STOCK_MP, creerEcriture } from "@/lib/comptabilite";
 
 // Supprime une ligne de detail puis, si c'etait la derniere ligne de son
 // mouvement (groupe), renvoie vers la liste au lieu de laisser la page
@@ -245,12 +247,63 @@ export async function createSortieMpBatchAction(formData: FormData) {
     };
   });
 
-  const { error } = await supabaseServer.rpc("stock_mp_record_sortie_batch", {
+  const { data: rpcResult, error } = await supabaseServer.rpc("stock_mp_record_sortie_batch", {
     p_lignes: lignes,
   });
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  // Ecriture comptable automatique (Perte sur stock) - une Sortie MP saisie
+  // ici n'est jamais liee a une vraie consommation de production (celle-la
+  // passe par la reservation Salle de pesage/conditionnement, deja
+  // comptabilisee ailleurs) : par definition, cette matiere premiere quitte
+  // le stock sans jamais devenir un produit, donc sans contrepartie -
+  // demande explicite : toujours une perte, pas de case a cocher. Jamais
+  // generee si le prix n'est pas connu (jamais un montant devine). Try/catch
+  // qui n'interrompt pas la sortie si la comptabilite echoue.
+  try {
+    const parArticle = new Map<number, { quantite: number; lots: Set<string> }>();
+    for (const l of lignes) {
+      const g = parArticle.get(l.article_id) ?? { quantite: 0, lots: new Set<string>() };
+      g.quantite += l.quantite;
+      g.lots.add(l.numero_lot);
+      parArticle.set(l.article_id, g);
+    }
+
+    const articleIds = [...parArticle.keys()];
+    const [couts, { data: articlesData }] = await Promise.all([
+      fetchCoutsMoyenMp(articleIds),
+      supabaseServer.from("articles_matiere_premiere").select("id, nom_article").in("id", articleIds),
+    ]);
+    const nomById = new Map(((articlesData ?? []) as { id: number; nom_article: string }[]).map((a) => [a.id, a.nom_article]));
+    const dateEcriture = new Date().toISOString().slice(0, 10);
+    const batchRef = (rpcResult as { groupes?: number[] } | null)?.groupes?.[0] ?? Date.now();
+
+    for (const [articleId, info] of parArticle) {
+      const coutFcfa = couts.get(articleId)?.coutFcfa;
+      if (coutFcfa === undefined) continue;
+
+      const montant = coutFcfa * info.quantite;
+      if (montant <= 0) continue;
+
+      const lotsTexte = [...info.lots].join(", ");
+      await creerEcriture({
+        dateEcriture,
+        pieceReference: lotsTexte,
+        libelle: `Perte MP - ${nomById.get(articleId) ?? `#${articleId}`} - ${lotsTexte}`,
+        sourceType: "perte_mp_sortie",
+        sourceId: `${batchRef}-${articleId}`,
+        createdBy: lignes[0]?.utilisateur || null,
+        lignes: [
+          { compteCode: COMPTE_PERTES_STOCK, debit: montant, credit: 0 },
+          { compteCode: COMPTE_STOCK_MP, debit: 0, credit: montant },
+        ],
+      });
+    }
+  } catch (comptaError) {
+    console.error("Ecriture comptable perte MP (Sortie MP) echouee:", comptaError);
   }
 
   revalidateMouvementsMpPages();

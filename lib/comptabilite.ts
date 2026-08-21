@@ -12,6 +12,7 @@ export const COMPTE_STOCK_PRODUIT_FINI = "361000";
 export const COMPTE_VARIATION_STOCK_PF = "713600";
 export const COMPTE_CLIENTS = "411000";
 export const COMPTE_VENTES = "701000";
+export const COMPTE_PERTES_STOCK = "658000";
 
 export type LigneEcriture = { compteCode: string; debit: number; credit: number };
 
