@@ -67,6 +67,35 @@ function parseYearValue(value: string) {
   return year;
 }
 
+// La table (~2200 lignes) depasse le plafond serveur PostgREST (~1000
+// lignes par requete) - .limit(5000) ne le contourne PAS (le plafond
+// s'applique avant), donc la moitie des articles (les derniers par ordre
+// alphabetique) etait invisible dans "Ecrire article..." tout en restant
+// trouvable via le filtre reel (stock_mp_display_rows cherche cote base,
+// sans ce plafond) - bug reel signale, meme motif deja corrige sur
+// Articles MP (voir fetchAllArticlesMp, app/articles/matiere-premiere/page.tsx).
+async function fetchAllArticleNomsMp(): Promise<string[]> {
+  const names: string[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("nom_article")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+    const chunk = (data as { nom_article: string }[] | null) ?? [];
+    names.push(...chunk.map((row) => row.nom_article));
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return names;
+}
+
 type SearchParams = Promise<{
   page?: string;
   q?: string;
@@ -106,7 +135,7 @@ export default async function StockMatierePremiereStockPage({
 
   const [
     { data: rowsData, error },
-    { data: articleSuggestionsData },
+    articleSuggestions,
     { data: yearsData },
     { data: codesData },
     webSourceRows,
@@ -123,11 +152,7 @@ export default async function StockMatierePremiereStockPage({
       p_limit: PAGE_SIZE,
       p_offset: from,
     }),
-    supabaseServer
-      .from("articles_matiere_premiere")
-      .select("nom_article")
-      .order("nom_article", { ascending: true })
-      .limit(5000),
+    fetchAllArticleNomsMp(),
     supabaseServer.rpc("stock_mp_available_years"),
     supabaseServer.rpc("stock_mp_available_codes"),
     fetchWebMouvementMpSourceRows(),
@@ -135,9 +160,6 @@ export default async function StockMatierePremiereStockPage({
 
   const pagedRows = (rowsData as DisplayRow[] | null) ?? [];
 
-  const articleSuggestions = ((articleSuggestionsData as { nom_article: string }[] | null) ?? []).map(
-    (article) => article.nom_article
-  );
   const articleOptions = articleSuggestions.map((label, id) => ({ id, label }));
   const availableYears = ((yearsData as { year: number }[] | null) ?? []).map((row) => row.year);
   const codeOptions = ((codesData as { code: string }[] | null) ?? []).map((row, id) => ({
