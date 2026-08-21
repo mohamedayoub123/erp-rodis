@@ -177,7 +177,9 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
       code: ligne.code,
       nDoss4d: ligne.n_doss_4d,
       nDossErp: ligne.n_doss_erp,
-      quantite,
+      // Reste a recevoir, pas la quantite commandee brute (voir Statistique
+      // MP, meme correctif).
+      quantite: Math.max(0, quantite - quantiteImportee),
     });
     bcRefsByArticle.set(ligne.article_id, list);
   }

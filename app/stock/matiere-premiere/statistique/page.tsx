@@ -312,7 +312,11 @@ async function buildRapportRowsWithLive(
         if (statut === "Termine") continue;
         const list = openBcLignesByArticleId.get(ligne.article_id) ?? [];
         list.push({
-          quantite,
+          // Reste a recevoir, pas la quantite commandee brute : une ligne
+          // partiellement receptionnee (encore "En cours", pas exclue
+          // ci-dessus) affichait la quantite totale commandee au lieu de ce
+          // qu'il reste reellement a recevoir (bug reel signale).
+          quantite: Math.max(0, quantite - quantiteImportee),
           nDoss4d: ligne.n_doss_4d,
           nDossErp: ligne.n_doss_erp,
           date_jour: ligne.date_jour,
