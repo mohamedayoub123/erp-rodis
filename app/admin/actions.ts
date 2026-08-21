@@ -16,6 +16,7 @@ import {
   getCurrentStockUser,
   getUserPermissions,
   isAdminUser,
+  resetStockUserPassword,
   updateUserPermissions,
   type PagePermissions,
 } from "@/lib/stock-auth";
@@ -96,6 +97,39 @@ export async function createUserAction(formData: FormData) {
 
   revalidatePath("/admin");
   redirect("/admin?user=ok");
+}
+
+export async function resetUserPasswordAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canManageUsers(currentUser))) {
+    redirect("/?user=forbidden");
+  }
+
+  const username = String(formData.get("username") || "").trim().toLowerCase();
+  const password = String(formData.get("password") || "").trim();
+  const confirmPassword = String(formData.get("confirmPassword") || "").trim();
+
+  if (!username) {
+    redirect("/admin?user=reset-empty");
+  }
+
+  if (password.length < 1) {
+    redirect("/admin?user=reset-short");
+  }
+
+  if (password !== confirmPassword) {
+    redirect("/admin?user=reset-confirm");
+  }
+
+  const reset = await resetStockUserPassword(username, password);
+
+  if (!reset) {
+    redirect("/admin?user=reset-error");
+  }
+
+  revalidatePath("/admin");
+  redirect("/admin?user=reset-ok");
 }
 
 function readPermissionFlag(formData: FormData, key: string) {

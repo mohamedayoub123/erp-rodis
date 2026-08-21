@@ -23,6 +23,7 @@ import {
   createUserAction,
   deleteUserAction,
   forceLogoutUserAction,
+  resetUserPasswordAction,
   updateUserPermissionsAction,
   uploadClientsWorkbookAction,
   uploadCommandeWorkbookAction,
@@ -325,6 +326,31 @@ export default async function AdminPage({
                 Impossible de deconnecter cet utilisateur.
               </p>
             ) : null}
+            {userState === "reset-ok" ? (
+              <p className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                Mot de passe change avec succes.
+              </p>
+            ) : null}
+            {userState === "reset-empty" ? (
+              <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                Utilisateur manquant.
+              </p>
+            ) : null}
+            {userState === "reset-short" ? (
+              <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                Ecris au moins 1 caractere pour le nouveau mot de passe.
+              </p>
+            ) : null}
+            {userState === "reset-confirm" ? (
+              <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                La confirmation du mot de passe ne correspond pas.
+              </p>
+            ) : null}
+            {userState === "reset-error" ? (
+              <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                Impossible de changer le mot de passe de cet utilisateur.
+              </p>
+            ) : null}
 
             <details className="mt-5 group rounded-2xl border border-slate-200 bg-slate-50">
               <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold text-slate-900">
@@ -431,6 +457,44 @@ export default async function AdminPage({
                         </form>
                       ) : null}
                     </div>
+
+                    <details className="mt-3 group rounded-2xl border border-slate-200 bg-slate-50">
+                      <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-2.5 text-xs font-bold text-slate-700">
+                        <span className="flex-1">Changer le mot de passe</span>
+                        <span
+                          aria-hidden="true"
+                          className="text-slate-400 transition-transform group-open:rotate-90"
+                        >
+                          &#9656;
+                        </span>
+                      </summary>
+                      <form
+                        action={resetUserPasswordAction}
+                        className="grid gap-3 border-t border-slate-200 p-3 md:grid-cols-3"
+                      >
+                        <input type="hidden" name="username" value={user.username} />
+                        <input
+                          type="password"
+                          name="password"
+                          placeholder="Nouveau mot de passe"
+                          className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm"
+                          required
+                        />
+                        <input
+                          type="password"
+                          name="confirmPassword"
+                          placeholder="Confirmer"
+                          className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm"
+                          required
+                        />
+                        <button
+                          type="submit"
+                          className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+                        >
+                          Changer
+                        </button>
+                      </form>
+                    </details>
 
                     <form action={updateUserPermissionsAction} className="mt-4 space-y-3">
                       <input type="hidden" name="username" value={user.username} />

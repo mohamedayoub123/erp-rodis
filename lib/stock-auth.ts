@@ -584,6 +584,22 @@ export async function createStockUser(username: string, password: string) {
   return true;
 }
 
+// Change seulement le mot de passe - garde les permissions et la session en
+// cours intactes (contrairement a effacer + recreer l'utilisateur, qui
+// remettrait ses permissions a la valeur par defaut).
+export async function resetStockUserPassword(username: string, newPassword: string) {
+  const normalized = username.trim().toLowerCase();
+  const users = await readUsers();
+
+  if (!users[normalized]) {
+    return false;
+  }
+
+  users[normalized].passwordHash = hashPasswordScrypt(newPassword);
+  await writeUsers(users);
+  return true;
+}
+
 export async function deleteStockUser(username: string) {
   const normalized = username.trim().toLowerCase();
 
