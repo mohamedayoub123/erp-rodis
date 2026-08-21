@@ -76,6 +76,7 @@ type SearchParams = Promise<{
   numeroTo?: string;
   numeroTi?: string;
   remarque?: string;
+  avertissement?: string;
 }>;
 
 export default async function TransferOrderListPage({ searchParams }: { searchParams: SearchParams }) {
@@ -86,6 +87,7 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
   const numeroToFilter = (params.numeroTo || "").trim().toLowerCase();
   const numeroTiFilter = (params.numeroTi || "").trim().toLowerCase();
   const remarqueFilter = (params.remarque || "").trim().toLowerCase();
+  const avertissement = params.avertissement || "";
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "depots");
@@ -157,6 +159,12 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
             </div>
           </div>
         </section>
+
+        {avertissement ? (
+          <section className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-semibold text-amber-800">
+            {avertissement}
+          </section>
+        ) : null}
 
         {canEdit ? (
           <details className="group overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">

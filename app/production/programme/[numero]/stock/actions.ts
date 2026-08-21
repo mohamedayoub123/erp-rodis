@@ -154,13 +154,22 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
   const allMpIds = [...new Set([...besoinParGroupeMp.values()].flatMap((m) => [...m.keys()]))];
   const { data: articlesMpData } = await supabaseServer
     .from("articles_matiere_premiere")
-    .select("id, categorie, depot_id")
+    .select("id, nom_article, categorie, depot_id")
     .in("id", allMpIds);
   const articleMpById = new Map(
-    ((articlesMpData ?? []) as { id: number; categorie: string | null; depot_id: number | null }[]).map((a) => [a.id, a])
+    (
+      (articlesMpData ?? []) as { id: number; nom_article: string; categorie: string | null; depot_id: number | null }[]
+    ).map((a) => [a.id, a])
   );
 
   const createdCodes: string[] = [];
+  // Articles ayant un besoin > 0 mais AUCUN depot par defaut connu
+  // (articles_matiere_premiere.depot_id vide) - jamais devine, mais ne doit
+  // plus jamais disparaitre en silence (bug confirme : CAPSULE/FLACON d'une
+  // recette recente jamais sortis dans aucun TO, sans le moindre
+  // avertissement) - remonte au nom pour que l'utilisateur sache quel
+  // article regler depuis Articles MP.
+  const articlesSansDepot = new Set<string>();
   const skipped: { articleId: number; besoin: number; disponible: number }[] = [];
 
   // TO1.2026, TO2.2026... fige a la creation (colonne numero, jamais
@@ -188,7 +197,12 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
       if (besoin <= 0) continue;
       const mpArticle = articleMpById.get(mpArticleId);
       const depotSourceId = mpArticle?.depot_id ?? null;
-      if (!depotSourceId) continue; // pas de depot par defaut connu pour cet article - impossible de savoir d'ou transferer
+      if (!depotSourceId) {
+        // Pas de depot par defaut connu pour cet article - impossible de
+        // savoir d'ou transferer, jamais devine.
+        articlesSansDepot.add(mpArticle?.nom_article ?? `#${mpArticleId}`);
+        continue;
+      }
 
       const sousGroupe = categorieSousGroupe(mpArticle?.categorie ?? null);
       const bucketKey = `${sousGroupe}::${depotSourceId}`;
@@ -206,7 +220,12 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
       for (const entry of entries) {
         const lots = await fetchLotsInDepot("MP", entry.mpArticleId, depotSourceId);
         const disponible = totalAvailable(lots);
-        const quantite = round(Math.min(entry.quantite, disponible));
+        const quantiteBrute = Math.min(entry.quantite, disponible);
+        // Article de conditionnement (sous-groupe "Autre" = Sleeve, Carton,
+        // Flacon, Capsule...) = piece entiere, jamais une fraction - un
+        // besoin de 313.2 cartons demande reellement 314 cartons. Seul le
+        // sous-groupe Colorant-Base (liquide/poids) garde des decimales.
+        const quantite = sousGroupe === "Colorant-Base" ? round(quantiteBrute) : Math.ceil(quantiteBrute);
 
         if (quantite <= 0) {
           skipped.push({ articleId: entry.mpArticleId, besoin: entry.quantite, disponible });
@@ -257,7 +276,7 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
     }
   }
 
-  if (createdCodes.length === 0) {
+  if (createdCodes.length === 0 && articlesSansDepot.size === 0) {
     throw new Error(
       skipped.length > 0
         ? "Aucun Transfer Order cree - aucune matiere premiere disponible dans son depot par defaut."
@@ -266,5 +285,15 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
   }
 
   revalidatePath("/depots/transfer-order");
+
+  if (articlesSansDepot.size > 0) {
+    const liste = [...articlesSansDepot].join(", ");
+    redirect(
+      `/depots/transfer-order?avertissement=${encodeURIComponent(
+        `Ignore (aucun depot source connu, a regler depuis Articles MP) : ${liste}`
+      )}`
+    );
+  }
+
   redirect("/depots/transfer-order");
 }

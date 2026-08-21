@@ -187,14 +187,20 @@ export async function autoCreateTransferOrdersFromProgrammeLigneAction(formData:
   const allMpIds = [...new Set([...besoinParGroupeMp.values()].flatMap((m) => [...m.keys()]))];
   const { data: articlesMpData } = await supabaseServer
     .from("articles_matiere_premiere")
-    .select("id, categorie, depot_id")
+    .select("id, nom_article, categorie, depot_id")
     .in("id", allMpIds);
   const articleMpById = new Map(
-    ((articlesMpData ?? []) as { id: number; categorie: string | null; depot_id: number | null }[]).map((a) => [a.id, a])
+    (
+      (articlesMpData ?? []) as { id: number; nom_article: string; categorie: string | null; depot_id: number | null }[]
+    ).map((a) => [a.id, a])
   );
 
   const createdCodes: string[] = [];
   const skipped: { articleId: number; besoin: number; disponible: number }[] = [];
+  // Voir la note dans app/production/programme/[numero]/stock/actions.ts
+  // (Programme MB) - un article MP sans depot par defaut connu ne doit
+  // plus jamais disparaitre en silence d'un TO.
+  const articlesSansDepot = new Set<string>();
 
   const year = dateJour.slice(0, 4);
   const { data: lastTransferOrder } = await supabaseServer
@@ -214,7 +220,10 @@ export async function autoCreateTransferOrdersFromProgrammeLigneAction(formData:
       if (besoin <= 0) continue;
       const mpArticle = articleMpById.get(mpArticleId);
       const depotSourceId = mpArticle?.depot_id ?? null;
-      if (!depotSourceId) continue;
+      if (!depotSourceId) {
+        articlesSansDepot.add(mpArticle?.nom_article ?? `#${mpArticleId}`);
+        continue;
+      }
 
       const sousGroupe = categorieSousGroupe(mpArticle?.categorie ?? null);
       const bucketKey = `${sousGroupe}::${depotSourceId}`;
@@ -232,7 +241,12 @@ export async function autoCreateTransferOrdersFromProgrammeLigneAction(formData:
       for (const entry of entries) {
         const lots = await fetchLotsInDepot("MP", entry.mpArticleId, depotSourceId);
         const disponible = totalAvailable(lots);
-        const quantite = round(Math.min(entry.quantite, disponible));
+        const quantiteBrute = Math.min(entry.quantite, disponible);
+        // Article de conditionnement (sous-groupe "Autre" = Sleeve, Carton,
+        // Flacon, Capsule...) = piece entiere, jamais une fraction - un
+        // besoin de 313.2 cartons demande reellement 314 cartons. Seul le
+        // sous-groupe Colorant-Base (liquide/poids) garde des decimales.
+        const quantite = sousGroupe === "Colorant-Base" ? round(quantiteBrute) : Math.ceil(quantiteBrute);
 
         if (quantite <= 0) {
           skipped.push({ articleId: entry.mpArticleId, besoin: entry.quantite, disponible });
@@ -283,7 +297,7 @@ export async function autoCreateTransferOrdersFromProgrammeLigneAction(formData:
     }
   }
 
-  if (createdCodes.length === 0) {
+  if (createdCodes.length === 0 && articlesSansDepot.size === 0) {
     throw new Error(
       skipped.length > 0
         ? "Aucun Transfer Order cree - aucune matiere premiere disponible dans son depot par defaut."
@@ -292,5 +306,15 @@ export async function autoCreateTransferOrdersFromProgrammeLigneAction(formData:
   }
 
   revalidatePath("/depots/transfer-order");
+
+  if (articlesSansDepot.size > 0) {
+    const liste = [...articlesSansDepot].join(", ");
+    redirect(
+      `/depots/transfer-order?avertissement=${encodeURIComponent(
+        `Ignore (aucun depot source connu, a regler depuis Articles MP) : ${liste}`
+      )}`
+    );
+  }
+
   redirect("/depots/transfer-order");
 }
