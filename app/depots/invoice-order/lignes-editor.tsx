@@ -115,6 +115,7 @@ export function InvoiceOrderLignesEditor({
                   <th className="px-6 py-4 font-semibold">Article</th>
                   <th className="px-6 py-4 font-semibold">Type</th>
                   <th className="px-6 py-4 font-semibold">Lot</th>
+                  <th className="px-6 py-4 font-semibold">Disponible au depot source</th>
                   <th className="px-6 py-4 font-semibold">Quantite</th>
                   {canEditLignes ? <th className="px-6 py-4 font-semibold"></th> : null}
                 </tr>
@@ -122,7 +123,7 @@ export function InvoiceOrderLignesEditor({
               <tbody>
                 {lignes.length === 0 ? (
                   <tr>
-                    <td className="px-6 py-4 text-slate-400" colSpan={5}>
+                    <td className="px-6 py-4 text-slate-400" colSpan={canEditLignes ? 6 : 5}>
                       Aucune ligne - tout a deja ete livre ou efface.
                     </td>
                   </tr>
@@ -150,6 +151,11 @@ export function InvoiceOrderLignesEditor({
                         ) : (
                           ligne.numero_lot || "-"
                         )}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {(
+                          ligne.lotsDisponibles.find((disp) => disp.numeroLot === (ligne.numero_lot ?? ""))?.solde ?? 0
+                        ).toLocaleString("fr-FR")}
                       </td>
                       <td className="px-6 py-4">
                         {canEditLignes ? (

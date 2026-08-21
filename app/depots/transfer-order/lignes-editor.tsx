@@ -97,6 +97,7 @@ export function TransferOrderLignesEditor({
                 <th className="px-6 py-4 font-semibold">Article</th>
                 <th className="px-6 py-4 font-semibold">Demande</th>
                 <th className="px-6 py-4 font-semibold">Numero de lot</th>
+                <th className="px-6 py-4 font-semibold">Disponible au depot source</th>
                 <th className="px-6 py-4 font-semibold">Quantite a transferer</th>
               </tr>
             </thead>
@@ -104,16 +105,24 @@ export function TransferOrderLignesEditor({
               {lignes.flatMap((ligne) => {
                 const lots = lotsByLigneId[ligne.id] ?? [];
                 const rows = lots.length > 0 ? lots : [{ numero_lot: null, quantite: 0 }];
-                return rows.map((lot, index) => (
-                  <tr key={`${ligne.id}-${index}`} className="border-t border-slate-100">
-                    <td className="px-6 py-4 font-medium text-slate-900">{index === 0 ? ligne.nom : ""}</td>
-                    <td className="px-6 py-4 text-slate-600">
-                      {index === 0 ? ligne.quantite_demandee.toLocaleString("fr-FR") : ""}
-                    </td>
-                    <td className="px-6 py-4 text-slate-600">{lot.numero_lot || "-"}</td>
-                    <td className="px-6 py-4 text-slate-600">{lot.quantite.toLocaleString("fr-FR")}</td>
-                  </tr>
-                ));
+                return rows.map((lot, index) => {
+                  const disponible = ligne.lotsDisponibles.find(
+                    (disp) => disp.numeroLot === (lot.numero_lot || "")
+                  )?.solde;
+                  return (
+                    <tr key={`${ligne.id}-${index}`} className="border-t border-slate-100">
+                      <td className="px-6 py-4 font-medium text-slate-900">{index === 0 ? ligne.nom : ""}</td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {index === 0 ? ligne.quantite_demandee.toLocaleString("fr-FR") : ""}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{lot.numero_lot || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {disponible === undefined ? "-" : disponible.toLocaleString("fr-FR")}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{lot.quantite.toLocaleString("fr-FR")}</td>
+                    </tr>
+                  );
+                });
               })}
             </tbody>
           </table>

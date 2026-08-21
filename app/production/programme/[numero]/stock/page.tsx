@@ -6,6 +6,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { autoCreateTransferOrdersAction } from "./actions";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
 
 type ProgrammeRow = {
   article_id: number;
@@ -146,6 +147,23 @@ export default async function ProgrammeVerifierStockPage({
     stockParMp.set(mv.article_id, (stockParMp.get(mv.article_id) ?? 0) + Number(mv.qte_entree ?? 0) - Number(mv.qte_sortie ?? 0));
   }
 
+  // "Stock actuel" ci-dessus est brut, tous depots confondus, sans tenir
+  // compte de ce qui est deja reserve par un autre Transfer Order - meme
+  // correctif que la version Programme par ligne de cette page (voir
+  // app/historique-programme/[groupeId]/stock/page.tsx).
+  const { data: depotBData } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
+  const depotBId = (depotBData as { id: number } | null)?.id ?? null;
+
+  const disponibleDepotBParMp = new Map<number, number>();
+  if (depotBId) {
+    await Promise.all(
+      mpIds.map(async (mpId) => {
+        const disponible = await fetchTotalStockInDepot("MP", mpId, depotBId);
+        disponibleDepotBParMp.set(mpId, disponible);
+      })
+    );
+  }
+
   const rows = mpIds
     .map((mpId) => ({
       id: mpId,
@@ -153,6 +171,7 @@ export default async function ProgrammeVerifierStockPage({
       unite: articleMpById.get(mpId)?.unite ?? "-",
       besoin: round(besoinParMp.get(mpId) ?? 0),
       stock: round(stockParMp.get(mpId) ?? 0),
+      disponibleDepotB: depotBId ? round(disponibleDepotBParMp.get(mpId) ?? 0) : null,
     }))
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
@@ -243,6 +262,7 @@ export default async function ProgrammeVerifierStockPage({
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Besoin</th>
                     <th className="px-6 py-4 font-semibold">Stock actuel</th>
+                    <th className="px-6 py-4 font-semibold">Disponible Depot B (non reserve)</th>
                     <th className="px-6 py-4 font-semibold"></th>
                   </tr>
                 </thead>
@@ -258,6 +278,11 @@ export default async function ProgrammeVerifierStockPage({
                         </td>
                         <td className="px-6 py-4 text-slate-600">
                           {row.stock.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {row.disponibleDepotB === null
+                            ? "-"
+                            : row.disponibleDepotB.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
                         </td>
                         <td className="px-6 py-4">
                           {insuffisant ? (
