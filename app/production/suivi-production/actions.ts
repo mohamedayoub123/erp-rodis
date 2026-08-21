@@ -30,20 +30,25 @@ function revalidateRapportPages() {
   revalidatePath("/production/suivi/dashboard");
 }
 
-// La ligne appartient a un vrai Programme (MB) dispatche des que
-// source_numero_programme est renseigne - une fiche "nouveau" (bouton "+" du
-// Dashboard, cree a la volee sans passer par aucun programme) reste null et
-// n'a donc jamais de Fabrication independante a attendre en Conditionnement,
-// ni a passer par Salle de pesage/Salle de conditionnement, qui n'existent
-// que pour le flux Programme dispatche.
+// La ligne appartient a un vrai programme dispatche (Programme MB OU
+// Programme par ligne) des que source_numero_programme OU groupe_id est
+// renseigne - une fiche "nouveau" (bouton "+" du Dashboard, cree a la
+// volee sans passer par aucun programme, voir createManualEntryLigne) ne
+// met ni l'un ni l'autre et n'a donc jamais de Fabrication independante a
+// attendre en Conditionnement. Bug reel corrige : ne verifiait QUE
+// source_numero_programme (rempli uniquement par le flux Programme MB),
+// donc toute ligne dispatchee depuis "Programme par ligne" (groupe_id
+// rempli, source_numero_programme toujours null, ex: AA4264V) etait vue a
+// tort comme une fiche manuelle et sautait le blocage Fabrication.
 async function ligneVientDunPogramme(ligneId: number): Promise<boolean> {
   const { data, error } = await supabaseServer
     .from("programme_lignes")
-    .select("source_numero_programme")
+    .select("source_numero_programme, groupe_id")
     .eq("id", ligneId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return (data as { source_numero_programme: number | null } | null)?.source_numero_programme !== null;
+  const row = data as { source_numero_programme: number | null; groupe_id: number | null } | null;
+  return row?.source_numero_programme !== null || row?.groupe_id !== null;
 }
 
 async function fetchDepotBId(): Promise<number | null> {
