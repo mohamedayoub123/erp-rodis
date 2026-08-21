@@ -8,11 +8,15 @@ export function DeleteRowButton({
   conditionnementId,
   emballageId,
   rapportId,
+  ligneId,
+  code,
 }: {
   fabricationId?: number | null;
   conditionnementId?: number | null;
   emballageId?: number | null;
   rapportId?: number | null;
+  ligneId: number;
+  code: string;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
@@ -22,7 +26,14 @@ export function DeleteRowButton({
     setError("");
     startTransition(async () => {
       try {
-        await deleteSuiviProductionRowAction({ fabricationId, conditionnementId, emballageId, rapportId });
+        await deleteSuiviProductionRowAction({
+          fabricationId,
+          conditionnementId,
+          emballageId,
+          rapportId,
+          ligneId,
+          code,
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur pendant la suppression.");
       }

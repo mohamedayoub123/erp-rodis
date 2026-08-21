@@ -1192,6 +1192,8 @@ export default async function SuiviProductionListPage({
                                 conditionnementId={row.conditionnement?.entryId}
                                 emballageId={row.emballage?.entryId}
                                 rapportId={row.isGeneral ? row.generalRapportId : null}
+                                ligneId={row.ligne.id}
+                                code={row.displayCode}
                               />
                             ) : null}
                           </div>

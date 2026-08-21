@@ -271,11 +271,22 @@ async function upsertRapport(ligneId: number, code: string, fields: Record<strin
 // lui-meme qui est supprime. La suppression d'une entree retire aussi sa
 // quantite du "reste a faire" du Dashboard, qui se recalcule automatiquement
 // a partir de ces memes tables.
+//
+// Efface aussi les marqueurs "Besoin valide" (pesage/salle_conditionnement,
+// production_code_termine) et leurs reservations MP (production_mp_reserve)
+// pour ce meme (ligneId, code) - ces 2 tables n'ont AUCUNE autre page/bouton
+// pour les supprimer (voir Salle de pesage/conditionnement), donc sans ce
+// nettoyage ici, elles restaient bloquees pour toujours et empechaient la
+// suppression du Programme par ligne parent (bug reel signale : "PL181.2026
+// refuse de s'effacer" alors que fabrication/conditionnement/emballage/
+// rapport avaient deja tous ete supprimes un par un).
 export async function deleteSuiviProductionRowAction(targets: {
   fabricationId?: number | null;
   conditionnementId?: number | null;
   emballageId?: number | null;
   rapportId?: number | null;
+  ligneId: number;
+  code: string;
 }) {
   const currentUser = await getCurrentStockUser();
 
@@ -283,7 +294,7 @@ export async function deleteSuiviProductionRowAction(targets: {
     throw new Error("Cet utilisateur ne peut pas supprimer cette ligne.");
   }
 
-  const { fabricationId, conditionnementId, emballageId, rapportId } = targets;
+  const { fabricationId, conditionnementId, emballageId, rapportId, ligneId, code } = targets;
 
   if (!fabricationId && !conditionnementId && !emballageId && !rapportId) {
     throw new Error("Rien a supprimer.");
@@ -304,6 +315,10 @@ export async function deleteSuiviProductionRowAction(targets: {
     deletions.push(supabaseServer.from("production_rapports").delete().eq("id", rapportId));
   }
 
+  if (ligneId && code) {
+    deletions.push(deleteCodeTermineEtReserves(ligneId, code));
+  }
+
   const results = await Promise.all(deletions);
   const failed = results.find((result) => result.error);
 
@@ -313,6 +328,39 @@ export async function deleteSuiviProductionRowAction(targets: {
 
   revalidatePath("/production/suivi-production");
   revalidatePath("/production/suivi/dashboard");
+}
+
+// production_mp_reserve reference production_code_termine (pas
+// programme_lignes directement) - doit etre supprimee AVANT, sinon la
+// suppression de production_code_termine echoue sur la contrainte de cle
+// etrangere.
+async function deleteCodeTermineEtReserves(
+  ligneId: number,
+  code: string
+): Promise<{ error: { message: string } | null }> {
+  const { data: codeTermineRows, error: fetchError } = await supabaseServer
+    .from("production_code_termine")
+    .select("id")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .in("stage", ["pesage", "salle_conditionnement"]);
+
+  if (fetchError) return { error: fetchError };
+
+  const codeTermineIds = (codeTermineRows ?? []).map((row) => row.id);
+  if (codeTermineIds.length === 0) return { error: null };
+
+  const { error: reserveError } = await supabaseServer
+    .from("production_mp_reserve")
+    .delete()
+    .in("production_code_termine_id", codeTermineIds);
+  if (reserveError) return { error: reserveError };
+
+  const { error: codeTermineError } = await supabaseServer
+    .from("production_code_termine")
+    .delete()
+    .in("id", codeTermineIds);
+  return { error: codeTermineError };
 }
 
 // La zone/chaine appartient a la ligne de programme (programme_lignes), pas

@@ -1384,6 +1384,42 @@ export async function dispatchExistingProgrammeLigneGroupAction(formData: FormDa
   redirect("/ravitailleur-par-ligne");
 }
 
+// Verifie qu'aucune tracabilite de production ne reste liee au groupe
+// avant de le supprimer - sans ca, l'erreur brute Postgres (contrainte de
+// cle etrangere) ne dit jamais QUOI supprimer d'abord (bug reel signale :
+// "PL181.2026 refuse de s'effacer" sans aucune indication de la cause).
+// Chaque table listee ici doit deja etre vide pour que le delete final
+// reussisse - production_rapports/vrac_entries/carton_entries/
+// emballage_entries se suppriment depuis "Suivi Production" (bouton
+// Supprimer sur chaque ligne, qui nettoie aussi production_code_termine/
+// production_mp_reserve depuis peu, voir deleteSuiviProductionRowAction).
+async function messageSiTracabiliteRestante(ligneIds: number[]): Promise<string | null> {
+  const checks: { table: string; label: string }[] = [
+    { table: "production_rapports", label: "rapport(s) de production" },
+    { table: "production_vrac_entries", label: "entree(s) vrac (Fabrication)" },
+    { table: "production_carton_entries", label: "entree(s) carton (Conditionnement)" },
+    { table: "production_emballage_entries", label: "entree(s) Emballage" },
+    { table: "production_code_termine", label: "marqueur(s) Besoin valide (pesage/salle de conditionnement)" },
+  ];
+
+  const restants: string[] = [];
+
+  for (const { table, label } of checks) {
+    const { count, error } = await supabaseServer
+      .from(table)
+      .select("id", { count: "exact", head: true })
+      .in("programme_ligne_id", ligneIds);
+    if (error) throw new Error(error.message);
+    if (count && count > 0) {
+      restants.push(`${count} ${label}`);
+    }
+  }
+
+  if (restants.length === 0) return null;
+
+  return `Impossible de supprimer - il reste encore : ${restants.join(", ")}. Supprime d'abord chaque ligne concernee depuis "Suivi Production".`;
+}
+
 export async function deleteProgrammeLigneGroupAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
@@ -1397,10 +1433,26 @@ export async function deleteProgrammeLigneGroupAction(formData: FormData) {
     throw new Error("Groupe invalide.");
   }
 
-  const { error } = await supabaseServer
+  const { data: ligneRows, error: fetchError } = await supabaseServer
     .from("programme_lignes")
-    .delete()
+    .select("id")
     .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`);
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  const ligneIds = (ligneRows ?? []).map((row) => row.id);
+  if (ligneIds.length === 0) {
+    throw new Error("Groupe introuvable.");
+  }
+
+  const messageBlocage = await messageSiTracabiliteRestante(ligneIds);
+  if (messageBlocage) {
+    throw new Error(messageBlocage);
+  }
+
+  const { error } = await supabaseServer.from("programme_lignes").delete().in("id", ligneIds);
 
   if (error) {
     throw new Error(error.message);
