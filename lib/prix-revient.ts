@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { fetchLotsInDepot, allocateFefo } from "@/app/depots/transfer-order/stock-lots";
+import { convertirEnFcfa } from "@/lib/prix-devise";
 
 export type CoutMpInfo = {
   coutFcfa: number; // cout TOTAL pour la quantite demandee (pas un prix unitaire)
@@ -96,6 +97,79 @@ export function flattenLotsUtilises(couts: Map<number, CoutMpInfo>): LotUtiliseI
     }
   }
   return flat;
+}
+
+// Prix REEL d'un lot MP precis, tire de sa ligne d'ENTREE (la reception qui
+// l'a cree) - jamais une estimation FEFO, puisqu'on connait deja EXACTEMENT
+// quel lot a physiquement servi (via une reservation production_mp_reserve
+// existante). Retourne null si ce lot precis n'a aucun prix connu.
+async function resoudrePrixLotConnu(articleMpId: number, numeroLot: string): Promise<number | null> {
+  const { data } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .select("prix_unitaire, devise, taux_change")
+    .eq("article_id", articleMpId)
+    .eq("numero_lot", numeroLot)
+    .gt("qte_entree", 0)
+    .not("prix_unitaire", "is", null)
+    .limit(1)
+    .maybeSingle();
+  const row = data as { prix_unitaire: number | null; devise: string | null; taux_change: number | null } | null;
+  if (!row || row.prix_unitaire == null) return null;
+  return convertirEnFcfa(row.prix_unitaire, row.devise, row.taux_change);
+}
+
+export type CoutReserveInfo = { coutFcfa: number; lotsUtilises: LotUtiliseInfo[]; lignesSansPrix: number[] };
+
+// Cout REEL d'une production a partir des lots EFFECTIVEMENT reserves/tires
+// pour elle (production_mp_reserve garde une trace exacte lot par lot,
+// quantite_initiale ne bouge jamais meme apres consommation complete).
+// Contrairement a fetchCoutsReelsMpDepotB (qui devine par FEFO sur le stock
+// ACTUEL), ceci retrouve le VRAI lot utilise a l'epoque, meme si ce lot est
+// aujourd'hui epuise ou remplace dans l'ordre FEFO - demande explicite :
+// "AA4263 a deja tout ca (les vrais lots), il faut qu'il prenne ca", plutot
+// qu'une approximation recalculee. Retourne null si aucune reservation
+// tracee n'existe pour cette production (systeme trop ancien, avant la mise
+// en place du suivi par lot) - dans ce cas l'appelant doit se rabattre sur
+// une autre methode ou ignorer l'ecriture, jamais inventer un cout.
+export async function fetchCoutReelDepuisReservation(
+  productionCodeTermineId: number
+): Promise<CoutReserveInfo | null> {
+  const { data } = await supabaseServer
+    .from("production_mp_reserve")
+    .select("article_mp_id, numero_lot, quantite_initiale, quantite")
+    .eq("production_code_termine_id", productionCodeTermineId);
+  const reserves = (data ?? []) as {
+    article_mp_id: number;
+    numero_lot: string | null;
+    quantite_initiale: number;
+    quantite: number;
+  }[];
+  if (reserves.length === 0) return null;
+
+  let coutFcfa = 0;
+  const lotsUtilises: LotUtiliseInfo[] = [];
+  const lignesSansPrix: number[] = [];
+
+  for (const reserve of reserves) {
+    const consomme = Math.max(0, reserve.quantite_initiale - reserve.quantite);
+    if (consomme <= 1e-9 || !reserve.numero_lot) continue;
+
+    const prixUnitaireFcfa = await resoudrePrixLotConnu(reserve.article_mp_id, reserve.numero_lot);
+    if (prixUnitaireFcfa === null) {
+      lignesSansPrix.push(reserve.article_mp_id);
+      continue;
+    }
+
+    coutFcfa += consomme * prixUnitaireFcfa;
+    lotsUtilises.push({
+      articleMpId: reserve.article_mp_id,
+      numeroLot: reserve.numero_lot,
+      quantite: consomme,
+      prixUnitaireFcfa,
+    });
+  }
+
+  return { coutFcfa, lotsUtilises, lignesSansPrix };
 }
 
 export function computeRecetteCost(

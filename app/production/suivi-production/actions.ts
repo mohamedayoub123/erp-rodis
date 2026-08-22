@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { resolveVracArticleId } from "@/lib/vrac-article";
-import { fetchCoutVracParKg } from "@/lib/prix-revient";
+import { fetchCoutReelDepuisReservation, fetchCoutVracParKg } from "@/lib/prix-revient";
 import {
   COMPTE_EN_COURS_PRODUCTION,
   COMPTE_STOCK_MP,
@@ -614,7 +614,8 @@ export async function saveConditionnementRapportAction(formData: FormData) {
 export async function recalculerEcritureFabricationVrac(
   ligneId: number,
   code: string,
-  currentUser: string | null
+  currentUser: string | null,
+  options?: { requireTrace?: boolean }
 ): Promise<void> {
   const sourceId = `${ligneId}-${code}`;
   await supprimerEcriturePourSource("fabrication_vrac", sourceId);
@@ -640,10 +641,38 @@ export async function recalculerEcritureFabricationVrac(
   const vracArticleId = articleId ? await resolveVracArticleId(articleId) : null;
   if (!vracArticleId) return;
 
-  const coutVrac = await fetchCoutVracParKg(vracArticleId, vracFabrique);
-  if (coutVrac.coutParKg === null) return;
+  // Prefere le cout REEL des lots effectivement reserves/consommes pour ce
+  // (ligneId, code) en salle de pesage (production_mp_reserve garde la trace
+  // exacte, meme si ces lots sont aujourd'hui epuises) - ne se rabat sur une
+  // estimation FEFO du stock actuel que si aucune reservation n'a jamais
+  // existe pour cette production (systeme trop ancien).
+  const { data: codeTermineData } = await supabaseServer
+    .from("production_code_termine")
+    .select("id")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", "pesage")
+    .maybeSingle();
+  const codeTermine = codeTermineData as { id: number } | null;
+  const coutReel = codeTermine ? await fetchCoutReelDepuisReservation(codeTermine.id) : null;
 
-  const montant = coutVrac.coutTotal;
+  let montant: number;
+  let lotsAEnregistrer;
+  if (coutReel && coutReel.lotsUtilises.length > 0) {
+    montant = coutReel.coutFcfa;
+    lotsAEnregistrer = coutReel.lotsUtilises;
+  } else {
+    // Aucune reservation tracee (systeme trop ancien) : le mode strict
+    // (utilise par le rattrapage historique) refuse d'inventer un cout
+    // approximatif plutot que d'estimer via FEFO sur le stock actuel.
+    if (options?.requireTrace) return;
+    const coutVrac = await fetchCoutVracParKg(vracArticleId, vracFabrique);
+    if (coutVrac.coutParKg === null) return;
+    montant = coutVrac.coutTotal;
+    lotsAEnregistrer = coutVrac.lotsUtilises;
+  }
+  if (montant <= 0) return;
+
   const ecritureId = await creerEcriture({
     dateEcriture: rapport?.date_fabrication_conditionnement || new Date().toISOString().slice(0, 10),
     pieceReference: code,
@@ -656,7 +685,7 @@ export async function recalculerEcritureFabricationVrac(
       { compteCode: COMPTE_STOCK_MP, debit: 0, credit: montant },
     ],
   });
-  await enregistrerLotsUtilisesPourEcriture(ecritureId, coutVrac.lotsUtilises);
+  await enregistrerLotsUtilisesPourEcriture(ecritureId, lotsAEnregistrer);
 }
 
 export async function saveFabricationRapportAction(formData: FormData) {

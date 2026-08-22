@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
+import { fetchCoutReelDepuisReservation, fetchCoutsParCartonProduitsFinis, type LotUtiliseInfo } from "@/lib/prix-revient";
 import {
   COMPTE_EN_COURS_PRODUCTION,
   COMPTE_STOCK_PRODUIT_FINI,
@@ -21,7 +21,8 @@ import {
 export async function recalculerEcritureEntreeProduction(
   groupeId: number,
   articleId: number,
-  currentUser: string | null
+  currentUser: string | null,
+  options?: { requireTrace?: boolean }
 ): Promise<void> {
   const sourceId = `${groupeId}-${articleId}`;
   await supprimerEcriturePourSource("entree_production", sourceId);
@@ -38,16 +39,79 @@ export async function recalculerEcritureEntreeProduction(
   if (quantite <= 0) return;
   const lotsLabels = [...new Set(lots.map((l) => l.numero_lot).filter(Boolean))].join(", ");
 
-  const [couts, { data: articleData }] = await Promise.all([
-    fetchCoutsParCartonProduitsFinis([articleId], new Map([[articleId, quantite]])),
-    supabaseServer.from("articles").select("nom_article").eq("id", articleId).maybeSingle(),
-  ]);
+  const { data: articleData } = await supabaseServer
+    .from("articles")
+    .select("nom_article")
+    .eq("id", articleId)
+    .maybeSingle();
   const nomArticle = (articleData as { nom_article: string } | null)?.nom_article ?? `#${articleId}`;
 
-  const coutInfo = couts.get(articleId);
-  if (!coutInfo || coutInfo.coutParCarton === null) return;
+  // Prefere le cout REEL des lots effectivement reserves/consommes pour ce
+  // code (emballage en salle de conditionnement + vrac fabrique en salle de
+  // pesage) - meme principe que recalculerEcritureFabricationVrac : trace
+  // exacte via production_mp_reserve, jamais une estimation FEFO recalculee
+  // sur le stock actuel, des que cette trace existe pour TOUS les codes de
+  // ce groupe. Le "code" ici est celui tape a l'ecran Entree Production
+  // (lots_stock.numero_lot), le meme code de dispatch que
+  // production_code_termine dans le cas normal (non renomme depuis).
+  const codesUtilises = [...new Set(lots.map((l) => l.numero_lot).filter(Boolean))] as string[];
+  let coutReelTotal = 0;
+  let lotsReelUtilises: LotUtiliseInfo[] = [];
+  let coutReelDisponible = codesUtilises.length > 0;
 
-  const montant = coutInfo.coutParCarton * quantite;
+  for (const code of codesUtilises) {
+    const { data: termineData } = await supabaseServer
+      .from("production_code_termine")
+      .select("id, programme_ligne_id")
+      .eq("code", code)
+      .eq("stage", "salle_conditionnement")
+      .maybeSingle();
+    const termine = termineData as { id: number; programme_ligne_id: number } | null;
+    if (!termine) {
+      coutReelDisponible = false;
+      break;
+    }
+
+    const [coutConditionnement, pesageTermineData] = await Promise.all([
+      fetchCoutReelDepuisReservation(termine.id),
+      supabaseServer
+        .from("production_code_termine")
+        .select("id")
+        .eq("programme_ligne_id", termine.programme_ligne_id)
+        .eq("code", code)
+        .eq("stage", "pesage")
+        .maybeSingle(),
+    ]);
+    const pesage = (pesageTermineData.data as { id: number } | null) ?? null;
+    const coutVrac = pesage ? await fetchCoutReelDepuisReservation(pesage.id) : null;
+
+    if (!coutConditionnement && !coutVrac) {
+      coutReelDisponible = false;
+      break;
+    }
+
+    coutReelTotal += (coutConditionnement?.coutFcfa ?? 0) + (coutVrac?.coutFcfa ?? 0);
+    lotsReelUtilises = lotsReelUtilises.concat(coutConditionnement?.lotsUtilises ?? [], coutVrac?.lotsUtilises ?? []);
+  }
+
+  let montant: number;
+  let lotsAEnregistrer: LotUtiliseInfo[];
+  if (coutReelDisponible && lotsReelUtilises.length > 0) {
+    montant = coutReelTotal;
+    lotsAEnregistrer = lotsReelUtilises;
+  } else {
+    // Aucune reservation tracee pour un des codes (systeme trop ancien) : le
+    // mode strict (rattrapage historique) refuse d'inventer un cout
+    // approximatif plutot que d'estimer via FEFO sur le stock actuel.
+    if (options?.requireTrace) return;
+    const couts = await fetchCoutsParCartonProduitsFinis([articleId], new Map([[articleId, quantite]]));
+    const coutInfo = couts.get(articleId);
+    if (!coutInfo || coutInfo.coutParCarton === null) return;
+    montant = coutInfo.coutParCarton * quantite;
+    lotsAEnregistrer = coutInfo.lotsUtilises;
+  }
+  if (montant <= 0) return;
+
   const ecritureId = await creerEcriture({
     dateEcriture: new Date().toISOString().slice(0, 10),
     pieceReference: String(groupeId),
@@ -60,7 +124,7 @@ export async function recalculerEcritureEntreeProduction(
       { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: 0, credit: montant },
     ],
   });
-  await enregistrerLotsUtilisesPourEcriture(ecritureId, coutInfo.lotsUtilises);
+  await enregistrerLotsUtilisesPourEcriture(ecritureId, lotsAEnregistrer);
 }
 
 // Cree une entree stock produit fini a partir d'un groupe d'entrees
