@@ -23,9 +23,9 @@ const TILES = [
   },
   {
     label: "Historique Matiere Utilisee",
-    href: "/historique-matiere-utilisee",
+    href: "/production-plastique/historique-matiere",
     icon: "\u{1F9EE}",
-    description: "Par programme : quelle resine/colorant, quelle quantite, quel lot et quel prix.",
+    description: "Par code : quelle resine/colorant, quelle quantite, quel lot et quel prix.",
   },
 ] as const;
 

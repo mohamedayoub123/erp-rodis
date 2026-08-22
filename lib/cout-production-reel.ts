@@ -1,5 +1,10 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { fetchCoutsReelsMpDepotB, computeRecetteCost, fetchCoutVracParKg } from "@/lib/prix-revient";
+import {
+  fetchCoutsReelsMpDepotB,
+  computeRecetteCost,
+  fetchCoutVracParKg,
+  fetchCoutReelDepuisReservation,
+} from "@/lib/prix-revient";
 import { resolveVracArticleId } from "@/lib/vrac-article";
 import { normalizeMachineName } from "@/lib/machine-match";
 import { hhmmDiffMinutes, ddmmHhmmDiffMinutes } from "@/lib/suivi-tirage-time";
@@ -239,6 +244,60 @@ async function fetchCartonEntriesTemps(ligneIds?: number[]): Promise<CartonEntry
   }
 
   return rows;
+}
+
+// Cout REEL trace (production_mp_reserve, jamais une estimation FEFO sur une
+// recette theorique) pour chaque code de la periode, a un stage precis
+// (pesage = matiere du vrac fabrique, salle_conditionnement = matiere de
+// conditionnement) - demande explicite : Cout Reel affichait un cout
+// FEFO/recette theorique qui pouvait diverger fortement du vrai cout trace
+// (cas reel AA4251 : vrac FEFO 3 351 450 FCFA affiche, alors que le vrai
+// trace par code vaut 4 950 000 FCFA - BASE BEAUTY PINK/LANETTE SX/ACIDE
+// CITRIQUE ont tous un prix connu sur le lot reellement reserve). Chaque
+// code sans trace disponible (systeme trop ancien) reste a la charge de
+// l'appelant, qui doit se rabattre sur l'estimation FEFO pour SA seule
+// quantite, jamais inventer un chiffre pour la partie tracee.
+async function fetchCoutReelTraceParStage(
+  entries: { programme_ligne_id: number; code: string; quantite: number }[],
+  stage: "pesage" | "salle_conditionnement"
+): Promise<{ coutTotal: number; quantiteTracee: number; quantiteNonTracee: number; certainesSansPrix: boolean }> {
+  const quantiteParCode = new Map<string, number>();
+  for (const e of entries) {
+    const key = `${e.programme_ligne_id}::${e.code}`;
+    quantiteParCode.set(key, (quantiteParCode.get(key) ?? 0) + Number(e.quantite ?? 0));
+  }
+
+  let coutTotal = 0;
+  let quantiteTracee = 0;
+  let certainesSansPrix = false;
+
+  for (const [key, quantite] of quantiteParCode.entries()) {
+    const [ligneIdStr, code] = key.split("::");
+    const { data: termineData } = await supabaseServer
+      .from("production_code_termine")
+      .select("id")
+      .eq("programme_ligne_id", Number(ligneIdStr))
+      .eq("code", code)
+      .eq("stage", stage)
+      .maybeSingle();
+    const termine = termineData as { id: number } | null;
+    if (!termine) continue;
+
+    const info = await fetchCoutReelDepuisReservation(termine.id);
+    if (!info || info.lotsUtilises.length === 0) continue;
+
+    coutTotal += info.coutFcfa;
+    quantiteTracee += quantite;
+    if (info.lignesSansPrix.length > 0) certainesSansPrix = true;
+  }
+
+  const quantiteTotale = [...quantiteParCode.values()].reduce((sum, q) => sum + q, 0);
+  return {
+    coutTotal,
+    quantiteTracee,
+    quantiteNonTracee: Math.max(0, quantiteTotale - quantiteTracee),
+    certainesSansPrix,
+  };
 }
 
 async function fetchArticle(articleId: number): Promise<ArticleRow | null> {
@@ -765,33 +824,62 @@ export async function computeCoutReelArticle(
   let coutConditionnementReel: number | null = null;
   let coutParUnite: number | null = null;
 
+  const entriesPourTrace = entries.map((e) => ({
+    programme_ligne_id: e.programme_ligne_id,
+    code: e.code,
+    quantite: Number(e.quantite ?? 0),
+  }));
+
   if (nature === "vrac") {
+    const trace = await fetchCoutReelTraceParStage(entriesPourTrace, "pesage");
+
     const { qtRecupereTotal, coutTransfereTotal, incertaines: incertainesRecup } =
       await computeCoutTransfereRecuperation(rapportsPertinents, articleId);
     lignesIncertaines.push(...incertainesRecup);
 
-    const quantiteFraiche = Math.max(0, quantiteTotaleProduite - qtRecupereTotal);
-    const coutVrac = await fetchCoutVracParKg(articleId, quantiteFraiche);
-    const coutVracFrais = coutVrac.coutParKg !== null ? coutVrac.coutParKg * quantiteFraiche : null;
-    coutVracReel = coutVracFrais !== null || coutTransfereTotal > 0 ? (coutVracFrais ?? 0) + coutTransfereTotal : null;
-    coutParUnite = coutVracReel !== null && quantiteTotaleProduite > 0 ? coutVracReel / quantiteTotaleProduite : null;
-    if (coutVrac.coutParKg === null) {
-      lignesIncertaines.push({ ligneId: 0, code: "", motifs: ["Cout par kg du vrac inconnu (aucun lot MP avec un prix connu pour cette recette)."] });
-    }
-  } else {
-    const vracArticleId = await resolveVracArticleId(articleId);
-    const { coutConditionnementParCarton, qtVracParCarton, lignesSansPrixConditionnement } =
-      await fetchRatiosConditionnement(article, quantiteTotaleProduite);
+    // La partie non tracee (systeme trop ancien, aucune reservation
+    // retrouvee) se rabat sur l'estimation FEFO - jamais la partie deja
+    // tracee, qui reste au vrai cout retrouve par code.
+    const quantiteFraiche = Math.max(0, trace.quantiteNonTracee - qtRecupereTotal);
+    const coutVrac = trace.quantiteNonTracee > 0 ? await fetchCoutVracParKg(articleId, quantiteFraiche) : { coutParKg: null };
+    const coutVracFallback = coutVrac.coutParKg !== null ? coutVrac.coutParKg * quantiteFraiche : null;
 
-    coutConditionnementReel =
-      coutConditionnementParCarton !== null ? coutConditionnementParCarton * quantiteTotaleProduite : null;
-    if (coutConditionnementParCarton === null) {
+    coutVracReel =
+      trace.quantiteTracee > 0 || coutVracFallback !== null || coutTransfereTotal > 0
+        ? trace.coutTotal + (coutVracFallback ?? 0) + coutTransfereTotal
+        : null;
+    coutParUnite = coutVracReel !== null && quantiteTotaleProduite > 0 ? coutVracReel / quantiteTotaleProduite : null;
+    if (trace.quantiteNonTracee > 0 && coutVrac.coutParKg === null) {
       lignesIncertaines.push({
         ligneId: 0,
         code: "",
-        motifs: ["Cout de conditionnement inconnu (quantite_recette_base non renseignee)."],
+        motifs: ["Cout par kg du vrac inconnu pour une partie non tracee (aucun lot MP avec un prix connu pour cette recette)."],
       });
-    } else if (lignesSansPrixConditionnement) {
+    }
+    if (trace.certainesSansPrix) {
+      lignesIncertaines.push({ ligneId: 0, code: "", motifs: ["Certaines matieres tracees n'ont pas de prix connu - cout partiel."] });
+    }
+  } else {
+    const vracArticleId = await resolveVracArticleId(articleId);
+    const traceConditionnement = await fetchCoutReelTraceParStage(entriesPourTrace, "salle_conditionnement");
+    const { coutConditionnementParCarton, qtVracParCarton, lignesSansPrixConditionnement } =
+      await fetchRatiosConditionnement(article, quantiteTotaleProduite);
+
+    const coutConditionnementFallback =
+      traceConditionnement.quantiteNonTracee > 0 && coutConditionnementParCarton !== null
+        ? coutConditionnementParCarton * traceConditionnement.quantiteNonTracee
+        : null;
+    coutConditionnementReel =
+      traceConditionnement.quantiteTracee > 0 || coutConditionnementFallback !== null
+        ? traceConditionnement.coutTotal + (coutConditionnementFallback ?? 0)
+        : null;
+    if (traceConditionnement.quantiteNonTracee > 0 && coutConditionnementParCarton === null) {
+      lignesIncertaines.push({
+        ligneId: 0,
+        code: "",
+        motifs: ["Cout de conditionnement inconnu pour une partie non tracee (quantite_recette_base non renseignee)."],
+      });
+    } else if (lignesSansPrixConditionnement || traceConditionnement.certainesSansPrix) {
       lignesIncertaines.push({
         ligneId: 0,
         code: "",
@@ -801,8 +889,7 @@ export async function computeCoutReelArticle(
 
     let coutVracParCarton: number | null = null;
     if (vracArticleId) {
-      const qtVracReelleNecessaireBrute =
-        qtVracParCarton !== null ? qtVracParCarton * quantiteTotaleProduite : undefined;
+      const traceVracPrecurseur = await fetchCoutReelTraceParStage(entriesPourTrace, "pesage");
 
       // Vrac recupere reutilise (voir computeCoutTransfereRecuperation) :
       // n'est jamais de la MP neuve pour CE code, deduit de la quantite a
@@ -812,26 +899,37 @@ export async function computeCoutReelArticle(
         await computeCoutTransfereRecuperation(rapportsPertinents, vracArticleId);
       lignesIncertaines.push(...incertainesRecup);
 
+      // Seule la portion NON tracee (par code) a besoin d'une estimation FEFO
+      // - convertie en kg de vrac via le meme ratio theorique que la
+      // recette, applique uniquement au nombre de cartons non traces.
+      const qtVracFallbackBrute =
+        qtVracParCarton !== null ? qtVracParCarton * traceVracPrecurseur.quantiteNonTracee : undefined;
       const qtVracReelleNecessaire =
-        qtVracReelleNecessaireBrute !== undefined
-          ? Math.max(0, qtVracReelleNecessaireBrute - qtRecupereTotal)
-          : undefined;
+        qtVracFallbackBrute !== undefined ? Math.max(0, qtVracFallbackBrute - qtRecupereTotal) : undefined;
 
-      const coutVrac = await fetchCoutVracParKg(vracArticleId, qtVracReelleNecessaire);
-      const coutVracFrais =
+      const coutVrac =
+        traceVracPrecurseur.quantiteNonTracee > 0
+          ? await fetchCoutVracParKg(vracArticleId, qtVracReelleNecessaire)
+          : { coutParKg: null };
+      const coutVracFallback =
         coutVrac.coutParKg !== null && qtVracReelleNecessaire !== undefined
           ? coutVrac.coutParKg * qtVracReelleNecessaire
           : null;
       coutVracReel =
-        coutVracFrais !== null || coutTransfereTotal > 0 ? (coutVracFrais ?? 0) + coutTransfereTotal : null;
+        traceVracPrecurseur.quantiteTracee > 0 || coutVracFallback !== null || coutTransfereTotal > 0
+          ? traceVracPrecurseur.coutTotal + (coutVracFallback ?? 0) + coutTransfereTotal
+          : null;
       coutVracParCarton =
         coutVracReel !== null && quantiteTotaleProduite > 0 ? coutVracReel / quantiteTotaleProduite : null;
-      if (coutVrac.coutParKg === null || qtVracParCarton === null) {
+      if (traceVracPrecurseur.quantiteNonTracee > 0 && (coutVrac.coutParKg === null || qtVracParCarton === null)) {
         lignesIncertaines.push({
           ligneId: 0,
           code: "",
-          motifs: ["Cout du vrac utilise inconnu (prix MP ou quantite de vrac necessaire manquants)."],
+          motifs: ["Cout du vrac utilise inconnu pour une partie non tracee (prix MP ou quantite de vrac necessaire manquants)."],
         });
+      }
+      if (traceVracPrecurseur.certainesSansPrix) {
+        lignesIncertaines.push({ ligneId: 0, code: "", motifs: ["Certaines matieres du vrac tracees n'ont pas de prix connu - cout partiel."] });
       }
     }
 
