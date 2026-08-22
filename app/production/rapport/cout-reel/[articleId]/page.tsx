@@ -18,12 +18,6 @@ function monthLabel(monthKey: string) {
   return `${MOIS_NOMS[(month || 1) - 1]} ${year}`;
 }
 
-function currentMonthRange() {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1);
-  return { fromIso: from.toISOString().slice(0, 10), toIso: now.toISOString().slice(0, 10) };
-}
-
 function formatFcfa(value: number | null) {
   if (value === null) return "-";
   return `${value.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`;
@@ -100,10 +94,11 @@ export default async function CoutReelArticlePage({
   const sp = await searchParams;
   const monthsParam = sp.months;
   const selectedMonths = Array.isArray(monthsParam) ? monthsParam : monthsParam ? [monthsParam] : [];
-  const hasAnyFilter = Boolean(sp.date_from || sp.date_to || selectedMonths.length > 0);
-  const defaultRange = currentMonthRange();
-  const dateFrom = (sp.date_from || (hasAnyFilter ? "" : defaultRange.fromIso)).trim();
-  const dateTo = (sp.date_to || (hasAnyFilter ? "" : defaultRange.toIso)).trim();
+  // Sans filtre explicite : tout l'historique (jamais restreint au mois en
+  // cours par defaut) - demande explicite, voir un lot deja fabrique ne
+  // devrait jamais dependre d'avoir pense a cocher le bon mois.
+  const dateFrom = (sp.date_from || "").trim();
+  const dateTo = (sp.date_to || "").trim();
 
   const ligneIds = await fetchProgrammeLigneIds(articleIdNumber);
   const entriesAll = nature === "vrac" ? await fetchAllVracEntries(ligneIds) : await fetchAllCartonEntries(ligneIds);
