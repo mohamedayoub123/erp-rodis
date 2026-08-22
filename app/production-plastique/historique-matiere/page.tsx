@@ -2,6 +2,9 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { DeleteGroupButton } from "@/app/historique-programme/delete-group-button";
+import { deleteProgrammePlastiqueGroupAction } from "../actions";
 
 type SearchParams = Promise<{ code?: string }>;
 
@@ -218,6 +221,9 @@ export default async function HistoriqueMatierePlastiquePage({ searchParams }: {
   const params = await searchParams;
   const code = (params.code || "").trim().toUpperCase();
 
+  const currentUser = await getCurrentStockUser();
+  const canDelete = await canWritePageUser(currentUser, "productionPlastique");
+
   const batches = await fetchHistoriquePlastique(code);
   const batchesAffiches = code ? batches : batches.slice(0, 20);
 
@@ -276,6 +282,11 @@ export default async function HistoriqueMatierePlastiquePage({ searchParams }: {
                   </summary>
 
                   <div className="mt-3 space-y-4">
+                    {canDelete ? (
+                      <div className="flex justify-end">
+                        <DeleteGroupButton groupeId={batch.groupeId} deleteAction={deleteProgrammePlastiqueGroupAction} />
+                      </div>
+                    ) : null}
                     {batch.produits.map((produit) => (
                       <div key={`${produit.articleId}-${produit.numeroLot}`}>
                         <p className="text-sm font-semibold text-slate-700">

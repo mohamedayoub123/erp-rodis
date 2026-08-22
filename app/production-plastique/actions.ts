@@ -9,7 +9,7 @@ import {
   DEPOT_PLASTIQUE_SOURCE_DEFAULT,
   type RecettePlastiqueLigne,
 } from "./shared";
-import { createTransferOrder } from "@/app/depots/transfer-order/actions";
+import { createTransferOrder, deleteTransferOrder } from "@/app/depots/transfer-order/actions";
 import { fetchLotsInDepot, allocateFefo, totalAvailable } from "@/app/depots/transfer-order/stock-lots";
 
 async function requireWriteAccess() {
@@ -456,6 +456,56 @@ export async function saveProgrammePlastiqueAction(
     return {
       ok: false,
       message: error instanceof Error ? error.message : "Erreur pendant l'enregistrement du programme.",
+    };
+  }
+}
+
+// Supprime un programme plastique complet (matiere consommee + article
+// produit + le Transfer Order cree avec) - demande explicite : "si je efface
+// il faut que sa part", plutot que de laisser un residu de consommation sans
+// son entree source (voir PP RANDOM SOUFLAGE lot 6, negatif apres suppression
+// manuelle d'un import cote MP, jamais via ce bouton). Bloque si le Transfer
+// Invoice a deja ete valide (stock deja arrive au depot destination) - voir
+// deleteTransferOrder.
+export async function deleteProgrammePlastiqueGroupAction(
+  formData: FormData
+): Promise<{ ok: boolean; message?: string }> {
+  await requireWriteAccess();
+
+  const groupeId = Number(formData.get("groupe_id") || "0");
+  if (!groupeId) {
+    return { ok: false, message: "Groupe invalide." };
+  }
+
+  try {
+    const { data: transferOrder } = await supabaseServer
+      .from("transfer_orders")
+      .select("id")
+      .eq("remarque", `Programme plastique #${groupeId}`)
+      .maybeSingle();
+
+    if (transferOrder) {
+      await deleteTransferOrder((transferOrder as { id: number }).id);
+    }
+
+    const { error } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .delete()
+      .eq("mouvement_groupe_id", groupeId);
+    if (error) {
+      return { ok: false, message: error.message };
+    }
+
+    revalidatePath("/production-plastique/historique-matiere");
+    revalidatePath("/stock/matiere-premiere/stock");
+    revalidatePath("/mouvements/matiere-premiere");
+    revalidatePath("/depots/transfer-order");
+
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Erreur pendant la suppression du programme.",
     };
   }
 }

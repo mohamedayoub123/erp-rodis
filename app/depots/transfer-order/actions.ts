@@ -692,18 +692,14 @@ export async function postToInvoiceOrderAction(formData: FormData) {
 // l'annuler. Avant validation (pas encore poste, ou poste mais Transfer
 // Invoice encore en draft), rien n'a touche au stock : suppression sure,
 // avec ses lignes/lots et son eventuel Transfer Invoice draft associe.
-export async function deleteTransferOrderAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
-
-  if (!(await canDeletePageUser(currentUser, "depots"))) {
-    throw new Error("Cet utilisateur ne peut pas supprimer de Transfer Order.");
-  }
-
-  const transferOrderId = Number(formData.get("transfer_order_id") || "0");
-  if (!transferOrderId) {
-    throw new Error("Transfer Order invalide.");
-  }
-
+// Coeur de la suppression, sans permission ni redirect - reutilise par
+// deleteTransferOrderAction (UI normale, verifie "depots") ET par tout appel
+// interne qui a deja verifie sa propre permission ailleurs (ex: suppression
+// d'un programme plastique complet, qui supprime son Transfer Order sous la
+// permission "productionPlastique"). Bloque si un Transfer Invoice lie a
+// deja ete valide (le stock a physiquement bouge, plus question de
+// supprimer silencieusement).
+export async function deleteTransferOrder(transferOrderId: number): Promise<void> {
   const { data: invoiceOrdersData, error: invoiceOrdersError } = await supabaseServer
     .from("invoice_orders")
     .select("id, statut")
@@ -767,6 +763,21 @@ export async function deleteTransferOrderAction(formData: FormData) {
   if (deleteTransferOrderError) {
     throw new Error(deleteTransferOrderError.message);
   }
+}
+
+export async function deleteTransferOrderAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canDeletePageUser(currentUser, "depots"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer de Transfer Order.");
+  }
+
+  const transferOrderId = Number(formData.get("transfer_order_id") || "0");
+  if (!transferOrderId) {
+    throw new Error("Transfer Order invalide.");
+  }
+
+  await deleteTransferOrder(transferOrderId);
 
   revalidatePath("/depots/transfer-order");
   revalidatePath("/depots/invoice-order");
