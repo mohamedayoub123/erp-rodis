@@ -35,6 +35,14 @@ const mainButtons = [
     pageKey: "productionHub" as const,
   },
   {
+    label: "Production Plastique",
+    href: "/production-plastique",
+    icon: "\u{267B}\u{FE0F}",
+    accent: "from-teal-500 to-emerald-400",
+    panel: "bg-teal-50 text-teal-950 border-teal-200",
+    pageKey: "productionPlastique" as const,
+  },
+  {
     label: "Produit",
     href: "/produit",
     icon: "\u{1F4E6}",
