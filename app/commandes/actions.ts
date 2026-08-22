@@ -1584,6 +1584,15 @@ export async function deleteCommandeAction(formData: FormData) {
     throw new Error(error.message);
   }
 
+  // Sans ca, les ecritures Vente (Debit Client/Credit Ventes) et Cout de
+  // vente (Debit Variation stock PF/Credit Stock PF) creees a la livraison
+  // restaient dans le Journal apres suppression de leur commande source -
+  // meme correctif que Fabrication/Conditionnement/Entree production (voir
+  // deleteSuiviProductionRowAction).
+  const sourceIdVente = `${commandeId}`;
+  await supprimerEcriturePourSource("commande_vente", sourceIdVente);
+  await supprimerEcriturePourSource("commande_cout_vente", sourceIdVente);
+
   await logAudit({
     utilisateur: await getCurrentStockUser(),
     module: "Commandes",
@@ -1649,6 +1658,9 @@ export async function deleteCommandeTruckAction(formData: FormData) {
     throw new Error(error.message);
   }
 
+  await supprimerEcriturePourSource("commande_vente", `${commandeId}`);
+  await supprimerEcriturePourSource("commande_cout_vente", `${commandeId}`);
+
   await logAudit({
     utilisateur: await getCurrentStockUser(),
     module: "Commandes",
@@ -1695,6 +1707,11 @@ export async function deleteProformaGroupAction(formData: FormData) {
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  for (const row of groupeAvantSuppression ?? []) {
+    await supprimerEcriturePourSource("commande_vente", `${row.id}`);
+    await supprimerEcriturePourSource("commande_cout_vente", `${row.id}`);
   }
 
   const nombreCamions = groupeAvantSuppression?.length ?? 0;

@@ -10,8 +10,8 @@ import { stockKey } from "@/lib/depot-stock";
 const PAGE_SIZE = 100;
 
 type DepotRow = { id: number; nom: string };
-type ArticlePfRow = { id: number; nom_article: string; nature: string | null };
-type ArticleMpRow = { id: number; nom_article: string };
+type ArticlePfRow = { id: number; nom_article: string; nature: string | null; depot_id: number | null };
+type ArticleMpRow = { id: number; nom_article: string; depot_id: number | null };
 type StockByDepotRow = { article_id: number; depot_id: number; stock: number };
 
 type ProduitRow = {
@@ -19,6 +19,7 @@ type ProduitRow = {
   id: number;
   nom: string;
   typeLabel: string;
+  depotId: number | null;
 };
 
 async function fetchAll<T>(table: string, select: string) {
@@ -41,7 +42,7 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 }
 
-type SearchParams = Promise<{ page?: string; q?: string; type?: string }>;
+type SearchParams = Promise<{ page?: string; q?: string; type?: string; depot_id?: string }>;
 
 export default async function ProduitListPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
@@ -49,12 +50,13 @@ export default async function ProduitListPage({ searchParams }: { searchParams: 
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const q = (params.q || "").trim();
   const typeFilter = (params.type || "").trim();
+  const depotFilter = (params.depot_id || "").trim();
 
   const [{ rows: depots }, { rows: articlesPf }, { rows: articlesMp }, stockPfResult, stockMpResult] =
     await Promise.all([
       fetchAll<DepotRow>("depots", "id, nom"),
-      fetchAll<ArticlePfRow>("articles", "id, nom_article, nature"),
-      fetchAll<ArticleMpRow>("articles_matiere_premiere", "id, nom_article"),
+      fetchAll<ArticlePfRow>("articles", "id, nom_article, nature, depot_id"),
+      fetchAll<ArticleMpRow>("articles_matiere_premiere", "id, nom_article, depot_id"),
       supabaseServer.rpc("stock_by_article_depot_pf"),
       supabaseServer.rpc("stock_by_article_depot_mp"),
     ]);
@@ -80,14 +82,23 @@ export default async function ProduitListPage({ searchParams }: { searchParams: 
       id: a.id,
       nom: a.nom_article,
       typeLabel: a.nature === "vrac" ? "Vrac" : "Fini",
+      depotId: a.depot_id,
     })),
-    ...articlesMp.map((a) => ({ type: "MP" as const, id: a.id, nom: a.nom_article, typeLabel: "MP" })),
+    ...articlesMp.map((a) => ({
+      type: "MP" as const,
+      id: a.id,
+      nom: a.nom_article,
+      typeLabel: "MP",
+      depotId: a.depot_id,
+    })),
   ];
+  const depotNomById = new Map(depots.map((d) => [d.id, d.nom]));
 
   const qLower = q.toLowerCase();
   const filteredRows = allRows.filter((row) => {
     if (qLower && !matchesArticleSearch(row.nom, qLower)) return false;
     if (typeFilter && row.typeLabel !== typeFilter) return false;
+    if (depotFilter && String(row.depotId ?? "") !== depotFilter) return false;
     return true;
   });
 
@@ -99,7 +110,7 @@ export default async function ProduitListPage({ searchParams }: { searchParams: 
   const pageRows = sortedRows.slice(from, from + PAGE_SIZE);
 
   const qsFor = (page: number) =>
-    `?page=${page}&q=${encodeURIComponent(q)}&type=${encodeURIComponent(typeFilter)}`;
+    `?page=${page}&q=${encodeURIComponent(q)}&type=${encodeURIComponent(typeFilter)}&depot_id=${encodeURIComponent(depotFilter)}`;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -125,7 +136,7 @@ export default async function ProduitListPage({ searchParams }: { searchParams: 
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
             <SearchableFilterInput
               name="q"
               defaultValue={q}
@@ -141,6 +152,18 @@ export default async function ProduitListPage({ searchParams }: { searchParams: 
               <option value="Fini">Fini</option>
               <option value="Vrac">Vrac</option>
               <option value="MP">MP</option>
+            </select>
+            <select
+              name="depot_id"
+              defaultValue={depotFilter}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              <option value="">Tous les depots</option>
+              {sortedDepots.map((depot) => (
+                <option key={depot.id} value={depot.id}>
+                  {depot.nom}
+                </option>
+              ))}
             </select>
             <button
               type="submit"
@@ -162,6 +185,7 @@ export default async function ProduitListPage({ searchParams }: { searchParams: 
                     <tr>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Depot</th>
                       {sortedDepots.map((depot) => (
                         <th key={depot.id} className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
                           Stock {depot.nom}
@@ -183,6 +207,9 @@ export default async function ProduitListPage({ searchParams }: { searchParams: 
                             </Link>
                           </td>
                           <td className="px-6 py-4 text-slate-600">{row.typeLabel}</td>
+                          <td className="px-6 py-4 text-slate-600">
+                            {row.depotId ? depotNomById.get(row.depotId) ?? `Depot #${row.depotId}` : "-"}
+                          </td>
                           {sortedDepots.map((depot) => (
                             <td key={depot.id} className="px-6 py-4 text-slate-600">
                               {formatNumber(stockMap.get(stockKey(row.id, depot.id)) ?? 0)}
