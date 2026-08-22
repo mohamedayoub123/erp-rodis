@@ -1374,17 +1374,26 @@ async function messageSiTracabiliteRestante(ligneIds: number[]): Promise<string 
   return `Impossible de supprimer - il reste encore : ${restants.join(", ")}. Supprime d'abord chaque ligne concernee depuis "Suivi Production".`;
 }
 
-export async function deleteProgrammeLigneGroupAction(formData: FormData) {
+// Retourne { ok:false, message } au lieu de "throw" pour les cas attendus
+// (permission, groupe invalide, tracabilite restante) - un throw depuis une
+// Server Action voit son message REDUIT au texte generique "An error
+// occurred..." par Next en production (protection anti-fuite), meme attrape
+// cote client dans un try/catch. Le seul moyen fiable de faire remonter le
+// vrai message (ex: "il reste encore des rapports de production...") est de
+// le retourner comme donnee normale, jamais comme erreur.
+export async function deleteProgrammeLigneGroupAction(
+  formData: FormData
+): Promise<{ ok: boolean; message?: string }> {
   const currentUser = await getCurrentStockUser();
 
   if (!(await canDeletePageUser(currentUser, "historiqueProgramme"))) {
-    throw new Error("Cet utilisateur ne peut pas supprimer un programme.");
+    return { ok: false, message: "Cet utilisateur ne peut pas supprimer un programme." };
   }
 
   const groupeId = Number(String(formData.get("groupe_id") || "0"));
 
   if (!groupeId) {
-    throw new Error("Groupe invalide.");
+    return { ok: false, message: "Groupe invalide." };
   }
 
   const { data: ligneRows, error: fetchError } = await supabaseServer
@@ -1393,24 +1402,24 @@ export async function deleteProgrammeLigneGroupAction(formData: FormData) {
     .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`);
 
   if (fetchError) {
-    throw new Error(fetchError.message);
+    return { ok: false, message: fetchError.message };
   }
 
   const lignes = ligneRows ?? [];
   const ligneIds = lignes.map((row) => row.id);
   if (ligneIds.length === 0) {
-    throw new Error("Groupe introuvable.");
+    return { ok: false, message: "Groupe introuvable." };
   }
 
   const messageBlocage = await messageSiTracabiliteRestante(ligneIds);
   if (messageBlocage) {
-    throw new Error(messageBlocage);
+    return { ok: false, message: messageBlocage };
   }
 
   const { error } = await supabaseServer.from("programme_lignes").delete().in("id", ligneIds);
 
   if (error) {
-    throw new Error(error.message);
+    return { ok: false, message: error.message };
   }
 
   await logAudit({

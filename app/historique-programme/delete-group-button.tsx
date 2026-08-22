@@ -1,20 +1,21 @@
 "use client";
 
 import { useTransition } from "react";
-import { unstable_rethrow } from "next/navigation";
 
 // Meme icone/confirmation que DeleteIconButton, mais appelle l'action
-// directement (au lieu d'un <form action={...}> natif) pour pouvoir attraper
-// le message d'erreur cote client. Un <form> natif fait planter toute la
-// page sur la boundary generique de Next ("Une erreur s'est produite", texte
-// sans le vrai message) quand l'action rejette - ici le blocage legitime
-// ("il reste encore des rapports de production...") s'affiche enfin.
+// directement (au lieu d'un <form action={...}> natif) pour pouvoir lire son
+// resultat. L'action retourne { ok:false, message } pour les cas attendus
+// (permission, tracabilite restante...) au lieu de "throw" - un message jete
+// depuis une Server Action est REDUIT au texte generique par Next en
+// production meme attrape cote client, seule une valeur de retour normale
+// laisse passer le vrai texte ("il reste encore des rapports de
+// production...").
 export function DeleteGroupButton({
   groupeId,
   deleteAction,
 }: {
   groupeId: number;
-  deleteAction: (formData: FormData) => Promise<void>;
+  deleteAction: (formData: FormData) => Promise<{ ok: boolean; message?: string }>;
 }) {
   const [isPending, startTransition] = useTransition();
 
@@ -24,14 +25,9 @@ export function DeleteGroupButton({
     startTransition(async () => {
       const formData = new FormData();
       formData.set("groupe_id", String(groupeId));
-      try {
-        await deleteAction(formData);
-      } catch (error) {
-        // redirect() de l'action reussie passe aussi par un throw interne -
-        // le laisser filer sinon la redirection vers la liste ne se fait
-        // jamais et le succes ressemble a une erreur.
-        unstable_rethrow(error);
-        window.alert(error instanceof Error ? error.message : "Erreur lors de la suppression.");
+      const result = await deleteAction(formData);
+      if (result && !result.ok) {
+        window.alert(result.message || "Erreur lors de la suppression.");
       }
     });
   }

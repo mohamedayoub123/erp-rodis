@@ -8,7 +8,7 @@ import {
 } from "../../programe-par-ligne/actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { DeleteGroupButton } from "../delete-group-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { formatDateTime } from "@/lib/format-date";
@@ -155,10 +155,7 @@ export default async function HistoriqueProgrammeDetailPage({
                 </form>
               ) : null}
               {canDelete ? (
-                <form action={deleteProgrammeLigneGroupAction}>
-                  <input type="hidden" name="groupe_id" value={groupeIdNumber} />
-                  <DeleteIconButton />
-                </form>
+                <DeleteGroupButton groupeId={groupeIdNumber} deleteAction={deleteProgrammeLigneGroupAction} />
               ) : null}
             </div>
           </div>
