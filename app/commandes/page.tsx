@@ -26,6 +26,7 @@ import { fetchDimensionsProduitsFinis, volumeCartonM3 } from "@/lib/dimensions-p
 type SearchParams = Promise<{
   q?: string;
   statut?: string;
+  avertissement?: string;
 }>;
 
 type CommandeListRow = {
@@ -235,6 +236,7 @@ export default async function CommandesPage({
   const params = await searchParams;
   const q = (params.q || "").trim();
   const statut = (params.statut || "").trim().toUpperCase();
+  const avertissement = params.avertissement || "";
 
   let commandesQuery = supabaseServer
     .from("commandes")
@@ -413,6 +415,12 @@ export default async function CommandesPage({
             </div>
           </div>
         </section>
+
+        {avertissement ? (
+          <section className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-semibold text-amber-800">
+            {avertissement}
+          </section>
+        ) : null}
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 md:grid-cols-[2fr_1fr_auto_auto]">

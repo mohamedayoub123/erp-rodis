@@ -1881,7 +1881,17 @@ export async function changeCommandeStatusAction(formData: FormData) {
 // corrige apres coup (voir lib/ecriture-recompute.ts) - ne depend d'aucune
 // valeur de formulaire, tout vient de fifo_resultats/commandes deja
 // enregistres, donc rejouable a l'identique a tout moment.
-export async function creerEcritureVente(commandeId: number, currentUser: string | null) {
+// Retourne {ok,message} au lieu de seulement logger l'erreur en console -
+// avant ce correctif, un echec ici (transitoire : timeout, hoquet reseau...)
+// laissait la commande LIVREE sans aucune ecriture Vente, invisible pour
+// l'utilisateur (decouvert seulement en comparant 2 camions dont un seul
+// avait un montant). L'appelant (deliverCommandeAction) affiche ce message
+// comme avertissement APRES la livraison - jamais bloquant, le stock est
+// deja sorti et ne doit pas etre remis en cause pour un probleme comptable.
+export async function creerEcritureVente(
+  commandeId: number,
+  currentUser: string | null
+): Promise<{ ok: boolean; message?: string }> {
   try {
     const sourceIdVente = `${commandeId}`;
     await supprimerEcriturePourSource("commande_vente", sourceIdVente);
@@ -1892,7 +1902,7 @@ export async function creerEcritureVente(commandeId: number, currentUser: string
       .select("client, numero_proforma")
       .eq("id", commandeId)
       .maybeSingle();
-    if (!commande) return;
+    if (!commande) return { ok: true };
 
     const { data: fifoRows } = await supabaseServer
       .from("fifo_resultats")
@@ -1907,7 +1917,7 @@ export async function creerEcritureVente(commandeId: number, currentUser: string
         (quantiteParArticle.get(row.article_id) ?? 0) + Number(row.quantite_chargee ?? 0)
       );
     }
-    if (quantiteParArticle.size === 0) return;
+    if (quantiteParArticle.size === 0) return { ok: true };
 
     const articleIds = [...quantiteParArticle.keys()];
     const clientId = await resoudreOuCreerClient(commande.client || "");
@@ -1978,13 +1988,23 @@ export async function creerEcritureVente(commandeId: number, currentUser: string
       });
       await enregistrerLotsUtilisesPourEcriture(ecritureId, lotsUtilisesCout);
     }
+
+    return { ok: true };
   } catch (comptaError) {
     console.error("Ecriture comptable vente echouee:", comptaError);
+    return {
+      ok: false,
+      message:
+        comptaError instanceof Error
+          ? comptaError.message
+          : "Erreur inconnue pendant la creation de l'ecriture de vente.",
+    };
   }
 }
 
 export async function deliverCommandeAction(formData: FormData) {
   const commandeId = Number(String(formData.get("commande_id") || "0"));
+  let ecritureVenteResult: { ok: boolean; message?: string } = { ok: true };
   try {
   await requireCommandesEditAccess();
 
@@ -2011,7 +2031,7 @@ export async function deliverCommandeAction(formData: FormData) {
     throw new Error(error.message);
   }
 
-  await creerEcritureVente(commandeId, currentUser);
+  ecritureVenteResult = await creerEcritureVente(commandeId, currentUser);
 
   await logAudit({
     utilisateur: currentUser,
@@ -2036,6 +2056,17 @@ export async function deliverCommandeAction(formData: FormData) {
   // en interne une exception speciale que Next.js reconnait pour naviguer
   // - si elle etait a l'interieur du try, le catch juste au-dessus
   // l'attraperait par erreur et la traiterait comme un vrai echec.
+  // Livraison reussie mais facturation echouee (voir creerEcritureVente) :
+  // jamais bloquant (le stock est deja sorti), juste signale a l'utilisateur
+  // au lieu de disparaitre silencieusement dans les logs serveur - sans ca,
+  // seule une comparaison manuelle entre 2 camions revelait le probleme.
+  if (!ecritureVenteResult.ok) {
+    redirect(
+      `/commandes?avertissement=${encodeURIComponent(
+        `Livraison reussie, mais la facturation automatique a echoue pour cette commande : ${ecritureVenteResult.message || "erreur inconnue"}. Va sur Comptabilite > Reconstituer l'historique pour la recreer.`
+      )}`
+    );
+  }
   redirect("/commandes");
 }
 
