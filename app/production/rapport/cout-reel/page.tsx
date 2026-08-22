@@ -3,33 +3,9 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canVoirPrixUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import {
-  computeCoutReelArticle,
-  fetchArticleIdsAvecProductionSurPeriode,
-  type CoutReelPeriode,
-} from "@/lib/cout-production-reel";
+import { fetchQuantitesProduitesParArticleSurPeriode, type CoutReelPeriode } from "@/lib/cout-production-reel";
+import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
 import { CoutReelTable, type CoutReelArticleRow } from "./cout-reel-table";
-
-// Calcule le cout de PLUSIEURS articles (potentiellement des dizaines) sur
-// une seule page - peut depasser la limite de temps par defaut d'une
-// fonction Vercel (60s, maximum autorise sur le plan Hobby).
-export const maxDuration = 60;
-
-const CONCURRENCE = 4;
-
-async function traiterAvecConcurrence<T, R>(items: T[], run: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let index = 0;
-  async function worker() {
-    while (index < items.length) {
-      const i = index;
-      index += 1;
-      results[i] = await run(items[i]);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCE, items.length) }, worker));
-  return results;
-}
 
 function currentMonthRange() {
   const now = new Date();
@@ -58,27 +34,42 @@ export default async function CoutReelListePage() {
   const defaultRange = currentMonthRange();
   const periode: CoutReelPeriode = { dateFrom: defaultRange.fromIso, dateTo: defaultRange.toIso };
 
-  const articleIds = await fetchArticleIdsAvecProductionSurPeriode(periode);
+  // Liste rapide : cout par carton (vrac + conditionnement, deja optimise -
+  // fetchCoutsParCartonProduitsFinis partage ses lots MP entre TOUS les
+  // articles de l'appel) - jamais computeCoutReelArticle ici (electricite/
+  // journaliers/charge generale sont trop couteux pour etre recalcules en
+  // boucle sur toute la liste ; ce detail complet reste sur la fiche par
+  // article, accessible en cliquant une ligne).
+  const quantitesParArticle = await fetchQuantitesProduitesParArticleSurPeriode(periode);
+  const articleIds = [...quantitesParArticle.keys()];
 
   const { data: articlesData } = articleIds.length
-    ? await supabaseServer.from("articles").select("id, nom_article, nature").in("id", articleIds)
+    ? await supabaseServer.from("articles").select("id, nom_article, nature, prix_vente").in("id", articleIds)
     : { data: [] };
-  const articlesFinis = ((articlesData ?? []) as { id: number; nom_article: string; nature: string | null }[]).filter(
-    (a) => a.nature !== "vrac"
+  const articlesFinis = (
+    (articlesData ?? []) as { id: number; nom_article: string; nature: string | null; prix_vente: number | null }[]
+  ).filter((a) => a.nature !== "vrac");
+
+  const couts = await fetchCoutsParCartonProduitsFinis(
+    articlesFinis.map((a) => a.id),
+    quantitesParArticle
   );
 
-  const resultats = await traiterAvecConcurrence(articlesFinis, (article) =>
-    computeCoutReelArticle(article.id, periode)
-  );
-
-  const rows: CoutReelArticleRow[] = resultats.map((result) => ({
-    articleId: result.articleId,
-    nomArticle: result.nomArticle,
-    quantite: result.quantiteTotaleProduite,
-    coutTotal: result.coutTotal,
-    venteTotale: result.margeTotale !== null ? result.coutTotal + result.margeTotale : null,
-    marge: result.margeTotale,
-  }));
+  const rows: CoutReelArticleRow[] = articlesFinis.map((article) => {
+    const quantite = quantitesParArticle.get(article.id) ?? 0;
+    const coutInfo = couts.get(article.id);
+    const coutTotal = coutInfo?.coutParCarton !== null && coutInfo?.coutParCarton !== undefined ? coutInfo.coutParCarton * quantite : 0;
+    const venteTotale = article.prix_vente ? article.prix_vente * quantite : null;
+    const marge = venteTotale !== null ? venteTotale - coutTotal : null;
+    return {
+      articleId: article.id,
+      nomArticle: article.nom_article,
+      quantite,
+      coutTotal: Math.round(coutTotal),
+      venteTotale: venteTotale !== null ? Math.round(venteTotale) : null,
+      marge: marge !== null ? Math.round(marge) : null,
+    };
+  });
   rows.sort((a, b) => a.nomArticle.localeCompare(b.nomArticle, "fr", { sensitivity: "base" }));
 
   return (
@@ -87,12 +78,12 @@ export default async function CoutReelListePage() {
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Cout Reel</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Tous les articles avec une production reelle ce mois-ci ({defaultRange.fromIso} au{" "}
-                {defaultRange.toIso}). Ecris un nom ou un code pour filtrer, clique une ligne pour le detail
-                complet (electricite, journaliers, detail par mois...).
+                {defaultRange.toIso}) - cout vrac+conditionnement seulement (rapide). Clique une ligne pour le
+                detail complet (electricite, journaliers, charge generale, detail par mois...).
               </p>
             </div>
 
