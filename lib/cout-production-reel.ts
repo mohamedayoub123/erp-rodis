@@ -662,6 +662,15 @@ async function computeChargeGeneraleParJourCarton(
     if (machine.consommation_electrique_kw !== null && prixMois?.prix_kwh != null) {
       cout += machine.consommation_electrique_kw * heures * prixMois.prix_kwh;
     }
+    // Conso gaz/gasoil PROPRE a la machine (pas via une machine Energie liee,
+    // deja geree par computeEnergieShareCout plus bas) - une machine peut
+    // bruler directement du gaz/gasoil sans passer par un chaudier partage.
+    if (machine.consommation_gaz_litres_heure !== null && prixMois?.prix_gaz != null) {
+      cout += machine.consommation_gaz_litres_heure * heures * prixMois.prix_gaz;
+    }
+    if (machine.consommation_gasoil_litres_heure !== null && prixMois?.prix_gasoil != null) {
+      cout += machine.consommation_gasoil_litres_heure * heures * prixMois.prix_gasoil;
+    }
     cout += computeEnergieShareCout(machine, heures, date, prixMois, energieMachineById, activeMachinesByEnergieAndDate, []);
     if (cout > 0) {
       machineTotalParMois.set(mois, (machineTotalParMois.get(mois) ?? 0) + cout);
@@ -1053,14 +1062,30 @@ export async function computeCoutReelArticle(
       } else {
         const heures = minutes / 60;
         const machine = rapport.machine ? machineByName.get(normalizeMachineName(rapport.machine)) : null;
-        if (!machine || machine.consommation_electrique_kw === null) {
-          motifs.push(`Machine de fabrication "${rapport.machine || "-"}" introuvable ou sans kW renseigne.`);
-        } else if (!prixMois || prixMois.prix_kwh === null) {
-          motifs.push("Prix electricite (par kWh) non renseigne pour ce mois.");
+        if (!machine) {
+          motifs.push(`Machine de fabrication "${rapport.machine || "-"}" introuvable.`);
         } else {
-          const cout = machine.consommation_electrique_kw * heures * prixMois.prix_kwh;
-          coutElectricite += cout;
-          coutRapportCourant += cout;
+          if (machine.consommation_electrique_kw === null) {
+            motifs.push(`Machine de fabrication "${rapport.machine}" sans kW renseigne.`);
+          } else if (!prixMois || prixMois.prix_kwh === null) {
+            motifs.push("Prix electricite (par kWh) non renseigne pour ce mois.");
+          } else {
+            const cout = machine.consommation_electrique_kw * heures * prixMois.prix_kwh;
+            coutElectricite += cout;
+            coutRapportCourant += cout;
+          }
+          // Conso gaz/gasoil PROPRE a la machine (independante d'une machine
+          // Energie liee, voir computeEnergieShareCout plus bas).
+          if (machine.consommation_gaz_litres_heure !== null && prixMois?.prix_gaz != null) {
+            const cout = machine.consommation_gaz_litres_heure * heures * prixMois.prix_gaz;
+            coutElectricite += cout;
+            coutRapportCourant += cout;
+          }
+          if (machine.consommation_gasoil_litres_heure !== null && prixMois?.prix_gasoil != null) {
+            const cout = machine.consommation_gasoil_litres_heure * heures * prixMois.prix_gasoil;
+            coutElectricite += cout;
+            coutRapportCourant += cout;
+          }
         }
 
         // Part de machine Energie partagee (voir computeEnergieShareCout) -
@@ -1119,14 +1144,30 @@ export async function computeCoutReelArticle(
     const heures = minutes / 60;
     const chaine = entry.chaine || chaineByLigneId.get(entry.programme_ligne_id);
     const machine = chaine ? machineByName.get(normalizeMachineName(chaine)) : null;
-    if (!machine || machine.consommation_electrique_kw === null) {
-      motifs.push(`Machine de conditionnement "${chaine || "-"}" introuvable ou sans kW renseigne.`);
-    } else if (!prixMois || prixMois.prix_kwh === null) {
-      motifs.push("Prix electricite (par kWh) non renseigne pour ce mois.");
+    if (!machine) {
+      motifs.push(`Machine de conditionnement "${chaine || "-"}" introuvable.`);
     } else {
-      const cout = machine.consommation_electrique_kw * heures * prixMois.prix_kwh;
-      coutElectricite += cout;
-      coutEntreeCourant += cout;
+      if (machine.consommation_electrique_kw === null) {
+        motifs.push(`Machine de conditionnement "${chaine}" sans kW renseigne.`);
+      } else if (!prixMois || prixMois.prix_kwh === null) {
+        motifs.push("Prix electricite (par kWh) non renseigne pour ce mois.");
+      } else {
+        const cout = machine.consommation_electrique_kw * heures * prixMois.prix_kwh;
+        coutElectricite += cout;
+        coutEntreeCourant += cout;
+      }
+      // Conso gaz/gasoil PROPRE a la machine (independante d'une machine
+      // Energie liee, voir computeEnergieShareCout plus bas).
+      if (machine.consommation_gaz_litres_heure !== null && prixMois?.prix_gaz != null) {
+        const cout = machine.consommation_gaz_litres_heure * heures * prixMois.prix_gaz;
+        coutElectricite += cout;
+        coutEntreeCourant += cout;
+      }
+      if (machine.consommation_gasoil_litres_heure !== null && prixMois?.prix_gasoil != null) {
+        const cout = machine.consommation_gasoil_litres_heure * heures * prixMois.prix_gasoil;
+        coutElectricite += cout;
+        coutEntreeCourant += cout;
+      }
     }
 
     // Part de machine Energie partagee (voir computeEnergieShareCout) -
