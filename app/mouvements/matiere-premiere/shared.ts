@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { formatDate, formatDateTime } from "@/lib/format-date";
+import { convertirEnFcfa } from "@/lib/prix-devise";
 
 export type MouvementMpSourceRow = {
   id: number;
@@ -23,6 +24,9 @@ export type MouvementMpSourceRow = {
   source_import: string | null;
   mouvement_groupe_id: number | null;
   created_at: string | null;
+  prix_unitaire: number | null;
+  devise: string | null;
+  taux_change: number | null;
   articles_matiere_premiere: { nom_article: string } | null;
 };
 
@@ -48,6 +52,7 @@ export type MouvementMpLigne = {
   note: string | null;
   source_import: string | null;
   created_at: string | null;
+  prixUnitaireFcfa: number | null;
 };
 
 export type MouvementMpGroup = {
@@ -60,7 +65,7 @@ export type MouvementMpGroup = {
 };
 
 const SOURCE_COLUMNS =
-  "id, article_id, numero_lot, code_normalise, date_reception, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, emplacement, utilisateur, note, source_import, mouvement_groupe_id, created_at, articles_matiere_premiere(nom_article)";
+  "id, article_id, numero_lot, code_normalise, date_reception, date_fabrication, date_expiration, date_jour, qte_entree, qte_sortie, unite, fournisseur, client, n_doss_erp, n_doss_4d, emplacement, utilisateur, note, source_import, mouvement_groupe_id, created_at, prix_unitaire, devise, taux_change, articles_matiere_premiere(nom_article)";
 
 const ENTREE_SOURCE = "web:entree-mp";
 const RECEPTION_SOURCE = "web:reception-mp";
@@ -209,6 +214,14 @@ function buildGroups(
         note: row.note,
         source_import: row.source_import,
         created_at: row.created_at,
+        // Le prix vient toujours de la ligne d'ENTREE qui a cree ce lot -
+        // jamais sur une sortie, meme lot (voir stock-lots.ts). Demande
+        // explicite : le voir directement sur Stock MP sans devoir
+        // recouper la base a la main.
+        prixUnitaireFcfa:
+          mouvementType === "entree" && row.prix_unitaire != null
+            ? convertirEnFcfa(row.prix_unitaire, row.devise, row.taux_change)
+            : null,
       })),
     };
   });

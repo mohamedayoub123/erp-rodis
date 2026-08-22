@@ -20,6 +20,9 @@ import {
   fetchWebMouvementMpSourceRows,
 } from "@/app/mouvements/matiere-premiere/shared";
 import { encodeDossierId } from "../commande/dossier-id";
+import { updateLotPrixAction } from "../commande/actions";
+import { DEVISE_OPTIONS } from "@/lib/devise-options";
+import { convertirEnFcfa } from "@/lib/prix-devise";
 import { StockMpExportButton } from "./export-button";
 
 const PAGE_SIZE = 200;
@@ -53,6 +56,9 @@ type DisplayRow = {
   total_rows: number;
   total_entree_visible: number;
   total_sortie_visible: number;
+  prix_unitaire: number | null;
+  devise: string | null;
+  taux_change: number | null;
 };
 
 function parseMonthValue(value: string) {
@@ -380,6 +386,7 @@ export default async function StockMatierePremiereStockPage({
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Sortie</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock code</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock article</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Prix</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Fournisseur / Client</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Doss. ERP</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Doss. 4D</th>
@@ -438,6 +445,73 @@ export default async function StockMatierePremiereStockPage({
                       </td>
                       <td className="px-4 py-3 font-semibold text-slate-900">{row.stock_code}</td>
                       <td className="px-4 py-3 font-semibold text-fuchsia-700">{row.stock_article}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {row.mouvement_type === "entree" ? (
+                          <div className="flex items-center gap-2">
+                            <span>
+                              {row.prix_unitaire != null
+                                ? `${convertirEnFcfa(row.prix_unitaire, row.devise, row.taux_change)?.toLocaleString("fr-FR")} FCFA`
+                                : "-"}
+                            </span>
+                            {canEditEntree ? (
+                              <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                                <summary className="cursor-pointer text-xs font-semibold text-slate-800">
+                                  Prix
+                                </summary>
+                                <form action={updateLotPrixAction} className="mt-2 grid w-48 gap-2">
+                                  <input type="hidden" name="lot_id" value={row.id} />
+                                  <label className="grid gap-1 text-xs text-slate-500">
+                                    Prix unitaire
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      name="prix_unitaire"
+                                      defaultValue={row.prix_unitaire ?? ""}
+                                      placeholder="Vide = pas de prix"
+                                      className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                    />
+                                  </label>
+                                  <label className="grid gap-1 text-xs text-slate-500">
+                                    Devise
+                                    <select
+                                      name="devise"
+                                      defaultValue={row.devise || "FCFA"}
+                                      className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                    >
+                                      {DEVISE_OPTIONS.map((d) => (
+                                        <option key={d} value={d}>
+                                          {d}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label className="grid gap-1 text-xs text-slate-500">
+                                    Taux de change
+                                    <input
+                                      type="number"
+                                      step="0.0001"
+                                      min="0"
+                                      name="taux_change"
+                                      defaultValue={row.taux_change ?? ""}
+                                      placeholder="Si devise != FCFA"
+                                      className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                    />
+                                  </label>
+                                  <SubmitButton
+                                    pendingLabel="Enregistrement..."
+                                    className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                  >
+                                    Enregistrer
+                                  </SubmitButton>
+                                </form>
+                              </details>
+                            ) : null}
+                          </div>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-slate-600">
                         {row.mouvement_type === "entree" ? row.fournisseur || "-" : row.client || "-"}
                       </td>
