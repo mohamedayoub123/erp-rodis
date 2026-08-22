@@ -147,6 +147,46 @@ type CartonEntryTempsRow = {
   chaine: string | null;
 };
 
+// Meme motif que CartonEntryTempsRow/fetchCartonEntriesTemps, pour la
+// fournee Emballage (production_emballage_entries) - jamais inclus avant
+// dans le cout reel, alors que ses journaliers sont un vrai cout au meme
+// titre que Fabrication/Conditionnement (bug reel signale : "pour
+// l'emballage tu n'as pas calcule").
+type EmballageEntryTempsRow = {
+  programme_ligne_id: number;
+  code: string;
+  date_jour: string;
+  emballage_temps_demarrer: string | null;
+  emballage_temps_arret: string | null;
+  nb_journaliers_emballage: number | null;
+};
+
+async function fetchEmballageEntriesTemps(ligneIds?: number[]): Promise<EmballageEntryTempsRow[]> {
+  if (ligneIds && ligneIds.length === 0) return [];
+
+  const rows: EmballageEntryTempsRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    let query = supabaseServer
+      .from("production_emballage_entries")
+      .select("programme_ligne_id, code, date_jour, emballage_temps_demarrer, emballage_temps_arret, nb_journaliers_emballage");
+    if (ligneIds) {
+      query = query.in("programme_ligne_id", ligneIds);
+    }
+    const { data, error } = await query.range(from, from + pageSize - 1);
+
+    if (error) break;
+    const chunk = (data ?? []) as EmballageEntryTempsRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 async function fetchProgrammeLignesForArticle(articleId: number): Promise<ProgrammeLigneRow[]> {
   const rows: ProgrammeLigneRow[] = [];
   let from = 0;
@@ -953,6 +993,8 @@ export async function computeCoutReelArticle(
   // deja calcules plus haut, avant le cout vrac).
   const cartonEntriesTemps = await fetchCartonEntriesTemps(ligneIds);
   const cartonEntriesPertinents = cartonEntriesTemps.filter((e) => matchesPeriode(e.date_jour, periode));
+  const emballageEntriesTemps = await fetchEmballageEntriesTemps(ligneIds);
+  const emballageEntriesPertinentes = emballageEntriesTemps.filter((e) => matchesPeriode(e.date_jour, periode));
 
   const { data: machinesData } = await supabaseServer
     .from("machines")
@@ -1109,6 +1151,41 @@ export async function computeCoutReelArticle(
       motifs.push("Prix de l'heure journaliere non renseigne pour ce mois.");
     } else {
       const cout = entry.nb_journaliers_conditionnement * heures * prixMois.prix_heure_journalier;
+      coutJournaliers += cout;
+      coutEntreeCourant += cout;
+    }
+
+    if (motifs.length > 0) {
+      lignesIncertaines.push({ ligneId: entry.programme_ligne_id, code: entry.code, motifs });
+    }
+
+    if (coutEntreeCourant > 0) {
+      const mois = moisDe(entry.date_jour);
+      const current = detailParMoisMap.get(mois) ?? { quantite: 0, coutTotal: 0 };
+      current.coutTotal += coutEntreeCourant;
+      detailParMoisMap.set(mois, current);
+    }
+  }
+
+  // Poste Emballage (temps "HH:MM" simple, meme motif que Conditionnement
+  // ci-dessus) - journaliers uniquement, pas d'electricite (pas de machine
+  // tracee pour ce poste).
+  for (const entry of emballageEntriesPertinentes) {
+    if (!entry.emballage_temps_demarrer || !entry.emballage_temps_arret) continue;
+
+    const prixMois = prixMoisByKey.get(moisDe(entry.date_jour));
+    const motifs: string[] = [];
+    let coutEntreeCourant = 0;
+
+    const minutes = hhmmDiffMinutes(entry.emballage_temps_demarrer, entry.emballage_temps_arret);
+    const heures = minutes / 60;
+
+    if (entry.nb_journaliers_emballage === null) {
+      motifs.push("Nombre de journaliers Emballage non renseigne.");
+    } else if (!prixMois || prixMois.prix_heure_journalier === null) {
+      motifs.push("Prix de l'heure journaliere non renseigne pour ce mois.");
+    } else {
+      const cout = entry.nb_journaliers_emballage * heures * prixMois.prix_heure_journalier;
       coutJournaliers += cout;
       coutEntreeCourant += cout;
     }

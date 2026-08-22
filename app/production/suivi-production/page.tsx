@@ -148,6 +148,7 @@ type RapportRow = {
   machine: string | null;
   type_fabrication: string | null;
   preparateur: string | null;
+  nb_journaliers_fabrication: number | null;
   cuve_1_numero: string | null;
   cuve_1_poids: number | null;
   cuve_2_numero: string | null;
@@ -397,7 +398,7 @@ async function fetchAllRows<T>(
 }
 
 const RAPPORT_COLUMNS =
-  "id, programme_ligne_id, code, machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, degre_alcool, stabilite, couleur, temperature_test, odeur, taux_humidite, pression_atmospherique, texture, remarque, disposition_qualite, sous_derogation, motif_derogation, date_prise_echantillon, heure_prise_echantillon, heure_debut_analyse, heure_fin_analyse, nom_labo, utilisateur_test_labo, date_saisie_test_labo, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
+  "id, programme_ligne_id, code, machine, type_fabrication, preparateur, nb_journaliers_fabrication, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, ph, densite, viscosite, degre_alcool, stabilite, couleur, temperature_test, odeur, taux_humidite, pression_atmospherique, texture, remarque, disposition_qualite, sous_derogation, motif_derogation, date_prise_echantillon, heure_prise_echantillon, heure_debut_analyse, heure_fin_analyse, nom_labo, utilisateur_test_labo, date_saisie_test_labo, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, chef_zone, chef_ligne, ravitailleur, tireur, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement, date_peremption, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, utilisateur_fabrication, date_saisie_fabrication, utilisateur_conditionnement, date_saisie_conditionnement, utilisateur_emballage, date_saisie_emballage";
 
 // Champs Conditionnement/Emballage portes PAR FOURNEE (voir le commentaire
 // sur EntryRow) - selectionnes en plus des colonnes de base sur les tables
@@ -837,13 +838,13 @@ export default async function SuiviProductionListPage({
                     <th colSpan={22} className="sticky top-0 z-20 border-b border-slate-200 bg-violet-50 px-6 py-2 text-center font-bold text-violet-800">
                       Test labo
                     </th>
-                    <th colSpan={32} className="sticky top-0 z-20 border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
+                    <th colSpan={33} className="sticky top-0 z-20 border-b border-slate-200 bg-amber-50 px-6 py-2 text-center font-bold text-amber-800">
                       Fabrication
                     </th>
-                    <th colSpan={32} className="sticky top-0 z-20 border-b border-slate-200 bg-sky-50 px-6 py-2 text-center font-bold text-sky-800">
+                    <th colSpan={33} className="sticky top-0 z-20 border-b border-slate-200 bg-sky-50 px-6 py-2 text-center font-bold text-sky-800">
                       Conditionnement
                     </th>
-                    <th colSpan={14} className="sticky top-0 z-20 border-b border-slate-200 bg-emerald-50 px-6 py-2 text-center font-bold text-emerald-800">
+                    <th colSpan={15} className="sticky top-0 z-20 border-b border-slate-200 bg-emerald-50 px-6 py-2 text-center font-bold text-emerald-800">
                       Emballage
                     </th>
                     <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
@@ -880,6 +881,7 @@ export default async function SuiviProductionListPage({
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Machine fabrication</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Type</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Preparateur</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Nb journaliers</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Cuve 1</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Poids cuve 1</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Cuve 2</th>
@@ -911,6 +913,7 @@ export default async function SuiviProductionListPage({
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Chef ligne</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Ravitailleur</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Tireur</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Nb journaliers</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Cadence</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Poids reel</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Dechet sleeve</th>
@@ -937,6 +940,7 @@ export default async function SuiviProductionListPage({
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Machine emballage</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Operateur emballage</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Scotcheuse</th>
+                    <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Nb journaliers</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Demarage emballage</th>
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Arret emballage</th>
                     {EMBALLAGE_ARRET_LABELS.map(({ field, label }) => (
@@ -1021,6 +1025,7 @@ export default async function SuiviProductionListPage({
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.machine || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.type_fabrication || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.preparateur || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.nb_journaliers_fabrication ?? "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.cuve_1_numero || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.cuve_1_poids ?? "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showFab ? r?.cuve_2_numero || "-" : "-"}</td>
@@ -1083,6 +1088,7 @@ export default async function SuiviProductionListPage({
                         <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.chef_ligne || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.ravitailleur || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.tireur || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.nb_journaliers_conditionnement ?? "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.cadence ?? "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.poids_reel ?? "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_sleeve ?? "-" : "-"}</td>
@@ -1138,6 +1144,7 @@ export default async function SuiviProductionListPage({
                         <td className="px-6 py-4 text-slate-600">{showEmb ? row.emballage?.emballage_machine || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showEmb ? row.emballage?.emballage_operateur || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showEmb ? row.emballage?.emballage_scotcheuse || "-" : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{showEmb ? row.emballage?.nb_journaliers_emballage ?? "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">
                           {showEmb ? row.emballage?.emballage_temps_demarrer || "-" : "-"}
                         </td>
