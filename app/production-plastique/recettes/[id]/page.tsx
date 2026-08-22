@@ -14,6 +14,13 @@ import {
   updatePoidsNetAction,
 } from "../../actions";
 
+function formatQuantiteGrammes(grammes: number): string {
+  if (grammes >= 1000) {
+    return `${(grammes / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 3 })} kg`;
+  }
+  return `${grammes.toLocaleString("fr-FR", { maximumFractionDigits: 3 })} g`;
+}
+
 export default async function RecettePlastiqueDetailPage({ params }: { params: Promise<{ id: string }> }) {
   noStore();
   const { id } = await params;
@@ -59,7 +66,7 @@ export default async function RecettePlastiqueDetailPage({ params }: { params: P
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
-      <div className="mx-auto w-full max-w-3xl space-y-6">
+      <div className="mx-auto w-full space-y-6">
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -114,6 +121,7 @@ export default async function RecettePlastiqueDetailPage({ params }: { params: P
                 <tr>
                   <th className="px-6 py-3 font-semibold">Matiere</th>
                   <th className="px-6 py-3 font-semibold">%</th>
+                  <th className="px-6 py-3 font-semibold">Qte / piece</th>
                   {canVoirPrix ? <th className="px-6 py-3 font-semibold">Cout</th> : null}
                   <th className="px-6 py-3 font-semibold"></th>
                 </tr>
@@ -127,6 +135,9 @@ export default async function RecettePlastiqueDetailPage({ params }: { params: P
                     }`}
                   >
                     {sommePourcent.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}%
+                  </td>
+                  <td className="px-6 py-3 font-semibold text-slate-900">
+                    {article.poids_net ? formatQuantiteGrammes(article.poids_net) : "-"}
                   </td>
                   {canVoirPrix ? (
                     <td className="px-6 py-3 font-semibold text-slate-900">
@@ -168,6 +179,11 @@ export default async function RecettePlastiqueDetailPage({ params }: { params: P
                           Enregistrer
                         </SubmitButton>
                       </form>
+                    </td>
+                    <td className="px-6 py-4 text-slate-600">
+                      {article.poids_net
+                        ? formatQuantiteGrammes((article.poids_net * ligne.pourcentage) / 100)
+                        : "-"}
                     </td>
                     {canVoirPrix ? (
                       <td className="px-6 py-4 text-slate-600">

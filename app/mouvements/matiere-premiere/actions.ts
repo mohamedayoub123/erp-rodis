@@ -6,6 +6,11 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchCoutsReelsMpDepotB } from "@/lib/prix-revient";
 import { COMPTE_PERTES_STOCK, COMPTE_STOCK_MP, creerEcriture } from "@/lib/comptabilite";
+import {
+  CATEGORIES_PLASTIQUE,
+  computeCoutPlastiqueParPiece,
+  type RecettePlastiqueLigne,
+} from "@/app/production-plastique/shared";
 
 // Supprime une ligne de detail puis, si c'etait la derniere ligne de son
 // mouvement (groupe), renvoie vers la liste au lieu de laisser la page
@@ -129,11 +134,45 @@ export async function createEntreeMpBatchAction(formData: FormData) {
   const articleIds = [...new Set(rows.map((row) => Number(row.article_id)).filter(Boolean))];
   const { data: articleDepotRows } = await supabaseServer
     .from("articles_matiere_premiere")
-    .select("id, depot_id")
+    .select("id, depot_id, categorie, poids_net")
     .in("id", articleIds);
-  const depotIdByArticleId = new Map(
-    ((articleDepotRows as { id: number; depot_id: number | null }[] | null) ?? []).map((row) => [row.id, row.depot_id])
-  );
+  const articleInfos = (articleDepotRows as
+    | { id: number; depot_id: number | null; categorie: string | null; poids_net: number | null }[]
+    | null) ?? [];
+  const depotIdByArticleId = new Map(articleInfos.map((row) => [row.id, row.depot_id]));
+
+  // Flacons/capsules/pots sont fabriques en interne, jamais achetes - leur
+  // entree en stock n'a donc pas de prix a saisir manuellement : on le
+  // calcule depuis la recette plastique (% matiere/colorant x cout FEFO
+  // reel) au lieu de laisser le lot sans prix (ce qui faussait le cout de
+  // revient des articles finis qui en consomment).
+  const prixAutoByArticleId = new Map<number, number>();
+  const articlesPlastiqueIds = articleInfos
+    .filter((row) => (CATEGORIES_PLASTIQUE as readonly string[]).includes(row.categorie || ""))
+    .map((row) => row.id);
+
+  if (articlesPlastiqueIds.length > 0) {
+    const { data: recettesData } = await supabaseServer
+      .from("recettes_plastique")
+      .select("id, article_produit_id, article_matiere_id, pourcentage")
+      .in("article_produit_id", articlesPlastiqueIds);
+    const recettes = (recettesData ?? []) as RecettePlastiqueLigne[];
+    const lignesParArticle = new Map<number, RecettePlastiqueLigne[]>();
+    for (const ligne of recettes) {
+      const list = lignesParArticle.get(ligne.article_produit_id) ?? [];
+      list.push(ligne);
+      lignesParArticle.set(ligne.article_produit_id, list);
+    }
+
+    for (const info of articleInfos) {
+      if (!articlesPlastiqueIds.includes(info.id)) continue;
+      const lignes = lignesParArticle.get(info.id) ?? [];
+      const { coutParPiece } = await computeCoutPlastiqueParPiece(info.poids_net, lignes);
+      if (coutParPiece !== null) {
+        prixAutoByArticleId.set(info.id, coutParPiece);
+      }
+    }
+  }
 
   const payload = rows.map((row) => {
     const articleId = Number(row.article_id);
@@ -157,6 +196,8 @@ export async function createEntreeMpBatchAction(formData: FormData) {
       qte_sortie: 0,
       unite: String(row.unite || "").trim() || null,
       depot_id: depotIdByArticleId.get(articleId) ?? null,
+      prix_unitaire: prixAutoByArticleId.get(articleId) ?? null,
+      devise: "FCFA",
       fournisseur: String(row.fournisseur || "").trim() || null,
       n_doss_erp: String(row.n_doss_erp || "").trim() || null,
       n_doss_4d: String(row.n_doss_4d || "").trim() || null,
