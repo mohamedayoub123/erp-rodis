@@ -417,15 +417,9 @@ export async function deleteInvoiceOrderAction(formData: FormData) {
 // ailleurs dans l'appli. Ce qui n'a pas ete livre (quantite reduite ou ligne
 // effacee) redevient disponible sur le Transfer Order source, qui repasse
 // "partiellement_fini" pour permettre un nouveau "Poster a Transfer Invoice"
-// plus tard sur le reste.
-export async function validateInvoiceOrderAction(formData: FormData) {
-  const currentUser = await requireWriteAccess();
-
-  const invoiceOrderId = Number(formData.get("invoice_order_id") || "0");
-  if (!invoiceOrderId) {
-    throw new Error("Transfer Invoice invalide.");
-  }
-
+// plus tard sur le reste. Coeur sans permission - voir approveTransferOrder
+// (transfer-order/actions.ts) pour la raison de cette extraction.
+export async function validateInvoiceOrder(invoiceOrderId: number, currentUser: string | null): Promise<void> {
   const { data: invoiceOrderData, error: invoiceOrderError } = await supabaseServer
     .from("invoice_orders")
     .select("id, transfer_order_id, statut, numero, date_jour")
@@ -649,6 +643,17 @@ export async function validateInvoiceOrderAction(formData: FormData) {
   revalidatePath(`/depots/invoice-order/${invoiceOrderId}`);
   revalidatePath(`/depots/transfer-order/${transferOrder.id}`);
   revalidatePath("/depots");
+}
+
+export async function validateInvoiceOrderAction(formData: FormData) {
+  const currentUser = await requireWriteAccess();
+
+  const invoiceOrderId = Number(formData.get("invoice_order_id") || "0");
+  if (!invoiceOrderId) {
+    throw new Error("Transfer Invoice invalide.");
+  }
+
+  await validateInvoiceOrder(invoiceOrderId, currentUser);
 }
 
 export async function updateInvoiceOrderRemarqueAction(formData: FormData) {

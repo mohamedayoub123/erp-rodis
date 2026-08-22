@@ -31,6 +31,13 @@ export function normalizeCategoriePlastique(categorie: string | null): string {
 // apparaitre dans le picker "Ajouter une matiere", pas tout le catalogue MP.
 export const CATEGORIES_INGREDIENT_PLASTIQUE = ["mp plastique", "COLORANT PLAS."] as const;
 
+// Depots par defaut du programme plastique - la production entre toujours
+// dans le depot "fabrication" (F) puis part immediatement vers le depot
+// "utilisable" (E) via un Transfer Order auto-approuve. Modifiables ligne
+// par ligne depuis le formulaire (voir programme/page.tsx).
+export const DEPOT_PLASTIQUE_SOURCE_DEFAULT = 4;
+export const DEPOT_PLASTIQUE_DEST_DEFAULT = 3;
+
 export type ArticlePlastiqueRow = {
   id: number;
   nom_article: string;

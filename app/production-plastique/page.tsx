@@ -15,6 +15,12 @@ const TILES = [
     icon: "\u{1F9EA}",
     description: "Composition en % (matiere plastique + colorant) et prix de revient d'1 piece.",
   },
+  {
+    label: "Ajouter Programme",
+    href: "/production-plastique/programme",
+    icon: "\u{1F4E5}",
+    description: "Article + quantite (+ lot optionnel) - entre en stock et se transfere directement.",
+  },
 ] as const;
 
 export default function ProductionPlastiquePage() {

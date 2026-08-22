@@ -46,16 +46,22 @@ async function nextTransferOrderNumero(dateJour: string): Promise<number> {
   return ((data as { numero: number | null } | null)?.numero ?? 0) + 1;
 }
 
-// Une ligne par article demande (article_type[], article_id[],
-// quantite_demandee[] - meme convention getAll() indexee que Programme). La
-// quantite demandee ne peut pas depasser ce qui existe reellement dans le
-// depot source pour cet article - verifie ici, pas seulement cote client.
-export async function createTransferOrderAction(formData: FormData) {
-  const currentUser = await requireWriteAccess();
-
-  const depotSourceId = Number(formData.get("depot_source_id") || "0");
-  const depotDestinationId = Number(formData.get("depot_destination_id") || "0");
-  const dateJour = String(formData.get("date_jour") || "").trim() || new Date().toISOString().slice(0, 10);
+// Coeur de la creation, sans permission ni redirect - reutilise par
+// createTransferOrderAction (UI normale, verifie "depots") ET par tout appel
+// interne qui a deja verifie sa propre permission ailleurs (ex: programme
+// plastique, qui cree son stock ET son Transfer Order en une seule action
+// sous la permission "productionPlastique" plutot que "depots"). La quantite
+// demandee ne peut pas depasser ce qui existe reellement dans le depot
+// source pour cet article - verifie ici, pas seulement cote client.
+export async function createTransferOrder(params: {
+  depotSourceId: number;
+  depotDestinationId: number;
+  dateJour: string;
+  creePar: string | null;
+  remarque?: string | null;
+  lignes: { articleType: ArticleType; articleId: number; quantiteDemandee: number }[];
+}): Promise<number> {
+  const { depotSourceId, depotDestinationId, dateJour, creePar, remarque, lignes } = params;
 
   if (!depotSourceId) {
     throw new Error("Choisis le depot source.");
@@ -67,23 +73,13 @@ export async function createTransferOrderAction(formData: FormData) {
     throw new Error("Le depot destination doit etre different du depot source.");
   }
 
-  const articleTypes = formData.getAll("article_type");
-  const articleIds = formData.getAll("article_id");
-  const quantites = formData.getAll("quantite_demandee");
+  const lignesValides = lignes.filter((ligne) => ligne.articleId > 0 && ligne.quantiteDemandee > 0);
 
-  const lignes = articleIds
-    .map((rawArticleId, index) => ({
-      articleType: parseArticleType(articleTypes[index]),
-      articleId: Number(rawArticleId || "0"),
-      quantiteDemandee: Number(String(quantites[index] || "0").replace(",", ".")),
-    }))
-    .filter((ligne) => ligne.articleId > 0 && ligne.quantiteDemandee > 0);
-
-  if (lignes.length === 0) {
+  if (lignesValides.length === 0) {
     throw new Error("Ajoute au moins un article avec une quantite.");
   }
 
-  for (const ligne of lignes) {
+  for (const ligne of lignesValides) {
     const lots = await fetchLotsInDepot(ligne.articleType, ligne.articleId, depotSourceId);
     const disponible = totalAvailable(lots);
     if (ligne.quantiteDemandee > disponible + 1e-6) {
@@ -99,9 +95,9 @@ export async function createTransferOrderAction(formData: FormData) {
       depot_source_id: depotSourceId,
       depot_destination_id: depotDestinationId,
       date_jour: dateJour,
-      cree_par: currentUser,
+      cree_par: creePar,
       numero: await nextTransferOrderNumero(dateJour),
-      remarque: String(formData.get("remarque") || "").trim() || null,
+      remarque: remarque || null,
     })
     .select("id")
     .single();
@@ -113,7 +109,7 @@ export async function createTransferOrderAction(formData: FormData) {
   const transferOrderId = (transferOrder as { id: number }).id;
 
   const { error: lignesError } = await supabaseServer.from("transfer_order_lignes").insert(
-    lignes.map((ligne) => ({
+    lignesValides.map((ligne) => ({
       transfer_order_id: transferOrderId,
       article_type: ligne.articleType,
       article_id: ligne.articleId,
@@ -124,6 +120,37 @@ export async function createTransferOrderAction(formData: FormData) {
   if (lignesError) {
     throw new Error(lignesError.message);
   }
+
+  return transferOrderId;
+}
+
+// Une ligne par article demande (article_type[], article_id[],
+// quantite_demandee[] - meme convention getAll() indexee que Programme).
+export async function createTransferOrderAction(formData: FormData) {
+  const currentUser = await requireWriteAccess();
+
+  const depotSourceId = Number(formData.get("depot_source_id") || "0");
+  const depotDestinationId = Number(formData.get("depot_destination_id") || "0");
+  const dateJour = String(formData.get("date_jour") || "").trim() || new Date().toISOString().slice(0, 10);
+
+  const articleTypes = formData.getAll("article_type");
+  const articleIds = formData.getAll("article_id");
+  const quantites = formData.getAll("quantite_demandee");
+
+  const lignes = articleIds.map((rawArticleId, index) => ({
+    articleType: parseArticleType(articleTypes[index]),
+    articleId: Number(rawArticleId || "0"),
+    quantiteDemandee: Number(String(quantites[index] || "0").replace(",", ".")),
+  }));
+
+  const transferOrderId = await createTransferOrder({
+    depotSourceId,
+    depotDestinationId,
+    dateJour,
+    creePar: currentUser,
+    remarque: String(formData.get("remarque") || "").trim() || null,
+    lignes,
+  });
 
   revalidatePath("/depots/transfer-order");
   redirect(`/depots/transfer-order/${transferOrderId}`);
@@ -214,15 +241,11 @@ export async function copyTransferOrderAction(formData: FormData) {
 // ligne, en commencant par le lot dont la date d'expiration (MP) ou de
 // fabrication (PF, a defaut) est la plus proche (FEFO) - voir allocateFefo.
 // Rejoue proprement si deja approuve une fois (efface l'ancienne repartition
-// avant de la regenerer), pour permettre un "reessayer" simple.
-export async function approveTransferOrderAction(formData: FormData) {
-  await requireWriteAccess();
-
-  const transferOrderId = Number(formData.get("transfer_order_id") || "0");
-  if (!transferOrderId) {
-    throw new Error("Transfer Order invalide.");
-  }
-
+// avant de la regenerer), pour permettre un "reessayer" simple. Coeur sans
+// permission - reutilise par approveTransferOrderAction (UI, verifie
+// "depots") et par tout appel interne deja autorise ailleurs (programme
+// plastique).
+export async function approveTransferOrder(transferOrderId: number): Promise<void> {
   const { data: transferOrderData, error: transferOrderError } = await supabaseServer
     .from("transfer_orders")
     .select("id, depot_source_id, statut")
@@ -303,6 +326,17 @@ export async function approveTransferOrderAction(formData: FormData) {
   }
 
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
+}
+
+export async function approveTransferOrderAction(formData: FormData) {
+  await requireWriteAccess();
+
+  const transferOrderId = Number(formData.get("transfer_order_id") || "0");
+  if (!transferOrderId) {
+    throw new Error("Transfer Order invalide.");
+  }
+
+  await approveTransferOrder(transferOrderId);
 }
 
 // Remplace la repartition par lot de TOUTES les lignes d'un coup, depuis un
@@ -534,15 +568,12 @@ export async function updateAllLigneLotsAction(formData: FormData) {
 // le Transfer Order (transfer_order_ligne_lots) dans les propres lignes du
 // Transfer Invoice (invoice_order_lignes), modifiables ensuite a la baisse
 // avant validation. Le mouvement de stock reel n'a lieu qu'a la validation
-// (voir app/depots/invoice-order/actions.ts).
-export async function postToInvoiceOrderAction(formData: FormData) {
-  const currentUser = await requireWriteAccess();
-
-  const transferOrderId = Number(formData.get("transfer_order_id") || "0");
-  if (!transferOrderId) {
-    throw new Error("Transfer Order invalide.");
-  }
-
+// (voir app/depots/invoice-order/actions.ts). Coeur sans permission - voir
+// approveTransferOrder pour la raison de cette extraction.
+export async function postTransferOrderToInvoice(
+  transferOrderId: number,
+  creePar: string | null
+): Promise<number> {
   const { data: transferOrderData, error: transferOrderError } = await supabaseServer
     .from("transfer_orders")
     .select("id, statut")
@@ -600,7 +631,7 @@ export async function postToInvoiceOrderAction(formData: FormData) {
 
   const { data: inserted, error: insertError } = await supabaseServer
     .from("invoice_orders")
-    .insert({ transfer_order_id: transferOrderId, cree_par: currentUser, date_jour: dateJour, numero })
+    .insert({ transfer_order_id: transferOrderId, cree_par: creePar, date_jour: dateJour, numero })
     .select("id")
     .single();
 
@@ -640,6 +671,18 @@ export async function postToInvoiceOrderAction(formData: FormData) {
 
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
   revalidatePath("/depots/invoice-order");
+  return invoiceOrderId;
+}
+
+export async function postToInvoiceOrderAction(formData: FormData) {
+  const currentUser = await requireWriteAccess();
+
+  const transferOrderId = Number(formData.get("transfer_order_id") || "0");
+  if (!transferOrderId) {
+    throw new Error("Transfer Order invalide.");
+  }
+
+  const invoiceOrderId = await postTransferOrderToInvoice(transferOrderId, currentUser);
   redirect(`/depots/invoice-order/${invoiceOrderId}`);
 }
 
