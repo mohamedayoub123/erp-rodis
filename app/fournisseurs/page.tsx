@@ -30,7 +30,7 @@ type FournisseurPaiementRow = {
 
 type SourceEcritureRow = { id: number; source_id: string };
 
-async function fetchEcrituresParSourceType(sourceType: string) {
+export async function fetchEcrituresParSourceType(sourceType: string) {
   const rows: SourceEcritureRow[] = [];
   let from = 0;
   const pageSize = 1000;
@@ -64,7 +64,7 @@ type LigneCompteRow = {
 // comptes_comptables que fetchLignesForEcritures dans
 // app/comptabilite/journal/page.tsx (comptes_comptables revient en objet ou
 // en tableau d'un element selon la relation, gere comme la-bas).
-async function fetchMontantParEcriture(ecritureIds: number[], compteCode: string, champ: "debit" | "credit") {
+export async function fetchMontantParEcriture(ecritureIds: number[], compteCode: string, champ: "debit" | "credit") {
   const montantByEcriture = new Map<number, number>();
   if (ecritureIds.length === 0) return montantByEcriture;
 
@@ -421,7 +421,11 @@ export default async function FournisseursPage({
                     const paiementsFournisseur = paiementsByFournisseurId.get(fournisseur.id) ?? [];
                     return (
                     <tr key={fournisseur.id} className="border-t border-slate-100 align-top">
-                      <td className="px-6 py-4 font-medium text-slate-900">{fournisseur.nom_fournisseur}</td>
+                      <td className="px-6 py-4 font-medium text-slate-900">
+                        <Link href={`/fournisseurs/${fournisseur.id}`} className="text-amber-700 hover:underline">
+                          {fournisseur.nom_fournisseur}
+                        </Link>
+                      </td>
                       <td className="px-6 py-4 text-slate-600">{fournisseur.pays || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{achete > 0 ? formatFcfa(achete) : "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{achete > 0 ? formatFcfa(paye) : "-"}</td>

@@ -425,7 +425,11 @@ export default async function ClientsPage({
                     const reste = facture - paye;
                     return (
                     <tr key={client.id} className="border-t border-slate-100 align-top">
-                      <td className="px-6 py-4 font-medium text-slate-900">{client.nom_client}</td>
+                      <td className="px-6 py-4 font-medium text-slate-900">
+                        <Link href={`/clients/${client.id}`} className="text-sky-700 hover:underline">
+                          {client.nom_client}
+                        </Link>
+                      </td>
                       <td className="px-6 py-4 text-slate-600">{client.pays || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{client.mode_transport || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{facture > 0 ? formatFcfa(facture) : "-"}</td>

@@ -209,7 +209,7 @@ function getBaseProforma(numeroProforma: string) {
   return numeroProforma.replace(/-\d+$/, "");
 }
 
-function formatStatus(value: string | null) {
+export function formatStatus(value: string | null) {
   const status = (value || "").toUpperCase();
 
   if (status === "LIVREE") return "Livree";
@@ -690,7 +690,7 @@ type CommandePaiementRow = {
 // fetchLignesForEcritures dans app/comptabilite/journal/page.tsx. null tant
 // que la commande n'a pas encore ete livree/facturee (aucune ecriture
 // trouvee), jamais une erreur.
-async function fetchMontantFactureCommande(commandeId: number): Promise<number | null> {
+export async function fetchMontantFactureCommande(commandeId: number): Promise<number | null> {
   const { data: ecritureVente } = await supabaseServer
     .from("ecritures_comptables")
     .select("id")
