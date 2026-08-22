@@ -19,10 +19,14 @@ export type CoutReelResult = {
   coutConditionnementReel: number | null;
   coutElectricite: number;
   coutJournaliers: number;
+  coutChargeGenerale: number;
   coutTotal: number;
   coutParCarton: number | null;
   coutParPiece: number | null;
   coutParGramme: number | null;
+  prixVenteParGramme: number | null;
+  margeParGramme: number | null;
+  margeTotale: number | null;
   detailParMois: { mois: string; quantite: number; coutTotal: number }[];
   lignesIncertaines: LigneIncertaine[];
 };
@@ -55,6 +59,7 @@ type ArticleRow = {
   quantite_recette_base: number | null;
   contenance: number | null;
   piece_par_carton: number | null;
+  prix_vente: number | null;
 };
 type RecetteLigneRow = { article_pf_id: number; article_mp_id: number; quantite: number };
 type MachineRow = {
@@ -73,6 +78,7 @@ type PrixMoisRow = {
   prix_heure_journalier: number | null;
   prix_gaz: number | null;
   prix_gasoil: number | null;
+  prix_essence: number | null;
 };
 type RapportCoutRow = {
   programme_ligne_id: number;
@@ -80,11 +86,24 @@ type RapportCoutRow = {
   machine: string | null;
   temps_debut_preparation: string | null;
   temps_vidange: string | null;
+  nb_journaliers_fabrication: number | null;
+  date_fabrication_conditionnement: string | null;
+};
+
+// Temps/journaliers Conditionnement vivent desormais par FOURNEE reelle sur
+// production_carton_entries (migration add_conditionnement_fields_to_carton_entries.sql,
+// 2026-08-21) - jamais plus sur production_rapports (qui ne recoit plus que
+// date_fabrication_conditionnement/date_peremption depuis ce meme jour, voir
+// upsertRapport dans app/production/suivi-production/actions.ts). Un code
+// peut avoir PLUSIEURS fournees, chacune avec son propre horaire/journaliers/
+// date - jamais une seule valeur partagee comme avant.
+type CartonEntryTempsRow = {
+  programme_ligne_id: number;
+  code: string;
+  date_jour: string;
   temps_demarage_lot: string | null;
   temps_arret_batch: string | null;
-  nb_journaliers_fabrication: number | null;
   nb_journaliers_conditionnement: number | null;
-  date_fabrication_conditionnement: string | null;
 };
 
 async function fetchProgrammeLignesForArticle(articleId: number): Promise<ProgrammeLigneRow[]> {
@@ -142,7 +161,7 @@ async function fetchRapportsCout(ligneIds: number[]): Promise<RapportCoutRow[]> 
     const { data, error } = await supabaseServer
       .from("production_rapports")
       .select(
-        "programme_ligne_id, code, machine, temps_debut_preparation, temps_vidange, temps_demarage_lot, temps_arret_batch, nb_journaliers_fabrication, nb_journaliers_conditionnement, date_fabrication_conditionnement"
+        "programme_ligne_id, code, machine, temps_debut_preparation, temps_vidange, nb_journaliers_fabrication, date_fabrication_conditionnement"
       )
       .in("programme_ligne_id", ligneIds)
       .range(from, from + pageSize - 1);
@@ -157,11 +176,40 @@ async function fetchRapportsCout(ligneIds: number[]): Promise<RapportCoutRow[]> 
   return rows;
 }
 
+// ligneIds optionnel : omis pour une portee GLOBALE (toute l'usine, utilise
+// par le partage des machines Energie qui doit voir toutes les fournees du
+// jour, pas seulement celles de l'article en cours de calcul).
+async function fetchCartonEntriesTemps(ligneIds?: number[]): Promise<CartonEntryTempsRow[]> {
+  if (ligneIds && ligneIds.length === 0) return [];
+
+  const rows: CartonEntryTempsRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    let query = supabaseServer
+      .from("production_carton_entries")
+      .select("programme_ligne_id, code, date_jour, temps_demarage_lot, temps_arret_batch, nb_journaliers_conditionnement");
+    if (ligneIds) {
+      query = query.in("programme_ligne_id", ligneIds);
+    }
+    const { data, error } = await query.range(from, from + pageSize - 1);
+
+    if (error) break;
+    const chunk = (data ?? []) as CartonEntryTempsRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 async function fetchArticle(articleId: number): Promise<ArticleRow | null> {
   const { data } = await supabaseServer
     .from("articles")
     .select(
-      "id, nom_article, nature, vrac_article_id, vrac_quantite_recette, quantite_recette_base, contenance, piece_par_carton"
+      "id, nom_article, nature, vrac_article_id, vrac_quantite_recette, quantite_recette_base, contenance, piece_par_carton, prix_vente"
     )
     .eq("id", articleId)
     .maybeSingle();
@@ -220,7 +268,7 @@ async function fetchPrixMoisMap(mois: string[]): Promise<Map<string, PrixMoisRow
   const annees = [...new Set(mois.map((m) => Number(m.slice(0, 4))))];
   const { data } = await supabaseServer
     .from("prix_carburant")
-    .select("annee, mois, prix_kwh, prix_heure_journalier, prix_gaz, prix_gasoil")
+    .select("annee, mois, prix_kwh, prix_heure_journalier, prix_gaz, prix_gasoil, prix_essence")
     .in("annee", annees);
 
   for (const row of (data ?? []) as PrixMoisRow[]) {
@@ -257,8 +305,6 @@ type RapportEnergieRow = {
   machine: string | null;
   temps_debut_preparation: string | null;
   temps_vidange: string | null;
-  temps_demarage_lot: string | null;
-  temps_arret_batch: string | null;
   date_fabrication_conditionnement: string | null;
 };
 
@@ -275,9 +321,7 @@ async function fetchAllRapportsForEnergie(): Promise<RapportEnergieRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("production_rapports")
-      .select(
-        "programme_ligne_id, machine, temps_debut_preparation, temps_vidange, temps_demarage_lot, temps_arret_batch, date_fabrication_conditionnement"
-      )
+      .select("programme_ligne_id, machine, temps_debut_preparation, temps_vidange, date_fabrication_conditionnement")
       .range(from, from + pageSize - 1);
 
     if (error) break;
@@ -293,9 +337,12 @@ async function fetchAllRapportsForEnergie(): Promise<RapportEnergieRow[]> {
 // Pour chaque machine Energie et chaque jour, quelles machines (leur id)
 // ont reellement tourne ce jour-la (meme condition "a un temps enregistre"
 // que le calcul de cout normal ci-dessous) - sert de diviseur au cout de la
-// machine Energie ce jour-la (voir addEnergieShare).
+// machine Energie ce jour-la (voir addEnergieShare). cartonEntriesGlobal =
+// TOUTES les fournees Conditionnement de l'usine (voir fetchCartonEntriesTemps
+// sans ligneIds), meme portee globale que rapports pour la Fabrication.
 function buildActiveMachinesByEnergieAndDate(
   rapports: RapportEnergieRow[],
+  cartonEntriesGlobal: CartonEntryTempsRow[],
   chaineByLigneId: Map<number, string | null>,
   machineByName: Map<string, MachineRow>
 ): Map<string, Set<number>> {
@@ -319,12 +366,13 @@ function buildActiveMachinesByEnergieAndDate(
       const machine = rapport.machine ? machineByName.get(normalizeMachineName(rapport.machine)) : null;
       markActive(machine, date);
     }
+  }
 
-    if (rapport.temps_demarage_lot && rapport.temps_arret_batch) {
-      const chaine = chaineByLigneId.get(rapport.programme_ligne_id);
-      const machine = chaine ? machineByName.get(normalizeMachineName(chaine)) : null;
-      markActive(machine, date);
-    }
+  for (const entry of cartonEntriesGlobal) {
+    if (!entry.temps_demarage_lot || !entry.temps_arret_batch) continue;
+    const chaine = chaineByLigneId.get(entry.programme_ligne_id);
+    const machine = chaine ? machineByName.get(normalizeMachineName(chaine)) : null;
+    markActive(machine, entry.date_jour);
   }
 
   return map;
@@ -391,6 +439,158 @@ function computeEnergieShareCout(
   return total;
 }
 
+type ChargeUsineRow = {
+  annee: number;
+  mois: number;
+  electricite_plastique: number | null;
+  electricite_cosmetique: number | null;
+  gaz: number | null;
+  gasoil_plastique: number | null;
+  gasoil_cosmetique: number | null;
+  essence: number | null;
+  salaire_embauche: number | null;
+  salaire_cadre: number | null;
+  depense_usine: number | null;
+};
+
+async function fetchChargesUsineMap(mois: string[]): Promise<Map<string, ChargeUsineRow>> {
+  const map = new Map<string, ChargeUsineRow>();
+  if (mois.length === 0) return map;
+
+  const annees = [...new Set(mois.map((m) => Number(m.slice(0, 4))))];
+  const { data } = await supabaseServer
+    .from("charges_usine")
+    .select(
+      "annee, mois, electricite_plastique, electricite_cosmetique, gaz, gasoil_plastique, gasoil_cosmetique, essence, salaire_embauche, salaire_cadre, depense_usine"
+    )
+    .in("annee", annees);
+
+  for (const row of (data ?? []) as ChargeUsineRow[]) {
+    map.set(`${row.annee}-${String(row.mois).padStart(2, "0")}`, row);
+  }
+  return map;
+}
+
+// Facture reelle du mois (Charges Usine, deja en FCFA sauf gaz/gasoil/essence
+// qui sont en litres x prix du mois) pour electricite+gaz+gasoil+essence.
+function factureEnergieMois(charge: ChargeUsineRow | undefined, prixMois: PrixMoisRow | undefined): number {
+  if (!charge) return 0;
+  const gazCout = prixMois?.prix_gaz != null ? (charge.gaz ?? 0) * prixMois.prix_gaz : 0;
+  const gasoilCout =
+    prixMois?.prix_gasoil != null
+      ? ((charge.gasoil_plastique ?? 0) + (charge.gasoil_cosmetique ?? 0)) * prixMois.prix_gasoil
+      : 0;
+  const essenceCout = prixMois?.prix_essence != null ? (charge.essence ?? 0) * prixMois.prix_essence : 0;
+  return (charge.electricite_plastique ?? 0) + (charge.electricite_cosmetique ?? 0) + gazCout + gasoilCout + essenceCout;
+}
+
+// Part de la facture Charges Usine (electricite+gaz+gasoil+essence) qui n'est
+// PAS deja attribuee a une machine tracee (kW x heures, voir plus haut) +
+// depenses fixes sans equivalent machine (embauche, cadre, depense usine
+// generale) - demande explicite : "pour l'electricite/gaz/gazoil/essence il
+// faut deduire de total machine consomme par mois d'abord". Les salaires
+// journaliers (salaire_journalier_*) sont volontairement EXCLUS ici : ils
+// sont deja chiffres plus precisement, poste par poste, via coutJournaliers
+// (nb_journaliers x heures reelles x prix_heure_journalier) - les inclure
+// ici doublonnerait ce cout.
+async function computeChargeGeneraleParJourCarton(
+  moisList: string[],
+  rapportsEnergie: RapportEnergieRow[],
+  cartonEntriesEnergieGlobal: CartonEntryTempsRow[],
+  chaineByLigneIdGlobal: Map<number, string | null>,
+  machineByName: Map<string, MachineRow>,
+  energieMachineById: Map<number, MachineRow>,
+  activeMachinesByEnergieAndDate: Map<string, Set<number>>,
+  prixMoisByKey: Map<string, PrixMoisRow>
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (moisList.length === 0) return result;
+
+  const [chargesByMois, cartonsGlobal] = await Promise.all([
+    fetchChargesUsineMap(moisList),
+    fetchAllCartonEntries(),
+  ]);
+
+  // Total FCFA deja attribue a des machines tracees (kW x heures + part
+  // Energie partagee), toutes machines/articles confondus, regroupe par
+  // mois - meme calcul que le poste "Cout electricite" plus bas, en portee
+  // globale usine pour pouvoir le deduire de la facture reelle du mois.
+  const machineTotalParMois = new Map<string, number>();
+  function addMachineCout(machineNom: string | null, heures: number, date: string | null) {
+    if (!date) return;
+    const mois = moisDe(date);
+    const anneeRef = Number(date.slice(0, 4));
+    const prixMois = prixMoisByKey.get(mois);
+    const machine = machineNom ? machineByName.get(normalizeMachineName(machineNom)) : null;
+    if (!machine) return;
+    let cout = 0;
+    if (machine.consommation_electrique_kw !== null && prixMois?.prix_kwh != null) {
+      cout += machine.consommation_electrique_kw * heures * prixMois.prix_kwh;
+    }
+    cout += computeEnergieShareCout(machine, heures, date, prixMois, energieMachineById, activeMachinesByEnergieAndDate, []);
+    if (cout > 0) {
+      machineTotalParMois.set(mois, (machineTotalParMois.get(mois) ?? 0) + cout);
+    }
+    void anneeRef;
+  }
+
+  for (const rapport of rapportsEnergie) {
+    if (!rapport.temps_debut_preparation || !rapport.temps_vidange || !rapport.date_fabrication_conditionnement) continue;
+    const minutes = ddmmHhmmDiffMinutes(
+      rapport.temps_debut_preparation,
+      rapport.temps_vidange,
+      Number(rapport.date_fabrication_conditionnement.slice(0, 4))
+    );
+    if (minutes === null) continue;
+    addMachineCout(rapport.machine, minutes / 60, rapport.date_fabrication_conditionnement);
+  }
+  for (const entry of cartonEntriesEnergieGlobal) {
+    if (!entry.temps_demarage_lot || !entry.temps_arret_batch) continue;
+    const minutes = hhmmDiffMinutes(entry.temps_demarage_lot, entry.temps_arret_batch);
+    const chaine = chaineByLigneIdGlobal.get(entry.programme_ligne_id) ?? null;
+    addMachineCout(chaine, minutes / 60, entry.date_jour);
+  }
+
+  // Jours travailles + cartons produits par jour, TOUTE l'usine confondue
+  // (tous articles) - "jour travaille" = un jour ou du carton a reellement
+  // ete produit (pas de champ de saisie manuel dedie).
+  const cartonsParJour = new Map<string, number>();
+  const joursParMois = new Map<string, Set<string>>();
+  for (const entry of cartonsGlobal) {
+    const quantite = Number(entry.quantite ?? 0);
+    if (quantite <= 0) continue;
+    cartonsParJour.set(entry.date_jour, (cartonsParJour.get(entry.date_jour) ?? 0) + quantite);
+    const mois = moisDe(entry.date_jour);
+    const set = joursParMois.get(mois) ?? new Set<string>();
+    set.add(entry.date_jour);
+    joursParMois.set(mois, set);
+  }
+
+  const chargeParJourParMois = new Map<string, number>();
+  for (const mois of moisList) {
+    const charge = chargesByMois.get(mois);
+    const prixMois = prixMoisByKey.get(mois);
+    const factureEnergie = factureEnergieMois(charge, prixMois);
+    const machineTotal = machineTotalParMois.get(mois) ?? 0;
+    const resteEnergie = Math.max(0, factureEnergie - machineTotal);
+    const chargesFixes = (charge?.salaire_embauche ?? 0) + (charge?.salaire_cadre ?? 0) + (charge?.depense_usine ?? 0);
+    const totalGeneral = resteEnergie + chargesFixes;
+    const joursTravail = joursParMois.get(mois)?.size ?? 0;
+    if (joursTravail > 0 && totalGeneral > 0) {
+      chargeParJourParMois.set(mois, totalGeneral / joursTravail);
+    }
+  }
+
+  for (const [date, nbCarton] of cartonsParJour.entries()) {
+    const chargeJour = chargeParJourParMois.get(moisDe(date));
+    if (chargeJour && nbCarton > 0) {
+      result.set(date, chargeJour / nbCarton);
+    }
+  }
+
+  return result;
+}
+
 export async function computeCoutReelArticle(
   articleId: number,
   periode: CoutReelPeriode
@@ -421,10 +621,14 @@ export async function computeCoutReelArticle(
       coutConditionnementReel: null,
       coutElectricite: 0,
       coutJournaliers: 0,
+      coutChargeGenerale: 0,
       coutTotal: 0,
       coutParCarton: null,
       coutParPiece: null,
       coutParGramme: null,
+      prixVenteParGramme: null,
+      margeParGramme: null,
+      margeTotale: null,
       detailParMois: [],
       lignesIncertaines: [],
     };
@@ -515,6 +719,9 @@ export async function computeCoutReelArticle(
   const rapports = await fetchRapportsCout(ligneIds);
   const rapportsPertinents = rapports.filter((r) => codeKeys.has(`${r.programme_ligne_id}::${r.code}`));
 
+  const cartonEntriesTemps = await fetchCartonEntriesTemps(ligneIds);
+  const cartonEntriesPertinents = cartonEntriesTemps.filter((e) => matchesPeriode(e.date_jour, periode));
+
   const { data: machinesData } = await supabaseServer
     .from("machines")
     .select(
@@ -527,19 +734,25 @@ export async function computeCoutReelArticle(
   // Diviseur des machines Energie partagees (voir computeEnergieShareCout) -
   // portee volontairement GLOBALE (toute l'usine, pas juste cet article),
   // fetch une seule fois par appel.
-  const [rapportsEnergie, programmeLignesChaineGlobal] = await Promise.all([
+  const [rapportsEnergie, cartonEntriesEnergieGlobal, programmeLignesChaineGlobal] = await Promise.all([
     fetchAllRapportsForEnergie(),
+    fetchCartonEntriesTemps(),
     fetchAllProgrammeLignesChaine(),
   ]);
   const chaineByLigneIdGlobal = new Map(programmeLignesChaineGlobal.map((l) => [l.id, l.chaine]));
   const activeMachinesByEnergieAndDate = buildActiveMachinesByEnergieAndDate(
     rapportsEnergie,
+    cartonEntriesEnergieGlobal,
     chaineByLigneIdGlobal,
     machineByName
   );
 
   const moisUtiles = [
-    ...new Set(rapportsPertinents.map((r) => r.date_fabrication_conditionnement).filter((d): d is string => !!d)),
+    ...new Set([
+      ...rapportsPertinents.map((r) => r.date_fabrication_conditionnement).filter((d): d is string => !!d),
+      ...cartonEntriesPertinents.map((e) => e.date_jour),
+      ...entries.map((e) => e.date_jour),
+    ]),
   ].map((d) => moisDe(d));
   const prixMoisByKey = await fetchPrixMoisMap(moisUtiles);
 
@@ -604,50 +817,6 @@ export async function computeCoutReelArticle(
       }
     }
 
-    // Poste Conditionnement (temps "HH:MM" simple). Machine rapprochee via
-    // programme_lignes.chaine (pas de champ machine libre pour ce poste).
-    if (rapport.temps_demarage_lot && rapport.temps_arret_batch) {
-      const minutes = hhmmDiffMinutes(rapport.temps_demarage_lot, rapport.temps_arret_batch);
-      const heures = minutes / 60;
-      const chaine = chaineByLigneId.get(rapport.programme_ligne_id);
-      const machine = chaine ? machineByName.get(normalizeMachineName(chaine)) : null;
-      if (!machine || machine.consommation_electrique_kw === null) {
-        motifs.push(`Machine de conditionnement "${chaine || "-"}" introuvable ou sans kW renseigne.`);
-      } else if (!prixMois || prixMois.prix_kwh === null) {
-        motifs.push("Prix electricite (par kWh) non renseigne pour ce mois.");
-      } else {
-        const cout = machine.consommation_electrique_kw * heures * prixMois.prix_kwh;
-        coutElectricite += cout;
-        coutRapportCourant += cout;
-      }
-
-      // Part de machine Energie partagee (voir computeEnergieShareCout) -
-      // independante du kW propre de la machine ci-dessus, s'y ajoute.
-      const energieCoutCond = computeEnergieShareCout(
-        machine,
-        heures,
-        rapport.date_fabrication_conditionnement,
-        prixMois,
-        energieMachineById,
-        activeMachinesByEnergieAndDate,
-        motifs
-      );
-      if (energieCoutCond > 0) {
-        coutElectricite += energieCoutCond;
-        coutRapportCourant += energieCoutCond;
-      }
-
-      if (rapport.nb_journaliers_conditionnement === null) {
-        motifs.push("Nombre de journaliers Conditionnement non renseigne.");
-      } else if (!prixMois || prixMois.prix_heure_journalier === null) {
-        motifs.push("Prix de l'heure journaliere non renseigne pour ce mois.");
-      } else {
-        const cout = rapport.nb_journaliers_conditionnement * heures * prixMois.prix_heure_journalier;
-        coutJournaliers += cout;
-        coutRapportCourant += cout;
-      }
-    }
-
     if (motifs.length > 0) {
       lignesIncertaines.push({ ligneId: rapport.programme_ligne_id, code: rapport.code, motifs });
     }
@@ -660,7 +829,103 @@ export async function computeCoutReelArticle(
     }
   }
 
-  const coutTotal = (coutVracReel ?? 0) + (coutConditionnementReel ?? 0) + coutElectricite + coutJournaliers;
+  // Poste Conditionnement (temps "HH:MM" simple) - une fournee reelle a la
+  // fois (production_carton_entries), jamais l'ancien champ partage sur
+  // production_rapports (obsolete depuis add_conditionnement_fields_to_carton_entries.sql,
+  // voir types CartonEntryTempsRow plus haut). Machine rapprochee via
+  // programme_lignes.chaine (pas de champ machine libre pour ce poste).
+  for (const entry of cartonEntriesPertinents) {
+    if (!entry.temps_demarage_lot || !entry.temps_arret_batch) continue;
+
+    const prixMois = prixMoisByKey.get(moisDe(entry.date_jour));
+    const motifs: string[] = [];
+    let coutEntreeCourant = 0;
+
+    const minutes = hhmmDiffMinutes(entry.temps_demarage_lot, entry.temps_arret_batch);
+    const heures = minutes / 60;
+    const chaine = chaineByLigneId.get(entry.programme_ligne_id);
+    const machine = chaine ? machineByName.get(normalizeMachineName(chaine)) : null;
+    if (!machine || machine.consommation_electrique_kw === null) {
+      motifs.push(`Machine de conditionnement "${chaine || "-"}" introuvable ou sans kW renseigne.`);
+    } else if (!prixMois || prixMois.prix_kwh === null) {
+      motifs.push("Prix electricite (par kWh) non renseigne pour ce mois.");
+    } else {
+      const cout = machine.consommation_electrique_kw * heures * prixMois.prix_kwh;
+      coutElectricite += cout;
+      coutEntreeCourant += cout;
+    }
+
+    // Part de machine Energie partagee (voir computeEnergieShareCout) -
+    // independante du kW propre de la machine ci-dessus, s'y ajoute.
+    const energieCoutCond = computeEnergieShareCout(
+      machine,
+      heures,
+      entry.date_jour,
+      prixMois,
+      energieMachineById,
+      activeMachinesByEnergieAndDate,
+      motifs
+    );
+    if (energieCoutCond > 0) {
+      coutElectricite += energieCoutCond;
+      coutEntreeCourant += energieCoutCond;
+    }
+
+    if (entry.nb_journaliers_conditionnement === null) {
+      motifs.push("Nombre de journaliers Conditionnement non renseigne.");
+    } else if (!prixMois || prixMois.prix_heure_journalier === null) {
+      motifs.push("Prix de l'heure journaliere non renseigne pour ce mois.");
+    } else {
+      const cout = entry.nb_journaliers_conditionnement * heures * prixMois.prix_heure_journalier;
+      coutJournaliers += cout;
+      coutEntreeCourant += cout;
+    }
+
+    if (motifs.length > 0) {
+      lignesIncertaines.push({ ligneId: entry.programme_ligne_id, code: entry.code, motifs });
+    }
+
+    if (coutEntreeCourant > 0) {
+      const mois = moisDe(entry.date_jour);
+      const current = detailParMoisMap.get(mois) ?? { quantite: 0, coutTotal: 0 };
+      current.coutTotal += coutEntreeCourant;
+      detailParMoisMap.set(mois, current);
+    }
+  }
+
+  // Charge generale (electricite/gaz/gasoil/essence non attribues a une
+  // machine tracee + embauche/cadre/depense usine), repartie par jour
+  // travaille puis par carton produit ce jour - uniquement pour les produits
+  // finis (le vrac n'a pas de notion de "carton"). Voir
+  // computeChargeGeneraleParJourCarton pour le detail du calcul.
+  let coutChargeGenerale = 0;
+  if (nature === "fini") {
+    const chargeGeneraleParJourCarton = await computeChargeGeneraleParJourCarton(
+      moisUtiles,
+      rapportsEnergie,
+      cartonEntriesEnergieGlobal,
+      chaineByLigneIdGlobal,
+      machineByName,
+      energieMachineById,
+      activeMachinesByEnergieAndDate,
+      prixMoisByKey
+    );
+
+    for (const entry of entries) {
+      const quantite = Number(entry.quantite ?? 0);
+      const tauxJour = chargeGeneraleParJourCarton.get(entry.date_jour);
+      if (tauxJour === undefined) continue;
+      const cout = tauxJour * quantite;
+      coutChargeGenerale += cout;
+      const mois = moisDe(entry.date_jour);
+      const current = detailParMoisMap.get(mois) ?? { quantite: 0, coutTotal: 0 };
+      current.coutTotal += cout;
+      detailParMoisMap.set(mois, current);
+    }
+  }
+
+  const coutTotal =
+    (coutVracReel ?? 0) + (coutConditionnementReel ?? 0) + coutElectricite + coutJournaliers + coutChargeGenerale;
 
   const coutParCarton =
     nature === "fini" && quantiteTotaleProduite > 0 ? coutTotal / quantiteTotaleProduite : null;
@@ -674,6 +939,26 @@ export async function computeCoutReelArticle(
       : coutParPiece !== null && article.contenance
         ? coutParPiece / (article.contenance * 1000)
         : null;
+
+  // Prix de vente au gramme + marge - meme decoupage carton -> piece ->
+  // gramme que le cout, a partir du prix de vente standard de l'article
+  // (articles.prix_vente, prix du CARTON pour un produit fini).
+  const prixVenteParPiece =
+    nature === "fini" && article.prix_vente && article.piece_par_carton
+      ? article.prix_vente / article.piece_par_carton
+      : null;
+  const prixVenteParGramme =
+    nature === "vrac"
+      ? null
+      : prixVenteParPiece !== null && article.contenance
+        ? prixVenteParPiece / (article.contenance * 1000)
+        : null;
+  const margeParGramme =
+    prixVenteParGramme !== null && coutParGramme !== null ? prixVenteParGramme - coutParGramme : null;
+  const margeTotale =
+    nature === "fini" && article.prix_vente && quantiteTotaleProduite > 0
+      ? article.prix_vente * quantiteTotaleProduite - coutTotal
+      : null;
 
   const detailParMois = [...detailParMoisMap.entries()]
     .map(([mois, v]) => ({ mois, quantite: round(v.quantite, 2), coutTotal: Math.round(v.coutTotal) }))
@@ -689,10 +974,14 @@ export async function computeCoutReelArticle(
     coutConditionnementReel: coutConditionnementReel !== null ? Math.round(coutConditionnementReel) : null,
     coutElectricite: Math.round(coutElectricite),
     coutJournaliers: Math.round(coutJournaliers),
+    coutChargeGenerale: Math.round(coutChargeGenerale),
     coutTotal: Math.round(coutTotal),
     coutParCarton,
     coutParPiece,
     coutParGramme,
+    prixVenteParGramme,
+    margeParGramme,
+    margeTotale: margeTotale !== null ? Math.round(margeTotale) : null,
     detailParMois,
     lignesIncertaines,
   };

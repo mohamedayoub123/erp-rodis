@@ -226,6 +226,12 @@ export default async function CoutReelArticlePage({
                   <p className="text-xs font-semibold text-slate-500">Cout journaliers</p>
                   <p className="mt-1 text-xl font-black text-slate-900">{formatFcfa(result.coutJournaliers)}</p>
                 </div>
+                {result.nature === "fini" ? (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">Charge generale (usine, par jour/carton)</p>
+                    <p className="mt-1 text-xl font-black text-slate-900">{formatFcfa(result.coutChargeGenerale)}</p>
+                  </div>
+                ) : null}
                 <div>
                   <p className="text-xs font-semibold text-slate-500">Cout total</p>
                   <p className="mt-1 text-xl font-black text-slate-900">{formatFcfa(result.coutTotal)}</p>
@@ -258,6 +264,46 @@ export default async function CoutReelArticlePage({
                       : "-"}
                   </p>
                 </div>
+                {result.nature === "fini" ? (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">Prix de vente par gramme</p>
+                    <p className="mt-1 text-xl font-black text-slate-900">
+                      {result.prixVenteParGramme !== null
+                        ? `${result.prixVenteParGramme.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA`
+                        : "-"}
+                    </p>
+                  </div>
+                ) : null}
+                {result.nature === "fini" ? (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">Marge par gramme</p>
+                    <p
+                      className={`mt-1 text-xl font-black ${
+                        result.margeParGramme !== null && result.margeParGramme < 0
+                          ? "text-red-600"
+                          : "text-emerald-700"
+                      }`}
+                    >
+                      {result.margeParGramme !== null
+                        ? `${result.margeParGramme.toLocaleString("fr-FR", { maximumFractionDigits: 2, signDisplay: "always" })} FCFA`
+                        : "-"}
+                    </p>
+                  </div>
+                ) : null}
+                {result.nature === "fini" ? (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">
+                      {result.margeTotale !== null && result.margeTotale < 0 ? "Perte totale" : "Gain total"}
+                    </p>
+                    <p
+                      className={`mt-1 text-xl font-black ${
+                        result.margeTotale !== null && result.margeTotale < 0 ? "text-red-600" : "text-emerald-700"
+                      }`}
+                    >
+                      {result.margeTotale !== null ? formatFcfa(Math.abs(result.margeTotale)) : "-"}
+                    </p>
+                  </div>
+                ) : null}
               </div>
 
               {result.lignesIncertaines.length > 0 ? (
