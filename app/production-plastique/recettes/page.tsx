@@ -2,12 +2,28 @@ import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { fetchArticlesPlastique } from "../shared";
+import { fetchArticlesPlastique, normalizeCategoriePlastique } from "../shared";
 
-export default async function RecettesPlastiqueListePage() {
+const CATEGORIES_AFFICHEES = ["FLACON", "CAPSULE", "POTS", "TOPETTE"] as const;
+
+type SearchParams = Promise<{ q?: string; categorie?: string }>;
+
+export default async function RecettesPlastiqueListePage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
   noStore();
+  const params = await searchParams;
+  const q = (params.q || "").trim().toLowerCase();
+  const categorieFilter = (params.categorie || "").trim();
 
-  const articles = await fetchArticlesPlastique();
+  const allArticles = await fetchArticlesPlastique();
+  const articles = allArticles.filter((article) => {
+    if (q && !article.nom_article.toLowerCase().includes(q)) return false;
+    if (categorieFilter && normalizeCategoriePlastique(article.categorie) !== categorieFilter) return false;
+    return true;
+  });
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -31,6 +47,39 @@ export default async function RecettesPlastiqueListePage() {
           </div>
         </section>
 
+        <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
+            <input
+              type="text"
+              name="q"
+              defaultValue={q}
+              placeholder="Chercher un article..."
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            />
+            <select
+              name="categorie"
+              defaultValue={categorieFilter}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+            >
+              <option value="">Toutes categories</option>
+              {CATEGORIES_AFFICHEES.map((categorie) => (
+                <option key={categorie} value={categorie}>
+                  {categorie}
+                </option>
+              ))}
+            </select>
+            <button type="submit" className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
+              Filtrer
+            </button>
+            <Link
+              href="/production-plastique/recettes"
+              className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+            >
+              Effacer
+            </Link>
+          </form>
+        </section>
+
         <section className="grid gap-3">
           {articles.map((article) => (
             <Link
@@ -40,7 +89,7 @@ export default async function RecettesPlastiqueListePage() {
             >
               <span className="font-semibold text-slate-900">{article.nom_article}</span>
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                {article.categorie}
+                {normalizeCategoriePlastique(article.categorie)}
               </span>
             </Link>
           ))}

@@ -3,7 +3,33 @@ import { fetchCoutsReelsMpDepotB } from "@/lib/prix-revient";
 
 // Categories articles_matiere_premiere considerees "plastique" (fabriquees
 // en interne, jamais achetees) - demande explicite : flacon/capsule/pot.
-export const CATEGORIES_PLASTIQUE = ["FLACON", "CAPSULE", "POTS"] as const;
+// Plusieurs variantes de nom existent en base pour la meme famille physique
+// (ex: CAPSULE/CAPSULES/CAPSULES-IMP sont toutes des capsules/capots,
+// FLACON/FLACONS PET sont tous des flacons) - toutes reprises ici, puis
+// regroupees a l'affichage par normalizeCategoriePlastique. TOPETTE est sa
+// propre famille (petit flacon a bille/roulette), distincte des flacons.
+export const CATEGORIES_PLASTIQUE = [
+  "FLACON",
+  "FLACONS PET",
+  "CAPSULE",
+  "CAPSULES",
+  "CAPSULES-IMP",
+  "POTS",
+  "TOPETTE",
+] as const;
+
+// Etiquette d'affichage regroupee - les variantes CAPSULES/CAPSULES-IMP et
+// FLACONS PET s'affichent sous le meme nom que leur famille principale.
+export function normalizeCategoriePlastique(categorie: string | null): string {
+  if (categorie === "CAPSULES" || categorie === "CAPSULES-IMP") return "CAPSULE";
+  if (categorie === "FLACONS PET") return "FLACON";
+  return categorie || "-";
+}
+
+// Categories des matieres qui composent une recette plastique (resine +
+// colorant) - demande explicite : seules ces 2 categories doivent
+// apparaitre dans le picker "Ajouter une matiere", pas tout le catalogue MP.
+export const CATEGORIES_INGREDIENT_PLASTIQUE = ["mp plastique", "COLORANT PLAS."] as const;
 
 export type ArticlePlastiqueRow = {
   id: number;

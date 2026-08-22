@@ -6,7 +6,12 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { ProduitPickerField } from "@/app/production/suivi-production/produit-picker-field";
 import { canVoirPrixUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { computeCoutPlastiqueParPiece, type RecettePlastiqueLigne } from "../../shared";
+import {
+  CATEGORIES_INGREDIENT_PLASTIQUE,
+  computeCoutPlastiqueParPiece,
+  normalizeCategoriePlastique,
+  type RecettePlastiqueLigne,
+} from "../../shared";
 import {
   addRecettePlastiqueLigneAction,
   updateRecettePlastiqueLigneAction,
@@ -45,18 +50,32 @@ export default async function RecettePlastiqueDetailPage({ params }: { params: P
     .order("id", { ascending: true });
   const lignes = (lignesData ?? []) as RecettePlastiqueLigne[];
 
-  // Matiere premiere = TOUS les articles MP (pas seulement les plastiques -
-  // le colorant, la resine etc. sont des articles MP classiques comme les
-  // autres), sauf l'article produit lui-meme.
+  // Matiere premiere = resine plastique + colorant plastique uniquement
+  // (categories "mp plastique" / "COLORANT PLAS.") - demande explicite, pas
+  // tout le catalogue MP.
   const { data: articlesMpData } = await supabaseServer
     .from("articles_matiere_premiere")
     .select("id, nom_article")
+    .in("categorie", CATEGORIES_INGREDIENT_PLASTIQUE)
     .neq("id", articleProduitId);
   const mpOptions = ((articlesMpData ?? []) as { id: number; nom_article: string }[])
     .map((a) => ({ id: a.id, label: a.nom_article }))
     .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
   const mpById = new Map(((articlesMpData ?? []) as { id: number; nom_article: string }[]).map((a) => [a.id, a.nom_article]));
   const usedMatiereIds = new Set(lignes.map((l) => l.article_matiere_id));
+
+  // Filet pour d'anciennes lignes de recette qui referenceraient une matiere
+  // hors des 2 categories ci-dessus - sans ca le nom afficherait "Article #id".
+  const missingMatiereIds = [...usedMatiereIds].filter((id) => !mpById.has(id));
+  if (missingMatiereIds.length > 0) {
+    const { data: fallbackData } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("id, nom_article")
+      .in("id", missingMatiereIds);
+    for (const row of (fallbackData ?? []) as { id: number; nom_article: string }[]) {
+      mpById.set(row.id, row.nom_article);
+    }
+  }
 
   const sommePourcent = lignes.reduce((total, l) => total + Number(l.pourcentage ?? 0), 0);
 
@@ -74,7 +93,9 @@ export default async function RecettePlastiqueDetailPage({ params }: { params: P
                 Recette Plastique
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">{article.nom_article}</h1>
-              {article.categorie ? <p className="mt-1 text-sm text-slate-600">{article.categorie}</p> : null}
+              {article.categorie ? (
+                <p className="mt-1 text-sm text-slate-600">{normalizeCategoriePlastique(article.categorie)}</p>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-3">
