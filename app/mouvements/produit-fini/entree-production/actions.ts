@@ -6,11 +6,60 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchCoutReelDepuisReservation, fetchCoutsParCartonProduitsFinis, type LotUtiliseInfo } from "@/lib/prix-revient";
 import {
   COMPTE_EN_COURS_PRODUCTION,
+  COMPTE_STOCK_MP,
   COMPTE_STOCK_PRODUIT_FINI,
   creerEcriture,
   enregistrerLotsUtilisesPourEcriture,
   supprimerEcriturePourSource,
 } from "@/lib/comptabilite";
+
+// Ecriture separee pour la consommation REELLE des articles de
+// conditionnement (sleeve/capsule/carton/flacon...) d'un code precis - bug
+// reel corrige : consommerCartonProportionnel
+// (app/production/suivi-production/actions.ts) deduit deja ce stock
+// physiquement (vraies sorties MP) a chaque fournee, mais aucune ecriture ne
+// l'enregistrait jamais en comptabilite. Sans elle, l'ecriture
+// "entree_production" credite l'En-cours du cout complet (vrac +
+// conditionnement), alors que seul le vrac avait ete debite par
+// "fabrication_vrac" - l'En-cours partait durablement negatif (cas reel :
+// -787 600 FCFA sur AA4263V). Rejouable (efface + recree), meme convention
+// de source_id que fabrication_vrac (ligneId-code) pour rester coherente et
+// permettre le recalcul en cascade (voir lib/ecriture-recompute.ts).
+export async function recalculerEcritureConditionnementMp(
+  ligneId: number,
+  code: string,
+  currentUser: string | null
+): Promise<void> {
+  const sourceId = `${ligneId}-${code}`;
+  await supprimerEcriturePourSource("conditionnement_mp", sourceId);
+
+  const { data: termineData } = await supabaseServer
+    .from("production_code_termine")
+    .select("id")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", "salle_conditionnement")
+    .maybeSingle();
+  const termine = termineData as { id: number } | null;
+  if (!termine) return;
+
+  const coutConditionnement = await fetchCoutReelDepuisReservation(termine.id);
+  if (!coutConditionnement || coutConditionnement.coutFcfa <= 0) return;
+
+  const ecritureId = await creerEcriture({
+    dateEcriture: new Date().toISOString().slice(0, 10),
+    pieceReference: code,
+    libelle: `Conditionnement - ${code}`,
+    sourceType: "conditionnement_mp",
+    sourceId,
+    createdBy: currentUser,
+    lignes: [
+      { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: coutConditionnement.coutFcfa, credit: 0 },
+      { compteCode: COMPTE_STOCK_MP, debit: 0, credit: coutConditionnement.coutFcfa },
+    ],
+  });
+  await enregistrerLotsUtilisesPourEcriture(ecritureId, coutConditionnement.lotsUtilises);
+}
 
 // Recalcule (efface + recree si un cout est trouve) l'ecriture comptable
 // "entree_production" d'un (groupeId, article) precis, a partir de ce qui
@@ -92,6 +141,13 @@ export async function recalculerEcritureEntreeProduction(
 
     coutReelTotal += (coutConditionnement?.coutFcfa ?? 0) + (coutVrac?.coutFcfa ?? 0);
     lotsReelUtilises = lotsReelUtilises.concat(coutConditionnement?.lotsUtilises ?? [], coutVrac?.lotsUtilises ?? []);
+
+    // Ecriture separee (voir recalculerEcritureConditionnementMp plus haut)
+    // pour la consommation REELLE des articles de conditionnement - sans
+    // elle, l'ecriture "entree_production" ci-dessous credite l'En-cours du
+    // cout complet (vrac + conditionnement), alors que seul le vrac avait
+    // ete debite par "fabrication_vrac".
+    await recalculerEcritureConditionnementMp(termine.programme_ligne_id, code, currentUser);
   }
 
   let montant: number;

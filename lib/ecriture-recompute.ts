@@ -1,6 +1,9 @@
 import { fetchEcrituresAffecteesParLot } from "@/lib/comptabilite";
 import { recalculerEcritureFabricationVrac } from "@/app/production/suivi-production/actions";
-import { recalculerEcritureEntreeProduction } from "@/app/mouvements/produit-fini/entree-production/actions";
+import {
+  recalculerEcritureEntreeProduction,
+  recalculerEcritureConditionnementMp,
+} from "@/app/mouvements/produit-fini/entree-production/actions";
 import { creerEcritureVente } from "@/app/commandes/actions";
 
 // Point d'entree unique pour "un prix de lot MP vient d'etre corrige,
@@ -32,6 +35,13 @@ export async function recalculerEcrituresDependantes(
         const articleId = Number(articleIdRaw);
         if (groupeId && articleId) {
           await recalculerEcritureEntreeProduction(groupeId, articleId, currentUser);
+        }
+      } else if (sourceType === "conditionnement_mp") {
+        const [ligneIdRaw, ...codeParts] = sourceId.split("-");
+        const ligneId = Number(ligneIdRaw);
+        const code = codeParts.join("-");
+        if (ligneId && code) {
+          await recalculerEcritureConditionnementMp(ligneId, code, currentUser);
         }
       } else if (sourceType === "commande_cout_vente" || sourceType === "commande_vente") {
         const commandeId = Number(sourceId);
