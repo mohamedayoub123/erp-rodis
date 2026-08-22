@@ -4,7 +4,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { deleteProgrammeLigneGroupAction } from "../programe-par-ligne/actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { DeleteGroupButton } from "./delete-group-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDateTime } from "@/lib/format-date";
 import { computePlCodesFromRows, fetchPdRefsBySourceGroupeId } from "@/lib/programme-numbering";
@@ -263,10 +263,7 @@ export default async function HistoriqueProgrammePage({
                     </Link>
                   ) : null}
                   {canDelete ? (
-                    <form action={deleteProgrammeLigneGroupAction}>
-                      <input type="hidden" name="groupe_id" value={group.groupeId} />
-                      <DeleteIconButton />
-                    </form>
+                    <DeleteGroupButton groupeId={group.groupeId} deleteAction={deleteProgrammeLigneGroupAction} />
                   ) : null}
                 </div>
               </div>
