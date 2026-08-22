@@ -241,7 +241,10 @@ export default async function RecettePlastiqueDetailPage({ params }: { params: P
           <h2 className="mb-4 text-lg font-bold text-slate-900">Ajouter une matiere</h2>
           <form action={addRecettePlastiqueLigneAction} className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
             <input type="hidden" name="article_produit_id" value={articleProduitId} />
-            <ProduitPickerField articles={mpOptions.filter((option) => !usedMatiereIds.has(option.id))} />
+            <ProduitPickerField
+              key={lignes.length}
+              articles={mpOptions.filter((option) => !usedMatiereIds.has(option.id))}
+            />
             <input
               type="number"
               step="0.01"
