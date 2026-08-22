@@ -106,6 +106,13 @@ type CartonEntryTempsRow = {
   temps_demarage_lot: string | null;
   temps_arret_batch: string | null;
   nb_journaliers_conditionnement: number | null;
+  // Chaine figee au moment de CETTE fournee (ajoutee par
+  // add_chaine_zone_to_carton_entries.sql) - jamais programme_lignes.chaine
+  // (un seul champ partage par ligne, ecrase a chaque changement de chaine -
+  // bug reel corrige, voir le commentaire sur updateLigneZoneChaineAction).
+  // Repli sur chaineByLigneId (l'ancien champ partage) uniquement pour les
+  // fournees saisies avant cette migration, qui n'ont pas ce champ.
+  chaine: string | null;
 };
 
 async function fetchProgrammeLignesForArticle(articleId: number): Promise<ProgrammeLigneRow[]> {
@@ -191,7 +198,7 @@ async function fetchCartonEntriesTemps(ligneIds?: number[]): Promise<CartonEntry
   while (true) {
     let query = supabaseServer
       .from("production_carton_entries")
-      .select("programme_ligne_id, code, date_jour, temps_demarage_lot, temps_arret_batch, nb_journaliers_conditionnement");
+      .select("programme_ligne_id, code, date_jour, temps_demarage_lot, temps_arret_batch, nb_journaliers_conditionnement, chaine");
     if (ligneIds) {
       query = query.in("programme_ligne_id", ligneIds);
     }
@@ -372,7 +379,7 @@ function buildActiveMachinesByEnergieAndDate(
 
   for (const entry of cartonEntriesGlobal) {
     if (!entry.temps_demarage_lot || !entry.temps_arret_batch) continue;
-    const chaine = chaineByLigneId.get(entry.programme_ligne_id);
+    const chaine = entry.chaine || chaineByLigneId.get(entry.programme_ligne_id);
     const machine = chaine ? machineByName.get(normalizeMachineName(chaine)) : null;
     markActive(machine, entry.date_jour);
   }
@@ -549,7 +556,7 @@ async function computeChargeGeneraleParJourCarton(
   for (const entry of cartonEntriesEnergieGlobal) {
     if (!entry.temps_demarage_lot || !entry.temps_arret_batch) continue;
     const minutes = hhmmDiffMinutes(entry.temps_demarage_lot, entry.temps_arret_batch);
-    const chaine = chaineByLigneIdGlobal.get(entry.programme_ligne_id) ?? null;
+    const chaine = entry.chaine || chaineByLigneIdGlobal.get(entry.programme_ligne_id) || null;
     addMachineCout(chaine, minutes / 60, entry.date_jour);
   }
 
@@ -742,7 +749,7 @@ export async function computeCoutReelArticle(
     coutVracReel = coutVracFrais !== null || coutTransfereTotal > 0 ? (coutVracFrais ?? 0) + coutTransfereTotal : null;
     coutParUnite = coutVracReel !== null && quantiteTotaleProduite > 0 ? coutVracReel / quantiteTotaleProduite : null;
     if (coutVrac.coutParKg === null) {
-      lignesIncertaines.push({ ligneId: 0, code: "", motifs: ["Cout par kg du vrac inconnu (MP sans prix a Depot B)."] });
+      lignesIncertaines.push({ ligneId: 0, code: "", motifs: ["Cout par kg du vrac inconnu (aucun lot MP avec un prix connu pour cette recette)."] });
     }
   } else {
     const vracArticleId = await resolveVracArticleId(articleId);
@@ -796,7 +803,7 @@ export async function computeCoutReelArticle(
         lignesIncertaines.push({
           ligneId: 0,
           code: "",
-          motifs: ["Cout du vrac utilise inconnu (prix MP ou quantite de vrac necessaire manquants a Depot B)."],
+          motifs: ["Cout du vrac utilise inconnu (prix MP ou quantite de vrac necessaire manquants)."],
         });
       }
     }
@@ -943,7 +950,7 @@ export async function computeCoutReelArticle(
 
     const minutes = hhmmDiffMinutes(entry.temps_demarage_lot, entry.temps_arret_batch);
     const heures = minutes / 60;
-    const chaine = chaineByLigneId.get(entry.programme_ligne_id);
+    const chaine = entry.chaine || chaineByLigneId.get(entry.programme_ligne_id);
     const machine = chaine ? machineByName.get(normalizeMachineName(chaine)) : null;
     if (!machine || machine.consommation_electrique_kw === null) {
       motifs.push(`Machine de conditionnement "${chaine || "-"}" introuvable ou sans kW renseigne.`);

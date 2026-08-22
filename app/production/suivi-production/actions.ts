@@ -533,7 +533,16 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   // 2e. Seul un doublon EXACT (meme quantite que la toute derniere saisie -
   // rouvrir la fiche et re-Enregistrer sans rien changer) est ignore ;
   // toute quantite differente s'ajoute normalement.
-  const [, dejaCompteIdentique] = await Promise.all([
+  // Chaine/zone figees au moment de CETTE fournee (voir insert plus bas) -
+  // bug reel corrige : avant lues depuis programme_lignes.chaine/zone (un
+  // seul champ partage par ligne), le selecteur Zone/Chaine de la page
+  // Conditionnement (updateLigneZoneChaineAction, modification immediate
+  // independante du Save) repeignait alors RETROACTIVEMENT la chaine de
+  // TOUTES les fournees deja saisies pour cette ligne des qu'on changeait la
+  // chaine pour la fournee suivante (cas reel : chaine 7 -> 2 -> 3, les 3
+  // fournees affichaient "chaine 3" a la fin).
+  const [{ data: ligneChaineData }, , dejaCompteIdentique] = await Promise.all([
+    supabaseServer.from("programme_lignes").select("chaine, zone").eq("id", ligneId).maybeSingle(),
     upsertRapport(ligneId, code, {
       date_fabrication_conditionnement: dateFabricationConditionnement,
       date_peremption: parseOptionalText(formData, "date_peremption"),
@@ -542,6 +551,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
       ? dernierEntreeQuantiteIdentique("production_carton_entries", ligneId, code, qtFabriquer)
       : Promise.resolve(false),
   ]);
+  const ligneChaine = ligneChaineData as { chaine: string | null; zone: string | null } | null;
 
   // Alimente le journal carton (meme principe que le Dashboard) pour que le
   // "reste" par rapport a la quantite prevue se recalcule tout seul.
@@ -559,6 +569,8 @@ export async function saveConditionnementRapportAction(formData: FormData) {
             code,
             quantite: qtFabriquer,
             ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
+            chaine: ligneChaine?.chaine ?? null,
+            zone: ligneChaine?.zone ?? null,
             chef_zone: parseOptionalText(formData, "chef_zone"),
             chef_ligne: parseOptionalText(formData, "chef_ligne"),
             ravitailleur: parseOptionalText(formData, "ravitailleur"),

@@ -255,6 +255,8 @@ type EntryRow = {
   quantite: number;
   date_jour: string;
   // Conditionnement
+  chaine?: string | null;
+  zone?: string | null;
   chef_zone?: string | null;
   chef_ligne?: string | null;
   ravitailleur?: string | null;
@@ -402,7 +404,7 @@ const RAPPORT_COLUMNS =
 // d'entree correspondantes, au lieu d'etre lus depuis production_rapports
 // (qui ne garde qu'une seule ligne par code, ecrasee a chaque fournee).
 const CARTON_ENTRY_COLUMNS =
-  "id, programme_ligne_id, code, quantite, date_jour, chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, utilisateur_conditionnement, date_saisie_conditionnement";
+  "id, programme_ligne_id, code, quantite, date_jour, chaine, zone, chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, utilisateur_conditionnement, date_saisie_conditionnement";
 
 const EMBALLAGE_ENTRY_COLUMNS =
   "id, programme_ligne_id, code, quantite, date_jour, emballage_chef_zone, emballage_machine, emballage_operateur, emballage_scotcheuse, nb_journaliers_emballage, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, utilisateur_emballage, date_saisie_emballage";
@@ -1071,8 +1073,12 @@ export default async function SuiviProductionListPage({
                         <td className="px-6 py-4 text-slate-900 font-semibold">
                           {row.conditionnement ? formatDate(row.conditionnement.date) : "-"}
                         </td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.ligne.zone : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.ligne.chaine : "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showCond ? row.conditionnement?.zone || row.ligne.zone : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {showCond ? row.conditionnement?.chaine || row.ligne.chaine : "-"}
+                        </td>
                         <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.chef_zone || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.chef_ligne || "-" : "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.ravitailleur || "-" : "-"}</td>
