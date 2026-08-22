@@ -6,6 +6,7 @@ import { canVoirPrixUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { computeCoutReelArticle, type LigneIncertaine } from "@/lib/cout-production-reel";
+import { MonthPicker } from "./month-picker";
 import { fetchAllVracEntries, fetchAllCartonEntries } from "@/app/production/suivi/data";
 
 const MOIS_NOMS = [
@@ -182,28 +183,7 @@ export default async function CoutReelArticlePage({
             </div>
 
             {availableMonths.length > 0 ? (
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
-                  Ou choisis un ou plusieurs mois (remplace Du/Au)
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  {availableMonths.map((month) => (
-                    <label
-                      key={month}
-                      className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-700"
-                    >
-                      <input
-                        type="checkbox"
-                        name="months"
-                        value={month}
-                        defaultChecked={selectedMonths.includes(month)}
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
-                      {monthLabel(month)}
-                    </label>
-                  ))}
-                </div>
-              </div>
+              <MonthPicker availableMonths={availableMonths} selectedMonths={selectedMonths} />
             ) : (
               <p className="text-sm text-slate-500">Aucune production reelle enregistree pour cet article.</p>
             )}
