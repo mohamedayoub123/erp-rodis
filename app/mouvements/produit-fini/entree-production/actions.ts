@@ -4,7 +4,64 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
-import { COMPTE_EN_COURS_PRODUCTION, COMPTE_STOCK_PRODUIT_FINI, creerEcriture } from "@/lib/comptabilite";
+import {
+  COMPTE_EN_COURS_PRODUCTION,
+  COMPTE_STOCK_PRODUIT_FINI,
+  creerEcriture,
+  enregistrerLotsUtilisesPourEcriture,
+  supprimerEcriturePourSource,
+} from "@/lib/comptabilite";
+
+// Recalcule (efface + recree si un cout est trouve) l'ecriture comptable
+// "entree_production" d'un (groupeId, article) precis, a partir de ce qui
+// est REELLEMENT dans lots_stock pour ce groupe - jamais depuis des
+// valeurs de formulaire, pour pouvoir etre rappelee hors de l'action de
+// transfert (voir lib/ecriture-recompute.ts, quand le prix d'un lot MP
+// deja utilise ici est corrige apres coup).
+export async function recalculerEcritureEntreeProduction(
+  groupeId: number,
+  articleId: number,
+  currentUser: string | null
+): Promise<void> {
+  const sourceId = `${groupeId}-${articleId}`;
+  await supprimerEcriturePourSource("entree_production", sourceId);
+
+  const { data: lotsData } = await supabaseServer
+    .from("lots_stock")
+    .select("qte_entree, numero_lot")
+    .eq("mouvement_groupe_id", groupeId)
+    .eq("article_id", articleId);
+  const lots = (lotsData as { qte_entree: number; numero_lot: string | null }[] | null) ?? [];
+  if (lots.length === 0) return;
+
+  const quantite = lots.reduce((sum, l) => sum + Number(l.qte_entree ?? 0), 0);
+  if (quantite <= 0) return;
+  const lotsLabels = [...new Set(lots.map((l) => l.numero_lot).filter(Boolean))].join(", ");
+
+  const [couts, { data: articleData }] = await Promise.all([
+    fetchCoutsParCartonProduitsFinis([articleId], new Map([[articleId, quantite]])),
+    supabaseServer.from("articles").select("nom_article").eq("id", articleId).maybeSingle(),
+  ]);
+  const nomArticle = (articleData as { nom_article: string } | null)?.nom_article ?? `#${articleId}`;
+
+  const coutInfo = couts.get(articleId);
+  if (!coutInfo || coutInfo.coutParCarton === null) return;
+
+  const montant = coutInfo.coutParCarton * quantite;
+  const ecritureId = await creerEcriture({
+    dateEcriture: new Date().toISOString().slice(0, 10),
+    pieceReference: String(groupeId),
+    libelle: `Entree production - ${nomArticle}${lotsLabels ? ` - ${lotsLabels}` : ""}`,
+    sourceType: "entree_production",
+    sourceId,
+    createdBy: currentUser,
+    lignes: [
+      { compteCode: COMPTE_STOCK_PRODUIT_FINI, debit: montant, credit: 0 },
+      { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: 0, credit: montant },
+    ],
+  });
+  await enregistrerLotsUtilisesPourEcriture(ecritureId, coutInfo.lotsUtilises);
+}
 
 // Cree une entree stock produit fini a partir d'un groupe d'entrees
 // emballage (Suivi Production) qui partagent toutes la meme date - meme
@@ -233,53 +290,13 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
   }
 
   // Ecriture comptable automatique (Produit fini/En-cours de production),
-  // une par article de ce lot - jamais generee si le cout de revient n'est
-  // pas connu (jamais un montant devine). Try/catch qui n'interrompt pas la
-  // validation du mouvement de stock si la comptabilite echoue.
+  // une par article de ce lot. Try/catch qui n'interrompt pas la validation
+  // du mouvement de stock si la comptabilite echoue.
   try {
     const toutesLignes = [...payload, ...extraPayload];
-    const quantiteParArticle = new Map<number, number>();
-    const lotsParArticle = new Map<number, Set<string>>();
-    for (const ligne of toutesLignes) {
-      quantiteParArticle.set(ligne.article_id, (quantiteParArticle.get(ligne.article_id) ?? 0) + ligne.qte_entree);
-      const lots = lotsParArticle.get(ligne.article_id) ?? new Set<string>();
-      if (ligne.numero_lot) lots.add(ligne.numero_lot);
-      lotsParArticle.set(ligne.article_id, lots);
-    }
-
-    const articleIds = [...quantiteParArticle.keys()];
-    const [couts, { data: articlesData }] = await Promise.all([
-      fetchCoutsParCartonProduitsFinis(articleIds, quantiteParArticle),
-      supabaseServer.from("articles").select("id, nom_article").in("id", articleIds),
-    ]);
-    const nomArticleById = new Map(
-      ((articlesData ?? []) as { id: number; nom_article: string }[]).map((a) => [a.id, a.nom_article])
-    );
-    const dateEcriture = new Date().toISOString().slice(0, 10);
-
-    for (const [articleId, quantite] of quantiteParArticle) {
-      const coutInfo = couts.get(articleId);
-      // lignesSansPrix.length === 0 obligatoire (pas seulement coutParCarton
-      // non-nul) : un article ENTIEREMENT sans prix connu a Depot B donne
-      // coutTotal=0 donc coutParCarton=0/qte=0, qui passerait a tort le
-      // garde-fou coutParCarton!==null et creerait une ecriture 0/0.
-      if (!coutInfo || coutInfo.coutParCarton === null || coutInfo.lignesSansPrix.length > 0) continue;
-
-      const montant = coutInfo.coutParCarton * quantite;
-      const nomArticle = nomArticleById.get(articleId) ?? `#${articleId}`;
-      const lots = [...(lotsParArticle.get(articleId) ?? [])].join(", ");
-      await creerEcriture({
-        dateEcriture,
-        pieceReference: String(groupeId),
-        libelle: `Entree production - ${nomArticle}${lots ? ` - ${lots}` : ""}`,
-        sourceType: "entree_production",
-        sourceId: `${groupeId}-${articleId}`,
-        createdBy: currentUser,
-        lignes: [
-          { compteCode: COMPTE_STOCK_PRODUIT_FINI, debit: montant, credit: 0 },
-          { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: 0, credit: montant },
-        ],
-      });
+    const articleIds = [...new Set(toutesLignes.map((l) => l.article_id))];
+    for (const articleId of articleIds) {
+      await recalculerEcritureEntreeProduction(groupeId, articleId, currentUser);
     }
   } catch (comptaError) {
     console.error("Ecriture comptable entree production echouee:", comptaError);

@@ -108,6 +108,73 @@ export async function supprimerEcriturePourSource(sourceType: string, sourceId: 
   }
 }
 
+// Trace quels lots MP (et a quel prix) ont servi a chiffrer une ecriture
+// basee sur un cout reel (Fabrication, Entree production, Cout de vente) -
+// seul moyen ensuite de retrouver quelles ecritures recalculer quand le
+// prix d'un de ces lots est corrige apres coup (voir
+// fetchEcrituresAffecteesParLot). Ignore silencieusement si l'ecriture n'a
+// pas ete rattachee a des lots reels (ex: cout de vente au prix client, pas
+// au cout MP).
+export async function enregistrerLotsUtilisesPourEcriture(
+  ecritureId: number,
+  lots: { articleMpId: number; numeroLot: string; quantite: number; prixUnitaireFcfa: number }[]
+) {
+  if (lots.length === 0) return;
+
+  const { error } = await supabaseServer.from("ecriture_cout_lots").insert(
+    lots.map((l) => ({
+      ecriture_id: ecritureId,
+      article_mp_id: l.articleMpId,
+      numero_lot: l.numeroLot,
+      quantite: l.quantite,
+      prix_unitaire_fcfa: l.prixUnitaireFcfa,
+    }))
+  );
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+// Toutes les ecritures (source_type/source_id) qui ont ete chiffrees en
+// utilisant ce lot MP precis - utilise quand son prix est corrige apres
+// coup pour savoir quoi recalculer en cascade (voir
+// lib/ecriture-recompute.ts). N'inclut jamais mp_achat/mp_stock_entree (l'
+// ecriture DIRECTE de ce lot, deja geree a part par updateLotPrixAction).
+export async function fetchEcrituresAffecteesParLot(
+  articleMpId: number,
+  numeroLot: string
+): Promise<{ sourceType: string; sourceId: string }[]> {
+  const { data: lotsRows, error: lotsError } = await supabaseServer
+    .from("ecriture_cout_lots")
+    .select("ecriture_id")
+    .eq("article_mp_id", articleMpId)
+    .eq("numero_lot", numeroLot);
+
+  if (lotsError) throw new Error(lotsError.message);
+
+  const ecritureIds = [...new Set(((lotsRows ?? []) as { ecriture_id: number }[]).map((r) => r.ecriture_id))];
+  if (ecritureIds.length === 0) return [];
+
+  const { data: ecrituresRows, error: ecrituresError } = await supabaseServer
+    .from("ecritures_comptables")
+    .select("source_type, source_id")
+    .in("id", ecritureIds)
+    .not("source_type", "in", '("mp_achat","mp_stock_entree")');
+
+  if (ecrituresError) throw new Error(ecrituresError.message);
+
+  const seen = new Set<string>();
+  const result: { sourceType: string; sourceId: string }[] = [];
+  for (const row of (ecrituresRows ?? []) as { source_type: string; source_id: string }[]) {
+    const key = `${row.source_type}::${row.source_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ sourceType: row.source_type, sourceId: row.source_id });
+  }
+  return result;
+}
+
 export type PeriodeComptable = { dateFrom?: string; dateTo?: string };
 
 // Solde (debit-credit) de CHAQUE compte du plan comptable, code compte ->

@@ -10,6 +10,7 @@ import {
   COMPTE_EN_COURS_PRODUCTION,
   COMPTE_STOCK_MP,
   creerEcriture,
+  enregistrerLotsUtilisesPourEcriture,
   supprimerEcriturePourSource,
 } from "@/lib/comptabilite";
 
@@ -603,6 +604,61 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   redirect("/production/suivi/dashboard");
 }
 
+// Recalcule (efface + recree si un cout est trouve) l'ecriture comptable
+// "fabrication_vrac" d'un code precis, a partir de l'etat ACTUELLEMENT
+// enregistre (production_rapports.vrac_fabrique) - jamais depuis des
+// valeurs de formulaire, pour pouvoir etre rappelee hors d'un Enregistrer
+// (voir lib/ecriture-recompute.ts, quand le prix d'un lot MP deja utilise
+// ici est corrige apres coup). Exportee pour ca ; appelee aussi directement
+// par saveFabricationRapportAction juste apres avoir enregistre le rapport.
+export async function recalculerEcritureFabricationVrac(
+  ligneId: number,
+  code: string,
+  currentUser: string | null
+): Promise<void> {
+  const sourceId = `${ligneId}-${code}`;
+  await supprimerEcriturePourSource("fabrication_vrac", sourceId);
+
+  const { data: rapportData } = await supabaseServer
+    .from("production_rapports")
+    .select("vrac_fabrique, date_fabrication_conditionnement")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .maybeSingle();
+  const rapport = rapportData as
+    | { vrac_fabrique: number | null; date_fabrication_conditionnement: string | null }
+    | null;
+  const vracFabrique = rapport?.vrac_fabrique ?? null;
+  if (!vracFabrique || vracFabrique <= 0) return;
+
+  const { data: ligneData } = await supabaseServer
+    .from("programme_lignes")
+    .select("article_id")
+    .eq("id", ligneId)
+    .maybeSingle();
+  const articleId = (ligneData as { article_id: number | null } | null)?.article_id ?? null;
+  const vracArticleId = articleId ? await resolveVracArticleId(articleId) : null;
+  if (!vracArticleId) return;
+
+  const coutVrac = await fetchCoutVracParKg(vracArticleId, vracFabrique);
+  if (coutVrac.coutParKg === null) return;
+
+  const montant = coutVrac.coutTotal;
+  const ecritureId = await creerEcriture({
+    dateEcriture: rapport?.date_fabrication_conditionnement || new Date().toISOString().slice(0, 10),
+    pieceReference: code,
+    libelle: `Fabrication - ${code}`,
+    sourceType: "fabrication_vrac",
+    sourceId,
+    createdBy: currentUser,
+    lignes: [
+      { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: montant, credit: 0 },
+      { compteCode: COMPTE_STOCK_MP, debit: 0, credit: montant },
+    ],
+  });
+  await enregistrerLotsUtilisesPourEcriture(ecritureId, coutVrac.lotsUtilises);
+}
+
 export async function saveFabricationRapportAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
@@ -722,45 +778,11 @@ export async function saveFabricationRapportAction(formData: FormData) {
 
   // Ecriture comptable automatique (En-cours de production/Stock MP) - meme
   // remplacement que production_vrac_entries (une Fabrication = un seul
-  // evenement, jamais un ajout), et jamais generee si le cout de la recette
-  // n'est pas connu (jamais un montant devine). Try/catch qui n'interrompt
-  // pas l'enregistrement du rapport si la comptabilite echoue.
+  // evenement, jamais un ajout). Try/catch qui n'interrompt pas
+  // l'enregistrement du rapport si la comptabilite echoue.
   if (vracFabrique && vracFabrique > 0) {
     try {
-      const sourceId = `${ligneId}-${code}`;
-      await supprimerEcriturePourSource("fabrication_vrac", sourceId);
-
-      const { data: ligneData } = await supabaseServer
-        .from("programme_lignes")
-        .select("article_id")
-        .eq("id", ligneId)
-        .maybeSingle();
-      const articleId = (ligneData as { article_id: number | null } | null)?.article_id ?? null;
-      const vracArticleId = articleId ? await resolveVracArticleId(articleId) : null;
-
-      if (vracArticleId) {
-        const coutVrac = await fetchCoutVracParKg(vracArticleId, vracFabrique);
-        // lignesSansPrix.length === 0 obligatoire : un cout partiel (certains
-        // MP de la recette sans prix connu a Depot B) ne doit jamais generer
-        // une ecriture, meme a un montant non-nul - sinon un article ENTIEREMENT
-        // sans prix donne coutTotal=0 mais coutParKg=0 (pas null, 0/qte=0),
-        // ce qui passait a tort le garde-fou et creait une ecriture 0/0.
-        if (coutVrac.coutParKg !== null && coutVrac.lignesSansPrix.length === 0) {
-          const montant = coutVrac.coutTotal;
-          await creerEcriture({
-            dateEcriture: dateFabricationConditionnement || new Date().toISOString().slice(0, 10),
-            pieceReference: code,
-            libelle: `Fabrication - ${code}`,
-            sourceType: "fabrication_vrac",
-            sourceId,
-            createdBy: currentUser,
-            lignes: [
-              { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: montant, credit: 0 },
-              { compteCode: COMPTE_STOCK_MP, debit: 0, credit: montant },
-            ],
-          });
-        }
-      }
+      await recalculerEcritureFabricationVrac(ligneId, code, currentUser);
     } catch (comptaError) {
       console.error("Ecriture comptable fabrication echouee:", comptaError);
     }

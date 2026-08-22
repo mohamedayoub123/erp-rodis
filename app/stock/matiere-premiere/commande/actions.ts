@@ -15,6 +15,7 @@ import {
   resoudreOuCreerFournisseur,
   supprimerEcriturePourSource,
 } from "@/lib/comptabilite";
+import { recalculerEcrituresDependantes } from "@/lib/ecriture-recompute";
 
 // Sources d'ecritures comptables generees par une Reception (voir plus bas,
 // createReceptionMpAction) - reprises ici pour effacer les ecritures liees
@@ -138,26 +139,27 @@ export async function updateLotPrixAction(formData: FormData) {
     await supprimerEcriturePourSource("mp_achat", String(lotId));
     await supprimerEcriturePourSource("mp_stock_entree", String(lotId));
 
-    if (prixUnitaire !== null && prixUnitaire > 0) {
-      const { data: lotData } = await supabaseServer
-        .from("lots_stock_matiere_premiere")
-        .select("article_id, qte_entree, fournisseur, date_reception, numero_lot")
-        .eq("id", lotId)
-        .maybeSingle();
-      const lot = lotData as {
-        article_id: number;
-        qte_entree: number;
-        fournisseur: string | null;
-        date_reception: string | null;
-        numero_lot: string;
-      } | null;
+    const { data: lotData } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .select("article_id, qte_entree, fournisseur, date_reception, numero_lot")
+      .eq("id", lotId)
+      .maybeSingle();
+    const lot = lotData as {
+      article_id: number;
+      qte_entree: number;
+      fournisseur: string | null;
+      date_reception: string | null;
+      numero_lot: string;
+    } | null;
 
-      if (lot) {
+    if (lot) {
+      const currentUser = await getCurrentStockUser();
+
+      if (prixUnitaire !== null && prixUnitaire > 0) {
         const prixUnitaireFcfa = convertirEnFcfa(prixUnitaire, devise, tauxChange);
         const montant = prixUnitaireFcfa !== null ? prixUnitaireFcfa * Number(lot.qte_entree) : null;
 
         if (montant !== null && montant > 0) {
-          const currentUser = await getCurrentStockUser();
           await resoudreOuCreerFournisseur(lot.fournisseur || "");
           const libelleFournisseur = lot.fournisseur || "Fournisseur non precise";
           const dateEcriture = lot.date_reception || new Date().toISOString().slice(0, 10);
@@ -188,6 +190,15 @@ export async function updateLotPrixAction(formData: FormData) {
             ],
           });
         }
+      }
+
+      // Recalcule en cascade tout ce qui a deja ete chiffre en utilisant ce
+      // lot (Fabrication, Entree production, Cout de vente) - sans ca, une
+      // correction de prix ne se voyait que sur les 2 ecritures directes
+      // ci-dessus, jamais sur ce qui avait deja consomme ce lot (demande
+      // explicite de l'utilisateur).
+      if (lot.numero_lot) {
+        await recalculerEcrituresDependantes(lot.article_id, lot.numero_lot, currentUser);
       }
     }
   } catch (comptaError) {

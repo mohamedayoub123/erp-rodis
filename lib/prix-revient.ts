@@ -3,7 +3,13 @@ import { fetchLotsInDepot, allocateFefo } from "@/app/depots/transfer-order/stoc
 
 export type CoutMpInfo = {
   coutFcfa: number; // cout TOTAL pour la quantite demandee (pas un prix unitaire)
-  lots: { numeroLot: string; quantite: number; nDossErp: string | null; nDoss4d: string | null }[];
+  lots: {
+    numeroLot: string;
+    quantite: number;
+    prixUnitaireFcfa: number;
+    nDossErp: string | null;
+    nDoss4d: string | null;
+  }[];
 };
 
 let depotBIdCache: number | null | undefined;
@@ -59,6 +65,7 @@ export async function fetchCoutsReelsMpDepotB(
         lotsUtilises.push({
           numeroLot: alloc.numero_lot,
           quantite: alloc.quantite,
+          prixUnitaireFcfa: lot.prixUnitaireFcfa,
           nDossErp: lot.nDossErp,
           nDoss4d: lot.nDoss4d,
         });
@@ -68,6 +75,27 @@ export async function fetchCoutsReelsMpDepotB(
   );
 
   return result;
+}
+
+export type LotUtiliseInfo = { articleMpId: number; numeroLot: string; quantite: number; prixUnitaireFcfa: number };
+
+// A plat (tous articles MP confondus) pour pouvoir enregistrer d'un coup
+// via enregistrerLotsUtilisesPourEcriture (lib/comptabilite.ts) - trace de
+// tracabilite pour le recalcul automatique en cascade quand un prix de lot
+// est corrige apres coup.
+export function flattenLotsUtilises(couts: Map<number, CoutMpInfo>): LotUtiliseInfo[] {
+  const flat: LotUtiliseInfo[] = [];
+  for (const [articleMpId, info] of couts.entries()) {
+    for (const lot of info.lots) {
+      flat.push({
+        articleMpId,
+        numeroLot: lot.numeroLot,
+        quantite: lot.quantite,
+        prixUnitaireFcfa: lot.prixUnitaireFcfa,
+      });
+    }
+  }
+  return flat;
 }
 
 export function computeRecetteCost(
@@ -94,6 +122,7 @@ export type CoutVracInfo = {
   coutTotal: number;
   quantiteBase: number | null;
   lignesSansPrix: number[];
+  lotsUtilises: LotUtiliseInfo[];
 };
 
 // Recharge la recette Fabrication du vrac (recettes_pf ou article_pf_id =
@@ -133,11 +162,16 @@ export async function fetchCoutVracParKg(vracArticleId: number, quantiteReelle?:
     coutParKg: quantiteUtilisee > 0 ? coutTotal / quantiteUtilisee : null,
     coutTotal,
     quantiteBase,
+    lotsUtilises: flattenLotsUtilises(couts),
     lignesSansPrix,
   };
 }
 
-export type CoutCartonInfo = { coutParCarton: number | null; lignesSansPrix: number[] };
+export type CoutCartonInfo = {
+  coutParCarton: number | null;
+  lignesSansPrix: number[];
+  lotsUtilises: LotUtiliseInfo[];
+};
 
 type ArticlePfCoutRow = {
   id: number;
@@ -234,6 +268,7 @@ export async function fetchCoutsParCartonProduitsFinis(
 
     let coutVracUtilise = 0;
     let lignesSansPrixVrac: number[] = [];
+    let lotsUtiliseesVrac: LotUtiliseInfo[] = [];
     if (article.vrac_article_id) {
       // Meme repli que la page recette-conditionnement : si la quantite de
       // vrac necessaire n'a pas ete saisie a la main, on la calcule depuis
@@ -251,6 +286,7 @@ export async function fetchCoutsParCartonProduitsFinis(
         coutVracUtilise = coutVrac.coutParKg * qtVracReelleNecessaire;
       }
       lignesSansPrixVrac = coutVrac.lignesSansPrix;
+      lotsUtiliseesVrac = coutVrac.lotsUtilises;
     }
 
     const coutTotalPourQuantite = coutVracUtilise + coutConditionnement;
@@ -260,6 +296,7 @@ export async function fetchCoutsParCartonProduitsFinis(
     result.set(id, {
       coutParCarton,
       lignesSansPrix: [...lignesSansPrixConditionnement, ...lignesSansPrixVrac],
+      lotsUtilises: [...flattenLotsUtilises(coutsConditionnement), ...lotsUtiliseesVrac],
     });
   }
 

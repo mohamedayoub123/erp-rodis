@@ -11,13 +11,14 @@ import {
 } from "@/lib/stock-auth";
 import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
 import { logAudit } from "@/lib/audit-log";
-import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
+import { fetchCoutsParCartonProduitsFinis, type LotUtiliseInfo } from "@/lib/prix-revient";
 import {
   COMPTE_CLIENTS,
   COMPTE_STOCK_PRODUIT_FINI,
   COMPTE_VARIATION_STOCK_PF,
   COMPTE_VENTES,
   creerEcriture,
+  enregistrerLotsUtilisesPourEcriture,
   resoudreOuCreerClient,
   supprimerEcriturePourSource,
 } from "@/lib/comptabilite";
@@ -1830,7 +1831,12 @@ export async function changeCommandeStatusAction(formData: FormData) {
 // devine, un article sans prix/cout connu est juste exclu de l'ecriture
 // correspondante (jamais un total partiel traite comme complet). Try/catch
 // qui n'interrompt jamais la livraison elle-meme si la comptabilite echoue.
-async function creerEcritureVente(commandeId: number, currentUser: string | null) {
+// Exportee (au-dela du seul usage a la livraison) pour pouvoir etre
+// rappelee directement quand le prix d'un lot MP deja utilise ici est
+// corrige apres coup (voir lib/ecriture-recompute.ts) - ne depend d'aucune
+// valeur de formulaire, tout vient de fifo_resultats/commandes deja
+// enregistres, donc rejouable a l'identique a tout moment.
+export async function creerEcritureVente(commandeId: number, currentUser: string | null) {
   try {
     const sourceIdVente = `${commandeId}`;
     await supprimerEcriturePourSource("commande_vente", sourceIdVente);
@@ -1904,14 +1910,16 @@ async function creerEcritureVente(commandeId: number, currentUser: string | null
     }
 
     let montantCout = 0;
+    const lotsUtilisesCout: LotUtiliseInfo[] = [];
     for (const [articleId, quantite] of quantiteParArticle) {
       const coutInfo = coutsParArticle.get(articleId);
-      if (!coutInfo || coutInfo.coutParCarton === null || coutInfo.lignesSansPrix.length > 0) continue;
+      if (!coutInfo || coutInfo.coutParCarton === null) continue;
       montantCout += coutInfo.coutParCarton * quantite;
+      lotsUtilisesCout.push(...coutInfo.lotsUtilises);
     }
 
     if (montantCout > 0) {
-      await creerEcriture({
+      const ecritureId = await creerEcriture({
         dateEcriture,
         pieceReference: commande.numero_proforma || null,
         libelle: `Cout de vente - ${commande.numero_proforma || `#${commandeId}`}`,
@@ -1923,6 +1931,7 @@ async function creerEcritureVente(commandeId: number, currentUser: string | null
           { compteCode: COMPTE_STOCK_PRODUIT_FINI, debit: 0, credit: montantCout },
         ],
       });
+      await enregistrerLotsUtilisesPourEcriture(ecritureId, lotsUtilisesCout);
     }
   } catch (comptaError) {
     console.error("Ecriture comptable vente echouee:", comptaError);
