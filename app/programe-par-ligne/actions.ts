@@ -7,6 +7,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { computeArticleFamilyKey, extractTrailingNumber, incrementCode } from "@/lib/article-code-family";
 import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 import { logAudit } from "@/lib/audit-log";
+import { supprimerToutesTracesProductionPourLigne } from "@/app/production/suivi-production/actions";
 
 type PendingProgrammeRow = {
   zone: string;
@@ -1338,42 +1339,6 @@ export async function dispatchExistingProgrammeLigneGroupAction(formData: FormDa
   redirect("/ravitailleur-par-ligne");
 }
 
-// Verifie qu'aucune tracabilite de production ne reste liee au groupe
-// avant de le supprimer - sans ca, l'erreur brute Postgres (contrainte de
-// cle etrangere) ne dit jamais QUOI supprimer d'abord (bug reel signale :
-// "PL181.2026 refuse de s'effacer" sans aucune indication de la cause).
-// Chaque table listee ici doit deja etre vide pour que le delete final
-// reussisse - production_rapports/vrac_entries/carton_entries/
-// emballage_entries se suppriment depuis "Suivi Production" (bouton
-// Supprimer sur chaque ligne, qui nettoie aussi production_code_termine/
-// production_mp_reserve depuis peu, voir deleteSuiviProductionRowAction).
-async function messageSiTracabiliteRestante(ligneIds: number[]): Promise<string | null> {
-  const checks: { table: string; label: string }[] = [
-    { table: "production_rapports", label: "rapport(s) de production" },
-    { table: "production_vrac_entries", label: "entree(s) vrac (Fabrication)" },
-    { table: "production_carton_entries", label: "entree(s) carton (Conditionnement)" },
-    { table: "production_emballage_entries", label: "entree(s) Emballage" },
-    { table: "production_code_termine", label: "marqueur(s) Besoin valide (pesage/salle de conditionnement)" },
-  ];
-
-  const restants: string[] = [];
-
-  for (const { table, label } of checks) {
-    const { count, error } = await supabaseServer
-      .from(table)
-      .select("id", { count: "exact", head: true })
-      .in("programme_ligne_id", ligneIds);
-    if (error) throw new Error(error.message);
-    if (count && count > 0) {
-      restants.push(`${count} ${label}`);
-    }
-  }
-
-  if (restants.length === 0) return null;
-
-  return `Impossible de supprimer - il reste encore : ${restants.join(", ")}. Supprime d'abord chaque ligne concernee depuis "Suivi Production".`;
-}
-
 // Retourne { ok:false, message } au lieu de "throw" pour les cas attendus
 // (permission, groupe invalide, tracabilite restante) - un throw depuis une
 // Server Action voit son message REDUIT au texte generique "An error
@@ -1411,9 +1376,15 @@ export async function deleteProgrammeLigneGroupAction(
     return { ok: false, message: "Groupe introuvable." };
   }
 
-  const messageBlocage = await messageSiTracabiliteRestante(ligneIds);
-  if (messageBlocage) {
-    return { ok: false, message: messageBlocage };
+  // Efface automatiquement TOUTE la tracabilite de production liee (chaque
+  // ligne du groupe peut avoir sa propre fabrication/conditionnement/etc.)
+  // avant la ligne elle-meme - demande explicite : la suppression doit tout
+  // effacer d'un coup, sans forcer un passage manuel par Suivi Production.
+  for (const ligneId of ligneIds) {
+    const { error: cleanupError } = await supprimerToutesTracesProductionPourLigne(ligneId);
+    if (cleanupError) {
+      return { ok: false, message: cleanupError };
+    }
   }
 
   const { error } = await supabaseServer.from("programme_lignes").delete().in("id", ligneIds);

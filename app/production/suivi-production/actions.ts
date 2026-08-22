@@ -458,6 +458,64 @@ async function deleteCodeTermineEtReserves(
   return { error: codeTermineError };
 }
 
+// Nettoyage complet de TOUTES les traces de production d'une ligne entiere
+// (tous ses codes) - Fabrication, Conditionnement, Emballage, Rapports,
+// marqueurs Besoin valide/reserves MP, et leurs ecritures comptables
+// (fabrication_vrac/conditionnement_mp). Reutilise ici pour que "Supprimer"
+// depuis le Dashboard/Rapport Ecarts efface vraiment tout comme promis,
+// au lieu de ne supprimer que la ligne et laisser des restes orphelins
+// (bug reel : Cout Reel continuait a compter une fabrication dont la ligne
+// parente n'existait plus). Ne touche jamais au stock Produit Fini deja
+// entre (lots_stock) ni a son ecriture entree_production - un stock deja
+// entre peut deja avoir ete vendu/livre, sa suppression reste un choix
+// separe et explicite (Gestion Stock PF), jamais automatique ici.
+export async function supprimerToutesTracesProductionPourLigne(
+  ligneId: number
+): Promise<{ error: string | null }> {
+  const [{ data: vracRows }, { data: cartonRows }, { data: emballageRows }, { data: rapportRows }, { data: codeTermineRows }] =
+    await Promise.all([
+      supabaseServer.from("production_vrac_entries").select("id, code").eq("programme_ligne_id", ligneId),
+      supabaseServer.from("production_carton_entries").select("id, code").eq("programme_ligne_id", ligneId),
+      supabaseServer.from("production_emballage_entries").select("id").eq("programme_ligne_id", ligneId),
+      supabaseServer.from("production_rapports").select("id").eq("programme_ligne_id", ligneId),
+      supabaseServer.from("production_code_termine").select("code").eq("programme_ligne_id", ligneId),
+    ]);
+
+  const vrac = (vracRows ?? []) as { id: number; code: string }[];
+  const carton = (cartonRows ?? []) as { id: number; code: string }[];
+  const emballage = (emballageRows ?? []) as { id: number }[];
+  const rapports = (rapportRows ?? []) as { id: number }[];
+  const codes = new Set<string>([
+    ...vrac.map((row) => row.code),
+    ...carton.map((row) => row.code),
+    ...((codeTermineRows ?? []) as { code: string }[]).map((row) => row.code),
+  ]);
+
+  const deletions: PromiseLike<{ error: { message: string } | null } | void>[] = [];
+
+  for (const row of vrac) {
+    deletions.push(supabaseServer.from("production_vrac_entries").delete().eq("id", row.id));
+    deletions.push(supprimerEcriturePourSource("fabrication_vrac", `${ligneId}-${row.code}`));
+  }
+  for (const row of carton) {
+    deletions.push(supabaseServer.from("production_carton_entries").delete().eq("id", row.id));
+    deletions.push(supprimerEcriturePourSource("conditionnement_mp", `${ligneId}-${row.code}`));
+  }
+  if (emballage.length > 0) {
+    deletions.push(supabaseServer.from("production_emballage_entries").delete().in("id", emballage.map((row) => row.id)));
+  }
+  if (rapports.length > 0) {
+    deletions.push(supabaseServer.from("production_rapports").delete().in("id", rapports.map((row) => row.id)));
+  }
+  for (const code of codes) {
+    deletions.push(deleteCodeTermineEtReserves(ligneId, code));
+  }
+
+  const results = await Promise.all(deletions);
+  const failed = results.find((result) => result?.error);
+  return { error: failed?.error?.message ?? null };
+}
+
 // La zone/chaine appartient a la ligne de programme (programme_lignes), pas
 // au rapport (production_rapports) - modification immediate independante du
 // Save du rapport, pour corriger une ligne saisie sur la mauvaise chaine.

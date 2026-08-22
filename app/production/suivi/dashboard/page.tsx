@@ -11,6 +11,7 @@ import { vracLabelFromName } from "@/lib/gamme-families";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { deleteCodeProgressAction } from "../../suivi-production/actions";
 import {
+  deleteProgrammeLigneDashboardAction,
   markCartonTermineAction,
   markEmballageTermineAction,
   markVracTermineAction,
@@ -710,6 +711,7 @@ export default async function PlanningDashboardPage({
                             <DeleteProgrammeLigneButton
                               ligneId={row.ligne.id}
                               produit={vracLabelFromName(row.ligne.produit) || row.ligne.produit || row.code}
+                              deleteAction={deleteProgrammeLigneDashboardAction}
                             />
                           </td>
                         ) : null}
@@ -806,7 +808,11 @@ export default async function PlanningDashboardPage({
                         </td>
                         {canDeleteLigne ? (
                           <td className="px-4 py-3">
-                            <DeleteProgrammeLigneButton ligneId={row.ligne.id} produit={row.ligne.produit || row.code} />
+                            <DeleteProgrammeLigneButton
+                              ligneId={row.ligne.id}
+                              produit={row.ligne.produit || row.code}
+                              deleteAction={deleteProgrammeLigneDashboardAction}
+                            />
                           </td>
                         ) : null}
                       </tr>
@@ -893,7 +899,11 @@ export default async function PlanningDashboardPage({
                         </td>
                         {canDeleteLigne ? (
                           <td className="px-4 py-3">
-                            <DeleteProgrammeLigneButton ligneId={row.ligne.id} produit={row.ligne.produit || row.code} />
+                            <DeleteProgrammeLigneButton
+                              ligneId={row.ligne.id}
+                              produit={row.ligne.produit || row.code}
+                              deleteAction={deleteProgrammeLigneDashboardAction}
+                            />
                           </td>
                         ) : null}
                       </tr>

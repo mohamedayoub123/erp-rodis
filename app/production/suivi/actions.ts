@@ -6,6 +6,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
 import { logAudit } from "@/lib/audit-log";
+import { supprimerToutesTracesProductionPourLigne } from "../suivi-production/actions";
 
 function revalidateSuiviPages() {
   revalidatePath("/production/suivi");
@@ -17,23 +18,30 @@ function revalidateSuiviPages() {
 }
 
 // Supprime TOUT le programme (la ligne entiere - tous ses codes, toutes
-// les etapes deja saisies) directement depuis le Dashboard, pour corriger
-// une erreur de saisie sans devoir aller chercher la ligne ailleurs (ex:
-// Programme par ligne) - demande explicite. Meme suppression que
-// deleteProgrammeLigneRapportAction (Rapport Ecarts), gardee separee pour
-// sa propre permission (productionSuiviDashboard) plutot que d'emprunter
-// celle d'un autre rapport.
-export async function deleteProgrammeLigneDashboardAction(formData: FormData) {
+// les etapes deja saisies : Fabrication, Conditionnement, Emballage,
+// Rapports, marqueurs Besoin valide, et leurs ecritures comptables)
+// directement depuis le Dashboard, pour corriger une erreur de saisie sans
+// devoir aller nettoyer chaque etape a la main depuis Suivi Production
+// d'abord - demande explicite : une seule suppression doit tout effacer
+// d'un coup. Meme suppression que deleteProgrammeLigneRapportAction
+// (Rapport Ecarts), gardee separee pour sa propre permission
+// (productionSuiviDashboard) plutot que d'emprunter celle d'un autre
+// rapport. Retourne { ok:false, message } au lieu de "throw" - Next reduit
+// le message d'un throw depuis une Server Action au texte generique en
+// production, meme attrape cote client.
+export async function deleteProgrammeLigneDashboardAction(
+  formData: FormData
+): Promise<{ ok: boolean; message?: string }> {
   const currentUser = await getCurrentStockUser();
 
   if (!(await canDeletePageUser(currentUser, "productionSuiviDashboard"))) {
-    throw new Error("Cet utilisateur ne peut pas supprimer ce programme.");
+    return { ok: false, message: "Cet utilisateur ne peut pas supprimer ce programme." };
   }
 
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
 
   if (!ligneId) {
-    throw new Error("Ligne invalide.");
+    return { ok: false, message: "Ligne invalide." };
   }
 
   const { data: ligneAvant, error: fetchError } = await supabaseServer
@@ -43,13 +51,18 @@ export async function deleteProgrammeLigneDashboardAction(formData: FormData) {
     .maybeSingle();
 
   if (fetchError) {
-    throw new Error(fetchError.message);
+    return { ok: false, message: fetchError.message };
+  }
+
+  const { error: cleanupError } = await supprimerToutesTracesProductionPourLigne(ligneId);
+  if (cleanupError) {
+    return { ok: false, message: cleanupError };
   }
 
   const { error } = await supabaseServer.from("programme_lignes").delete().eq("id", ligneId);
 
   if (error) {
-    throw new Error(error.message);
+    return { ok: false, message: error.message };
   }
 
   if (ligneAvant) {
@@ -64,6 +77,7 @@ export async function deleteProgrammeLigneDashboardAction(formData: FormData) {
   }
 
   revalidateSuiviPages();
+  return { ok: true };
 }
 
 type CodeTermineStage = "vrac" | "carton" | "emballage" | "pesage" | "salle_conditionnement";

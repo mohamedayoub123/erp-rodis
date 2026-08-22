@@ -1,13 +1,22 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { deleteProgrammeLigneDashboardAction } from "../actions";
 
 // Supprime TOUT le programme (pas juste ce code) - message de confirmation
 // explicite la-dessus pour eviter qu'un clic supprime a tort les autres
 // codes/etapes deja saisis pour la meme ligne (demande explicite : toujours
-// demander oui/non avant de supprimer).
-export function DeleteProgrammeLigneButton({ ligneId, produit }: { ligneId: number; produit: string }) {
+// demander oui/non avant de supprimer). Reutilise depuis le Dashboard ET
+// Rapport Ecarts (deleteAction en prop) - meme comportement, meme
+// permission separee par appelant.
+export function DeleteProgrammeLigneButton({
+  ligneId,
+  produit,
+  deleteAction,
+}: {
+  ligneId: number;
+  produit: string;
+  deleteAction: (formData: FormData) => Promise<{ ok: boolean; message?: string }>;
+}) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
 
@@ -21,10 +30,9 @@ export function DeleteProgrammeLigneButton({ ligneId, produit }: { ligneId: numb
     startTransition(async () => {
       const formData = new FormData();
       formData.set("ligne_id", String(ligneId));
-      try {
-        await deleteProgrammeLigneDashboardAction(formData);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur pendant la suppression.");
+      const result = await deleteAction(formData);
+      if (result && !result.ok) {
+        setError(result.message || "Erreur pendant la suppression.");
       }
     });
   }

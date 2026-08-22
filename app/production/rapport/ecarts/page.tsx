@@ -2,7 +2,7 @@ import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { DeleteIconButton } from "@/app/_components/delete-icon-button";
+import { DeleteProgrammeLigneButton } from "../../suivi/dashboard/delete-programme-ligne-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
@@ -666,10 +666,11 @@ export default async function RapportEcartsPage({
                       <DiffCell value={row.conditionnementEmballageDiff} whole />
                       {canDelete ? (
                         <td className="px-4 py-3">
-                          <form action={deleteProgrammeLigneRapportAction}>
-                            <input type="hidden" name="ligne_id" value={row.id} />
-                            <DeleteIconButton label="Supprimer cette ligne" />
-                          </form>
+                          <DeleteProgrammeLigneButton
+                            ligneId={row.id}
+                            produit={row.produit || row.code}
+                            deleteAction={deleteProgrammeLigneRapportAction}
+                          />
                         </td>
                       ) : null}
                     </tr>
