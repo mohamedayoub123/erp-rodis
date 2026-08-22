@@ -61,13 +61,6 @@ const TILES = [
     description: "Stock dormant sans commande associee.",
   },
   {
-    label: "Client",
-    href: "/clients",
-    pageKey: "clients",
-    icon: "\u{1F464}",
-    description: "Liste des clients.",
-  },
-  {
     label: "Statistique",
     href: "/statistique",
     pageKey: "statistiqueHub",
