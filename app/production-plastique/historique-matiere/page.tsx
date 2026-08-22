@@ -10,16 +10,23 @@ type LigneAffichee = {
   nomArticle: string;
   numeroLot: string;
   quantite: number;
-  prixUnitaireFcfa: number;
-  totalFcfa: number;
+  prixUnitaireFcfa: number | null;
+  totalFcfa: number | null;
+};
+
+type ProduitDuProgramme = {
+  articleId: number;
+  nomArticle: string;
+  numeroLot: string;
+  quantite: number;
+  lignes: LigneAffichee[];
+  coutTotal: number;
 };
 
 type ProgrammePlastiqueBatch = {
   groupeId: number;
   date: string;
-  produits: { nomArticle: string; numeroLot: string; quantite: number }[];
-  lignes: LigneAffichee[];
-  lignesSansPrix: string[];
+  produits: ProduitDuProgramme[];
   coutTotal: number;
 };
 
@@ -30,7 +37,7 @@ function formatNumber(value: number, decimals = 3) {
 async function fetchHistoriquePlastique(codeFilter: string): Promise<ProgrammePlastiqueBatch[]> {
   const { data } = await supabaseServer
     .from("lots_stock_matiere_premiere")
-    .select("id, article_id, numero_lot, qte_entree, qte_sortie, date_jour, mouvement_groupe_id, note")
+    .select("id, article_id, numero_lot, qte_entree, qte_sortie, date_jour, mouvement_groupe_id")
     .eq("source_import", "web:programme-plastique")
     .order("id", { ascending: false })
     .limit(1000);
@@ -42,7 +49,6 @@ async function fetchHistoriquePlastique(codeFilter: string): Promise<ProgrammePl
     qte_sortie: number;
     date_jour: string;
     mouvement_groupe_id: number | null;
-    note: string | null;
   }[];
 
   const byGroup = new Map<number, typeof rows>();
@@ -54,73 +60,121 @@ async function fetchHistoriquePlastique(codeFilter: string): Promise<ProgrammePl
   }
 
   const articleIds = [...new Set(rows.map((r) => r.article_id))];
-  const { data: articlesData } = await supabaseServer
-    .from("articles_matiere_premiere")
-    .select("id, nom_article")
-    .in("id", articleIds.length > 0 ? articleIds : [0]);
+  const [{ data: articlesData }, { data: recettesData }] = await Promise.all([
+    supabaseServer.from("articles_matiere_premiere").select("id, nom_article").in("id", articleIds.length > 0 ? articleIds : [0]),
+    supabaseServer
+      .from("recettes_plastique")
+      .select("article_produit_id, article_matiere_id")
+      .in("article_produit_id", articleIds.length > 0 ? articleIds : [0]),
+  ]);
   const nomById = new Map(
     ((articlesData ?? []) as { id: number; nom_article: string }[]).map((a) => [a.id, a.nom_article])
   );
+  // Quelle(s) matiere(s) appartiennent a la recette de chaque article produit
+  // - sert a attribuer chaque ligne de consommation au BON produit du
+  // programme, plutot que de tout melanger ensemble quand un programme
+  // contient plusieurs articles sans code propre pour les distinguer.
+  const ingredientsParProduit = new Map<number, Set<number>>();
+  for (const r of (recettesData ?? []) as { article_produit_id: number; article_matiere_id: number }[]) {
+    const set = ingredientsParProduit.get(r.article_produit_id) ?? new Set<number>();
+    set.add(r.article_matiere_id);
+    ingredientsParProduit.set(r.article_produit_id, set);
+  }
 
   const batches: ProgrammePlastiqueBatch[] = [];
   for (const [groupeId, groupRows] of byGroup.entries()) {
     const produitsRows = groupRows.filter((r) => Number(r.qte_entree) > 0);
     const consommationRows = groupRows.filter((r) => Number(r.qte_sortie) > 0);
-    if (produitsRows.length === 0 && consommationRows.length === 0) continue;
+    if (produitsRows.length === 0) continue;
 
     if (codeFilter) {
       const matches = produitsRows.some((r) => (r.numero_lot ?? "").toUpperCase().includes(codeFilter));
       if (!matches) continue;
     }
 
-    const produits = produitsRows.map((r) => ({
-      nomArticle: nomById.get(r.article_id) ?? `Article #${r.article_id}`,
-      numeroLot: r.numero_lot ?? "-",
-      quantite: Number(r.qte_entree),
-    }));
+    const consommationRestantes = new Set(consommationRows);
+    const produits: ProduitDuProgramme[] = [];
 
-    const lignes: LigneAffichee[] = [];
-    const lignesSansPrixIds: number[] = [];
-    for (const row of consommationRows) {
-      let prixUnitaireFcfa: number | null = null;
-      if (row.numero_lot) {
-        const { data: entreeRow } = await supabaseServer
-          .from("lots_stock_matiere_premiere")
-          .select("prix_unitaire, devise, taux_change")
-          .eq("article_id", row.article_id)
-          .eq("numero_lot", row.numero_lot)
-          .gt("qte_entree", 0)
-          .not("prix_unitaire", "is", null)
-          .limit(1)
-          .maybeSingle();
-        if (entreeRow?.prix_unitaire != null) {
-          prixUnitaireFcfa = Number(entreeRow.prix_unitaire);
+    for (const produitRow of produitsRows) {
+      const ingredients = ingredientsParProduit.get(produitRow.article_id) ?? new Set<number>();
+      const lignesDuProduit: LigneAffichee[] = [];
+
+      for (const row of consommationRows) {
+        if (!ingredients.has(row.article_id) || !consommationRestantes.has(row)) continue;
+        consommationRestantes.delete(row);
+
+        let prixUnitaireFcfa: number | null = null;
+        if (row.numero_lot) {
+          const { data: entreeRow } = await supabaseServer
+            .from("lots_stock_matiere_premiere")
+            .select("prix_unitaire")
+            .eq("article_id", row.article_id)
+            .eq("numero_lot", row.numero_lot)
+            .gt("qte_entree", 0)
+            .not("prix_unitaire", "is", null)
+            .limit(1)
+            .maybeSingle();
+          if (entreeRow?.prix_unitaire != null) {
+            prixUnitaireFcfa = Number(entreeRow.prix_unitaire);
+          }
         }
+
+        lignesDuProduit.push({
+          articleMpId: row.article_id,
+          nomArticle: nomById.get(row.article_id) ?? `Article #${row.article_id}`,
+          numeroLot: row.numero_lot ?? "-",
+          quantite: Number(row.qte_sortie),
+          prixUnitaireFcfa,
+          totalFcfa: prixUnitaireFcfa !== null ? Number(row.qte_sortie) * prixUnitaireFcfa : null,
+        });
       }
-      if (prixUnitaireFcfa === null) {
-        lignesSansPrixIds.push(row.article_id);
-        continue;
-      }
-      lignes.push({
-        articleMpId: row.article_id,
-        nomArticle: nomById.get(row.article_id) ?? `Article #${row.article_id}`,
-        numeroLot: row.numero_lot ?? "-",
-        quantite: Number(row.qte_sortie),
-        prixUnitaireFcfa,
-        totalFcfa: Number(row.qte_sortie) * prixUnitaireFcfa,
+
+      const coutTotalProduit = lignesDuProduit.reduce((sum, l) => sum + (l.totalFcfa ?? 0), 0);
+      produits.push({
+        articleId: produitRow.article_id,
+        nomArticle: nomById.get(produitRow.article_id) ?? `Article #${produitRow.article_id}`,
+        numeroLot: produitRow.numero_lot ?? "-",
+        quantite: Number(produitRow.qte_entree),
+        lignes: lignesDuProduit,
+        coutTotal: coutTotalProduit,
       });
     }
-    const lignesSansPrix = [...new Set(lignesSansPrixIds)].map((id) => nomById.get(id) ?? `Article #${id}`);
-    const coutTotal = lignes.reduce((sum, l) => sum + l.totalFcfa, 0);
 
-    batches.push({
-      groupeId,
-      date: groupRows[0]?.date_jour ?? "-",
-      produits,
-      lignes,
-      lignesSansPrix,
-      coutTotal,
-    });
+    // Reste (matiere consommee sans recette trouvee pour aucun produit du
+    // programme - ne devrait normalement pas arriver) - jamais silencieusement
+    // perdue, rattachee au premier produit plutot que masquee.
+    if (consommationRestantes.size > 0 && produits.length > 0) {
+      for (const row of consommationRestantes) {
+        let prixUnitaireFcfa: number | null = null;
+        if (row.numero_lot) {
+          const { data: entreeRow } = await supabaseServer
+            .from("lots_stock_matiere_premiere")
+            .select("prix_unitaire")
+            .eq("article_id", row.article_id)
+            .eq("numero_lot", row.numero_lot)
+            .gt("qte_entree", 0)
+            .not("prix_unitaire", "is", null)
+            .limit(1)
+            .maybeSingle();
+          if (entreeRow?.prix_unitaire != null) {
+            prixUnitaireFcfa = Number(entreeRow.prix_unitaire);
+          }
+        }
+        const ligne: LigneAffichee = {
+          articleMpId: row.article_id,
+          nomArticle: nomById.get(row.article_id) ?? `Article #${row.article_id}`,
+          numeroLot: row.numero_lot ?? "-",
+          quantite: Number(row.qte_sortie),
+          prixUnitaireFcfa,
+          totalFcfa: prixUnitaireFcfa !== null ? Number(row.qte_sortie) * prixUnitaireFcfa : null,
+        };
+        produits[0].lignes.push(ligne);
+        produits[0].coutTotal += ligne.totalFcfa ?? 0;
+      }
+    }
+
+    const coutTotal = produits.reduce((sum, p) => sum + p.coutTotal, 0);
+    batches.push({ groupeId, date: groupRows[0]?.date_jour ?? "-", produits, coutTotal });
   }
 
   return batches.sort((a, b) => b.groupeId - a.groupeId);
@@ -147,8 +201,9 @@ export default async function HistoriqueMatierePlastiquePage({ searchParams }: {
                 Historique Matiere Utilisee
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Cherche un code (lot du flacon/capsule/pot produit) pour voir quelle resine/colorant a ete
-                utilisee - quantite, lot et prix. Sans recherche, les 20 derniers programmes s&apos;affichent.
+                Cherche un code (lot du flacon/capsule/pot produit) pour retrouver son programme. Chaque
+                programme est detaille article par article, avec sa propre matiere. Sans recherche, les 20
+                derniers programmes s&apos;affichent.
               </p>
             </div>
 
@@ -182,41 +237,52 @@ export default async function HistoriqueMatierePlastiquePage({ searchParams }: {
               {batchesAffiches.map((batch) => (
                 <details key={batch.groupeId} className="rounded-2xl border border-slate-100 p-4" open={Boolean(code)}>
                   <summary className="cursor-pointer text-sm font-semibold text-slate-900">
-                    {batch.date} -{" "}
-                    {batch.produits.map((p) => `${p.nomArticle} (${formatNumber(p.quantite, 0)}, lot ${p.numeroLot})`).join(", ") ||
-                      "Produit inconnu"}{" "}
+                    Programme {batch.date} -{" "}
+                    {batch.produits.map((p) => `${p.nomArticle} (${formatNumber(p.quantite, 0)}, lot ${p.numeroLot})`).join(", ")}{" "}
                     - {formatNumber(batch.coutTotal, 0)} FCFA
                   </summary>
 
-                  <div className="mt-3 overflow-x-auto rounded-xl border border-slate-100">
-                    <table className="min-w-full text-left text-sm">
-                      <thead className="bg-slate-50 text-slate-500">
-                        <tr>
-                          <th className="px-4 py-2 font-semibold">Matiere</th>
-                          <th className="px-4 py-2 font-semibold">Lot</th>
-                          <th className="px-4 py-2 font-semibold">Quantite</th>
-                          <th className="px-4 py-2 font-semibold">Prix unitaire</th>
-                          <th className="px-4 py-2 font-semibold">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {batch.lignes.map((ligne, index) => (
-                          <tr key={`${ligne.articleMpId}-${ligne.numeroLot}-${index}`} className="border-t border-slate-100">
-                            <td className="px-4 py-2 font-medium text-slate-900">{ligne.nomArticle}</td>
-                            <td className="px-4 py-2 text-slate-600">{ligne.numeroLot}</td>
-                            <td className="px-4 py-2 text-slate-600">{formatNumber(ligne.quantite)}</td>
-                            <td className="px-4 py-2 text-slate-600">{formatNumber(ligne.prixUnitaireFcfa, 2)} FCFA</td>
-                            <td className="px-4 py-2 text-slate-600">{formatNumber(ligne.totalFcfa, 0)} FCFA</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="mt-3 space-y-4">
+                    {batch.produits.map((produit) => (
+                      <div key={`${produit.articleId}-${produit.numeroLot}`}>
+                        <p className="text-sm font-semibold text-slate-700">
+                          {produit.nomArticle} - lot {produit.numeroLot} ({formatNumber(produit.quantite, 0)})
+                        </p>
+                        {produit.lignes.length === 0 ? (
+                          <p className="mt-1 text-xs text-slate-500">Aucune matiere consommee tracee.</p>
+                        ) : (
+                          <div className="mt-1 overflow-x-auto rounded-xl border border-slate-100">
+                            <table className="min-w-full text-left text-sm">
+                              <thead className="bg-slate-50 text-slate-500">
+                                <tr>
+                                  <th className="px-4 py-2 font-semibold">Matiere</th>
+                                  <th className="px-4 py-2 font-semibold">Lot</th>
+                                  <th className="px-4 py-2 font-semibold">Quantite</th>
+                                  <th className="px-4 py-2 font-semibold">Prix unitaire</th>
+                                  <th className="px-4 py-2 font-semibold">Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {produit.lignes.map((ligne, index) => (
+                                  <tr key={`${ligne.articleMpId}-${ligne.numeroLot}-${index}`} className="border-t border-slate-100">
+                                    <td className="px-4 py-2 font-medium text-slate-900">{ligne.nomArticle}</td>
+                                    <td className="px-4 py-2 text-slate-600">{ligne.numeroLot}</td>
+                                    <td className="px-4 py-2 text-slate-600">{formatNumber(ligne.quantite)}</td>
+                                    <td className="px-4 py-2 text-slate-600">
+                                      {ligne.prixUnitaireFcfa !== null ? `${formatNumber(ligne.prixUnitaireFcfa, 2)} FCFA` : "Prix inconnu"}
+                                    </td>
+                                    <td className="px-4 py-2 text-slate-600">
+                                      {ligne.totalFcfa !== null ? `${formatNumber(ligne.totalFcfa, 0)} FCFA` : "-"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                  {batch.lignesSansPrix.length > 0 ? (
-                    <p className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                      Sans prix connu : {batch.lignesSansPrix.join(", ")}
-                    </p>
-                  ) : null}
                 </details>
               ))}
             </div>
