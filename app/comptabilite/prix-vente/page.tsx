@@ -1,14 +1,27 @@
 import { unstable_noStore as noStore } from "next/cache";
+import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canVoirPrixUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
+import { matchesArticleSearch } from "@/lib/article-search";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { PrixVenteTable, type ArticlePrixRow } from "./prix-vente-table";
 
 type ArticleRow = { id: number; nom_article: string; code_auto: string | null; code_manu: string | null; prix_vente: number | null };
 
-async function fetchAllArticlesFini(): Promise<ArticleRow[]> {
+type SearchParams = Promise<{ q?: string; page?: string }>;
+
+const PAGE_SIZE = 100;
+
+// Nom/code de TOUS les articles finis - requete legere (juste 5 colonnes,
+// aucun calcul de cout), servant a chercher/paginer AVANT de decider quels
+// articles chiffrer reellement. Le cout de revient (fetchCoutsParCartonProduitsFinis)
+// est ce qui rendait cette page tres lente (~1min+) : il etait calcule pour
+// TOUS les articles finis a chaque chargement, meme ceux jamais affiches
+// (recette + FEFO sur les lots MP, par article) - desormais uniquement pour
+// la page/le resultat de recherche reellement visible.
+async function fetchAllArticlesFiniLeger(): Promise<ArticleRow[]> {
   const rows: ArticleRow[] = [];
   let from = 0;
   const pageSize = 1000;
@@ -31,17 +44,31 @@ async function fetchAllArticlesFini(): Promise<ArticleRow[]> {
   return rows;
 }
 
-export default async function PrixVentePage() {
+export default async function PrixVentePage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
+
+  const params = await searchParams;
+  const q = (params.q || "").trim();
+  const pageNum = Math.max(1, Number(params.page || "1") || 1);
 
   const currentUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentUser, "comptabilite");
   const canVoirPrix = await canVoirPrixUser(currentUser);
 
-  const [articles, { data: clientsData }] = await Promise.all([
-    fetchAllArticlesFini(),
+  const [allArticles, { data: clientsData }] = await Promise.all([
+    fetchAllArticlesFiniLeger(),
     supabaseServer.from("clients").select("id, nom_client").order("nom_client", { ascending: true }),
   ]);
+
+  const articlesMatches = q
+    ? allArticles.filter(
+        (a) => matchesArticleSearch(a.nom_article, q) || (a.code_auto || a.code_manu || "").toLowerCase().includes(q.toLowerCase())
+      )
+    : allArticles;
+
+  const totalPages = Math.max(1, Math.ceil(articlesMatches.length / PAGE_SIZE));
+  const pageSafe = Math.min(pageNum, totalPages);
+  const articles = articlesMatches.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
 
   const articleIds = articles.map((a) => a.id);
   const [couts, { data: speciauxData }] = await Promise.all([
@@ -102,7 +129,60 @@ export default async function PrixVentePage() {
             La visibilite des prix est reservee - demande l&apos;acces a un administrateur si besoin.
           </section>
         ) : (
-          <PrixVenteTable rows={rows} clients={clients} canWrite={canWrite} />
+          <>
+            <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+              <form className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+                <input
+                  type="text"
+                  name="q"
+                  defaultValue={q}
+                  placeholder="Ecrire un article ou un code..."
+                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                />
+                <button type="submit" className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
+                  Chercher
+                </button>
+                {q ? (
+                  <Link
+                    href="/comptabilite/prix-vente"
+                    className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+                  >
+                    Effacer
+                  </Link>
+                ) : null}
+              </form>
+              <p className="mt-3 text-xs text-slate-500">
+                {articlesMatches.length.toLocaleString("fr-FR")} article(s){q ? " trouve(s)" : " au total"} - page{" "}
+                {pageSafe} sur {totalPages}.
+              </p>
+            </section>
+
+            <PrixVenteTable rows={rows} clients={clients} canWrite={canWrite} />
+
+            {totalPages > 1 ? (
+              <section className="flex items-center justify-between rounded-[1.75rem] border border-black/5 bg-white p-4 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                <Link
+                  href={`/comptabilite/prix-vente?${new URLSearchParams({ ...(q ? { q } : {}), page: String(Math.max(1, pageSafe - 1)) })}`}
+                  className={`rounded-2xl border border-slate-200 px-5 py-2 text-sm font-semibold ${
+                    pageSafe <= 1 ? "pointer-events-none text-slate-300" : "text-slate-700"
+                  }`}
+                >
+                  Precedent
+                </Link>
+                <span className="text-sm text-slate-500">
+                  Page {pageSafe} / {totalPages}
+                </span>
+                <Link
+                  href={`/comptabilite/prix-vente?${new URLSearchParams({ ...(q ? { q } : {}), page: String(Math.min(totalPages, pageSafe + 1)) })}`}
+                  className={`rounded-2xl border border-slate-200 px-5 py-2 text-sm font-semibold ${
+                    pageSafe >= totalPages ? "pointer-events-none text-slate-300" : "text-slate-700"
+                  }`}
+                >
+                  Suivant
+                </Link>
+              </section>
+            ) : null}
+          </>
         )}
       </div>
     </main>
