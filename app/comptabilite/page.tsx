@@ -28,10 +28,16 @@ const TILES = [
     description: "Liste des comptes (structure SYSCOHADA) - ajoute ou modifie un compte.",
   },
   {
+    label: "Clients",
+    href: "/clients",
+    icon: "\u{1F465}",
+    description: "Liste des clients - facture, paye, reste a payer.",
+  },
+  {
     label: "Fournisseurs",
     href: "/fournisseurs",
     icon: "\u{1F69A}",
-    description: "Liste des fournisseurs - contrepartie des ecritures d'achat.",
+    description: "Liste des fournisseurs - achete, paye, reste a payer.",
   },
   {
     label: "Prix de vente",

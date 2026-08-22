@@ -22,6 +22,193 @@ type SearchParams = Promise<{
   pays?: string;
 }>;
 
+type ClientFinancials = { facture: number; paye: number };
+
+type SourceEcritureRow = { id: number; source_id: string };
+
+async function fetchEcrituresParSourceType(sourceType: string) {
+  const rows: SourceEcritureRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("ecritures_comptables")
+      .select("id, source_id")
+      .eq("source_type", sourceType)
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+    const chunk = (data ?? []) as SourceEcritureRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+type LigneCompteRow = {
+  ecriture_id: number;
+  debit: number;
+  credit: number;
+  comptes_comptables: { code: string } | { code: string }[] | null;
+};
+
+// Montant (debit ou credit selon `champ`) par ecriture, uniquement pour les
+// lignes rattachees au compte `compteCode` - meme jointure ecriture_lignes ->
+// comptes_comptables que fetchLignesForEcritures dans
+// app/comptabilite/journal/page.tsx (comptes_comptables revient en objet ou
+// en tableau d'un element selon la relation, gere comme la-bas).
+async function fetchMontantParEcriture(ecritureIds: number[], compteCode: string, champ: "debit" | "credit") {
+  const montantByEcriture = new Map<number, number>();
+  if (ecritureIds.length === 0) return montantByEcriture;
+
+  const idChunkSize = 500;
+  const pageSize = 1000;
+
+  for (let i = 0; i < ecritureIds.length; i += idChunkSize) {
+    const idsChunk = ecritureIds.slice(i, i + idChunkSize);
+    let from = 0;
+
+    while (true) {
+      const { data, error } = await supabaseServer
+        .from("ecriture_lignes")
+        .select("ecriture_id, debit, credit, comptes_comptables(code)")
+        .in("ecriture_id", idsChunk)
+        .range(from, from + pageSize - 1);
+
+      if (error) break;
+      const chunk = (data ?? []) as unknown as LigneCompteRow[];
+      for (const ligne of chunk) {
+        const compte = Array.isArray(ligne.comptes_comptables) ? ligne.comptes_comptables[0] : ligne.comptes_comptables;
+        if (compte?.code !== compteCode) continue;
+        const montant = champ === "debit" ? Number(ligne.debit ?? 0) : Number(ligne.credit ?? 0);
+        montantByEcriture.set(ligne.ecriture_id, (montantByEcriture.get(ligne.ecriture_id) ?? 0) + montant);
+      }
+
+      if (chunk.length < pageSize) break;
+      from += pageSize;
+    }
+  }
+
+  return montantByEcriture;
+}
+
+// commandes.client est un texte libre (pas une FK) - meme caveat que
+// fournisseurs plus bas : on resout id de commande -> nom de client tel
+// qu'ecrit, sans normalisation.
+async function fetchCommandeClientMap(commandeIds: number[]) {
+  const map = new Map<number, string>();
+  if (commandeIds.length === 0) return map;
+
+  const idChunkSize = 500;
+  const pageSize = 1000;
+
+  for (let i = 0; i < commandeIds.length; i += idChunkSize) {
+    const idsChunk = commandeIds.slice(i, i + idChunkSize);
+    let from = 0;
+
+    while (true) {
+      const { data, error } = await supabaseServer
+        .from("commandes")
+        .select("id, client")
+        .in("id", idsChunk)
+        .range(from, from + pageSize - 1);
+
+      if (error) break;
+      const chunk = (data ?? []) as { id: number; client: string | null }[];
+      for (const row of chunk) {
+        if (row.client) map.set(row.id, row.client);
+      }
+
+      if (chunk.length < pageSize) break;
+      from += pageSize;
+    }
+  }
+
+  return map;
+}
+
+type CommandePaiementRow = { commande_id: number; montant: number };
+
+async function fetchAllCommandePaiements() {
+  const rows: CommandePaiementRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("commande_paiements")
+      .select("commande_id, montant")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+    const chunk = (data ?? []) as CommandePaiementRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+// Facture (411000 debit, source commande_vente) et paye (commande_paiements),
+// agreges par nom de client tel qu'ecrit dans commandes.client - match
+// exact/case-sensible contre clients.nom_client (pas de FK reelle, pas de
+// normalisation floue ici, comme demande).
+async function fetchFinancesParClient(): Promise<Map<string, ClientFinancials>> {
+  const ecritures = await fetchEcrituresParSourceType("commande_vente");
+  const debitByEcriture = await fetchMontantParEcriture(
+    ecritures.map((e) => e.id),
+    "411000",
+    "debit"
+  );
+
+  const factureByCommandeId = new Map<number, number>();
+  for (const ecriture of ecritures) {
+    const montant = debitByEcriture.get(ecriture.id);
+    if (!montant) continue;
+    const commandeId = Number(ecriture.source_id);
+    if (!Number.isFinite(commandeId)) continue;
+    factureByCommandeId.set(commandeId, (factureByCommandeId.get(commandeId) ?? 0) + montant);
+  }
+
+  const paiements = await fetchAllCommandePaiements();
+  const payeByCommandeId = new Map<number, number>();
+  for (const paiement of paiements) {
+    payeByCommandeId.set(
+      paiement.commande_id,
+      (payeByCommandeId.get(paiement.commande_id) ?? 0) + Number(paiement.montant ?? 0)
+    );
+  }
+
+  const commandeIds = [...new Set([...factureByCommandeId.keys(), ...payeByCommandeId.keys()])];
+  const commandeClientMap = await fetchCommandeClientMap(commandeIds);
+
+  const financesByClient = new Map<string, ClientFinancials>();
+  function addTo(clientName: string, key: "facture" | "paye", montant: number) {
+    const current = financesByClient.get(clientName) ?? { facture: 0, paye: 0 };
+    current[key] += montant;
+    financesByClient.set(clientName, current);
+  }
+
+  for (const [commandeId, montant] of factureByCommandeId) {
+    const clientName = commandeClientMap.get(commandeId);
+    if (clientName) addTo(clientName, "facture", montant);
+  }
+  for (const [commandeId, montant] of payeByCommandeId) {
+    const clientName = commandeClientMap.get(commandeId);
+    if (clientName) addTo(clientName, "paye", montant);
+  }
+
+  return financesByClient;
+}
+
+function formatFcfa(value: number) {
+  return `${value.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`;
+}
+
 // Liste complete (non filtree, non paginee) des valeurs distinctes utilisees
 // pour peupler les menus de recherche - separee de la requete principale qui,
 // elle, applique les filtres q/pays et sert a l'affichage du tableau.
@@ -101,9 +288,10 @@ export default async function ClientsPage({
     from += pageSize;
   }
 
-  const [{ values: allClientNames }, { values: allPaysValues }] = await Promise.all([
+  const [{ values: allClientNames }, { values: allPaysValues }, financesByClient] = await Promise.all([
     fetchAllDistinctClientValues("nom_client"),
     fetchAllDistinctClientValues("pays"),
+    fetchFinancesParClient(),
   ]);
   const clientNameOptions = allClientNames.map((label, index) => ({ id: index, label }));
   const paysOptions = allPaysValues.map((label, index) => ({ id: index, label }));
@@ -221,17 +409,34 @@ export default async function ClientsPage({
                     <th className="px-6 py-4 font-semibold">Nom du client</th>
                     <th className="px-6 py-4 font-semibold">Pays</th>
                     <th className="px-6 py-4 font-semibold">Transport par defaut</th>
+                    <th className="px-6 py-4 font-semibold">Facture</th>
+                    <th className="px-6 py-4 font-semibold">Paye</th>
+                    <th className="px-6 py-4 font-semibold">Reste a payer</th>
                     {canEditClients || canDeleteClients ? (
                       <th className="px-6 py-4 font-semibold">Actions</th>
                     ) : null}
                   </tr>
                 </thead>
                 <tbody>
-                  {clients.map((client) => (
+                  {clients.map((client) => {
+                    const financials = financesByClient.get(client.nom_client);
+                    const facture = financials?.facture ?? 0;
+                    const paye = financials?.paye ?? 0;
+                    const reste = facture - paye;
+                    return (
                     <tr key={client.id} className="border-t border-slate-100 align-top">
                       <td className="px-6 py-4 font-medium text-slate-900">{client.nom_client}</td>
                       <td className="px-6 py-4 text-slate-600">{client.pays || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{client.mode_transport || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{facture > 0 ? formatFcfa(facture) : "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{facture > 0 ? formatFcfa(paye) : "-"}</td>
+                      <td
+                        className={`px-6 py-4 font-semibold ${
+                          facture > 0 ? (reste > 0 ? "text-red-600" : "text-emerald-700") : "text-slate-600"
+                        }`}
+                      >
+                        {facture > 0 ? formatFcfa(reste) : "-"}
+                      </td>
                       {canEditClients || canDeleteClients ? (
                         <td className="px-6 py-4">
                           <details className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -289,7 +494,8 @@ export default async function ClientsPage({
                         </td>
                       ) : null}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
