@@ -49,25 +49,31 @@ function matchesPeriode(dateJour: string, periode: CoutReelPeriode) {
   return true;
 }
 
-// Article finis (nature != "vrac") ayant reellement produit des cartons sur
-// la periode - sert a construire la liste "tous les articles" (page
+// Quantite reellement produite (cartons), par article fini, sur la periode -
+// sert a construire la liste "tous les articles" (page
 // /production/rapport/cout-reel) sans avoir a chiffrer inutilement des
-// centaines d'articles jamais fabriques sur la periode choisie.
-export async function fetchArticleIdsAvecProductionSurPeriode(periode: CoutReelPeriode): Promise<number[]> {
+// centaines d'articles jamais fabriques sur la periode choisie, et sans
+// passer par computeCoutReelArticle (trop lourd - electricite/journaliers/
+// charge generale - pour etre appele en boucle sur une liste entiere).
+export async function fetchQuantitesProduitesParArticleSurPeriode(
+  periode: CoutReelPeriode
+): Promise<Map<number, number>> {
   const [{ rows: lignes }, cartonEntries] = await Promise.all([
     fetchAllProgrammeLignes(),
     fetchAllCartonEntries(),
   ]);
   const articleIdByLigneId = new Map(lignes.map((l) => [l.id, l.article_id]));
 
-  const articleIds = new Set<number>();
+  const quantitesParArticle = new Map<number, number>();
   for (const entry of cartonEntries) {
-    if (Number(entry.quantite ?? 0) <= 0) continue;
+    const quantite = Number(entry.quantite ?? 0);
+    if (quantite <= 0) continue;
     if (!matchesPeriode(entry.date_jour, periode)) continue;
     const articleId = articleIdByLigneId.get(entry.programme_ligne_id);
-    if (articleId) articleIds.add(articleId);
+    if (!articleId) continue;
+    quantitesParArticle.set(articleId, (quantitesParArticle.get(articleId) ?? 0) + quantite);
   }
-  return [...articleIds];
+  return quantitesParArticle;
 }
 
 type ProgrammeLigneRow = { id: number; chaine: string | null };
