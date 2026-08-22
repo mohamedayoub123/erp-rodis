@@ -5,13 +5,13 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   CATEGORIES_PLASTIQUE,
-  computeCoutPlastiqueParPiece,
   DEPOT_PLASTIQUE_DEST_DEFAULT,
   DEPOT_PLASTIQUE_SOURCE_DEFAULT,
   type RecettePlastiqueLigne,
 } from "./shared";
 import { createTransferOrder, approveTransferOrder, postTransferOrderToInvoice } from "@/app/depots/transfer-order/actions";
 import { validateInvoiceOrder } from "@/app/depots/invoice-order/actions";
+import { fetchLotsInDepot, allocateFefo } from "@/app/depots/transfer-order/stock-lots";
 
 async function requireWriteAccess() {
   const currentUser = await getCurrentStockUser();
@@ -133,6 +133,88 @@ type PendingProgrammePlastiqueRow = {
   numero_lot?: string;
 };
 
+// Sort reellement (qte_sortie) la resine + le colorant du DEPOT SOURCE
+// uniquement (jamais des autres depots, meme si l'article MP en a ailleurs)
+// et chiffre le prix depuis les MEMES lots consommes - demande explicite :
+// la production plastique consomme physiquement sa matiere dans le depot ou
+// elle est fabriquee, jamais ailleurs. Si le depot source n'a pas assez
+// (FEFO ne couvre pas tout), sort quand meme le reste (stock qui peut
+// devenir negatif) plutot que de bloquer l'enregistrement - la quantite
+// manquante est alors sans prix connu (aucun lot reel ne la justifie).
+async function consommerIngredientsDepotSource(
+  poidsNetGrammes: number | null,
+  quantitePieces: number,
+  recetteLignes: RecettePlastiqueLigne[],
+  depotSourceId: number,
+  dateJour: string,
+  currentUser: string | null
+): Promise<{ coutTotal: number; lignesSansPrix: number[] }> {
+  let coutTotal = 0;
+  const lignesSansPrix: number[] = [];
+
+  if (!poidsNetGrammes || poidsNetGrammes <= 0 || quantitePieces <= 0 || recetteLignes.length === 0) {
+    return { coutTotal: 0, lignesSansPrix: recetteLignes.map((l) => l.article_matiere_id) };
+  }
+
+  for (const ligne of recetteLignes) {
+    const quantiteKg = (poidsNetGrammes * (ligne.pourcentage / 100) * quantitePieces) / 1000;
+    if (quantiteKg <= 0) continue;
+
+    const lots = await fetchLotsInDepot("MP", ligne.article_matiere_id, depotSourceId);
+    const { allocations, covered } = allocateFefo(lots, quantiteKg);
+
+    let quantiteRestante = quantiteKg;
+    let prixConnuPourTout = allocations.length > 0;
+
+    for (const allocation of allocations) {
+      const lot = lots.find((l) => l.numeroLot === allocation.numero_lot);
+      if (lot?.prixUnitaireFcfa != null) {
+        coutTotal += lot.prixUnitaireFcfa * allocation.quantite;
+      } else {
+        prixConnuPourTout = false;
+      }
+
+      const { error } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
+        article_id: ligne.article_matiere_id,
+        numero_lot: allocation.numero_lot || null,
+        qte_entree: 0,
+        qte_sortie: allocation.quantite,
+        depot_id: depotSourceId,
+        date_jour: dateJour,
+        utilisateur: currentUser,
+        note: "Consommation programme plastique",
+      });
+      if (error) {
+        throw new Error(error.message);
+      }
+      quantiteRestante -= allocation.quantite;
+    }
+
+    if (!covered && quantiteRestante > 1e-6) {
+      const { error } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
+        article_id: ligne.article_matiere_id,
+        numero_lot: null,
+        qte_entree: 0,
+        qte_sortie: quantiteRestante,
+        depot_id: depotSourceId,
+        date_jour: dateJour,
+        utilisateur: currentUser,
+        note: "Consommation programme plastique (stock insuffisant dans le depot source)",
+      });
+      if (error) {
+        throw new Error(error.message);
+      }
+      prixConnuPourTout = false;
+    }
+
+    if (!prixConnuPourTout) {
+      lignesSansPrix.push(ligne.article_matiere_id);
+    }
+  }
+
+  return { coutTotal, lignesSansPrix };
+}
+
 // Enregistre un lot de production plastique (article/qte/lot par ligne, lot
 // optionnel) en une seule action : 1) entre le stock dans le depot source
 // (prix auto depuis la recette, comme Entree MP - ces articles sont
@@ -204,16 +286,32 @@ export async function saveProgrammePlastiqueAction(formData: FormData) {
     lignesParArticle.set(ligne.article_produit_id, list);
   }
 
+  // Quantite totale par article (plusieurs lignes/lots du meme article
+  // consomment leur matiere ENSEMBLE, une seule fois, pas lot par lot) -
+  // chaque ligne de stock recoit ensuite le meme prix moyen par piece.
+  const quantiteTotaleParArticle = new Map<number, number>();
+  for (const ligne of lignes) {
+    quantiteTotaleParArticle.set(ligne.articleId, (quantiteTotaleParArticle.get(ligne.articleId) ?? 0) + ligne.quantite);
+  }
+
   const prixAutoByArticleId = new Map<number, number>();
   for (const articleId of plastiqueIds) {
     const article = articleById.get(articleId);
     const recetteLignes = lignesParArticle.get(articleId) ?? [];
-    const { coutParPiece, lignesSansPrix } = await computeCoutPlastiqueParPiece(article?.poids_net ?? null, recetteLignes);
-    // lignesSansPrix.length > 0 = au moins une matiere de la recette sans
-    // prix connu - le total tombe alors a 0 par simple somme, jamais un vrai
-    // "0 FCFA" - ecrire ce chiffre comme prix reel serait faux.
-    if (coutParPiece !== null && lignesSansPrix.length === 0) {
-      prixAutoByArticleId.set(articleId, coutParPiece);
+    const quantitePieces = quantiteTotaleParArticle.get(articleId) ?? 0;
+    const { coutTotal, lignesSansPrix } = await consommerIngredientsDepotSource(
+      article?.poids_net ?? null,
+      quantitePieces,
+      recetteLignes,
+      depotSourceId,
+      dateJour,
+      currentUser
+    );
+    // lignesSansPrix.length > 0 = au moins une matiere sans prix connu dans
+    // le depot source (ou stock insuffisant) - jamais ecrire un prix partiel
+    // comme s'il etait complet.
+    if (lignesSansPrix.length === 0 && quantitePieces > 0) {
+      prixAutoByArticleId.set(articleId, coutTotal / quantitePieces);
     }
   }
 
