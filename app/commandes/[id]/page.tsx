@@ -24,6 +24,8 @@ import { FifoAddLigneForm } from "./fifo-add-ligne-form";
 import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
 import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
 import { fetchDimensionsProduitsFinis, volumeCartonM3 } from "@/lib/dimensions-produit";
+import { COMPTE_CLIENTS } from "@/lib/comptabilite";
+import { PaiementsSection } from "./paiements-section";
 
 type CommandeDetailRow = {
   id: number;
@@ -674,6 +676,49 @@ async function computeAvailableCodesByArticle(
   return result;
 }
 
+type CommandePaiementRow = {
+  id: number;
+  montant: number;
+  compte_code: string;
+  date_paiement: string;
+  reference: string | null;
+};
+
+// Montant facture pour cette commande = le debit du compte 411000 (Clients)
+// sur l'ecriture de vente creee a la livraison (voir creerEcritureVente dans
+// ../actions.ts, source_type "commande_vente") - meme jointure que
+// fetchLignesForEcritures dans app/comptabilite/journal/page.tsx. null tant
+// que la commande n'a pas encore ete livree/facturee (aucune ecriture
+// trouvee), jamais une erreur.
+async function fetchMontantFactureCommande(commandeId: number): Promise<number | null> {
+  const { data: ecritureVente } = await supabaseServer
+    .from("ecritures_comptables")
+    .select("id")
+    .eq("source_type", "commande_vente")
+    .eq("source_id", String(commandeId))
+    .maybeSingle();
+
+  if (!ecritureVente) {
+    return null;
+  }
+
+  const ecritureId = (ecritureVente as { id: number }).id;
+
+  const { data: lignes } = await supabaseServer
+    .from("ecriture_lignes")
+    .select("debit, comptes_comptables(code)")
+    .eq("ecriture_id", ecritureId);
+
+  return ((lignes as { debit: number | null; comptes_comptables: { code: string } | { code: string }[] | null }[] | null) ?? []).reduce(
+    (sum, ligne) => {
+      const compte = Array.isArray(ligne.comptes_comptables) ? ligne.comptes_comptables[0] : ligne.comptes_comptables;
+      if (compte?.code !== COMPTE_CLIENTS) return sum;
+      return sum + Number(ligne.debit ?? 0);
+    },
+    0
+  );
+}
+
 export default async function CommandeDetailPage({
   params,
   searchParams,
@@ -872,6 +917,18 @@ export default async function CommandeDetailPage({
   const selectedPreparateur = extractPreparateur(selectedCommande.commentaire);
 
   const selectedClientPays = await findClientPays(selectedCommande.client);
+
+  const [{ data: paiementsData }, montantFactureCommande] = await Promise.all([
+    supabaseServer
+      .from("commande_paiements")
+      .select("id, montant, compte_code, date_paiement, reference")
+      .eq("commande_id", selectedCommande.id)
+      .order("date_paiement", { ascending: true })
+      .order("id", { ascending: true }),
+    fetchMontantFactureCommande(selectedCommande.id),
+  ]);
+
+  const commandePaiements = (paiementsData as CommandePaiementRow[] | null) ?? [];
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#eef6ff_0%,#f8fbff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -1345,6 +1402,26 @@ export default async function CommandeDetailPage({
               Lecture seule : modification de commande cachee pour cet utilisateur.
             </p>
           )}
+        </section>
+
+        <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <h3 className="text-lg font-bold text-slate-900">Paiements</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Paiements recus du client sur cette commande (Banque ou Caisse).
+          </p>
+
+          <PaiementsSection
+            commandeId={selectedCommande.id}
+            paiements={commandePaiements.map((paiement) => ({
+              id: paiement.id,
+              montant: Number(paiement.montant ?? 0),
+              compteCode: paiement.compte_code,
+              datePaiement: paiement.date_paiement,
+              reference: paiement.reference,
+            }))}
+            montantFacture={montantFactureCommande}
+            canEdit={canEditCommandes}
+          />
         </section>
       </div>
     </main>

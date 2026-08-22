@@ -13,6 +13,8 @@ import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/ga
 import { logAudit } from "@/lib/audit-log";
 import { fetchCoutsParCartonProduitsFinis, type LotUtiliseInfo } from "@/lib/prix-revient";
 import {
+  COMPTE_BANQUE,
+  COMPTE_CAISSE,
   COMPTE_CLIENTS,
   COMPTE_STOCK_PRODUIT_FINI,
   COMPTE_VARIATION_STOCK_PF,
@@ -1561,6 +1563,24 @@ export async function cancelFifoBatchAction(formData: FormData) {
   }
 }
 
+// Nettoie les ecritures des paiements clients (commande_paiements) rattaches
+// a une commande AVANT sa suppression - les lignes commande_paiements
+// elles-memes partent via ON DELETE CASCADE (FK vers commandes), mais leurs
+// ecritures comptables n'ont pas de FK vers cette table, jamais nettoyees
+// toutes seules (meme classe de bug que commande_vente/commande_cout_vente
+// ci-dessous) : a appeler AVANT le delete (le cascade aura deja vide
+// commande_paiements sinon, plus moyen de retrouver les ids).
+async function nettoyerPaiementsCommande(commandeId: number) {
+  const { data: paiements } = await supabaseServer
+    .from("commande_paiements")
+    .select("id")
+    .eq("commande_id", commandeId);
+
+  for (const paiement of (paiements ?? []) as { id: number }[]) {
+    await supprimerEcriturePourSource("commande_paiement", String(paiement.id));
+  }
+}
+
 export async function deleteCommandeAction(formData: FormData) {
   await requireCommandesDeleteAccess();
   const commandeId = Number(String(formData.get("commande_id") || "0"));
@@ -1574,6 +1594,8 @@ export async function deleteCommandeAction(formData: FormData) {
     .select("*, commande_lignes(*)")
     .eq("id", commandeId)
     .maybeSingle();
+
+  await nettoyerPaiementsCommande(commandeId);
 
   const { error } = await supabaseServer
     .from("commandes")
@@ -1652,6 +1674,8 @@ export async function deleteCommandeTruckAction(formData: FormData) {
     );
   }
 
+  await nettoyerPaiementsCommande(commandeId);
+
   const { error } = await supabaseServer.from("commandes").delete().eq("id", commandeId);
 
   if (error) {
@@ -1697,6 +1721,10 @@ export async function deleteProformaGroupAction(formData: FormData) {
     .from("commandes")
     .select("*, commande_lignes(*)")
     .or(`numero_proforma.eq.${numeroProforma},numero_proforma.like.${numeroProforma}-%`);
+
+  for (const row of groupeAvantSuppression ?? []) {
+    await nettoyerPaiementsCommande(row.id);
+  }
 
   // Sibling trucks are stored as "<proforma>-2", "<proforma>-3"... to satisfy
   // the unique constraint on numero_proforma - match those too.
@@ -2326,4 +2354,100 @@ export async function addFifoLigneForNewArticleAction(
   }
 
   revalidateCommandeDependentPages(commandeId);
+}
+
+// Enregistre un paiement recu d'un client sur une commande - seul moyen de
+// faire redescendre 411000 (Clients) : sans ca, l'ecriture de vente
+// (creerEcritureVente) debite Clients a la livraison et rien ne le credite
+// jamais, ce compte ne peut donc qu'augmenter pour toujours (demande
+// explicite apres avoir constate un solde Clients qui ne pouvait pas
+// redescendre a 0).
+export async function enregistrerPaiementCommandeAction(formData: FormData) {
+  await requireCommandesEditAccess();
+  const currentUser = await getCurrentStockUser();
+
+  const commandeId = Number(String(formData.get("commande_id") || "0"));
+  const montant = Number(String(formData.get("montant") || "0").replace(",", "."));
+  const compteCode = String(formData.get("compte_code") || "");
+  const datePaiement = String(formData.get("date_paiement") || "").trim() || new Date().toISOString().slice(0, 10);
+  const reference = String(formData.get("reference") || "").trim() || null;
+
+  if (!commandeId) {
+    throw new Error("Commande invalide.");
+  }
+  if (!montant || montant <= 0) {
+    throw new Error("Montant invalide.");
+  }
+  if (compteCode !== COMPTE_BANQUE && compteCode !== COMPTE_CAISSE) {
+    throw new Error("Compte invalide - choisis Banque ou Caisse.");
+  }
+
+  const { data: commande } = await supabaseServer
+    .from("commandes")
+    .select("numero_proforma, client")
+    .eq("id", commandeId)
+    .maybeSingle();
+  if (!commande) {
+    throw new Error("Commande introuvable.");
+  }
+
+  const { data: inserted, error } = await supabaseServer
+    .from("commande_paiements")
+    .insert({
+      commande_id: commandeId,
+      montant,
+      compte_code: compteCode,
+      date_paiement: datePaiement,
+      reference,
+      utilisateur: currentUser,
+    })
+    .select("id")
+    .single();
+
+  if (error || !inserted) {
+    throw new Error(error?.message || "Erreur pendant l'enregistrement du paiement.");
+  }
+
+  const paiementId = (inserted as { id: number }).id;
+
+  await creerEcriture({
+    dateEcriture: datePaiement,
+    pieceReference: reference,
+    libelle: `Paiement - ${commande.numero_proforma || `#${commandeId}`} - ${commande.client || ""}`,
+    sourceType: "commande_paiement",
+    sourceId: String(paiementId),
+    createdBy: currentUser,
+    lignes: [
+      { compteCode, debit: montant, credit: 0 },
+      { compteCode: COMPTE_CLIENTS, debit: 0, credit: montant },
+    ],
+  });
+
+  revalidatePath(`/commandes/${commandeId}`);
+  revalidatePath("/comptabilite/balance");
+  revalidatePath("/comptabilite/journal");
+}
+
+export async function deletePaiementCommandeAction(formData: FormData) {
+  await requireCommandesEditAccess();
+
+  const paiementId = Number(String(formData.get("paiement_id") || "0"));
+  const commandeId = Number(String(formData.get("commande_id") || "0"));
+
+  if (!paiementId) {
+    throw new Error("Paiement invalide.");
+  }
+
+  const { error } = await supabaseServer.from("commande_paiements").delete().eq("id", paiementId);
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  await supprimerEcriturePourSource("commande_paiement", String(paiementId));
+
+  if (commandeId) {
+    revalidatePath(`/commandes/${commandeId}`);
+  }
+  revalidatePath("/comptabilite/balance");
+  revalidatePath("/comptabilite/journal");
 }
