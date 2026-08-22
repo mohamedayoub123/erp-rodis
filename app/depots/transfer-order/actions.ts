@@ -126,6 +126,13 @@ export async function createTransferOrder(params: {
 
 // Une ligne par article demande (article_type[], article_id[],
 // quantite_demandee[] - meme convention getAll() indexee que Programme).
+// Le formulaire de creation est un <form action={...}> natif (pas de
+// client-side try/catch) - une Error jetee ici et non rattrapee arrive donc
+// telle quelle jusqu'au boundary d'erreur de Next.js, qui EFFACE son
+// .message en production (meme piege que partout ailleurs dans cette
+// session). Rattrape ici et redirige avec le vrai message dans
+// ?avertissement=... (section deja prevue sur cette page, jusqu'ici jamais
+// alimentee) plutot que de laisser planter le rendu.
 export async function createTransferOrderAction(formData: FormData) {
   const currentUser = await requireWriteAccess();
 
@@ -143,14 +150,20 @@ export async function createTransferOrderAction(formData: FormData) {
     quantiteDemandee: Number(String(quantites[index] || "0").replace(",", ".")),
   }));
 
-  const transferOrderId = await createTransferOrder({
-    depotSourceId,
-    depotDestinationId,
-    dateJour,
-    creePar: currentUser,
-    remarque: String(formData.get("remarque") || "").trim() || null,
-    lignes,
-  });
+  let transferOrderId: number;
+  try {
+    transferOrderId = await createTransferOrder({
+      depotSourceId,
+      depotDestinationId,
+      dateJour,
+      creePar: currentUser,
+      remarque: String(formData.get("remarque") || "").trim() || null,
+      lignes,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur pendant la creation du Transfer Order.";
+    redirect(`/depots/transfer-order?avertissement=${encodeURIComponent(message)}`);
+  }
 
   revalidatePath("/depots/transfer-order");
   redirect(`/depots/transfer-order/${transferOrderId}`);
