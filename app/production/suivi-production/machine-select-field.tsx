@@ -12,10 +12,17 @@ export function MachineSelectField({
   name,
   defaultValue,
   machines,
+  onMachineChange,
 }: {
   name: string;
   defaultValue: string;
   machines: { nom: string; typeProduit: string[] }[];
+  // Optionnel : previent un parent (ex: le "Type" du formulaire Fabrication)
+  // du type de produit de la machine choisie, pour un remplissage
+  // automatique - jamais appele au premier rendu (uniquement sur un vrai
+  // changement de machine), pour ne jamais ecraser un Type deja enregistre
+  // en rouvrant une fiche existante.
+  onMachineChange?: (typeProduit: string[]) => void;
 }) {
   const [value, setValue] = useState(defaultValue);
   const selected = machines.find((m) => m.nom === value);
@@ -25,7 +32,11 @@ export function MachineSelectField({
       <select
         name={name}
         value={value}
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => {
+          setValue(event.target.value);
+          const machine = machines.find((m) => m.nom === event.target.value);
+          onMachineChange?.(machine?.typeProduit ?? []);
+        }}
         required
         className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
       >

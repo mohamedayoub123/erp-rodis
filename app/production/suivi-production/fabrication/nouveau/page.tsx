@@ -9,18 +9,8 @@ import { createManualFabricationEntryAction } from "../../actions";
 import { ProduitPickerField } from "../../produit-picker-field";
 import { TempsField } from "../[ligneId]/fabrication-form";
 import { SubmitButton } from "@/app/_components/submit-button";
-import { MachineSelectField } from "../../machine-select-field";
+import { MachineAndTypeFields } from "../../machine-and-type-fields";
 import { fetchMachinesByType } from "@/lib/machines-by-type";
-
-const TYPE_FABRICATION_OPTIONS = [
-  "Automatique",
-  "Semi auto",
-  "Gel douche",
-  "Parfume",
-  "Huile/Serum",
-  "Savon",
-  "Talc",
-];
 
 const ARRET_CAUSES = [
   { field: "fabrication_arret_absence_air", label: "Absence d'air" },
@@ -157,10 +147,7 @@ export default async function NouvelleFicheFabricationPage() {
               <div>
                 <h2 className="mb-3 text-lg font-bold text-slate-900">Equipe</h2>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Machine
-                    <MachineSelectField name="machine" defaultValue="" machines={machines} />
-                  </label>
+                  <MachineAndTypeFields machines={machines} />
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Preparateur
                     <input
@@ -169,22 +156,6 @@ export default async function NouvelleFicheFabricationPage() {
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Type
-                    <select
-                      name="type_fabrication"
-                      defaultValue=""
-                      required
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                    >
-                      <option value="">-</option>
-                      {TYPE_FABRICATION_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Nb de journaliers

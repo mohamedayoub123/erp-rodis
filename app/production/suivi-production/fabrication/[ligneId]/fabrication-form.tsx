@@ -7,16 +7,7 @@ import { SubmitButton } from "@/app/_components/submit-button";
 import { combineTempsJourMois, splitTempsJourMois } from "@/lib/suivi-tirage-time";
 import { LotSearchField } from "@/app/depots/transfer-order/lot-search-field";
 import { MachineSelectField } from "../../machine-select-field";
-
-const TYPE_FABRICATION_OPTIONS = [
-  "Automatique",
-  "Semi auto",
-  "Gel douche",
-  "Parfume",
-  "Huile/Serum",
-  "Savon",
-  "Talc",
-];
+import { TYPE_PRODUIT_OPTIONS } from "../../../machines/type-produit-options";
 
 const ARRET_CAUSES = [
   { field: "fabrication_arret_absence_air", label: "Absence d'air" },
@@ -143,6 +134,8 @@ export function FabricationForm({
     cuve_4_poids: rapport?.cuve_4_poids ?? "0",
   });
 
+  const [typeFabrication, setTypeFabrication] = useState(rapport?.type_fabrication || "");
+
   const vracTotal = useMemo(() => {
     const total = Object.values(cuvesPoids).reduce<number>((sum, value) => {
       const parsed = Number(String(value).replace(",", "."));
@@ -177,7 +170,12 @@ export function FabricationForm({
         <div className="grid gap-4 md:grid-cols-2">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Machine
-            <MachineSelectField name="machine" defaultValue={rapport?.machine || ""} machines={machines} />
+            <MachineSelectField
+              name="machine"
+              defaultValue={rapport?.machine || ""}
+              machines={machines}
+              onMachineChange={(typeProduit) => setTypeFabrication(typeProduit[0] || "")}
+            />
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Preparateur
@@ -193,12 +191,13 @@ export function FabricationForm({
             Type
             <select
               name="type_fabrication"
-              defaultValue={rapport?.type_fabrication || ""}
+              value={typeFabrication}
+              onChange={(event) => setTypeFabrication(event.target.value)}
               required
               className={inputClass}
             >
               <option value="">-</option>
-              {TYPE_FABRICATION_OPTIONS.map((option) => (
+              {TYPE_PRODUIT_OPTIONS.map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
