@@ -30,8 +30,7 @@ async function fetchAllArticlesPourRecherche(): Promise<ArticleOptionRow[]> {
 }
 
 function labelFor(article: ArticleOptionRow) {
-  const code = article.code_manu || article.code_auto || "-";
-  return `${code} - ${article.nom_article}`;
+  return article.nom_article;
 }
 
 type SearchParams = Promise<{ article?: string }>;

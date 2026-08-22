@@ -5,7 +5,7 @@ import { normalizeMachineName } from "@/lib/machine-match";
 import { hhmmDiffMinutes, ddmmHhmmDiffMinutes } from "@/lib/suivi-tirage-time";
 import { fetchAllVracEntries, fetchAllCartonEntries } from "@/app/production/suivi/data";
 
-export type CoutReelPeriode = { dateFrom?: string; dateTo?: string; months?: string[] };
+export type CoutReelPeriode = { dateFrom?: string; dateTo?: string; months?: string[]; code?: string };
 
 export type LigneIncertaine = { ligneId: number; code: string; motifs: string[] };
 
@@ -27,7 +27,7 @@ export type CoutReelResult = {
   prixVenteParGramme: number | null;
   margeParGramme: number | null;
   margeTotale: number | null;
-  detailParMois: { mois: string; quantite: number; coutTotal: number }[];
+  detailParMois: { mois: string; quantite: number; coutTotal: number; vente: number | null; marge: number | null }[];
   lignesIncertaines: LigneIncertaine[];
 };
 
@@ -708,7 +708,9 @@ export async function computeCoutReelArticle(
   // l'Emballage, decision actee avec l'utilisateur).
   const entriesRaw =
     nature === "vrac" ? await fetchAllVracEntries(ligneIds) : await fetchAllCartonEntries(ligneIds);
-  const entries = entriesRaw.filter((e) => matchesPeriode(e.date_jour, periode));
+  const entries = entriesRaw.filter(
+    (e) => matchesPeriode(e.date_jour, periode) && (!periode.code || e.code === periode.code)
+  );
   const quantiteTotaleProduite = entries.reduce((sum, e) => sum + Number(e.quantite ?? 0), 0);
 
   // Rapports des codes qui ont reellement produit sur la periode (memes
@@ -1059,7 +1061,17 @@ export async function computeCoutReelArticle(
       : null;
 
   const detailParMois = [...detailParMoisMap.entries()]
-    .map(([mois, v]) => ({ mois, quantite: round(v.quantite, 2), coutTotal: Math.round(v.coutTotal) }))
+    .map(([mois, v]) => {
+      const vente = nature === "fini" && article.prix_vente ? v.quantite * article.prix_vente : null;
+      const marge = vente !== null ? vente - v.coutTotal : null;
+      return {
+        mois,
+        quantite: round(v.quantite, 2),
+        coutTotal: Math.round(v.coutTotal),
+        vente: vente !== null ? Math.round(vente) : null,
+        marge: marge !== null ? Math.round(marge) : null,
+      };
+    })
     .sort((a, b) => a.mois.localeCompare(b.mois));
 
   return {

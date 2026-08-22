@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { fetchLotsInDepot, allocateFefo } from "@/app/depots/transfer-order/stock-lots";
+import { fetchLotsAllDepots, allocateFefo } from "@/app/depots/transfer-order/stock-lots";
 import { convertirEnFcfa } from "@/lib/prix-devise";
 
 export type CoutMpInfo = {
@@ -13,36 +13,24 @@ export type CoutMpInfo = {
   }[];
 };
 
-let depotBIdCache: number | null | undefined;
-
-// Resolu une seule fois par process (le nom du depot ne change pas en cours
-// de route) - evite de re-chercher "Depot B" a chaque appel de cout.
-async function resoudreDepotBId(): Promise<number | null> {
-  if (depotBIdCache !== undefined) return depotBIdCache;
-  const { data } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
-  depotBIdCache = (data as { id: number } | null)?.id ?? null;
-  return depotBIdCache;
-}
-
-// Cout REEL d'une quantite de MP, tiree sur les lots physiquement presents a
-// Depot B (la ou la production consomme reellement) dans l'ordre FEFO (date
-// d'expiration la plus proche en premier) - jamais le "dernier prix connu"
-// toutes dates/tous depots confondus (un lot encore a Depot E, jamais
-// transfere, n'est pas physiquement consommable et ne doit jamais fixer le
-// prix). Si Depot B n'a pas assez de lots avec un prix connu pour couvrir
-// TOUTE la quantite demandee pour un article, seule la portion couverte par
-// un prix connu est chiffree - le reste (aucun prix connu, ou stock
-// insuffisant a prix connu) est ignore comme s'il n'existait pas, plutot
-// que de faire echouer tout le calcul pour un seul ingredient sans prix
-// (demande explicite : la tres grande majorite des articles MP n'ont
-// aujourd'hui aucun prix connu, un calcul "tout ou rien" ne donnait donc
-// quasiment jamais de cout du tout).
+// Cout REEL d'une quantite de MP, tiree sur les lots MP connus dans l'ordre
+// FEFO (date d'expiration la plus proche en premier), TOUS depots confondus
+// - demande explicite : le prix d'un lot compte des qu'il est connu, peu
+// importe dans quel depot il se trouve physiquement aujourd'hui (avant,
+// restreint au seul Depot B - "la ou la production consomme reellement" -
+// ce qui empechait de chiffrer des lots pourtant recus mais pas encore
+// transferes). Si pas assez de lots avec un prix connu pour couvrir TOUTE la
+// quantite demandee pour un article, seule la portion couverte par un prix
+// connu est chiffree - le reste (aucun prix connu, ou stock insuffisant a
+// prix connu) est ignore comme s'il n'existait pas, plutot que de faire
+// echouer tout le calcul pour un seul ingredient sans prix (demande
+// explicite : la tres grande majorite des articles MP n'ont aujourd'hui
+// aucun prix connu, un calcul "tout ou rien" ne donnait donc quasiment
+// jamais de cout du tout).
 export async function fetchCoutsReelsMpDepotB(
   besoins: { articleMpId: number; quantite: number }[]
 ): Promise<Map<number, CoutMpInfo>> {
   const result = new Map<number, CoutMpInfo>();
-  const depotBId = await resoudreDepotBId();
-  if (!depotBId) return result;
 
   const parArticle = new Map<number, number>();
   for (const b of besoins) {
@@ -52,7 +40,7 @@ export async function fetchCoutsReelsMpDepotB(
 
   await Promise.all(
     [...parArticle.entries()].map(async ([articleMpId, quantite]) => {
-      const lots = await fetchLotsInDepot("MP", articleMpId, depotBId);
+      const lots = await fetchLotsAllDepots("MP", articleMpId);
       const lotsAvecPrix = lots.filter((l) => l.prixUnitaireFcfa !== null);
       const { allocations } = allocateFefo(lotsAvecPrix, quantite);
 
@@ -271,8 +259,8 @@ type RecetteLigneRow = { article_pf_id: number; article_mp_id: number; quantite:
 // beaucoup de commandes listees a la fois).
 //
 // quantitesReelles (optionnel) : article_pf_id -> vraie quantite de cartons
-// produite, pour couter par tirage FEFO reel Depot B plutot que par la seule
-// base theorique (meme principe que fetchCoutVracParKg). Limite connue : si
+// produite, pour couter par tirage FEFO reel (tous depots) plutot que par la
+// seule base theorique (meme principe que fetchCoutVracParKg). Limite connue : si
 // PLUSIEURS articles de ce lot partagent le meme vrac_article_id, chacun
 // resout son propre cout vrac independamment (chaque appel FEFO ne "voit"
 // pas ce que l'autre a deja pris sur les memes lots) - acceptable pour un

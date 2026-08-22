@@ -5,7 +5,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canVoirPrixUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { computeCoutReelArticle } from "@/lib/cout-production-reel";
+import { computeCoutReelArticle, type LigneIncertaine } from "@/lib/cout-production-reel";
 import { fetchAllVracEntries, fetchAllCartonEntries } from "@/app/production/suivi/data";
 
 const MOIS_NOMS = [
@@ -27,6 +27,21 @@ function currentMonthRange() {
 function formatFcfa(value: number | null) {
   if (value === null) return "-";
   return `${value.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`;
+}
+
+// Beaucoup de lots partagent exactement le meme motif (ex: "Prix electricite
+// non renseigne pour ce mois") - une ligne par lot rendait la liste illisible
+// des qu'un mois entier manquait une seule donnee de reference (14+ lots
+// identiques). Regroupe par motif identique, plutot qu'une ligne chacun.
+function groupLignesIncertaines(lignes: LigneIncertaine[]): { motif: string; codes: string[] }[] {
+  const byMotif = new Map<string, string[]>();
+  for (const ligne of lignes) {
+    const motif = ligne.motifs.join(" ");
+    const codes = byMotif.get(motif) ?? [];
+    if (ligne.code) codes.push(ligne.code);
+    byMotif.set(motif, codes);
+  }
+  return [...byMotif.entries()].map(([motif, codes]) => ({ motif, codes }));
 }
 
 async function fetchProgrammeLigneIds(articleId: number): Promise<number[]> {
@@ -51,7 +66,7 @@ async function fetchProgrammeLigneIds(articleId: number): Promise<number[]> {
   return ids;
 }
 
-type SearchParams = Promise<{ date_from?: string; date_to?: string; months?: string | string[] }>;
+type SearchParams = Promise<{ date_from?: string; date_to?: string; months?: string | string[]; code?: string }>;
 
 export default async function CoutReelArticlePage({
   params,
@@ -93,11 +108,13 @@ export default async function CoutReelArticlePage({
   const ligneIds = await fetchProgrammeLigneIds(articleIdNumber);
   const entriesAll = nature === "vrac" ? await fetchAllVracEntries(ligneIds) : await fetchAllCartonEntries(ligneIds);
   const availableMonths = [...new Set(entriesAll.map((e) => e.date_jour.slice(0, 7)))].sort();
+  const availableCodes = [...new Set(entriesAll.map((e) => e.code))].sort();
+  const selectedCode = (sp.code || "").trim();
 
   const periode =
     selectedMonths.length > 0
-      ? { months: selectedMonths }
-      : { dateFrom: dateFrom || undefined, dateTo: dateTo || undefined };
+      ? { months: selectedMonths, code: selectedCode || undefined }
+      : { dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, code: selectedCode || undefined };
 
   const result = canVoirPrix ? await computeCoutReelArticle(articleIdNumber, periode) : null;
 
@@ -121,7 +138,7 @@ export default async function CoutReelArticlePage({
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-4">
               <label className="grid gap-1 text-xs font-semibold text-slate-500">
                 Du
                 <input
@@ -139,6 +156,22 @@ export default async function CoutReelArticlePage({
                   defaultValue={dateTo}
                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                 />
+              </label>
+              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                Lot / code (optionnel)
+                <input
+                  type="text"
+                  name="code"
+                  list="codes-disponibles"
+                  defaultValue={selectedCode}
+                  placeholder="Tous les lots"
+                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                />
+                <datalist id="codes-disponibles">
+                  {availableCodes.map((code) => (
+                    <option key={code} value={code} />
+                  ))}
+                </datalist>
               </label>
               <div className="flex items-end gap-3">
                 <button type="submit" className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
@@ -313,10 +346,15 @@ export default async function CoutReelArticlePage({
                     {result.lignesIncertaines.length > 1 ? "s" : ""} - cout partiel, incomplet :
                   </p>
                   <ul className="ml-4 list-disc space-y-1">
-                    {result.lignesIncertaines.map((l, index) => (
+                    {groupLignesIncertaines(result.lignesIncertaines).map((groupe, index) => (
                       <li key={index}>
-                        {l.code ? <span className="font-semibold">Lot {l.code} : </span> : null}
-                        {l.motifs.join(" ")}
+                        {groupe.codes.length > 0 ? (
+                          <span className="font-semibold">
+                            Lot{groupe.codes.length > 1 ? "s" : ""} {groupe.codes.join(", ")}
+                            {groupe.codes.length > 1 ? ` (${groupe.codes.length})` : ""} :{" "}
+                          </span>
+                        ) : null}
+                        {groupe.motif}
                       </li>
                     ))}
                   </ul>
@@ -337,6 +375,12 @@ export default async function CoutReelArticlePage({
                         Quantite ({result.uniteQuantite === "kg" ? "kg" : "cartons"})
                       </th>
                       <th className="px-6 py-3 font-semibold">Cout</th>
+                      {result.nature === "fini" ? (
+                        <>
+                          <th className="px-6 py-3 font-semibold">Vente</th>
+                          <th className="px-6 py-3 font-semibold">Marge</th>
+                        </>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -345,6 +389,18 @@ export default async function CoutReelArticlePage({
                         <td className="px-6 py-3 font-medium text-slate-900">{monthLabel(row.mois)}</td>
                         <td className="px-6 py-3 text-slate-600">{row.quantite.toLocaleString("fr-FR")}</td>
                         <td className="px-6 py-3 text-slate-600">{formatFcfa(row.coutTotal)}</td>
+                        {result.nature === "fini" ? (
+                          <>
+                            <td className="px-6 py-3 text-slate-600">{formatFcfa(row.vente)}</td>
+                            <td
+                              className={`px-6 py-3 font-semibold ${
+                                row.marge !== null && row.marge < 0 ? "text-red-600" : "text-emerald-700"
+                              }`}
+                            >
+                              {formatFcfa(row.marge)}
+                            </td>
+                          </>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
