@@ -115,6 +115,119 @@ export async function restaurerAuditLogAction(formData: FormData) {
     }
 
     resumeRestauration = `Lot ${entry.cible || ""} restaure dans le stock`;
+  } else if (entry.module === "ProgrammeLignes") {
+    const lignes = (entry.donnees_avant as { lignes?: Record<string, unknown>[] }).lignes ?? [];
+
+    if (lignes.length === 0) {
+      throw new Error("Rien a restaurer pour cette entree.");
+    }
+
+    const lignesPayload = lignes.map((ligne) => {
+      const { id: _oldId, ...fields } = ligne;
+      return fields;
+    });
+
+    const { error: insertError } = await supabaseServer.from("programme_lignes").insert(lignesPayload);
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    resumeRestauration = `Programme ${entry.cible || ""} (${lignes.length} ligne(s)) restaure`;
+  } else if (entry.module === "ProductionCartonEntries") {
+    const entries = (entry.donnees_avant as { entries?: Record<string, unknown>[] }).entries ?? [];
+
+    if (entries.length === 0) {
+      throw new Error("Rien a restaurer pour cette entree.");
+    }
+
+    const entriesPayload = entries.map((row) => {
+      const { id: _oldId, ...fields } = row;
+      return fields;
+    });
+
+    const { error: insertError } = await supabaseServer.from("production_carton_entries").insert(entriesPayload);
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    resumeRestauration = `Entree carton ${entry.cible || ""} restauree`;
+  } else if (entry.module === "ProgrammeDispatcherLignes") {
+    const lignes = (entry.donnees_avant as { lignes?: Record<string, unknown>[] }).lignes ?? [];
+
+    if (lignes.length === 0) {
+      throw new Error("Rien a restaurer pour cette entree.");
+    }
+
+    const lignesPayload = lignes.map((ligne) => {
+      const { id: _oldId, ...fields } = ligne;
+      return fields;
+    });
+
+    const { error: insertError } = await supabaseServer.from("programme_dispatcher_lignes").insert(lignesPayload);
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    resumeRestauration = `Dispatch ${entry.cible || ""} (${lignes.length} ligne(s)) restaure`;
+  } else if (entry.module === "ProgrammeDispatcherHistory") {
+    const donnees = entry.donnees_avant as {
+      historyLignes?: Record<string, unknown>[];
+      lignesTermineesAvant?: { id: number; programme_termine: boolean | null; programme_termine_date: string | null }[];
+    };
+    const historyLignes = donnees.historyLignes ?? [];
+
+    if (historyLignes.length === 0) {
+      throw new Error("Rien a restaurer pour cette entree.");
+    }
+
+    const historyPayload = historyLignes.map((ligne) => {
+      const { id: _oldId, groupe_id: _oldGroupeId, ...fields } = ligne;
+      return fields;
+    });
+
+    const { data: inserted, error: insertError } = await supabaseServer
+      .from("programme_dispatcher_history")
+      .insert(historyPayload)
+      .select("id");
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    const insertedIds = ((inserted as { id: number }[] | null) ?? []).map((row) => row.id);
+    if (insertedIds.length > 0) {
+      const nouveauGroupeId = Math.min(...insertedIds);
+      const { error: groupUpdateError } = await supabaseServer
+        .from("programme_dispatcher_history")
+        .update({ groupe_id: nouveauGroupeId })
+        .in("id", insertedIds);
+
+      if (groupUpdateError) {
+        throw new Error(groupUpdateError.message);
+      }
+    }
+
+    // Remet exactement l'etat programme_termine d'avant sur chaque ligne
+    // source touchee (pas juste "false" - une ligne deja terminee pour une
+    // autre raison avant cette suppression le redevient, pas l'inverse).
+    for (const ligne of donnees.lignesTermineesAvant ?? []) {
+      const { error: resetError } = await supabaseServer
+        .from("programme_lignes")
+        .update({
+          programme_termine: ligne.programme_termine,
+          programme_termine_date: ligne.programme_termine_date,
+        })
+        .eq("id", ligne.id);
+
+      if (resetError) {
+        throw new Error(resetError.message);
+      }
+    }
+
+    resumeRestauration = `PD ${entry.cible || ""} (${historyLignes.length} ligne(s)) restaure`;
   } else {
     throw new Error("Restauration non disponible pour ce module.");
   }
@@ -139,5 +252,10 @@ export async function restaurerAuditLogAction(formData: FormData) {
   revalidatePath("/admin/historique");
   revalidatePath("/commandes");
   revalidatePath("/stock");
+  revalidatePath("/historique-programme");
+  revalidatePath("/historique-programme-dispatcher");
+  revalidatePath("/production/suivi");
+  revalidatePath("/production/suivi/dashboard");
+  revalidatePath("/production/suivi/calendrier");
   revalidatePath("/");
 }

@@ -161,6 +161,80 @@ function SuppressionDetail({ row }: { row: AuditRow }) {
     );
   }
 
+  if (row.module === "ProgrammeLignes") {
+    const lignes = (row.donnees_avant.lignes as Record<string, unknown>[] | undefined) ?? [];
+    return (
+      <div className="grid gap-3">
+        {lignes.map((ligne, index) => (
+          <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-semibold text-slate-800">
+              {String(ligne.produit ?? "")} - {String(ligne.zone ?? "")} / {String(ligne.chaine ?? "")}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Lot {String(ligne.numero_lot ?? "-")} - {String(ligne.qt_carton ?? 0)} carton(s) - vrac{" "}
+              {String(ligne.vrac_a_fabriquer ?? 0)} - {String(ligne.date_jour ?? "-")}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (row.module === "ProductionCartonEntries") {
+    const entries = (row.donnees_avant.entries as Record<string, unknown>[] | undefined) ?? [];
+    return (
+      <div className="grid gap-3">
+        {entries.map((entry, index) => (
+          <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-semibold text-slate-800">{String(entry.code ?? "")}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {String(entry.quantite ?? 0)} carton(s) - {String(entry.date_jour ?? "-")} - chef zone{" "}
+              {String(entry.chef_zone ?? "-")}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (row.module === "ProgrammeDispatcherLignes") {
+    const lignes = (row.donnees_avant.lignes as Record<string, unknown>[] | undefined) ?? [];
+    return (
+      <div className="grid gap-3">
+        {lignes.map((ligne, index) => (
+          <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-semibold text-slate-800">
+              {String(ligne.produit ?? "")} - {String(ligne.zone ?? "")} / {String(ligne.chaine ?? "")}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Code {String(ligne.code ?? "-")} - {String(ligne.qt_carton ?? 0)} carton(s) - vrac{" "}
+              {String(ligne.qt_vrac ?? 0)}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (row.module === "ProgrammeDispatcherHistory") {
+    const historyLignes = (row.donnees_avant.historyLignes as Record<string, unknown>[] | undefined) ?? [];
+    return (
+      <div className="grid gap-3">
+        {historyLignes.map((ligne, index) => (
+          <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-semibold text-slate-800">
+              {String(ligne.produit ?? "")} - {String(ligne.zone ?? "")} / {String(ligne.chaine ?? "")}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Code {String(ligne.code ?? "-")} - {String(ligne.qt_carton ?? 0)} carton(s) - vrac{" "}
+              {String(ligne.qt_vrac ?? 0)}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return <p className="text-sm text-slate-500">Detail non disponible pour ce module.</p>;
 }
 
@@ -171,7 +245,14 @@ function RowDetail({ row }: { row: AuditRow }) {
 }
 
 const PAGE_SIZE = 100;
-const MODULE_OPTIONS = ["Commandes", "Stock"];
+const MODULE_OPTIONS = [
+  "Commandes",
+  "Stock",
+  "ProgrammeLignes",
+  "ProductionCartonEntries",
+  "ProgrammeDispatcherLignes",
+  "ProgrammeDispatcherHistory",
+];
 
 type SearchParams = Promise<{
   utilisateur?: string;

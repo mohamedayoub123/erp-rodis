@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
+import { logAudit } from "@/lib/audit-log";
 
 function revalidateSuiviPages() {
   revalidatePath("/production/suivi");
@@ -35,10 +36,31 @@ export async function deleteProgrammeLigneDashboardAction(formData: FormData) {
     throw new Error("Ligne invalide.");
   }
 
+  const { data: ligneAvant, error: fetchError } = await supabaseServer
+    .from("programme_lignes")
+    .select("*")
+    .eq("id", ligneId)
+    .maybeSingle();
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
   const { error } = await supabaseServer.from("programme_lignes").delete().eq("id", ligneId);
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (ligneAvant) {
+    await logAudit({
+      utilisateur: currentUser,
+      module: "ProgrammeLignes",
+      action: "suppression",
+      cible: (ligneAvant as { produit?: string }).produit || `#${ligneId}`,
+      resume: `Ligne ${(ligneAvant as { produit?: string }).produit || `#${ligneId}`} supprimee depuis le Dashboard`,
+      avant: { lignes: [ligneAvant] },
+    });
   }
 
   revalidateSuiviPages();
@@ -495,10 +517,31 @@ export async function deleteCartonEntryAction(formData: FormData) {
     throw new Error("Entree invalide.");
   }
 
+  const { data: entryAvant, error: fetchError } = await supabaseServer
+    .from("production_carton_entries")
+    .select("*")
+    .eq("id", entryId)
+    .maybeSingle();
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
   const { error } = await supabaseServer.from("production_carton_entries").delete().eq("id", entryId);
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (entryAvant) {
+    await logAudit({
+      utilisateur: currentUser,
+      module: "ProductionCartonEntries",
+      action: "suppression",
+      cible: (entryAvant as { code?: string }).code || `#${entryId}`,
+      resume: `Entree carton ${(entryAvant as { code?: string }).code || `#${entryId}`} supprimee (Suivi production)`,
+      avant: { entries: [entryAvant] },
+    });
   }
 
   revalidateSuiviPages();

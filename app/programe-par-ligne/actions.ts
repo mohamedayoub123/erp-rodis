@@ -6,6 +6,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { computeArticleFamilyKey, extractTrailingNumber, incrementCode } from "@/lib/article-code-family";
 import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
+import { logAudit } from "@/lib/audit-log";
 
 type PendingProgrammeRow = {
   zone: string;
@@ -1435,14 +1436,15 @@ export async function deleteProgrammeLigneGroupAction(formData: FormData) {
 
   const { data: ligneRows, error: fetchError } = await supabaseServer
     .from("programme_lignes")
-    .select("id")
+    .select("*")
     .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`);
 
   if (fetchError) {
     throw new Error(fetchError.message);
   }
 
-  const ligneIds = (ligneRows ?? []).map((row) => row.id);
+  const lignes = ligneRows ?? [];
+  const ligneIds = lignes.map((row) => row.id);
   if (ligneIds.length === 0) {
     throw new Error("Groupe introuvable.");
   }
@@ -1457,6 +1459,15 @@ export async function deleteProgrammeLigneGroupAction(formData: FormData) {
   if (error) {
     throw new Error(error.message);
   }
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "ProgrammeLignes",
+    action: "suppression",
+    cible: lignes[0]?.produit || `groupe ${groupeId}`,
+    resume: `Programme (${lignes.length} ligne(s), zone ${lignes[0]?.zone || "-"}) supprime depuis Historique Programme`,
+    avant: { lignes },
+  });
 
   revalidatePath("/historique-programme");
   redirect("/historique-programme");

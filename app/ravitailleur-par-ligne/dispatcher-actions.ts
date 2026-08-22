@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { extractTrailingNumber } from "@/lib/article-code-family";
+import { logAudit } from "@/lib/audit-log";
 
 // Le code genere au Dispatch (Programme par ligne) reste "en attente"
 // (pending_article_code_updates) jusqu'a ce que le programme soit confirme
@@ -451,10 +452,30 @@ export async function deleteAllDispatcherLignesAction(formData: FormData) {
     throw new Error("Zone invalide.");
   }
 
+  const { data: lignesAvant, error: fetchError } = await supabaseServer
+    .from("programme_dispatcher_lignes")
+    .select("*")
+    .eq("zone", zone);
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
   const { error } = await supabaseServer.from("programme_dispatcher_lignes").delete().eq("zone", zone);
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (lignesAvant && lignesAvant.length > 0) {
+    await logAudit({
+      utilisateur: currentUser,
+      module: "ProgrammeDispatcherLignes",
+      action: "suppression",
+      cible: `Zone ${zone}`,
+      resume: `Dispatch de la zone ${zone} (${lignesAvant.length} ligne(s)) supprime`,
+      avant: { lignes: lignesAvant },
+    });
   }
 
   revalidatePath(`/ravitailleur-par-ligne/${zone}`);
@@ -473,16 +494,16 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
     throw new Error("Groupe invalide.");
   }
 
-  const { data: codeRows, error: codeFetchError } = await supabaseServer
+  const { data: fullHistoryRows, error: codeFetchError } = await supabaseServer
     .from("programme_dispatcher_history")
-    .select("code, source_groupe_id")
+    .select("*")
     .eq("groupe_id", groupeId);
 
   if (codeFetchError) {
     throw new Error(codeFetchError.message);
   }
 
-  const historyLignes = (codeRows as { code: string | null; source_groupe_id: number | null }[] | null) ?? [];
+  const historyLignes = (fullHistoryRows as { code: string | null; source_groupe_id: number | null }[] | null) ?? [];
   const deletedCodes = new Set(historyLignes.map((row) => row.code).filter((code): code is string => Boolean(code)));
   const sourceGroupeIds = new Set(
     historyLignes.map((row) => row.source_groupe_id).filter((id): id is number => id !== null)
@@ -496,6 +517,12 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
   if (error) {
     throw new Error(error.message);
   }
+
+  // Snapshot AVANT le futur update programme_termine (etat reel a cet
+  // instant, jamais suppose "false") - necessaire pour qu'une restauration
+  // remette exactement l'etat d'avant, meme si une de ces lignes etait deja
+  // terminee pour une autre raison.
+  let lignesTermineesAvant: { id: number; programme_termine: boolean | null; programme_termine_date: string | null }[] = [];
 
   // Pas de lien direct (FK) entre l'historique PD et les lignes de
   // programme - 2 facons complementaires de retrouver les lignes source a
@@ -537,6 +564,16 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
     }
 
     if (matchingIds.size > 0) {
+      const { data: avantData, error: avantError } = await supabaseServer
+        .from("programme_lignes")
+        .select("id, programme_termine, programme_termine_date")
+        .in("id", [...matchingIds]);
+
+      if (avantError) {
+        throw new Error(avantError.message);
+      }
+      lignesTermineesAvant = avantData ?? [];
+
       const { error: updateError } = await supabaseServer
         .from("programme_lignes")
         .update({ programme_termine: true, programme_termine_date: new Date().toISOString() })
@@ -547,6 +584,15 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
       }
     }
   }
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "ProgrammeDispatcherHistory",
+    action: "suppression",
+    cible: historyLignes[0]?.code || `groupe ${groupeId}`,
+    resume: `PD (${historyLignes.length} ligne(s)) supprime depuis Historique Programme Dispatcher`,
+    avant: { historyLignes, lignesTermineesAvant },
+  });
 
   revalidatePath("/historique-programme-dispatcher");
   revalidatePath("/production/suivi");

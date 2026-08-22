@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { extractTrailingNumber } from "@/lib/article-code-family";
+import { logAudit } from "@/lib/audit-log";
 
 // Le groupe_id est desormais un vrai groupe_id programme_lignes (positif,
 // voir syncProgrammeLignesMirror dans app/production/programme/actions.ts),
@@ -210,6 +211,15 @@ export async function deleteProgrammeDispatchByGroupAction(formData: FormData) {
     return;
   }
 
+  const { data: lignesAvant, error: fetchError } = await supabaseServer
+    .from("programme_dispatcher_lignes")
+    .select("*")
+    .eq("groupe_id", groupeId);
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
   const { error } = await supabaseServer
     .from("programme_dispatcher_lignes")
     .delete()
@@ -217,6 +227,17 @@ export async function deleteProgrammeDispatchByGroupAction(formData: FormData) {
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (lignesAvant && lignesAvant.length > 0) {
+    await logAudit({
+      utilisateur: currentUser,
+      module: "ProgrammeDispatcherLignes",
+      action: "suppression",
+      cible: `Programme ${numeroProgramme}`,
+      resume: `Dispatch du programme ${numeroProgramme} (${lignesAvant.length} ligne(s)) supprime`,
+      avant: { lignes: lignesAvant },
+    });
   }
 
   revalidatePath(`/production/programme/${numeroProgramme}/dispatch`);
