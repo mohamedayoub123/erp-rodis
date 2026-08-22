@@ -532,6 +532,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     legacyWrite: "editProduction",
   },
   {
+    key: "historiqueMatiereUtilisee",
+    module: "Production",
+    label: "Historique Matiere Utilisee (par code)",
+    pathPrefixes: ["/historique-matiere-utilisee"],
+    hasWrite: false,
+  },
+  {
     key: "codeParArticle",
     module: "Production",
     label: "Code par article",

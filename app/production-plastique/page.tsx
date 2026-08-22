@@ -21,6 +21,12 @@ const TILES = [
     icon: "\u{1F4E5}",
     description: "Article + quantite (+ lot optionnel) - entre en stock et se transfere directement.",
   },
+  {
+    label: "Historique Matiere Utilisee",
+    href: "/historique-matiere-utilisee",
+    icon: "\u{1F9EE}",
+    description: "Par programme : quelle resine/colorant, quelle quantite, quel lot et quel prix.",
+  },
 ] as const;
 
 export default function ProductionPlastiquePage() {

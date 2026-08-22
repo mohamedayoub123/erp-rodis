@@ -61,6 +61,13 @@ const TILES = [
     description: "Code auto et code manuel de chaque article, modifiables directement ici.",
   },
   {
+    label: "Historique Matiere Utilisee",
+    href: "/historique-matiere-utilisee",
+    pageKey: "historiqueMatiereUtilisee",
+    icon: "\u{1F9EE}",
+    description: "Par code : quelle matiere premiere, quelle quantite, quel lot et quel prix.",
+  },
+  {
     label: "Rapport",
     href: "/production/rapport",
     pageKey: "productionRapportHub",
