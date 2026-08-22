@@ -43,6 +43,7 @@ export type ArticlePlastiqueRow = {
   nom_article: string;
   categorie: string | null;
   poids_net: number | null;
+  depot_id: number | null;
 };
 
 export async function fetchArticlesPlastique(): Promise<ArticlePlastiqueRow[]> {
@@ -53,7 +54,7 @@ export async function fetchArticlesPlastique(): Promise<ArticlePlastiqueRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, poids_net")
+      .select("id, nom_article, categorie, poids_net, depot_id")
       .in("categorie", CATEGORIES_PLASTIQUE)
       .range(from, from + pageSize - 1);
 

@@ -66,6 +66,7 @@ export type ArticleRow = {
   besoin_etui: boolean | null;
   code_auto: string | null;
   code_manu: string | null;
+  depot_id: number | null;
 };
 
 const VISIBLE_STEP = 100;
@@ -172,13 +173,16 @@ function FilterField({
 // proposition de la liste deroulante.
 export function ArticlesProduitFiniTable({
   articles,
+  depots,
   canEditArticles,
   canDeleteArticles,
 }: {
   articles: ArticleRow[];
+  depots: { id: number; label: string }[];
   canEditArticles: boolean;
   canDeleteArticles: boolean;
 }) {
+  const depotNomById = new Map(depots.map((d) => [d.id, d.label]));
   const [q, setQ] = useState("");
   const [type, setType] = useState("");
   const [gamme, setGamme] = useState("");
@@ -312,6 +316,7 @@ export function ArticlesProduitFiniTable({
                 <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Carton</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Etiquette</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Etui</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Depot</th>
                 {canEditArticles ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Modifier</th> : null}
                 {canDeleteArticles ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Supprimer</th> : null}
               </tr>
@@ -355,6 +360,9 @@ export function ArticlesProduitFiniTable({
                   <td className="px-6 py-4 text-slate-600">{article.besoin_carton ? "Oui" : "-"}</td>
                   <td className="px-6 py-4 text-slate-600">{article.besoin_etiquette ? "Oui" : "-"}</td>
                   <td className="px-6 py-4 text-slate-600">{article.besoin_etui ? "Oui" : "-"}</td>
+                  <td className="px-6 py-4 text-slate-600">
+                    {article.depot_id ? depotNomById.get(article.depot_id) ?? `Depot #${article.depot_id}` : "-"}
+                  </td>
                   {canEditArticles ? (
                     <td className="px-6 py-4">
                       <details className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -421,6 +429,21 @@ export function ArticlesProduitFiniTable({
                               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                             />
                           </div>
+                          <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                            Depot
+                            <select
+                              name="depot_id"
+                              defaultValue={article.depot_id ? String(article.depot_id) : ""}
+                              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                            >
+                              <option value="">Sans depot</option>
+                              {depots.map((depot) => (
+                                <option key={depot.id} value={depot.id}>
+                                  {depot.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
 
                           <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
                             Production

@@ -139,6 +139,8 @@ export async function updateArticleAction(formData: FormData) {
   const nature = String(formData.get("nature") || "fini").trim();
   const minStock = Number(String(formData.get("min_stock") || "0").replace(",", "."));
   const maxStock = Number(String(formData.get("max_stock") || "0").replace(",", "."));
+  const depotIdRaw = String(formData.get("depot_id") || "").trim();
+  const depotId = depotIdRaw ? Number(depotIdRaw) : null;
 
   if (!articleId || !nomArticle) {
     throw new Error("Article invalide.");
@@ -168,6 +170,7 @@ export async function updateArticleAction(formData: FormData) {
       nature: nature === "vrac" ? "vrac" : "fini",
       min_stock: Number.isNaN(minStock) ? 0 : minStock,
       max_stock: Number.isNaN(maxStock) ? 0 : maxStock,
+      depot_id: depotId,
       ...parseProductionFields(formData),
     })
     .eq("id", articleId);

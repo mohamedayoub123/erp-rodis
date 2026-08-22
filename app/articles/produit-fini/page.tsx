@@ -8,7 +8,7 @@ import { ArticlesProduitFiniTable, type ArticleRow } from "./articles-table";
 import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
 
 const ARTICLE_SELECT_FIELDS =
-  "id, nom_article, type_article, marque, gamme, nature, min_stock, max_stock, volume_unitaire, volume_stockage, cadence, nb_carton_par_vrac, max_production_vrac_8h, contenance, nb_piece_par_max_vrac, piece_par_carton, min_vrac, max_vrac_auto, vrac_max_manuel, dispenseur_pcs_carton, besoin_pot_flacon, besoin_capsule, besoin_sleeve, besoin_dispenseur, besoin_carton, besoin_etiquette, besoin_etui, code_auto, code_manu";
+  "id, nom_article, type_article, marque, gamme, nature, min_stock, max_stock, volume_unitaire, volume_stockage, cadence, nb_carton_par_vrac, max_production_vrac_8h, contenance, nb_piece_par_max_vrac, piece_par_carton, min_vrac, max_vrac_auto, vrac_max_manuel, dispenseur_pcs_carton, besoin_pot_flacon, besoin_capsule, besoin_sleeve, besoin_dispenseur, besoin_carton, besoin_etiquette, besoin_etui, code_auto, code_manu, depot_id";
 
 async function fetchAllArticles() {
   const rows: ArticleRow[] = [];
@@ -42,7 +42,14 @@ export default async function ArticlesProduitFiniPage() {
   const canEditArticles = await canWritePageUser(currentStockUser, "articlesProduitFini");
   const canDeleteArticles = await canDeletePageUser(currentStockUser, "articlesProduitFini");
 
-  const { rows: allArticles, error: fetchError } = await fetchAllArticles();
+  const [{ rows: allArticles, error: fetchError }, depotsResult] = await Promise.all([
+    fetchAllArticles(),
+    supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
+  ]);
+  const depots = ((depotsResult.data ?? []) as { id: number; nom: string }[]).map((d) => ({
+    id: d.id,
+    label: d.nom,
+  }));
 
   // Meme ordre que /tableau-commandes : familles (White Secret en premier),
   // puis a l'interieur d'une famille l'ordre par type d'article (Lait,
@@ -112,6 +119,7 @@ export default async function ArticlesProduitFiniPage() {
         ) : (
           <ArticlesProduitFiniTable
             articles={sortedArticles}
+            depots={depots}
             canEditArticles={canEditArticles}
             canDeleteArticles={canDeleteArticles}
           />

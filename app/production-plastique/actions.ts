@@ -127,6 +127,29 @@ export async function updatePoidsNetAction(formData: FormData) {
   revalidateRecettePlastiquePages(articleProduitId);
 }
 
+export async function updateArticlePlastiqueDepotAction(formData: FormData) {
+  await requireWriteAccess();
+
+  const articleId = Number(formData.get("article_id") || "0");
+  if (!articleId) {
+    throw new Error("Article invalide.");
+  }
+
+  const depotIdRaw = String(formData.get("depot_id") || "").trim();
+  const depotId = depotIdRaw ? Number(depotIdRaw) : null;
+
+  const { error } = await supabaseServer
+    .from("articles_matiere_premiere")
+    .update({ depot_id: depotId })
+    .eq("id", articleId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/production-plastique/articles");
+}
+
 type PendingProgrammePlastiqueRow = {
   article_id: number;
   quantite: number;
@@ -148,12 +171,13 @@ async function consommerIngredientsDepotSource(
   depotSourceId: number,
   dateJour: string,
   currentUser: string | null
-): Promise<{ coutTotal: number; lignesSansPrix: number[] }> {
+): Promise<{ coutTotal: number; lignesSansPrix: number[]; consommationLotIds: number[] }> {
   let coutTotal = 0;
   const lignesSansPrix: number[] = [];
+  const consommationLotIds: number[] = [];
 
   if (!poidsNetGrammes || poidsNetGrammes <= 0 || quantitePieces <= 0 || recetteLignes.length === 0) {
-    return { coutTotal: 0, lignesSansPrix: recetteLignes.map((l) => l.article_matiere_id) };
+    return { coutTotal: 0, lignesSansPrix: recetteLignes.map((l) => l.article_matiere_id), consommationLotIds };
   }
 
   for (const ligne of recetteLignes) {
@@ -174,36 +198,48 @@ async function consommerIngredientsDepotSource(
         prixConnuPourTout = false;
       }
 
-      const { error } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
-        article_id: ligne.article_matiere_id,
-        numero_lot: allocation.numero_lot || null,
-        qte_entree: 0,
-        qte_sortie: allocation.quantite,
-        depot_id: depotSourceId,
-        date_jour: dateJour,
-        utilisateur: currentUser,
-        note: "Consommation programme plastique",
-      });
+      const { data: inserted, error } = await supabaseServer
+        .from("lots_stock_matiere_premiere")
+        .insert({
+          article_id: ligne.article_matiere_id,
+          numero_lot: allocation.numero_lot || null,
+          qte_entree: 0,
+          qte_sortie: allocation.quantite,
+          depot_id: depotSourceId,
+          date_jour: dateJour,
+          utilisateur: currentUser,
+          note: "Consommation programme plastique",
+          source_import: "web:programme-plastique",
+        })
+        .select("id")
+        .single();
       if (error) {
         throw new Error(error.message);
       }
+      consommationLotIds.push((inserted as { id: number }).id);
       quantiteRestante -= allocation.quantite;
     }
 
     if (!covered && quantiteRestante > 1e-6) {
-      const { error } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
-        article_id: ligne.article_matiere_id,
-        numero_lot: null,
-        qte_entree: 0,
-        qte_sortie: quantiteRestante,
-        depot_id: depotSourceId,
-        date_jour: dateJour,
-        utilisateur: currentUser,
-        note: "Consommation programme plastique (stock insuffisant dans le depot source)",
-      });
+      const { data: inserted, error } = await supabaseServer
+        .from("lots_stock_matiere_premiere")
+        .insert({
+          article_id: ligne.article_matiere_id,
+          numero_lot: null,
+          qte_entree: 0,
+          qte_sortie: quantiteRestante,
+          depot_id: depotSourceId,
+          date_jour: dateJour,
+          utilisateur: currentUser,
+          note: "Consommation programme plastique (stock insuffisant dans le depot source)",
+          source_import: "web:programme-plastique",
+        })
+        .select("id")
+        .single();
       if (error) {
         throw new Error(error.message);
       }
+      consommationLotIds.push((inserted as { id: number }).id);
       prixConnuPourTout = false;
     }
 
@@ -212,7 +248,7 @@ async function consommerIngredientsDepotSource(
     }
   }
 
-  return { coutTotal, lignesSansPrix };
+  return { coutTotal, lignesSansPrix, consommationLotIds };
 }
 
 // Enregistre un lot de production plastique (article/qte/lot par ligne, lot
@@ -295,11 +331,12 @@ export async function saveProgrammePlastiqueAction(formData: FormData) {
   }
 
   const prixAutoByArticleId = new Map<number, number>();
+  const consommationLotIds: number[] = [];
   for (const articleId of plastiqueIds) {
     const article = articleById.get(articleId);
     const recetteLignes = lignesParArticle.get(articleId) ?? [];
     const quantitePieces = quantiteTotaleParArticle.get(articleId) ?? 0;
-    const { coutTotal, lignesSansPrix } = await consommerIngredientsDepotSource(
+    const { coutTotal, lignesSansPrix, consommationLotIds: lotIds } = await consommerIngredientsDepotSource(
       article?.poids_net ?? null,
       quantitePieces,
       recetteLignes,
@@ -307,6 +344,7 @@ export async function saveProgrammePlastiqueAction(formData: FormData) {
       dateJour,
       currentUser
     );
+    consommationLotIds.push(...lotIds);
     // lignesSansPrix.length > 0 = au moins une matiere sans prix connu dans
     // le depot source (ou stock insuffisant) - jamais ecrire un prix partiel
     // comme s'il etait complet.
@@ -336,9 +374,30 @@ export async function saveProgrammePlastiqueAction(formData: FormData) {
     };
   });
 
-  const { error: insertError } = await supabaseServer.from("lots_stock_matiere_premiere").insert(payload);
+  const { data: insertedRows, error: insertError } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .insert(payload)
+    .select("id");
   if (insertError) {
     throw new Error(insertError.message);
+  }
+
+  // Regroupe le stock produit ET la matiere consommee sous un seul
+  // mouvement_groupe_id (meme convention que partout ailleurs - voir
+  // createEntreeMpBatchAction) - demande explicite : supprimer ce programme
+  // plus tard (depuis Mouvements MP, ou il apparait deja sous l'etiquette
+  // "Plastique") doit tout effacer d'un coup, matiere consommee comprise.
+  const producedIds = ((insertedRows ?? []) as { id: number }[]).map((row) => row.id);
+  const groupeId = Math.min(...producedIds, ...consommationLotIds);
+  const allGroupIds = [...producedIds, ...consommationLotIds];
+  if (allGroupIds.length > 0) {
+    const { error: groupError } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .update({ mouvement_groupe_id: groupeId })
+      .in("id", allGroupIds);
+    if (groupError) {
+      throw new Error(groupError.message);
+    }
   }
 
   const transferOrderId = await createTransferOrder({
@@ -346,7 +405,7 @@ export async function saveProgrammePlastiqueAction(formData: FormData) {
     depotDestinationId,
     dateJour,
     creePar: currentUser,
-    remarque: "Programme plastique",
+    remarque: `Programme plastique #${groupeId}`,
     lignes: lignes.map((ligne) => ({ articleType: "MP" as const, articleId: ligne.articleId, quantiteDemandee: ligne.quantite })),
   });
 

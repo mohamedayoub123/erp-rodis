@@ -411,7 +411,7 @@ export async function deleteSuiviProductionRowAction(targets: {
   }
 
   if (ligneId && code) {
-    deletions.push(deleteCodeTermineEtReserves(ligneId, code));
+    deletions.push(deleteCodeTermineEtReserves(ligneId, code, currentUser));
   }
 
   const results = await Promise.all(deletions);
@@ -429,9 +429,20 @@ export async function deleteSuiviProductionRowAction(targets: {
 // programme_lignes directement) - doit etre supprimee AVANT, sinon la
 // suppression de production_code_termine echoue sur la contrainte de cle
 // etrangere.
+//
+// AVANT d'effacer une reserve, restitue au stock ce qu'elle avait deja
+// physiquement sorti (consommerCartonProportionnel/consommerRemainingMpReserve
+// reduisent reserve.quantite au fur et a mesure SANS jamais toucher
+// quantite_initiale - la difference est donc exactement ce qui a deja ete
+// sorti reellement). Sans ca, supprimer une ligne dont la Fabrication ou le
+// Conditionnement avait deja consomme de la matiere laissait cette sortie a
+// jamais orpheline (bug reel signale : stock reste a -15000 apres avoir
+// efface le code qui l'avait consomme, meme apres suppression complete de
+// la ligne).
 async function deleteCodeTermineEtReserves(
   ligneId: number,
-  code: string
+  code: string,
+  currentUser: string | null
 ): Promise<{ error: { message: string } | null }> {
   const { data: codeTermineRows, error: fetchError } = await supabaseServer
     .from("production_code_termine")
@@ -444,6 +455,40 @@ async function deleteCodeTermineEtReserves(
 
   const codeTermineIds = (codeTermineRows ?? []).map((row) => row.id);
   if (codeTermineIds.length === 0) return { error: null };
+
+  const { data: reserveRows, error: reserveFetchError } = await supabaseServer
+    .from("production_mp_reserve")
+    .select("article_mp_id, depot_id, numero_lot, quantite, quantite_initiale")
+    .in("production_code_termine_id", codeTermineIds);
+  if (reserveFetchError) return { error: reserveFetchError };
+
+  const reserves = (reserveRows ?? []) as {
+    article_mp_id: number;
+    depot_id: number;
+    numero_lot: string | null;
+    quantite: number;
+    quantite_initiale: number;
+  }[];
+  const dateJour = new Date().toISOString().slice(0, 10);
+  const restitutions = reserves
+    .map((reserve) => ({
+      article_id: reserve.article_mp_id,
+      numero_lot: reserve.numero_lot,
+      qte_entree: Math.round((reserve.quantite_initiale - reserve.quantite) * 1000) / 1000,
+      qte_sortie: 0,
+      depot_id: reserve.depot_id,
+      date_jour: dateJour,
+      utilisateur: currentUser,
+      note: "Restitution stock (ligne/code supprime)",
+    }))
+    .filter((row) => row.qte_entree > 1e-9);
+
+  if (restitutions.length > 0) {
+    const { error: restitutionError } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .insert(restitutions);
+    if (restitutionError) return { error: restitutionError };
+  }
 
   const { error: reserveError } = await supabaseServer
     .from("production_mp_reserve")
@@ -470,7 +515,8 @@ async function deleteCodeTermineEtReserves(
 // entre peut deja avoir ete vendu/livre, sa suppression reste un choix
 // separe et explicite (Gestion Stock PF), jamais automatique ici.
 export async function supprimerToutesTracesProductionPourLigne(
-  ligneId: number
+  ligneId: number,
+  currentUser: string | null
 ): Promise<{ error: string | null }> {
   const [{ data: vracRows }, { data: cartonRows }, { data: emballageRows }, { data: rapportRows }, { data: codeTermineRows }] =
     await Promise.all([
@@ -508,7 +554,7 @@ export async function supprimerToutesTracesProductionPourLigne(
     deletions.push(supabaseServer.from("production_rapports").delete().in("id", rapports.map((row) => row.id)));
   }
   for (const code of codes) {
-    deletions.push(deleteCodeTermineEtReserves(ligneId, code));
+    deletions.push(deleteCodeTermineEtReserves(ligneId, code, currentUser));
   }
 
   const results = await Promise.all(deletions);

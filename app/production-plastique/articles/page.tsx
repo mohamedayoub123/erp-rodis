@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
+import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { fetchArticlesPlastique, normalizeCategoriePlastique } from "../shared";
+import { updateArticlePlastiqueDepotAction } from "../actions";
+import { SubmitButton } from "@/app/_components/submit-button";
 
 const CATEGORIES_AFFICHEES = ["FLACON", "CAPSULE", "POTS", "TOPETTE"] as const;
 
@@ -18,7 +21,15 @@ export default async function ProductionPlastiqueArticlesPage({
   const q = (params.q || "").trim().toLowerCase();
   const categorieFilter = (params.categorie || "").trim();
 
-  const allArticles = await fetchArticlesPlastique();
+  const [allArticles, depotsResult] = await Promise.all([
+    fetchArticlesPlastique(),
+    supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
+  ]);
+  const depots = ((depotsResult.data ?? []) as { id: number; nom: string }[]).map((d) => ({
+    id: d.id,
+    label: d.nom,
+  }));
+  const depotNomById = new Map(depots.map((d) => [d.id, d.label]));
   const qWords = q.split(/\s+/).filter(Boolean);
   const articles = allArticles.filter((article) => {
     // Recherche sur le nom ET la categorie (normalisee) - un article "PET 150
@@ -96,6 +107,7 @@ export default async function ProductionPlastiqueArticlesPage({
                   <th className="px-6 py-3 font-semibold">Article</th>
                   <th className="px-6 py-3 font-semibold">Categorie</th>
                   <th className="px-6 py-3 font-semibold">Poids net (grs)</th>
+                  <th className="px-6 py-3 font-semibold">Depot</th>
                   <th className="px-6 py-3 font-semibold">Recette</th>
                 </tr>
               </thead>
@@ -105,6 +117,34 @@ export default async function ProductionPlastiqueArticlesPage({
                     <td className="px-6 py-3 font-semibold text-slate-900">{article.nom_article}</td>
                     <td className="px-6 py-3 text-slate-600">{normalizeCategoriePlastique(article.categorie)}</td>
                     <td className="px-6 py-3 text-slate-600">{article.poids_net ?? "-"}</td>
+                    <td className="px-6 py-3">
+                      <details className="group">
+                        <summary className="cursor-pointer text-slate-600 marker:content-none">
+                          {article.depot_id ? depotNomById.get(article.depot_id) ?? `Depot #${article.depot_id}` : "-"}
+                        </summary>
+                        <form action={updateArticlePlastiqueDepotAction} className="mt-2 flex items-center gap-2">
+                          <input type="hidden" name="article_id" value={article.id} />
+                          <select
+                            name="depot_id"
+                            defaultValue={article.depot_id ? String(article.depot_id) : ""}
+                            className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs outline-none"
+                          >
+                            <option value="">Sans depot</option>
+                            {depots.map((depot) => (
+                              <option key={depot.id} value={depot.id}>
+                                {depot.label}
+                              </option>
+                            ))}
+                          </select>
+                          <SubmitButton
+                            pendingLabel="..."
+                            className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                          >
+                            OK
+                          </SubmitButton>
+                        </form>
+                      </details>
+                    </td>
                     <td className="px-6 py-3">
                       <Link
                         href={`/production-plastique/recettes/${article.id}`}

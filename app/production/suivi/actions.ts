@@ -54,7 +54,7 @@ export async function deleteProgrammeLigneDashboardAction(
     return { ok: false, message: fetchError.message };
   }
 
-  const { error: cleanupError } = await supprimerToutesTracesProductionPourLigne(ligneId);
+  const { error: cleanupError } = await supprimerToutesTracesProductionPourLigne(ligneId, currentUser);
   if (cleanupError) {
     return { ok: false, message: cleanupError };
   }

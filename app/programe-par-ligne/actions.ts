@@ -1381,7 +1381,7 @@ export async function deleteProgrammeLigneGroupAction(
   // avant la ligne elle-meme - demande explicite : la suppression doit tout
   // effacer d'un coup, sans forcer un passage manuel par Suivi Production.
   for (const ligneId of ligneIds) {
-    const { error: cleanupError } = await supprimerToutesTracesProductionPourLigne(ligneId);
+    const { error: cleanupError } = await supprimerToutesTracesProductionPourLigne(ligneId, currentUser);
     if (cleanupError) {
       return { ok: false, message: cleanupError };
     }

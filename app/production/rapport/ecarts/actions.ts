@@ -23,7 +23,7 @@ export async function deleteProgrammeLigneRapportAction(
     return { ok: false, message: "Ligne invalide." };
   }
 
-  const { error: cleanupError } = await supprimerToutesTracesProductionPourLigne(ligneId);
+  const { error: cleanupError } = await supprimerToutesTracesProductionPourLigne(ligneId, currentUser);
   if (cleanupError) {
     return { ok: false, message: cleanupError };
   }
