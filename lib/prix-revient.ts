@@ -1,6 +1,13 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { fetchLotsAllDepots, allocateFefo } from "@/app/depots/transfer-order/stock-lots";
+import { fetchLotsAllDepots, allocateFefo, type DepotLot } from "@/app/depots/transfer-order/stock-lots";
 import { convertirEnFcfa } from "@/lib/prix-devise";
+
+// Cache optionnel {articleMpId -> lots deja recuperes} partage par
+// l'appelant (voir fetchCoutsParCartonProduitsFinis) - evite de re-fetcher
+// Supabase pour le meme article MP a chaque produit fini qui le partage dans
+// sa recette (ex: le meme carton/sleeve utilise par 50 produits differents,
+// autrement re-fetch 50 fois pour rien sur une page Commandes).
+export type LotsMpCache = Map<number, DepotLot[]>;
 
 export type CoutMpInfo = {
   coutFcfa: number; // cout TOTAL pour la quantite demandee (pas un prix unitaire)
@@ -28,7 +35,8 @@ export type CoutMpInfo = {
 // aucun prix connu, un calcul "tout ou rien" ne donnait donc quasiment
 // jamais de cout du tout).
 export async function fetchCoutsReelsMpDepotB(
-  besoins: { articleMpId: number; quantite: number }[]
+  besoins: { articleMpId: number; quantite: number }[],
+  lotCache?: LotsMpCache
 ): Promise<Map<number, CoutMpInfo>> {
   const result = new Map<number, CoutMpInfo>();
 
@@ -40,7 +48,11 @@ export async function fetchCoutsReelsMpDepotB(
 
   await Promise.all(
     [...parArticle.entries()].map(async ([articleMpId, quantite]) => {
-      const lots = await fetchLotsAllDepots("MP", articleMpId);
+      let lots = lotCache?.get(articleMpId);
+      if (!lots) {
+        lots = await fetchLotsAllDepots("MP", articleMpId);
+        lotCache?.set(articleMpId, lots);
+      }
       const lotsAvecPrix = lots.filter((l) => l.prixUnitaireFcfa !== null);
       const { allocations } = allocateFefo(lotsAvecPrix, quantite);
 
@@ -199,7 +211,11 @@ export type CoutVracInfo = {
 // des prix differents si la quantite reelle depasse ce qu'un seul lot
 // couvre. Sans ce parametre (affichage "Prix de revient" theorique), reste
 // base sur quantite_recette_base comme avant.
-export async function fetchCoutVracParKg(vracArticleId: number, quantiteReelle?: number): Promise<CoutVracInfo> {
+export async function fetchCoutVracParKg(
+  vracArticleId: number,
+  quantiteReelle?: number,
+  lotCache?: LotsMpCache
+): Promise<CoutVracInfo> {
   const [{ data: articleData }, { data: lignesData }] = await Promise.all([
     supabaseServer.from("articles").select("quantite_recette_base").eq("id", vracArticleId).maybeSingle(),
     supabaseServer
@@ -216,7 +232,8 @@ export async function fetchCoutVracParKg(vracArticleId: number, quantiteReelle?:
   const lignesEchelle = lignes.map((l) => ({ article_mp_id: l.article_mp_id, quantite: l.quantite * ratio }));
 
   const couts = await fetchCoutsReelsMpDepotB(
-    lignesEchelle.map((l) => ({ articleMpId: l.article_mp_id, quantite: l.quantite }))
+    lignesEchelle.map((l) => ({ articleMpId: l.article_mp_id, quantite: l.quantite })),
+    lotCache
   );
   const { coutTotal, lignesSansPrix } = computeRecetteCost(lignesEchelle, couts);
 
@@ -294,73 +311,88 @@ export async function fetchCoutsParCartonProduitsFinis(
     lignesByPf.set(ligne.article_pf_id, list);
   }
 
+  // Cache des lots MP deja recuperes, PARTAGE entre tous les articles PF de
+  // cet appel - sans lui, chaque ingredient commun a plusieurs produits
+  // (carton, sleeve, capsule...) etait re-fetch depuis Supabase une fois par
+  // produit fini (cause reelle de lenteur constatee sur la page Commandes,
+  // des dizaines d'appels reseau redondants pour les memes lots).
+  const lotCache: LotsMpCache = new Map();
+
   const coutVracCache = new Map<string, CoutVracInfo>();
   async function coutVracPourArticle(vracArticleId: number, quantiteReelleVrac: number | undefined) {
     const cacheKey = `${vracArticleId}:${quantiteReelleVrac ?? "base"}`;
     const cached = coutVracCache.get(cacheKey);
     if (cached) return cached;
-    const info = await fetchCoutVracParKg(vracArticleId, quantiteReelleVrac);
+    const info = await fetchCoutVracParKg(vracArticleId, quantiteReelleVrac, lotCache);
     coutVracCache.set(cacheKey, info);
     return info;
   }
 
-  for (const id of ids) {
-    const article = articleById.get(id);
-    if (!article) continue;
+  // Produits finis traites EN PARALLELE (plus seulement un par un) - le
+  // cache lotCache/coutVracCache partage evite le travail redondant meme
+  // sous concurrence (au pire, un ingredient tout juste nouveau est
+  // fetch 2 fois au lieu d'une si 2 produits le decouvrent au meme instant -
+  // sans consequence, juste une petite perte d'efficacite ponctuelle).
+  await Promise.all(
+    ids.map(async (id) => {
+      const article = articleById.get(id);
+      if (!article) return;
 
-    const quantiteReelleCarton = quantitesReelles?.get(id);
-    const quantiteBaseCarton = article.quantite_recette_base;
-    const ratioCarton =
-      quantiteReelleCarton !== undefined && quantiteBaseCarton && quantiteBaseCarton > 0
-        ? quantiteReelleCarton / quantiteBaseCarton
-        : 1;
+      const quantiteReelleCarton = quantitesReelles?.get(id);
+      const quantiteBaseCarton = article.quantite_recette_base;
+      const ratioCarton =
+        quantiteReelleCarton !== undefined && quantiteBaseCarton && quantiteBaseCarton > 0
+          ? quantiteReelleCarton / quantiteBaseCarton
+          : 1;
 
-    const lignesConditionnementBase = lignesByPf.get(id) ?? [];
-    const lignesConditionnement = lignesConditionnementBase.map((l) => ({
-      article_mp_id: l.article_mp_id,
-      quantite: l.quantite * ratioCarton,
-    }));
-    const coutsConditionnement = await fetchCoutsReelsMpDepotB(
-      lignesConditionnement.map((l) => ({ articleMpId: l.article_mp_id, quantite: l.quantite }))
-    );
-    const { coutTotal: coutConditionnement, lignesSansPrix: lignesSansPrixConditionnement } = computeRecetteCost(
-      lignesConditionnement,
-      coutsConditionnement
-    );
+      const lignesConditionnementBase = lignesByPf.get(id) ?? [];
+      const lignesConditionnement = lignesConditionnementBase.map((l) => ({
+        article_mp_id: l.article_mp_id,
+        quantite: l.quantite * ratioCarton,
+      }));
+      const coutsConditionnement = await fetchCoutsReelsMpDepotB(
+        lignesConditionnement.map((l) => ({ articleMpId: l.article_mp_id, quantite: l.quantite })),
+        lotCache
+      );
+      const { coutTotal: coutConditionnement, lignesSansPrix: lignesSansPrixConditionnement } = computeRecetteCost(
+        lignesConditionnement,
+        coutsConditionnement
+      );
 
-    let coutVracUtilise = 0;
-    let lignesSansPrixVrac: number[] = [];
-    let lotsUtiliseesVrac: LotUtiliseInfo[] = [];
-    if (article.vrac_article_id) {
-      // Meme repli que la page recette-conditionnement : si la quantite de
-      // vrac necessaire n'a pas ete saisie a la main, on la calcule depuis
-      // contenance * piece_par_carton (pour 1 carton), plutot que de traiter
-      // le cout vrac comme 0/absent.
-      const qtVracAuto =
-        article.contenance && article.piece_par_carton
-          ? round((quantiteBaseCarton || 1) * article.piece_par_carton * article.contenance, 3)
-          : null;
-      const qtVracNecessaireBase = article.vrac_quantite_recette ?? qtVracAuto;
-      const qtVracReelleNecessaire = qtVracNecessaireBase !== null ? qtVracNecessaireBase * ratioCarton : undefined;
+      let coutVracUtilise = 0;
+      let lignesSansPrixVrac: number[] = [];
+      let lotsUtiliseesVrac: LotUtiliseInfo[] = [];
+      if (article.vrac_article_id) {
+        // Meme repli que la page recette-conditionnement : si la quantite de
+        // vrac necessaire n'a pas ete saisie a la main, on la calcule depuis
+        // contenance * piece_par_carton (pour 1 carton), plutot que de traiter
+        // le cout vrac comme 0/absent.
+        const qtVracAuto =
+          article.contenance && article.piece_par_carton
+            ? round((quantiteBaseCarton || 1) * article.piece_par_carton * article.contenance, 3)
+            : null;
+        const qtVracNecessaireBase = article.vrac_quantite_recette ?? qtVracAuto;
+        const qtVracReelleNecessaire = qtVracNecessaireBase !== null ? qtVracNecessaireBase * ratioCarton : undefined;
 
-      const coutVrac = await coutVracPourArticle(article.vrac_article_id, qtVracReelleNecessaire);
-      if (coutVrac.coutParKg !== null && qtVracReelleNecessaire) {
-        coutVracUtilise = coutVrac.coutParKg * qtVracReelleNecessaire;
+        const coutVrac = await coutVracPourArticle(article.vrac_article_id, qtVracReelleNecessaire);
+        if (coutVrac.coutParKg !== null && qtVracReelleNecessaire) {
+          coutVracUtilise = coutVrac.coutParKg * qtVracReelleNecessaire;
+        }
+        lignesSansPrixVrac = coutVrac.lignesSansPrix;
+        lotsUtiliseesVrac = coutVrac.lotsUtilises;
       }
-      lignesSansPrixVrac = coutVrac.lignesSansPrix;
-      lotsUtiliseesVrac = coutVrac.lotsUtilises;
-    }
 
-    const coutTotalPourQuantite = coutVracUtilise + coutConditionnement;
-    const quantiteUtiliseeCarton = quantiteReelleCarton ?? quantiteBaseCarton ?? 0;
-    const coutParCarton = quantiteUtiliseeCarton > 0 ? coutTotalPourQuantite / quantiteUtiliseeCarton : null;
+      const coutTotalPourQuantite = coutVracUtilise + coutConditionnement;
+      const quantiteUtiliseeCarton = quantiteReelleCarton ?? quantiteBaseCarton ?? 0;
+      const coutParCarton = quantiteUtiliseeCarton > 0 ? coutTotalPourQuantite / quantiteUtiliseeCarton : null;
 
-    result.set(id, {
-      coutParCarton,
-      lignesSansPrix: [...lignesSansPrixConditionnement, ...lignesSansPrixVrac],
-      lotsUtilises: [...flattenLotsUtilises(coutsConditionnement), ...lotsUtiliseesVrac],
-    });
-  }
+      result.set(id, {
+        coutParCarton,
+        lignesSansPrix: [...lignesSansPrixConditionnement, ...lignesSansPrixVrac],
+        lotsUtilises: [...flattenLotsUtilises(coutsConditionnement), ...lotsUtiliseesVrac],
+      });
+    })
+  );
 
   return result;
 }
