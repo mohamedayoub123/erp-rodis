@@ -19,8 +19,14 @@ export default async function ProductionPlastiqueArticlesPage({
   const categorieFilter = (params.categorie || "").trim();
 
   const allArticles = await fetchArticlesPlastique();
+  const qWords = q.split(/\s+/).filter(Boolean);
   const articles = allArticles.filter((article) => {
-    if (q && !article.nom_article.toLowerCase().includes(q)) return false;
+    // Recherche sur le nom ET la categorie (normalisee) - un article "PET 150
+    // ML BOTTLE ROYAL BLUE" ne contient jamais le mot "flacon" dans son nom,
+    // mais sa categorie normalisee si (FLACON) : sans ca, chercher "flacon" le
+    // ratait completement alors qu'il est bien dans la liste.
+    const haystack = `${article.nom_article} ${normalizeCategoriePlastique(article.categorie)}`.toLowerCase();
+    if (qWords.length > 0 && !qWords.every((word) => haystack.includes(word))) return false;
     if (categorieFilter && normalizeCategoriePlastique(article.categorie) !== categorieFilter) return false;
     return true;
   });
