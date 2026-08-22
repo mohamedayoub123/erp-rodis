@@ -24,7 +24,8 @@ export type ModuleKey =
   | "Produit"
   | "ChargesUsine"
   | "Comptabilite"
-  | "Fournisseurs";
+  | "Fournisseurs"
+  | "ProductionPlastique";
 
 export type PageDefinition = {
   key: string;
@@ -57,6 +58,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   ChargesUsine: "Charges Usine",
   Comptabilite: "Comptabilite",
   Fournisseurs: "Fournisseurs",
+  ProductionPlastique: "Production Plastique",
 };
 
 export const PAGE_REGISTRY: PageDefinition[] = [
@@ -810,6 +812,17 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     module: "Comptabilite",
     label: "Comptabilite",
     pathPrefixes: ["/comptabilite"],
+    defaultView: false,
+    defaultWrite: false,
+  },
+  // Module vide pour l'instant (rien construit encore) - meme convention
+  // que Comptabilite au demarrage : cache par defaut, visible seulement
+  // pour l'admin tant qu'aucun acces n'est accorde explicitement ici.
+  {
+    key: "productionPlastique",
+    module: "ProductionPlastique",
+    label: "Production Plastique",
+    pathPrefixes: ["/production-plastique"],
     defaultView: false,
     defaultWrite: false,
   },
