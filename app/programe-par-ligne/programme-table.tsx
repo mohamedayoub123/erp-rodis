@@ -338,13 +338,24 @@ function ProgrameCell({
 // carton de l'article. Ex: Lait White Secret 500ml (contenance 0.5),
 // piece par carton 24, vrac saisi 3000 -> 3000/0.5 = 6000 pieces ->
 // 6000/24 = 250 cartons.
+//
+// Toujours arrondi au carton SUPERIEUR (jamais de virgule) - un carton
+// entame compte comme un carton entier, meme convention que
+// lib/dispatcher-shared.ts (computeQtCarton, utilisee au Dispatch). Cette
+// fonction-ci est une implementation LOCALE et SEPAREE (calcul live cote
+// client pendant la saisie) qui gardait a tort une division brute - la
+// cellule d'apercu arrondissait deja l'AFFICHAGE (Math.round), mais la
+// valeur qtCarton elle-meme restait fractionnaire (ex: 312.5) une fois
+// enregistree sur programme_lignes.qt_carton, faisant ensuite paraitre
+// tous les articles de conditionnement lies (carton, sleeve, flacon,
+// capsule...) sous-values au Dispatch/Verifier Stock.
 function computeQtCarton(vrac: number, article: ArticleOption | null) {
   if (!article || !vrac || vrac <= 0) return null;
   if (!article.contenance || article.contenance <= 0) return null;
   if (!article.piecePerCarton || article.piecePerCarton <= 0) return null;
 
   const nbPieces = vrac / article.contenance;
-  return nbPieces / article.piecePerCarton;
+  return Math.ceil(nbPieces / article.piecePerCarton);
 }
 
 function LigneRowCells({
