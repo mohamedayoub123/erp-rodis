@@ -11,7 +11,7 @@ import {
 } from "./shared";
 import { createTransferOrder, approveTransferOrder, postTransferOrderToInvoice } from "@/app/depots/transfer-order/actions";
 import { validateInvoiceOrder } from "@/app/depots/invoice-order/actions";
-import { fetchLotsInDepot, allocateFefo } from "@/app/depots/transfer-order/stock-lots";
+import { fetchLotsInDepot, allocateFefo, totalAvailable } from "@/app/depots/transfer-order/stock-lots";
 
 async function requireWriteAccess() {
   const currentUser = await getCurrentStockUser();
@@ -328,6 +328,31 @@ export async function saveProgrammePlastiqueAction(formData: FormData) {
   const quantiteTotaleParArticle = new Map<number, number>();
   for (const ligne of lignes) {
     quantiteTotaleParArticle.set(ligne.articleId, (quantiteTotaleParArticle.get(ligne.articleId) ?? 0) + ligne.quantite);
+  }
+
+  // Bloque tout l'enregistrement si une matiere de recette n'a STRICTEMENT
+  // AUCUN stock reel dans le depot source (demande explicite : une matiere
+  // "pas assez" peut quand meme sortir en negatif pour le reste manquant,
+  // mais une matiere totalement absente du depot source - meme si elle
+  // existe ailleurs, ex: Depot E - ne doit jamais creer un negatif complet
+  // a partir de rien). Verifie AVANT toute ecriture (aucune transaction ici,
+  // donc rien ne doit etre ecrit tant que ce n'est pas confirme).
+  const matieresSansStock: string[] = [];
+  for (const articleId of plastiqueIds) {
+    const recetteLignes = lignesParArticle.get(articleId) ?? [];
+    for (const ligne of recetteLignes) {
+      const lots = await fetchLotsInDepot("MP", ligne.article_matiere_id, depotSourceId);
+      if (totalAvailable(lots) <= 0) {
+        const matiere = articleById.get(ligne.article_matiere_id);
+        const nom = matiere?.nom_article ?? `Article #${ligne.article_matiere_id}`;
+        if (!matieresSansStock.includes(nom)) matieresSansStock.push(nom);
+      }
+    }
+  }
+  if (matieresSansStock.length > 0) {
+    throw new Error(
+      `Impossible d'enregistrer - aucun stock du tout dans le depot source pour : ${matieresSansStock.join(", ")}.`
+    );
   }
 
   const prixAutoByArticleId = new Map<number, number>();
