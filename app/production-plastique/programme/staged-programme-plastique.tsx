@@ -117,10 +117,14 @@ export function StagedProgrammePlastique({
 
     startTransition(async () => {
       try {
-        await saveProgrammePlastiqueAction(formData);
+        const result = await saveProgrammePlastiqueAction(formData);
+        if (!result.ok) {
+          setErrorMessage(result.message || "Erreur pendant l'enregistrement.");
+          return;
+        }
         setRows([]);
         setMessage(
-          `Programme enregistre : stock entre dans ${depotSourceLabel} puis transfere vers ${depotDestinationLabel}.`
+          `Programme enregistre : stock entre dans ${depotSourceLabel}. Un Transfer Order (TO) vers ${depotDestinationLabel} a ete cree en attente - va le valider (TO) puis faire le TI depuis Depots.`
         );
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");

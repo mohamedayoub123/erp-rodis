@@ -9,8 +9,7 @@ import {
   DEPOT_PLASTIQUE_SOURCE_DEFAULT,
   type RecettePlastiqueLigne,
 } from "./shared";
-import { createTransferOrder, approveTransferOrder, postTransferOrderToInvoice } from "@/app/depots/transfer-order/actions";
-import { validateInvoiceOrder } from "@/app/depots/invoice-order/actions";
+import { createTransferOrder } from "@/app/depots/transfer-order/actions";
 import { fetchLotsInDepot, allocateFefo, totalAvailable } from "@/app/depots/transfer-order/stock-lots";
 
 async function requireWriteAccess() {
@@ -255,13 +254,21 @@ async function consommerIngredientsDepotSource(
 // optionnel) en une seule action : 1) entre le stock dans le depot source
 // (prix auto depuis la recette, comme Entree MP - ces articles sont
 // fabriques en interne, jamais achetes) 2) cree un Transfer Order vers le
-// depot destination et l'approuve/poste/valide immediatement (demande
-// explicite : "si je fais save ca part directement", le stock doit deja
-// etre dans le depot destination a la fin, pas juste "en attente"). Verifie
-// uniquement la permission "productionPlastique" - jamais "depots" - pour
-// que cette action reste utilisable par qui gere le plastique sans lui
-// donner acces au module Depots entier.
-export async function saveProgrammePlastiqueAction(formData: FormData) {
+// depot destination, statut "en attente" (demande explicite : le programme
+// cree SEULEMENT le TO - l'utilisateur l'approuve lui-meme puis fait le TI
+// lui-meme depuis les pages Depots normales, plus d'auto-approbation/poste/
+// validation ici). Verifie uniquement la permission "productionPlastique" -
+// jamais "depots" - pour que cette action reste utilisable par qui gere le
+// plastique sans lui donner acces au module Depots entier.
+// Retourne {ok,message} au lieu de "throw" pour toute erreur attendue -
+// Next.js efface le .message d'une Error jetee depuis une Server Action en
+// production, meme catchee cote client (voir DeleteGroupButton pour le
+// meme correctif applique aux suppressions) : sans ce correctif l'utilisateur
+// ne voit qu'un message generique "An error occurred..." et jamais la vraie
+// raison (ex: "aucun stock du tout pour tel article").
+export async function saveProgrammePlastiqueAction(
+  formData: FormData
+): Promise<{ ok: boolean; message?: string; transferOrderId?: number }> {
   const currentUser = await requireWriteAccess();
 
   const depotSourceId = Number(formData.get("depot_source_id") || "0") || DEPOT_PLASTIQUE_SOURCE_DEFAULT;
@@ -270,14 +277,14 @@ export async function saveProgrammePlastiqueAction(formData: FormData) {
 
   const rawPayload = String(formData.get("payload") || "").trim();
   if (!rawPayload) {
-    throw new Error("Aucune ligne a enregistrer.");
+    return { ok: false, message: "Aucune ligne a enregistrer." };
   }
 
   let rows: PendingProgrammePlastiqueRow[] = [];
   try {
     rows = JSON.parse(rawPayload) as PendingProgrammePlastiqueRow[];
   } catch {
-    throw new Error("Le contenu du programme est invalide.");
+    return { ok: false, message: "Le contenu du programme est invalide." };
   }
 
   const lignes = rows
@@ -289,8 +296,10 @@ export async function saveProgrammePlastiqueAction(formData: FormData) {
     .filter((row) => row.articleId > 0 && row.quantite > 0);
 
   if (lignes.length === 0) {
-    throw new Error("Ajoute au moins un article avec une quantite.");
+    return { ok: false, message: "Ajoute au moins un article avec une quantite." };
   }
+
+  try {
 
   const articleIds = [...new Set(lignes.map((l) => l.articleId))];
   const { data: articlesData } = await supabaseServer
@@ -350,9 +359,10 @@ export async function saveProgrammePlastiqueAction(formData: FormData) {
     }
   }
   if (matieresSansStock.length > 0) {
-    throw new Error(
-      `Impossible d'enregistrer - aucun stock du tout dans le depot source pour : ${matieresSansStock.join(", ")}.`
-    );
+    return {
+      ok: false,
+      message: `Impossible d'enregistrer - aucun stock du tout dans le depot source pour : ${matieresSansStock.join(", ")}.`,
+    };
   }
 
   const prixAutoByArticleId = new Map<number, number>();
@@ -434,14 +444,16 @@ export async function saveProgrammePlastiqueAction(formData: FormData) {
     lignes: lignes.map((ligne) => ({ articleType: "MP" as const, articleId: ligne.articleId, quantiteDemandee: ligne.quantite })),
   });
 
-  await approveTransferOrder(transferOrderId);
-  const invoiceOrderId = await postTransferOrderToInvoice(transferOrderId, currentUser);
-  await validateInvoiceOrder(invoiceOrderId, currentUser);
-
   revalidatePath("/production-plastique/programme");
   revalidatePath("/stock/matiere-premiere/stock");
   revalidatePath("/mouvements/matiere-premiere");
   revalidatePath("/depots/transfer-order");
 
   return { ok: true, transferOrderId };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Erreur pendant l'enregistrement du programme.",
+    };
+  }
 }
