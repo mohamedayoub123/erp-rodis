@@ -6,11 +6,15 @@ import { matchesArticleSearch } from "@/lib/article-search";
 
 export type CoutReelArticleRow = {
   articleId: number;
+  code: string;
   nomArticle: string;
   quantite: number;
   coutTotal: number;
   venteTotale: number | null;
   marge: number | null;
+  // Sert uniquement au tri cote serveur (meme organisation que la page
+  // Articles Produit Fini) - jamais affiche directement ici.
+  _gamme?: string | null;
 };
 
 function formatFcfa(value: number | null) {
@@ -26,7 +30,10 @@ export function CoutReelTable({ rows }: { rows: CoutReelArticleRow[] }) {
   const router = useRouter();
 
   const filteredRows = useMemo(
-    () => rows.filter((row) => matchesArticleSearch(row.nomArticle, query)),
+    () =>
+      rows.filter(
+        (row) => matchesArticleSearch(row.nomArticle, query) || matchesArticleSearch(row.code, query)
+      ),
     [rows, query]
   );
 
@@ -68,7 +75,10 @@ export function CoutReelTable({ rows }: { rows: CoutReelArticleRow[] }) {
                     onClick={() => router.push(`/production/rapport/cout-reel/${row.articleId}`)}
                     className="cursor-pointer border-t border-slate-100 transition hover:bg-sky-50/60"
                   >
-                    <td className="px-6 py-3 font-semibold text-slate-900">{row.nomArticle}</td>
+                    <td className="px-6 py-3 font-semibold text-slate-900">
+                      {row.code !== "-" ? `${row.code} - ` : ""}
+                      {row.nomArticle}
+                    </td>
                     <td className="px-6 py-3 text-slate-600">{row.quantite.toLocaleString("fr-FR")}</td>
                     <td className="px-6 py-3 text-slate-600">{formatFcfa(row.coutTotal)}</td>
                     <td className="px-6 py-3 text-slate-600">{formatFcfa(row.venteTotale)}</td>

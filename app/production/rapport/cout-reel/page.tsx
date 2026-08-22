@@ -5,6 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { fetchQuantitesProduitesParArticleSurPeriode, type CoutReelPeriode } from "@/lib/cout-production-reel";
 import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
+import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
 import { CoutReelTable, type CoutReelArticleRow } from "./cout-reel-table";
 
 function currentMonthRange() {
@@ -44,10 +45,21 @@ export default async function CoutReelListePage() {
   const articleIds = [...quantitesParArticle.keys()];
 
   const { data: articlesData } = articleIds.length
-    ? await supabaseServer.from("articles").select("id, nom_article, nature, prix_vente").in("id", articleIds)
+    ? await supabaseServer
+        .from("articles")
+        .select("id, nom_article, nature, prix_vente, gamme, code_manu, code_auto")
+        .in("id", articleIds)
     : { data: [] };
   const articlesFinis = (
-    (articlesData ?? []) as { id: number; nom_article: string; nature: string | null; prix_vente: number | null }[]
+    (articlesData ?? []) as {
+      id: number;
+      nom_article: string;
+      nature: string | null;
+      prix_vente: number | null;
+      gamme: string | null;
+      code_manu: string | null;
+      code_auto: string | null;
+    }[]
   ).filter((a) => a.nature !== "vrac");
 
   const couts = await fetchCoutsParCartonProduitsFinis(
@@ -63,14 +75,34 @@ export default async function CoutReelListePage() {
     const marge = venteTotale !== null ? venteTotale - coutTotal : null;
     return {
       articleId: article.id,
+      code: article.code_manu || article.code_auto || "-",
       nomArticle: article.nom_article,
       quantite,
       coutTotal: Math.round(coutTotal),
       venteTotale: venteTotale !== null ? Math.round(venteTotale) : null,
       marge: marge !== null ? Math.round(marge) : null,
+      _gamme: article.gamme,
     };
   });
-  rows.sort((a, b) => a.nomArticle.localeCompare(b.nomArticle, "fr", { sensitivity: "base" }));
+
+  // Meme organisation que la page Articles Produit Fini : familles (White
+  // Secret en premier), puis a l'interieur d'une famille l'ordre par type
+  // d'article (Lait, Creme, DSR, Huile, Serum, Savon...), puis par
+  // contenance decroissante, puis alphabetique.
+  rows.sort((a, b) => {
+    const rankA = familyRank(a._gamme);
+    const rankB = familyRank(b._gamme);
+    if (rankA !== rankB) return rankA - rankB;
+
+    const typeRankA = articleTypeRank(a.nomArticle);
+    const typeRankB = articleTypeRank(b.nomArticle);
+    if (typeRankA !== typeRankB) return typeRankA - typeRankB;
+
+    const contenanceDiff = articleContenanceFromName(b.nomArticle) - articleContenanceFromName(a.nomArticle);
+    if (contenanceDiff !== 0) return contenanceDiff;
+
+    return a.nomArticle.localeCompare(b.nomArticle, "fr", { sensitivity: "base" });
+  });
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
