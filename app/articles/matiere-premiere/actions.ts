@@ -135,6 +135,8 @@ export async function updateArticleMpAction(formData: FormData) {
   const utilisation = String(formData.get("utilisation") || "").trim();
   const minStock = parseOptionalNumber(formData, "min_stock");
   const maxStock = parseOptionalNumber(formData, "max_stock");
+  const depotIdRaw = String(formData.get("depot_id") || "").trim();
+  const depotId = depotIdRaw ? Number(depotIdRaw) : null;
 
   if (!articleId || !nomArticle) {
     throw new Error("Article invalide.");
@@ -165,6 +167,7 @@ export async function updateArticleMpAction(formData: FormData) {
       utilisation: utilisation || null,
       min_stock: minStock,
       max_stock: maxStock,
+      depot_id: depotId,
     })
     .eq("id", articleId);
 

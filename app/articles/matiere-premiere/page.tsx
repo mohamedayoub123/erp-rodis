@@ -34,10 +34,11 @@ type ArticleMpRow = {
   utilisation: string | null;
   min_stock: number | null;
   max_stock: number | null;
+  depot_id: number | null;
 };
 
 const ARTICLES_MP_COLUMNS =
-  "id, nom_article, categorie, unite, gamme, gamme_statistique, utilisation, min_stock, max_stock";
+  "id, nom_article, categorie, unite, gamme, gamme_statistique, utilisation, min_stock, max_stock, depot_id";
 
 // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le .range()
 // demande - la table (~2200 lignes) a donc toujours besoin de plusieurs
@@ -102,7 +103,15 @@ export default async function ArticlesMatierePremierePage({
   const from = (currentPage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const { rows: allArticles, error: fetchError } = await fetchAllArticlesMp();
+  const [{ rows: allArticles, error: fetchError }, depotsResult] = await Promise.all([
+    fetchAllArticlesMp(),
+    supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
+  ]);
+  const depots = ((depotsResult.data ?? []) as { id: number; nom: string }[]).map((d) => ({
+    id: d.id,
+    label: d.nom,
+  }));
+  const depotNomById = new Map(depots.map((d) => [d.id, d.label]));
 
   const qLower = q.toLowerCase();
   const categorieLower = categorie.toLowerCase();
@@ -209,6 +218,7 @@ export default async function ArticlesMatierePremierePage({
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Utilisation</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock min</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock max</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Depot</th>
                       {canEditArticles ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Modifier</th> : null}
                       {canDeleteArticles ? (
                         <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Supprimer</th>
@@ -226,6 +236,9 @@ export default async function ArticlesMatierePremierePage({
                         <td className="px-6 py-4 text-slate-600">{article.utilisation || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.min_stock ?? "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.max_stock ?? "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {article.depot_id ? depotNomById.get(article.depot_id) ?? `Depot #${article.depot_id}` : "-"}
+                        </td>
                         {canEditArticles ? (
                           <td className="px-6 py-4">
                             <details className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -295,6 +308,18 @@ export default async function ArticlesMatierePremierePage({
                                     className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                                   />
                                 </div>
+                                <select
+                                  name="depot_id"
+                                  defaultValue={article.depot_id ? String(article.depot_id) : ""}
+                                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                                >
+                                  <option value="">Sans depot</option>
+                                  {depots.map((depot) => (
+                                    <option key={depot.id} value={depot.id}>
+                                      {depot.label}
+                                    </option>
+                                  ))}
+                                </select>
 
                                 <div>
                                   <SubmitButton
