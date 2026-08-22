@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchCoutsReelsMpDepotB } from "@/lib/prix-revient";
-import { COMPTE_PERTES_STOCK, COMPTE_STOCK_MP, creerEcriture } from "@/lib/comptabilite";
+import { COMPTE_PERTES_STOCK, COMPTE_STOCK_MP, creerEcriture, supprimerEcriturePourSource } from "@/lib/comptabilite";
 import {
   CATEGORIES_PLASTIQUE,
   computeCoutPlastiqueParPiece,
@@ -29,6 +29,15 @@ async function deleteMpDetailLineAndRedirectIfEmpty(lotId: number) {
   if (error) {
     throw new Error(error.message);
   }
+
+  // Sans ca, l'ecriture "Achat MP" (601000/401000) de ce lot restait dans le
+  // Journal apres suppression de sa source - meme bug deja corrige pour
+  // Stock PF (voir lib/lot-stock-delete.ts) et Commandes. mp_achat/
+  // mp_stock_entree sont toujours indexees par l'id du lot lui-meme
+  // (jamais un mouvement_groupe_id) - pas besoin de verifier source_import,
+  // supprimer une source_id qui n'a jamais eu d'ecriture ne fait juste rien.
+  await supprimerEcriturePourSource("mp_achat", String(lotId));
+  await supprimerEcriturePourSource("mp_stock_entree", String(lotId));
 
   revalidateMouvementsMpPages();
 
@@ -383,10 +392,23 @@ export async function deleteMouvementMpGroupAction(formData: FormData) {
     throw new Error("Mouvement invalide.");
   }
 
+  const { data: lignesAvant } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .select("id")
+    .eq("mouvement_groupe_id", groupeId);
+
   const { error } = await supabaseServer.rpc("stock_mp_delete_lot_group", { p_groupe_id: groupeId });
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  // Meme correctif que deleteMpDetailLineAndRedirectIfEmpty - un mouvement
+  // groupe peut contenir plusieurs lots, chacun avec sa propre ecriture
+  // Achat MP (indexee par son propre id de lot, pas par mouvement_groupe_id).
+  for (const ligne of (lignesAvant ?? []) as { id: number }[]) {
+    await supprimerEcriturePourSource("mp_achat", String(ligne.id));
+    await supprimerEcriturePourSource("mp_stock_entree", String(ligne.id));
   }
 
   revalidateMouvementsMpPages();
