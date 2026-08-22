@@ -183,6 +183,30 @@ async function consommerRemainingMpReserve(
   }
 }
 
+// A la difference de consommerRemainingMpReserve (sortie de stock reelle),
+// celle-ci libere simplement la reservation SANS toucher au stock reel -
+// utilisee pour la Salle de conditionnement maintenant que chaque fournee
+// carton deduit deja sa part au fil de l'eau (voir consommerCartonProportionnel,
+// suivi-production/actions.ts) : ce qui reste encore "reserve" a "Fin
+// Programme" n'a jamais ete physiquement pris (production arretee en
+// cours de route, ou jamais commencee) - il redevient simplement
+// disponible au Depot B au lieu d'etre sorti du stock pour rien.
+async function releaseRemainingMpReserve(ligneId: number, code: string, stage: "pesage" | "salle_conditionnement") {
+  const found = await fetchReservesRestantes(ligneId, code, stage);
+  if (!found || found.reserves.length === 0) return;
+
+  const { error } = await supabaseServer
+    .from("production_mp_reserve")
+    .update({ quantite: 0 })
+    .in(
+      "id",
+      found.reserves.map((r) => r.id)
+    );
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 export async function markVracTermineAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
@@ -199,14 +223,13 @@ export async function markVracTermineAction(formData: FormData) {
 // ne ferme plus Conditionnement/Emballage (et inversement) - chaque etape a
 // son propre flag "termine".
 export async function markCartonTermineAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();
 
   await markCodeTermine(formData, "carton");
 
   if (ligneId && code) {
-    await consommerRemainingMpReserve(ligneId, code, currentUser, "salle_conditionnement");
+    await releaseRemainingMpReserve(ligneId, code, "salle_conditionnement");
   }
 }
 
@@ -314,6 +337,7 @@ export async function fetchBesoinArticleInfoAction(articleMpId: number, depotId:
 // Redirige vers le Dashboard apres coup pour que la ligne validee
 // disparaisse immediatement.
 export async function validerBatchAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
   const besoinStage = String(formData.get("stage") || "") === "carton" ? "carton" : "vrac";
   const storedStage: CodeTermineStage = besoinStage === "carton" ? "salle_conditionnement" : "pesage";
 
@@ -414,18 +438,49 @@ export async function validerBatchAction(formData: FormData) {
   const codeTermineId = await markCodeTermine(formData, storedStage);
 
   if (reservations.length > 0 && depotBId) {
+    // Salle de pesage : une fois pesee, la MP est physiquement sortie de
+    // l'entrepot tout de suite (emmenee vers la cuve) - pas seulement
+    // "reservee" jusqu'a un eventuel Fin Programme plus tard, qui peut ne
+    // jamais arriver. quantite est donc ecrite a 0 des l'insertion (deja
+    // sortie reellement, voir l'insert lots_stock_matiere_premiere
+    // ci-dessous) ; quantite_initiale garde la trace de ce qui a ete pese.
+    // Salle de conditionnement reste purement une reservation ici (voir
+    // consommerRemainingMpReserve/releaseRemainingMpReserve a Fin
+    // Programme) : la MP n'est physiquement consommee que si elle sert
+    // vraiment, sinon elle redevient disponible.
+    const quantiteReservee = storedStage === "pesage" ? 0 : undefined;
+
     const { error: reserveError } = await supabaseServer.from("production_mp_reserve").insert(
       reservations.map((r) => ({
         production_code_termine_id: codeTermineId,
         article_mp_id: r.articleMpId,
         depot_id: depotBId,
-        quantite: r.quantite,
+        quantite: quantiteReservee ?? r.quantite,
         quantite_initiale: r.quantite,
         numero_lot: r.numeroLot,
       }))
     );
     if (reserveError) {
       throw new Error(reserveError.message);
+    }
+
+    if (storedStage === "pesage") {
+      const dateJour = new Date().toISOString().slice(0, 10);
+      const { error: sortieError } = await supabaseServer.from("lots_stock_matiere_premiere").insert(
+        reservations.map((r) => ({
+          article_id: r.articleMpId,
+          numero_lot: r.numeroLot,
+          qte_entree: 0,
+          qte_sortie: r.quantite,
+          depot_id: depotBId,
+          date_jour: dateJour,
+          utilisateur: currentUser,
+          note: "Consommation production (pesage)",
+        }))
+      );
+      if (sortieError) {
+        throw new Error(sortieError.message);
+      }
     }
   }
 
@@ -438,14 +493,13 @@ export async function validerBatchAction(formData: FormData) {
 // bloquee sans jamais sortir du stock reel - consommerRemainingMpReserve
 // ne fait rien si elle a deja ete traitee (quantite deja a 0).
 export async function markEmballageTermineAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();
 
   await markCodeTermine(formData, "emballage");
 
   if (ligneId && code) {
-    await consommerRemainingMpReserve(ligneId, code, currentUser, "salle_conditionnement");
+    await releaseRemainingMpReserve(ligneId, code, "salle_conditionnement");
   }
 }
 
@@ -569,7 +623,7 @@ export async function renameLotCodeAction(formData: FormData) {
 
   const { data: ligneData, error: ligneError } = await supabaseServer
     .from("programme_lignes")
-    .select("id, numero_lot, numero_lot_detail")
+    .select("id, numero_lot, numero_lot_detail, groupe_id")
     .eq("id", ligneId)
     .maybeSingle();
 
@@ -581,6 +635,7 @@ export async function renameLotCodeAction(formData: FormData) {
     id: number;
     numero_lot: string | null;
     numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
+    groupe_id: number | null;
   };
 
   const codes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
@@ -630,6 +685,18 @@ export async function renameLotCodeAction(formData: FormData) {
       .update({ code: newCode })
       .eq("programme_ligne_id", ligneId)
       .eq("code", oldCode),
+    // Sans ca, le PD (PD1, PD2...) associe a ce code disparaissait apres un
+    // renommage - buildPdLabelByCode (suivi/data.ts) retrouve le PD via
+    // programme_dispatcher_history.code, jamais mise a jour ici avant (bug
+    // remonte par l'utilisateur : "si je change le code il faut pas que tu
+    // enleve le PD").
+    ligne.groupe_id
+      ? supabaseServer
+          .from("programme_dispatcher_history")
+          .update({ code: newCode })
+          .eq("groupe_id", ligne.groupe_id)
+          .eq("code", oldCode)
+      : Promise.resolve({ error: null }),
   ]);
 
   revalidateSuiviPages();

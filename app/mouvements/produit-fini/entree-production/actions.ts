@@ -3,8 +3,129 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
-import { COMPTE_EN_COURS_PRODUCTION, COMPTE_STOCK_PRODUIT_FINI, creerEcriture } from "@/lib/comptabilite";
+import { fetchCoutReelDepuisReservation, fetchCoutsParCartonProduitsFinis, type LotUtiliseInfo } from "@/lib/prix-revient";
+import {
+  COMPTE_EN_COURS_PRODUCTION,
+  COMPTE_STOCK_PRODUIT_FINI,
+  creerEcriture,
+  enregistrerLotsUtilisesPourEcriture,
+  supprimerEcriturePourSource,
+} from "@/lib/comptabilite";
+
+// Recalcule (efface + recree si un cout est trouve) l'ecriture comptable
+// "entree_production" d'un (groupeId, article) precis, a partir de ce qui
+// est REELLEMENT dans lots_stock pour ce groupe - jamais depuis des
+// valeurs de formulaire, pour pouvoir etre rappelee hors de l'action de
+// transfert (voir lib/ecriture-recompute.ts, quand le prix d'un lot MP
+// deja utilise ici est corrige apres coup).
+export async function recalculerEcritureEntreeProduction(
+  groupeId: number,
+  articleId: number,
+  currentUser: string | null,
+  options?: { requireTrace?: boolean }
+): Promise<void> {
+  const sourceId = `${groupeId}-${articleId}`;
+  await supprimerEcriturePourSource("entree_production", sourceId);
+
+  const { data: lotsData } = await supabaseServer
+    .from("lots_stock")
+    .select("qte_entree, numero_lot")
+    .eq("mouvement_groupe_id", groupeId)
+    .eq("article_id", articleId);
+  const lots = (lotsData as { qte_entree: number; numero_lot: string | null }[] | null) ?? [];
+  if (lots.length === 0) return;
+
+  const quantite = lots.reduce((sum, l) => sum + Number(l.qte_entree ?? 0), 0);
+  if (quantite <= 0) return;
+  const lotsLabels = [...new Set(lots.map((l) => l.numero_lot).filter(Boolean))].join(", ");
+
+  const { data: articleData } = await supabaseServer
+    .from("articles")
+    .select("nom_article")
+    .eq("id", articleId)
+    .maybeSingle();
+  const nomArticle = (articleData as { nom_article: string } | null)?.nom_article ?? `#${articleId}`;
+
+  // Prefere le cout REEL des lots effectivement reserves/consommes pour ce
+  // code (emballage en salle de conditionnement + vrac fabrique en salle de
+  // pesage) - meme principe que recalculerEcritureFabricationVrac : trace
+  // exacte via production_mp_reserve, jamais une estimation FEFO recalculee
+  // sur le stock actuel, des que cette trace existe pour TOUS les codes de
+  // ce groupe. Le "code" ici est celui tape a l'ecran Entree Production
+  // (lots_stock.numero_lot), le meme code de dispatch que
+  // production_code_termine dans le cas normal (non renomme depuis).
+  const codesUtilises = [...new Set(lots.map((l) => l.numero_lot).filter(Boolean))] as string[];
+  let coutReelTotal = 0;
+  let lotsReelUtilises: LotUtiliseInfo[] = [];
+  let coutReelDisponible = codesUtilises.length > 0;
+
+  for (const code of codesUtilises) {
+    const { data: termineData } = await supabaseServer
+      .from("production_code_termine")
+      .select("id, programme_ligne_id")
+      .eq("code", code)
+      .eq("stage", "salle_conditionnement")
+      .maybeSingle();
+    const termine = termineData as { id: number; programme_ligne_id: number } | null;
+    if (!termine) {
+      coutReelDisponible = false;
+      break;
+    }
+
+    const [coutConditionnement, pesageTermineData] = await Promise.all([
+      fetchCoutReelDepuisReservation(termine.id),
+      supabaseServer
+        .from("production_code_termine")
+        .select("id")
+        .eq("programme_ligne_id", termine.programme_ligne_id)
+        .eq("code", code)
+        .eq("stage", "pesage")
+        .maybeSingle(),
+    ]);
+    const pesage = (pesageTermineData.data as { id: number } | null) ?? null;
+    const coutVrac = pesage ? await fetchCoutReelDepuisReservation(pesage.id) : null;
+
+    if (!coutConditionnement && !coutVrac) {
+      coutReelDisponible = false;
+      break;
+    }
+
+    coutReelTotal += (coutConditionnement?.coutFcfa ?? 0) + (coutVrac?.coutFcfa ?? 0);
+    lotsReelUtilises = lotsReelUtilises.concat(coutConditionnement?.lotsUtilises ?? [], coutVrac?.lotsUtilises ?? []);
+  }
+
+  let montant: number;
+  let lotsAEnregistrer: LotUtiliseInfo[];
+  if (coutReelDisponible && lotsReelUtilises.length > 0) {
+    montant = coutReelTotal;
+    lotsAEnregistrer = lotsReelUtilises;
+  } else {
+    // Aucune reservation tracee pour un des codes (systeme trop ancien) : le
+    // mode strict (rattrapage historique) refuse d'inventer un cout
+    // approximatif plutot que d'estimer via FEFO sur le stock actuel.
+    if (options?.requireTrace) return;
+    const couts = await fetchCoutsParCartonProduitsFinis([articleId], new Map([[articleId, quantite]]));
+    const coutInfo = couts.get(articleId);
+    if (!coutInfo || coutInfo.coutParCarton === null) return;
+    montant = coutInfo.coutParCarton * quantite;
+    lotsAEnregistrer = coutInfo.lotsUtilises;
+  }
+  if (montant <= 0) return;
+
+  const ecritureId = await creerEcriture({
+    dateEcriture: new Date().toISOString().slice(0, 10),
+    pieceReference: String(groupeId),
+    libelle: `Entree production - ${nomArticle}${lotsLabels ? ` - ${lotsLabels}` : ""}`,
+    sourceType: "entree_production",
+    sourceId,
+    createdBy: currentUser,
+    lignes: [
+      { compteCode: COMPTE_STOCK_PRODUIT_FINI, debit: montant, credit: 0 },
+      { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: 0, credit: montant },
+    ],
+  });
+  await enregistrerLotsUtilisesPourEcriture(ecritureId, lotsAEnregistrer);
+}
 
 // Cree une entree stock produit fini a partir d'un groupe d'entrees
 // emballage (Suivi Production) qui partagent toutes la meme date - meme
@@ -233,53 +354,13 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
   }
 
   // Ecriture comptable automatique (Produit fini/En-cours de production),
-  // une par article de ce lot - jamais generee si le cout de revient n'est
-  // pas connu (jamais un montant devine). Try/catch qui n'interrompt pas la
-  // validation du mouvement de stock si la comptabilite echoue.
+  // une par article de ce lot. Try/catch qui n'interrompt pas la validation
+  // du mouvement de stock si la comptabilite echoue.
   try {
     const toutesLignes = [...payload, ...extraPayload];
-    const quantiteParArticle = new Map<number, number>();
-    const lotsParArticle = new Map<number, Set<string>>();
-    for (const ligne of toutesLignes) {
-      quantiteParArticle.set(ligne.article_id, (quantiteParArticle.get(ligne.article_id) ?? 0) + ligne.qte_entree);
-      const lots = lotsParArticle.get(ligne.article_id) ?? new Set<string>();
-      if (ligne.numero_lot) lots.add(ligne.numero_lot);
-      lotsParArticle.set(ligne.article_id, lots);
-    }
-
-    const articleIds = [...quantiteParArticle.keys()];
-    const [couts, { data: articlesData }] = await Promise.all([
-      fetchCoutsParCartonProduitsFinis(articleIds, quantiteParArticle),
-      supabaseServer.from("articles").select("id, nom_article").in("id", articleIds),
-    ]);
-    const nomArticleById = new Map(
-      ((articlesData ?? []) as { id: number; nom_article: string }[]).map((a) => [a.id, a.nom_article])
-    );
-    const dateEcriture = new Date().toISOString().slice(0, 10);
-
-    for (const [articleId, quantite] of quantiteParArticle) {
-      const coutInfo = couts.get(articleId);
-      // lignesSansPrix.length === 0 obligatoire (pas seulement coutParCarton
-      // non-nul) : un article ENTIEREMENT sans prix connu a Depot B donne
-      // coutTotal=0 donc coutParCarton=0/qte=0, qui passerait a tort le
-      // garde-fou coutParCarton!==null et creerait une ecriture 0/0.
-      if (!coutInfo || coutInfo.coutParCarton === null || coutInfo.lignesSansPrix.length > 0) continue;
-
-      const montant = coutInfo.coutParCarton * quantite;
-      const nomArticle = nomArticleById.get(articleId) ?? `#${articleId}`;
-      const lots = [...(lotsParArticle.get(articleId) ?? [])].join(", ");
-      await creerEcriture({
-        dateEcriture,
-        pieceReference: String(groupeId),
-        libelle: `Entree production - ${nomArticle}${lots ? ` - ${lots}` : ""}`,
-        sourceType: "entree_production",
-        sourceId: `${groupeId}-${articleId}`,
-        createdBy: currentUser,
-        lignes: [
-          { compteCode: COMPTE_STOCK_PRODUIT_FINI, debit: montant, credit: 0 },
-          { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: 0, credit: montant },
-        ],
-      });
+    const articleIds = [...new Set(toutesLignes.map((l) => l.article_id))];
+    for (const articleId of articleIds) {
+      await recalculerEcritureEntreeProduction(groupeId, articleId, currentUser);
     }
   } catch (comptaError) {
     console.error("Ecriture comptable entree production echouee:", comptaError);

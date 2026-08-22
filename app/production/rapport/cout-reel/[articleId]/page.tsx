@@ -5,7 +5,8 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canVoirPrixUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { computeCoutReelArticle } from "@/lib/cout-production-reel";
+import { computeCoutReelArticle, type LigneIncertaine } from "@/lib/cout-production-reel";
+import { MonthPicker } from "./month-picker";
 import { fetchAllVracEntries, fetchAllCartonEntries } from "@/app/production/suivi/data";
 
 const MOIS_NOMS = [
@@ -18,15 +19,24 @@ function monthLabel(monthKey: string) {
   return `${MOIS_NOMS[(month || 1) - 1]} ${year}`;
 }
 
-function currentMonthRange() {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1);
-  return { fromIso: from.toISOString().slice(0, 10), toIso: now.toISOString().slice(0, 10) };
-}
-
 function formatFcfa(value: number | null) {
   if (value === null) return "-";
   return `${value.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`;
+}
+
+// Beaucoup de lots partagent exactement le meme motif (ex: "Prix electricite
+// non renseigne pour ce mois") - une ligne par lot rendait la liste illisible
+// des qu'un mois entier manquait une seule donnee de reference (14+ lots
+// identiques). Regroupe par motif identique, plutot qu'une ligne chacun.
+function groupLignesIncertaines(lignes: LigneIncertaine[]): { motif: string; codes: string[] }[] {
+  const byMotif = new Map<string, string[]>();
+  for (const ligne of lignes) {
+    const motif = ligne.motifs.join(" ");
+    const codes = byMotif.get(motif) ?? [];
+    if (ligne.code) codes.push(ligne.code);
+    byMotif.set(motif, codes);
+  }
+  return [...byMotif.entries()].map(([motif, codes]) => ({ motif, codes }));
 }
 
 async function fetchProgrammeLigneIds(articleId: number): Promise<number[]> {
@@ -51,7 +61,7 @@ async function fetchProgrammeLigneIds(articleId: number): Promise<number[]> {
   return ids;
 }
 
-type SearchParams = Promise<{ date_from?: string; date_to?: string; months?: string | string[] }>;
+type SearchParams = Promise<{ date_from?: string; date_to?: string; months?: string | string[]; code?: string }>;
 
 export default async function CoutReelArticlePage({
   params,
@@ -85,19 +95,22 @@ export default async function CoutReelArticlePage({
   const sp = await searchParams;
   const monthsParam = sp.months;
   const selectedMonths = Array.isArray(monthsParam) ? monthsParam : monthsParam ? [monthsParam] : [];
-  const hasAnyFilter = Boolean(sp.date_from || sp.date_to || selectedMonths.length > 0);
-  const defaultRange = currentMonthRange();
-  const dateFrom = (sp.date_from || (hasAnyFilter ? "" : defaultRange.fromIso)).trim();
-  const dateTo = (sp.date_to || (hasAnyFilter ? "" : defaultRange.toIso)).trim();
+  // Sans filtre explicite : tout l'historique (jamais restreint au mois en
+  // cours par defaut) - demande explicite, voir un lot deja fabrique ne
+  // devrait jamais dependre d'avoir pense a cocher le bon mois.
+  const dateFrom = (sp.date_from || "").trim();
+  const dateTo = (sp.date_to || "").trim();
 
   const ligneIds = await fetchProgrammeLigneIds(articleIdNumber);
   const entriesAll = nature === "vrac" ? await fetchAllVracEntries(ligneIds) : await fetchAllCartonEntries(ligneIds);
   const availableMonths = [...new Set(entriesAll.map((e) => e.date_jour.slice(0, 7)))].sort();
+  const availableCodes = [...new Set(entriesAll.map((e) => e.code))].sort();
+  const selectedCode = (sp.code || "").trim();
 
   const periode =
     selectedMonths.length > 0
-      ? { months: selectedMonths }
-      : { dateFrom: dateFrom || undefined, dateTo: dateTo || undefined };
+      ? { months: selectedMonths, code: selectedCode || undefined }
+      : { dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, code: selectedCode || undefined };
 
   const result = canVoirPrix ? await computeCoutReelArticle(articleIdNumber, periode) : null;
 
@@ -121,7 +134,7 @@ export default async function CoutReelArticlePage({
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-4">
               <label className="grid gap-1 text-xs font-semibold text-slate-500">
                 Du
                 <input
@@ -140,6 +153,22 @@ export default async function CoutReelArticlePage({
                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                 />
               </label>
+              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                Lot / code (optionnel)
+                <input
+                  type="text"
+                  name="code"
+                  list="codes-disponibles"
+                  defaultValue={selectedCode}
+                  placeholder="Tous les lots"
+                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                />
+                <datalist id="codes-disponibles">
+                  {availableCodes.map((code) => (
+                    <option key={code} value={code} />
+                  ))}
+                </datalist>
+              </label>
               <div className="flex items-end gap-3">
                 <button type="submit" className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
                   Filtrer
@@ -154,28 +183,7 @@ export default async function CoutReelArticlePage({
             </div>
 
             {availableMonths.length > 0 ? (
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
-                  Ou choisis un ou plusieurs mois (remplace Du/Au)
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  {availableMonths.map((month) => (
-                    <label
-                      key={month}
-                      className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-700"
-                    >
-                      <input
-                        type="checkbox"
-                        name="months"
-                        value={month}
-                        defaultChecked={selectedMonths.includes(month)}
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
-                      {monthLabel(month)}
-                    </label>
-                  ))}
-                </div>
-              </div>
+              <MonthPicker availableMonths={availableMonths} selectedMonths={selectedMonths} />
             ) : (
               <p className="text-sm text-slate-500">Aucune production reelle enregistree pour cet article.</p>
             )}
@@ -226,6 +234,12 @@ export default async function CoutReelArticlePage({
                   <p className="text-xs font-semibold text-slate-500">Cout journaliers</p>
                   <p className="mt-1 text-xl font-black text-slate-900">{formatFcfa(result.coutJournaliers)}</p>
                 </div>
+                {result.nature === "fini" ? (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">Charge generale (usine, par jour/carton)</p>
+                    <p className="mt-1 text-xl font-black text-slate-900">{formatFcfa(result.coutChargeGenerale)}</p>
+                  </div>
+                ) : null}
                 <div>
                   <p className="text-xs font-semibold text-slate-500">Cout total</p>
                   <p className="mt-1 text-xl font-black text-slate-900">{formatFcfa(result.coutTotal)}</p>
@@ -258,6 +272,46 @@ export default async function CoutReelArticlePage({
                       : "-"}
                   </p>
                 </div>
+                {result.nature === "fini" ? (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">Prix de vente par gramme</p>
+                    <p className="mt-1 text-xl font-black text-slate-900">
+                      {result.prixVenteParGramme !== null
+                        ? `${result.prixVenteParGramme.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} FCFA`
+                        : "-"}
+                    </p>
+                  </div>
+                ) : null}
+                {result.nature === "fini" ? (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">Marge par gramme</p>
+                    <p
+                      className={`mt-1 text-xl font-black ${
+                        result.margeParGramme !== null && result.margeParGramme < 0
+                          ? "text-red-600"
+                          : "text-emerald-700"
+                      }`}
+                    >
+                      {result.margeParGramme !== null
+                        ? `${result.margeParGramme.toLocaleString("fr-FR", { maximumFractionDigits: 2, signDisplay: "always" })} FCFA`
+                        : "-"}
+                    </p>
+                  </div>
+                ) : null}
+                {result.nature === "fini" ? (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">
+                      {result.margeTotale !== null && result.margeTotale < 0 ? "Perte totale" : "Gain total"}
+                    </p>
+                    <p
+                      className={`mt-1 text-xl font-black ${
+                        result.margeTotale !== null && result.margeTotale < 0 ? "text-red-600" : "text-emerald-700"
+                      }`}
+                    >
+                      {result.margeTotale !== null ? formatFcfa(Math.abs(result.margeTotale)) : "-"}
+                    </p>
+                  </div>
+                ) : null}
               </div>
 
               {result.lignesIncertaines.length > 0 ? (
@@ -267,10 +321,15 @@ export default async function CoutReelArticlePage({
                     {result.lignesIncertaines.length > 1 ? "s" : ""} - cout partiel, incomplet :
                   </p>
                   <ul className="ml-4 list-disc space-y-1">
-                    {result.lignesIncertaines.map((l, index) => (
+                    {groupLignesIncertaines(result.lignesIncertaines).map((groupe, index) => (
                       <li key={index}>
-                        {l.code ? <span className="font-semibold">Lot {l.code} : </span> : null}
-                        {l.motifs.join(" ")}
+                        {groupe.codes.length > 0 ? (
+                          <span className="font-semibold">
+                            Lot{groupe.codes.length > 1 ? "s" : ""} {groupe.codes.join(", ")}
+                            {groupe.codes.length > 1 ? ` (${groupe.codes.length})` : ""} :{" "}
+                          </span>
+                        ) : null}
+                        {groupe.motif}
                       </li>
                     ))}
                   </ul>
@@ -291,6 +350,12 @@ export default async function CoutReelArticlePage({
                         Quantite ({result.uniteQuantite === "kg" ? "kg" : "cartons"})
                       </th>
                       <th className="px-6 py-3 font-semibold">Cout</th>
+                      {result.nature === "fini" ? (
+                        <>
+                          <th className="px-6 py-3 font-semibold">Vente</th>
+                          <th className="px-6 py-3 font-semibold">Marge</th>
+                        </>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -299,6 +364,18 @@ export default async function CoutReelArticlePage({
                         <td className="px-6 py-3 font-medium text-slate-900">{monthLabel(row.mois)}</td>
                         <td className="px-6 py-3 text-slate-600">{row.quantite.toLocaleString("fr-FR")}</td>
                         <td className="px-6 py-3 text-slate-600">{formatFcfa(row.coutTotal)}</td>
+                        {result.nature === "fini" ? (
+                          <>
+                            <td className="px-6 py-3 text-slate-600">{formatFcfa(row.vente)}</td>
+                            <td
+                              className={`px-6 py-3 font-semibold ${
+                                row.marge !== null && row.marge < 0 ? "text-red-600" : "text-emerald-700"
+                              }`}
+                            >
+                              {formatFcfa(row.marge)}
+                            </td>
+                          </>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>

@@ -206,6 +206,57 @@ export async function fetchLotsInDepot(
     });
 }
 
+// Meme regroupement par lot que fetchLotsInDepot, mais TOUS depots
+// confondus (jamais filtre sur un depot_id precis) - utilise UNIQUEMENT pour
+// chiffrer un cout (lib/prix-revient.ts), jamais pour une vraie disponibilite
+// physique (TO/TI restent sur fetchLotsInDepot, un depot precis). Demande
+// explicite : le prix d'un lot MP compte des qu'il est connu, peu importe
+// dans quel depot il se trouve aujourd'hui - un ancien filtrage "seulement
+// Depot B" (la ou la production consomme reellement) empechait de chiffrer
+// des lots pourtant deja recus mais pas encore transferes. Pas de deduction
+// des reservations TO/TI (une reservation ne change pas le prix d'un lot).
+export async function fetchLotsAllDepots(articleType: ArticleType, articleId: number): Promise<DepotLot[]> {
+  const table = stockTableFor(articleType);
+  const dateField = articleType === "MP" ? "date_expiration" : "date_fabrication";
+  const prixFields = articleType === "MP" ? ", prix_unitaire, devise, taux_change, n_doss_erp, n_doss_4d" : "";
+
+  const rows = await fetchAllRows<{ numero_lot: string | null; qte_entree: number; qte_sortie: number; [key: string]: unknown }>(
+    table,
+    `numero_lot, qte_entree, qte_sortie, ${dateField}${prixFields}`,
+    articleId
+  );
+
+  const byLot = new Map<string, DepotLot>();
+  for (const row of rows) {
+    const key = row.numero_lot || "";
+    const existing = byLot.get(key) ?? { numeroLot: key, solde: 0, dateTri: null, prixUnitaireFcfa: null, nDossErp: null, nDoss4d: null };
+    existing.solde += Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
+    const dateVal = (row[dateField] as string | null) ?? null;
+    if (dateVal && !existing.dateTri) existing.dateTri = dateVal;
+
+    if (existing.prixUnitaireFcfa === null && Number(row.qte_entree ?? 0) > 0 && row.prix_unitaire != null) {
+      existing.prixUnitaireFcfa = convertirEnFcfa(
+        row.prix_unitaire as number,
+        (row.devise as string | null) ?? null,
+        (row.taux_change as number | null) ?? null
+      );
+      existing.nDossErp = (row.n_doss_erp as string | null) ?? null;
+      existing.nDoss4d = (row.n_doss_4d as string | null) ?? null;
+    }
+
+    byLot.set(key, existing);
+  }
+
+  return [...byLot.values()]
+    .filter((lot) => lot.solde > 1e-6)
+    .sort((a, b) => {
+      if (a.dateTri && b.dateTri) return a.dateTri.localeCompare(b.dateTri);
+      if (a.dateTri) return -1;
+      if (b.dateTri) return 1;
+      return a.numeroLot.localeCompare(b.numeroLot, "fr", { sensitivity: "base" });
+    });
+}
+
 export function totalAvailable(lots: { solde: number }[]) {
   return lots.reduce((sum, lot) => sum + lot.solde, 0);
 }

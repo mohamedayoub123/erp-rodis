@@ -16,20 +16,49 @@ async function fetchDepots(): Promise<{ rows: DepotRow[]; error: { message: stri
   return { rows: (data ?? []) as DepotRow[], error: null };
 }
 
+// PostgREST plafonne chaque requete a ~1000 lignes quel que soit le nombre
+// demande - sans cette boucle, un depot avec plus de 1000 articles rattaches
+// (ou une table source de plus de 1000 lignes au total, meme reparties sur
+// plusieurs depots) voyait son compte tronque a 1000 pile, fige (bug
+// remonte par l'utilisateur : Depot E affichait exactement 1000, jamais a
+// jour).
+async function fetchAllDepotIds(table: "articles" | "articles_matiere_premiere"): Promise<number[]> {
+  const ids: number[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from(table)
+      .select("depot_id")
+      .not("depot_id", "is", null)
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as { depot_id: number }[];
+    ids.push(...chunk.map((row) => row.depot_id));
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return ids;
+}
+
 // Nombre d'articles distincts par depot - compte directement le champ
 // depot_id sur articles/articles_matiere_premiere (le modele courant, voir
 // lib/depot-stock.ts), pas un ancien journal de mouvements.
 async function fetchArticleCountByDepot(): Promise<Map<number, number>> {
   const map = new Map<number, number>();
 
-  const [{ data: pfData }, { data: mpData }] = await Promise.all([
-    supabaseServer.from("articles").select("depot_id").not("depot_id", "is", null),
-    supabaseServer.from("articles_matiere_premiere").select("depot_id").not("depot_id", "is", null),
+  const [pfDepotIds, mpDepotIds] = await Promise.all([
+    fetchAllDepotIds("articles"),
+    fetchAllDepotIds("articles_matiere_premiere"),
   ]);
 
-  const rows = ((pfData ?? []) as { depot_id: number }[]).concat((mpData ?? []) as { depot_id: number }[]);
-  for (const row of rows) {
-    map.set(row.depot_id, (map.get(row.depot_id) ?? 0) + 1);
+  for (const depotId of [...pfDepotIds, ...mpDepotIds]) {
+    map.set(depotId, (map.get(depotId) ?? 0) + 1);
   }
 
   return map;

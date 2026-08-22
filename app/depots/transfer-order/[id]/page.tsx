@@ -318,6 +318,7 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
             articlesPf={articlesPf}
             updateAction={updateAllLigneLotsAction}
             canEditLignes={canEditLots}
+            depotSourceNom={depotNomById.get(transferOrder.depot_source_id) ?? "au depot source"}
           />
         )}
       </div>

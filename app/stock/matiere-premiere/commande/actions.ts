@@ -15,6 +15,7 @@ import {
   resoudreOuCreerFournisseur,
   supprimerEcriturePourSource,
 } from "@/lib/comptabilite";
+import { recalculerEcrituresDependantes } from "@/lib/ecriture-recompute";
 
 // Sources d'ecritures comptables generees par une Reception (voir plus bas,
 // createReceptionMpAction) - reprises ici pour effacer les ecritures liees
@@ -138,26 +139,27 @@ export async function updateLotPrixAction(formData: FormData) {
     await supprimerEcriturePourSource("mp_achat", String(lotId));
     await supprimerEcriturePourSource("mp_stock_entree", String(lotId));
 
-    if (prixUnitaire !== null && prixUnitaire > 0) {
-      const { data: lotData } = await supabaseServer
-        .from("lots_stock_matiere_premiere")
-        .select("article_id, qte_entree, fournisseur, date_reception, numero_lot")
-        .eq("id", lotId)
-        .maybeSingle();
-      const lot = lotData as {
-        article_id: number;
-        qte_entree: number;
-        fournisseur: string | null;
-        date_reception: string | null;
-        numero_lot: string;
-      } | null;
+    const { data: lotData } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .select("article_id, qte_entree, fournisseur, date_reception, numero_lot")
+      .eq("id", lotId)
+      .maybeSingle();
+    const lot = lotData as {
+      article_id: number;
+      qte_entree: number;
+      fournisseur: string | null;
+      date_reception: string | null;
+      numero_lot: string;
+    } | null;
 
-      if (lot) {
+    if (lot) {
+      const currentUser = await getCurrentStockUser();
+
+      if (prixUnitaire !== null && prixUnitaire > 0) {
         const prixUnitaireFcfa = convertirEnFcfa(prixUnitaire, devise, tauxChange);
         const montant = prixUnitaireFcfa !== null ? prixUnitaireFcfa * Number(lot.qte_entree) : null;
 
         if (montant !== null && montant > 0) {
-          const currentUser = await getCurrentStockUser();
           await resoudreOuCreerFournisseur(lot.fournisseur || "");
           const libelleFournisseur = lot.fournisseur || "Fournisseur non precise";
           const dateEcriture = lot.date_reception || new Date().toISOString().slice(0, 10);
@@ -188,6 +190,15 @@ export async function updateLotPrixAction(formData: FormData) {
             ],
           });
         }
+      }
+
+      // Recalcule en cascade tout ce qui a deja ete chiffre en utilisant ce
+      // lot (Fabrication, Entree production, Cout de vente) - sans ca, une
+      // correction de prix ne se voyait que sur les 2 ecritures directes
+      // ci-dessus, jamais sur ce qui avait deja consomme ce lot (demande
+      // explicite de l'utilisateur).
+      if (lot.numero_lot) {
+        await recalculerEcrituresDependantes(lot.article_id, lot.numero_lot, currentUser);
       }
     }
   } catch (comptaError) {
@@ -292,11 +303,15 @@ export async function createReceptionMpAction(formData: FormData) {
 
   const { data: articleRow } = await supabaseServer
     .from("articles_matiere_premiere")
-    .select("unite")
+    .select("unite, depot_id")
     .eq("id", articleId)
     .maybeSingle();
 
-  const unite = (articleRow as { unite: string | null } | null)?.unite ?? null;
+  const unite = (articleRow as { unite: string | null; depot_id: number | null } | null)?.unite ?? null;
+  // Sans depot, la reception est invisible dans les colonnes "Disponible
+  // Depot" (Verifier Stock, TO/TI) et le filtre Depot de Stock MP - meme si
+  // la quantite existe bien en base.
+  const depotId = (articleRow as { unite: string | null; depot_id: number | null } | null)?.depot_id ?? null;
 
   const fournisseur = parseOptionalText(formData, "fournisseur");
 
@@ -428,6 +443,7 @@ export async function createReceptionMpAction(formData: FormData) {
         devise,
         taux_change: devise !== "FCFA" ? tauxChange : null,
         unite,
+        depot_id: depotId,
         fournisseur,
         n_doss_erp: nDossErpImport,
         n_doss_4d: nDoss4dImport,
@@ -506,48 +522,81 @@ export async function createReceptionMpAction(formData: FormData) {
   }
 
   // Ecritures comptables automatiques (Achat/Fournisseur + Stock MP/Variation
-  // de stock) - jamais generees si le prix n'est pas connu (jamais un
-  // montant devine). Volontairement dans un try/catch qui n'interrompt pas
-  // la reception : la comptabilite est secondaire par rapport au vrai
-  // mouvement de stock, qui doit reussir meme si l'ecriture echoue.
-  const prixUnitaireFcfa = convertirEnFcfa(prixUnitaire, devise, tauxChange);
-  const montantFcfa = prixUnitaireFcfa !== null ? prixUnitaireFcfa * quantiteImportee : null;
-  if (montantFcfa !== null && montantFcfa > 0) {
-    try {
-      await resoudreOuCreerFournisseur(fournisseur || "");
-      const libelleFournisseur = fournisseur || "Fournisseur non precise";
-
-      await creerEcriture({
-        dateEcriture: dateReception,
-        pieceReference: numeroLot,
-        libelle: `Achat MP - ${numeroLot} - ${libelleFournisseur}`,
-        sourceType: "mp_achat",
-        sourceId: String(lotId),
-        createdBy: currentUser,
-        lignes: [
-          { compteCode: COMPTE_ACHAT_MP, debit: montantFcfa, credit: 0 },
-          { compteCode: COMPTE_FOURNISSEURS, debit: 0, credit: montantFcfa },
-        ],
-      });
-
-      await creerEcriture({
-        dateEcriture: dateReception,
-        pieceReference: numeroLot,
-        libelle: `Entree stock MP - ${numeroLot}`,
-        sourceType: "mp_stock_entree",
-        sourceId: String(lotId),
-        createdBy: currentUser,
-        lignes: [
-          { compteCode: COMPTE_STOCK_MP, debit: montantFcfa, credit: 0 },
-          { compteCode: COMPTE_VARIATION_STOCK_MP, debit: 0, credit: montantFcfa },
-        ],
-      });
-    } catch (comptaError) {
-      console.error("Ecriture comptable reception MP echouee:", comptaError);
-    }
+  // de stock) - volontairement dans un try/catch qui n'interrompt pas la
+  // reception : la comptabilite est secondaire par rapport au vrai mouvement
+  // de stock, qui doit reussir meme si l'ecriture echoue.
+  try {
+    await recalculerEcritureAchatMp(lotId, currentUser);
+  } catch (comptaError) {
+    console.error("Ecriture comptable reception MP echouee:", comptaError);
   }
 
   revalidateCommandeMpPages();
+}
+
+// Recalcule (efface + recree si un prix est connu) les 2 ecritures d'une
+// reception MP (Achat/Fournisseur + Stock MP/Variation de stock) a partir de
+// ce qui est REELLEMENT enregistre sur ce lot - jamais un montant devine si
+// le prix n'est pas connu. Rejouable a l'identique depuis la reception
+// elle-meme OU depuis le rattrapage historique (voir
+// app/comptabilite/backfill/actions.ts), qui a besoin exactement de la meme
+// logique pour les lots recus avant la mise en place de ce module.
+export async function recalculerEcritureAchatMp(lotId: number, currentUser: string | null): Promise<void> {
+  const { data: lotData } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .select("numero_lot, qte_entree, prix_unitaire, devise, taux_change, fournisseur, date_reception, date_jour")
+    .eq("id", lotId)
+    .maybeSingle();
+  const lot = lotData as
+    | {
+        numero_lot: string | null;
+        qte_entree: number;
+        prix_unitaire: number | null;
+        devise: string | null;
+        taux_change: number | null;
+        fournisseur: string | null;
+        date_reception: string | null;
+        date_jour: string | null;
+      }
+    | null;
+  if (!lot || !lot.numero_lot) return;
+
+  await supprimerEcriturePourSource("mp_achat", String(lotId));
+  await supprimerEcriturePourSource("mp_stock_entree", String(lotId));
+
+  const prixUnitaireFcfa = convertirEnFcfa(lot.prix_unitaire, lot.devise, lot.taux_change);
+  const montantFcfa = prixUnitaireFcfa !== null ? prixUnitaireFcfa * Number(lot.qte_entree ?? 0) : null;
+  if (montantFcfa === null || montantFcfa <= 0) return;
+
+  const dateEcriture = lot.date_reception || lot.date_jour || new Date().toISOString().slice(0, 10);
+  await resoudreOuCreerFournisseur(lot.fournisseur || "");
+  const libelleFournisseur = lot.fournisseur || "Fournisseur non precise";
+
+  await creerEcriture({
+    dateEcriture,
+    pieceReference: lot.numero_lot,
+    libelle: `Achat MP - ${lot.numero_lot} - ${libelleFournisseur}`,
+    sourceType: "mp_achat",
+    sourceId: String(lotId),
+    createdBy: currentUser,
+    lignes: [
+      { compteCode: COMPTE_ACHAT_MP, debit: montantFcfa, credit: 0 },
+      { compteCode: COMPTE_FOURNISSEURS, debit: 0, credit: montantFcfa },
+    ],
+  });
+
+  await creerEcriture({
+    dateEcriture,
+    pieceReference: lot.numero_lot,
+    libelle: `Entree stock MP - ${lot.numero_lot}`,
+    sourceType: "mp_stock_entree",
+    sourceId: String(lotId),
+    createdBy: currentUser,
+    lignes: [
+      { compteCode: COMPTE_STOCK_MP, debit: montantFcfa, credit: 0 },
+      { compteCode: COMPTE_VARIATION_STOCK_MP, debit: 0, credit: montantFcfa },
+    ],
+  });
 }
 
 type ImportEvenementForCleanup = {

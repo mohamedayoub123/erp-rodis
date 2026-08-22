@@ -5,11 +5,12 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { resolveVracArticleId } from "@/lib/vrac-article";
-import { fetchCoutVracParKg } from "@/lib/prix-revient";
+import { fetchCoutReelDepuisReservation, fetchCoutVracParKg } from "@/lib/prix-revient";
 import {
   COMPTE_EN_COURS_PRODUCTION,
   COMPTE_STOCK_MP,
   creerEcriture,
+  enregistrerLotsUtilisesPourEcriture,
   supprimerEcriturePourSource,
 } from "@/lib/comptabilite";
 
@@ -28,6 +29,92 @@ function parseOptionalText(formData: FormData, name: string) {
 function revalidateRapportPages() {
   revalidatePath("/production/suivi-production");
   revalidatePath("/production/suivi/dashboard");
+}
+
+// Chaque fournee de carton reellement produite doit deduire sa PART de la
+// reservation MP tout de suite (pas seulement a "Fin Programme", qui peut
+// ne jamais arriver et laissait la reservation bloquee indefiniment - cas
+// reel confirme : Sleeve/Capsule/Flacon/Carton restes "reserves" pour
+// AA4263V malgre 313/313 cartons deja produits). Part proportionnelle a ce
+// que represente CETTE fournee sur le total prevu pour ce code (qtFabriquer
+// / cartonPrevu) - jamais plus que ce qui reste reellement reserve. Ce qui
+// n'est jamais produit (production arretee en cours de route) reste
+// reserve jusqu'a "Fin Programme", qui le LIBERE (redevient disponible
+// Depot B) plutot que de le consommer, puisque jamais physiquement pris.
+async function consommerCartonProportionnel(
+  ligneId: number,
+  code: string,
+  qtFabriquer: number,
+  currentUser: string | null
+) {
+  const { data: ligneData } = await supabaseServer
+    .from("programme_lignes")
+    .select("qt_carton, numero_lot_detail")
+    .eq("id", ligneId)
+    .maybeSingle();
+  const ligne = ligneData as
+    | { qt_carton: number | null; numero_lot_detail: { code: string; qt_carton: number | null }[] | null }
+    | null;
+  if (!ligne) return;
+
+  const detailMatch = (ligne.numero_lot_detail ?? []).find((d) => d.code === code);
+  const cartonPrevu = detailMatch?.qt_carton ?? ligne.qt_carton ?? null;
+  if (!cartonPrevu || cartonPrevu <= 0) return;
+
+  const { data: codeTermineData } = await supabaseServer
+    .from("production_code_termine")
+    .select("id")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", "salle_conditionnement")
+    .maybeSingle();
+  const codeTermine = codeTermineData as { id: number } | null;
+  if (!codeTermine) return;
+
+  const { data: reserveData } = await supabaseServer
+    .from("production_mp_reserve")
+    .select("id, article_mp_id, depot_id, quantite, quantite_initiale, numero_lot")
+    .eq("production_code_termine_id", codeTermine.id)
+    .gt("quantite", 0);
+  const reserves = (reserveData ?? []) as {
+    id: number;
+    article_mp_id: number;
+    depot_id: number;
+    quantite: number;
+    quantite_initiale: number;
+    numero_lot: string | null;
+  }[];
+  if (reserves.length === 0) return;
+
+  const ratio = Math.min(1, qtFabriquer / cartonPrevu);
+  const dateJour = new Date().toISOString().slice(0, 10);
+
+  for (const reserve of reserves) {
+    const aDeduire = Math.min(reserve.quantite, Math.round(reserve.quantite_initiale * ratio * 1000) / 1000);
+    if (aDeduire <= 1e-9) continue;
+
+    const { error: insertError } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
+      article_id: reserve.article_mp_id,
+      numero_lot: reserve.numero_lot,
+      qte_entree: 0,
+      qte_sortie: aDeduire,
+      depot_id: reserve.depot_id,
+      date_jour: dateJour,
+      utilisateur: currentUser,
+      note: "Consommation production",
+    });
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    const { error: updateError } = await supabaseServer
+      .from("production_mp_reserve")
+      .update({ quantite: reserve.quantite - aDeduire })
+      .eq("id", reserve.id);
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+  }
 }
 
 // La ligne appartient a un vrai programme dispatche (Programme MB OU
@@ -303,10 +390,15 @@ export async function deleteSuiviProductionRowAction(targets: {
     throw new Error("Rien a supprimer.");
   }
 
-  const deletions: PromiseLike<{ error: { message: string } | null }>[] = [];
+  const deletions: PromiseLike<{ error: { message: string } | null } | void>[] = [];
 
   if (fabricationId) {
     deletions.push(supabaseServer.from("production_vrac_entries").delete().eq("id", fabricationId));
+    // Sans ca, l'ecriture comptable "fabrication_vrac" de ce vrac restait
+    // dans le Journal apres suppression de sa source (bug remonte par
+    // l'utilisateur : "si j'efface il faut que le montant parte aussi").
+    // Meme sourceId que celui qui la cree (voir plus haut, ligne ~725).
+    deletions.push(supprimerEcriturePourSource("fabrication_vrac", `${ligneId}-${code}`));
   }
   if (conditionnementId) {
     deletions.push(supabaseServer.from("production_carton_entries").delete().eq("id", conditionnementId));
@@ -323,7 +415,7 @@ export async function deleteSuiviProductionRowAction(targets: {
   }
 
   const results = await Promise.all(deletions);
-  const failed = results.find((result) => result.error);
+  const failed = results.find((result) => result?.error);
 
   if (failed?.error) {
     throw new Error(failed.error.message);
@@ -441,7 +533,16 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   // 2e. Seul un doublon EXACT (meme quantite que la toute derniere saisie -
   // rouvrir la fiche et re-Enregistrer sans rien changer) est ignore ;
   // toute quantite differente s'ajoute normalement.
-  const [, dejaCompteIdentique] = await Promise.all([
+  // Chaine/zone figees au moment de CETTE fournee (voir insert plus bas) -
+  // bug reel corrige : avant lues depuis programme_lignes.chaine/zone (un
+  // seul champ partage par ligne), le selecteur Zone/Chaine de la page
+  // Conditionnement (updateLigneZoneChaineAction, modification immediate
+  // independante du Save) repeignait alors RETROACTIVEMENT la chaine de
+  // TOUTES les fournees deja saisies pour cette ligne des qu'on changeait la
+  // chaine pour la fournee suivante (cas reel : chaine 7 -> 2 -> 3, les 3
+  // fournees affichaient "chaine 3" a la fin).
+  const [{ data: ligneChaineData }, , dejaCompteIdentique] = await Promise.all([
+    supabaseServer.from("programme_lignes").select("chaine, zone").eq("id", ligneId).maybeSingle(),
     upsertRapport(ligneId, code, {
       date_fabrication_conditionnement: dateFabricationConditionnement,
       date_peremption: parseOptionalText(formData, "date_peremption"),
@@ -450,6 +551,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
       ? dernierEntreeQuantiteIdentique("production_carton_entries", ligneId, code, qtFabriquer)
       : Promise.resolve(false),
   ]);
+  const ligneChaine = ligneChaineData as { chaine: string | null; zone: string | null } | null;
 
   // Alimente le journal carton (meme principe que le Dashboard) pour que le
   // "reste" par rapport a la quantite prevue se recalcule tout seul.
@@ -467,6 +569,8 @@ export async function saveConditionnementRapportAction(formData: FormData) {
             code,
             quantite: qtFabriquer,
             ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
+            chaine: ligneChaine?.chaine ?? null,
+            zone: ligneChaine?.zone ?? null,
             chef_zone: parseOptionalText(formData, "chef_zone"),
             chef_ligne: parseOptionalText(formData, "chef_ligne"),
             ravitailleur: parseOptionalText(formData, "ravitailleur"),
@@ -504,8 +608,96 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     throw new Error(cartonInsert.error.message);
   }
 
+  if (qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique) {
+    await consommerCartonProportionnel(ligneId, code, qtFabriquer, currentUser);
+  }
+
   revalidateRapportPages();
   redirect("/production/suivi/dashboard");
+}
+
+// Recalcule (efface + recree si un cout est trouve) l'ecriture comptable
+// "fabrication_vrac" d'un code precis, a partir de l'etat ACTUELLEMENT
+// enregistre (production_rapports.vrac_fabrique) - jamais depuis des
+// valeurs de formulaire, pour pouvoir etre rappelee hors d'un Enregistrer
+// (voir lib/ecriture-recompute.ts, quand le prix d'un lot MP deja utilise
+// ici est corrige apres coup). Exportee pour ca ; appelee aussi directement
+// par saveFabricationRapportAction juste apres avoir enregistre le rapport.
+export async function recalculerEcritureFabricationVrac(
+  ligneId: number,
+  code: string,
+  currentUser: string | null,
+  options?: { requireTrace?: boolean }
+): Promise<void> {
+  const sourceId = `${ligneId}-${code}`;
+  await supprimerEcriturePourSource("fabrication_vrac", sourceId);
+
+  const { data: rapportData } = await supabaseServer
+    .from("production_rapports")
+    .select("vrac_fabrique, date_fabrication_conditionnement")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .maybeSingle();
+  const rapport = rapportData as
+    | { vrac_fabrique: number | null; date_fabrication_conditionnement: string | null }
+    | null;
+  const vracFabrique = rapport?.vrac_fabrique ?? null;
+  if (!vracFabrique || vracFabrique <= 0) return;
+
+  const { data: ligneData } = await supabaseServer
+    .from("programme_lignes")
+    .select("article_id")
+    .eq("id", ligneId)
+    .maybeSingle();
+  const articleId = (ligneData as { article_id: number | null } | null)?.article_id ?? null;
+  const vracArticleId = articleId ? await resolveVracArticleId(articleId) : null;
+  if (!vracArticleId) return;
+
+  // Prefere le cout REEL des lots effectivement reserves/consommes pour ce
+  // (ligneId, code) en salle de pesage (production_mp_reserve garde la trace
+  // exacte, meme si ces lots sont aujourd'hui epuises) - ne se rabat sur une
+  // estimation FEFO du stock actuel que si aucune reservation n'a jamais
+  // existe pour cette production (systeme trop ancien).
+  const { data: codeTermineData } = await supabaseServer
+    .from("production_code_termine")
+    .select("id")
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", "pesage")
+    .maybeSingle();
+  const codeTermine = codeTermineData as { id: number } | null;
+  const coutReel = codeTermine ? await fetchCoutReelDepuisReservation(codeTermine.id) : null;
+
+  let montant: number;
+  let lotsAEnregistrer;
+  if (coutReel && coutReel.lotsUtilises.length > 0) {
+    montant = coutReel.coutFcfa;
+    lotsAEnregistrer = coutReel.lotsUtilises;
+  } else {
+    // Aucune reservation tracee (systeme trop ancien) : le mode strict
+    // (utilise par le rattrapage historique) refuse d'inventer un cout
+    // approximatif plutot que d'estimer via FEFO sur le stock actuel.
+    if (options?.requireTrace) return;
+    const coutVrac = await fetchCoutVracParKg(vracArticleId, vracFabrique);
+    if (coutVrac.coutParKg === null) return;
+    montant = coutVrac.coutTotal;
+    lotsAEnregistrer = coutVrac.lotsUtilises;
+  }
+  if (montant <= 0) return;
+
+  const ecritureId = await creerEcriture({
+    dateEcriture: rapport?.date_fabrication_conditionnement || new Date().toISOString().slice(0, 10),
+    pieceReference: code,
+    libelle: `Fabrication - ${code}`,
+    sourceType: "fabrication_vrac",
+    sourceId,
+    createdBy: currentUser,
+    lignes: [
+      { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: montant, credit: 0 },
+      { compteCode: COMPTE_STOCK_MP, debit: 0, credit: montant },
+    ],
+  });
+  await enregistrerLotsUtilisesPourEcriture(ecritureId, lotsAEnregistrer);
 }
 
 export async function saveFabricationRapportAction(formData: FormData) {
@@ -627,45 +819,11 @@ export async function saveFabricationRapportAction(formData: FormData) {
 
   // Ecriture comptable automatique (En-cours de production/Stock MP) - meme
   // remplacement que production_vrac_entries (une Fabrication = un seul
-  // evenement, jamais un ajout), et jamais generee si le cout de la recette
-  // n'est pas connu (jamais un montant devine). Try/catch qui n'interrompt
-  // pas l'enregistrement du rapport si la comptabilite echoue.
+  // evenement, jamais un ajout). Try/catch qui n'interrompt pas
+  // l'enregistrement du rapport si la comptabilite echoue.
   if (vracFabrique && vracFabrique > 0) {
     try {
-      const sourceId = `${ligneId}-${code}`;
-      await supprimerEcriturePourSource("fabrication_vrac", sourceId);
-
-      const { data: ligneData } = await supabaseServer
-        .from("programme_lignes")
-        .select("article_id")
-        .eq("id", ligneId)
-        .maybeSingle();
-      const articleId = (ligneData as { article_id: number | null } | null)?.article_id ?? null;
-      const vracArticleId = articleId ? await resolveVracArticleId(articleId) : null;
-
-      if (vracArticleId) {
-        const coutVrac = await fetchCoutVracParKg(vracArticleId, vracFabrique);
-        // lignesSansPrix.length === 0 obligatoire : un cout partiel (certains
-        // MP de la recette sans prix connu a Depot B) ne doit jamais generer
-        // une ecriture, meme a un montant non-nul - sinon un article ENTIEREMENT
-        // sans prix donne coutTotal=0 mais coutParKg=0 (pas null, 0/qte=0),
-        // ce qui passait a tort le garde-fou et creait une ecriture 0/0.
-        if (coutVrac.coutParKg !== null && coutVrac.lignesSansPrix.length === 0) {
-          const montant = coutVrac.coutTotal;
-          await creerEcriture({
-            dateEcriture: dateFabricationConditionnement || new Date().toISOString().slice(0, 10),
-            pieceReference: code,
-            libelle: `Fabrication - ${code}`,
-            sourceType: "fabrication_vrac",
-            sourceId,
-            createdBy: currentUser,
-            lignes: [
-              { compteCode: COMPTE_EN_COURS_PRODUCTION, debit: montant, credit: 0 },
-              { compteCode: COMPTE_STOCK_MP, debit: 0, credit: montant },
-            ],
-          });
-        }
-      }
+      await recalculerEcritureFabricationVrac(ligneId, code, currentUser);
     } catch (comptaError) {
       console.error("Ecriture comptable fabrication echouee:", comptaError);
     }

@@ -51,6 +51,7 @@ export function TransferOrderLignesEditor({
   articlesPf,
   updateAction,
   canEditLignes,
+  depotSourceNom,
 }: {
   transferOrderId: number;
   lignes: LigneRow[];
@@ -59,10 +60,24 @@ export function TransferOrderLignesEditor({
   articlesPf: { id: number; label: string }[];
   updateAction: (formData: FormData) => void | Promise<void>;
   canEditLignes: boolean;
+  depotSourceNom: string;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [supprimees, setSupprimees] = useState<Set<number>>(new Set());
   const [articleChoisi, setArticleChoisi] = useState<Record<number, { type: ArticleType; id: number | null }>>({});
+  const quantiteInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // Remplit "Quantite a transferer" avec le disponible du lot choisi (jamais
+  // plus que la Demande) des qu'on choisit/change un lot - avant, choisir un
+  // lot ne touchait pas la quantite, restee a 0 par defaut : "Enregistrer"
+  // n'avait alors rien a transferer et la ligne repartait vide sans message
+  // d'erreur (bug remonte par l'utilisateur, cas reel Flacon Kinder/Capsule).
+  function remplirQuantiteAutomatique(rowKey: string, ligne: LigneRow, numeroLot: string) {
+    const input = quantiteInputRefs.current[rowKey];
+    if (!input) return;
+    const disponible = ligne.lotsDisponibles.find((disp) => disp.numeroLot === numeroLot)?.solde ?? 0;
+    input.value = String(Math.round(Math.min(disponible, ligne.quantite_demandee) * 1000) / 1000);
+  }
 
   function toggleSupprimer(ligneId: number) {
     setSupprimees((prev) => {
@@ -98,7 +113,7 @@ export function TransferOrderLignesEditor({
                 <th className="px-6 py-4 font-semibold">Article</th>
                 <th className="px-6 py-4 font-semibold">Demande</th>
                 <th className="px-6 py-4 font-semibold">Numero de lot</th>
-                <th className="px-6 py-4 font-semibold">Disponible au depot source</th>
+                <th className="px-6 py-4 font-semibold">Disponible {depotSourceNom}</th>
                 <th className="px-6 py-4 font-semibold">Quantite a transferer</th>
               </tr>
             </thead>
@@ -118,7 +133,23 @@ export function TransferOrderLignesEditor({
                       </td>
                       <td className="px-6 py-4 text-slate-600">{lot.numero_lot || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">
-                        {disponible === undefined ? "-" : disponible.toLocaleString("fr-FR")}
+                        {lot.numero_lot ? (
+                          disponible === undefined ? (
+                            "-"
+                          ) : (
+                            disponible.toLocaleString("fr-FR")
+                          )
+                        ) : ligne.lotsDisponibles.length > 0 ? (
+                          <div className="flex flex-col gap-0.5">
+                            {ligne.lotsDisponibles.map((disp) => (
+                              <span key={disp.numeroLot}>
+                                {disp.numeroLot || "(sans numero)"} : {disp.solde.toLocaleString("fr-FR")}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          "Aucun lot disponible"
+                        )}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{lot.quantite.toLocaleString("fr-FR")}</td>
                     </tr>
@@ -166,7 +197,7 @@ export function TransferOrderLignesEditor({
                 <th className="px-6 py-4 font-semibold">Article</th>
                 <th className="px-6 py-4 font-semibold">Demande</th>
                 <th className="px-6 py-4 font-semibold">Numero de lot</th>
-                <th className="px-6 py-4 font-semibold">Disponible</th>
+                <th className="px-6 py-4 font-semibold">Disponible {depotSourceNom}</th>
                 <th className="px-6 py-4 font-semibold">Quantite a transferer</th>
                 <th className="px-6 py-4 font-semibold">Supprimer</th>
               </tr>
@@ -247,6 +278,7 @@ export function TransferOrderLignesEditor({
                         defaultValue={lot.numero_lot ?? ""}
                         lots={ligne.lotsDisponibles}
                         disabled={estSupprimee}
+                        onChange={(numeroLot) => remplirQuantiteAutomatique(`${ligne.id}-${index}`, ligne, numeroLot)}
                       />
                     </td>
                     <td className="px-6 py-4 text-slate-600">
@@ -263,6 +295,9 @@ export function TransferOrderLignesEditor({
                         name="quantite"
                         defaultValue={lot.quantite ?? 0}
                         disabled={estSupprimee}
+                        ref={(el) => {
+                          quantiteInputRefs.current[`${ligne.id}-${index}`] = el;
+                        }}
                         className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
                       />
                     </td>

@@ -187,6 +187,9 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
           updateAction={updateInvoiceOrderLignesAction}
           validateAction={validateInvoiceOrderAction}
           deleteLigneAction={deleteInvoiceOrderLigneAction}
+          depotSourceNom={
+            (transferOrder ? depotNomById.get(transferOrder.depot_source_id) : null) ?? "au depot source"
+          }
         />
       </div>
     </main>

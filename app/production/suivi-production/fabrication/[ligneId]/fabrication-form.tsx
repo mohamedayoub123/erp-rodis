@@ -5,16 +5,9 @@ import { saveFabricationRapportAction } from "../../actions";
 import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { combineTempsJourMois, splitTempsJourMois } from "@/lib/suivi-tirage-time";
-
-const TYPE_FABRICATION_OPTIONS = [
-  "Automatique",
-  "Semi auto",
-  "Gel douche",
-  "Parfume",
-  "Huile/Serum",
-  "Savon",
-  "Talc",
-];
+import { LotSearchField } from "@/app/depots/transfer-order/lot-search-field";
+import { MachineSelectField } from "../../machine-select-field";
+import { TYPE_PRODUIT_OPTIONS } from "../../../machines/type-produit-options";
 
 const ARRET_CAUSES = [
   { field: "fabrication_arret_absence_air", label: "Absence d'air" },
@@ -125,10 +118,14 @@ export function FabricationForm({
   ligneId,
   code,
   rapport,
+  vracRecupereLots,
+  machines,
 }: {
   ligneId: number;
   code: string;
   rapport: RapportInfo | null;
+  vracRecupereLots: { numeroLot: string; solde: number }[];
+  machines: { nom: string; typeProduit: string[] }[];
 }) {
   const [cuvesPoids, setCuvesPoids] = useState({
     cuve_1_poids: rapport?.cuve_1_poids ?? "0",
@@ -136,6 +133,8 @@ export function FabricationForm({
     cuve_3_poids: rapport?.cuve_3_poids ?? "0",
     cuve_4_poids: rapport?.cuve_4_poids ?? "0",
   });
+
+  const [typeFabrication, setTypeFabrication] = useState(rapport?.type_fabrication || "");
 
   const vracTotal = useMemo(() => {
     const total = Object.values(cuvesPoids).reduce<number>((sum, value) => {
@@ -171,12 +170,11 @@ export function FabricationForm({
         <div className="grid gap-4 md:grid-cols-2">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Machine
-            <input
-              type="text"
+            <MachineSelectField
               name="machine"
               defaultValue={rapport?.machine || ""}
-              required
-              className={inputClass}
+              machines={machines}
+              onMachineChange={(typeProduit) => setTypeFabrication(typeProduit[0] || "")}
             />
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
@@ -193,12 +191,13 @@ export function FabricationForm({
             Type
             <select
               name="type_fabrication"
-              defaultValue={rapport?.type_fabrication || ""}
+              value={typeFabrication}
+              onChange={(event) => setTypeFabrication(event.target.value)}
               required
               className={inputClass}
             >
               <option value="">-</option>
-              {TYPE_FABRICATION_OPTIONS.map((option) => (
+              {TYPE_PRODUIT_OPTIONS.map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
@@ -401,12 +400,10 @@ export function FabricationForm({
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Code vrac recupere
-            <input
-              type="text"
+            <LotSearchField
               name="code_vrac_recupere"
               defaultValue={rapport?.code_vrac_recupere || ""}
-              required
-              className={inputClass}
+              lots={vracRecupereLots}
             />
           </label>
         </div>

@@ -33,6 +33,10 @@ async function resolveGroupeId(numeroProgramme: number): Promise<number | null> 
 // confirme_production=true sur programme_lignes (meme groupe_id) est ce qui
 // rend ce programme visible sur Dashboard/Calendrier Production - exactement
 // comme le Save de Ravitailleur par ligne le fait pour Programme par ligne.
+// Compare aussi contre le code ACTUEL de l'article (pas seulement entre les
+// pending) : sans ca, confirmer un vieux Dispatch en attente ecrasait une
+// correction manuelle faite entretemps sur "Code par article" avec un
+// numero de pending plus ancien/plus petit.
 async function applyPendingArticleCodeUpdates(groupeIds: number[]): Promise<void> {
   if (groupeIds.length === 0) return;
 
@@ -49,7 +53,22 @@ async function applyPendingArticleCodeUpdates(groupeIds: number[]): Promise<void
     (pendingRows as { article_id: number; code_manu: string | null; code_auto: string | null }[] | null) ?? [];
 
   if (rows.length > 0) {
+    const articleIds = [...new Set(rows.map((row) => row.article_id))];
+
+    const { data: currentArticleRows, error: currentFetchError } = await supabaseServer
+      .from("articles")
+      .select("id, code_manu, code_auto")
+      .in("id", articleIds);
+
+    if (currentFetchError) {
+      throw new Error(currentFetchError.message);
+    }
+
     const bestByArticleId = new Map<number, { code_manu: string | null; code_auto: string | null }>();
+
+    for (const row of (currentArticleRows as { id: number; code_manu: string | null; code_auto: string | null }[] | null) ?? []) {
+      bestByArticleId.set(row.id, { code_manu: row.code_manu, code_auto: row.code_auto });
+    }
 
     for (const row of rows) {
       const current = bestByArticleId.get(row.article_id) ?? { code_manu: null, code_auto: null };

@@ -151,18 +151,25 @@ export default async function ProgrammeVerifierStockPage({
   // compte de ce qui est deja reserve par un autre Transfer Order - meme
   // correctif que la version Programme par ligne de cette page (voir
   // app/historique-programme/[groupeId]/stock/page.tsx).
-  const { data: depotBData } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
+  const [{ data: depotBData }, { data: depotEData }] = await Promise.all([
+    supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle(),
+    supabaseServer.from("depots").select("id").ilike("nom", "Depot E").maybeSingle(),
+  ]);
   const depotBId = (depotBData as { id: number } | null)?.id ?? null;
+  const depotEId = (depotEData as { id: number } | null)?.id ?? null;
 
   const disponibleDepotBParMp = new Map<number, number>();
-  if (depotBId) {
-    await Promise.all(
-      mpIds.map(async (mpId) => {
-        const disponible = await fetchTotalStockInDepot("MP", mpId, depotBId);
-        disponibleDepotBParMp.set(mpId, disponible);
-      })
-    );
-  }
+  const disponibleDepotEParMp = new Map<number, number>();
+  await Promise.all(
+    mpIds.map(async (mpId) => {
+      if (depotBId) {
+        disponibleDepotBParMp.set(mpId, await fetchTotalStockInDepot("MP", mpId, depotBId));
+      }
+      if (depotEId) {
+        disponibleDepotEParMp.set(mpId, await fetchTotalStockInDepot("MP", mpId, depotEId));
+      }
+    })
+  );
 
   const rows = mpIds
     .map((mpId) => ({
@@ -172,6 +179,7 @@ export default async function ProgrammeVerifierStockPage({
       besoin: round(besoinParMp.get(mpId) ?? 0),
       stock: round(stockParMp.get(mpId) ?? 0),
       disponibleDepotB: depotBId ? round(disponibleDepotBParMp.get(mpId) ?? 0) : null,
+      disponibleDepotE: depotEId ? round(disponibleDepotEParMp.get(mpId) ?? 0) : null,
     }))
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 

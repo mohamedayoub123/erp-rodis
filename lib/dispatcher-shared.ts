@@ -59,6 +59,15 @@ export type DispatcherDraftRow = {
   batchKey: string;
 };
 
+// Toujours arrondi au carton SUPERIEUR (jamais de virgule) - un carton
+// entame compte comme un carton entier. Sans ce ceil, qt_carton (et
+// numero_lot_detail qui en decoule au Dispatch) restait fractionnaire
+// (ex: 312.5), alors que "Vrac a fabriquer" avait deja son propre calcul
+// arrondi (voir programme-table.tsx) : les 2 divergeaient, faisant croire
+// que le Dispatch/Verifier Stock "oubliait" le demi-carton en plus - le
+// Besoin de TOUS les articles de conditionnement (carton, sleeve, flacon,
+// capsule...) est derive de ce meme qt_carton, donc tous restaient
+// sous-values ensemble tant que celui-ci n'etait pas arrondi ici.
 export function computeQtCarton(
   vrac: number | null,
   contenance: number | null,
@@ -68,7 +77,7 @@ export function computeQtCarton(
   if (!contenance || contenance <= 0) return null;
   if (!piecePerCarton || piecePerCarton <= 0) return null;
 
-  return vrac / contenance / piecePerCarton;
+  return Math.ceil(vrac / contenance / piecePerCarton);
 }
 
 // Decoupe un vrac total en lots ne depassant jamais le max autorise pour

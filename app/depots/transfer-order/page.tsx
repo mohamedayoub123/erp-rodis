@@ -20,6 +20,8 @@ type TransferOrderRow = {
   created_at: string;
   numero: number | null;
   remarque: string | null;
+  type_mp: string | null;
+  cree_par: string | null;
 };
 type InvoiceOrderRow = { id: number; transfer_order_id: number; numero: number | null; date_jour: string };
 
@@ -103,7 +105,7 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
     fetchAll<DepotRow>("depots", "id, nom"),
     fetchAll<TransferOrderRow>(
       "transfer_orders",
-      "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, numero, remarque"
+      "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, numero, remarque, type_mp, cree_par"
     ),
     fetchAll<InvoiceOrderRow>("invoice_orders", "id, transfer_order_id, numero, date_jour"),
     fetchAll<{ id: number; nom_article: string }>("articles_matiere_premiere", "id, nom_article"),
@@ -302,6 +304,8 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
                     <th className="px-6 py-4 font-semibold">Date</th>
                     <th className="px-6 py-4 font-semibold">De</th>
                     <th className="px-6 py-4 font-semibold">Vers</th>
+                    <th className="px-6 py-4 font-semibold">Type</th>
+                    <th className="px-6 py-4 font-semibold">Cree par</th>
                     <th className="px-6 py-4 font-semibold">Statut</th>
                     <th className="px-6 py-4 font-semibold">Remarque</th>
                     {canDelete ? <th className="px-6 py-4 font-semibold"></th> : null}
@@ -318,6 +322,20 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
                       <td className="px-6 py-4 text-slate-600">{formatDate(row.date_jour)}</td>
                       <td className="px-6 py-4 text-slate-600">{depotNomById.get(row.depot_source_id) ?? "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{depotNomById.get(row.depot_destination_id) ?? "-"}</td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                            row.type_mp === "MP"
+                              ? "bg-violet-50 text-violet-700"
+                              : row.type_mp === "Conditionnement"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {row.type_mp === "MP" ? "Matiere premiere" : row.type_mp === "Conditionnement" ? "Conditionnement" : "Manuel"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{row.cree_par ?? "-"}</td>
                       <td className="px-6 py-4">
                         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
                           {STATUT_LABELS[row.statut] ?? row.statut}
