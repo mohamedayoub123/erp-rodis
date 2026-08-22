@@ -61,24 +61,30 @@ async function fetchHistoriquePlastique(codeFilter: string): Promise<ProgrammePl
 
   const articleIds = [...new Set(rows.map((r) => r.article_id))];
   const [{ data: articlesData }, { data: recettesData }] = await Promise.all([
-    supabaseServer.from("articles_matiere_premiere").select("id, nom_article").in("id", articleIds.length > 0 ? articleIds : [0]),
+    supabaseServer.from("articles_matiere_premiere").select("id, nom_article, poids_net").in("id", articleIds.length > 0 ? articleIds : [0]),
     supabaseServer
       .from("recettes_plastique")
-      .select("article_produit_id, article_matiere_id")
+      .select("article_produit_id, article_matiere_id, pourcentage")
       .in("article_produit_id", articleIds.length > 0 ? articleIds : [0]),
   ]);
   const nomById = new Map(
     ((articlesData ?? []) as { id: number; nom_article: string }[]).map((a) => [a.id, a.nom_article])
   );
+  const poidsNetById = new Map(
+    ((articlesData ?? []) as { id: number; poids_net: number | null }[]).map((a) => [a.id, a.poids_net])
+  );
   // Quelle(s) matiere(s) appartiennent a la recette de chaque article produit
-  // - sert a attribuer chaque ligne de consommation au BON produit du
-  // programme, plutot que de tout melanger ensemble quand un programme
-  // contient plusieurs articles sans code propre pour les distinguer.
-  const ingredientsParProduit = new Map<number, Set<number>>();
-  for (const r of (recettesData ?? []) as { article_produit_id: number; article_matiere_id: number }[]) {
-    const set = ingredientsParProduit.get(r.article_produit_id) ?? new Set<number>();
-    set.add(r.article_matiere_id);
-    ingredientsParProduit.set(r.article_produit_id, set);
+  // (avec le %) - sert a attribuer chaque ligne de consommation au BON
+  // produit du programme, plutot que de tout melanger ensemble quand un
+  // programme contient plusieurs articles sans code propre pour les
+  // distinguer. Utilise la recette ACTUELLE (pas d'historique de recette en
+  // base) - une recette modifiee APRES une production ne change jamais la
+  // consommation reelle deja enregistree, seulement cet affichage.
+  const recetteParProduit = new Map<number, { matiereId: number; pourcentage: number }[]>();
+  for (const r of (recettesData ?? []) as { article_produit_id: number; article_matiere_id: number; pourcentage: number }[]) {
+    const list = recetteParProduit.get(r.article_produit_id) ?? [];
+    list.push({ matiereId: r.article_matiere_id, pourcentage: r.pourcentage });
+    recetteParProduit.set(r.article_produit_id, list);
   }
 
   const batches: ProgrammePlastiqueBatch[] = [];
@@ -93,51 +99,78 @@ async function fetchHistoriquePlastique(codeFilter: string): Promise<ProgrammePl
     }
 
     const consommationRestantes = new Set(consommationRows);
-    const produits: ProduitDuProgramme[] = [];
+    const produits: ProduitDuProgramme[] = produitsRows.map((produitRow) => ({
+      articleId: produitRow.article_id,
+      nomArticle: nomById.get(produitRow.article_id) ?? `Article #${produitRow.article_id}`,
+      numeroLot: produitRow.numero_lot ?? "-",
+      quantite: Number(produitRow.qte_entree),
+      lignes: [] as LigneAffichee[],
+      coutTotal: 0,
+    }));
 
-    for (const produitRow of produitsRows) {
-      const ingredients = ingredientsParProduit.get(produitRow.article_id) ?? new Set<number>();
-      const lignesDuProduit: LigneAffichee[] = [];
+    // Attribue chaque ligne de consommation au produit dont la quantite
+    // ATTENDUE (poids_net x % recette x qte produite) est la plus proche de
+    // la quantite reellement sortie - jamais "premier produit qui matche
+    // gagne" (deux produits du meme programme peuvent partager la meme
+    // matiere premiere, ex: flacon ET capsule utilisant tous les deux de la
+    // resine - un simple "la recette la contient" les confondrait).
+    for (const row of consommationRows) {
+      if (!consommationRestantes.has(row)) continue;
 
-      for (const row of consommationRows) {
-        if (!ingredients.has(row.article_id) || !consommationRestantes.has(row)) continue;
-        consommationRestantes.delete(row);
+      const candidats = produits
+        .map((produit, index) => {
+          const ligneRecette = (recetteParProduit.get(produit.articleId) ?? []).find(
+            (l) => l.matiereId === row.article_id
+          );
+          if (!ligneRecette) return null;
+          const poidsNet = poidsNetById.get(produit.articleId) ?? null;
+          const attendue = poidsNet ? (poidsNet * (ligneRecette.pourcentage / 100) * produit.quantite) / 1000 : null;
+          return { index, attendue };
+        })
+        .filter((c): c is { index: number; attendue: number | null } => c !== null);
 
-        let prixUnitaireFcfa: number | null = null;
-        if (row.numero_lot) {
-          const { data: entreeRow } = await supabaseServer
-            .from("lots_stock_matiere_premiere")
-            .select("prix_unitaire")
-            .eq("article_id", row.article_id)
-            .eq("numero_lot", row.numero_lot)
-            .gt("qte_entree", 0)
-            .not("prix_unitaire", "is", null)
-            .limit(1)
-            .maybeSingle();
-          if (entreeRow?.prix_unitaire != null) {
-            prixUnitaireFcfa = Number(entreeRow.prix_unitaire);
+      if (candidats.length === 0) continue;
+
+      let meilleur = candidats[0];
+      if (candidats.length > 1) {
+        let meilleurEcart = Infinity;
+        for (const candidat of candidats) {
+          const ecart = candidat.attendue !== null ? Math.abs(candidat.attendue - Number(row.qte_sortie)) : Infinity;
+          if (ecart < meilleurEcart) {
+            meilleurEcart = ecart;
+            meilleur = candidat;
           }
         }
-
-        lignesDuProduit.push({
-          articleMpId: row.article_id,
-          nomArticle: nomById.get(row.article_id) ?? `Article #${row.article_id}`,
-          numeroLot: row.numero_lot ?? "-",
-          quantite: Number(row.qte_sortie),
-          prixUnitaireFcfa,
-          totalFcfa: prixUnitaireFcfa !== null ? Number(row.qte_sortie) * prixUnitaireFcfa : null,
-        });
       }
 
-      const coutTotalProduit = lignesDuProduit.reduce((sum, l) => sum + (l.totalFcfa ?? 0), 0);
-      produits.push({
-        articleId: produitRow.article_id,
-        nomArticle: nomById.get(produitRow.article_id) ?? `Article #${produitRow.article_id}`,
-        numeroLot: produitRow.numero_lot ?? "-",
-        quantite: Number(produitRow.qte_entree),
-        lignes: lignesDuProduit,
-        coutTotal: coutTotalProduit,
-      });
+      consommationRestantes.delete(row);
+
+      let prixUnitaireFcfa: number | null = null;
+      if (row.numero_lot) {
+        const { data: entreeRow } = await supabaseServer
+          .from("lots_stock_matiere_premiere")
+          .select("prix_unitaire")
+          .eq("article_id", row.article_id)
+          .eq("numero_lot", row.numero_lot)
+          .gt("qte_entree", 0)
+          .not("prix_unitaire", "is", null)
+          .limit(1)
+          .maybeSingle();
+        if (entreeRow?.prix_unitaire != null) {
+          prixUnitaireFcfa = Number(entreeRow.prix_unitaire);
+        }
+      }
+
+      const ligne: LigneAffichee = {
+        articleMpId: row.article_id,
+        nomArticle: nomById.get(row.article_id) ?? `Article #${row.article_id}`,
+        numeroLot: row.numero_lot ?? "-",
+        quantite: Number(row.qte_sortie),
+        prixUnitaireFcfa,
+        totalFcfa: prixUnitaireFcfa !== null ? Number(row.qte_sortie) * prixUnitaireFcfa : null,
+      };
+      produits[meilleur.index].lignes.push(ligne);
+      produits[meilleur.index].coutTotal += ligne.totalFcfa ?? 0;
     }
 
     // Reste (matiere consommee sans recette trouvee pour aucun produit du

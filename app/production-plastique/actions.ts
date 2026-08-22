@@ -371,7 +371,7 @@ export async function saveProgrammePlastiqueAction(
     const article = articleById.get(articleId);
     const recetteLignes = lignesParArticle.get(articleId) ?? [];
     const quantitePieces = quantiteTotaleParArticle.get(articleId) ?? 0;
-    const { coutTotal, lignesSansPrix, consommationLotIds: lotIds } = await consommerIngredientsDepotSource(
+    const { coutTotal, consommationLotIds: lotIds } = await consommerIngredientsDepotSource(
       article?.poids_net ?? null,
       quantitePieces,
       recetteLignes,
@@ -380,24 +380,26 @@ export async function saveProgrammePlastiqueAction(
       currentUser
     );
     consommationLotIds.push(...lotIds);
-    // lignesSansPrix.length > 0 = au moins une matiere sans prix connu dans
-    // le depot source (ou stock insuffisant) - jamais ecrire un prix partiel
-    // comme s'il etait complet.
-    if (lignesSansPrix.length === 0 && quantitePieces > 0) {
+    // Prix = ce qui EST connu (matieres avec prix reel), meme si une autre
+    // matiere de la meme recette n'a aucun prix - demande explicite : un prix
+    // partiel visible vaut mieux que "Prix inconnu" pour tout le lot quand
+    // une partie est reellement chiffrable. coutTotal ne compte deja QUE les
+    // matieres avec un prix reel (voir consommerIngredientsDepotSource).
+    if (quantitePieces > 0 && coutTotal > 0) {
       prixAutoByArticleId.set(articleId, coutTotal / quantitePieces);
     }
   }
 
-  const payload = lignes.map((ligne, index) => {
+  const payload = lignes.map((ligne) => {
     const article = articleById.get(ligne.articleId);
-    const numeroLot = ligne.numeroLot || `PROG.${dateJour.replace(/-/g, "")}.${index + 1}`;
+    const numeroLot = ligne.numeroLot || null;
 
     return {
       article_id: ligne.articleId,
       date_jour: dateJour,
       date_reception: dateJour,
       numero_lot: numeroLot,
-      code_normalise: numeroLot.toUpperCase(),
+      code_normalise: numeroLot ? numeroLot.toUpperCase() : null,
       qte_entree: ligne.quantite,
       qte_sortie: 0,
       unite: article?.unite ?? null,
