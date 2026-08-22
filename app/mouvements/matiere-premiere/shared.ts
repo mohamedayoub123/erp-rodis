@@ -71,18 +71,21 @@ const ENTREE_SOURCE = "web:entree-mp";
 const RECEPTION_SOURCE = "web:reception-mp";
 const SORTIE_SOURCE = "web:sortie-mp";
 const SORTIE_SOURCE_ADMIN = "web:sortie-mp-admin";
-const ENTREE_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE];
-const WEB_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE, SORTIE_SOURCE, SORTIE_SOURCE_ADMIN];
+const PROGRAMME_PLASTIQUE_SOURCE = "web:programme-plastique";
+const ENTREE_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE, PROGRAMME_PLASTIQUE_SOURCE];
+const WEB_SOURCES = [ENTREE_SOURCE, RECEPTION_SOURCE, SORTIE_SOURCE, SORTIE_SOURCE_ADMIN, PROGRAMME_PLASTIQUE_SOURCE];
 
 // Libelle affichable de la provenance d'une ligne - "Import" venu d'une
 // Reception depuis le detail d'un dossier Import, "Manuel" saisi
 // directement depuis Entrer/Sortie stock, "Manuel Admin" saisi depuis
-// Sortie Admin (bypasse le controle de stock disponible).
+// Sortie Admin (bypasse le controle de stock disponible), "Plastique" venu
+// du Programme Plastique (article fabrique en interne, jamais achete).
 export function mouvementMpSourceLabel(sourceImport: string | null) {
   if (sourceImport === RECEPTION_SOURCE) return "Import";
   if (sourceImport === ENTREE_SOURCE) return "Manuel";
   if (sourceImport === SORTIE_SOURCE) return "Manuel";
   if (sourceImport === SORTIE_SOURCE_ADMIN) return "Manuel Admin";
+  if (sourceImport === PROGRAMME_PLASTIQUE_SOURCE) return "Plastique";
   return "-";
 }
 

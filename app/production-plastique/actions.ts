@@ -208,8 +208,11 @@ export async function saveProgrammePlastiqueAction(formData: FormData) {
   for (const articleId of plastiqueIds) {
     const article = articleById.get(articleId);
     const recetteLignes = lignesParArticle.get(articleId) ?? [];
-    const { coutParPiece } = await computeCoutPlastiqueParPiece(article?.poids_net ?? null, recetteLignes);
-    if (coutParPiece !== null) {
+    const { coutParPiece, lignesSansPrix } = await computeCoutPlastiqueParPiece(article?.poids_net ?? null, recetteLignes);
+    // lignesSansPrix.length > 0 = au moins une matiere de la recette sans
+    // prix connu - le total tombe alors a 0 par simple somme, jamais un vrai
+    // "0 FCFA" - ecrire ce chiffre comme prix reel serait faux.
+    if (coutParPiece !== null && lignesSansPrix.length === 0) {
       prixAutoByArticleId.set(articleId, coutParPiece);
     }
   }

@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getCurrentStockUser } from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
+import { recalculerEcritureEntreeProduction } from "@/app/mouvements/produit-fini/entree-production/actions";
 
 export async function deleteLotStockCore(lotId: number) {
   if (!lotId) {
@@ -18,6 +19,23 @@ export async function deleteLotStockCore(lotId: number) {
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  // Sans ca, l'ecriture comptable "entree_production" de ce mouvement
+  // restait dans le Journal apres suppression de sa source (meme bug deja
+  // corrige pour Fabrication/Conditionnement - voir deleteSuiviProductionRowAction).
+  // Uniquement pour les lignes venues de ce flux precis (source_import) - un
+  // recalcul aveugle sur n'importe quel mouvement_groupe_id creerait a tort
+  // une ecriture "entree_production" pour un mouvement qui n'en a jamais eu.
+  const lot = lotAvantSuppression as
+    | { source_import: string | null; mouvement_groupe_id: number | null; article_id: number | null }
+    | null;
+  if (lot?.source_import === "web:entree-production" && lot.mouvement_groupe_id && lot.article_id) {
+    try {
+      await recalculerEcritureEntreeProduction(lot.mouvement_groupe_id, lot.article_id, await getCurrentStockUser());
+    } catch (comptaError) {
+      console.error("Recalcul ecriture entree production echoue:", comptaError);
+    }
   }
 
   const articleRelation = lotAvantSuppression?.articles as

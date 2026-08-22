@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteLotStockCore } from "@/lib/lot-stock-delete";
+import { recalculerEcritureEntreeProduction } from "@/app/mouvements/produit-fini/entree-production/actions";
 
 type PendingEntreeRow = {
   article_id: number;
@@ -241,10 +242,36 @@ export async function deleteMouvementGroupAction(formData: FormData) {
     throw new Error("Mouvement invalide.");
   }
 
+  const { data: lignesAvant } = await supabaseServer
+    .from("lots_stock")
+    .select("article_id, source_import")
+    .eq("mouvement_groupe_id", groupeId);
+
   const { error } = await supabaseServer.rpc("stock_delete_lot_group", { p_groupe_id: groupeId });
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  // Sans ca, l'ecriture comptable "entree_production" de ce mouvement
+  // restait dans le Journal apres suppression de sa source (voir
+  // deleteLotStockCore, meme correctif) - uniquement pour les articles dont
+  // au moins une ligne du groupe venait de ce flux precis.
+  const articlesEntreeProduction = [
+    ...new Set(
+      ((lignesAvant ?? []) as { article_id: number | null; source_import: string | null }[])
+        .filter((row) => row.source_import === "web:entree-production" && row.article_id)
+        .map((row) => row.article_id as number)
+    ),
+  ];
+  if (articlesEntreeProduction.length > 0) {
+    try {
+      for (const articleId of articlesEntreeProduction) {
+        await recalculerEcritureEntreeProduction(groupeId, articleId, currentUser);
+      }
+    } catch (comptaError) {
+      console.error("Recalcul ecriture entree production echoue:", comptaError);
+    }
   }
 
   revalidateMovementPages();

@@ -167,8 +167,13 @@ export async function createEntreeMpBatchAction(formData: FormData) {
     for (const info of articleInfos) {
       if (!articlesPlastiqueIds.includes(info.id)) continue;
       const lignes = lignesParArticle.get(info.id) ?? [];
-      const { coutParPiece } = await computeCoutPlastiqueParPiece(info.poids_net, lignes);
-      if (coutParPiece !== null) {
+      const { coutParPiece, lignesSansPrix } = await computeCoutPlastiqueParPiece(info.poids_net, lignes);
+      // lignesSansPrix.length > 0 = au moins une matiere de la recette sans
+      // prix connu - le total tombe alors a 0 par simple somme (rien a
+      // ajouter), jamais un vrai "0 FCFA" - ecrire ce chiffre comme prix
+      // reel serait faux et fausserait ensuite le cout de revient de
+      // l'article fini qui en consomme.
+      if (coutParPiece !== null && lignesSansPrix.length === 0) {
         prixAutoByArticleId.set(info.id, coutParPiece);
       }
     }
