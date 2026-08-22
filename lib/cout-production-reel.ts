@@ -88,6 +88,8 @@ type RapportCoutRow = {
   temps_vidange: string | null;
   nb_journaliers_fabrication: number | null;
   date_fabrication_conditionnement: string | null;
+  qt_vrac_recupere: number | null;
+  code_vrac_recupere: string | null;
 };
 
 // Temps/journaliers Conditionnement vivent desormais par FOURNEE reelle sur
@@ -161,7 +163,7 @@ async function fetchRapportsCout(ligneIds: number[]): Promise<RapportCoutRow[]> 
     const { data, error } = await supabaseServer
       .from("production_rapports")
       .select(
-        "programme_ligne_id, code, machine, temps_debut_preparation, temps_vidange, nb_journaliers_fabrication, date_fabrication_conditionnement"
+        "programme_ligne_id, code, machine, temps_debut_preparation, temps_vidange, nb_journaliers_fabrication, date_fabrication_conditionnement, qt_vrac_recupere, code_vrac_recupere"
       )
       .in("programme_ligne_id", ligneIds)
       .range(from, from + pageSize - 1);
@@ -591,6 +593,73 @@ async function computeChargeGeneraleParJourCarton(
   return result;
 }
 
+// Un code peut declarer avoir REUTILISE du vrac recupere d'un code anterieur
+// (qt_vrac_recupere/code_vrac_recupere sur production_rapports, saisis au
+// rapport Fabrication - voir LotSearchField, restreint aux vrais lots PF-vrac
+// deja credites en stock via un test labo "a recuperer") - demande
+// explicite : ce kg ne doit pas etre compte comme de la MP neuve pour ce
+// code (deja payee lors de la fabrication SOURCE), le cout correspondant
+// doit etre TRANSFERE de la source vers ce code, pas duplique. Best-effort
+// sur un seul niveau (la source elle-meme n'est pas re-ajustee si elle a
+// aussi ses propres recuperations) - une source introuvable ou sans
+// vrac_fabrique connu est signalee et simplement ignoree (le kg recupere
+// reste alors compte comme MP neuve, jamais un cout invente a sa place).
+async function computeCoutTransfereRecuperation(
+  rapportsPertinents: RapportCoutRow[],
+  vracArticleId: number
+): Promise<{ qtRecupereTotal: number; coutTransfereTotal: number; incertaines: LigneIncertaine[] }> {
+  const recuperations = rapportsPertinents.filter(
+    (r) => r.qt_vrac_recupere && r.qt_vrac_recupere > 0 && r.code_vrac_recupere
+  );
+  if (recuperations.length === 0) {
+    return { qtRecupereTotal: 0, coutTransfereTotal: 0, incertaines: [] };
+  }
+
+  const codesSource = [...new Set(recuperations.map((r) => r.code_vrac_recupere as string))];
+  const { data: sourcesData } = await supabaseServer
+    .from("production_rapports")
+    .select("code, vrac_fabrique")
+    .in("code", codesSource);
+  const vracFabriqueByCode = new Map(
+    ((sourcesData ?? []) as { code: string; vrac_fabrique: number | null }[]).map((r) => [r.code, r.vrac_fabrique])
+  );
+
+  let qtRecupereTotal = 0;
+  let coutTransfereTotal = 0;
+  const incertaines: LigneIncertaine[] = [];
+  const coutParKgCache = new Map<string, number | null>();
+
+  for (const r of recuperations) {
+    const qt = Number(r.qt_vrac_recupere ?? 0);
+    const codeSource = r.code_vrac_recupere as string;
+    qtRecupereTotal += qt;
+
+    let coutParKgSource = coutParKgCache.get(codeSource);
+    if (coutParKgSource === undefined) {
+      const vracFabriqueSource = vracFabriqueByCode.get(codeSource) ?? null;
+      coutParKgSource =
+        vracFabriqueSource && vracFabriqueSource > 0
+          ? (await fetchCoutVracParKg(vracArticleId, vracFabriqueSource)).coutParKg
+          : null;
+      coutParKgCache.set(codeSource, coutParKgSource);
+    }
+
+    if (coutParKgSource === null) {
+      incertaines.push({
+        ligneId: r.programme_ligne_id,
+        code: r.code,
+        motifs: [
+          `Recuperation de ${qt} kg depuis le code "${codeSource}" : cout source introuvable, compte comme MP neuve a la place.`,
+        ],
+      });
+      continue;
+    }
+    coutTransfereTotal += qt * coutParKgSource;
+  }
+
+  return { qtRecupereTotal, coutTransfereTotal, incertaines };
+}
+
 export async function computeCoutReelArticle(
   articleId: number,
   periode: CoutReelPeriode
@@ -642,6 +711,14 @@ export async function computeCoutReelArticle(
   const entries = entriesRaw.filter((e) => matchesPeriode(e.date_jour, periode));
   const quantiteTotaleProduite = entries.reduce((sum, e) => sum + Number(e.quantite ?? 0), 0);
 
+  // Rapports des codes qui ont reellement produit sur la periode (memes
+  // entrees que ci-dessus) - deplace avant le cout vrac car necessaire pour
+  // detecter les recuperations (qt_vrac_recupere/code_vrac_recupere) avant
+  // meme de chiffrer le vrac ; reutilise plus bas pour electricite/journaliers.
+  const codeKeys = new Set(entries.map((e) => `${e.programme_ligne_id}::${e.code}`));
+  const rapports = await fetchRapportsCout(ligneIds);
+  const rapportsPertinents = rapports.filter((r) => codeKeys.has(`${r.programme_ligne_id}::${r.code}`));
+
   // Cout vrac/conditionnement REEL = ratio de la recette (deja base sur les
   // vrais prix MP moyens ponderes) x quantite REELLEMENT produite - pas la
   // quantite theorique du lot (decision actee avec l'utilisateur). Calcule
@@ -653,9 +730,15 @@ export async function computeCoutReelArticle(
   let coutParUnite: number | null = null;
 
   if (nature === "vrac") {
-    const coutVrac = await fetchCoutVracParKg(articleId, quantiteTotaleProduite);
-    coutParUnite = coutVrac.coutParKg;
-    coutVracReel = coutVrac.coutParKg !== null ? coutVrac.coutTotal : null;
+    const { qtRecupereTotal, coutTransfereTotal, incertaines: incertainesRecup } =
+      await computeCoutTransfereRecuperation(rapportsPertinents, articleId);
+    lignesIncertaines.push(...incertainesRecup);
+
+    const quantiteFraiche = Math.max(0, quantiteTotaleProduite - qtRecupereTotal);
+    const coutVrac = await fetchCoutVracParKg(articleId, quantiteFraiche);
+    const coutVracFrais = coutVrac.coutParKg !== null ? coutVrac.coutParKg * quantiteFraiche : null;
+    coutVracReel = coutVracFrais !== null || coutTransfereTotal > 0 ? (coutVracFrais ?? 0) + coutTransfereTotal : null;
+    coutParUnite = coutVracReel !== null && quantiteTotaleProduite > 0 ? coutVracReel / quantiteTotaleProduite : null;
     if (coutVrac.coutParKg === null) {
       lignesIncertaines.push({ ligneId: 0, code: "", motifs: ["Cout par kg du vrac inconnu (MP sans prix a Depot B)."] });
     }
@@ -682,11 +765,31 @@ export async function computeCoutReelArticle(
 
     let coutVracParCarton: number | null = null;
     if (vracArticleId) {
-      const qtVracReelleNecessaire = qtVracParCarton !== null ? qtVracParCarton * quantiteTotaleProduite : undefined;
+      const qtVracReelleNecessaireBrute =
+        qtVracParCarton !== null ? qtVracParCarton * quantiteTotaleProduite : undefined;
+
+      // Vrac recupere reutilise (voir computeCoutTransfereRecuperation) :
+      // n'est jamais de la MP neuve pour CE code, deduit de la quantite a
+      // chiffrer en frais - son cout (deja paye a la fabrication SOURCE) est
+      // transfere tel quel plutot que recalcule.
+      const { qtRecupereTotal, coutTransfereTotal, incertaines: incertainesRecup } =
+        await computeCoutTransfereRecuperation(rapportsPertinents, vracArticleId);
+      lignesIncertaines.push(...incertainesRecup);
+
+      const qtVracReelleNecessaire =
+        qtVracReelleNecessaireBrute !== undefined
+          ? Math.max(0, qtVracReelleNecessaireBrute - qtRecupereTotal)
+          : undefined;
+
       const coutVrac = await fetchCoutVracParKg(vracArticleId, qtVracReelleNecessaire);
+      const coutVracFrais =
+        coutVrac.coutParKg !== null && qtVracReelleNecessaire !== undefined
+          ? coutVrac.coutParKg * qtVracReelleNecessaire
+          : null;
+      coutVracReel =
+        coutVracFrais !== null || coutTransfereTotal > 0 ? (coutVracFrais ?? 0) + coutTransfereTotal : null;
       coutVracParCarton =
-        coutVrac.coutParKg !== null && qtVracParCarton !== null ? coutVrac.coutParKg * qtVracParCarton : null;
-      coutVracReel = coutVracParCarton !== null ? coutVracParCarton * quantiteTotaleProduite : null;
+        coutVracReel !== null && quantiteTotaleProduite > 0 ? coutVracReel / quantiteTotaleProduite : null;
       if (coutVrac.coutParKg === null || qtVracParCarton === null) {
         lignesIncertaines.push({
           ligneId: 0,
@@ -712,13 +815,8 @@ export async function computeCoutReelArticle(
   }
 
   // Electricite + journaliers : uniquement pour les lots (programme_ligne,
-  // code) qui ont reellement produit sur la periode (memes entrees que
-  // ci-dessus) - un rapport de production existe pour chaque lot reel.
-  const codeKeys = new Set(entries.map((e) => `${e.programme_ligne_id}::${e.code}`));
-
-  const rapports = await fetchRapportsCout(ligneIds);
-  const rapportsPertinents = rapports.filter((r) => codeKeys.has(`${r.programme_ligne_id}::${r.code}`));
-
+  // code) qui ont reellement produit sur la periode (codeKeys/rapportsPertinents
+  // deja calcules plus haut, avant le cout vrac).
   const cartonEntriesTemps = await fetchCartonEntriesTemps(ligneIds);
   const cartonEntriesPertinents = cartonEntriesTemps.filter((e) => matchesPeriode(e.date_jour, periode));
 
