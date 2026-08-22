@@ -10,6 +10,11 @@ import {
   fetchBackfillCounts,
 } from "./actions";
 
+// Le rattrapage de plusieurs centaines d'evenements peut prendre plus que la
+// limite par defaut d'une fonction Vercel - relevee explicitement (60s,
+// maximum autorise sur le plan Hobby).
+export const maxDuration = 60;
+
 function SectionBackfill({
   titre,
   description,

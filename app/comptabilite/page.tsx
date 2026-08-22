@@ -51,6 +51,12 @@ const TILES = [
     icon: "\u{1F4C8}",
     description: "Produits / Charges au format SYSCOHADA - resultat net de l'exercice.",
   },
+  {
+    label: "Reconstituer l'historique",
+    href: "/comptabilite/backfill",
+    icon: "\u{1F551}",
+    description: "Cree les ecritures manquantes pour ce qui a deja eu lieu, uniquement quand une trace reelle existe.",
+  },
 ] as const;
 
 export default function ComptabilitePage() {
