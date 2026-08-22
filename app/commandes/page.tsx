@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   cancelFifoBatchAction,
   changeCommandeStatusAction,
+  creerEcritureVente,
   deleteProformaGroupAction,
   togglePretStockAction,
 } from "./actions";
@@ -262,6 +263,39 @@ export default async function CommandesPage({
   }));
   const commandeListRows = (data as CommandeListRow[] | null) ?? [];
   const commandeIds = commandeListRows.map((commande) => commande.id);
+
+  // Auto-guerison silencieuse - aucun bouton, aucune page a part : parmi les
+  // commandes LIVREE affichees ici, celles qui ont deja un resultat FIFO
+  // (donc une vraie sortie de stock) mais aucune ecriture Vente recreent la
+  // leur toutes seules a chaque chargement de cette liste. Couvre le cas ou
+  // meme les 3 tentatives de deliverCommandeAction ont echoue - la commande
+  // ne reste jamais durablement sans ecriture tant que quelqu'un revoit
+  // cette liste.
+  const livreeIds = commandeListRows.filter((c) => (c.statut || "").toUpperCase() === "LIVREE").map((c) => c.id);
+  if (livreeIds.length > 0) {
+    const [{ data: fifoPresenceData }, { data: ecrituresExistantesData }] = await Promise.all([
+      supabaseServer.from("fifo_resultats").select("commande_id").in("commande_id", livreeIds),
+      supabaseServer
+        .from("ecritures_comptables")
+        .select("source_id")
+        .eq("source_type", "commande_vente")
+        .in("source_id", livreeIds.map(String)),
+    ]);
+    const aVraimentLivre = new Set(
+      ((fifoPresenceData ?? []) as { commande_id: number | null }[]).map((r) => r.commande_id).filter(Boolean)
+    );
+    const dejaFacture = new Set(((ecrituresExistantesData ?? []) as { source_id: string }[]).map((r) => r.source_id));
+    const aGuerir = livreeIds.filter((id) => aVraimentLivre.has(id) && !dejaFacture.has(String(id)));
+    if (aGuerir.length > 0) {
+      await Promise.all(
+        aGuerir.map((id) =>
+          creerEcritureVente(id, currentStockUser).catch((err) =>
+            console.error(`Auto-guerison vente echouee (${id}):`, err)
+          )
+        )
+      );
+    }
+  }
 
   // La liste affiche compte de lignes + total carton + prix total par
   // commande - il faut donc aussi l'article_id de chaque ligne (pas juste

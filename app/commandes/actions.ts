@@ -2031,7 +2031,14 @@ export async function deliverCommandeAction(formData: FormData) {
     throw new Error(error.message);
   }
 
-  ecritureVenteResult = await creerEcritureVente(commandeId, currentUser);
+  // Reessaie 3 fois (echec constate transitoire : la 1ere tentative echoue
+  // parfois seule, sans raison deterministe, alors qu'une commande quasi
+  // identique juste a cote reussit) avant d'abandonner et d'avertir - reduit
+  // tres fortement le risque qu'une commande reste LIVREE sans ecriture.
+  for (let tentative = 1; tentative <= 3; tentative++) {
+    ecritureVenteResult = await creerEcritureVente(commandeId, currentUser);
+    if (ecritureVenteResult.ok) break;
+  }
 
   await logAudit({
     utilisateur: currentUser,
