@@ -3,7 +3,7 @@ import { fetchCoutsReelsMpDepotB, computeRecetteCost, fetchCoutVracParKg } from 
 import { resolveVracArticleId } from "@/lib/vrac-article";
 import { normalizeMachineName } from "@/lib/machine-match";
 import { hhmmDiffMinutes, ddmmHhmmDiffMinutes } from "@/lib/suivi-tirage-time";
-import { fetchAllVracEntries, fetchAllCartonEntries } from "@/app/production/suivi/data";
+import { fetchAllVracEntries, fetchAllCartonEntries, fetchAllProgrammeLignes } from "@/app/production/suivi/data";
 
 export type CoutReelPeriode = { dateFrom?: string; dateTo?: string; months?: string[]; code?: string };
 
@@ -47,6 +47,27 @@ function matchesPeriode(dateJour: string, periode: CoutReelPeriode) {
   if (periode.dateFrom && dateJour < periode.dateFrom) return false;
   if (periode.dateTo && dateJour > periode.dateTo) return false;
   return true;
+}
+
+// Article finis (nature != "vrac") ayant reellement produit des cartons sur
+// la periode - sert a construire la liste "tous les articles" (page
+// /production/rapport/cout-reel) sans avoir a chiffrer inutilement des
+// centaines d'articles jamais fabriques sur la periode choisie.
+export async function fetchArticleIdsAvecProductionSurPeriode(periode: CoutReelPeriode): Promise<number[]> {
+  const [{ rows: lignes }, cartonEntries] = await Promise.all([
+    fetchAllProgrammeLignes(),
+    fetchAllCartonEntries(),
+  ]);
+  const articleIdByLigneId = new Map(lignes.map((l) => [l.id, l.article_id]));
+
+  const articleIds = new Set<number>();
+  for (const entry of cartonEntries) {
+    if (Number(entry.quantite ?? 0) <= 0) continue;
+    if (!matchesPeriode(entry.date_jour, periode)) continue;
+    const articleId = articleIdByLigneId.get(entry.programme_ligne_id);
+    if (articleId) articleIds.add(articleId);
+  }
+  return [...articleIds];
 }
 
 type ProgrammeLigneRow = { id: number; chaine: string | null };
