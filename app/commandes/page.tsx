@@ -307,8 +307,12 @@ export default async function CommandesPage({
   ]);
 
   const articleIdsPourLignes = lignesRows.map((row) => row.article_id).filter((id): id is number => id !== null);
+  // Le cout de revient (FEFO + recette, reellement couteux - voir le meme
+  // correctif sur /comptabilite/prix-vente) n'alimente QUE la colonne "Prix",
+  // deja masquee sans canVoirPrix - jamais calcule pour rien quand personne
+  // ne peut de toute facon la voir.
   const [coutsParCarton, dimensionsParArticle] = await Promise.all([
-    fetchCoutsParCartonProduitsFinis(articleIdsPourLignes),
+    canVoirPrix ? fetchCoutsParCartonProduitsFinis(articleIdsPourLignes) : Promise.resolve(new Map()),
     fetchDimensionsProduitsFinis(articleIdsPourLignes),
   ]);
 
