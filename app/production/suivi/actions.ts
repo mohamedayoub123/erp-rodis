@@ -199,12 +199,16 @@ async function consommerRemainingMpReserve(
 
 // A la difference de consommerRemainingMpReserve (sortie de stock reelle),
 // celle-ci libere simplement la reservation SANS toucher au stock reel -
-// utilisee pour la Salle de conditionnement maintenant que chaque fournee
-// carton deduit deja sa part au fil de l'eau (voir consommerCartonProportionnel,
-// suivi-production/actions.ts) : ce qui reste encore "reserve" a "Fin
-// Programme" n'a jamais ete physiquement pris (production arretee en
-// cours de route, ou jamais commencee) - il redevient simplement
-// disponible au Depot B au lieu d'etre sorti du stock pour rien.
+// n'est plus appelee au "Fin Programme" normal de la Salle de conditionnement
+// (voir markCartonTermineAction) car ca faisait disparaitre le reste AVANT
+// que /production/retours-conditionnement ait pu le proposer au retour (bug
+// reel confirme : reserve remise a 0 des le clic, page Retours toujours
+// vide). Ne reste ici que comme filet de securite dans markEmballageTermineAction,
+// pour le cas ou "Fin Programme" Conditionnement a ete saute completement
+// (sinon la reservation resterait bloquee pour toujours, jamais retournee
+// ni reutilisable) - ce reste-la n'a jamais ete physiquement pris, il
+// redevient simplement disponible au Depot B au lieu d'etre sorti du stock
+// pour rien.
 async function releaseRemainingMpReserve(ligneId: number, code: string, stage: "pesage" | "salle_conditionnement") {
   const found = await fetchReservesRestantes(ligneId, code, stage);
   if (!found || found.reserves.length === 0) return;
@@ -235,16 +239,12 @@ export async function markVracTermineAction(formData: FormData) {
 
 // Fin programme independante par colonne du Dashboard : fermer Fabrication
 // ne ferme plus Conditionnement/Emballage (et inversement) - chaque etape a
-// son propre flag "termine".
+// son propre flag "termine". Ne touche plus la reservation MP restante ici
+// (voir commentaire sur releaseRemainingMpReserve) : elle reste visible sur
+// /production/retours-conditionnement jusqu'a ce que l'utilisateur y cree
+// le retour, qui la remet a 0 a ce moment-la seulement.
 export async function markCartonTermineAction(formData: FormData) {
-  const ligneId = Number(String(formData.get("ligne_id") || "0"));
-  const code = String(formData.get("code") || "").trim();
-
   await markCodeTermine(formData, "carton");
-
-  if (ligneId && code) {
-    await releaseRemainingMpReserve(ligneId, code, "salle_conditionnement");
-  }
 }
 
 // Annule un "Fin programme" Conditionnement clique par erreur - supprime

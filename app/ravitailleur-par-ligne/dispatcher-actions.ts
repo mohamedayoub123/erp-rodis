@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { extractTrailingNumber } from "@/lib/article-code-family";
+import { computeQtCarton } from "@/lib/dispatcher-shared";
 import { logAudit } from "@/lib/audit-log";
 
 // Le code genere au Dispatch (Programme par ligne) reste "en attente"
@@ -372,7 +373,7 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
     const article = articleData as { contenance: number | null; piece_par_carton: number | null } | null;
 
     if (article?.contenance && article.piece_par_carton) {
-      qtCarton = qtVrac / article.contenance / article.piece_par_carton;
+      qtCarton = computeQtCarton(qtVrac, article.contenance, article.piece_par_carton);
     }
   }
 

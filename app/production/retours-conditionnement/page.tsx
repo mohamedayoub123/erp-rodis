@@ -15,13 +15,6 @@ type HistoryRow = {
   created_at: string;
 };
 
-type LigneMiniRow = {
-  id: number;
-  numero_lot: string | null;
-  groupe_id: number | null;
-  programme_termine: boolean | null;
-};
-
 type PdGroupLeftover = {
   groupeId: number;
   pdCode: string;
@@ -52,83 +45,20 @@ async function fetchAllHistoryRows(): Promise<HistoryRow[]> {
   return rows;
 }
 
-async function fetchAllProgrammeLignesMini(): Promise<LigneMiniRow[]> {
-  const rows: LigneMiniRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("programme_lignes")
-      .select("id, numero_lot, groupe_id, programme_termine")
-      .order("id", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (error) break;
-
-    const chunk = (data ?? []) as LigneMiniRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
-}
-
-// Meme logique de matching PD -> programme_lignes que
-// deleteProgrammeDispatcherHistoryGroupAction (app/ravitailleur-par-ligne/
-// dispatcher-actions.ts) : une ligne programme_lignes "appartient" a ce PD
-// si son groupe_id correspond au source_groupe_id du PD OU si un des codes
-// (numero_lot, separes par virgule) correspond au code du PD. Indexee ici
-// (token -> lignes, groupe_id -> lignes) plutot que reparcourue a chaque
-// code, vu que programme_lignes peut etre une grosse table.
-function buildLigneIndexes(lignes: LigneMiniRow[]) {
-  const tokenToLignes = new Map<string, LigneMiniRow[]>();
-  const groupeIdToLignes = new Map<number, LigneMiniRow[]>();
-
-  for (const ligne of lignes) {
-    const tokens = (ligne.numero_lot || "")
-      .split(",")
-      .map((code) => code.trim())
-      .filter(Boolean);
-    for (const token of tokens) {
-      const list = tokenToLignes.get(token) ?? [];
-      list.push(ligne);
-      tokenToLignes.set(token, list);
-    }
-    if (ligne.groupe_id !== null) {
-      const list = groupeIdToLignes.get(ligne.groupe_id) ?? [];
-      list.push(ligne);
-      groupeIdToLignes.set(ligne.groupe_id, list);
-    }
-  }
-
-  return { tokenToLignes, groupeIdToLignes };
-}
-
-function isCodeTermine(
-  code: string,
-  sourceGroupeIds: Set<number>,
-  tokenToLignes: Map<string, LigneMiniRow[]>,
-  groupeIdToLignes: Map<number, LigneMiniRow[]>
-): boolean {
-  const matched: LigneMiniRow[] = [...(tokenToLignes.get(code) ?? [])];
-  for (const groupeId of sourceGroupeIds) {
-    matched.push(...(groupeIdToLignes.get(groupeId) ?? []));
-  }
-  return matched.some((ligne) => ligne.programme_termine === true);
-}
-
 // Pour chaque PD (programme_dispatcher_history.groupe_id), retrouve les
 // articles de conditionnement (production_code_termine.stage =
 // "salle_conditionnement") encore reserves (production_mp_reserve.quantite
-// > 0) pour un code dont l'article a ete marque "termine"
-// (programme_lignes.programme_termine) - ce sont les restes physiquement
-// preleves de l'entrepot mais jamais consommes, donc a retourner. Un PD sans
-// aucun reste (pas encore termine, deja tout consomme, ou deja retourne
-// - production_mp_reserve.quantite mis a 0 par retournerConditionnementAction)
-// n'apparait jamais ici.
+// > 0) pour un code dont le Conditionnement a ete marque "Fin Programme"
+// (production_code_termine.stage = "carton", cree par markCartonTermineAction
+// sur le Dashboard Suivi Production - le VRAI signal de "termine" tel que
+// l'utilisateur le declenche) - ce sont les restes physiquement preleves de
+// l'entrepot mais jamais consommes, donc a retourner. Utilisait avant
+// programme_lignes.programme_termine, qui ne passe JAMAIS a true via ce
+// bouton (seulement quand un groupe Dispatcher entier est supprime) - bug
+// reel confirme : cette page restait toujours vide en usage normal. Un PD
+// sans aucun reste (pas encore termine, deja tout consomme, ou deja
+// retourne - production_mp_reserve.quantite mis a 0 par
+// retournerConditionnementAction) n'apparait jamais ici.
 async function fetchRetoursConditionnement(): Promise<PdGroupLeftover[]> {
   const allHistoryRows = await fetchAllHistoryRows();
   const pdCodeByGroupeId = computePdCodesFromRows(allHistoryRows as PdGroupRow[]);
@@ -141,17 +71,29 @@ async function fetchRetoursConditionnement(): Promise<PdGroupLeftover[]> {
     groupsMap.set(row.groupe_id, list);
   }
 
-  const allLignes = await fetchAllProgrammeLignesMini();
-  const { tokenToLignes, groupeIdToLignes } = buildLigneIndexes(allLignes);
+  const allCodes = new Set<string>();
+  for (const row of allHistoryRows) {
+    const code = (row.code || "").trim();
+    if (code) allCodes.add(code);
+  }
+  if (allCodes.size === 0) return [];
+
+  const { data: cartonDoneData } = await supabaseServer
+    .from("production_code_termine")
+    .select("code")
+    .in("code", [...allCodes])
+    .eq("stage", "carton");
+  const cartonDoneCodes = new Set(
+    ((cartonDoneData ?? []) as { code: string | null }[]).map((r) => (r.code || "").trim())
+  );
+
+  if (cartonDoneCodes.size === 0) return [];
 
   type CodeContext = { code: string; produit: string | null };
   const terminatedByGroup = new Map<number, CodeContext[]>();
   const allTerminatedCodes = new Set<string>();
 
   for (const [groupeId, rows] of groupsMap.entries()) {
-    const sourceGroupeIds = new Set(
-      rows.map((row) => row.source_groupe_id).filter((id): id is number => id !== null)
-    );
     const seenCodes = new Set<string>();
     const contexts: CodeContext[] = [];
 
@@ -160,7 +102,7 @@ async function fetchRetoursConditionnement(): Promise<PdGroupLeftover[]> {
       if (!code || seenCodes.has(code)) continue;
       seenCodes.add(code);
 
-      if (isCodeTermine(code, sourceGroupeIds, tokenToLignes, groupeIdToLignes)) {
+      if (cartonDoneCodes.has(code)) {
         contexts.push({ code, produit: row.produit });
         allTerminatedCodes.add(code);
       }
