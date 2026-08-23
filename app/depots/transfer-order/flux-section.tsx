@@ -87,18 +87,25 @@ export function FluxSection({
                   {d.consommateurs.length === 0 ? (
                     <p className="mt-1 text-xs text-slate-500">Toujours disponible au depot - pas encore repris par une production.</p>
                   ) : (
-                    <p className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-600">
-                      Repris par :{" "}
-                      {d.consommateurs.map((c, i) => (
-                        <span key={c.code}>
+                    <ul className="mt-1 space-y-1 text-xs text-slate-600">
+                      {d.consommateurs.map((c) => (
+                        <li key={c.code}>
+                          Repris par{" "}
                           <Link href={c.href} className="font-semibold text-sky-700 underline">
                             {c.produit ? `${c.produit} - ` : ""}
                             {c.code}
-                          </Link>
-                          {i < d.consommateurs.length - 1 ? "," : ""}
-                        </span>
+                          </Link>{" "}
+                          -{" "}
+                          {c.entreeProduction.entree ? (
+                            <Link href={c.entreeProduction.href} className="font-semibold text-emerald-700 underline">
+                              produit fini deja entre en stock
+                            </Link>
+                          ) : (
+                            <span className="text-amber-700">produit fini pas encore entre en stock</span>
+                          )}
+                        </li>
                       ))}
-                    </p>
+                    </ul>
                   )}
                 </div>
               ))}

@@ -7,7 +7,12 @@ export type FluxOrigine =
   | { type: "programme_ligne"; label: string; href: string }
   | { type: "manuel"; creePar: string | null; remarque: string | null };
 
-export type FluxConsommateur = { code: string; produit: string | null; href: string };
+export type FluxConsommateur = {
+  code: string;
+  produit: string | null;
+  href: string;
+  entreeProduction: { entree: true; href: string } | { entree: false };
+};
 
 export type FluxDestinationLigne = {
   articleNom: string;
@@ -160,10 +165,35 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
       const plIds = [...new Set(termineRows.map((t) => t.programme_ligne_id))];
       const { data: plData } = await supabaseServer
         .from("programme_lignes")
-        .select("id, groupe_id, produit")
+        .select("id, groupe_id, produit, article_id")
         .in("id", plIds.length > 0 ? plIds : [0]);
-      const plById = new Map(
-        ((plData ?? []) as { id: number; groupe_id: number | null; produit: string | null }[]).map((p) => [p.id, p])
+      const plRows = (plData ?? []) as { id: number; groupe_id: number | null; produit: string | null; article_id: number | null }[];
+      const plById = new Map(plRows.map((p) => [p.id, p]));
+
+      // "Entree production" (l'article FINI produit par ce code entre
+      // reellement en stock, ecriture comptable source_type
+      // "entree_production", source_id "{groupe_id}-{article_pf_id}" - voir
+      // app/mouvements/produit-fini/entree-production/actions.ts) - demande
+      // explicite : voir dans le Flux si le produit fini issu de cette
+      // matiere premiere est deja rentre en stock, pas seulement quel
+      // programme l'a consommee.
+      const sourceIdsEntreeProduction = [
+        ...new Set(
+          plRows
+            .filter((p) => p.groupe_id !== null && p.article_id !== null)
+            .map((p) => `${p.groupe_id}-${p.article_id}`)
+        ),
+      ];
+      const { data: entreeProductionData } =
+        sourceIdsEntreeProduction.length > 0
+          ? await supabaseServer
+              .from("ecritures_comptables")
+              .select("id, source_id")
+              .eq("source_type", "entree_production")
+              .in("source_id", sourceIdsEntreeProduction)
+          : { data: [] };
+      const ecritureIdBySourceId = new Map(
+        ((entreeProductionData ?? []) as { id: number; source_id: string }[]).map((e) => [e.source_id, e.id])
       );
 
       const seenCodes = new Set<string>();
@@ -171,10 +201,15 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
         if (seenCodes.has(t.code)) continue;
         seenCodes.add(t.code);
         const pl = plById.get(t.programme_ligne_id);
+        const sourceId = pl?.groupe_id !== null && pl?.groupe_id !== undefined && pl?.article_id ? `${pl.groupe_id}-${pl.article_id}` : null;
+        const ecritureId = sourceId ? ecritureIdBySourceId.get(sourceId) : undefined;
         consommateurs.push({
           code: t.code,
           produit: pl?.produit ?? null,
           href: pl?.groupe_id ? `/historique-programme/${pl.groupe_id}` : `/production/suivi/dashboard`,
+          entreeProduction: ecritureId
+            ? { entree: true, href: `/comptabilite/journal?source_type=entree_production` }
+            : { entree: false },
         });
       }
     }
