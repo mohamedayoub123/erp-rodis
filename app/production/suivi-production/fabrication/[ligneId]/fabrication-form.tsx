@@ -103,8 +103,11 @@ export function TempsField({
           ))}
         </select>
         <input
-          type="time"
-          lang="fr"
+          type="text"
+          inputMode="numeric"
+          placeholder="HH:MM"
+          pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+          title="Format 24h, ex: 14:30"
           value={time}
           onChange={(event) => setTime(event.target.value)}
           required

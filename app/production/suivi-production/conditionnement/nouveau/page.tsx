@@ -345,8 +345,11 @@ export default async function NouvelleFicheConditionnementPage() {
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Temps demarage lot
                     <input
-                      type="time"
-                      lang="fr"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="HH:MM"
+                      pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+                      title="Format 24h, ex: 14:30"
                       name="temps_demarage_lot"
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
@@ -355,8 +358,11 @@ export default async function NouvelleFicheConditionnementPage() {
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Temps arret batch
                     <input
-                      type="time"
-                      lang="fr"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="HH:MM"
+                      pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+                      title="Format 24h, ex: 14:30"
                       name="temps_arret_batch"
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"

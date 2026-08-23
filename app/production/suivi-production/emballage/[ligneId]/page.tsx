@@ -255,8 +255,11 @@ export default async function RapportEmballagePage({
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Temps demarrer
                     <input
-                      type="time"
-                      lang="fr"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="HH:MM"
+                      pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+                      title="Format 24h, ex: 14:30"
                       name="emballage_temps_demarrer"
                       defaultValue={derniereFournee?.emballage_temps_demarrer || ""}
                       required
@@ -266,8 +269,11 @@ export default async function RapportEmballagePage({
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Temps arret
                     <input
-                      type="time"
-                      lang="fr"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="HH:MM"
+                      pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+                      title="Format 24h, ex: 14:30"
                       name="emballage_temps_arret"
                       defaultValue={derniereFournee?.emballage_temps_arret || ""}
                       required

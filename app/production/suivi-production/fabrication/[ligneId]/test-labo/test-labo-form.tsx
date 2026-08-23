@@ -312,8 +312,11 @@ export function TestLaboForm({
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Heure prise echantillon
               <input
-                type="time"
-                lang="fr"
+                type="text"
+                inputMode="numeric"
+                placeholder="HH:MM"
+                pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+                title="Format 24h, ex: 14:30"
                 name="heure_prise_echantillon"
                 defaultValue={rapport?.heure_prise_echantillon || ""}
                 className={inputClass}
@@ -322,8 +325,11 @@ export function TestLaboForm({
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Heure debut analyse
               <input
-                type="time"
-                lang="fr"
+                type="text"
+                inputMode="numeric"
+                placeholder="HH:MM"
+                pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+                title="Format 24h, ex: 14:30"
                 name="heure_debut_analyse"
                 defaultValue={rapport?.heure_debut_analyse || ""}
                 className={inputClass}
@@ -332,8 +338,11 @@ export function TestLaboForm({
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Heure fin analyse
               <input
-                type="time"
-                lang="fr"
+                type="text"
+                inputMode="numeric"
+                placeholder="HH:MM"
+                pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+                title="Format 24h, ex: 14:30"
                 name="heure_fin_analyse"
                 defaultValue={rapport?.heure_fin_analyse || ""}
                 className={inputClass}
