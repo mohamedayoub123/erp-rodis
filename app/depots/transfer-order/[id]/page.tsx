@@ -66,9 +66,16 @@ async function fetchNomArticle(articleType: ArticleType, articleId: number): Pro
   return (data as { nom_article: string } | null)?.nom_article ?? `#${articleId}`;
 }
 
-export default async function TransferOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function TransferOrderDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ avertissement?: string }>;
+}) {
   noStore();
   const { id } = await params;
+  const { avertissement } = await searchParams;
   const transferOrderId = Number(id);
   if (!transferOrderId) {
     notFound();
@@ -276,6 +283,12 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
             />
           </div>
         </section>
+
+        {avertissement ? (
+          <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-medium text-amber-800">
+            {avertissement}
+          </div>
+        ) : null}
 
         <FluxSection flux={flux} />
 

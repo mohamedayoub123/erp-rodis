@@ -460,7 +460,19 @@ export async function deleteInvoiceOrderAction(formData: FormData) {
     return (data as { transfer_order_id: number } | null)?.transfer_order_id ?? null;
   })();
 
-  await deleteInvoiceOrder(invoiceOrderId);
+  // {ok,message} n'existe pas ici (formulaire natif <form action>, jamais de
+  // catch cote client possible) - meme regle que partout ailleurs dans
+  // l'appli : un throw depuis une Server Action voit son message efface en
+  // production par Next.js, meme si la cause est claire (ex: "stock deja
+  // consomme, annule d'abord le programme concerne") - capture ici et
+  // redirige avec le vrai message en avertissement, plutot que la page
+  // d'erreur generique "Une erreur s'est produite" (bug reel confirme).
+  try {
+    await deleteInvoiceOrder(invoiceOrderId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur pendant la suppression.";
+    redirect(`/depots/invoice-order/${invoiceOrderId}?avertissement=${encodeURIComponent(message)}`);
+  }
 
   revalidatePath("/depots/invoice-order");
   if (transferOrderId) {

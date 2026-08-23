@@ -787,7 +787,19 @@ export async function deleteTransferOrderAction(formData: FormData) {
     throw new Error("Transfer Order invalide.");
   }
 
-  await deleteTransferOrder(transferOrderId);
+  // Meme regle que partout ailleurs (formulaire natif <form action>, jamais
+  // de catch cote client possible) : un throw depuis une Server Action voit
+  // son message efface en production par Next.js, meme si la cause est
+  // claire (ex: "stock deja consomme par un Transfer Invoice, annule
+  // d'abord ce qui l'a consomme") - capture ici et redirige avec le vrai
+  // message en avertissement, plutot que la page d'erreur generique "Une
+  // erreur s'est produite" (bug reel confirme).
+  try {
+    await deleteTransferOrder(transferOrderId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur pendant la suppression.";
+    redirect(`/depots/transfer-order/${transferOrderId}?avertissement=${encodeURIComponent(message)}`);
+  }
 
   revalidatePath("/depots/transfer-order");
   revalidatePath("/depots/invoice-order");
