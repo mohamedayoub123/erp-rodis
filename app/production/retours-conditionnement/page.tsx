@@ -160,6 +160,56 @@ async function fetchRetoursConditionnement(): Promise<PdGroupLeftover[]> {
   const nomDepotById = new Map(((depotsData ?? []) as { id: number; nom: string }[]).map((d) => [d.id, d.nom]));
 
   const codeByTermineId = new Map(termineRows.map((t) => [t.id, t.code]));
+
+  // Dechet (sleeve/capsule/pompe/flacon/pot/etiquette/etui casses/jetes
+  // pendant le Conditionnement, voir dechet_* sur production_carton_entries)
+  // n'a jamais ete physiquement "reste disponible" - deja consomme, juste
+  // jete au lieu de finir sur un produit. Demande explicite : le retour ne
+  // doit jamais proposer de retourner un dechet qui n'existe plus. Somme les
+  // 7 champs dechet_* de TOUTES les fournees de ce (ligne, code), puis
+  // deduit du reste selon l'article de conditionnement concerne (rapproche
+  // par mot-cle dans le nom, ex: "SLEEVE" -> dechet_sleeve - meme convention
+  // que les noms d'articles de conditionnement partout ailleurs dans
+  // l'appli, aucun champ "type" dedie sur articles_matiere_premiere).
+  const DECHET_KEYWORDS: { motCle: string; champ: string }[] = [
+    { motCle: "SLEEVE", champ: "dechet_sleeve" },
+    { motCle: "CAPSULE", champ: "dechet_capsule" },
+    { motCle: "POMPE", champ: "dechet_pompe" },
+    { motCle: "FLACON", champ: "dechet_flacon" },
+    { motCle: "POT", champ: "dechet_pot" },
+    { motCle: "ETIQUETTE", champ: "dechet_etiquette" },
+    { motCle: "ETUI", champ: "dechet_etui" },
+  ];
+
+  const { data: cartonEntriesDechetData } = await supabaseServer
+    .from("production_carton_entries")
+    .select(
+      "programme_ligne_id, code, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui"
+    )
+    .in(
+      "programme_ligne_id",
+      [...new Set(termineRows.map((t) => t.programme_ligne_id))]
+    )
+    .in("code", [...allTerminatedCodes]);
+
+  type DechetTotals = Record<string, number>;
+  const dechetTotalsByCode = new Map<string, DechetTotals>();
+  for (const entry of (cartonEntriesDechetData ?? []) as (DechetTotals & { programme_ligne_id: number; code: string })[]) {
+    const current = dechetTotalsByCode.get(entry.code) ?? {};
+    for (const { champ } of DECHET_KEYWORDS) {
+      current[champ] = (current[champ] ?? 0) + Number(entry[champ] ?? 0);
+    }
+    dechetTotalsByCode.set(entry.code, current);
+  }
+
+  function dechetPourArticle(code: string, nomArticle: string): number {
+    const totals = dechetTotalsByCode.get(code);
+    if (!totals) return 0;
+    const nomMajuscule = nomArticle.toUpperCase();
+    const match = DECHET_KEYWORDS.find((d) => nomMajuscule.includes(d.motCle));
+    return match ? (totals[match.champ] ?? 0) : 0;
+  }
+
   const reservesByCode = new Map<string, typeof reserveRows>();
   for (const reserve of reserveRows) {
     const code = codeByTermineId.get(reserve.production_code_termine_id);
@@ -176,12 +226,16 @@ async function fetchRetoursConditionnement(): Promise<PdGroupLeftover[]> {
     for (const { code, produit } of contexts) {
       const reserves = reservesByCode.get(code) ?? [];
       for (const reserve of reserves) {
+        const nomArticle = nomArticleById.get(reserve.article_mp_id) ?? `Article #${reserve.article_mp_id}`;
+        const quantite = Number(reserve.quantite) - dechetPourArticle(code, nomArticle);
+        if (quantite <= 1e-6) continue;
+
         lignes.push({
           reserveId: reserve.id,
           articleId: reserve.article_mp_id,
-          nomArticle: nomArticleById.get(reserve.article_mp_id) ?? `Article #${reserve.article_mp_id}`,
+          nomArticle,
           numeroLot: reserve.numero_lot ?? "-",
-          quantite: Number(reserve.quantite),
+          quantite,
           depotNom: reserve.depot_id !== null ? nomDepotById.get(reserve.depot_id) ?? `Depot #${reserve.depot_id}` : "-",
           produit,
           code,
