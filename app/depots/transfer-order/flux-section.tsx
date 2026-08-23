@@ -90,19 +90,35 @@ export function FluxSection({
                     <ul className="mt-1 space-y-1 text-xs text-slate-600">
                       {d.consommateurs.map((c) => (
                         <li key={c.code}>
-                          Repris par{" "}
-                          <Link href={c.href} className="font-semibold text-sky-700 underline">
-                            {c.produit ? `${c.produit} - ` : ""}
-                            {c.code}
-                          </Link>{" "}
-                          -{" "}
-                          {c.entreeProduction.entree ? (
-                            <Link href={c.entreeProduction.href} className="font-semibold text-emerald-700 underline">
-                              produit fini deja entre en stock
-                            </Link>
-                          ) : (
-                            <span className="text-amber-700">produit fini pas encore entre en stock</span>
-                          )}
+                          <div>
+                            Repris par{" "}
+                            <Link href={c.href} className="font-semibold text-sky-700 underline">
+                              {c.produit ? `${c.produit} - ` : ""}
+                              {c.code}
+                            </Link>{" "}
+                            -{" "}
+                            {c.entreeProduction.entree ? (
+                              <Link href={c.entreeProduction.href} className="font-semibold text-emerald-700 underline">
+                                entre en stock ({c.entreeProduction.label})
+                              </Link>
+                            ) : (
+                              <span className="text-amber-700">produit fini pas encore entre en stock</span>
+                            )}
+                          </div>
+                          {c.sorties.length > 0 ? (
+                            <ul className="ml-4 mt-0.5 space-y-0.5">
+                              {c.sorties.map((s, i) => (
+                                <li key={`${s.label}-${i}`}>
+                                  Livre (
+                                  <Link href={s.href} className="font-semibold text-sky-700 underline">
+                                    {s.label}
+                                  </Link>
+                                  ) - {s.quantite.toLocaleString("fr-FR")}
+                                  {s.proforma ? ` - proforma ${s.proforma}` : s.livrePour ? ` - ${s.livrePour}` : ""}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
                         </li>
                       ))}
                     </ul>

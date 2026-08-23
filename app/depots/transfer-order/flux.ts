@@ -1,17 +1,27 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { fetchPlCodeByGroupeId } from "@/lib/programme-numbering";
 import type { ArticleType } from "./stock-lots";
+import { buildEntreeRows, buildSortieRows, fetchWebMouvementSourceRows, parseSortieMeta } from "@/app/mouvements/shared";
 
 export type FluxOrigine =
   | { type: "programme_mb"; label: string; href: string }
   | { type: "programme_ligne"; label: string; href: string }
   | { type: "manuel"; creePar: string | null; remarque: string | null };
 
+export type FluxSortie = {
+  label: string;
+  href: string;
+  quantite: number;
+  proforma: string | null;
+  livrePour: string | null;
+};
+
 export type FluxConsommateur = {
   code: string;
   produit: string | null;
   href: string;
-  entreeProduction: { entree: true; href: string } | { entree: false };
+  entreeProduction: { entree: true; label: string; href: string } | { entree: false };
+  sorties: FluxSortie[];
 };
 
 export type FluxDestinationLigne = {
@@ -162,6 +172,33 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
     }
   }
 
+  // Trace complete du produit fini issu de chaque code consommateur (entree
+  // reelle en stock ET sortie/livraison si deja reparti) - demande explicite
+  // : "je veux qu'il me dise l'entree, si c'est TE/TS/Entree Production, et
+  // aussi si c'est livre, pour quelle proforma". Le lien qu'on utilisait
+  // avant (ecritures_comptables.source_id = "{groupe_id}-{article}" avec
+  // groupe_id = programme_lignes.groupe_id) etait FAUX : le vrai groupe_id
+  // de l'ecriture "entree_production" est mouvement_groupe_id sur lots_stock
+  // (voir recalculerEcritureEntreeProduction), un identifiant totalement
+  // different - ce qui faisait toujours passer l'entree pour "pas encore
+  // faite" meme quand elle existait. La bonne cle de correspondance est
+  // directement (article_id, numero_lot) sur lots_stock : le code tape a
+  // l'ecran Entree Production est le meme code de dispatch que
+  // production_code_termine (voir commentaire sur numeroLot dans
+  // createEntreeProductionBatchAction), et les sorties piochent sur le meme
+  // lot. Un seul fetch de tous les mouvements web (TE/TS/Entree Production)
+  // pour toute la fonction, jamais un par consommateur.
+  const needsTrace = quantiteParCle.size > 0;
+  const webRows = needsTrace ? await fetchWebMouvementSourceRows() : [];
+  const mouvementInfoByRowId = new Map<number, { code: string; groupeId: number }>();
+  if (needsTrace) {
+    for (const group of [...buildEntreeRows(webRows), ...buildSortieRows(webRows)]) {
+      for (const ligne of group.lignes) {
+        mouvementInfoByRowId.set(ligne.id, { code: group.code, groupeId: group.groupe_id });
+      }
+    }
+  }
+
   const destinations: FluxDestinationLigne[] = [];
 
   for (const { cle, quantite } of quantiteParCle.values()) {
@@ -195,46 +232,42 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
       const plRows = (plData ?? []) as { id: number; groupe_id: number | null; produit: string | null; article_id: number | null }[];
       const plById = new Map(plRows.map((p) => [p.id, p]));
 
-      // "Entree production" (l'article FINI produit par ce code entre
-      // reellement en stock, ecriture comptable source_type
-      // "entree_production", source_id "{groupe_id}-{article_pf_id}" - voir
-      // app/mouvements/produit-fini/entree-production/actions.ts) - demande
-      // explicite : voir dans le Flux si le produit fini issu de cette
-      // matiere premiere est deja rentre en stock, pas seulement quel
-      // programme l'a consommee.
-      const sourceIdsEntreeProduction = [
-        ...new Set(
-          plRows
-            .filter((p) => p.groupe_id !== null && p.article_id !== null)
-            .map((p) => `${p.groupe_id}-${p.article_id}`)
-        ),
-      ];
-      const { data: entreeProductionData } =
-        sourceIdsEntreeProduction.length > 0
-          ? await supabaseServer
-              .from("ecritures_comptables")
-              .select("id, source_id")
-              .eq("source_type", "entree_production")
-              .in("source_id", sourceIdsEntreeProduction)
-          : { data: [] };
-      const ecritureIdBySourceId = new Map(
-        ((entreeProductionData ?? []) as { id: number; source_id: string }[]).map((e) => [e.source_id, e.id])
-      );
-
       const seenCodes = new Set<string>();
       for (const t of termineRows) {
         if (seenCodes.has(t.code)) continue;
         seenCodes.add(t.code);
         const pl = plById.get(t.programme_ligne_id);
-        const sourceId = pl?.groupe_id !== null && pl?.groupe_id !== undefined && pl?.article_id ? `${pl.groupe_id}-${pl.article_id}` : null;
-        const ecritureId = sourceId ? ecritureIdBySourceId.get(sourceId) : undefined;
+
+        const rowsPourCeCode = pl?.article_id
+          ? webRows.filter(
+              (r) => r.article_id === pl.article_id && (r.numero_lot || "").trim().toUpperCase() === t.code.trim().toUpperCase()
+            )
+          : [];
+        const entreeRow = rowsPourCeCode.find((r) => Number(r.qte_entree ?? 0) > 0);
+        const entreeInfo = entreeRow ? mouvementInfoByRowId.get(entreeRow.id) : undefined;
+
+        const sorties: FluxSortie[] = rowsPourCeCode
+          .filter((r) => Number(r.qte_sortie ?? 0) > 0)
+          .map((r) => {
+            const meta = parseSortieMeta(r.note, r.source_import);
+            const info = mouvementInfoByRowId.get(r.id);
+            return {
+              label: info?.code ?? "-",
+              href: info ? `/mouvements/sorties/${info.groupeId}` : "/mouvements/produit-fini",
+              quantite: Number(r.qte_sortie ?? 0),
+              proforma: meta.numero_proforma,
+              livrePour: meta.livre_pour,
+            };
+          });
+
         consommateurs.push({
           code: t.code,
           produit: pl?.produit ?? null,
           href: pl?.groupe_id ? `/historique-programme/${pl.groupe_id}` : `/production/suivi/dashboard`,
-          entreeProduction: ecritureId
-            ? { entree: true, href: `/comptabilite/journal?source_type=entree_production` }
+          entreeProduction: entreeInfo
+            ? { entree: true, label: entreeInfo.code, href: `/mouvements/entrees/${entreeInfo.groupeId}` }
             : { entree: false },
+          sorties,
         });
       }
     }
