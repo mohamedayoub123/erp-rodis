@@ -452,18 +452,31 @@ async function deleteCodeTermineEtReserves(
   code: string,
   currentUser: string | null
 ): Promise<{ error: { message: string } | null }> {
+  // Toutes les stages (pesage, salle_conditionnement, vrac, carton,
+  // emballage...), pas seulement pesage/salle_conditionnement - bug reel
+  // confirme : une ligne dont le Conditionnement avait recu "Fin Programme"
+  // (stage "carton", cree par markCartonTermineAction) gardait cette ligne
+  // production_code_termine orpheline apres le nettoyage, bloquant ensuite
+  // la suppression de programme_lignes elle-meme (violation de la contrainte
+  // de cle etrangere production_code_termine_programme_ligne_id_fkey). Seuls
+  // pesage/salle_conditionnement ont une reservation MP associee (voir plus
+  // bas) - les autres stages n'en ont simplement aucune a restituer.
   const { data: codeTermineRows, error: fetchError } = await supabaseServer
     .from("production_code_termine")
-    .select("id")
+    .select("id, stage")
     .eq("programme_ligne_id", ligneId)
-    .eq("code", code)
-    .in("stage", ["pesage", "salle_conditionnement"]);
+    .eq("code", code);
 
   if (fetchError) return { error: fetchError };
 
   const codeTermineIds = (codeTermineRows ?? []).map((row) => row.id);
   if (codeTermineIds.length === 0) return { error: null };
 
+  // Une reservation MP (production_mp_reserve) n'existe que pour les stages
+  // pesage/salle_conditionnement (voir markVracTermineAction/le rapport
+  // Conditionnement) - inclure aussi vrac/carton/emballage dans ce filtre
+  // ne changerait rien (ils n'ont simplement aucune ligne correspondante),
+  // la requete reste correcte avec la liste complete des ids.
   const { data: reserveRows, error: reserveFetchError } = await supabaseServer
     .from("production_mp_reserve")
     .select("article_mp_id, depot_id, numero_lot, quantite, quantite_initiale")
