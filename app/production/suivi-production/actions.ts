@@ -58,7 +58,15 @@ async function consommerCartonProportionnel(
   if (!ligne) return;
 
   const detailMatch = (ligne.numero_lot_detail ?? []).find((d) => d.code === code);
-  const cartonPrevu = detailMatch?.qt_carton ?? ligne.qt_carton ?? null;
+  const cartonPrevuBrut = detailMatch?.qt_carton ?? ligne.qt_carton ?? null;
+  // Arrondi au carton superieur ici aussi (voir computeQtCarton,
+  // lib/dispatcher-shared.ts) - numero_lot_detail peut encore contenir une
+  // vieille valeur non arrondie (ex: 312.5) pour une ligne enregistree avant
+  // le arrondi generalise ailleurs. Sans ce ceil, le ratio qtFabriquer/
+  // cartonPrevu ne vaut jamais exactement 1 meme quand tout a ete produit
+  // (300/312.5 = 0.96 au lieu de 300/313 = 0.958..., dedduit alors 300.48
+  // au lieu de 300 - bug reel confirme, code AA4252).
+  const cartonPrevu = cartonPrevuBrut !== null ? Math.ceil(cartonPrevuBrut) : null;
   if (!cartonPrevu || cartonPrevu <= 0) return;
 
   const { data: codeTermineData } = await supabaseServer
