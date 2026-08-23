@@ -9,6 +9,7 @@ import { saveEmballageRapportAction } from "../../actions";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { formatDateTime } from "@/lib/format-date";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { TimeTextInput } from "@/app/_components/time-text-input";
 import { MachineSelectField } from "../../machine-select-field";
 import { fetchMachinesByType } from "@/lib/machines-by-type";
 
@@ -254,28 +255,18 @@ export default async function RapportEmballagePage({
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Temps demarrer
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="HH:MM"
-                      pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
-                      title="Format 24h, ex: 14:30"
+                    <TimeTextInput
                       name="emballage_temps_demarrer"
-                      defaultValue={derniereFournee?.emballage_temps_demarrer || ""}
+                      defaultValue={derniereFournee?.emballage_temps_demarrer}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Temps arret
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="HH:MM"
-                      pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
-                      title="Format 24h, ex: 14:30"
+                    <TimeTextInput
                       name="emballage_temps_arret"
-                      defaultValue={derniereFournee?.emballage_temps_arret || ""}
+                      defaultValue={derniereFournee?.emballage_temps_arret}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />

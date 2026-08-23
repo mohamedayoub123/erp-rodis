@@ -7,6 +7,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../suivi/data";
 import { saveConditionnementRapportAction } from "../actions";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { TimeTextInput } from "@/app/_components/time-text-input";
 
 const ARRET_CAUSES = [
   "ARRET CAUSE DE DEPOT",
@@ -243,24 +244,14 @@ export default async function RapportProductionPage({
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Temps demarage lot
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="HH:MM"
-                      pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
-                      title="Format 24h, ex: 14:30"
+                    <TimeTextInput
                       name="temps_demarage_lot"
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Temps arret batch
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="HH:MM"
-                      pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
-                      title="Format 24h, ex: 14:30"
+                    <TimeTextInput
                       name="temps_arret_batch"
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />

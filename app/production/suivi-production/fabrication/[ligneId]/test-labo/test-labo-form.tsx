@@ -6,6 +6,7 @@ import { ProduitPickerField } from "../../../produit-picker-field";
 import { fetchAvailableLotsAction } from "@/app/depots/transfer-order/actions";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { TimeTextInput } from "@/app/_components/time-text-input";
 
 type RapportInfo = {
   ph: number | null;
@@ -311,40 +312,25 @@ export function TestLaboForm({
             </label>
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Heure prise echantillon
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="HH:MM"
-                pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
-                title="Format 24h, ex: 14:30"
+              <TimeTextInput
                 name="heure_prise_echantillon"
-                defaultValue={rapport?.heure_prise_echantillon || ""}
+                defaultValue={rapport?.heure_prise_echantillon}
                 className={inputClass}
               />
             </label>
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Heure debut analyse
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="HH:MM"
-                pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
-                title="Format 24h, ex: 14:30"
+              <TimeTextInput
                 name="heure_debut_analyse"
-                defaultValue={rapport?.heure_debut_analyse || ""}
+                defaultValue={rapport?.heure_debut_analyse}
                 className={inputClass}
               />
             </label>
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Heure fin analyse
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="HH:MM"
-                pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
-                title="Format 24h, ex: 14:30"
+              <TimeTextInput
                 name="heure_fin_analyse"
-                defaultValue={rapport?.heure_fin_analyse || ""}
+                defaultValue={rapport?.heure_fin_analyse}
                 className={inputClass}
               />
             </label>

@@ -5,6 +5,7 @@ import { saveFabricationRapportAction } from "../../actions";
 import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { combineTempsJourMois, splitTempsJourMois } from "@/lib/suivi-tirage-time";
+import { PARTIEL_HHMM } from "@/app/_components/time-text-input";
 import { LotSearchField } from "@/app/depots/transfer-order/lot-search-field";
 import { MachineSelectField } from "../../machine-select-field";
 import { TYPE_PRODUIT_OPTIONS } from "../../../machines/type-produit-options";
@@ -109,7 +110,12 @@ export function TempsField({
           pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
           title="Format 24h, ex: 14:30"
           value={time}
-          onChange={(event) => setTime(event.target.value)}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (PARTIEL_HHMM.test(next)) {
+              setTime(next);
+            }
+          }}
           required
           className={inputClass}
         />
