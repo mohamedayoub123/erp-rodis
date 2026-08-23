@@ -6,6 +6,8 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { type ArticleType, fetchLotsInDepot, totalAvailable, allocateFefo } from "./stock-lots";
 import { deleteInvoiceOrder } from "../invoice-order/actions";
+import { logAudit } from "@/lib/audit-log";
+import { fetchTransferOrderLabel } from "@/lib/depot-labels";
 
 // Appelee directement depuis TransferArticlePicker (pas liee a un <form>) -
 // affiche en direct les lots/quantites reellement disponibles dans le
@@ -339,6 +341,17 @@ export async function approveTransferOrder(transferOrderId: number): Promise<voi
     throw new Error(statutError.message);
   }
 
+  const label = await fetchTransferOrderLabel(transferOrderId);
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "TransferOrder",
+    action: "modification",
+    cible: label,
+    resume: `Transfer Order ${label} approuve (repartition FEFO des lots)`,
+    avant: { statut: transferOrder.statut },
+    apres: { statut: "approuve" },
+  });
+
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
 }
 
@@ -573,6 +586,15 @@ export async function updateAllLigneLotsAction(formData: FormData) {
     }
   }
 
+  const label = await fetchTransferOrderLabel(transferOrderId);
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "TransferOrder",
+    action: "modification",
+    cible: label,
+    resume: `Transfer Order ${label} modifie (lignes/lots)${deletedLigneIds.size > 0 ? ` - ${deletedLigneIds.size} ligne(s) supprimee(s)` : ""}`,
+  });
+
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
 }
 
@@ -714,6 +736,17 @@ export async function postToInvoiceOrderAction(formData: FormData) {
 // deja ete valide (le stock a physiquement bouge, plus question de
 // supprimer silencieusement).
 export async function deleteTransferOrder(transferOrderId: number): Promise<void> {
+  const label = await fetchTransferOrderLabel(transferOrderId);
+  const { data: transferOrderSnapshot } = await supabaseServer
+    .from("transfer_orders")
+    .select("*")
+    .eq("id", transferOrderId)
+    .maybeSingle();
+  const { data: lignesSnapshot } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("*")
+    .eq("transfer_order_id", transferOrderId);
+
   const { data: invoiceOrdersData, error: invoiceOrdersError } = await supabaseServer
     .from("invoice_orders")
     .select("id, statut")
@@ -773,6 +806,15 @@ export async function deleteTransferOrder(transferOrderId: number): Promise<void
   if (deleteTransferOrderError) {
     throw new Error(deleteTransferOrderError.message);
   }
+
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "TransferOrder",
+    action: "suppression",
+    cible: label,
+    resume: `Transfer Order ${label} supprime`,
+    avant: { transferOrder: transferOrderSnapshot ?? null, lignes: lignesSnapshot ?? [] },
+  });
 }
 
 export async function deleteTransferOrderAction(formData: FormData) {
@@ -814,13 +856,34 @@ export async function updateTransferOrderRemarqueAction(formData: FormData) {
     throw new Error("Transfer Order invalide.");
   }
 
+  const { data: avantData } = await supabaseServer
+    .from("transfer_orders")
+    .select("remarque")
+    .eq("id", transferOrderId)
+    .maybeSingle();
+  const remarqueAvant = (avantData as { remarque: string | null } | null)?.remarque ?? null;
+  const remarqueApres = String(formData.get("remarque") || "").trim() || null;
+
   const { error } = await supabaseServer
     .from("transfer_orders")
-    .update({ remarque: String(formData.get("remarque") || "").trim() || null })
+    .update({ remarque: remarqueApres })
     .eq("id", transferOrderId);
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (remarqueAvant !== remarqueApres) {
+    const label = await fetchTransferOrderLabel(transferOrderId);
+    await logAudit({
+      utilisateur: await getCurrentStockUser(),
+      module: "TransferOrder",
+      action: "modification",
+      cible: label,
+      resume: `Remarque modifiee sur Transfer Order ${label}`,
+      avant: { remarque: remarqueAvant },
+      apres: { remarque: remarqueApres },
+    });
   }
 
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);

@@ -5,6 +5,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { deleteLotStockCore } from "@/lib/lot-stock-delete";
 import { recalculerEcritureEntreeProduction } from "@/app/mouvements/produit-fini/entree-production/actions";
+import { logAudit } from "@/lib/audit-log";
 
 type PendingEntreeRow = {
   article_id: number;
@@ -166,6 +167,16 @@ export async function createEntreeStockBatchAction(formData: FormData) {
     throw new Error(groupError.message);
   }
 
+  const totalQuantite = payload.reduce((sum, row) => sum + row.qte_entree, 0);
+  await logAudit({
+    utilisateur: currentUser,
+    module: "Stock",
+    action: "creation",
+    cible: payload.map((row) => row.numero_lot).join(", "),
+    resume: `Entree stock PF - ${payload.length} lot(s), ${totalQuantite.toLocaleString("fr-FR")} au total`,
+    apres: { lots: payload },
+  });
+
   revalidateMovementPages();
 
   return { ok: true, groupe_id: groupeId };
@@ -221,6 +232,24 @@ export async function createSortieStockBatchAction(formData: FormData) {
     throw new Error(error.message);
   }
 
+  const { data: lotsSourceData } = await supabaseServer
+    .from("lots_stock")
+    .select("id, numero_lot")
+    .in(
+      "id",
+      lignes.map((l) => l.lot_stock_id)
+    );
+  const numeroLotById = new Map(((lotsSourceData ?? []) as { id: number; numero_lot: string | null }[]).map((l) => [l.id, l.numero_lot]));
+  const totalQuantite = lignes.reduce((sum, l) => sum + l.quantite, 0);
+  await logAudit({
+    utilisateur: currentUser,
+    module: "Stock",
+    action: "creation",
+    cible: lignes.map((l) => numeroLotById.get(l.lot_stock_id) ?? `#${l.lot_stock_id}`).join(", "),
+    resume: `Sortie stock PF - ${lignes.length} lot(s), ${totalQuantite.toLocaleString("fr-FR")} au total`,
+    apres: { lots: lignes },
+  });
+
   revalidateMovementPages();
 
   return { ok: true };
@@ -244,8 +273,15 @@ export async function deleteMouvementGroupAction(formData: FormData) {
 
   const { data: lignesAvant } = await supabaseServer
     .from("lots_stock")
-    .select("article_id, source_import")
+    .select("article_id, source_import, numero_lot, qte_entree, qte_sortie")
     .eq("mouvement_groupe_id", groupeId);
+  const lignesAvantRows = (lignesAvant ?? []) as {
+    article_id: number | null;
+    source_import: string | null;
+    numero_lot: string | null;
+    qte_entree: number;
+    qte_sortie: number;
+  }[];
 
   const { error } = await supabaseServer.rpc("stock_delete_lot_group", { p_groupe_id: groupeId });
 
@@ -259,7 +295,7 @@ export async function deleteMouvementGroupAction(formData: FormData) {
   // au moins une ligne du groupe venait de ce flux precis.
   const articlesEntreeProduction = [
     ...new Set(
-      ((lignesAvant ?? []) as { article_id: number | null; source_import: string | null }[])
+      lignesAvantRows
         .filter((row) => row.source_import === "web:entree-production" && row.article_id)
         .map((row) => row.article_id as number)
     ),
@@ -273,6 +309,15 @@ export async function deleteMouvementGroupAction(formData: FormData) {
       console.error("Recalcul ecriture entree production echoue:", comptaError);
     }
   }
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "Stock",
+    action: "suppression",
+    cible: `#${groupeId}`,
+    resume: `Mouvement stock PF #${groupeId} supprime (${lignesAvantRows.length} ligne(s))`,
+    avant: { lots: lignesAvantRows },
+  });
 
   revalidateMovementPages();
   revalidatePath("/stock-dormant");

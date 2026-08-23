@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { stockTableFor, type ArticleType } from "../transfer-order/stock-lots";
+import { logAudit } from "@/lib/audit-log";
+import { fetchInvoiceOrderLabel } from "@/lib/depot-labels";
 
 async function requireWriteAccess() {
   const currentUser = await getCurrentStockUser();
@@ -136,6 +138,15 @@ export async function updateInvoiceOrderLignesAction(formData: FormData) {
     }
   }
 
+  const label = await fetchInvoiceOrderLabel(invoiceOrderId);
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "InvoiceOrder",
+    action: "modification",
+    cible: label,
+    resume: `Transfer Invoice ${label} modifie (quantites/lots)${toDelete.length > 0 ? ` - ${toDelete.length} ligne(s) supprimee(s)` : ""}`,
+  });
+
   revalidatePath(`/depots/invoice-order/${invoiceOrderId}`);
 }
 
@@ -223,6 +234,8 @@ async function verifierStockLivreEncoreIntact(
 // TI d'un Transfer Order avant de le supprimer lui-meme) - meme comportement
 // dans les 2 cas, jamais 2 implementations a maintenir en parallele.
 export async function deleteInvoiceOrder(invoiceOrderId: number): Promise<void> {
+  const label = await fetchInvoiceOrderLabel(invoiceOrderId);
+
   const { data: invoiceOrderData, error: invoiceOrderError } = await supabaseServer
     .from("invoice_orders")
     .select("id, transfer_order_id, statut")
@@ -234,6 +247,11 @@ export async function deleteInvoiceOrder(invoiceOrderId: number): Promise<void> 
   }
 
   const invoiceOrder = invoiceOrderData as { id: number; transfer_order_id: number; statut: string };
+
+  const { data: lignesSnapshot } = await supabaseServer
+    .from("invoice_order_lignes")
+    .select("*")
+    .eq("invoice_order_id", invoiceOrderId);
 
   const { data: invoiceLignesData, error: invoiceLignesError } = await supabaseServer
     .from("invoice_order_lignes")
@@ -434,6 +452,14 @@ export async function deleteInvoiceOrder(invoiceOrderId: number): Promise<void> 
     throw new Error(statutError.message);
   }
 
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "InvoiceOrder",
+    action: "suppression",
+    cible: label,
+    resume: `Transfer Invoice ${label} supprime${invoiceOrder.statut === "valide" ? " (stock livre annule/restitue)" : ""}`,
+    avant: { invoiceOrder: invoiceOrderData, lignes: lignesSnapshot ?? [] },
+  });
 }
 
 // Wrapper action (icone Supprimer, un seul Transfer Invoice) - permission +
@@ -713,6 +739,17 @@ export async function validateInvoiceOrder(invoiceOrderId: number, currentUser: 
     throw new Error(statutError.message);
   }
 
+  const totalLivre = invoiceLignes.reduce((sum, l) => sum + l.quantite, 0);
+  await logAudit({
+    utilisateur: currentUser,
+    module: "InvoiceOrder",
+    action: "modification",
+    cible: tiCode,
+    resume: `Transfer Invoice ${tiCode} valide - stock transfere de ${depotSourceNom} vers ${depotDestinationNom} (${invoiceLignes.length} ligne(s), ${totalLivre.toLocaleString("fr-FR")} au total)`,
+    avant: { statut: invoiceOrder.statut },
+    apres: { statut: "valide" },
+  });
+
   revalidatePath(`/depots/invoice-order/${invoiceOrderId}`);
   revalidatePath(`/depots/transfer-order/${transferOrder.id}`);
   revalidatePath("/depots");
@@ -737,13 +774,34 @@ export async function updateInvoiceOrderRemarqueAction(formData: FormData) {
     throw new Error("Transfer Invoice invalide.");
   }
 
+  const { data: avantData } = await supabaseServer
+    .from("invoice_orders")
+    .select("remarque")
+    .eq("id", invoiceOrderId)
+    .maybeSingle();
+  const remarqueAvant = (avantData as { remarque: string | null } | null)?.remarque ?? null;
+  const remarqueApres = String(formData.get("remarque") || "").trim() || null;
+
   const { error } = await supabaseServer
     .from("invoice_orders")
-    .update({ remarque: String(formData.get("remarque") || "").trim() || null })
+    .update({ remarque: remarqueApres })
     .eq("id", invoiceOrderId);
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (remarqueAvant !== remarqueApres) {
+    const label = await fetchInvoiceOrderLabel(invoiceOrderId);
+    await logAudit({
+      utilisateur: await getCurrentStockUser(),
+      module: "InvoiceOrder",
+      action: "modification",
+      cible: label,
+      resume: `Remarque modifiee sur Transfer Invoice ${label}`,
+      avant: { remarque: remarqueAvant },
+      apres: { remarque: remarqueApres },
+    });
   }
 
   revalidatePath(`/depots/invoice-order/${invoiceOrderId}`);

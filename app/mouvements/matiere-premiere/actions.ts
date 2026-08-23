@@ -11,6 +11,7 @@ import {
   computeCoutPlastiqueParPiece,
   type RecettePlastiqueLigne,
 } from "@/app/production-plastique/shared";
+import { logAudit } from "@/lib/audit-log";
 
 // Supprime une ligne de detail puis, si c'etait la derniere ligne de son
 // mouvement (groupe), renvoie vers la liste au lieu de laisser la page
@@ -18,7 +19,7 @@ import {
 async function deleteMpDetailLineAndRedirectIfEmpty(lotId: number) {
   const { data: lotRow } = await supabaseServer
     .from("lots_stock_matiere_premiere")
-    .select("mouvement_groupe_id")
+    .select("*, articles_matiere_premiere(nom_article)")
     .eq("id", lotId)
     .maybeSingle();
 
@@ -28,6 +29,28 @@ async function deleteMpDetailLineAndRedirectIfEmpty(lotId: number) {
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (lotRow) {
+    const row = lotRow as {
+      numero_lot: string | null;
+      code_normalise: string | null;
+      qte_entree: number;
+      qte_sortie: number;
+      articles_matiere_premiere: { nom_article: string } | { nom_article: string }[] | null;
+    };
+    const articleRelation = row.articles_matiere_premiere;
+    const nomArticle = Array.isArray(articleRelation) ? articleRelation[0]?.nom_article : articleRelation?.nom_article;
+    const code = row.numero_lot || row.code_normalise || `#${lotId}`;
+    const { articles_matiere_premiere: _rel, ...lotSnapshot } = row;
+    await logAudit({
+      utilisateur: await getCurrentStockUser(),
+      module: "StockMP",
+      action: "suppression",
+      cible: code,
+      resume: `Lot MP ${code}${nomArticle ? ` (${nomArticle})` : ""} supprime du stock (${row.qte_entree > 0 ? "entree" : "sortie"})`,
+      avant: { lots: [lotSnapshot] },
+    });
   }
 
   // Sans ca, l'ecriture "Achat MP" (601000/401000) de ce lot restait dans le
@@ -258,6 +281,16 @@ export async function createEntreeMpBatchAction(formData: FormData) {
     }
   }
 
+  const totalQuantite = payload.reduce((sum, row) => sum + row.qte_entree, 0);
+  await logAudit({
+    utilisateur: currentUser,
+    module: "StockMP",
+    action: "creation",
+    cible: payload.map((row) => row.numero_lot).join(", "),
+    resume: `Entree stock MP - ${payload.length} lot(s), ${totalQuantite.toLocaleString("fr-FR")} au total`,
+    apres: { lots: payload },
+  });
+
   revalidateMouvementsMpPages();
 
   return { ok: true, groupe_ids: groupeIds };
@@ -373,6 +406,16 @@ export async function createSortieMpBatchAction(formData: FormData) {
     console.error("Ecriture comptable perte MP (Sortie MP) echouee:", comptaError);
   }
 
+  const totalQuantite = lignes.reduce((sum, l) => sum + l.quantite, 0);
+  await logAudit({
+    utilisateur: currentUser,
+    module: "StockMP",
+    action: "creation",
+    cible: lignes.map((l) => l.numero_lot).join(", "),
+    resume: `Sortie stock MP - ${lignes.length} lot(s), ${totalQuantite.toLocaleString("fr-FR")} au total`,
+    apres: { lots: lignes },
+  });
+
   revalidateMouvementsMpPages();
 
   return { ok: true };
@@ -394,8 +437,16 @@ export async function deleteMouvementMpGroupAction(formData: FormData) {
 
   const { data: lignesAvant } = await supabaseServer
     .from("lots_stock_matiere_premiere")
-    .select("id")
+    .select("id, numero_lot, code_normalise, qte_entree, qte_sortie, article_id")
     .eq("mouvement_groupe_id", groupeId);
+  const lignesAvantRows = (lignesAvant ?? []) as {
+    id: number;
+    numero_lot: string | null;
+    code_normalise: string | null;
+    qte_entree: number;
+    qte_sortie: number;
+    article_id: number | null;
+  }[];
 
   const { error } = await supabaseServer.rpc("stock_mp_delete_lot_group", { p_groupe_id: groupeId });
 
@@ -406,10 +457,19 @@ export async function deleteMouvementMpGroupAction(formData: FormData) {
   // Meme correctif que deleteMpDetailLineAndRedirectIfEmpty - un mouvement
   // groupe peut contenir plusieurs lots, chacun avec sa propre ecriture
   // Achat MP (indexee par son propre id de lot, pas par mouvement_groupe_id).
-  for (const ligne of (lignesAvant ?? []) as { id: number }[]) {
+  for (const ligne of lignesAvantRows) {
     await supprimerEcriturePourSource("mp_achat", String(ligne.id));
     await supprimerEcriturePourSource("mp_stock_entree", String(ligne.id));
   }
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "StockMP",
+    action: "suppression",
+    cible: `#${groupeId}`,
+    resume: `Mouvement stock MP #${groupeId} supprime (${lignesAvantRows.length} ligne(s))`,
+    avant: { lots: lignesAvantRows },
+  });
 
   revalidateMouvementsMpPages();
 }
@@ -541,6 +601,13 @@ export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
 
   await assertLotBalanceStaysNonNegative(lotId, quantite, 0);
 
+  const { data: avantData } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .select("qte_entree, numero_lot")
+    .eq("id", lotId)
+    .maybeSingle();
+  const avant = avantData as { qte_entree: number; numero_lot: string | null } | null;
+
   const { error } = await supabaseServer
     .from("lots_stock_matiere_premiere")
     .update({
@@ -568,6 +635,16 @@ export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
     throw new Error(error.message);
   }
 
+  await logAudit({
+    utilisateur: currentUser,
+    module: "StockMP",
+    action: "modification",
+    cible: numeroLot || `#${lotId}`,
+    resume: `Lot MP ${numeroLot || `#${lotId}`} modifie (entree)`,
+    avant: { qte_entree: avant?.qte_entree ?? null, numero_lot: avant?.numero_lot ?? null },
+    apres: { qte_entree: quantite, numero_lot: numeroLot },
+  });
+
   revalidateMouvementsMpPages();
 }
 
@@ -593,6 +670,13 @@ export async function updateLotFromSortieMpDetailAction(formData: FormData) {
 
   await assertLotBalanceStaysNonNegative(lotId, 0, quantite);
 
+  const { data: avantData } = await supabaseServer
+    .from("lots_stock_matiere_premiere")
+    .select("qte_sortie, numero_lot")
+    .eq("id", lotId)
+    .maybeSingle();
+  const avant = avantData as { qte_sortie: number; numero_lot: string | null } | null;
+
   const { error } = await supabaseServer
     .from("lots_stock_matiere_premiere")
     .update({
@@ -608,6 +692,17 @@ export async function updateLotFromSortieMpDetailAction(formData: FormData) {
   if (error) {
     throw new Error(error.message);
   }
+
+  const codeLabel = avant?.numero_lot || `#${lotId}`;
+  await logAudit({
+    utilisateur: currentUser,
+    module: "StockMP",
+    action: "modification",
+    cible: codeLabel,
+    resume: `Lot MP ${codeLabel} modifie (sortie)`,
+    avant: { qte_sortie: avant?.qte_sortie ?? null },
+    apres: { qte_sortie: quantite },
+  });
 
   revalidateMouvementsMpPages();
 }

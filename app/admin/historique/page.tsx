@@ -36,6 +36,8 @@ const FIELD_LABELS: Record<string, string> = {
   code_pays: "Code pays",
   note: "Note",
   numero_bl: "Numero BL",
+  remarque: "Remarque",
+  quantite: "Quantite",
 };
 
 function fieldLabel(key: string) {
@@ -144,19 +146,64 @@ function SuppressionDetail({ row }: { row: AuditRow }) {
     );
   }
 
-  if (row.module === "Stock") {
+  if (row.module === "Stock" || row.module === "StockMP") {
     const lots = (row.donnees_avant.lots as Record<string, unknown>[] | undefined) ?? [];
     return (
       <div className="grid gap-3">
         {lots.map((lot, index) => (
           <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <p className="text-sm font-semibold text-slate-800">{String(lot.numero_lot ?? "")}</p>
+            <p className="text-sm font-semibold text-slate-800">
+              {String(lot.numero_lot ?? lot.code_normalise ?? "")}
+            </p>
             <p className="mt-1 text-xs text-slate-500">
               Entree {String(lot.qte_entree ?? 0)} - Sortie {String(lot.qte_sortie ?? 0)} - Fabrication{" "}
-              {String(lot.date_fabrication ?? "-")}
+              {String(lot.date_fabrication ?? lot.date_reception ?? "-")}
             </p>
           </div>
         ))}
+      </div>
+    );
+  }
+
+  if (row.module === "TransferOrder") {
+    const to = row.donnees_avant.transferOrder as Record<string, unknown> | undefined;
+    const lignes = (row.donnees_avant.lignes as Record<string, unknown>[] | undefined) ?? [];
+    return (
+      <div className="grid gap-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-sm font-semibold text-slate-800">
+            {to ? `Depot #${to.depot_source_id} -> Depot #${to.depot_destination_id}` : "-"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Statut {String(to?.statut ?? "-")} - {String(to?.date_jour ?? "-")}
+            {to?.remarque ? ` - ${String(to.remarque)}` : ""}
+          </p>
+        </div>
+        {lignes.length > 0 ? (
+          <p className="text-sm text-slate-700">
+            {lignes
+              .map((l) => `${String(l.article_type ?? "")} #${l.article_id} x ${l.quantite_demandee}`)
+              .join(", ")}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (row.module === "InvoiceOrder") {
+    const io = row.donnees_avant.invoiceOrder as Record<string, unknown> | undefined;
+    const lignes = (row.donnees_avant.lignes as Record<string, unknown>[] | undefined) ?? [];
+    return (
+      <div className="grid gap-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-sm font-semibold text-slate-800">Transfer Order #{String(io?.transfer_order_id ?? "-")}</p>
+          <p className="mt-1 text-xs text-slate-500">Statut {String(io?.statut ?? "-")}</p>
+        </div>
+        {lignes.length > 0 ? (
+          <p className="text-sm text-slate-700">
+            {lignes.map((l) => `lot ${l.numero_lot ?? "-"} x ${l.quantite}`).join(", ")}
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -248,6 +295,9 @@ const PAGE_SIZE = 100;
 const MODULE_OPTIONS = [
   "Commandes",
   "Stock",
+  "StockMP",
+  "TransferOrder",
+  "InvoiceOrder",
   "ProgrammeLignes",
   "ProductionCartonEntries",
   "ProgrammeDispatcherLignes",
