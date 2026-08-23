@@ -667,6 +667,15 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/production/rapport/dechets"],
     hasWrite: false,
   },
+  {
+    key: "productionRapportFluxCode",
+    module: "Production",
+    label: "Flux par Code (PL/PD/TO/TI/TE/TS/proforma)",
+    pathPrefixes: ["/production/rapport/flux-code"],
+    hasWrite: false,
+    defaultView: false,
+    defaultWrite: false,
+  },
 
   // Qualite
   {

@@ -1,11 +1,13 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { fetchPlCodeByGroupeId } from "@/lib/programme-numbering";
+import { fetchPlCodeByGroupeId, fetchPdRefsBySourceGroupeId } from "@/lib/programme-numbering";
 import type { ArticleType } from "./stock-lots";
-import { buildEntreeRows, buildSortieRows, fetchWebMouvementSourceRows, parseSortieMeta } from "@/app/mouvements/shared";
+import { buildMouvementInfoByRowId, fetchWebMouvementSourceRows, traceProduitFiniPourCode } from "@/app/mouvements/shared";
+
+export type FluxPdRef = { label: string; href: string };
 
 export type FluxOrigine =
   | { type: "programme_mb"; label: string; href: string }
-  | { type: "programme_ligne"; label: string; href: string }
+  | { type: "programme_ligne"; label: string; href: string; pds: FluxPdRef[] }
   | { type: "manuel"; creePar: string | null; remarque: string | null };
 
 export type FluxSortie = {
@@ -83,11 +85,18 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
       href: `/production/programme/${to.source_numero_programme}`,
     };
   } else if (to.source_groupe_id_programme_ligne) {
-    const plCodeByGroupeId = await fetchPlCodeByGroupeId();
+    const [plCodeByGroupeId, pdRefsBySourceGroupeId] = await Promise.all([
+      fetchPlCodeByGroupeId(),
+      fetchPdRefsBySourceGroupeId(),
+    ]);
     origine = {
       type: "programme_ligne",
       label: plCodeByGroupeId.get(to.source_groupe_id_programme_ligne) ?? `PL-${to.source_groupe_id_programme_ligne}`,
       href: `/historique-programme/${to.source_groupe_id_programme_ligne}`,
+      pds: (pdRefsBySourceGroupeId.get(to.source_groupe_id_programme_ligne) ?? []).map((ref) => ({
+        label: ref.code,
+        href: `/historique-programme-dispatcher/${ref.groupeId}`,
+      })),
     };
   } else {
     origine = { type: "manuel", creePar: to.cree_par, remarque: to.remarque };
@@ -190,14 +199,7 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
   // pour toute la fonction, jamais un par consommateur.
   const needsTrace = quantiteParCle.size > 0;
   const webRows = needsTrace ? await fetchWebMouvementSourceRows() : [];
-  const mouvementInfoByRowId = new Map<number, { code: string; groupeId: number }>();
-  if (needsTrace) {
-    for (const group of [...buildEntreeRows(webRows), ...buildSortieRows(webRows)]) {
-      for (const ligne of group.lignes) {
-        mouvementInfoByRowId.set(ligne.id, { code: group.code, groupeId: group.groupe_id });
-      }
-    }
-  }
+  const mouvementInfoByRowId = needsTrace ? buildMouvementInfoByRowId(webRows) : new Map();
 
   const destinations: FluxDestinationLigne[] = [];
 
@@ -237,36 +239,13 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
         if (seenCodes.has(t.code)) continue;
         seenCodes.add(t.code);
         const pl = plById.get(t.programme_ligne_id);
-
-        const rowsPourCeCode = pl?.article_id
-          ? webRows.filter(
-              (r) => r.article_id === pl.article_id && (r.numero_lot || "").trim().toUpperCase() === t.code.trim().toUpperCase()
-            )
-          : [];
-        const entreeRow = rowsPourCeCode.find((r) => Number(r.qte_entree ?? 0) > 0);
-        const entreeInfo = entreeRow ? mouvementInfoByRowId.get(entreeRow.id) : undefined;
-
-        const sorties: FluxSortie[] = rowsPourCeCode
-          .filter((r) => Number(r.qte_sortie ?? 0) > 0)
-          .map((r) => {
-            const meta = parseSortieMeta(r.note, r.source_import);
-            const info = mouvementInfoByRowId.get(r.id);
-            return {
-              label: info?.code ?? "-",
-              href: info ? `/mouvements/sorties/${info.groupeId}` : "/mouvements/produit-fini",
-              quantite: Number(r.qte_sortie ?? 0),
-              proforma: meta.numero_proforma,
-              livrePour: meta.livre_pour,
-            };
-          });
+        const { entreeProduction, sorties } = traceProduitFiniPourCode(webRows, mouvementInfoByRowId, pl?.article_id, t.code);
 
         consommateurs.push({
           code: t.code,
           produit: pl?.produit ?? null,
           href: pl?.groupe_id ? `/historique-programme/${pl.groupe_id}` : `/production/suivi/dashboard`,
-          entreeProduction: entreeInfo
-            ? { entree: true, label: entreeInfo.code, href: `/mouvements/entrees/${entreeInfo.groupeId}` }
-            : { entree: false },
+          entreeProduction,
           sorties,
         });
       }

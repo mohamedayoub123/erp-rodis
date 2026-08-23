@@ -69,6 +69,14 @@ const TILES = [
     description:
       "Par article : cout reel (vrac/conditionnement, electricite machine, journaliers) sur une periode.",
   },
+  {
+    label: "Flux par Code",
+    href: "/production/rapport/flux-code",
+    pageKey: "productionRapportFluxCode",
+    icon: "\u{1F50D}",
+    description:
+      "Tape un code : PL, PD, TO/TI qui ont livre la matiere, entree stock du produit fini, et livraison/proforma si deja sorti.",
+  },
 ] as const;
 
 export default async function RapportPage() {

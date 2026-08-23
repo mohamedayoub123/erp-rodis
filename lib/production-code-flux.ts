@@ -1,0 +1,231 @@
+import { supabaseServer } from "@/lib/supabase-server";
+import { fetchPlCodeByGroupeId, fetchPdRefsBySourceGroupeId } from "@/lib/programme-numbering";
+import {
+  buildMouvementInfoByRowId,
+  fetchWebMouvementSourceRows,
+  traceProduitFiniPourCode,
+  type MouvementSourceRow,
+  type TraceEntreeProduction,
+  type TraceSortie,
+} from "@/app/mouvements/shared";
+
+export type CodeFluxRef = { label: string; href: string };
+
+export type CodeFluxTo = { label: string; href: string; statut: string };
+
+export type CodeFluxMpSource = {
+  articleNom: string;
+  numeroLot: string | null;
+  depotNom: string;
+  quantiteReservee: number;
+  tos: CodeFluxTo[];
+};
+
+export type CodeFlux = {
+  code: string;
+  pl: CodeFluxRef | null;
+  pds: CodeFluxRef[];
+  produit: string | null;
+  mpSources: CodeFluxMpSource[];
+  entreeProduction: TraceEntreeProduction;
+  sorties: TraceSortie[];
+};
+
+// Contexte partage (mouvements web + numerotation PL/PD charges UNE SEULE
+// FOIS) pour tracer plusieurs codes sans refaire tourner
+// fetchWebMouvementSourceRows/fetchPlCodeByGroupeId/fetchPdRefsBySourceGroupeId
+// a chaque code - une meme page PL/PD peut avoir plusieurs codes (numero_lot
+// splitte en plusieurs lots).
+export type CodeFluxContext = {
+  webRows: MouvementSourceRow[];
+  mouvementInfoByRowId: Map<number, { code: string; groupeId: number }>;
+  plCodeByGroupeId: Map<number, string>;
+  pdRefsBySourceGroupeId: Map<number, { code: string; groupeId: number }[]>;
+};
+
+export async function buildCodeFluxContext(): Promise<CodeFluxContext> {
+  const [webRows, plCodeByGroupeId, pdRefsBySourceGroupeId] = await Promise.all([
+    fetchWebMouvementSourceRows(),
+    fetchPlCodeByGroupeId(),
+    fetchPdRefsBySourceGroupeId(),
+  ]);
+  return { webRows, mouvementInfoByRowId: buildMouvementInfoByRowId(webRows), plCodeByGroupeId, pdRefsBySourceGroupeId };
+}
+
+// Retrouve le/les Transfer Order qui ont livre un (article MP, lot, depot)
+// precis - meme principe/bug corrige que dans
+// app/depots/transfer-order/flux.ts : priorite aux Transfer Invoice VALIDES
+// (donnee reelle, invoice_order_lignes), repli sur l'allocation prevue
+// (transfer_order_ligne_lots) seulement pour les lignes sans TI valide.
+// Best-effort : un lot peut avoir ete livre par plusieurs TO au fil du
+// temps (reappro successifs), la liste retournee n'est donc pas forcement
+// UN seul TO exact pour la quantite consommee par ce code precis.
+async function fetchTosPourArticleLotDepot(
+  articleMpId: number,
+  numeroLot: string | null,
+  depotId: number
+): Promise<CodeFluxTo[]> {
+  const { data: lignesData } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("id, transfer_order_id")
+    .eq("article_type", "MP")
+    .eq("article_id", articleMpId);
+  const ligneRows = (lignesData ?? []) as { id: number; transfer_order_id: number }[];
+  if (ligneRows.length === 0) return [];
+  const ligneIds = ligneRows.map((l) => l.id);
+  const toIdByLigneId = new Map(ligneRows.map((l) => [l.id, l.transfer_order_id]));
+
+  let invoiceQuery = supabaseServer
+    .from("invoice_order_lignes")
+    .select("transfer_order_ligne_id, invoice_order_id")
+    .in("transfer_order_ligne_id", ligneIds);
+  invoiceQuery = numeroLot === null ? invoiceQuery.is("numero_lot", null) : invoiceQuery.eq("numero_lot", numeroLot);
+  const { data: invoiceLignesData } = await invoiceQuery;
+  const invoiceRows = (invoiceLignesData ?? []) as { transfer_order_ligne_id: number; invoice_order_id: number }[];
+
+  const matchedLigneIds = new Set<number>();
+  const toIds = new Set<number>();
+
+  if (invoiceRows.length > 0) {
+    const invoiceIds = [...new Set(invoiceRows.map((r) => r.invoice_order_id))];
+    const { data: invoiceOrdersData } = await supabaseServer
+      .from("invoice_orders")
+      .select("id")
+      .in("id", invoiceIds)
+      .eq("statut", "valide");
+    const validInvoiceIds = new Set(((invoiceOrdersData ?? []) as { id: number }[]).map((io) => io.id));
+    for (const row of invoiceRows) {
+      if (!validInvoiceIds.has(row.invoice_order_id)) continue;
+      matchedLigneIds.add(row.transfer_order_ligne_id);
+      const toId = toIdByLigneId.get(row.transfer_order_ligne_id);
+      if (toId) toIds.add(toId);
+    }
+  }
+
+  const ligneIdsSansInvoice = ligneIds.filter((id) => !matchedLigneIds.has(id));
+  if (ligneIdsSansInvoice.length > 0) {
+    let lotsQuery = supabaseServer
+      .from("transfer_order_ligne_lots")
+      .select("transfer_order_ligne_id")
+      .in("transfer_order_ligne_id", ligneIdsSansInvoice);
+    lotsQuery = numeroLot === null ? lotsQuery.is("numero_lot", null) : lotsQuery.eq("numero_lot", numeroLot);
+    const { data: lotsData } = await lotsQuery;
+    for (const row of (lotsData ?? []) as { transfer_order_ligne_id: number }[]) {
+      const toId = toIdByLigneId.get(row.transfer_order_ligne_id);
+      if (toId) toIds.add(toId);
+    }
+  }
+
+  if (toIds.size === 0) return [];
+
+  const { data: transferOrdersData } = await supabaseServer
+    .from("transfer_orders")
+    .select("id, depot_destination_id, date_jour, numero, statut")
+    .in("id", [...toIds]);
+
+  return ((transferOrdersData ?? []) as { id: number; depot_destination_id: number; date_jour: string; numero: number | null; statut: string }[])
+    .filter((to) => to.depot_destination_id === depotId)
+    .map((to) => ({
+      label: `TO.${to.date_jour.slice(0, 4)}.${to.numero ?? to.id}`,
+      href: `/depots/transfer-order/${to.id}`,
+      statut: to.statut,
+    }));
+}
+
+// Trace complete d'un code de dispatch precis - demande explicite : "je
+// tape un code, il me dit le flux : PL, PD, TO, TI, TE, TS, entree,
+// proforma livree". PL/PD viennent de programme_lignes ; la matiere
+// premiere consommee et son/ses TO d'origine viennent de
+// production_mp_reserve (garde la trace meme apres consommation complete,
+// contrairement au Flux TO/TI qui ne regarde que le reste disponible) ;
+// l'entree stock et la sortie/proforma du produit fini viennent de
+// traceProduitFiniPourCode (meme fonction que le Flux TO/TI, jamais
+// dupliquee).
+export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Promise<CodeFlux | null> {
+  const code = codeRaw.trim();
+  if (!code) return null;
+
+  const { data: termineData } = await supabaseServer
+    .from("production_code_termine")
+    .select("id, programme_ligne_id")
+    .eq("code", code);
+  const termineRows = (termineData ?? []) as { id: number; programme_ligne_id: number }[];
+  if (termineRows.length === 0) return null;
+
+  const programmeLigneId = termineRows[0].programme_ligne_id;
+  const { data: plData } = await supabaseServer
+    .from("programme_lignes")
+    .select("id, groupe_id, produit, article_id")
+    .eq("id", programmeLigneId)
+    .maybeSingle();
+  const pl = plData as { id: number; groupe_id: number | null; produit: string | null; article_id: number | null } | null;
+
+  const plRef: CodeFluxRef | null =
+    pl?.groupe_id != null
+      ? { label: ctx.plCodeByGroupeId.get(pl.groupe_id) ?? `PL-${pl.groupe_id}`, href: `/historique-programme/${pl.groupe_id}` }
+      : null;
+  const pds: CodeFluxRef[] =
+    pl?.groupe_id != null
+      ? (ctx.pdRefsBySourceGroupeId.get(pl.groupe_id) ?? []).map((ref) => ({
+          label: ref.code,
+          href: `/historique-programme-dispatcher/${ref.groupeId}`,
+        }))
+      : [];
+
+  const { data: reserveData } = await supabaseServer
+    .from("production_mp_reserve")
+    .select("article_mp_id, depot_id, numero_lot, quantite_initiale")
+    .in(
+      "production_code_termine_id",
+      termineRows.map((t) => t.id)
+    );
+  const reserves = (reserveData ?? []) as {
+    article_mp_id: number;
+    depot_id: number;
+    numero_lot: string | null;
+    quantite_initiale: number;
+  }[];
+
+  const parCle = new Map<string, { articleMpId: number; depotId: number; numeroLot: string | null; quantite: number }>();
+  for (const r of reserves) {
+    const key = `${r.article_mp_id}::${r.depot_id}::${r.numero_lot ?? ""}`;
+    const existing = parCle.get(key);
+    if (existing) existing.quantite += Number(r.quantite_initiale ?? 0);
+    else
+      parCle.set(key, {
+        articleMpId: r.article_mp_id,
+        depotId: r.depot_id,
+        numeroLot: r.numero_lot,
+        quantite: Number(r.quantite_initiale ?? 0),
+      });
+  }
+
+  const mpSources: CodeFluxMpSource[] = [];
+  for (const { articleMpId, depotId, numeroLot, quantite } of parCle.values()) {
+    const [{ data: articleData }, { data: depotData }, tos] = await Promise.all([
+      supabaseServer.from("articles_matiere_premiere").select("nom_article").eq("id", articleMpId).maybeSingle(),
+      supabaseServer.from("depots").select("nom").eq("id", depotId).maybeSingle(),
+      fetchTosPourArticleLotDepot(articleMpId, numeroLot, depotId),
+    ]);
+
+    mpSources.push({
+      articleNom: (articleData as { nom_article: string } | null)?.nom_article ?? `#${articleMpId}`,
+      numeroLot,
+      depotNom: (depotData as { nom: string } | null)?.nom ?? `#${depotId}`,
+      quantiteReservee: quantite,
+      tos,
+    });
+  }
+
+  const { entreeProduction, sorties } = traceProduitFiniPourCode(ctx.webRows, ctx.mouvementInfoByRowId, pl?.article_id, code);
+
+  return {
+    code,
+    pl: plRef,
+    pds,
+    produit: pl?.produit ?? null,
+    mpSources,
+    entreeProduction,
+    sorties,
+  };
+}

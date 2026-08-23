@@ -356,6 +356,76 @@ export function parseSortieMeta(note: string | null, sourceImport?: string | nul
   return empty;
 }
 
+export type TraceEntreeProduction = { entree: true; label: string; href: string } | { entree: false };
+
+export type TraceSortie = {
+  label: string;
+  href: string;
+  quantite: number;
+  proforma: string | null;
+  livrePour: string | null;
+};
+
+// Index unique {ligne lots_stock -> code TE/TS/"Entree Production" + lien}
+// pour tout un lot de mouvements web deja charges - calcule une seule fois
+// (fetchWebMouvementSourceRows + buildEntreeRows/buildSortieRows), reutilise
+// pour tracer plusieurs codes/articles sans refaire tourner la numerotation
+// a chaque fois (voir traceProduitFiniPourCode).
+export function buildMouvementInfoByRowId(rows: MouvementSourceRow[]): Map<number, { code: string; groupeId: number }> {
+  const map = new Map<number, { code: string; groupeId: number }>();
+  for (const group of [...buildEntreeRows(rows), ...buildSortieRows(rows)]) {
+    for (const ligne of group.lignes) {
+      map.set(ligne.id, { code: group.code, groupeId: group.groupe_id });
+    }
+  }
+  return map;
+}
+
+// Retrouve l'entree stock reelle (TE/Entree Production) et les sorties/
+// livraisons deja faites du produit fini issu d'un code de production
+// precis - jamais via ecritures_comptables.source_id (voir le commentaire
+// dans app/depots/transfer-order/flux.ts sur le bug du mauvais groupe_id),
+// toujours par correspondance directe sur lots_stock (article_id +
+// numero_lot = le code de dispatch, meme convention que
+// createEntreeProductionBatchAction). Partagee entre le Flux TO/TI et le
+// Rapport "Flux par Code" pour ne jamais desynchroniser les deux.
+export function traceProduitFiniPourCode(
+  webRows: MouvementSourceRow[],
+  mouvementInfoByRowId: Map<number, { code: string; groupeId: number }>,
+  articleId: number | null | undefined,
+  code: string
+): { entreeProduction: TraceEntreeProduction; sorties: TraceSortie[] } {
+  if (!articleId) return { entreeProduction: { entree: false }, sorties: [] };
+  const codeNorm = code.trim().toUpperCase();
+  const rows = webRows.filter(
+    (r) => r.article_id === articleId && (r.numero_lot || "").trim().toUpperCase() === codeNorm
+  );
+
+  const entreeRow = rows.find((r) => Number(r.qte_entree ?? 0) > 0);
+  const entreeInfo = entreeRow ? mouvementInfoByRowId.get(entreeRow.id) : undefined;
+
+  const sorties: TraceSortie[] = rows
+    .filter((r) => Number(r.qte_sortie ?? 0) > 0)
+    .map((r) => {
+      const meta = parseSortieMeta(r.note, r.source_import);
+      const info = mouvementInfoByRowId.get(r.id);
+      return {
+        label: info?.code ?? "-",
+        href: info ? `/mouvements/sorties/${info.groupeId}` : "/mouvements/produit-fini",
+        quantite: Number(r.qte_sortie ?? 0),
+        proforma: meta.numero_proforma,
+        livrePour: meta.livre_pour,
+      };
+    });
+
+  return {
+    entreeProduction: entreeInfo
+      ? { entree: true, label: entreeInfo.code, href: `/mouvements/entrees/${entreeInfo.groupeId}` }
+      : { entree: false },
+    sorties,
+  };
+}
+
 export function formatMouvementDate(value: string | null) {
   return formatDate(value);
 }

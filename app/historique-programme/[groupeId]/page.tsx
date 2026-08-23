@@ -13,6 +13,8 @@ import { SubmitButton } from "@/app/_components/submit-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { formatDateTime } from "@/lib/format-date";
 import { fetchPlCodeByGroupeId, fetchPdRefsBySourceGroupeId } from "@/lib/programme-numbering";
+import { buildCodeFluxContext, fetchCodeFlux } from "@/lib/production-code-flux";
+import { CodeFluxCard } from "@/app/_components/code-flux-card";
 
 type ProgrammeLigneRow = {
   id: number;
@@ -83,6 +85,20 @@ export default async function HistoriqueProgrammeDetailPage({
   const pdRefs = pdRefsBySourceGroupeId.get(groupeIdNumber) ?? [];
 
   const dateJour = lignes[0]?.date_jour;
+
+  // Flux complet (meme calcul que le Flux TO/TI et le Rapport "Flux par
+  // Code") pour chaque code de dispatch de ce groupe - une ligne decoupee en
+  // plusieurs lots porte plusieurs codes separes par virgule dans
+  // numero_lot (voir le meme split ailleurs pour ce champ).
+  const codes = [
+    ...new Set(
+      lignes.flatMap((l) => (l.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean))
+    ),
+  ];
+  const codeFluxContext = codes.length > 0 ? await buildCodeFluxContext() : null;
+  const codeFluxList = codeFluxContext
+    ? (await Promise.all(codes.map((c) => fetchCodeFlux(c, codeFluxContext)))).filter((f) => f !== null)
+    : [];
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -201,6 +217,19 @@ export default async function HistoriqueProgrammeDetailPage({
             </table>
           </div>
         </section>
+
+        {codeFluxList.length > 0 ? (
+          <details className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <summary className="cursor-pointer px-6 py-4 text-sm font-bold text-slate-900">
+              Flux - matiere premiere et produit fini par code
+            </summary>
+            <div className="space-y-3 border-t border-slate-100 px-6 py-4">
+              {codeFluxList.map((flux) => (
+                <CodeFluxCard key={flux.code} flux={flux} />
+              ))}
+            </div>
+          </details>
+        ) : null}
       </div>
     </main>
   );

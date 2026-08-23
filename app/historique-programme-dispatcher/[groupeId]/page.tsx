@@ -9,6 +9,8 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { formatDateTime } from "@/lib/format-date";
 import { fetchPdCodeByGroupeId, fetchPlCodeByGroupeId } from "@/lib/programme-numbering";
+import { buildCodeFluxContext, fetchCodeFlux } from "@/lib/production-code-flux";
+import { CodeFluxCard } from "@/app/_components/code-flux-card";
 
 type HistoryRow = {
   id: number;
@@ -72,6 +74,14 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
   const sourceGroupeId = rows.find((row) => row.source_groupe_id !== null)?.source_groupe_id ?? null;
   const plCode = sourceGroupeId !== null ? plCodeByGroupeId.get(sourceGroupeId) ?? null : null;
   const dateJour = rows[0]?.date_jour;
+
+  // Flux complet (meme calcul que le Flux TO/TI et le Rapport "Flux par
+  // Code") pour chaque code distinct de ce groupe PD.
+  const codes = [...new Set(rows.map((r) => (r.code || "").trim()).filter(Boolean))];
+  const codeFluxContext = codes.length > 0 ? await buildCodeFluxContext() : null;
+  const codeFluxList = codeFluxContext
+    ? (await Promise.all(codes.map((c) => fetchCodeFlux(c, codeFluxContext)))).filter((f) => f !== null)
+    : [];
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -150,6 +160,19 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
             </table>
           </div>
         </section>
+
+        {codeFluxList.length > 0 ? (
+          <details className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <summary className="cursor-pointer px-6 py-4 text-sm font-bold text-slate-900">
+              Flux - matiere premiere et produit fini par code
+            </summary>
+            <div className="space-y-3 border-t border-slate-100 px-6 py-4">
+              {codeFluxList.map((flux) => (
+                <CodeFluxCard key={flux.code} flux={flux} />
+              ))}
+            </div>
+          </details>
+        ) : null}
       </div>
     </main>
   );

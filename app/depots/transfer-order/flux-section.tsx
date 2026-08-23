@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { FluxInfo } from "./flux";
+import type { FluxConsommateur, FluxInfo } from "./flux";
 
 export function FluxSection({
   flux,
@@ -11,6 +11,19 @@ export function FluxSection({
   if (!flux) return null;
 
   const { origine, tis, destinations } = flux;
+
+  // Demande explicite : plus de detail par article MP (sleeve/carton...),
+  // juste le code de production, s'il est entre en stock, et s'il est deja
+  // reparti/livre avec la quantite. Un meme code peut apparaitre sous
+  // plusieurs articles de ce Transfer Order (sleeve ET carton par ex.) -
+  // dedoublonne par code, garde la premiere occurrence rencontree.
+  const consommateursParCode = new Map<string, FluxConsommateur>();
+  for (const d of destinations) {
+    for (const c of d.consommateurs) {
+      if (!consommateursParCode.has(c.code)) consommateursParCode.set(c.code, c);
+    }
+  }
+  const consommateursUniques = [...consommateursParCode.values()];
 
   return (
     <details className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -46,6 +59,20 @@ export function FluxSection({
               <Link href={origine.href} className="font-semibold text-sky-700 underline">
                 {origine.label}
               </Link>
+              {origine.type === "programme_ligne" && origine.pds.length > 0 ? (
+                <>
+                  {" "}
+                  - dispatche dans{" "}
+                  {origine.pds.map((pd, i) => (
+                    <span key={pd.href}>
+                      <Link href={pd.href} className="font-semibold text-sky-700 underline">
+                        {pd.label}
+                      </Link>
+                      {i < origine.pds.length - 1 ? ", " : ""}
+                    </span>
+                  ))}
+                </>
+              ) : null}
             </p>
           )}
         </div>
@@ -74,58 +101,47 @@ export function FluxSection({
 
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Destination du stock livre</p>
-          {destinations.length === 0 ? (
-            <p className="mt-1 text-sm text-slate-500">Aucun article matiere premiere sur ce Transfer Order.</p>
+          {consommateursUniques.length === 0 ? (
+            <p className="mt-1 text-sm text-slate-500">
+              {destinations.length === 0
+                ? "Aucun article matiere premiere sur ce Transfer Order."
+                : "Toujours disponible au depot - pas encore repris par une production."}
+            </p>
           ) : (
-            <div className="mt-2 space-y-2">
-              {destinations.map((d, index) => (
-                <div key={`${d.articleNom}-${d.numeroLot}-${index}`} className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-sm font-semibold text-slate-900">
-                    {d.articleNom} {d.numeroLot ? `(lot ${d.numeroLot})` : ""} -{" "}
-                    {d.quantite.toLocaleString("fr-FR")}
-                  </p>
-                  {d.consommateurs.length === 0 ? (
-                    <p className="mt-1 text-xs text-slate-500">Toujours disponible au depot - pas encore repris par une production.</p>
-                  ) : (
-                    <ul className="mt-1 space-y-1 text-xs text-slate-600">
-                      {d.consommateurs.map((c) => (
-                        <li key={c.code}>
-                          <div>
-                            Repris par{" "}
-                            <Link href={c.href} className="font-semibold text-sky-700 underline">
-                              {c.produit ? `${c.produit} - ` : ""}
-                              {c.code}
-                            </Link>{" "}
-                            -{" "}
-                            {c.entreeProduction.entree ? (
-                              <Link href={c.entreeProduction.href} className="font-semibold text-emerald-700 underline">
-                                entre en stock ({c.entreeProduction.label})
-                              </Link>
-                            ) : (
-                              <span className="text-amber-700">produit fini pas encore entre en stock</span>
-                            )}
-                          </div>
-                          {c.sorties.length > 0 ? (
-                            <ul className="ml-4 mt-0.5 space-y-0.5">
-                              {c.sorties.map((s, i) => (
-                                <li key={`${s.label}-${i}`}>
-                                  Livre (
-                                  <Link href={s.href} className="font-semibold text-sky-700 underline">
-                                    {s.label}
-                                  </Link>
-                                  ) - {s.quantite.toLocaleString("fr-FR")}
-                                  {s.proforma ? ` - proforma ${s.proforma}` : s.livrePour ? ` - ${s.livrePour}` : ""}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
+            <ul className="mt-2 space-y-2">
+              {consommateursUniques.map((c) => (
+                <li key={c.code} className="rounded-2xl bg-slate-50 px-4 py-3 text-sm">
+                  <div>
+                    <Link href={c.href} className="font-semibold text-sky-700 underline">
+                      {c.produit ? `${c.produit} - ` : ""}
+                      {c.code}
+                    </Link>{" "}
+                    -{" "}
+                    {c.entreeProduction.entree ? (
+                      <Link href={c.entreeProduction.href} className="font-semibold text-emerald-700 underline">
+                        entre en stock ({c.entreeProduction.label})
+                      </Link>
+                    ) : (
+                      <span className="text-amber-700">pas encore entre en stock</span>
+                    )}
+                  </div>
+                  {c.sorties.length > 0 ? (
+                    <ul className="ml-4 mt-1 space-y-0.5 text-xs text-slate-600">
+                      {c.sorties.map((s, i) => (
+                        <li key={`${s.label}-${i}`}>
+                          Livre (
+                          <Link href={s.href} className="font-semibold text-sky-700 underline">
+                            {s.label}
+                          </Link>
+                          ) - {s.quantite.toLocaleString("fr-FR")}
+                          {s.proforma ? ` - proforma ${s.proforma}` : s.livrePour ? ` - ${s.livrePour}` : ""}
                         </li>
                       ))}
                     </ul>
-                  )}
-                </div>
+                  ) : null}
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </div>
       </div>
