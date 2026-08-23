@@ -14,6 +14,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import {
   canChangeStatusCommandesUser,
   canDeleteCommandesUser,
+  canVoirPrixUser,
   canWritePageUser,
   getCurrentStockUser,
 } from "@/lib/stock-auth";
@@ -42,6 +43,8 @@ type CommandeListRow = {
 type CommandeRow = CommandeListRow & {
   lignes_count: number;
   carton_total: number;
+  prix_total: number | null;
+  prix_incomplet: boolean;
   volume_total: number | null;
   poids_total: number | null;
   dimensions_incomplet: boolean;
@@ -229,6 +232,7 @@ export default async function CommandesPage({
   const canEditCommandeDetail = await canWritePageUser(currentStockUser, "commandesDetail");
   const canDeleteCommandes = await canDeleteCommandesUser(currentStockUser);
   const canChangeStatusCommandes = await canChangeStatusCommandesUser(currentStockUser);
+  const canVoirPrix = await canVoirPrixUser(currentStockUser);
   const params = await searchParams;
   const q = (params.q || "").trim();
   const statut = (params.statut || "").trim().toUpperCase();
@@ -302,15 +306,26 @@ export default async function CommandesPage({
   ]);
 
   const articleIdsPourLignes = lignesRows.map((row) => row.article_id).filter((id): id is number => id !== null);
-  // Le cout de revient (FEFO + recette) est trop couteux pour cette liste -
-  // demande explicite : cette page doit ouvrir en quelques secondes, pas en
-  // 28s. Retire de la liste ce qui n'etait qu'une estimation theorique de
-  // toute facon (le vrai montant facture est sur la page detail de chaque
-  // commande, via l'ecriture Vente reelle - voir fetchMontantFactureCommande).
-  const dimensionsParArticle = await fetchDimensionsProduitsFinis(articleIdsPourLignes);
+  // Le cout de revient (FEFO + recette, voir fetchCoutsParCartonProduitsFinis)
+  // est trop couteux pour cette liste - demande explicite : cette page doit
+  // ouvrir en quelques secondes, pas en 28s. A la place : le prix de VENTE
+  // (articles.prix_vente, une simple colonne - pas de calcul FEFO) suffit
+  // pour un total indicatif ici, le vrai montant facture reste sur la page
+  // detail de chaque commande (ecriture Vente reelle, voir fetchMontantFactureCommande).
+  const [dimensionsParArticle, { data: prixVenteData }] = await Promise.all([
+    fetchDimensionsProduitsFinis(articleIdsPourLignes),
+    articleIdsPourLignes.length > 0
+      ? supabaseServer.from("articles").select("id, prix_vente").in("id", articleIdsPourLignes)
+      : Promise.resolve({ data: [] as { id: number; prix_vente: number | null }[] }),
+  ]);
+  const prixVenteByArticle = new Map(
+    ((prixVenteData ?? []) as { id: number; prix_vente: number | null }[]).map((a) => [a.id, a.prix_vente])
+  );
 
   const lignesCountByCommande = new Map<number, number>();
   const cartonTotalByCommande = new Map<number, number>();
+  const prixTotalByCommande = new Map<number, number>();
+  const prixIncompletByCommande = new Map<number, boolean>();
   const volumeTotalByCommande = new Map<number, number>();
   const poidsTotalByCommande = new Map<number, number>();
   const dimensionsIncompletByCommande = new Map<number, boolean>();
@@ -323,6 +338,16 @@ export default async function CommandesPage({
       row.commande_id,
       (cartonTotalByCommande.get(row.commande_id) ?? 0) + Number(row.quantite_demandee ?? 0)
     );
+
+    const prixVente = row.article_id !== null ? prixVenteByArticle.get(row.article_id) : undefined;
+    if (prixVente !== null && prixVente !== undefined) {
+      prixTotalByCommande.set(
+        row.commande_id,
+        (prixTotalByCommande.get(row.commande_id) ?? 0) + Number(row.quantite_demandee ?? 0) * prixVente
+      );
+    } else {
+      prixIncompletByCommande.set(row.commande_id, true);
+    }
 
     const dim = row.article_id !== null ? dimensionsParArticle.get(row.article_id) : undefined;
     const volumeCarton = volumeCartonM3(dim);
@@ -348,6 +373,8 @@ export default async function CommandesPage({
     ...commande,
     lignes_count: lignesCountByCommande.get(commande.id) ?? 0,
     carton_total: cartonTotalByCommande.get(commande.id) ?? 0,
+    prix_total: prixTotalByCommande.has(commande.id) ? (prixTotalByCommande.get(commande.id) as number) : null,
+    prix_incomplet: prixIncompletByCommande.get(commande.id) ?? false,
     volume_total: volumeTotalByCommande.has(commande.id) ? (volumeTotalByCommande.get(commande.id) as number) : null,
     poids_total: poidsTotalByCommande.has(commande.id) ? (poidsTotalByCommande.get(commande.id) as number) : null,
     dimensions_incomplet: dimensionsIncompletByCommande.get(commande.id) ?? false,
@@ -500,6 +527,7 @@ export default async function CommandesPage({
                   <col style={{ width: "70px" }} />
                   <col style={{ width: "110px" }} />
                   <col style={{ width: "150px" }} />
+                  {canVoirPrix ? <col style={{ width: "110px" }} /> : null}
                   <col style={{ width: "120px" }} />
                   <col style={{ width: "170px" }} />
                 </colgroup>
@@ -514,6 +542,7 @@ export default async function CommandesPage({
                     <th className="px-4 py-3 font-semibold">Type camion</th>
                     <th className="px-4 py-3 font-semibold">Lignes</th>
                     <th className="px-4 py-3 font-semibold">Total carton</th>
+                    {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix de vente</th> : null}
                     <th className="px-4 py-3 font-semibold">Volume (m3)</th>
                     <th className="px-4 py-3 font-semibold">Poids brut (kg)</th>
                     <th className="px-4 py-3 font-semibold">Actions</th>
@@ -661,6 +690,22 @@ export default async function CommandesPage({
                           ))}
                         </div>
                       </td>
+                      {canVoirPrix ? (
+                        <td className="px-4 py-3 font-semibold text-slate-900">
+                          <div className="flex flex-col gap-2">
+                            {group.rows.map((row) => (
+                              <div key={row.id} className="whitespace-nowrap">
+                                {row.prix_total !== null
+                                  ? `${row.prix_total.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`
+                                  : "-"}
+                                {row.prix_incomplet ? (
+                                  <span className="ml-1 text-xs font-normal text-amber-700">(partiel)</span>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      ) : null}
                       <td className="px-4 py-3 text-slate-700">
                         <div className="flex flex-col gap-2">
                           {group.rows.map((row) => (
