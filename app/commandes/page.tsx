@@ -284,15 +284,18 @@ export default async function CommandesPage({
       ((fifoPresenceData ?? []) as { commande_id: number | null }[]).map((r) => r.commande_id).filter(Boolean)
     );
     const dejaFacture = new Set(((ecrituresExistantesData ?? []) as { source_id: string }[]).map((r) => r.source_id));
-    // Plafonne a 5 par chargement - creerEcritureVente fait un vrai calcul de
-    // cout (FEFO) par commande, potentiellement lent ; jamais bloquer cette
-    // page plusieurs secondes pour un gros lot de guerisons d'un coup, elles
-    // s'etalent naturellement sur les chargements suivants.
+    // Plafonne a 5 par chargement, et {recalculerCoutVente: false} - meme
+    // raison que le recalcul de prix (voir prix-vente/actions.ts) : cette
+    // liste a besoin de l'ecriture Vente pour etre coherente, jamais du
+    // Cout de vente (FEFO+recette, invisible ici) qui rendrait cette page
+    // lente pour rien pour un cas rare. Le Cout de vente de ces commandes
+    // se remplira au prochain passage par un chemin qui en a vraiment
+    // besoin (nouvelle livraison, Reconstituer l'historique en direct).
     const aGuerir = livreeIds.filter((id) => aVraimentLivre.has(id) && !dejaFacture.has(String(id))).slice(0, 5);
     if (aGuerir.length > 0) {
       await Promise.all(
         aGuerir.map((id) =>
-          creerEcritureVente(id, currentStockUser).catch((err) =>
+          creerEcritureVente(id, currentStockUser, { recalculerCoutVente: false }).catch((err) =>
             console.error(`Auto-guerison vente echouee (${id}):`, err)
           )
         )
