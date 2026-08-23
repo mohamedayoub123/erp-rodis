@@ -29,7 +29,13 @@ type InvoiceOrderRow = {
   numero: number | null;
   remarque: string | null;
 };
-type TransferOrderRow = { id: number; depot_source_id: number; depot_destination_id: number };
+type TransferOrderRow = {
+  id: number;
+  depot_source_id: number;
+  depot_destination_id: number;
+  date_jour: string;
+  numero: number | null;
+};
 type LigneRow = { id: number; article_type: ArticleType; article_id: number };
 type InvoiceLigneRow = { id: number; transfer_order_ligne_id: number; numero_lot: string | null; quantite: number };
 
@@ -65,7 +71,7 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
   const [{ data: transferOrderData }, { data: depotsData }] = await Promise.all([
     supabaseServer
       .from("transfer_orders")
-      .select("id, depot_source_id, depot_destination_id")
+      .select("id, depot_source_id, depot_destination_id, date_jour, numero")
       .eq("id", invoiceOrder.transfer_order_id)
       .maybeSingle(),
     supabaseServer.from("depots").select("id, nom"),
@@ -120,6 +126,9 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
 
   // TI1.2026, TI2.2026... fige a la creation (colonne numero) - stable.
   const code = `TI.${invoiceOrder.date_jour.slice(0, 4)}.${invoiceOrder.numero ?? invoiceOrder.id}`;
+  const transferOrderCode = transferOrder
+    ? `TO.${transferOrder.date_jour.slice(0, 4)}.${transferOrder.numero ?? transferOrder.id}`
+    : null;
 
   const flux = await fetchFluxInfo(invoiceOrder.transfer_order_id);
 
@@ -176,7 +185,12 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
           </div>
         </section>
 
-        <FluxSection flux={flux} />
+        <FluxSection
+          flux={flux}
+          transferOrderRef={
+            transferOrderCode ? { label: transferOrderCode, href: `/depots/transfer-order/${invoiceOrder.transfer_order_id}` } : null
+          }
+        />
 
         <InvoiceOrderLignesEditor
           invoiceOrderId={invoiceOrderId}

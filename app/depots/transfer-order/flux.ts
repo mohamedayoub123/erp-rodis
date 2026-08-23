@@ -16,8 +16,11 @@ export type FluxDestinationLigne = {
   consommateurs: FluxConsommateur[];
 };
 
+export type FluxTi = { label: string; href: string; statut: string };
+
 export type FluxInfo = {
   origine: FluxOrigine;
+  tis: FluxTi[];
   destinations: FluxDestinationLigne[];
 };
 
@@ -74,6 +77,19 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
   } else {
     origine = { type: "manuel", creePar: to.cree_par, remarque: to.remarque };
   }
+
+  const { data: invoiceOrdersData } = await supabaseServer
+    .from("invoice_orders")
+    .select("id, statut, date_jour, numero")
+    .eq("transfer_order_id", transferOrderId)
+    .order("created_at", { ascending: true });
+  const tis: FluxTi[] = ((invoiceOrdersData ?? []) as { id: number; statut: string; date_jour: string; numero: number | null }[]).map(
+    (io) => ({
+      label: `TI.${io.date_jour.slice(0, 4)}.${io.numero ?? io.id}`,
+      href: `/depots/invoice-order/${io.id}`,
+      statut: io.statut === "valide" ? "Approuve" : "En attente",
+    })
+  );
 
   const { data: lignesData } = await supabaseServer
     .from("transfer_order_lignes")
@@ -151,5 +167,5 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
     }
   }
 
-  return { origine, destinations };
+  return { origine, tis, destinations };
 }
