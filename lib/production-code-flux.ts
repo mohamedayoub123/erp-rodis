@@ -63,16 +63,24 @@ export async function buildCodeFluxContext(): Promise<CodeFluxContext> {
 // ici est inverse : "quel TO a livre le stock que CE code a consomme" - un
 // TO jamais valide n'a physiquement rien deplace, ce n'est pas une source
 // reelle. Bug confirme par l'utilisateur : le repli affichait des TO
-// n'ayant jamais livre le lot, juste alloue dessus sur le papier. Best-
-// effort tout de meme : un numero de lot reutilise (ex: "ancien_lot" pour
-// du stock migre sans vrai lot) peut avoir ete livre par plusieurs TI
-// distincts au fil du temps, la liste n'est donc pas forcement UN seul TO
-// exact pour la quantite consommee par ce code precis.
+// n'ayant jamais livre le lot, juste alloue dessus sur le papier.
+//
+// Best-effort assume : un numero de lot reutilise (ex: "ancien_lot" pour du
+// stock migre sans vrai lot) peut avoir ete livre par plusieurs TI
+// distincts au fil du temps - AUCUN signal fiable ne permet de determiner
+// lequel a precisement fourni ce code (verifie sur donnees reelles : ni la
+// quantite livree, tres superieure et jamais alignee sur ce qu'un seul code
+// reserve - un TI alimente un depot partage par plusieurs codes, jamais
+// consomme 1-pour-1 - ni le delai entre la livraison et la reservation, un
+// stock livre peut tres bien dormir plusieurs jours avant d'etre reserve).
+// Le systeme actuel ne garde tout simplement AUCUN lien reservation -> TO/
+// TI precis - tant que ca reste vrai, afficher tous les candidats reels
+// (jamais un allegue jamais livre) est plus honnete que d'en exclure un a
+// tort par une heuristique qui se trompera forcement dans d'autres cas.
 async function fetchTosPourArticleLotDepot(
   articleMpId: number,
   numeroLot: string | null,
-  depotId: number,
-  quantiteReservee: number
+  depotId: number
 ): Promise<CodeFluxTo[]> {
   const { data: lignesData } = await supabaseServer
     .from("transfer_order_lignes")
@@ -86,21 +94,14 @@ async function fetchTosPourArticleLotDepot(
 
   let invoiceQuery = supabaseServer
     .from("invoice_order_lignes")
-    .select("transfer_order_ligne_id, invoice_order_id, quantite")
+    .select("transfer_order_ligne_id, invoice_order_id")
     .in("transfer_order_ligne_id", ligneIds);
   invoiceQuery = numeroLot === null ? invoiceQuery.is("numero_lot", null) : invoiceQuery.eq("numero_lot", numeroLot);
   const { data: invoiceLignesData } = await invoiceQuery;
-  const invoiceRows = (invoiceLignesData ?? []) as { transfer_order_ligne_id: number; invoice_order_id: number; quantite: number }[];
+  const invoiceRows = (invoiceLignesData ?? []) as { transfer_order_ligne_id: number; invoice_order_id: number }[];
 
   const toIds = new Set<number>();
   const invoiceIdsByToId = new Map<number, Set<number>>();
-  // Meme numero de lot livre par plusieurs TI distincts (cas "ancien_lot",
-  // reutilise pour du stock migre sans vrai lot) - la quantite exacte
-  // livree par CE TI, comparee a la quantite reservee par CE code, permet
-  // de retrouver LEQUEL a vraiment fourni ce code precis plutot que de
-  // presenter tous les TI ayant un jour touche ce lot. Demande explicite :
-  // "il a pris la quantite d'un seul TO, il faut mettre seulement celui-la".
-  const toIdsQuantiteExacte = new Set<number>();
 
   if (invoiceRows.length > 0) {
     const invoiceIds = [...new Set(invoiceRows.map((r) => r.invoice_order_id))];
@@ -110,7 +111,6 @@ async function fetchTosPourArticleLotDepot(
       .in("id", invoiceIds)
       .eq("statut", "valide");
     const validInvoiceIds = new Set(((invoiceOrdersData ?? []) as { id: number }[]).map((io) => io.id));
-    const tolerance = Math.max(0.5, quantiteReservee * 0.01);
     for (const row of invoiceRows) {
       if (!validInvoiceIds.has(row.invoice_order_id)) continue;
       const toId = toIdByLigneId.get(row.transfer_order_ligne_id);
@@ -119,26 +119,14 @@ async function fetchTosPourArticleLotDepot(
       const set = invoiceIdsByToId.get(toId) ?? new Set<number>();
       set.add(row.invoice_order_id);
       invoiceIdsByToId.set(toId, set);
-      if (Math.abs(Number(row.quantite ?? 0) - quantiteReservee) <= tolerance) {
-        toIdsQuantiteExacte.add(toId);
-      }
     }
   }
 
   if (toIds.size === 0) return [];
 
-  // Si un (ou plusieurs) TI correspond exactement a la quantite reservee
-  // par ce code, ne garder QUE ceux-la - sinon (aucune correspondance
-  // exacte, ex: consommation partielle repartie sur plusieurs livraisons)
-  // on garde la liste complete plutot que de risquer d'en exclure un vrai.
-  const toIdsRetenus = toIdsQuantiteExacte.size > 0 ? toIdsQuantiteExacte : toIds;
-  for (const toId of [...invoiceIdsByToId.keys()]) {
-    if (!toIdsRetenus.has(toId)) invoiceIdsByToId.delete(toId);
-  }
-
   const allInvoiceIds = [...new Set([...invoiceIdsByToId.values()].flatMap((set) => [...set]))];
   const [{ data: transferOrdersData }, { data: invoiceOrdersDetailData }] = await Promise.all([
-    supabaseServer.from("transfer_orders").select("id, depot_destination_id, date_jour, numero, statut").in("id", [...toIdsRetenus]),
+    supabaseServer.from("transfer_orders").select("id, depot_destination_id, date_jour, numero, statut").in("id", [...toIds]),
     allInvoiceIds.length > 0
       ? supabaseServer.from("invoice_orders").select("id, date_jour, numero, statut").in("id", allInvoiceIds)
       : Promise.resolve({ data: [] as { id: number; date_jour: string; numero: number | null; statut: string }[] }),
@@ -246,7 +234,7 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
     const [{ data: articleData }, { data: depotData }, tos] = await Promise.all([
       supabaseServer.from("articles_matiere_premiere").select("nom_article").eq("id", articleMpId).maybeSingle(),
       supabaseServer.from("depots").select("nom").eq("id", depotId).maybeSingle(),
-      fetchTosPourArticleLotDepot(articleMpId, numeroLot, depotId, quantite),
+      fetchTosPourArticleLotDepot(articleMpId, numeroLot, depotId),
     ]);
 
     mpSources.push({
