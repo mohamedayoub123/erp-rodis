@@ -101,6 +101,7 @@ function revalidateCommandeDependentPages(commandeId?: number) {
   if (commandeId) {
     revalidatePath(`/commandes/${commandeId}`);
   }
+  revalidatePath("/clients/[id]", "page");
   revalidatePath("/fifo");
   revalidatePath("/tableau-commandes");
   revalidatePath("/stock-dormant-sans-commande");
@@ -2462,6 +2463,7 @@ export async function enregistrerPaiementCommandeAction(formData: FormData) {
   });
 
   revalidatePath(`/commandes/${commandeId}`);
+  revalidatePath("/clients/[id]", "page");
   revalidatePath("/comptabilite/balance");
   revalidatePath("/comptabilite/journal");
 }
@@ -2486,6 +2488,7 @@ export async function deletePaiementCommandeAction(formData: FormData) {
   if (commandeId) {
     revalidatePath(`/commandes/${commandeId}`);
   }
+  revalidatePath("/clients/[id]", "page");
   revalidatePath("/comptabilite/balance");
   revalidatePath("/comptabilite/journal");
 }

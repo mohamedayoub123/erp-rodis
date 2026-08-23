@@ -80,6 +80,9 @@ export async function updatePrixVenteAction(
     revalidatePath("/comptabilite/balance");
     revalidatePath("/comptabilite/journal");
     revalidatePath("/clients");
+    revalidatePath("/clients/[id]", "page");
+    revalidatePath("/commandes");
+    revalidatePath("/commandes/[id]", "page");
     return { ok: true };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Erreur inconnue." };
@@ -118,6 +121,9 @@ export async function addPrixSpecialAction(
     revalidatePath("/comptabilite/balance");
     revalidatePath("/comptabilite/journal");
     revalidatePath("/clients");
+    revalidatePath("/clients/[id]", "page");
+    revalidatePath("/commandes");
+    revalidatePath("/commandes/[id]", "page");
     return { ok: true, id: (data as { id: number }).id };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Erreur inconnue." };
@@ -153,6 +159,9 @@ export async function deletePrixSpecialAction(id: number): Promise<{ ok: boolean
     revalidatePath("/comptabilite/balance");
     revalidatePath("/comptabilite/journal");
     revalidatePath("/clients");
+    revalidatePath("/clients/[id]", "page");
+    revalidatePath("/commandes");
+    revalidatePath("/commandes/[id]", "page");
     return { ok: true };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Erreur inconnue." };
