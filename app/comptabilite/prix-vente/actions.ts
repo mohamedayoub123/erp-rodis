@@ -41,7 +41,7 @@ async function recalculerEcrituresVentePourArticle(articleId: number, currentUse
 
   await Promise.all(
     livreeIds.map((id) =>
-      creerEcritureVente(id, currentUser).catch((error) =>
+      creerEcritureVente(id, currentUser, { recalculerCoutVente: false }).catch((error) =>
         console.error(`Recalcul ecriture vente echoue (commande ${id}):`, error)
       )
     )

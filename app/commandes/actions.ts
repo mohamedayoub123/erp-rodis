@@ -1889,14 +1889,27 @@ export async function changeCommandeStatusAction(formData: FormData) {
 // avait un montant). L'appelant (deliverCommandeAction) affiche ce message
 // comme avertissement APRES la livraison - jamais bloquant, le stock est
 // deja sorti et ne doit pas etre remis en cause pour un probleme comptable.
+// options.recalculerCoutVente (true par defaut) controle si le "Cout de
+// vente" (commande_cout_vente, FEFO+recette - la partie VRAIMENT couteuse de
+// cette fonction) est recalcule. A la livraison/auto-guerison, il faut les
+// 2 (rien n'existe encore). Quand seul le prix de VENTE a change
+// (recalculerEcrituresVentePourArticle), le cout de vente est totalement
+// independant du prix de vente - le recalculer a chaque changement de prix
+// rendait un simple changement de prix lent de plusieurs dizaines de
+// secondes des qu'un article touchait beaucoup de commandes livrees, pour
+// un montant qui n'avait de toute facon aucune raison de changer.
 export async function creerEcritureVente(
   commandeId: number,
-  currentUser: string | null
+  currentUser: string | null,
+  options?: { recalculerCoutVente?: boolean }
 ): Promise<{ ok: boolean; message?: string }> {
+  const recalculerCoutVente = options?.recalculerCoutVente ?? true;
   try {
     const sourceIdVente = `${commandeId}`;
     await supprimerEcriturePourSource("commande_vente", sourceIdVente);
-    await supprimerEcriturePourSource("commande_cout_vente", sourceIdVente);
+    if (recalculerCoutVente) {
+      await supprimerEcriturePourSource("commande_cout_vente", sourceIdVente);
+    }
 
     const { data: commande } = await supabaseServer
       .from("commandes")
@@ -1928,7 +1941,9 @@ export async function creerEcritureVente(
       clientId
         ? supabaseServer.from("prix_vente_speciaux").select("article_id, prix").eq("client_id", clientId).in("article_id", articleIds)
         : Promise.resolve({ data: [] as { article_id: number; prix: number }[] }),
-      fetchCoutsParCartonProduitsFinis(articleIds, quantiteParArticle),
+      recalculerCoutVente
+        ? fetchCoutsParCartonProduitsFinis(articleIds, quantiteParArticle)
+        : Promise.resolve(new Map<number, { coutParCarton: number | null; lotsUtilises: LotUtiliseInfo[] }>()),
     ]);
 
     const prixStandardByArticle = new Map(
@@ -1965,29 +1980,31 @@ export async function creerEcritureVente(
       });
     }
 
-    let montantCout = 0;
-    const lotsUtilisesCout: LotUtiliseInfo[] = [];
-    for (const [articleId, quantite] of quantiteParArticle) {
-      const coutInfo = coutsParArticle.get(articleId);
-      if (!coutInfo || coutInfo.coutParCarton === null) continue;
-      montantCout += coutInfo.coutParCarton * quantite;
-      lotsUtilisesCout.push(...coutInfo.lotsUtilises);
-    }
+    if (recalculerCoutVente) {
+      let montantCout = 0;
+      const lotsUtilisesCout: LotUtiliseInfo[] = [];
+      for (const [articleId, quantite] of quantiteParArticle) {
+        const coutInfo = coutsParArticle.get(articleId);
+        if (!coutInfo || coutInfo.coutParCarton === null) continue;
+        montantCout += coutInfo.coutParCarton * quantite;
+        lotsUtilisesCout.push(...coutInfo.lotsUtilises);
+      }
 
-    if (montantCout > 0) {
-      const ecritureId = await creerEcriture({
-        dateEcriture,
-        pieceReference: commande.numero_proforma || null,
-        libelle: `Cout de vente - ${commande.numero_proforma || `#${commandeId}`}`,
-        sourceType: "commande_cout_vente",
-        sourceId: sourceIdVente,
-        createdBy: currentUser,
-        lignes: [
-          { compteCode: COMPTE_VARIATION_STOCK_PF, debit: montantCout, credit: 0 },
-          { compteCode: COMPTE_STOCK_PRODUIT_FINI, debit: 0, credit: montantCout },
-        ],
-      });
-      await enregistrerLotsUtilisesPourEcriture(ecritureId, lotsUtilisesCout);
+      if (montantCout > 0) {
+        const ecritureId = await creerEcriture({
+          dateEcriture,
+          pieceReference: commande.numero_proforma || null,
+          libelle: `Cout de vente - ${commande.numero_proforma || `#${commandeId}`}`,
+          sourceType: "commande_cout_vente",
+          sourceId: sourceIdVente,
+          createdBy: currentUser,
+          lignes: [
+            { compteCode: COMPTE_VARIATION_STOCK_PF, debit: montantCout, credit: 0 },
+            { compteCode: COMPTE_STOCK_PRODUIT_FINI, debit: 0, credit: montantCout },
+          ],
+        });
+        await enregistrerLotsUtilisesPourEcriture(ecritureId, lotsUtilisesCout);
+      }
     }
 
     return { ok: true };
