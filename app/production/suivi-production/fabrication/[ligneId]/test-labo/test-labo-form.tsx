@@ -313,6 +313,7 @@ export function TestLaboForm({
               Heure prise echantillon
               <input
                 type="time"
+                lang="fr"
                 name="heure_prise_echantillon"
                 defaultValue={rapport?.heure_prise_echantillon || ""}
                 className={inputClass}
@@ -322,6 +323,7 @@ export function TestLaboForm({
               Heure debut analyse
               <input
                 type="time"
+                lang="fr"
                 name="heure_debut_analyse"
                 defaultValue={rapport?.heure_debut_analyse || ""}
                 className={inputClass}
@@ -331,6 +333,7 @@ export function TestLaboForm({
               Heure fin analyse
               <input
                 type="time"
+                lang="fr"
                 name="heure_fin_analyse"
                 defaultValue={rapport?.heure_fin_analyse || ""}
                 className={inputClass}

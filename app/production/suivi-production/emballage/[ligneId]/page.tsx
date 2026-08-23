@@ -256,6 +256,7 @@ export default async function RapportEmballagePage({
                     Temps demarrer
                     <input
                       type="time"
+                      lang="fr"
                       name="emballage_temps_demarrer"
                       defaultValue={derniereFournee?.emballage_temps_demarrer || ""}
                       required
@@ -266,6 +267,7 @@ export default async function RapportEmballagePage({
                     Temps arret
                     <input
                       type="time"
+                      lang="fr"
                       name="emballage_temps_arret"
                       defaultValue={derniereFournee?.emballage_temps_arret || ""}
                       required

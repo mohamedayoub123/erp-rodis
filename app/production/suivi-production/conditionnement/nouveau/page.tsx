@@ -346,6 +346,7 @@ export default async function NouvelleFicheConditionnementPage() {
                     Temps demarage lot
                     <input
                       type="time"
+                      lang="fr"
                       name="temps_demarage_lot"
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
@@ -355,6 +356,7 @@ export default async function NouvelleFicheConditionnementPage() {
                     Temps arret batch
                     <input
                       type="time"
+                      lang="fr"
                       name="temps_arret_batch"
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"

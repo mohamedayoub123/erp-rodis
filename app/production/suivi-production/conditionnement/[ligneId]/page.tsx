@@ -480,6 +480,7 @@ export default async function RapportConditionnementPage({
                     Temps demarage lot
                     <input
                       type="time"
+                      lang="fr"
                       name="temps_demarage_lot"
                       defaultValue={derniereFournee?.temps_demarage_lot || ""}
                       required
@@ -490,6 +491,7 @@ export default async function RapportConditionnementPage({
                     Temps arret batch
                     <input
                       type="time"
+                      lang="fr"
                       name="temps_arret_batch"
                       defaultValue={derniereFournee?.temps_arret_batch || ""}
                       required

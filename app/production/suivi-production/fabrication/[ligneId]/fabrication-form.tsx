@@ -104,6 +104,7 @@ export function TempsField({
         </select>
         <input
           type="time"
+          lang="fr"
           value={time}
           onChange={(event) => setTime(event.target.value)}
           required

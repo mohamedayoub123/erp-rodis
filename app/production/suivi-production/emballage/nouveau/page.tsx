@@ -199,6 +199,7 @@ export default async function NouvelleFicheEmballagePage() {
                     Temps demarrer
                     <input
                       type="time"
+                      lang="fr"
                       name="emballage_temps_demarrer"
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
@@ -208,6 +209,7 @@ export default async function NouvelleFicheEmballagePage() {
                     Temps arret
                     <input
                       type="time"
+                      lang="fr"
                       name="emballage_temps_arret"
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
