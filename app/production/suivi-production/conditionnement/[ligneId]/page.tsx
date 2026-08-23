@@ -51,6 +51,7 @@ type RapportInfo = {
 // point de depart pratique, sans plus jamais ecraser les fournees
 // precedentes (une nouvelle ligne est toujours creee au Save).
 type DerniereFourneeInfo = {
+  id: number;
   chef_zone: string | null;
   chef_ligne: string | null;
   ravitailleur: string | null;
@@ -82,7 +83,7 @@ type DerniereFourneeInfo = {
   date_saisie_conditionnement: string | null;
 };
 
-type SearchParams = Promise<{ code?: string; erreur?: string }>;
+type SearchParams = Promise<{ code?: string; erreur?: string; nouvelle?: string }>;
 
 export default async function RapportConditionnementPage({
   params,
@@ -94,11 +95,16 @@ export default async function RapportConditionnementPage({
   noStore();
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
-  const { code: codeParam, erreur } = await searchParams;
+  const { code: codeParam, erreur, nouvelle } = await searchParams;
   // Code du lot precis pour cette saisie (ex: "AA4141V" parmi les 3 codes
   // d'une ligne decoupee en plusieurs lots) - vide seulement pour un lien
   // genere avant l'ajout du suivi par code (comportement combine legacy).
   const code = (codeParam || "").trim();
+  // "Nouvelle fournee" (lien explicite plus bas) : formulaire vide, aucun
+  // fournee_id envoye au Save - la fournee la plus recente n'est ni
+  // pre-remplie ni modifiee, une vraie nouvelle ligne est creee au Save,
+  // exactement comme avant l'ajout du mode edition.
+  const modeNouvelle = nouvelle === "1";
 
   if (!ligneIdNumber) {
     notFound();
@@ -110,7 +116,7 @@ export default async function RapportConditionnementPage({
 
   const RAPPORT_FIELDS = "date_fabrication_conditionnement, date_peremption";
   const FOURNEE_FIELDS =
-    "chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, utilisateur_conditionnement, date_saisie_conditionnement";
+    "id, chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, utilisateur_conditionnement, date_saisie_conditionnement";
 
   const [{ data: ligneData }, { data: rapportData }, { data: fourneeData }] = await Promise.all([
     supabaseServer
@@ -136,14 +142,14 @@ export default async function RapportConditionnementPage({
 
   const ligne = ligneData as LigneInfo | null;
   const rapport = rapportData as RapportInfo | null;
-  let derniereFournee = fourneeData as DerniereFourneeInfo | null;
+  let derniereFournee = modeNouvelle ? null : (fourneeData as DerniereFourneeInfo | null);
 
   // Rien saisi pour ce code precis depuis l'ajout du suivi par code : si
   // cette ligne n'a jamais ete decoupee en plusieurs lots (un seul code au
   // total), l'ancienne fournee partagee (code "") reste sans ambiguite le
   // bon prefill - sinon (plusieurs codes) on laisse le formulaire vide
   // plutot que de reafficher a tort les donnees d'un AUTRE code.
-  if (!derniereFournee && code) {
+  if (!derniereFournee && code && !modeNouvelle) {
     const numeroLotCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
     if (numeroLotCodes.length <= 1) {
       const { data: legacyFournee } = await supabaseServer
@@ -203,6 +209,19 @@ export default async function RapportConditionnementPage({
                     : ""}
                 </p>
               ) : null}
+              {derniereFournee && canWrite ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Modifie cette fournee (Save corrige la ligne ci-dessous) - pour ajouter une VRAIE nouvelle
+                  fournee plutot que corriger celle-ci,{" "}
+                  <a
+                    href={`/production/suivi-production/conditionnement/${ligneId}?code=${encodeURIComponent(code)}&nouvelle=1`}
+                    className="font-semibold text-sky-700 underline"
+                  >
+                    clique ici pour un formulaire vide
+                  </a>
+                  .
+                </p>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-3">
@@ -231,6 +250,7 @@ export default async function RapportConditionnementPage({
             <form action={saveConditionnementRapportAction} className="grid gap-6">
               <input type="hidden" name="ligne_id" value={ligne.id} />
               <input type="hidden" name="code" value={code} />
+              <input type="hidden" name="fournee_id" value={derniereFournee?.id ?? ""} />
 
               <div>
                 <h2 className="mb-3 text-lg font-bold text-slate-900">Equipe</h2>
@@ -484,7 +504,7 @@ export default async function RapportConditionnementPage({
                   pendingLabel="Enregistrement..."
                   className="rounded-full bg-amber-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-500"
                 >
-                  Save
+                  {derniereFournee ? "Corriger cette fournee" : "Save"}
                 </SubmitButton>
               </div>
             </form>

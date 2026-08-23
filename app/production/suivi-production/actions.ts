@@ -611,6 +611,11 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   // depuis l'ajout du suivi par code (voir la page de saisie, qui retombe
   // alors sur l'ancien rapport partage "" pour prefill).
   const code = String(formData.get("code") || "").trim();
+  // Present seulement quand le formulaire a ete pre-rempli depuis une
+  // fournee existante (voir la page) - id de CETTE fournee, pour corriger
+  // sa ligne au lieu d'en creer une nouvelle. Vide sur "Nouvelle fournee"
+  // (lien explicite sur la page, formulaire remis a zero).
+  const fourneeId = Number(String(formData.get("fournee_id") || "0")) || null;
 
   if (!ligneId) {
     throw new Error("Ligne invalide.");
@@ -653,7 +658,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   // TOUTES les fournees deja saisies pour cette ligne des qu'on changeait la
   // chaine pour la fournee suivante (cas reel : chaine 7 -> 2 -> 3, les 3
   // fournees affichaient "chaine 3" a la fin).
-  const [{ data: ligneChaineData }, , dejaCompteIdentique] = await Promise.all([
+  const [{ data: ligneChaineData }, , dejaCompteIdentique, fourneeExistanteResult] = await Promise.all([
     supabaseServer.from("programme_lignes").select("chaine, zone").eq("id", ligneId).maybeSingle(),
     upsertRapport(ligneId, code, {
       date_fabrication_conditionnement: dateFabricationConditionnement,
@@ -662,8 +667,24 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     qtFabriquer && qtFabriquer > 0
       ? dernierEntreeQuantiteIdentique("production_carton_entries", ligneId, code, qtFabriquer)
       : Promise.resolve(false),
+    fourneeId
+      ? supabaseServer.from("production_carton_entries").select("qt_fabriquer").eq("id", fourneeId).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
   const ligneChaine = ligneChaineData as { chaine: string | null; zone: string | null } | null;
+  // Correction d'une fournee DEJA saisie (voir la page, hidden "fournee_id")
+  // plutot qu'un ajout : seulement si la quantite n'a pas change, car
+  // consommerCartonProportionnel a deja deduit la reservation MP pour cette
+  // quantite exacte a la creation - la re-deduire ici ferait une 2e
+  // deduction fictive pour la MEME production reelle (bug reel confirme,
+  // code AA4252 : "Consommation production" x2 pour le meme lot). Si la
+  // quantite a change, on retombe sur le comportement normal (nouvelle
+  // ligne, nouvelle deduction proportionnelle a la difference reelle
+  // produite) - une quantite differente est une vraie nouvelle information
+  // de production, pas juste une correction de saisie.
+  const fourneeExistante = fourneeExistanteResult.data as { qt_fabriquer: number | null } | null;
+  const modeCorrection =
+    fourneeId !== null && fourneeExistante !== null && Number(fourneeExistante.qt_fabriquer ?? 0) === Number(qtFabriquer ?? 0);
 
   // Alimente le journal carton (meme principe que le Dashboard) pour que le
   // "reste" par rapport a la quantite prevue se recalcule tout seul.
@@ -673,54 +694,72 @@ export async function saveConditionnementRapportAction(formData: FormData) {
   // Toutes les infos de CETTE fournee (chef/ravitailleur/dechets/arrets...)
   // sont portees directement par cette ligne, plus jamais partagees avec
   // les autres fournees du meme code.
+  const fourneeFields = {
+    chef_zone: parseOptionalText(formData, "chef_zone"),
+    chef_ligne: parseOptionalText(formData, "chef_ligne"),
+    ravitailleur: parseOptionalText(formData, "ravitailleur"),
+    tireur: parseOptionalText(formData, "tireur"),
+    nb_journaliers_conditionnement: parseOptionalNumber(formData, "nb_journaliers_conditionnement"),
+    cadence: parseOptionalNumber(formData, "cadence"),
+    poids_reel: parseOptionalNumber(formData, "poids_reel"),
+    dechet_sleeve: parseOptionalNumber(formData, "dechet_sleeve"),
+    dechet_capsule: parseOptionalNumber(formData, "dechet_capsule"),
+    dechet_pompe: parseOptionalNumber(formData, "dechet_pompe"),
+    dechet_flacon: parseOptionalNumber(formData, "dechet_flacon"),
+    dechet_pot: parseOptionalNumber(formData, "dechet_pot"),
+    dechet_etiquette: parseOptionalNumber(formData, "dechet_etiquette"),
+    dechet_etui: parseOptionalNumber(formData, "dechet_etui"),
+    arret_depot: parseOptionalNumber(formData, "arret_depot"),
+    arret_consommable_non_livre: parseOptionalNumber(formData, "arret_consommable_non_livre"),
+    arret_manque_conditionnement: parseOptionalNumber(formData, "arret_manque_conditionnement"),
+    arret_manque_vrac: parseOptionalNumber(formData, "arret_manque_vrac"),
+    arret_technique: parseOptionalNumber(formData, "arret_technique"),
+    arret_coupure_courant: parseOptionalNumber(formData, "arret_coupure_courant"),
+    arret_raclage_vrac: parseOptionalNumber(formData, "arret_raclage_vrac"),
+    arret_changement_lot: parseOptionalNumber(formData, "arret_changement_lot"),
+    arret_flacons_nc: parseOptionalNumber(formData, "arret_flacons_nc"),
+    arret_autre: parseOptionalNumber(formData, "arret_autre"),
+    temps_demarage_lot: parseOptionalText(formData, "temps_demarage_lot"),
+    temps_arret_batch: parseOptionalText(formData, "temps_arret_batch"),
+  };
+
   const cartonInsert =
-    qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique
-      ? await supabaseServer.from("production_carton_entries").insert([
-          {
-            programme_ligne_id: ligneId,
-            code,
+    modeCorrection && fourneeId
+      ? await supabaseServer
+          .from("production_carton_entries")
+          .update({
+            ...fourneeFields,
             quantite: qtFabriquer,
+            qt_fabriquer: qtFabriquer,
             ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
             chaine: ligneChaine?.chaine ?? null,
             zone: ligneChaine?.zone ?? null,
-            chef_zone: parseOptionalText(formData, "chef_zone"),
-            chef_ligne: parseOptionalText(formData, "chef_ligne"),
-            ravitailleur: parseOptionalText(formData, "ravitailleur"),
-            tireur: parseOptionalText(formData, "tireur"),
-            nb_journaliers_conditionnement: parseOptionalNumber(formData, "nb_journaliers_conditionnement"),
-            qt_fabriquer: qtFabriquer,
-            cadence: parseOptionalNumber(formData, "cadence"),
-            poids_reel: parseOptionalNumber(formData, "poids_reel"),
-            dechet_sleeve: parseOptionalNumber(formData, "dechet_sleeve"),
-            dechet_capsule: parseOptionalNumber(formData, "dechet_capsule"),
-            dechet_pompe: parseOptionalNumber(formData, "dechet_pompe"),
-            dechet_flacon: parseOptionalNumber(formData, "dechet_flacon"),
-            dechet_pot: parseOptionalNumber(formData, "dechet_pot"),
-            dechet_etiquette: parseOptionalNumber(formData, "dechet_etiquette"),
-            dechet_etui: parseOptionalNumber(formData, "dechet_etui"),
-            arret_depot: parseOptionalNumber(formData, "arret_depot"),
-            arret_consommable_non_livre: parseOptionalNumber(formData, "arret_consommable_non_livre"),
-            arret_manque_conditionnement: parseOptionalNumber(formData, "arret_manque_conditionnement"),
-            arret_manque_vrac: parseOptionalNumber(formData, "arret_manque_vrac"),
-            arret_technique: parseOptionalNumber(formData, "arret_technique"),
-            arret_coupure_courant: parseOptionalNumber(formData, "arret_coupure_courant"),
-            arret_raclage_vrac: parseOptionalNumber(formData, "arret_raclage_vrac"),
-            arret_changement_lot: parseOptionalNumber(formData, "arret_changement_lot"),
-            arret_flacons_nc: parseOptionalNumber(formData, "arret_flacons_nc"),
-            arret_autre: parseOptionalNumber(formData, "arret_autre"),
-            temps_demarage_lot: parseOptionalText(formData, "temps_demarage_lot"),
-            temps_arret_batch: parseOptionalText(formData, "temps_arret_batch"),
             utilisateur_conditionnement: currentUser,
             date_saisie_conditionnement: new Date().toISOString(),
-          },
-        ])
-      : { error: null };
+          })
+          .eq("id", fourneeId)
+      : qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique
+        ? await supabaseServer.from("production_carton_entries").insert([
+            {
+              programme_ligne_id: ligneId,
+              code,
+              quantite: qtFabriquer,
+              ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
+              chaine: ligneChaine?.chaine ?? null,
+              zone: ligneChaine?.zone ?? null,
+              ...fourneeFields,
+              qt_fabriquer: qtFabriquer,
+              utilisateur_conditionnement: currentUser,
+              date_saisie_conditionnement: new Date().toISOString(),
+            },
+          ])
+        : { error: null };
 
   if (cartonInsert.error) {
     throw new Error(cartonInsert.error.message);
   }
 
-  if (qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique) {
+  if (!modeCorrection && qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique) {
     await consommerCartonProportionnel(ligneId, code, qtFabriquer, currentUser);
   }
 
