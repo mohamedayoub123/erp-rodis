@@ -87,3 +87,63 @@ export function ddmmHhmmDiffMinutes(
 
   return Math.round((endDate.getTime() - startDate.getTime()) / 60000);
 }
+
+export type AbsInterval = { startMs: number; endMs: number };
+
+// Meme parsing/regle de passage a l'annee suivante que ddmmHhmmDiffMinutes,
+// mais renvoie les 2 timestamps absolus plutot que la seule duree - permet
+// de comparer le VRAI chevauchement dans le temps entre 2 machines
+// differentes (voir computeEnergiePartageeChevauchement, lib/cout-production-reel.ts),
+// pas seulement leurs durees respectives.
+export function ddmmHhmmToInterval(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  anneeRef: number
+): AbsInterval | null {
+  const startParts = splitTempsJourMois(start);
+  const endParts = splitTempsJourMois(end);
+  if (!startParts.day || !startParts.month || !startParts.time) return null;
+  if (!endParts.day || !endParts.month || !endParts.time) return null;
+
+  const startDate = new Date(
+    anneeRef,
+    Number(startParts.month) - 1,
+    Number(startParts.day),
+    ...(startParts.time.split(":").map(Number) as [number, number])
+  );
+  let endDate = new Date(
+    anneeRef,
+    Number(endParts.month) - 1,
+    Number(endParts.day),
+    ...(endParts.time.split(":").map(Number) as [number, number])
+  );
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return null;
+
+  if (endDate.getTime() < startDate.getTime()) {
+    endDate = new Date(endDate.getFullYear() + 1, endDate.getMonth(), endDate.getDate(), endDate.getHours(), endDate.getMinutes());
+  }
+
+  return { startMs: startDate.getTime(), endMs: endDate.getTime() };
+}
+
+// Meme motif que ddmmHhmmToInterval, pour un temps "HH:MM(:SS)" simple
+// ancre sur une date_jour "YYYY-MM-DD" (Conditionnement/Emballage) - passage
+// a minuit si la fin est plus petite que le debut (meme regle que
+// hhmmDiffMinutes).
+export function hhmmToInterval(dateJour: string | null | undefined, start: string | null, end: string | null): AbsInterval | null {
+  if (!dateJour || !start || !end) return null;
+  const startParts = start.split(":").map(Number);
+  const endParts = end.split(":").map(Number);
+  if (startParts.length < 2 || endParts.length < 2) return null;
+  const [y, m, d] = dateJour.split("-").map(Number);
+  if ([y, m, d, ...startParts.slice(0, 2), ...endParts.slice(0, 2)].some((n) => Number.isNaN(n))) return null;
+
+  const startDate = new Date(y, m - 1, d, startParts[0], startParts[1]);
+  let endDate = new Date(y, m - 1, d, endParts[0], endParts[1]);
+  if (endDate.getTime() < startDate.getTime()) {
+    endDate = new Date(endDate.getTime() + 24 * 60 * 60 * 1000);
+  }
+
+  return { startMs: startDate.getTime(), endMs: endDate.getTime() };
+}

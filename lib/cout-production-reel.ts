@@ -7,7 +7,13 @@ import {
 } from "@/lib/prix-revient";
 import { resolveVracArticleId } from "@/lib/vrac-article";
 import { normalizeMachineName } from "@/lib/machine-match";
-import { hhmmDiffMinutes, ddmmHhmmDiffMinutes } from "@/lib/suivi-tirage-time";
+import {
+  hhmmDiffMinutes,
+  ddmmHhmmDiffMinutes,
+  ddmmHhmmToInterval,
+  hhmmToInterval,
+  type AbsInterval,
+} from "@/lib/suivi-tirage-time";
 import { fetchAllVracEntries, fetchAllCartonEntries, fetchAllProgrammeLignes } from "@/app/production/suivi/data";
 
 export type CoutReelPeriode = { dateFrom?: string; dateTo?: string; months?: string[]; code?: string };
@@ -507,72 +513,78 @@ async function fetchAllRapportsForEnergie(dateRange?: { from: string; toExclusiv
   return rows;
 }
 
-// Pour chaque machine Energie et chaque jour, quelles machines (leur id)
-// ont reellement tourne ce jour-la (meme condition "a un temps enregistre"
-// que le calcul de cout normal ci-dessous) - sert de diviseur au cout de la
-// machine Energie ce jour-la (voir addEnergieShare). cartonEntriesGlobal =
-// TOUTES les fournees Conditionnement de l'usine (voir fetchCartonEntriesTemps
-// sans ligneIds), meme portee globale que rapports pour la Fabrication.
-function buildActiveMachinesByEnergieAndDate(
+// Pour chaque machine Energie, la liste de TOUS les intervalles de temps
+// absolus (pas juste "quel jour") ou une machine liee a reellement tourne -
+// sert au partage au VRAI chevauchement dans le temps (voir
+// computeEnergieShareCout) plutot qu'a "combien de machines differentes ce
+// jour-la", qui appliquait le meme diviseur meme aux heures ou une seule
+// machine tournait encore (demande explicite : "machine 1 travaille 3h,
+// machine 2 travaille 2h... la 3eme heure ou machine 1 tourne seule doit
+// couter 100% pour elle, pas la moitie"). cartonEntriesGlobal = TOUTES les
+// fournees Conditionnement de l'usine (voir fetchCartonEntriesTemps sans
+// ligneIds), meme portee globale que rapports pour la Fabrication.
+type EnergieInterval = { machineId: number; interval: AbsInterval };
+
+function buildIntervalsByEnergie(
   rapports: RapportEnergieRow[],
   cartonEntriesGlobal: CartonEntryTempsRow[],
   chaineByLigneId: Map<number, string | null>,
   machineByName: Map<string, MachineRow>
-): Map<string, Set<number>> {
-  const map = new Map<string, Set<number>>();
+): Map<number, EnergieInterval[]> {
+  const map = new Map<number, EnergieInterval[]>();
 
-  function markActive(machine: MachineRow | null | undefined, date: string | null) {
-    if (!machine || !date) return;
+  function markActive(machine: MachineRow | null | undefined, interval: AbsInterval | null) {
+    if (!machine || !interval) return;
     for (const energieId of machine.energie_machine_ids ?? []) {
-      const key = `${energieId}::${date}`;
-      const set = map.get(key) ?? new Set<number>();
-      set.add(machine.id);
-      map.set(key, set);
+      const list = map.get(energieId) ?? [];
+      list.push({ machineId: machine.id, interval });
+      map.set(energieId, list);
     }
   }
 
   for (const rapport of rapports) {
-    const date = rapport.date_fabrication_conditionnement;
-    if (!date) continue;
-
-    if (rapport.temps_debut_preparation && rapport.temps_vidange) {
-      const machine = rapport.machine ? machineByName.get(normalizeMachineName(rapport.machine)) : null;
-      markActive(machine, date);
-    }
+    if (!rapport.temps_debut_preparation || !rapport.temps_vidange || !rapport.date_fabrication_conditionnement) continue;
+    const anneeRef = Number(rapport.date_fabrication_conditionnement.slice(0, 4));
+    const interval = ddmmHhmmToInterval(rapport.temps_debut_preparation, rapport.temps_vidange, anneeRef);
+    const machine = rapport.machine ? machineByName.get(normalizeMachineName(rapport.machine)) : null;
+    markActive(machine, interval);
   }
 
   for (const entry of cartonEntriesGlobal) {
-    if (!entry.temps_demarage_lot || !entry.temps_arret_batch) continue;
+    const interval = hhmmToInterval(entry.date_jour, entry.temps_demarage_lot, entry.temps_arret_batch);
     const chaine = entry.chaine || chaineByLigneId.get(entry.programme_ligne_id);
     const machine = chaine ? machineByName.get(normalizeMachineName(chaine)) : null;
-    markActive(machine, entry.date_jour);
+    markActive(machine, interval);
   }
 
   return map;
 }
 
 // Part du cout d'une machine Energie partagee (ex: groupe electrogene
-// alimentant 10 machines) attribuee a CETTE machine pour CE jour : chaque
-// source de consommation qu'elle a (kW electrique, gaz, gasoil - une
-// machine Energie peut cumuler plusieurs, ex: un groupe electrogene tourne
-// au gasoil mais chauffe aussi au gaz) est divisee par le nombre de
-// machines actives ce jour-la, x les heures de CETTE machine, x son propre
-// prix (prix_kwh/prix_gaz/prix_gasoil du mois) - les 3 sont sommees.
-// S'AJOUTE au cout electrique propre de la machine (consommation_electrique_kw),
-// ne le remplace pas. Une machine peut dependre de PLUSIEURS machines
-// Energie a la fois (ex: un groupe electrogene general + un compresseur
-// d'air dedie) - chacune contribue sa propre part independamment, sommees
-// ici.
+// alimentant 10 machines) attribuee a CETTE machine pour SON intervalle
+// [ownInterval] : chaque source de consommation qu'elle a (kW electrique,
+// gaz, gasoil - une machine Energie peut cumuler plusieurs, ex: un groupe
+// electrogene tourne au gasoil mais chauffe aussi au gaz) est divisee par le
+// nombre de machines VRAIMENT actives EN MEME TEMPS - pas un diviseur fixe
+// pour toute la duree. Decoupe ownInterval en sous-segments a chaque
+// debut/fin d'intervalle d'une AUTRE machine liee a la meme source (jamais
+// la meme machine que soi-meme - plusieurs codes sur UNE MEME machine se
+// partagent deja sa part au prorata de leurs heures, voir le commentaire sur
+// consommerCartonProportionnel plus haut, pas une 2e fois ici), et somme
+// chaque segment a son propre diviseur. S'AJOUTE au cout electrique propre
+// de la machine (consommation_electrique_kw), ne le remplace pas. Une
+// machine peut dependre de PLUSIEURS machines Energie a la fois (ex: un
+// groupe electrogene general + un compresseur d'air dedie) - chacune
+// contribue sa propre part independamment, sommees ici.
 function computeEnergieShareCout(
   machine: MachineRow | null | undefined,
-  heures: number,
-  date: string | null,
+  ownInterval: AbsInterval | null,
   prixMois: PrixMoisRow | undefined,
   energieMachineById: Map<number, MachineRow>,
-  activeMachinesByEnergieAndDate: Map<string, Set<number>>,
+  intervalsByEnergie: Map<number, EnergieInterval[]>,
   motifs: string[]
 ): number {
-  if (!machine || !date) return 0;
+  if (!machine || !ownInterval || ownInterval.endMs <= ownInterval.startMs) return 0;
   const energieIds = machine.energie_machine_ids ?? [];
   if (energieIds.length === 0) return 0;
 
@@ -584,24 +596,48 @@ function computeEnergieShareCout(
       continue;
     }
 
-    const activeCount = Math.max(1, activeMachinesByEnergieAndDate.get(`${energieId}::${date}`)?.size ?? 1);
-    let uneSourceUtilisee = false;
+    const autresIntervalles = (intervalsByEnergie.get(energieId) ?? []).filter((e) => e.machineId !== machine.id);
 
+    // Points de coupure a l'interieur de ownInterval : ses 2 bornes + toute
+    // borne d'un intervalle d'une autre machine qui tombe dedans.
+    const points = new Set<number>([ownInterval.startMs, ownInterval.endMs]);
+    for (const { interval } of autresIntervalles) {
+      if (interval.startMs > ownInterval.startMs && interval.startMs < ownInterval.endMs) points.add(interval.startMs);
+      if (interval.endMs > ownInterval.startMs && interval.endMs < ownInterval.endMs) points.add(interval.endMs);
+    }
+    const bornes = [...points].sort((a, b) => a - b);
+
+    let uneSourceUtilisee = false;
     const sources: { conso: number | null; prix: number | null; label: string }[] = [
       { conso: energieMachine.consommation_electrique_kw, prix: prixMois?.prix_kwh ?? null, label: "kWh" },
       { conso: energieMachine.consommation_gaz_litres_heure, prix: prixMois?.prix_gaz ?? null, label: "gaz" },
       { conso: energieMachine.consommation_gasoil_litres_heure, prix: prixMois?.prix_gasoil ?? null, label: "gasoil" },
     ];
-
-    for (const source of sources) {
-      if (source.conso === null) continue;
+    const sourcesUtilisables = sources.filter((s) => s.conso !== null);
+    for (const source of sourcesUtilisables) {
       if (source.prix === null) {
         motifs.push(`Prix ${source.label} non renseigne pour ce mois (machine Energie "${energieMachine.nom}").`);
-        continue;
       }
-      const part = heures * (source.conso / activeCount);
-      total += part * source.prix;
-      uneSourceUtilisee = true;
+    }
+
+    for (let i = 0; i < bornes.length - 1; i++) {
+      const segStart = bornes[i];
+      const segEnd = bornes[i + 1];
+      if (segEnd <= segStart) continue;
+      const segMid = (segStart + segEnd) / 2;
+
+      const autresMachinesActives = new Set<number>();
+      for (const { machineId, interval } of autresIntervalles) {
+        if (interval.startMs <= segMid && segMid < interval.endMs) autresMachinesActives.add(machineId);
+      }
+      const activeCount = 1 + autresMachinesActives.size;
+      const heuresSeg = (segEnd - segStart) / 3600000;
+
+      for (const source of sourcesUtilisables) {
+        if (source.prix === null) continue;
+        total += heuresSeg * (source.conso! / activeCount) * source.prix;
+        uneSourceUtilisee = true;
+      }
     }
 
     if (!uneSourceUtilisee && sources.every((s) => s.conso === null)) {
@@ -673,7 +709,7 @@ async function computeChargeGeneraleParJourCarton(
   chaineByLigneIdGlobal: Map<number, string | null>,
   machineByName: Map<string, MachineRow>,
   energieMachineById: Map<number, MachineRow>,
-  activeMachinesByEnergieAndDate: Map<string, Set<number>>,
+  intervalsByEnergie: Map<number, EnergieInterval[]>,
   prixMoisByKey: Map<string, PrixMoisRow>,
   dateRange?: { from: string; toExclusive: string }
 ): Promise<Map<string, number>> {
@@ -690,10 +726,9 @@ async function computeChargeGeneraleParJourCarton(
   // mois - meme calcul que le poste "Cout electricite" plus bas, en portee
   // globale usine pour pouvoir le deduire de la facture reelle du mois.
   const machineTotalParMois = new Map<string, number>();
-  function addMachineCout(machineNom: string | null, heures: number, date: string | null) {
+  function addMachineCout(machineNom: string | null, heures: number, date: string | null, interval: AbsInterval | null) {
     if (!date) return;
     const mois = moisDe(date);
-    const anneeRef = Number(date.slice(0, 4));
     const prixMois = prixMoisByKey.get(mois);
     const machine = machineNom ? machineByName.get(normalizeMachineName(machineNom)) : null;
     if (!machine) return;
@@ -710,28 +745,26 @@ async function computeChargeGeneraleParJourCarton(
     if (machine.consommation_gasoil_litres_heure !== null && prixMois?.prix_gasoil != null) {
       cout += machine.consommation_gasoil_litres_heure * heures * prixMois.prix_gasoil;
     }
-    cout += computeEnergieShareCout(machine, heures, date, prixMois, energieMachineById, activeMachinesByEnergieAndDate, []);
+    cout += computeEnergieShareCout(machine, interval, prixMois, energieMachineById, intervalsByEnergie, []);
     if (cout > 0) {
       machineTotalParMois.set(mois, (machineTotalParMois.get(mois) ?? 0) + cout);
     }
-    void anneeRef;
   }
 
   for (const rapport of rapportsEnergie) {
     if (!rapport.temps_debut_preparation || !rapport.temps_vidange || !rapport.date_fabrication_conditionnement) continue;
-    const minutes = ddmmHhmmDiffMinutes(
-      rapport.temps_debut_preparation,
-      rapport.temps_vidange,
-      Number(rapport.date_fabrication_conditionnement.slice(0, 4))
-    );
+    const anneeRef = Number(rapport.date_fabrication_conditionnement.slice(0, 4));
+    const minutes = ddmmHhmmDiffMinutes(rapport.temps_debut_preparation, rapport.temps_vidange, anneeRef);
     if (minutes === null) continue;
-    addMachineCout(rapport.machine, minutes / 60, rapport.date_fabrication_conditionnement);
+    const interval = ddmmHhmmToInterval(rapport.temps_debut_preparation, rapport.temps_vidange, anneeRef);
+    addMachineCout(rapport.machine, minutes / 60, rapport.date_fabrication_conditionnement, interval);
   }
   for (const entry of cartonEntriesEnergieGlobal) {
     if (!entry.temps_demarage_lot || !entry.temps_arret_batch) continue;
     const minutes = hhmmDiffMinutes(entry.temps_demarage_lot, entry.temps_arret_batch);
     const chaine = entry.chaine || chaineByLigneIdGlobal.get(entry.programme_ligne_id) || null;
-    addMachineCout(chaine, minutes / 60, entry.date_jour);
+    const interval = hhmmToInterval(entry.date_jour, entry.temps_demarage_lot, entry.temps_arret_batch);
+    addMachineCout(chaine, minutes / 60, entry.date_jour, interval);
   }
 
   // Jours travailles + cartons produits par jour, TOUTE l'usine confondue
@@ -1086,7 +1119,7 @@ export async function computeCoutReelArticle(
     fetchAllProgrammeLignesChaine(),
   ]);
   const chaineByLigneIdGlobal = new Map(programmeLignesChaineGlobal.map((l) => [l.id, l.chaine]));
-  const activeMachinesByEnergieAndDate = buildActiveMachinesByEnergieAndDate(
+  const intervalsByEnergie = buildIntervalsByEnergie(
     rapportsEnergie,
     cartonEntriesEnergieGlobal,
     chaineByLigneIdGlobal,
@@ -1146,13 +1179,13 @@ export async function computeCoutReelArticle(
 
         // Part de machine Energie partagee (voir computeEnergieShareCout) -
         // independante du kW propre de la machine ci-dessus, s'y ajoute.
+        const ownIntervalFab = ddmmHhmmToInterval(rapport.temps_debut_preparation, rapport.temps_vidange, anneeRef);
         const energieCoutFab = computeEnergieShareCout(
           machine,
-          heures,
-          rapport.date_fabrication_conditionnement,
+          ownIntervalFab,
           prixMois,
           energieMachineById,
-          activeMachinesByEnergieAndDate,
+          intervalsByEnergie,
           motifs
         );
         if (energieCoutFab > 0) {
@@ -1228,13 +1261,13 @@ export async function computeCoutReelArticle(
 
     // Part de machine Energie partagee (voir computeEnergieShareCout) -
     // independante du kW propre de la machine ci-dessus, s'y ajoute.
+    const ownIntervalCond = hhmmToInterval(entry.date_jour, entry.temps_demarage_lot, entry.temps_arret_batch);
     const energieCoutCond = computeEnergieShareCout(
       machine,
-      heures,
-      entry.date_jour,
+      ownIntervalCond,
       prixMois,
       energieMachineById,
-      activeMachinesByEnergieAndDate,
+      intervalsByEnergie,
       motifs
     );
     if (energieCoutCond > 0) {
@@ -1313,8 +1346,9 @@ export async function computeCoutReelArticle(
       chaineByLigneIdGlobal,
       machineByName,
       energieMachineById,
-      activeMachinesByEnergieAndDate,
-      prixMoisByKey
+      intervalsByEnergie,
+      prixMoisByKey,
+      dateRangeGlobal
     );
 
     for (const entry of entries) {
