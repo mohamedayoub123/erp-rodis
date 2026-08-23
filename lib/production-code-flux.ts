@@ -54,18 +54,25 @@ export async function buildCodeFluxContext(): Promise<CodeFluxContext> {
   return { webRows, mouvementInfoByRowId: buildMouvementInfoByRowId(webRows), plCodeByGroupeId, pdRefsBySourceGroupeId };
 }
 
-// Retrouve le/les Transfer Order qui ont livre un (article MP, lot, depot)
-// precis - meme principe/bug corrige que dans
-// app/depots/transfer-order/flux.ts : priorite aux Transfer Invoice VALIDES
-// (donnee reelle, invoice_order_lignes), repli sur l'allocation prevue
-// (transfer_order_ligne_lots) seulement pour les lignes sans TI valide.
-// Best-effort : un lot peut avoir ete livre par plusieurs TO au fil du
-// temps (reappro successifs), la liste retournee n'est donc pas forcement
-// UN seul TO exact pour la quantite consommee par ce code precis.
+// Retrouve le/les Transfer Order qui ont REELLEMENT livre un (article MP,
+// lot, depot) precis - uniquement via un Transfer Invoice VALIDE
+// (invoice_order_lignes, le stock a vraiment bouge). Contrairement au Flux
+// TO/TI (app/depots/transfer-order/flux.ts), qui repond "qu'est-ce que CE
+// TO a livre" et peut donc se rabattre sur l'allocation prevue
+// (transfer_order_ligne_lots) tant qu'aucun TI n'existe encore, la question
+// ici est inverse : "quel TO a livre le stock que CE code a consomme" - un
+// TO jamais valide n'a physiquement rien deplace, ce n'est pas une source
+// reelle. Bug confirme par l'utilisateur : le repli affichait des TO
+// n'ayant jamais livre le lot, juste alloue dessus sur le papier. Best-
+// effort tout de meme : un numero de lot reutilise (ex: "ancien_lot" pour
+// du stock migre sans vrai lot) peut avoir ete livre par plusieurs TI
+// distincts au fil du temps, la liste n'est donc pas forcement UN seul TO
+// exact pour la quantite consommee par ce code precis.
 async function fetchTosPourArticleLotDepot(
   articleMpId: number,
   numeroLot: string | null,
-  depotId: number
+  depotId: number,
+  quantiteReservee: number
 ): Promise<CodeFluxTo[]> {
   const { data: lignesData } = await supabaseServer
     .from("transfer_order_lignes")
@@ -79,15 +86,21 @@ async function fetchTosPourArticleLotDepot(
 
   let invoiceQuery = supabaseServer
     .from("invoice_order_lignes")
-    .select("transfer_order_ligne_id, invoice_order_id")
+    .select("transfer_order_ligne_id, invoice_order_id, quantite")
     .in("transfer_order_ligne_id", ligneIds);
   invoiceQuery = numeroLot === null ? invoiceQuery.is("numero_lot", null) : invoiceQuery.eq("numero_lot", numeroLot);
   const { data: invoiceLignesData } = await invoiceQuery;
-  const invoiceRows = (invoiceLignesData ?? []) as { transfer_order_ligne_id: number; invoice_order_id: number }[];
+  const invoiceRows = (invoiceLignesData ?? []) as { transfer_order_ligne_id: number; invoice_order_id: number; quantite: number }[];
 
-  const matchedLigneIds = new Set<number>();
   const toIds = new Set<number>();
   const invoiceIdsByToId = new Map<number, Set<number>>();
+  // Meme numero de lot livre par plusieurs TI distincts (cas "ancien_lot",
+  // reutilise pour du stock migre sans vrai lot) - la quantite exacte
+  // livree par CE TI, comparee a la quantite reservee par CE code, permet
+  // de retrouver LEQUEL a vraiment fourni ce code precis plutot que de
+  // presenter tous les TI ayant un jour touche ce lot. Demande explicite :
+  // "il a pris la quantite d'un seul TO, il faut mettre seulement celui-la".
+  const toIdsQuantiteExacte = new Set<number>();
 
   if (invoiceRows.length > 0) {
     const invoiceIds = [...new Set(invoiceRows.map((r) => r.invoice_order_id))];
@@ -97,38 +110,35 @@ async function fetchTosPourArticleLotDepot(
       .in("id", invoiceIds)
       .eq("statut", "valide");
     const validInvoiceIds = new Set(((invoiceOrdersData ?? []) as { id: number }[]).map((io) => io.id));
+    const tolerance = Math.max(0.5, quantiteReservee * 0.01);
     for (const row of invoiceRows) {
       if (!validInvoiceIds.has(row.invoice_order_id)) continue;
-      matchedLigneIds.add(row.transfer_order_ligne_id);
       const toId = toIdByLigneId.get(row.transfer_order_ligne_id);
-      if (toId) {
-        toIds.add(toId);
-        const set = invoiceIdsByToId.get(toId) ?? new Set<number>();
-        set.add(row.invoice_order_id);
-        invoiceIdsByToId.set(toId, set);
+      if (!toId) continue;
+      toIds.add(toId);
+      const set = invoiceIdsByToId.get(toId) ?? new Set<number>();
+      set.add(row.invoice_order_id);
+      invoiceIdsByToId.set(toId, set);
+      if (Math.abs(Number(row.quantite ?? 0) - quantiteReservee) <= tolerance) {
+        toIdsQuantiteExacte.add(toId);
       }
-    }
-  }
-
-  const ligneIdsSansInvoice = ligneIds.filter((id) => !matchedLigneIds.has(id));
-  if (ligneIdsSansInvoice.length > 0) {
-    let lotsQuery = supabaseServer
-      .from("transfer_order_ligne_lots")
-      .select("transfer_order_ligne_id")
-      .in("transfer_order_ligne_id", ligneIdsSansInvoice);
-    lotsQuery = numeroLot === null ? lotsQuery.is("numero_lot", null) : lotsQuery.eq("numero_lot", numeroLot);
-    const { data: lotsData } = await lotsQuery;
-    for (const row of (lotsData ?? []) as { transfer_order_ligne_id: number }[]) {
-      const toId = toIdByLigneId.get(row.transfer_order_ligne_id);
-      if (toId) toIds.add(toId);
     }
   }
 
   if (toIds.size === 0) return [];
 
+  // Si un (ou plusieurs) TI correspond exactement a la quantite reservee
+  // par ce code, ne garder QUE ceux-la - sinon (aucune correspondance
+  // exacte, ex: consommation partielle repartie sur plusieurs livraisons)
+  // on garde la liste complete plutot que de risquer d'en exclure un vrai.
+  const toIdsRetenus = toIdsQuantiteExacte.size > 0 ? toIdsQuantiteExacte : toIds;
+  for (const toId of [...invoiceIdsByToId.keys()]) {
+    if (!toIdsRetenus.has(toId)) invoiceIdsByToId.delete(toId);
+  }
+
   const allInvoiceIds = [...new Set([...invoiceIdsByToId.values()].flatMap((set) => [...set]))];
   const [{ data: transferOrdersData }, { data: invoiceOrdersDetailData }] = await Promise.all([
-    supabaseServer.from("transfer_orders").select("id, depot_destination_id, date_jour, numero, statut").in("id", [...toIds]),
+    supabaseServer.from("transfer_orders").select("id, depot_destination_id, date_jour, numero, statut").in("id", [...toIdsRetenus]),
     allInvoiceIds.length > 0
       ? supabaseServer.from("invoice_orders").select("id, date_jour, numero, statut").in("id", allInvoiceIds)
       : Promise.resolve({ data: [] as { id: number; date_jour: string; numero: number | null; statut: string }[] }),
@@ -236,7 +246,7 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
     const [{ data: articleData }, { data: depotData }, tos] = await Promise.all([
       supabaseServer.from("articles_matiere_premiere").select("nom_article").eq("id", articleMpId).maybeSingle(),
       supabaseServer.from("depots").select("nom").eq("id", depotId).maybeSingle(),
-      fetchTosPourArticleLotDepot(articleMpId, numeroLot, depotId),
+      fetchTosPourArticleLotDepot(articleMpId, numeroLot, depotId, quantite),
     ]);
 
     mpSources.push({

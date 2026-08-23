@@ -54,13 +54,15 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
                   <span className="font-normal text-slate-500">- depot {mp.depotNom}</span>
                 </p>
                 {mp.tos.length === 0 ? (
-                  <p className="mt-1 text-xs text-slate-500">Aucun Transfer Order retrouve pour ce lot/depot.</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Aucun Transfer Order valide retrouve pour ce lot/depot (stock peut-etre plus ancien que le suivi TO/TI).
+                  </p>
                 ) : (
                   <div className="mt-1 text-xs text-slate-600">
                     {mp.tos.length > 1 ? (
                       <p className="text-slate-500">
-                        {mp.tos.length} Transfer Order ont livre ce lot a ce depot (stock mutualise, pas forcement celui
-                        consomme par ce code precis) :
+                        {mp.tos.length} Transfer Order ont reellement livre ce lot a ce depot (numero de lot reutilise sur
+                        plusieurs livraisons) :
                       </p>
                     ) : null}
                     <ul className="mt-0.5 space-y-0.5">

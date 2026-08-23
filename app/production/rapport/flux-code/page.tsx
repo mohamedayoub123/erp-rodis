@@ -1,6 +1,7 @@
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { CodeFluxCard } from "@/app/_components/code-flux-card";
 import { buildCodeFluxContext, fetchCodeFlux } from "@/lib/production-code-flux";
 import { canViewPageUser, getCurrentStockUser } from "@/lib/stock-auth";
@@ -37,6 +38,7 @@ export default async function FluxParCodePage({ searchParams }: { searchParams: 
             <div className="flex items-center gap-3">
               <BackButton href="/production/rapport" label="Retour rapport" />
               <RefreshButton />
+              {flux ? <SimplePrintButton /> : null}
             </div>
           </div>
 

@@ -53,6 +53,16 @@ body {
     font-size: 100% !important;
   }
 
+  /* Un <details> ferme (ex: la section "Flux" du TO/TI, ou "Flux par code"
+     sur les pages PL/PD) reste FERME a l'impression par defaut - le
+     contenu replie n'apparaissait jamais sur la page imprimee/capturee,
+     meme si le bouton Imprimer capture "toute la page" (bug reel : rien
+     n'obligeait le navigateur a l'ouvrir). Force tout le contenu visible a
+     l'impression quel que soit l'etat plie/deplie a l'ecran. */
+  details > *:not(summary) {
+    display: block !important;
+  }
+
   /* Regle generale (pas limitee aux tableaux data-print-mode) : sans ca,
      une ligne de tableau peut se retrouver coupee entre 2 pages a
      l'impression - le haut du texte sur une page, le bas sur la suivante. */
