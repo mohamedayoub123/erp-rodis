@@ -106,65 +106,85 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
     );
   const ligneLots = (ligneLotsData ?? []) as { transfer_order_ligne_id: number; numero_lot: string | null; quantite: number }[];
 
-  const destinations: FluxDestinationLigne[] = [];
-
+  // Regroupe par (article, lot) AVANT de chercher qui l'a repris - demande
+  // explicite : "si c'est le meme article et meme lot dans le meme
+  // programme, additionne sur une seule ligne". 2 lignes de ce Transfer
+  // Order portant sur le meme article+lot (ex: ajoute 2 fois, ou reparti sur
+  // plusieurs lignes) donneraient sinon 2 lignes de destination identiques
+  // (memes consommateurs, puisque calcules sur le meme article/lot/depot),
+  // au lieu d'une seule quantite totale.
+  type CleArticleLot = { articleType: ArticleType; articleId: number; numeroLot: string | null };
+  const quantiteParCle = new Map<string, { cle: CleArticleLot; quantite: number }>();
   for (const ligne of lignes) {
     if (ligne.article_type !== "MP") continue;
     const lots = ligneLots.filter((l) => l.transfer_order_ligne_id === ligne.id);
-    if (lots.length === 0) continue;
-
-    const nomArticle = await fetchNomArticle(ligne.article_type, ligne.article_id);
-
     for (const lot of lots) {
-      let reserveQuery = supabaseServer
-        .from("production_mp_reserve")
-        .select("id, production_code_termine_id")
-        .eq("article_mp_id", ligne.article_id)
-        .eq("depot_id", to.depot_destination_id);
-      reserveQuery = lot.numero_lot === null ? reserveQuery.is("numero_lot", null) : reserveQuery.eq("numero_lot", lot.numero_lot);
-      const { data: reserveData } = await reserveQuery;
-      const reserves = (reserveData ?? []) as { id: number; production_code_termine_id: number }[];
-
-      let consommateurs: FluxConsommateur[] = [];
-      if (reserves.length > 0) {
-        const { data: termineData } = await supabaseServer
-          .from("production_code_termine")
-          .select("id, programme_ligne_id, code")
-          .in(
-            "id",
-            reserves.map((r) => r.production_code_termine_id)
-          );
-        const termineRows = (termineData ?? []) as { id: number; programme_ligne_id: number; code: string }[];
-
-        const plIds = [...new Set(termineRows.map((t) => t.programme_ligne_id))];
-        const { data: plData } = await supabaseServer
-          .from("programme_lignes")
-          .select("id, groupe_id, produit")
-          .in("id", plIds.length > 0 ? plIds : [0]);
-        const plById = new Map(
-          ((plData ?? []) as { id: number; groupe_id: number | null; produit: string | null }[]).map((p) => [p.id, p])
-        );
-
-        const seenCodes = new Set<string>();
-        for (const t of termineRows) {
-          if (seenCodes.has(t.code)) continue;
-          seenCodes.add(t.code);
-          const pl = plById.get(t.programme_ligne_id);
-          consommateurs.push({
-            code: t.code,
-            produit: pl?.produit ?? null,
-            href: pl?.groupe_id ? `/historique-programme/${pl.groupe_id}` : `/production/suivi/dashboard`,
-          });
-        }
+      const cleStr = `${ligne.article_id}::${lot.numero_lot ?? ""}`;
+      const existing = quantiteParCle.get(cleStr);
+      if (existing) {
+        existing.quantite += lot.quantite;
+      } else {
+        quantiteParCle.set(cleStr, {
+          cle: { articleType: ligne.article_type, articleId: ligne.article_id, numeroLot: lot.numero_lot },
+          quantite: lot.quantite,
+        });
       }
-
-      destinations.push({
-        articleNom: nomArticle,
-        numeroLot: lot.numero_lot,
-        quantite: lot.quantite,
-        consommateurs,
-      });
     }
+  }
+
+  const destinations: FluxDestinationLigne[] = [];
+
+  for (const { cle, quantite } of quantiteParCle.values()) {
+    const nomArticle = await fetchNomArticle(cle.articleType, cle.articleId);
+
+    let reserveQuery = supabaseServer
+      .from("production_mp_reserve")
+      .select("id, production_code_termine_id")
+      .eq("article_mp_id", cle.articleId)
+      .eq("depot_id", to.depot_destination_id);
+    reserveQuery = cle.numeroLot === null ? reserveQuery.is("numero_lot", null) : reserveQuery.eq("numero_lot", cle.numeroLot);
+    const { data: reserveData } = await reserveQuery;
+    const reserves = (reserveData ?? []) as { id: number; production_code_termine_id: number }[];
+
+    let consommateurs: FluxConsommateur[] = [];
+    if (reserves.length > 0) {
+      const { data: termineData } = await supabaseServer
+        .from("production_code_termine")
+        .select("id, programme_ligne_id, code")
+        .in(
+          "id",
+          reserves.map((r) => r.production_code_termine_id)
+        );
+      const termineRows = (termineData ?? []) as { id: number; programme_ligne_id: number; code: string }[];
+
+      const plIds = [...new Set(termineRows.map((t) => t.programme_ligne_id))];
+      const { data: plData } = await supabaseServer
+        .from("programme_lignes")
+        .select("id, groupe_id, produit")
+        .in("id", plIds.length > 0 ? plIds : [0]);
+      const plById = new Map(
+        ((plData ?? []) as { id: number; groupe_id: number | null; produit: string | null }[]).map((p) => [p.id, p])
+      );
+
+      const seenCodes = new Set<string>();
+      for (const t of termineRows) {
+        if (seenCodes.has(t.code)) continue;
+        seenCodes.add(t.code);
+        const pl = plById.get(t.programme_ligne_id);
+        consommateurs.push({
+          code: t.code,
+          produit: pl?.produit ?? null,
+          href: pl?.groupe_id ? `/historique-programme/${pl.groupe_id}` : `/production/suivi/dashboard`,
+        });
+      }
+    }
+
+    destinations.push({
+      articleNom: nomArticle,
+      numeroLot: cle.numeroLot,
+      quantite,
+      consommateurs,
+    });
   }
 
   return { origine, tis, destinations };
