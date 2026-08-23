@@ -45,6 +45,16 @@ function moisDe(dateJour: string) {
   return dateJour.slice(0, 7);
 }
 
+// Borne superieure EXCLUSIVE (1er jour du mois suivant) pour un filtre
+// ".lt()" sur une colonne date - evite de construire une date invalide type
+// "2026-02-31" en visant juste le dernier jour du mois demande.
+function nextMonthFirstDay(moisKey: string) {
+  const [annee, mois] = moisKey.split("-").map(Number);
+  const moisSuivant = mois === 12 ? 1 : mois + 1;
+  const anneeSuivante = mois === 12 ? annee + 1 : annee;
+  return `${anneeSuivante}-${String(moisSuivant).padStart(2, "0")}-01`;
+}
+
 function matchesPeriode(dateJour: string, periode: CoutReelPeriode) {
   if (periode.months && periode.months.length > 0) {
     return periode.months.includes(moisDe(dateJour));
@@ -272,7 +282,10 @@ async function fetchRapportsCout(ligneIds: number[]): Promise<RapportCoutRow[]> 
 // ligneIds optionnel : omis pour une portee GLOBALE (toute l'usine, utilise
 // par le partage des machines Energie qui doit voir toutes les fournees du
 // jour, pas seulement celles de l'article en cours de calcul).
-async function fetchCartonEntriesTemps(ligneIds?: number[]): Promise<CartonEntryTempsRow[]> {
+async function fetchCartonEntriesTemps(
+  ligneIds?: number[],
+  dateRange?: { from: string; toExclusive: string }
+): Promise<CartonEntryTempsRow[]> {
   if (ligneIds && ligneIds.length === 0) return [];
 
   const rows: CartonEntryTempsRow[] = [];
@@ -285,6 +298,14 @@ async function fetchCartonEntriesTemps(ligneIds?: number[]): Promise<CartonEntry
       .select("programme_ligne_id, code, date_jour, temps_demarage_lot, temps_arret_batch, nb_journaliers_conditionnement, chaine");
     if (ligneIds) {
       query = query.in("programme_ligne_id", ligneIds);
+    }
+    // Appel "global usine" (sans ligneIds, voir activeMachinesByEnergieAndDate)
+    // limite a la periode utile de l'article demande quand fournie - sans
+    // ca, calculer le cout reel d'UN SEUL article rapatriait l'historique
+    // COMPLET de production_carton_entries de toute l'usine a chaque fois
+    // (bug reel confirme : 30+ sec de chargement).
+    if (dateRange) {
+      query = query.gte("date_jour", dateRange.from).lt("date_jour", dateRange.toExclusive);
     }
     const { data, error } = await query.range(from, from + pageSize - 1);
 
@@ -460,16 +481,21 @@ type RapportEnergieRow = {
 // fois, donc "combien de machines actives ce jour-la" doit compter TOUTES
 // les machines de l'usine ce jour-la, pas seulement celles de l'article en
 // cours de calcul.
-async function fetchAllRapportsForEnergie(): Promise<RapportEnergieRow[]> {
+async function fetchAllRapportsForEnergie(dateRange?: { from: string; toExclusive: string }): Promise<RapportEnergieRow[]> {
   const rows: RapportEnergieRow[] = [];
   let from = 0;
   const pageSize = 1000;
 
   while (true) {
-    const { data, error } = await supabaseServer
+    let query = supabaseServer
       .from("production_rapports")
-      .select("programme_ligne_id, machine, temps_debut_preparation, temps_vidange, date_fabrication_conditionnement")
-      .range(from, from + pageSize - 1);
+      .select("programme_ligne_id, machine, temps_debut_preparation, temps_vidange, date_fabrication_conditionnement");
+    // Meme raison que fetchCartonEntriesTemps : limite l'historique complet
+    // de l'usine a la periode utile de l'article demande quand fournie.
+    if (dateRange) {
+      query = query.gte("date_fabrication_conditionnement", dateRange.from).lt("date_fabrication_conditionnement", dateRange.toExclusive);
+    }
+    const { data, error } = await query.range(from, from + pageSize - 1);
 
     if (error) break;
     const chunk = (data ?? []) as RapportEnergieRow[];
@@ -648,14 +674,15 @@ async function computeChargeGeneraleParJourCarton(
   machineByName: Map<string, MachineRow>,
   energieMachineById: Map<number, MachineRow>,
   activeMachinesByEnergieAndDate: Map<string, Set<number>>,
-  prixMoisByKey: Map<string, PrixMoisRow>
+  prixMoisByKey: Map<string, PrixMoisRow>,
+  dateRange?: { from: string; toExclusive: string }
 ): Promise<Map<string, number>> {
   const result = new Map<string, number>();
   if (moisList.length === 0) return result;
 
   const [chargesByMois, cartonsGlobal] = await Promise.all([
     fetchChargesUsineMap(moisList),
-    fetchAllCartonEntries(),
+    fetchAllCartonEntries(undefined, dateRange),
   ]);
 
   // Total FCFA deja attribue a des machines tracees (kW x heures + part
@@ -1028,12 +1055,34 @@ export async function computeCoutReelArticle(
   const machineByName = new Map(allMachines.map((m) => [normalizeMachineName(m.nom), m]));
   const energieMachineById = new Map(allMachines.map((m) => [m.id, m]));
 
+  const moisUtiles = [
+    ...new Set([
+      ...rapportsPertinents.map((r) => r.date_fabrication_conditionnement).filter((d): d is string => !!d),
+      ...cartonEntriesPertinents.map((e) => e.date_jour),
+      ...entries.map((e) => e.date_jour),
+    ]),
+  ].map((d) => moisDe(d));
+  // Reduit "toute l'usine, tout l'historique" a "toute l'usine, seulement
+  // les mois utiles a CET article" pour les 2 fetch globaux ci-dessous
+  // (activeMachinesByEnergieAndDate a besoin de portee usine complete, mais
+  // jamais de plus de mois que necessaire) - bug reel confirme : Cout Reel
+  // rapatriait l'historique COMPLET de production_rapports/carton_entries a
+  // chaque ouverture de page, meme pour un seul article/periode (30+ sec).
+  const moisUtilesTries = [...moisUtiles].sort();
+  const dateRangeGlobal =
+    moisUtilesTries.length > 0
+      ? {
+          from: `${moisUtilesTries[0]}-01`,
+          toExclusive: nextMonthFirstDay(moisUtilesTries[moisUtilesTries.length - 1]),
+        }
+      : undefined;
+
   // Diviseur des machines Energie partagees (voir computeEnergieShareCout) -
   // portee volontairement GLOBALE (toute l'usine, pas juste cet article),
   // fetch une seule fois par appel.
   const [rapportsEnergie, cartonEntriesEnergieGlobal, programmeLignesChaineGlobal] = await Promise.all([
-    fetchAllRapportsForEnergie(),
-    fetchCartonEntriesTemps(),
+    fetchAllRapportsForEnergie(dateRangeGlobal),
+    fetchCartonEntriesTemps(undefined, dateRangeGlobal),
     fetchAllProgrammeLignesChaine(),
   ]);
   const chaineByLigneIdGlobal = new Map(programmeLignesChaineGlobal.map((l) => [l.id, l.chaine]));
@@ -1044,13 +1093,6 @@ export async function computeCoutReelArticle(
     machineByName
   );
 
-  const moisUtiles = [
-    ...new Set([
-      ...rapportsPertinents.map((r) => r.date_fabrication_conditionnement).filter((d): d is string => !!d),
-      ...cartonEntriesPertinents.map((e) => e.date_jour),
-      ...entries.map((e) => e.date_jour),
-    ]),
-  ].map((d) => moisDe(d));
   const prixMoisByKey = await fetchPrixMoisMap(moisUtiles);
 
   let coutElectricite = 0;
