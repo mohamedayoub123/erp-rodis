@@ -5,7 +5,12 @@ import { saveFabricationRapportAction } from "../../actions";
 import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { combineTempsJourMois, splitTempsJourMois } from "@/lib/suivi-tirage-time";
-import { filtreSaisieHeure } from "@/app/_components/time-text-input";
+import {
+  type TimeMaskState,
+  handleTimeKeyDown,
+  parseTimeValue,
+  renderTimeState,
+} from "@/app/_components/time-text-input";
 import { LotSearchField } from "@/app/depots/transfer-order/lot-search-field";
 import { MachineSelectField } from "../../machine-select-field";
 import { TYPE_PRODUIT_OPTIONS } from "../../../machines/type-produit-options";
@@ -73,7 +78,8 @@ export function TempsField({
   const initial = splitTempsJourMois(defaultValue);
   const [day, setDay] = useState(initial.day);
   const [month, setMonth] = useState(initial.month);
-  const [time, setTime] = useState(initial.time);
+  const [timeState, setTimeState] = useState<TimeMaskState>(() => parseTimeValue(initial.time));
+  const time = renderTimeState(timeState);
 
   return (
     <label className="grid gap-1 text-xs font-semibold text-slate-500">
@@ -110,10 +116,8 @@ export function TempsField({
           pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
           title="Format 24h, ex: 14:30"
           value={time}
-          onChange={(event) => {
-            const next = event.target.value;
-            setTime((prev) => filtreSaisieHeure(prev, next));
-          }}
+          onKeyDown={(event) => handleTimeKeyDown(event, setTimeState)}
+          onChange={() => {}}
           required
           className={inputClass}
         />

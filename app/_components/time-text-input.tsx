@@ -2,24 +2,107 @@
 
 import { useState } from "react";
 
-// Champ heure "HH:MM" en texte libre (24h garanti, jamais le selecteur natif
-// du navigateur - voir commentaire sur les <input type="time"> remplaces).
-// Bloque toute frappe qui casserait la forme HH:MM (ex: un 3e chiffre avant
-// le ":" - "140" refuse, reste a "14") SANS jamais inserer le ":" a la
-// place de l'utilisateur - demande explicite : "il faut que moi-meme mette
-// le ':', pas oblige d'ecrire 2 chiffres et le ':' vient automatique".
-export const PARTIEL_HHMM = /^([01]?[0-9]?|2[0-3]?)(:([0-5]?[0-9]?)?)?$/;
+// Masque de saisie heure "HH:MM" (24h garanti, jamais le selecteur natif du
+// navigateur - voir commentaire sur les <input type="time"> remplaces).
+// Demande explicite (apres un premier essai a saisie manuelle du ":" rejete
+// par l'utilisateur) : taper juste les chiffres, le ":" et le zero de
+// remplissage apparaissent tout seuls - "si j'ecris 8, le 08 vient
+// automatique, et il me prend apres le ':' pour ecrire les minutes".
+export type TimeMaskState = { h: string; m: string; hAutoPadded: boolean };
 
-// Une suppression (backspace/select+del/couper) est TOUJOURS autorisee,
-// meme si le resultat ne matche plus PARTIEL_HHMM (ex: effacer le ":" au
-// milieu de "14:30" donne "1430", que le regex rejette) - bug reel corrige
-// : sans ca, un ":" deja tape devenait impossible a effacer/corriger, le
-// champ revenant silencieusement a sa valeur d'avant a chaque backspace
-// dessus. Seul un AJOUT de caractere (la chaine s'allonge) est filtre par
-// le regex.
-export function filtreSaisieHeure(precedent: string, suivant: string): string {
-  if (suivant.length <= precedent.length) return suivant;
-  return PARTIEL_HHMM.test(suivant) ? suivant : precedent;
+// Un premier chiffre 3-9 ne peut jamais commencer une heure a 2 chiffres
+// (30-99 n'existe pas) - complete tout de suite en "0X" et passe aux
+// minutes. Un premier chiffre 0/1/2 reste ambigu (peut encore devenir
+// 00-09/10-19/20-23) - attend le 2e chiffre.
+export function parseTimeValue(value: string): TimeMaskState {
+  const match = /^(\d{0,2}):?(\d{0,2})$/.exec((value || "").trim());
+  if (!match) return { h: "", m: "", hAutoPadded: false };
+  return { h: match[1] ?? "", m: match[2] ?? "", hAutoPadded: false };
+}
+
+export function renderTimeState(state: TimeMaskState): string {
+  if (!state.h) return "";
+  if (state.h.length < 2) return state.h;
+  return state.m ? `${state.h}:${state.m}` : `${state.h}:`;
+}
+
+export function pushTimeDigit(state: TimeMaskState, d: string): TimeMaskState {
+  if (state.h.length < 2) {
+    if (state.h === "") {
+      if ("3456789".includes(d)) return { h: "0" + d, m: "", hAutoPadded: true };
+      if ("012".includes(d)) return { h: d, m: "", hAutoPadded: false };
+      return state;
+    }
+    const h1 = state.h;
+    if (h1 === "2") {
+      if ("0123".includes(d)) return { h: h1 + d, m: "", hAutoPadded: false };
+      // 2 ne peut pas continuer avec ce chiffre (24-29 n'existe pas) -
+      // complete l'heure a "02" et retente ce meme chiffre comme 1ere
+      // minute, plutot que de le perdre silencieusement.
+      const completed = "0" + h1;
+      if ("012345".includes(d)) return { h: completed, m: d, hAutoPadded: true };
+      return { h: completed, m: "", hAutoPadded: true };
+    }
+    if ("0123456789".includes(d)) return { h: h1 + d, m: "", hAutoPadded: false };
+    return state;
+  }
+  if (state.m.length === 0) {
+    if ("012345".includes(d)) return { ...state, m: d };
+    return state;
+  }
+  if (state.m.length === 1) {
+    if ("0123456789".includes(d)) return { ...state, m: state.m + d };
+    return state;
+  }
+  return state;
+}
+
+export function popTimeDigit(state: TimeMaskState): TimeMaskState {
+  if (state.m.length > 0) return { ...state, m: state.m.slice(0, -1) };
+  if (state.h.length === 2) {
+    // Une heure auto-completee depuis un seul chiffre (8 -> "08") s'efface
+    // d'un coup - sinon un backspace laisserait un "0" fantome que
+    // l'utilisateur n'a jamais tape.
+    if (state.hAutoPadded) return { h: "", m: "", hAutoPadded: false };
+    return { h: state.h.slice(0, 1), m: "", hAutoPadded: false };
+  }
+  if (state.h.length === 1) return { h: "", m: "", hAutoPadded: false };
+  return state;
+}
+
+const NAV_KEYS = new Set([
+  "Tab",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "Home",
+  "End",
+  "Shift",
+  "Control",
+  "Meta",
+  "Alt",
+  "Enter",
+  "Escape",
+]);
+
+// Meme gestion clavier partagee par TimeTextInput et tout champ heure
+// controle localement (ex: TempsField dans fabrication-form.tsx, qui
+// combine l'heure avec un jour/mois) - un seul setState (React.Dispatch)
+// suffit, jamais 2 implementations du meme pavé de touches a maintenir.
+export function handleTimeKeyDown(
+  event: React.KeyboardEvent<HTMLInputElement>,
+  setState: (updater: (prev: TimeMaskState) => TimeMaskState) => void
+) {
+  if (/^[0-9]$/.test(event.key)) {
+    event.preventDefault();
+    setState((prev) => pushTimeDigit(prev, event.key));
+  } else if (event.key === "Backspace" || event.key === "Delete") {
+    event.preventDefault();
+    setState((prev) => popTimeDigit(prev));
+  } else if (!NAV_KEYS.has(event.key) && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+  }
 }
 
 export function TimeTextInput({
@@ -33,7 +116,7 @@ export function TimeTextInput({
   required?: boolean;
   className?: string;
 }) {
-  const [value, setValue] = useState(defaultValue ?? "");
+  const [state, setState] = useState<TimeMaskState>(() => parseTimeValue(defaultValue ?? ""));
 
   return (
     <input
@@ -44,10 +127,17 @@ export function TimeTextInput({
       pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
       title="Format 24h, ex: 14:30"
       required={required}
-      value={value}
-      onChange={(event) => {
-        const next = event.target.value;
-        setValue((prev) => filtreSaisieHeure(prev, next));
+      value={renderTimeState(state)}
+      onKeyDown={(event) => handleTimeKeyDown(event, setState)}
+      onChange={() => {}}
+      onPaste={(event) => {
+        event.preventDefault();
+        const digits = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 4);
+        setState((prev) => {
+          let next = prev;
+          for (const digit of digits) next = pushTimeDigit(next, digit);
+          return next;
+        });
       }}
       className={className}
     />
