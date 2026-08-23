@@ -117,7 +117,10 @@ export async function fetchAllProgrammeLignes(options?: {
 // lignes actives du Dashboard) - evite de rapatrier des annees d'entrees
 // pour des lignes deja terminees et jamais affichees. Sans argument,
 // comportement inchange (tout l'historique, utilise par Rapport Ecarts).
-export async function fetchAllCartonEntries(ligneIds?: number[]): Promise<CartonEntryRow[]> {
+export async function fetchAllCartonEntries(
+  ligneIds?: number[],
+  dateRange?: { from: string; toExclusive: string }
+): Promise<CartonEntryRow[]> {
   if (ligneIds && ligneIds.length === 0) return [];
 
   const rows: CartonEntryRow[] = [];
@@ -131,6 +134,13 @@ export async function fetchAllCartonEntries(ligneIds?: number[]): Promise<Carton
 
     if (ligneIds) {
       query = query.in("programme_ligne_id", ligneIds);
+    }
+    // Reduit le nombre de lignes rapatriees quand seule une periode precise
+    // est utile (ex: charge generale de Cout Reel, qui ne regarde jamais
+    // plus que les mois de l'article demande) - jamais applique quand
+    // l'appelant a besoin de tout l'historique (dateRange omis).
+    if (dateRange) {
+      query = query.gte("date_jour", dateRange.from).lt("date_jour", dateRange.toExclusive);
     }
 
     const { data, error } = await query
