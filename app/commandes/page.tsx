@@ -284,7 +284,11 @@ export default async function CommandesPage({
       ((fifoPresenceData ?? []) as { commande_id: number | null }[]).map((r) => r.commande_id).filter(Boolean)
     );
     const dejaFacture = new Set(((ecrituresExistantesData ?? []) as { source_id: string }[]).map((r) => r.source_id));
-    const aGuerir = livreeIds.filter((id) => aVraimentLivre.has(id) && !dejaFacture.has(String(id)));
+    // Plafonne a 5 par chargement - creerEcritureVente fait un vrai calcul de
+    // cout (FEFO) par commande, potentiellement lent ; jamais bloquer cette
+    // page plusieurs secondes pour un gros lot de guerisons d'un coup, elles
+    // s'etalent naturellement sur les chargements suivants.
+    const aGuerir = livreeIds.filter((id) => aVraimentLivre.has(id) && !dejaFacture.has(String(id))).slice(0, 5);
     if (aGuerir.length > 0) {
       await Promise.all(
         aGuerir.map((id) =>
