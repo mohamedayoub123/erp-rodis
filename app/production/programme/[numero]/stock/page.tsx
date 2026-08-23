@@ -7,6 +7,7 @@ import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-
 import { autoCreateTransferOrdersAction } from "./actions";
 import { fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
 import { VerifierStockTable } from "@/app/depots/transfer-order/verifier-stock-table";
+import { computeQtCarton, splitVracIntoBatches } from "@/lib/dispatcher-shared";
 
 type ProgrammeRow = {
   article_id: number;
@@ -14,12 +15,17 @@ type ProgrammeRow = {
   qt_carton: number;
   qt_vrac: number;
   date_jour: string;
+  plateforme: string | null;
 };
 
 type ArticleRow = {
   id: number;
   nom_article: string;
   quantite_recette_base: number | null;
+  contenance: number | null;
+  piece_par_carton: number | null;
+  max_vrac_auto: number | null;
+  vrac_max_manuel: number | null;
 };
 
 type RecetteLigneRow = {
@@ -80,7 +86,7 @@ export default async function ProgrammeVerifierStockPage({
 
   const { data: lignesData, error } = await supabaseServer
     .from("programmes")
-    .select("article_id, vrac_article_id, qt_carton, qt_vrac, date_jour")
+    .select("article_id, vrac_article_id, qt_carton, qt_vrac, date_jour, plateforme")
     .eq("numero_programme", numeroProgramme);
 
   const lignes = (lignesData ?? []) as ProgrammeRow[];
@@ -95,13 +101,44 @@ export default async function ProgrammeVerifierStockPage({
     { data: articlesData, error: articlesError },
     { data: recettesData, error: recettesError },
   ] = await Promise.all([
-    supabaseServer.from("articles").select("id, nom_article, quantite_recette_base").in("id", articleIds),
+    supabaseServer
+      .from("articles")
+      .select("id, nom_article, quantite_recette_base, contenance, piece_par_carton, max_vrac_auto, vrac_max_manuel")
+      .in("id", articleIds),
     supabaseServer.from("recettes_pf").select("article_pf_id, article_mp_id, quantite").in("article_pf_id", articleIds),
   ]);
 
   const chargeError = articlesError || recettesError;
   const articleById = new Map(((articlesData ?? []) as ArticleRow[]).map((a) => [a.id, a]));
   const recettes = (recettesData ?? []) as RecetteLigneRow[];
+
+  // qt_carton reellement consomme en conditionnement = somme des qt_carton
+  // de CHAQUE lot une fois le vrac total decoupe par le Dispatcher (voir
+  // splitVracIntoBatches/computeQtCarton, lib/dispatcher-shared.ts) - jamais
+  // le qt_carton persiste sur la ligne "programmes" (un seul arrondi sur le
+  // vrac total, ex: 6000L -> 625 cartons pile), qui ne correspond a rien de
+  // reel des que le Dispatcher partage ce total en plusieurs lots plafonnes
+  // (ex: 2x3000L -> 313+313 = 626, jamais 625 - le carton en plus se
+  // retrouve alors manquant en conditionnement, jamais compte ici avant ce
+  // correctif). Regroupe par (article, plateforme) - le meme decoupage que
+  // le Dispatcher applique sur le total combine, pas ligne par ligne.
+  const totalVracParGroupe = new Map<string, number>();
+  for (const ligne of lignes) {
+    const cle = `${ligne.article_id}::${ligne.plateforme ?? ""}`;
+    totalVracParGroupe.set(cle, (totalVracParGroupe.get(cle) ?? 0) + Number(ligne.qt_vrac ?? 0));
+  }
+  const qtCartonReelParGroupe = new Map<string, number>();
+  for (const [cle, totalVrac] of totalVracParGroupe.entries()) {
+    const [articleIdStr, plateforme] = cle.split("::");
+    const article = articleById.get(Number(articleIdStr));
+    const max = plateforme === "A" ? article?.max_vrac_auto : article?.vrac_max_manuel;
+    const batches = max && max > 0 ? splitVracIntoBatches(totalVrac, max) : [totalVrac];
+    const total = batches.reduce(
+      (sum, batch) => sum + (computeQtCarton(batch, article?.contenance ?? null, article?.piece_par_carton ?? null) ?? 0),
+      0
+    );
+    qtCartonReelParGroupe.set(cle, total);
+  }
 
   // Besoin en MP = quantite de la recette x (qt du programme / quantite_recette_base
   // de l'article calibre) - qt_carton pour la recette Conditionnement (article
@@ -113,7 +150,11 @@ export default async function ProgrammeVerifierStockPage({
     // pages Recette Conditionnement/Fabrication), au lieu de ne rien
     // afficher du tout.
     const article = articleById.get(ligne.article_id);
-    const ratioCarton = ligne.qt_carton / (article?.quantite_recette_base || 1);
+    const cle = `${ligne.article_id}::${ligne.plateforme ?? ""}`;
+    const qtCartonReelGroupe = qtCartonReelParGroupe.get(cle) ?? ligne.qt_carton;
+    const partDeLigne = (totalVracParGroupe.get(cle) ?? 0) > 0 ? ligne.qt_vrac / (totalVracParGroupe.get(cle) ?? 1) : 0;
+    const qtCartonReelLigne = qtCartonReelGroupe * partDeLigne;
+    const ratioCarton = qtCartonReelLigne / (article?.quantite_recette_base || 1);
     for (const r of recettes.filter((r) => r.article_pf_id === ligne.article_id)) {
       besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioCarton);
     }

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { computeArticleFamilyKey, extractTrailingNumber, incrementCode } from "@/lib/article-code-family";
+import { computeQtCarton } from "@/lib/dispatcher-shared";
 import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
 import { logAudit } from "@/lib/audit-log";
 import { supprimerToutesTracesProductionPourLigne } from "@/app/production/suivi-production/actions";
@@ -65,17 +66,13 @@ type DispatcherDraftRow = {
   batchKey: string;
 };
 
-function computeQtCarton(
-  vrac: number | null,
-  contenance: number | null,
-  piecePerCarton: number | null
-): number | null {
-  if (!vrac || vrac <= 0) return null;
-  if (!contenance || contenance <= 0) return null;
-  if (!piecePerCarton || piecePerCarton <= 0) return null;
-
-  return vrac / contenance / piecePerCarton;
-}
+// computeQtCarton importee de lib/dispatcher-shared.ts (voir plus haut) -
+// une copie locale existait ici, jamais mise a jour lors du passage a
+// l'arrondi au carton superieur (commit 319c2ed) : elle renvoyait encore la
+// division brute (312.5), jamais 313 - bug reel confirme (Lait WHITE SECRET
+// 200ml, 6000L splites en 2 lots de 3000L par le Dispatcher : 625 cartons
+// corrects au total programme_lignes.qt_carton, mais 312.5+312.5 dans
+// numero_lot_detail/programme_dispatcher_lignes au lieu de 313+313).
 
 // Decoupe un vrac total en lots ne depassant jamais le max autorise pour
 // cet article/plateforme. Ex: 10000 avec un max de 3000 -> [3000, 3000,

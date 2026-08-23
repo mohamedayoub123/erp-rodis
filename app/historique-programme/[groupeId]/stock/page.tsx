@@ -8,12 +8,14 @@ import { fetchPlCodeByGroupeId } from "@/lib/programme-numbering";
 import { fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
 import { VerifierStockTable } from "@/app/depots/transfer-order/verifier-stock-table";
 import { autoCreateTransferOrdersFromProgrammeLigneAction } from "./actions";
+import { computeQtCarton, splitVracIntoBatches } from "@/lib/dispatcher-shared";
 
 type ProgrammeLigneRow = {
   article_id: number | null;
   qt_carton: number | null;
   vrac_a_fabriquer: number | null;
   date_jour: string;
+  plateforme: string | null;
 };
 
 type ArticleRow = {
@@ -22,6 +24,10 @@ type ArticleRow = {
   nature: string | null;
   vrac_article_id: number | null;
   quantite_recette_base: number | null;
+  contenance: number | null;
+  piece_par_carton: number | null;
+  max_vrac_auto: number | null;
+  vrac_max_manuel: number | null;
 };
 
 type RecetteLigneRow = {
@@ -91,7 +97,7 @@ export default async function HistoriqueProgrammeVerifierStockPage({
 
   const { data: lignesData, error } = await supabaseServer
     .from("programme_lignes")
-    .select("article_id, qt_carton, vrac_a_fabriquer, date_jour")
+    .select("article_id, qt_carton, vrac_a_fabriquer, date_jour, plateforme")
     .or(`groupe_id.eq.${groupeIdNumber},and(groupe_id.is.null,id.eq.${groupeIdNumber})`);
 
   const lignes = ((lignesData ?? []) as ProgrammeLigneRow[]).filter((l) => l.article_id);
@@ -106,7 +112,7 @@ export default async function HistoriqueProgrammeVerifierStockPage({
 
   const { data: articlesData, error: articlesError } = await supabaseServer
     .from("articles")
-    .select("id, nom_article, nature, vrac_article_id, quantite_recette_base")
+    .select("id, nom_article, nature, vrac_article_id, quantite_recette_base, contenance, piece_par_carton, max_vrac_auto, vrac_max_manuel")
     .in("id", articleIds);
 
   const articleById = new Map(((articlesData ?? []) as ArticleRow[]).map((a) => [a.id, a]));
@@ -144,6 +150,33 @@ export default async function HistoriqueProgrammeVerifierStockPage({
   const chargeError = articlesError || recettesError;
   const recettes = (recettesData ?? []) as RecetteLigneRow[];
 
+  // qt_carton reellement consomme en conditionnement = somme des qt_carton
+  // de CHAQUE lot une fois le vrac total decoupe par le Dispatcher, jamais
+  // le qt_carton persiste sur programme_lignes (un seul arrondi sur le vrac
+  // total avant tout decoupage) - meme correctif et meme raison que
+  // /production/programme/[numero]/stock (Programme MB), voir son
+  // commentaire pour le detail (cas reel confirme : 6000L -> 625 sur la
+  // ligne, mais 2x3000L decoupes par le Dispatcher -> 313+313 = 626 en
+  // vrai, 1 carton de conditionnement jamais compte ici avant ce correctif).
+  const totalVracParGroupe = new Map<string, number>();
+  for (const ligne of lignes) {
+    if (!ligne.article_id) continue;
+    const cle = `${ligne.article_id}::${ligne.plateforme ?? ""}`;
+    totalVracParGroupe.set(cle, (totalVracParGroupe.get(cle) ?? 0) + Number(ligne.vrac_a_fabriquer ?? 0));
+  }
+  const qtCartonReelParGroupe = new Map<string, number>();
+  for (const [cle, totalVrac] of totalVracParGroupe.entries()) {
+    const [articleIdStr, plateforme] = cle.split("::");
+    const article = articleById.get(Number(articleIdStr));
+    const max = plateforme === "A" ? article?.max_vrac_auto : article?.vrac_max_manuel;
+    const batches = max && max > 0 ? splitVracIntoBatches(totalVrac, max) : [totalVrac];
+    const total = batches.reduce(
+      (sum, batch) => sum + (computeQtCarton(batch, article?.contenance ?? null, article?.piece_par_carton ?? null) ?? 0),
+      0
+    );
+    qtCartonReelParGroupe.set(cle, total);
+  }
+
   // Besoin en MP = quantite de la recette x (quantite reelle du programme /
   // quantite_recette_base de l'article calibre) - qt_carton pour la recette
   // Conditionnement (article fini), vrac_a_fabriquer pour la recette
@@ -154,7 +187,12 @@ export default async function HistoriqueProgrammeVerifierStockPage({
     const article = articleById.get(ligne.article_id);
 
     if (ligne.qt_carton) {
-      const ratioCarton = ligne.qt_carton / (article?.quantite_recette_base || 1);
+      const cle = `${ligne.article_id}::${ligne.plateforme ?? ""}`;
+      const totalVracGroupe = totalVracParGroupe.get(cle) ?? 0;
+      const qtCartonReelGroupe = qtCartonReelParGroupe.get(cle) ?? ligne.qt_carton;
+      const partDeLigne = totalVracGroupe > 0 ? Number(ligne.vrac_a_fabriquer ?? 0) / totalVracGroupe : 0;
+      const qtCartonReelLigne = qtCartonReelGroupe * partDeLigne;
+      const ratioCarton = qtCartonReelLigne / (article?.quantite_recette_base || 1);
       for (const r of recettes.filter((r) => r.article_pf_id === ligne.article_id)) {
         besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioCarton);
       }
