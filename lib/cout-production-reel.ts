@@ -54,6 +54,18 @@ function matchesPeriode(dateJour: string, periode: CoutReelPeriode) {
   return true;
 }
 
+// Compare insensible a la casse/espaces (le champ "Lot / code" de la page
+// est tape a la main, ex: "aa4252" alors que le code reel est "AA4252") -
+// bug reel confirme : le filtre "code" ne matchait jamais rien saisi en
+// minuscule, ET n'etait meme pas applique du tout aux entrees Conditionnement/
+// Emballage (voir cartonEntriesPertinents/emballageEntriesPertinentes
+// plus bas) - Cout electricite/Cout journaliers restaient donc TOUJOURS
+// ceux de tout l'article, meme avec un code precis dans le filtre.
+function matchesCode(code: string, periode: CoutReelPeriode) {
+  if (!periode.code) return true;
+  return code.trim().toUpperCase() === periode.code.trim().toUpperCase();
+}
+
 // Quantite reellement produite (cartons), par article fini, sur la periode -
 // sert a construire la liste "tous les articles" (page
 // /production/rapport/cout-reel) sans avoir a chiffrer inutilement des
@@ -850,9 +862,7 @@ export async function computeCoutReelArticle(
   // l'Emballage, decision actee avec l'utilisateur).
   const entriesRaw =
     nature === "vrac" ? await fetchAllVracEntries(ligneIds) : await fetchAllCartonEntries(ligneIds);
-  const entries = entriesRaw.filter(
-    (e) => matchesPeriode(e.date_jour, periode) && (!periode.code || e.code === periode.code)
-  );
+  const entries = entriesRaw.filter((e) => matchesPeriode(e.date_jour, periode) && matchesCode(e.code, periode));
   const quantiteTotaleProduite = entries.reduce((sum, e) => sum + Number(e.quantite ?? 0), 0);
 
   // Rapports des codes qui ont reellement produit sur la periode (memes
@@ -1001,9 +1011,13 @@ export async function computeCoutReelArticle(
   // code) qui ont reellement produit sur la periode (codeKeys/rapportsPertinents
   // deja calcules plus haut, avant le cout vrac).
   const cartonEntriesTemps = await fetchCartonEntriesTemps(ligneIds);
-  const cartonEntriesPertinents = cartonEntriesTemps.filter((e) => matchesPeriode(e.date_jour, periode));
+  const cartonEntriesPertinents = cartonEntriesTemps.filter(
+    (e) => matchesPeriode(e.date_jour, periode) && matchesCode(e.code, periode)
+  );
   const emballageEntriesTemps = await fetchEmballageEntriesTemps(ligneIds);
-  const emballageEntriesPertinentes = emballageEntriesTemps.filter((e) => matchesPeriode(e.date_jour, periode));
+  const emballageEntriesPertinentes = emballageEntriesTemps.filter(
+    (e) => matchesPeriode(e.date_jour, periode) && matchesCode(e.code, periode)
+  );
 
   const { data: machinesData } = await supabaseServer
     .from("machines")
