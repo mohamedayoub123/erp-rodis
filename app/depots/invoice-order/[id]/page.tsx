@@ -17,6 +17,8 @@ import {
   validateInvoiceOrderAction,
 } from "../actions";
 import { InvoiceOrderLignesEditor } from "../lignes-editor";
+import { fetchFluxInfo } from "../../transfer-order/flux";
+import { FluxSection } from "../../transfer-order/flux-section";
 
 type InvoiceOrderRow = {
   id: number;
@@ -119,6 +121,8 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
   // TI1.2026, TI2.2026... fige a la creation (colonne numero) - stable.
   const code = `TI.${invoiceOrder.date_jour.slice(0, 4)}.${invoiceOrder.numero ?? invoiceOrder.id}`;
 
+  const flux = await fetchFluxInfo(invoiceOrder.transfer_order_id);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -171,6 +175,8 @@ export default async function InvoiceOrderDetailPage({ params }: { params: Promi
             />
           </div>
         </section>
+
+        <FluxSection flux={flux} />
 
         <InvoiceOrderLignesEditor
           invoiceOrderId={invoiceOrderId}

@@ -19,6 +19,8 @@ import {
   updateTransferOrderRemarqueAction,
 } from "../actions";
 import { TransferOrderLignesEditor } from "../lignes-editor";
+import { fetchFluxInfo } from "../flux";
+import { FluxSection } from "../flux-section";
 
 async function fetchAllArticles<T>(table: string, select: string) {
   const rows: T[] = [];
@@ -158,6 +160,8 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
   // TO1.2026, TO2.2026... fige a la creation (colonne numero) - stable.
   const code = `TO.${transferOrder.date_jour.slice(0, 4)}.${transferOrder.numero ?? transferOrder.id}`;
 
+  const flux = await fetchFluxInfo(transferOrderId);
+
   const lignesEnrichies = await Promise.all(
     lignes.map(async (ligne) => {
       const [nom, lotsDisponiblesBruts] = await Promise.all([
@@ -272,6 +276,8 @@ export default async function TransferOrderDetailPage({ params }: { params: Prom
             />
           </div>
         </section>
+
+        <FluxSection flux={flux} />
 
         {transferOrder.statut === "en_attente" ? (
           <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
