@@ -102,12 +102,37 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
     .eq("transfer_order_id", transferOrderId);
   const lignes = (lignesData ?? []) as { id: number; article_type: ArticleType; article_id: number }[];
 
+  // Ce qui est REELLEMENT livre = les lignes du/des Transfer Invoice VALIDES
+  // (invoice_order_lignes, numero_lot/quantite exacts au moment ou le stock a
+  // vraiment bouge - voir validateInvoiceOrder) - jamais transfer_order_ligne_lots
+  // seul, qui reste souvent VIDE meme sur un Transfer Order deja "poste" (la
+  // repartition par lot peut avoir ete faite directement a l'ecran Transfer
+  // Invoice, sans jamais passer par le picker de lots du Transfer Order -
+  // bug reel confirme : "Destination du stock livre" affichait "Aucun
+  // article" alors que 30048 sleeves + 626 cartons avaient bien ete livres).
+  // Repli sur transfer_order_ligne_lots (allocation prevue) uniquement s'il
+  // n'existe encore AUCUN Transfer Invoice valide pour cette ligne.
+  const validatedIoIds = ((invoiceOrdersData ?? []) as { id: number; statut: string }[])
+    .filter((io) => io.statut === "valide")
+    .map((io) => io.id);
+  const { data: invoiceLignesData } = await supabaseServer
+    .from("invoice_order_lignes")
+    .select("transfer_order_ligne_id, numero_lot, quantite")
+    .in("invoice_order_id", validatedIoIds.length > 0 ? validatedIoIds : [0]);
+  const invoiceLignesParLigneId = new Map<number, { numero_lot: string | null; quantite: number }[]>();
+  for (const il of (invoiceLignesData ?? []) as { transfer_order_ligne_id: number; numero_lot: string | null; quantite: number }[]) {
+    const list = invoiceLignesParLigneId.get(il.transfer_order_ligne_id) ?? [];
+    list.push({ numero_lot: il.numero_lot, quantite: il.quantite });
+    invoiceLignesParLigneId.set(il.transfer_order_ligne_id, list);
+  }
+
+  const lignesSansInvoiceValide = lignes.filter((l) => !invoiceLignesParLigneId.has(l.id));
   const { data: ligneLotsData } = await supabaseServer
     .from("transfer_order_ligne_lots")
     .select("transfer_order_ligne_id, numero_lot, quantite")
     .in(
       "transfer_order_ligne_id",
-      lignes.map((l) => l.id)
+      lignesSansInvoiceValide.length > 0 ? lignesSansInvoiceValide.map((l) => l.id) : [0]
     );
   const ligneLots = (ligneLotsData ?? []) as { transfer_order_ligne_id: number; numero_lot: string | null; quantite: number }[];
 
@@ -122,7 +147,7 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
   const quantiteParCle = new Map<string, { cle: CleArticleLot; quantite: number }>();
   for (const ligne of lignes) {
     if (ligne.article_type !== "MP") continue;
-    const lots = ligneLots.filter((l) => l.transfer_order_ligne_id === ligne.id);
+    const lots = invoiceLignesParLigneId.get(ligne.id) ?? ligneLots.filter((l) => l.transfer_order_ligne_id === ligne.id);
     for (const lot of lots) {
       const cleStr = `${ligne.article_id}::${lot.numero_lot ?? ""}`;
       const existing = quantiteParCle.get(cleStr);
