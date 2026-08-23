@@ -34,6 +34,30 @@ const TILES = [
     description: "Saisis une ecriture sur n'importe quel compte du plan comptable, pour ce qui n'est pas deja automatique.",
   },
   {
+    label: "Paie",
+    href: "/comptabilite/paie",
+    icon: "\u{1F4B0}",
+    description: "Liste des employes - paye un mois pour generer l'ecriture de salaire automatiquement.",
+  },
+  {
+    label: "Charges recurrentes",
+    href: "/comptabilite/charges-recurrentes",
+    icon: "\u{1F501}",
+    description: "Loyer, assurance, abonnements... - regle un mois pour generer l'ecriture automatiquement.",
+  },
+  {
+    label: "Immobilisations",
+    href: "/comptabilite/immobilisations",
+    icon: "\u{1F3ED}",
+    description: "Machines, batiments... - ecriture d'achat automatique, dotation aux amortissements mois par mois.",
+  },
+  {
+    label: "TVA",
+    href: "/comptabilite/tva",
+    icon: "\u{1F9FE}",
+    description: "Declare la TVA collectee/deductible du mois - ecriture de solde generee automatiquement.",
+  },
+  {
     label: "Clients",
     href: "/clients",
     icon: "\u{1F465}",
