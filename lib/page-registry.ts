@@ -539,6 +539,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "retoursConditionnement",
+    module: "Production",
+    label: "Retours Conditionnement (par PD) - creer un Transfer Order de retour",
+    pathPrefixes: ["/production/retours-conditionnement"],
+    hasWrite: true,
+  },
+  {
     key: "codeParArticle",
     module: "Production",
     label: "Code par article",

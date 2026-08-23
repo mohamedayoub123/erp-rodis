@@ -95,6 +95,13 @@ const TILES = [
     icon: "\u{1F4E6}",
     description: "Pour chaque produit fini, la formule : quels articles MP et en quelle quantite.",
   },
+  {
+    label: "Retours Conditionnement",
+    href: "/production/retours-conditionnement",
+    pageKey: "retoursConditionnement",
+    icon: "\u{267B}\u{FE0F}",
+    description: "Par PD : les articles de conditionnement restants une fois un article termine, avec retour possible en TO vers le depot general.",
+  },
 ] as const;
 
 export default async function ProductionPage() {
