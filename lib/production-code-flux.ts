@@ -65,22 +65,26 @@ export async function buildCodeFluxContext(): Promise<CodeFluxContext> {
 // reelle. Bug confirme par l'utilisateur : le repli affichait des TO
 // n'ayant jamais livre le lot, juste alloue dessus sur le papier.
 //
-// Best-effort assume : un numero de lot reutilise (ex: "ancien_lot" pour du
-// stock migre sans vrai lot) peut avoir ete livre par plusieurs TI
-// distincts au fil du temps - AUCUN signal fiable ne permet de determiner
-// lequel a precisement fourni ce code (verifie sur donnees reelles : ni la
-// quantite livree, tres superieure et jamais alignee sur ce qu'un seul code
-// reserve - un TI alimente un depot partage par plusieurs codes, jamais
-// consomme 1-pour-1 - ni le delai entre la livraison et la reservation, un
-// stock livre peut tres bien dormir plusieurs jours avant d'etre reserve).
-// Le systeme actuel ne garde tout simplement AUCUN lien reservation -> TO/
-// TI precis - tant que ca reste vrai, afficher tous les candidats reels
-// (jamais un allegue jamais livre) est plus honnete que d'en exclure un a
-// tort par une heuristique qui se trompera forcement dans d'autres cas.
+// Un numero de lot reutilise (ex: "ancien_lot" pour du stock migre sans
+// vrai lot) peut avoir ete livre par plusieurs TI distincts au fil du
+// temps, chacun alimentant un depot partage par plusieurs codes/programmes
+// - ni la quantite livree ni le delai reservation/livraison ne permettent
+// de deviner LEQUEL a precisement fourni ce code (verifie sur donnees
+// reelles, aucun des deux ne colle). Le VRAI signal fiable existe deja en
+// base : un Transfer Order genere depuis "Verifier Stock" (Programme par
+// ligne) porte source_groupe_id_programme_ligne = programme_lignes.groupe_id
+// du programme pour lequel il a ete cree - confirme sur donnees reelles
+// (TO.2026.58 porte le groupe_id exact de PL183.2026, les 2 autres TO qui
+// touchent le meme lot n'ont PAS ce lien, generes pour un tout autre
+// programme). Priorite absolue a ce lien quand il existe ; repli sur TOUS
+// les candidats reels (jamais un TO qui n'a jamais livre) uniquement s'il
+// n'existe pour aucun (TO manuel, ou genere depuis un Programme MB qui n'a
+// pas cette meme colonne).
 async function fetchTosPourArticleLotDepot(
   articleMpId: number,
   numeroLot: string | null,
-  depotId: number
+  depotId: number,
+  sourceGroupeIdProgrammeLigne: number | null
 ): Promise<CodeFluxTo[]> {
   const { data: lignesData } = await supabaseServer
     .from("transfer_order_lignes")
@@ -126,7 +130,10 @@ async function fetchTosPourArticleLotDepot(
 
   const allInvoiceIds = [...new Set([...invoiceIdsByToId.values()].flatMap((set) => [...set]))];
   const [{ data: transferOrdersData }, { data: invoiceOrdersDetailData }] = await Promise.all([
-    supabaseServer.from("transfer_orders").select("id, depot_destination_id, date_jour, numero, statut").in("id", [...toIds]),
+    supabaseServer
+      .from("transfer_orders")
+      .select("id, depot_destination_id, date_jour, numero, statut, source_groupe_id_programme_ligne")
+      .in("id", [...toIds]),
     allInvoiceIds.length > 0
       ? supabaseServer.from("invoice_orders").select("id, date_jour, numero, statut").in("id", allInvoiceIds)
       : Promise.resolve({ data: [] as { id: number; date_jour: string; numero: number | null; statut: string }[] }),
@@ -135,7 +142,21 @@ async function fetchTosPourArticleLotDepot(
     ((invoiceOrdersDetailData ?? []) as { id: number; date_jour: string; numero: number | null; statut: string }[]).map((io) => [io.id, io])
   );
 
-  return ((transferOrdersData ?? []) as { id: number; depot_destination_id: number; date_jour: string; numero: number | null; statut: string }[])
+  const transferOrders = (transferOrdersData ?? []) as {
+    id: number;
+    depot_destination_id: number;
+    date_jour: string;
+    numero: number | null;
+    statut: string;
+    source_groupe_id_programme_ligne: number | null;
+  }[];
+
+  const memeSourceQueLePl = sourceGroupeIdProgrammeLigne
+    ? transferOrders.filter((to) => to.source_groupe_id_programme_ligne === sourceGroupeIdProgrammeLigne)
+    : [];
+  const retenus = memeSourceQueLePl.length > 0 ? memeSourceQueLePl : transferOrders;
+
+  return retenus
     .filter((to) => to.depot_destination_id === depotId)
     .map((to) => ({
       label: `TO.${to.date_jour.slice(0, 4)}.${to.numero ?? to.id}`,
@@ -234,7 +255,7 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
     const [{ data: articleData }, { data: depotData }, tos] = await Promise.all([
       supabaseServer.from("articles_matiere_premiere").select("nom_article").eq("id", articleMpId).maybeSingle(),
       supabaseServer.from("depots").select("nom").eq("id", depotId).maybeSingle(),
-      fetchTosPourArticleLotDepot(articleMpId, numeroLot, depotId),
+      fetchTosPourArticleLotDepot(articleMpId, numeroLot, depotId, pl?.groupe_id ?? null),
     ]);
 
     mpSources.push({
