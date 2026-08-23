@@ -56,14 +56,39 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
                 {mp.tos.length === 0 ? (
                   <p className="mt-1 text-xs text-slate-500">Aucun Transfer Order retrouve pour ce lot/depot.</p>
                 ) : (
-                  <p className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-600">
-                    Livre par{" "}
-                    {mp.tos.map((to) => (
-                      <Link key={to.href} href={to.href} className="font-semibold text-sky-700 underline">
-                        {to.label}
-                      </Link>
-                    ))}
-                  </p>
+                  <div className="mt-1 text-xs text-slate-600">
+                    {mp.tos.length > 1 ? (
+                      <p className="text-slate-500">
+                        {mp.tos.length} Transfer Order ont livre ce lot a ce depot (stock mutualise, pas forcement celui
+                        consomme par ce code precis) :
+                      </p>
+                    ) : null}
+                    <ul className="mt-0.5 space-y-0.5">
+                      {mp.tos.map((to) => (
+                        <li key={to.href}>
+                          <Link href={to.href} className="font-semibold text-sky-700 underline">
+                            {to.label}
+                          </Link>
+                          {to.tis.length > 0 ? (
+                            <>
+                              {" "}
+                              -{" "}
+                              {to.tis.map((ti, i) => (
+                                <span key={ti.href}>
+                                  <Link href={ti.href} className="font-semibold text-sky-700 underline">
+                                    {ti.label}
+                                  </Link>
+                                  {i < to.tis.length - 1 ? ", " : ""}
+                                </span>
+                              ))}
+                            </>
+                          ) : (
+                            <span className="text-amber-700"> - pas encore de Transfer Invoice valide</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
             ))}

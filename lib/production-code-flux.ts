@@ -11,7 +11,9 @@ import {
 
 export type CodeFluxRef = { label: string; href: string };
 
-export type CodeFluxTo = { label: string; href: string; statut: string };
+export type CodeFluxTi = { label: string; href: string; statut: string };
+
+export type CodeFluxTo = { label: string; href: string; statut: string; tis: CodeFluxTi[] };
 
 export type CodeFluxMpSource = {
   articleNom: string;
@@ -85,6 +87,7 @@ async function fetchTosPourArticleLotDepot(
 
   const matchedLigneIds = new Set<number>();
   const toIds = new Set<number>();
+  const invoiceIdsByToId = new Map<number, Set<number>>();
 
   if (invoiceRows.length > 0) {
     const invoiceIds = [...new Set(invoiceRows.map((r) => r.invoice_order_id))];
@@ -98,7 +101,12 @@ async function fetchTosPourArticleLotDepot(
       if (!validInvoiceIds.has(row.invoice_order_id)) continue;
       matchedLigneIds.add(row.transfer_order_ligne_id);
       const toId = toIdByLigneId.get(row.transfer_order_ligne_id);
-      if (toId) toIds.add(toId);
+      if (toId) {
+        toIds.add(toId);
+        const set = invoiceIdsByToId.get(toId) ?? new Set<number>();
+        set.add(row.invoice_order_id);
+        invoiceIdsByToId.set(toId, set);
+      }
     }
   }
 
@@ -118,10 +126,16 @@ async function fetchTosPourArticleLotDepot(
 
   if (toIds.size === 0) return [];
 
-  const { data: transferOrdersData } = await supabaseServer
-    .from("transfer_orders")
-    .select("id, depot_destination_id, date_jour, numero, statut")
-    .in("id", [...toIds]);
+  const allInvoiceIds = [...new Set([...invoiceIdsByToId.values()].flatMap((set) => [...set]))];
+  const [{ data: transferOrdersData }, { data: invoiceOrdersDetailData }] = await Promise.all([
+    supabaseServer.from("transfer_orders").select("id, depot_destination_id, date_jour, numero, statut").in("id", [...toIds]),
+    allInvoiceIds.length > 0
+      ? supabaseServer.from("invoice_orders").select("id, date_jour, numero, statut").in("id", allInvoiceIds)
+      : Promise.resolve({ data: [] as { id: number; date_jour: string; numero: number | null; statut: string }[] }),
+  ]);
+  const invoiceById = new Map(
+    ((invoiceOrdersDetailData ?? []) as { id: number; date_jour: string; numero: number | null; statut: string }[]).map((io) => [io.id, io])
+  );
 
   return ((transferOrdersData ?? []) as { id: number; depot_destination_id: number; date_jour: string; numero: number | null; statut: string }[])
     .filter((to) => to.depot_destination_id === depotId)
@@ -129,6 +143,14 @@ async function fetchTosPourArticleLotDepot(
       label: `TO.${to.date_jour.slice(0, 4)}.${to.numero ?? to.id}`,
       href: `/depots/transfer-order/${to.id}`,
       statut: to.statut,
+      tis: [...(invoiceIdsByToId.get(to.id) ?? [])]
+        .map((ioId) => invoiceById.get(ioId))
+        .filter((io): io is { id: number; date_jour: string; numero: number | null; statut: string } => !!io)
+        .map((io) => ({
+          label: `TI.${io.date_jour.slice(0, 4)}.${io.numero ?? io.id}`,
+          href: `/depots/invoice-order/${io.id}`,
+          statut: io.statut,
+        })),
     }));
 }
 
@@ -142,15 +164,24 @@ async function fetchTosPourArticleLotDepot(
 // traceProduitFiniPourCode (meme fonction que le Flux TO/TI, jamais
 // dupliquee).
 export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Promise<CodeFlux | null> {
-  const code = codeRaw.trim();
-  if (!code) return null;
+  const codeSaisi = codeRaw.trim();
+  if (!codeSaisi) return null;
 
+  // ilike sans wildcard = comparaison exacte insensible a la casse - un
+  // utilisateur qui tape "aa4256" doit retrouver le code stocke "AA4256",
+  // meme principe que matchesCode() dans lib/cout-production-reel.ts.
   const { data: termineData } = await supabaseServer
     .from("production_code_termine")
-    .select("id, programme_ligne_id")
-    .eq("code", code);
-  const termineRows = (termineData ?? []) as { id: number; programme_ligne_id: number }[];
+    .select("id, programme_ligne_id, code")
+    .ilike("code", codeSaisi);
+  const termineRows = (termineData ?? []) as { id: number; programme_ligne_id: number; code: string }[];
   if (termineRows.length === 0) return null;
+
+  // Le vrai code stocke (casse exacte) - reutilise pour l'affichage et pour
+  // matcher lots_stock.numero_lot plus bas (traceProduitFiniPourCode fait
+  // deja sa propre comparaison insensible a la casse, mais autant retrouver
+  // le libelle exact plutot que celui tape par l'utilisateur).
+  const code = termineRows[0].code;
 
   const programmeLigneId = termineRows[0].programme_ligne_id;
   const { data: plData } = await supabaseServer
