@@ -188,24 +188,41 @@ export async function deleteInvoiceOrderLigneAction(formData: FormData) {
   revalidatePath(`/depots/invoice-order/${invoiceOrderId}`);
 }
 
-// Supprime un Transfer Invoice (icone Supprimer) - meme deja Approuve : dans
-// ce cas, annule d'abord reellement son mouvement de stock (efface
-// precisement les 2 lignes sortie/entree creees a la validation via
-// sortie_lot_id/entree_lot_id, puis redonne la quantite livree au Transfer
-// Order). Redonne au Transfer Order son etat editable : "partiellement_fini"
-// si un AUTRE Transfer Invoice est encore valide pour ce Transfer Order
-// (livraison partielle deja faite ailleurs), sinon "approuve" (plus aucune
-// livraison en cours).
-export async function deleteInvoiceOrderAction(formData: FormData) {
-  if (!(await canDeletePageUser(await getCurrentStockUser(), "depots"))) {
-    throw new Error("Cet utilisateur ne peut pas supprimer de Transfer Invoice.");
-  }
+// Le stock livre par CE Transfer Invoice (article/lot, depot destination)
+// est-il encore intact, ou une partie a-t-elle deja ete consommee ailleurs
+// (production, vente...) depuis ? Compare le solde REEL actuel du (article,
+// numero_lot) dans le depot destination a la quantite que cette ligne a
+// livree - si le solde est retombe en dessous, quelque chose l'a forcement
+// pris depuis (le solde ne peut jamais descendre sans une vraie sortie
+// ailleurs). Demande explicite : ne jamais pouvoir annuler un Transfer
+// Invoice si son stock a deja servi - il faut d'abord annuler ce qui l'a
+// consomme (ex: supprimer le programme concerne, qui restitue le stock),
+// PUIS le Transfer Invoice redevient annulable.
+async function verifierStockLivreEncoreIntact(
+  table: string,
+  articleId: number,
+  numeroLot: string | null,
+  depotId: number,
+  quantiteLivree: number
+): Promise<boolean> {
+  let query = supabaseServer.from(table).select("qte_entree, qte_sortie").eq("article_id", articleId).eq("depot_id", depotId);
+  query = numeroLot === null ? query.is("numero_lot", null) : query.eq("numero_lot", numeroLot);
+  const { data } = await query;
 
-  const invoiceOrderId = Number(formData.get("invoice_order_id") || "0");
-  if (!invoiceOrderId) {
-    throw new Error("Transfer Invoice invalide.");
-  }
+  const solde = ((data ?? []) as { qte_entree: number; qte_sortie: number }[]).reduce(
+    (sum, row) => sum + Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0),
+    0
+  );
 
+  return solde + 1e-6 >= quantiteLivree;
+}
+
+// Coeur de la suppression d'un Transfer Invoice, reutilise par
+// deleteInvoiceOrderAction (icone Supprimer, un seul TI) ET par
+// deleteTransferOrder (transfer-order/actions.ts, qui doit annuler TOUS les
+// TI d'un Transfer Order avant de le supprimer lui-meme) - meme comportement
+// dans les 2 cas, jamais 2 implementations a maintenir en parallele.
+export async function deleteInvoiceOrder(invoiceOrderId: number): Promise<void> {
   const { data: invoiceOrderData, error: invoiceOrderError } = await supabaseServer
     .from("invoice_orders")
     .select("id, transfer_order_id, statut")
@@ -291,6 +308,20 @@ export async function deleteInvoiceOrderAction(formData: FormData) {
       const ligneInfo = ligneInfoById.get(ligne.transfer_order_ligne_id);
       if (ligneInfo && (dejaTraitee || rattrapageLegacyPossible)) {
         const table = stockTableFor(ligneInfo.article_type);
+
+        const stockIntact = await verifierStockLivreEncoreIntact(
+          table,
+          ligneInfo.article_id,
+          ligne.numero_lot,
+          transferOrder.depot_destination_id,
+          ligne.quantite
+        );
+        if (!stockIntact) {
+          throw new Error(
+            `Impossible de supprimer : le stock livre par ce Transfer Invoice (lot ${ligne.numero_lot ?? "-"}) a deja ete utilise. Annule d'abord ce qui l'a consomme (ex: supprime le programme concerne, le stock reviendra au depot), puis tu pourras supprimer ce Transfer Invoice.`
+          );
+        }
+
         let lotIds = [ligne.sortie_lot_id, ligne.entree_lot_id].filter((id): id is number => id !== null);
 
         if (lotIds.length === 0 && rattrapageLegacyPossible) {
@@ -403,8 +434,38 @@ export async function deleteInvoiceOrderAction(formData: FormData) {
     throw new Error(statutError.message);
   }
 
+}
+
+// Wrapper action (icone Supprimer, un seul Transfer Invoice) - permission +
+// coeur partage (deleteInvoiceOrder ci-dessus) + revalidation/redirect,
+// jamais l'inverse (deleteTransferOrder appelle aussi deleteInvoiceOrder
+// pour CHAQUE Transfer Invoice d'un Transfer Order, un redirect en plein
+// milieu de cette boucle casserait tout).
+export async function deleteInvoiceOrderAction(formData: FormData) {
+  if (!(await canDeletePageUser(await getCurrentStockUser(), "depots"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer de Transfer Invoice.");
+  }
+
+  const invoiceOrderId = Number(formData.get("invoice_order_id") || "0");
+  if (!invoiceOrderId) {
+    throw new Error("Transfer Invoice invalide.");
+  }
+
+  const transferOrderId = await (async () => {
+    const { data } = await supabaseServer
+      .from("invoice_orders")
+      .select("transfer_order_id")
+      .eq("id", invoiceOrderId)
+      .maybeSingle();
+    return (data as { transfer_order_id: number } | null)?.transfer_order_id ?? null;
+  })();
+
+  await deleteInvoiceOrder(invoiceOrderId);
+
   revalidatePath("/depots/invoice-order");
-  revalidatePath(`/depots/transfer-order/${invoiceOrder.transfer_order_id}`);
+  if (transferOrderId) {
+    revalidatePath(`/depots/transfer-order/${transferOrderId}`);
+  }
   redirect("/depots/invoice-order");
 }
 

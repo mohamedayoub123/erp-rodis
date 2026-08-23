@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { type ArticleType, fetchLotsInDepot, totalAvailable, allocateFefo } from "./stock-lots";
+import { deleteInvoiceOrder } from "../invoice-order/actions";
 
 // Appelee directement depuis TransferArticlePicker (pas liee a un <form>) -
 // affiche en direct les lots/quantites reellement disponibles dans le
@@ -724,20 +725,16 @@ export async function deleteTransferOrder(transferOrderId: number): Promise<void
 
   const invoiceOrders = (invoiceOrdersData ?? []) as { id: number; statut: string }[];
 
-  if (invoiceOrders.some((io) => io.statut === "valide")) {
-    throw new Error(
-      "Impossible de supprimer : un Transfer Invoice lie a deja ete valide, le stock a deja bouge."
-    );
-  }
-
-  if (invoiceOrders.length > 0) {
-    const { error: deleteInvoiceError } = await supabaseServer
-      .from("invoice_orders")
-      .delete()
-      .in("id", invoiceOrders.map((io) => io.id));
-    if (deleteInvoiceError) {
-      throw new Error(deleteInvoiceError.message);
-    }
+  // Annule chaque Transfer Invoice lie AVANT le Transfer Order lui-meme -
+  // meme fonction que "Supprimer" un Transfer Invoice individuel
+  // (deleteInvoiceOrder, invoice-order/actions.ts), qui bloque deja si le
+  // stock livre a ete consomme depuis (demande explicite : jamais annuler
+  // un Transfer Invoice deja utilise en production - il faut d'abord
+  // annuler ce qui l'a consomme). Remplace l'ancien blocage total "des
+  // qu'un seul est valide, rien n'est supprimable" - trop strict des qu'un
+  // TI valide n'avait en fait jamais ete touche depuis.
+  for (const invoiceOrder of invoiceOrders) {
+    await deleteInvoiceOrder(invoiceOrder.id);
   }
 
   const { data: lignesData, error: lignesError } = await supabaseServer
