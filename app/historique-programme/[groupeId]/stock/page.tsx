@@ -8,7 +8,6 @@ import { fetchPlCodeByGroupeId } from "@/lib/programme-numbering";
 import { fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
 import { VerifierStockTable } from "@/app/depots/transfer-order/verifier-stock-table";
 import { autoCreateTransferOrdersFromProgrammeLigneAction } from "./actions";
-import { computeQtCarton, splitVracIntoBatches } from "@/lib/dispatcher-shared";
 
 type ProgrammeLigneRow = {
   article_id: number | null;
@@ -16,6 +15,7 @@ type ProgrammeLigneRow = {
   vrac_a_fabriquer: number | null;
   date_jour: string;
   plateforme: string | null;
+  numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
 };
 
 type ArticleRow = {
@@ -24,10 +24,6 @@ type ArticleRow = {
   nature: string | null;
   vrac_article_id: number | null;
   quantite_recette_base: number | null;
-  contenance: number | null;
-  piece_par_carton: number | null;
-  max_vrac_auto: number | null;
-  vrac_max_manuel: number | null;
 };
 
 type RecetteLigneRow = {
@@ -97,7 +93,7 @@ export default async function HistoriqueProgrammeVerifierStockPage({
 
   const { data: lignesData, error } = await supabaseServer
     .from("programme_lignes")
-    .select("article_id, qt_carton, vrac_a_fabriquer, date_jour, plateforme")
+    .select("article_id, qt_carton, vrac_a_fabriquer, date_jour, plateforme, numero_lot_detail")
     .or(`groupe_id.eq.${groupeIdNumber},and(groupe_id.is.null,id.eq.${groupeIdNumber})`);
 
   const lignes = ((lignesData ?? []) as ProgrammeLigneRow[]).filter((l) => l.article_id);
@@ -112,7 +108,7 @@ export default async function HistoriqueProgrammeVerifierStockPage({
 
   const { data: articlesData, error: articlesError } = await supabaseServer
     .from("articles")
-    .select("id, nom_article, nature, vrac_article_id, quantite_recette_base, contenance, piece_par_carton, max_vrac_auto, vrac_max_manuel")
+    .select("id, nom_article, nature, vrac_article_id, quantite_recette_base")
     .in("id", articleIds);
 
   const articleById = new Map(((articlesData ?? []) as ArticleRow[]).map((a) => [a.id, a]));
@@ -151,30 +147,22 @@ export default async function HistoriqueProgrammeVerifierStockPage({
   const recettes = (recettesData ?? []) as RecetteLigneRow[];
 
   // qt_carton reellement consomme en conditionnement = somme des qt_carton
-  // de CHAQUE lot une fois le vrac total decoupe par le Dispatcher, jamais
-  // le qt_carton persiste sur programme_lignes (un seul arrondi sur le vrac
-  // total avant tout decoupage) - meme correctif et meme raison que
-  // /production/programme/[numero]/stock (Programme MB), voir son
-  // commentaire pour le detail (cas reel confirme : 6000L -> 625 sur la
-  // ligne, mais 2x3000L decoupes par le Dispatcher -> 313+313 = 626 en
-  // vrai, 1 carton de conditionnement jamais compte ici avant ce correctif).
-  const totalVracParGroupe = new Map<string, number>();
-  for (const ligne of lignes) {
-    if (!ligne.article_id) continue;
-    const cle = `${ligne.article_id}::${ligne.plateforme ?? ""}`;
-    totalVracParGroupe.set(cle, (totalVracParGroupe.get(cle) ?? 0) + Number(ligne.vrac_a_fabriquer ?? 0));
-  }
-  const qtCartonReelParGroupe = new Map<string, number>();
-  for (const [cle, totalVrac] of totalVracParGroupe.entries()) {
-    const [articleIdStr, plateforme] = cle.split("::");
-    const article = articleById.get(Number(articleIdStr));
-    const max = plateforme === "A" ? article?.max_vrac_auto : article?.vrac_max_manuel;
-    const batches = max && max > 0 ? splitVracIntoBatches(totalVrac, max) : [totalVrac];
-    const total = batches.reduce(
-      (sum, batch) => sum + (computeQtCarton(batch, article?.contenance ?? null, article?.piece_par_carton ?? null) ?? 0),
-      0
-    );
-    qtCartonReelParGroupe.set(cle, total);
+  // PAR CODE deja figes dans numero_lot_detail au moment du Dispatch -
+  // chaque code y est deja arrondi individuellement au carton superieur
+  // (voir computeQtCarton, lib/dispatcher-shared.ts), c'est le Dispatcher
+  // reel qui l'a ecrit, jamais une re-simulation approximative du decoupage
+  // ici (essaye une premiere fois via splitVracIntoBatches - trop fragile
+  // des que plusieurs zones/chaines se combinent differemment de l'ordre
+  // suppose ici, donnait des chiffres faux comme 15048/15000 au lieu de
+  // 15024/15024 sur un cas reel a 2 codes). Jamais le qt_carton persiste
+  // au niveau ligne seul (un seul arrondi sur le vrac total avant tout
+  // decoupage, ex: 6000L -> 625 pile, alors que le vrai decoupage en 2x3000L
+  // arrondit CHAQUE code separement -> 313+313 = 626, 1 carton de plus).
+  function qtCartonReelLigne(ligne: ProgrammeLigneRow): number {
+    if (ligne.numero_lot_detail && ligne.numero_lot_detail.length > 0) {
+      return ligne.numero_lot_detail.reduce((sum, d) => sum + (d.qt_carton ?? 0), 0);
+    }
+    return ligne.qt_carton ?? 0;
   }
 
   // Besoin en MP = quantite de la recette x (quantite reelle du programme /
@@ -187,12 +175,7 @@ export default async function HistoriqueProgrammeVerifierStockPage({
     const article = articleById.get(ligne.article_id);
 
     if (ligne.qt_carton) {
-      const cle = `${ligne.article_id}::${ligne.plateforme ?? ""}`;
-      const totalVracGroupe = totalVracParGroupe.get(cle) ?? 0;
-      const qtCartonReelGroupe = qtCartonReelParGroupe.get(cle) ?? ligne.qt_carton;
-      const partDeLigne = totalVracGroupe > 0 ? Number(ligne.vrac_a_fabriquer ?? 0) / totalVracGroupe : 0;
-      const qtCartonReelLigne = qtCartonReelGroupe * partDeLigne;
-      const ratioCarton = qtCartonReelLigne / (article?.quantite_recette_base || 1);
+      const ratioCarton = qtCartonReelLigne(ligne) / (article?.quantite_recette_base || 1);
       for (const r of recettes.filter((r) => r.article_pf_id === ligne.article_id)) {
         besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioCarton);
       }
