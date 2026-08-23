@@ -10,6 +10,18 @@ import { useState } from "react";
 // le ':', pas oblige d'ecrire 2 chiffres et le ':' vient automatique".
 export const PARTIEL_HHMM = /^([01]?[0-9]?|2[0-3]?)(:([0-5]?[0-9]?)?)?$/;
 
+// Une suppression (backspace/select+del/couper) est TOUJOURS autorisee,
+// meme si le resultat ne matche plus PARTIEL_HHMM (ex: effacer le ":" au
+// milieu de "14:30" donne "1430", que le regex rejette) - bug reel corrige
+// : sans ca, un ":" deja tape devenait impossible a effacer/corriger, le
+// champ revenant silencieusement a sa valeur d'avant a chaque backspace
+// dessus. Seul un AJOUT de caractere (la chaine s'allonge) est filtre par
+// le regex.
+export function filtreSaisieHeure(precedent: string, suivant: string): string {
+  if (suivant.length <= precedent.length) return suivant;
+  return PARTIEL_HHMM.test(suivant) ? suivant : precedent;
+}
+
 export function TimeTextInput({
   name,
   defaultValue,
@@ -35,9 +47,7 @@ export function TimeTextInput({
       value={value}
       onChange={(event) => {
         const next = event.target.value;
-        if (PARTIEL_HHMM.test(next)) {
-          setValue(next);
-        }
+        setValue((prev) => filtreSaisieHeure(prev, next));
       }}
       className={className}
     />
