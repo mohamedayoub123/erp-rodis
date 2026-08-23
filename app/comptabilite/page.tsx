@@ -28,6 +28,12 @@ const TILES = [
     description: "Liste des comptes (structure SYSCOHADA) - ajoute ou modifie un compte.",
   },
   {
+    label: "Ecriture manuelle",
+    href: "/comptabilite/ecriture-manuelle",
+    icon: "\u{270D}\u{FE0F}",
+    description: "Saisis une ecriture sur n'importe quel compte du plan comptable, pour ce qui n'est pas deja automatique.",
+  },
+  {
     label: "Clients",
     href: "/clients",
     icon: "\u{1F465}",
