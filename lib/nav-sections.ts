@@ -132,7 +132,7 @@ export const navItems: NavItem[] = [
     pageKey: "facturationHub",
     matchPrefixes: ["/facturation"],
     subLinks: [
-      { href: "/facturation/proforma", label: "Proforma", pageKey: "facturationProforma" },
+      { href: "/facturation/commande", label: "Commande", pageKey: "facturationCommande" },
       { href: "/facturation/bl", label: "Bon de Livraison", pageKey: "facturationBl" },
       { href: "/facturation/facture", label: "Facture", pageKey: "facturationFacture" },
     ],

@@ -4,17 +4,16 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { fetchLotsInDepot, allocateFefo } from "@/app/depots/transfer-order/stock-lots";
 
 async function requireWriteAccess() {
   const currentUser = await getCurrentStockUser();
   if (!(await canWritePageUser(currentUser, "facturationBl"))) {
-    throw new Error("Cet utilisateur ne peut pas creer de Bon de Livraison.");
+    throw new Error("Cet utilisateur ne peut pas modifier de Bon de Livraison.");
   }
   return currentUser;
 }
 
-// Meme principe que nextTransferOrderNumero (app/depots/transfer-order/actions.ts)
-// : le plus grand numero existant cette annee-la + 1, fige a l'insertion.
 async function nextBonLivraisonNumero(dateJour: string): Promise<number> {
   const year = dateJour.slice(0, 4);
   const { data } = await supabaseServer
@@ -28,29 +27,15 @@ async function nextBonLivraisonNumero(dateJour: string): Promise<number> {
   return ((data as { numero: number | null } | null)?.numero ?? 0) + 1;
 }
 
-// Cree un BL a partir d'une commande deja livree - lit fifo_resultats (la
-// vraie quantite/lot physiquement charge, pas commande_lignes.quantite_demandee
-// qui est juste la demande initiale) et copie ca dans bon_livraison_lignes.
-// Ne touche jamais a "commandes" - le module lit, n'ecrit jamais dedans.
+// Etape 1/4 du cycle BL : cree juste le DOCUMENT (statut "brouillon"),
+// copie les lignes demandees telles quelles - aucun mouvement de stock ici,
+// le stock n'est verifie qu'a "Calculer FIFO" et sorti qu'a "Livrer".
 export async function createBonLivraisonAction(formData: FormData) {
   const currentUser = await requireWriteAccess();
 
   const commandeId = Number(formData.get("commande_id") || "0");
   if (!commandeId) {
     throw new Error("Commande invalide.");
-  }
-
-  const { data: commandeData, error: commandeError } = await supabaseServer
-    .from("commandes")
-    .select("id, statut")
-    .eq("id", commandeId)
-    .maybeSingle();
-
-  if (commandeError || !commandeData) {
-    throw new Error("Commande introuvable.");
-  }
-  if ((commandeData as { statut: string }).statut !== "LIVREE") {
-    throw new Error("Cette commande n'est pas encore livree - impossible de creer un Bon de Livraison.");
   }
 
   const { data: existingBl } = await supabaseServer
@@ -62,26 +47,18 @@ export async function createBonLivraisonAction(formData: FormData) {
     throw new Error("Un Bon de Livraison existe deja pour cette commande.");
   }
 
-  const { data: fifoData, error: fifoError } = await supabaseServer
-    .from("fifo_resultats")
-    .select("article_id, numero_lot, quantite_chargee")
+  const { data: lignesData, error: lignesError } = await supabaseServer
+    .from("facturation_commande_lignes")
+    .select("article_id, quantite_demandee")
     .eq("commande_id", commandeId);
 
-  if (fifoError) {
-    throw new Error(fifoError.message);
+  if (lignesError) {
+    throw new Error(lignesError.message);
   }
 
-  const fifoRows = (fifoData ?? []) as { article_id: number; numero_lot: string | null; quantite_chargee: number }[];
-  if (fifoRows.length === 0) {
-    throw new Error("Aucune quantite chargee trouvee pour cette commande - rien a mettre sur le BL.");
-  }
-
-  const parCle = new Map<string, { articleId: number; numeroLot: string | null; quantite: number }>();
-  for (const row of fifoRows) {
-    const key = `${row.article_id}::${row.numero_lot ?? ""}`;
-    const existing = parCle.get(key);
-    if (existing) existing.quantite += Number(row.quantite_chargee ?? 0);
-    else parCle.set(key, { articleId: row.article_id, numeroLot: row.numero_lot, quantite: Number(row.quantite_chargee ?? 0) });
+  const lignes = (lignesData ?? []) as { article_id: number; quantite_demandee: number }[];
+  if (lignes.length === 0) {
+    throw new Error("Cette commande n'a aucune ligne.");
   }
 
   const dateJour = new Date().toISOString().slice(0, 10);
@@ -89,7 +66,7 @@ export async function createBonLivraisonAction(formData: FormData) {
 
   const { data: inserted, error: insertError } = await supabaseServer
     .from("bons_livraison")
-    .insert({ numero, date_jour: dateJour, commande_id: commandeId, cree_par: currentUser })
+    .insert({ numero, date_jour: dateJour, commande_id: commandeId, statut: "brouillon", cree_par: currentUser })
     .select("id")
     .single();
 
@@ -97,25 +74,35 @@ export async function createBonLivraisonAction(formData: FormData) {
     throw new Error(insertError?.message || "Impossible de creer le Bon de Livraison.");
   }
 
-  const { error: lignesError } = await supabaseServer.from("bon_livraison_lignes").insert(
-    [...parCle.values()].map((ligne) => ({
-      bon_livraison_id: inserted.id,
-      article_id: ligne.articleId,
-      numero_lot: ligne.numeroLot,
-      quantite: ligne.quantite,
-    }))
+  const { error: blLignesError } = await supabaseServer.from("bon_livraison_lignes").insert(
+    lignes.map((l) => ({ bon_livraison_id: inserted.id, article_id: l.article_id, quantite_demandee: l.quantite_demandee }))
   );
 
-  if (lignesError) {
-    throw new Error(lignesError.message);
+  if (blLignesError) {
+    throw new Error(blLignesError.message);
   }
 
-  revalidatePath("/facturation/proforma");
+  revalidatePath("/facturation/commande");
   revalidatePath("/facturation/bl");
   redirect(`/facturation/bl/${inserted.id}`);
 }
 
-export async function updateBonLivraisonRemarqueAction(formData: FormData) {
+async function requireBl(bonLivraisonId: number) {
+  const { data } = await supabaseServer
+    .from("bons_livraison")
+    .select("id, commande_id, statut")
+    .eq("id", bonLivraisonId)
+    .maybeSingle();
+  const bl = data as { id: number; commande_id: number; statut: string } | null;
+  if (!bl) {
+    throw new Error("Bon de Livraison introuvable.");
+  }
+  return bl;
+}
+
+// Etape 2/4 : Apurement - confirme/verrouille le BL (simple transition de
+// statut, aucun mouvement de stock) avant de passer au dispatch FIFO.
+export async function apurerBonLivraisonAction(formData: FormData) {
   await requireWriteAccess();
 
   const bonLivraisonId = Number(formData.get("bon_livraison_id") || "0");
@@ -123,27 +110,194 @@ export async function updateBonLivraisonRemarqueAction(formData: FormData) {
     throw new Error("Bon de Livraison invalide.");
   }
 
-  const { error } = await supabaseServer
-    .from("bons_livraison")
-    .update({ remarque: String(formData.get("remarque") || "").trim() || null })
-    .eq("id", bonLivraisonId);
+  const bl = await requireBl(bonLivraisonId);
+  if (bl.statut !== "brouillon") {
+    throw new Error("Ce Bon de Livraison est deja apure.");
+  }
 
+  const { error } = await supabaseServer.from("bons_livraison").update({ statut: "apure" }).eq("id", bonLivraisonId);
   if (error) {
     throw new Error(error.message);
   }
 
   revalidatePath(`/facturation/bl/${bonLivraisonId}`);
+  revalidatePath("/facturation/bl");
+}
+
+// Etape 3/4 : FIFO - repartit chaque ligne sur les lots reellement
+// disponibles au depot source de la commande (FEFO, meme fetchLotsInDepot/
+// allocateFefo que Transfer Order) - AUCUN mouvement de stock ecrit ici,
+// juste le resultat du dispatch (bl_fifo_resultats). Refuse si le stock
+// disponible ne couvre pas une ligne, plutot que de livrer un manque
+// silencieusement.
+export async function calculerFifoBonLivraisonAction(formData: FormData) {
+  await requireWriteAccess();
+
+  const bonLivraisonId = Number(formData.get("bon_livraison_id") || "0");
+  if (!bonLivraisonId) {
+    throw new Error("Bon de Livraison invalide.");
+  }
+
+  const bl = await requireBl(bonLivraisonId);
+  if (bl.statut !== "apure") {
+    throw new Error("Ce Bon de Livraison doit d'abord etre apure.");
+  }
+
+  const { data: commandeData } = await supabaseServer
+    .from("facturation_commandes")
+    .select("depot_source_id")
+    .eq("id", bl.commande_id)
+    .maybeSingle();
+  const depotSourceId = (commandeData as { depot_source_id: number } | null)?.depot_source_id;
+  if (!depotSourceId) {
+    throw new Error("Depot source introuvable pour la commande liee.");
+  }
+
+  const { data: lignesData, error: lignesError } = await supabaseServer
+    .from("bon_livraison_lignes")
+    .select("id, article_id, quantite_demandee")
+    .eq("bon_livraison_id", bonLivraisonId);
+
+  if (lignesError) {
+    throw new Error(lignesError.message);
+  }
+
+  const lignes = (lignesData ?? []) as { id: number; article_id: number; quantite_demandee: number }[];
+
+  const resultats: { bon_livraison_id: number; bon_livraison_ligne_id: number; article_id: number; numero_lot: string | null; quantite_chargee: number }[] = [];
+
+  for (const ligne of lignes) {
+    const lots = await fetchLotsInDepot("PF", ligne.article_id, depotSourceId);
+    const { allocations, covered } = allocateFefo(lots, ligne.quantite_demandee);
+
+    if (!covered) {
+      throw new Error(
+        `Stock insuffisant pour couvrir la ligne article #${ligne.article_id} (demande ${ligne.quantite_demandee}) dans ce depot.`
+      );
+    }
+
+    for (const allocation of allocations) {
+      resultats.push({
+        bon_livraison_id: bonLivraisonId,
+        bon_livraison_ligne_id: ligne.id,
+        article_id: ligne.article_id,
+        numero_lot: allocation.numero_lot || null,
+        quantite_chargee: allocation.quantite,
+      });
+    }
+  }
+
+  // Rejouable (efface + recree) si "Apurer" a ete annule/refait entretemps.
+  await supabaseServer.from("bl_fifo_resultats").delete().eq("bon_livraison_id", bonLivraisonId);
+
+  if (resultats.length > 0) {
+    const { error: insertError } = await supabaseServer.from("bl_fifo_resultats").insert(resultats);
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+  }
+
+  const { error: statutError } = await supabaseServer
+    .from("bons_livraison")
+    .update({ statut: "fifo_fait" })
+    .eq("id", bonLivraisonId);
+  if (statutError) {
+    throw new Error(statutError.message);
+  }
+
+  revalidatePath(`/facturation/bl/${bonLivraisonId}`);
+}
+
+// Etape 4/4 : Livraison - LE stock sort reellement ici (qte_sortie dans
+// lots_stock, meme mouvement entree/sortie que partout ailleurs dans
+// l'appli, jamais un solde modifie directement), a partir du dispatch FIFO
+// deja calcule. Une fois livree, le BL peut passer en Facture.
+export async function livrerBonLivraisonAction(formData: FormData) {
+  const currentUser = await requireWriteAccess();
+
+  const bonLivraisonId = Number(formData.get("bon_livraison_id") || "0");
+  if (!bonLivraisonId) {
+    throw new Error("Bon de Livraison invalide.");
+  }
+
+  const bl = await requireBl(bonLivraisonId);
+  if (bl.statut !== "fifo_fait") {
+    throw new Error("Le dispatch FIFO doit d'abord etre calcule.");
+  }
+
+  const { data: commandeData } = await supabaseServer
+    .from("facturation_commandes")
+    .select("depot_source_id")
+    .eq("id", bl.commande_id)
+    .maybeSingle();
+  const depotSourceId = (commandeData as { depot_source_id: number } | null)?.depot_source_id;
+  if (!depotSourceId) {
+    throw new Error("Depot source introuvable pour la commande liee.");
+  }
+
+  const { data: fifoData, error: fifoError } = await supabaseServer
+    .from("bl_fifo_resultats")
+    .select("article_id, numero_lot, quantite_chargee")
+    .eq("bon_livraison_id", bonLivraisonId);
+
+  if (fifoError) {
+    throw new Error(fifoError.message);
+  }
+
+  const fifoRows = (fifoData ?? []) as { article_id: number; numero_lot: string | null; quantite_chargee: number }[];
+  if (fifoRows.length === 0) {
+    throw new Error("Aucun resultat FIFO a livrer.");
+  }
+
+  const dateJour = new Date().toISOString().slice(0, 10);
+  const blLabel = `BL.${dateJour.slice(0, 4)}.${bonLivraisonId}`;
+
+  const { error: sortieError } = await supabaseServer.from("lots_stock").insert(
+    fifoRows.map((row) => ({
+      article_id: row.article_id,
+      numero_lot: row.numero_lot,
+      qte_entree: 0,
+      qte_sortie: row.quantite_chargee,
+      depot_id: depotSourceId,
+      date_jour: dateJour,
+      utilisateur: currentUser,
+      note: `${blLabel} - Livraison Facturation`,
+    }))
+  );
+
+  if (sortieError) {
+    throw new Error(sortieError.message);
+  }
+
+  const { error: statutError } = await supabaseServer
+    .from("bons_livraison")
+    .update({ statut: "livree" })
+    .eq("id", bonLivraisonId);
+  if (statutError) {
+    throw new Error(statutError.message);
+  }
+
+  revalidatePath(`/facturation/bl/${bonLivraisonId}`);
+  revalidatePath("/facturation/bl");
+  revalidatePath("/stock");
 }
 
 async function deleteBonLivraison(bonLivraisonId: number): Promise<void> {
+  const bl = await requireBl(bonLivraisonId);
+
+  if (bl.statut !== "brouillon") {
+    throw new Error(
+      "Impossible de supprimer : ce Bon de Livraison est deja apure (FIFO/Livraison peuvent deja avoir bouge). Seul un BL encore en brouillon peut etre supprime."
+    );
+  }
+
   const { data: facture } = await supabaseServer
     .from("factures")
     .select("id")
     .eq("bon_livraison_id", bonLivraisonId)
     .maybeSingle();
-
   if (facture) {
-    throw new Error("Impossible de supprimer : une Facture existe deja pour ce Bon de Livraison. Supprime d'abord la Facture.");
+    throw new Error("Impossible de supprimer : une Facture existe deja pour ce Bon de Livraison.");
   }
 
   const { error } = await supabaseServer.from("bons_livraison").delete().eq("id", bonLivraisonId);
@@ -163,9 +317,6 @@ export async function deleteBonLivraisonAction(formData: FormData) {
     throw new Error("Bon de Livraison invalide.");
   }
 
-  // Meme regle que partout ailleurs (formulaire natif <form action>, jamais
-  // de catch cote client possible) : capture ici et redirige avec le vrai
-  // message en avertissement plutot que la page d'erreur generique.
   try {
     await deleteBonLivraison(bonLivraisonId);
   } catch (error) {
@@ -174,6 +325,6 @@ export async function deleteBonLivraisonAction(formData: FormData) {
   }
 
   revalidatePath("/facturation/bl");
-  revalidatePath("/facturation/proforma");
+  revalidatePath("/facturation/commande");
   redirect("/facturation/bl");
 }

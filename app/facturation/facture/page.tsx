@@ -32,12 +32,10 @@ export default async function FacturationFactureListPage() {
 
   const commandeIds = [...new Set(bls.map((bl) => bl.commande_id))];
   const { data: commandesData } = await supabaseServer
-    .from("commandes")
-    .select("id, numero_proforma, client")
+    .from("facturation_commandes")
+    .select("id, client")
     .in("id", commandeIds.length > 0 ? commandeIds : [0]);
-  const commandeById = new Map(
-    ((commandesData ?? []) as { id: number; numero_proforma: string; client: string }[]).map((c) => [c.id, c])
-  );
+  const commandeById = new Map(((commandesData ?? []) as { id: number; client: string }[]).map((c) => [c.id, c]));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -61,7 +59,7 @@ export default async function FacturationFactureListPage() {
             <div className="px-6 py-8 text-sm text-slate-500">
               Aucune Facture pour le moment - cree en depuis{" "}
               <Link href="/facturation/bl" className="font-semibold text-sky-700 underline">
-                un Bon de Livraison
+                un Bon de Livraison livre
               </Link>
               .
             </div>
@@ -72,7 +70,6 @@ export default async function FacturationFactureListPage() {
                   <tr>
                     <th className="px-6 py-4 font-semibold">Facture</th>
                     <th className="px-6 py-4 font-semibold">Date</th>
-                    <th className="px-6 py-4 font-semibold">Proforma</th>
                     <th className="px-6 py-4 font-semibold">Client</th>
                     <th className="px-6 py-4 font-semibold">Montant</th>
                   </tr>
@@ -89,7 +86,6 @@ export default async function FacturationFactureListPage() {
                           </Link>
                         </td>
                         <td className="px-6 py-4 text-slate-600">{formatDate(facture.date_jour)}</td>
-                        <td className="px-6 py-4 text-slate-600">{commande?.numero_proforma ?? "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{commande?.client ?? "-"}</td>
                         <td className="px-6 py-4 text-slate-600">
                           {facture.montant !== null ? facture.montant.toLocaleString("fr-FR") : "-"}

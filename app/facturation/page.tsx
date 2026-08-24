@@ -4,22 +4,22 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 
 const TILES = [
   {
-    label: "Proforma",
-    href: "/facturation/proforma",
+    label: "Commande",
+    href: "/facturation/commande",
     icon: "\u{1F4C4}",
-    description: "Commandes livrees, pretes a passer en Bon de Livraison.",
+    description: "Saisie de commande independante - client, depot, articles.",
   },
   {
     label: "Bon de Livraison",
     href: "/facturation/bl",
     icon: "\u{1F4E6}",
-    description: "BL numerotes generes depuis une commande livree.",
+    description: "Brouillon -> Apure -> FIFO -> Livree (le stock sort ici).",
   },
   {
     label: "Facture",
     href: "/facturation/facture",
     icon: "\u{1F4B3}",
-    description: "Factures numerotees generees depuis un Bon de Livraison.",
+    description: "Factures numerotees generees depuis un Bon de Livraison livre.",
   },
 ] as const;
 

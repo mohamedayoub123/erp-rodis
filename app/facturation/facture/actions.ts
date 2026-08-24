@@ -26,9 +26,10 @@ async function nextFactureNumero(dateJour: string): Promise<number> {
   return ((data as { numero: number | null } | null)?.numero ?? 0) + 1;
 }
 
-// Aucun prix de vente/ecriture comptable n'existe encore sur cette branche
-// pour calculer un montant automatiquement (voir discussion) - le montant
-// est saisi a la main, laisse vide au depart si pas encore connu.
+// Derniere etape du cycle - uniquement possible une fois le BL "livree"
+// (le stock a vraiment bouge). Aucun prix de vente/ecriture comptable
+// n'existe encore sur cette branche pour calculer un montant
+// automatiquement - saisi a la main, laisse vide au depart si pas connu.
 export async function createFactureAction(formData: FormData) {
   const currentUser = await requireWriteAccess();
 
@@ -39,12 +40,15 @@ export async function createFactureAction(formData: FormData) {
 
   const { data: bl, error: blError } = await supabaseServer
     .from("bons_livraison")
-    .select("id")
+    .select("id, statut")
     .eq("id", bonLivraisonId)
     .maybeSingle();
 
   if (blError || !bl) {
     throw new Error("Bon de Livraison introuvable.");
+  }
+  if ((bl as { statut: string }).statut !== "livree") {
+    throw new Error("Ce Bon de Livraison n'est pas encore livre - impossible de facturer.");
   }
 
   const { data: existingFacture } = await supabaseServer

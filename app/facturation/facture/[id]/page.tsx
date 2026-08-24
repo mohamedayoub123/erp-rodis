@@ -21,7 +21,7 @@ type FactureRow = {
   cree_par: string | null;
 };
 
-type LigneRow = { id: number; article_id: number; numero_lot: string | null; quantite: number };
+type FifoRow = { article_id: number; numero_lot: string | null; quantite_chargee: number };
 
 async function fetchNomArticle(articleId: number): Promise<string> {
   const { data } = await supabaseServer.from("articles").select("nom_article").eq("id", articleId).maybeSingle();
@@ -51,35 +51,26 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
     notFound();
   }
 
-  const [{ data: blData }, { data: lignesData }] = await Promise.all([
-    supabaseServer
-      .from("bons_livraison")
-      .select("id, numero, date_jour, commande_id")
-      .eq("id", facture.bon_livraison_id)
-      .maybeSingle(),
-    supabaseServer
-      .from("bon_livraison_lignes")
-      .select("id, article_id, numero_lot, quantite")
-      .eq("bon_livraison_id", facture.bon_livraison_id)
-      .order("id", { ascending: true }),
-  ]);
-
+  const { data: blData } = await supabaseServer
+    .from("bons_livraison")
+    .select("id, numero, date_jour, commande_id")
+    .eq("id", facture.bon_livraison_id)
+    .maybeSingle();
   const bl = blData as { id: number; numero: number | null; date_jour: string; commande_id: number } | null;
   const blCode = bl ? `BL.${bl.date_jour.slice(0, 4)}.${bl.numero ?? bl.id}` : null;
 
-  const [{ data: commandeData }, lignesEnrichies] = await Promise.all([
+  const [{ data: commandeData }, { data: fifoData }] = await Promise.all([
     bl
-      ? supabaseServer.from("commandes").select("id, numero_proforma, client").eq("id", bl.commande_id).maybeSingle()
+      ? supabaseServer.from("facturation_commandes").select("id, client").eq("id", bl.commande_id).maybeSingle()
       : Promise.resolve({ data: null }),
-    Promise.all(
-      ((lignesData ?? []) as LigneRow[]).map(async (ligne) => ({
-        ...ligne,
-        nomArticle: await fetchNomArticle(ligne.article_id),
-      }))
-    ),
+    supabaseServer.from("bl_fifo_resultats").select("article_id, numero_lot, quantite_chargee").eq("bon_livraison_id", facture.bon_livraison_id),
   ]);
 
-  const commande = commandeData as { id: number; numero_proforma: string; client: string } | null;
+  const commande = commandeData as { id: number; client: string } | null;
+  const fifoEnrichi = await Promise.all(
+    ((fifoData ?? []) as FifoRow[]).map(async (row) => ({ ...row, nomArticle: await fetchNomArticle(row.article_id) }))
+  );
+
   const code = `FAC.${facture.date_jour.slice(0, 4)}.${facture.numero ?? facture.id}`;
 
   return (
@@ -91,7 +82,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">{code}</h1>
               <p className="mt-2 text-sm text-slate-600">
-                {formatDate(facture.date_jour)} - {commande ? `${commande.numero_proforma} - ${commande.client}` : "-"}
+                {formatDate(facture.date_jour)} - {commande?.client ?? "-"}
                 {facture.cree_par ? ` - Cree par ${facture.cree_par}` : ""}
               </p>
               {blCode && bl ? (
@@ -118,26 +109,28 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500">
-              <tr>
-                <th className="px-6 py-4 font-semibold">Article</th>
-                <th className="px-6 py-4 font-semibold">Lot</th>
-                <th className="px-6 py-4 font-semibold">Quantite</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lignesEnrichies.map((ligne) => (
-                <tr key={ligne.id} className="border-t border-slate-100">
-                  <td className="px-6 py-4 font-semibold text-slate-900">{ligne.nomArticle}</td>
-                  <td className="px-6 py-4 text-slate-600">{ligne.numero_lot || "-"}</td>
-                  <td className="px-6 py-4 text-slate-600">{ligne.quantite.toLocaleString("fr-FR")}</td>
+        {fifoEnrichi.length > 0 ? (
+          <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-6 py-4 font-semibold">Article</th>
+                  <th className="px-6 py-4 font-semibold">Lot</th>
+                  <th className="px-6 py-4 font-semibold">Quantite</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+              </thead>
+              <tbody>
+                {fifoEnrichi.map((row, i) => (
+                  <tr key={i} className="border-t border-slate-100">
+                    <td className="px-6 py-4 font-semibold text-slate-900">{row.nomArticle}</td>
+                    <td className="px-6 py-4 text-slate-600">{row.numero_lot || "-"}</td>
+                    <td className="px-6 py-4 text-slate-600">{row.quantite_chargee.toLocaleString("fr-FR")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        ) : null}
 
         {canEdit ? (
           <section className="no-print rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -162,10 +155,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                 />
               </label>
-              <SubmitButton
-                pendingLabel="Enregistrement..."
-                className="rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white"
-              >
+              <SubmitButton pendingLabel="Enregistrement..." className="rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white">
                 Enregistrer
               </SubmitButton>
             </form>

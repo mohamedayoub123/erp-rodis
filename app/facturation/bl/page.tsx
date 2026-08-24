@@ -10,6 +10,21 @@ type BonLivraisonRow = {
   numero: number | null;
   date_jour: string;
   commande_id: number;
+  statut: string;
+};
+
+const STATUT_LABELS: Record<string, string> = {
+  brouillon: "Brouillon",
+  apure: "Apure",
+  fifo_fait: "FIFO fait",
+  livree: "Livree",
+};
+
+const STATUT_CLASSES: Record<string, string> = {
+  brouillon: "bg-slate-100 text-slate-600",
+  apure: "bg-sky-100 text-sky-800",
+  fifo_fait: "bg-amber-100 text-amber-800",
+  livree: "bg-emerald-100 text-emerald-800",
 };
 
 export default async function FacturationBlListPage() {
@@ -17,24 +32,22 @@ export default async function FacturationBlListPage() {
 
   const { data: blData } = await supabaseServer
     .from("bons_livraison")
-    .select("id, numero, date_jour, commande_id")
+    .select("id, numero, date_jour, commande_id, statut")
     .order("id", { ascending: false });
   const bls = (blData ?? []) as BonLivraisonRow[];
 
   const commandeIds = [...new Set(bls.map((bl) => bl.commande_id))];
   const { data: commandesData } = await supabaseServer
-    .from("commandes")
-    .select("id, numero_proforma, client")
+    .from("facturation_commandes")
+    .select("id, client")
     .in("id", commandeIds.length > 0 ? commandeIds : [0]);
-  const commandeById = new Map(
-    ((commandesData ?? []) as { id: number; numero_proforma: string; client: string }[]).map((c) => [c.id, c])
-  );
+  const commandeById = new Map(((commandesData ?? []) as { id: number; client: string }[]).map((c) => [c.id, c]));
 
-  const factureIds = [...new Set(bls.map((bl) => bl.id))];
+  const blIds = bls.map((bl) => bl.id);
   const { data: facturesData } = await supabaseServer
     .from("factures")
     .select("id, bon_livraison_id")
-    .in("bon_livraison_id", factureIds.length > 0 ? factureIds : [0]);
+    .in("bon_livraison_id", blIds.length > 0 ? blIds : [0]);
   const factureIdByBlId = new Map(
     ((facturesData ?? []) as { id: number; bon_livraison_id: number }[]).map((f) => [f.bon_livraison_id, f.id])
   );
@@ -47,6 +60,7 @@ export default async function FacturationBlListPage() {
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Bon de Livraison</h1>
+              <p className="mt-2 text-sm text-slate-600">Brouillon -&gt; Apure -&gt; FIFO fait -&gt; Livree.</p>
             </div>
 
             <div className="flex items-center gap-3">
@@ -60,8 +74,8 @@ export default async function FacturationBlListPage() {
           {bls.length === 0 ? (
             <div className="px-6 py-8 text-sm text-slate-500">
               Aucun Bon de Livraison pour le moment - cree en depuis{" "}
-              <Link href="/facturation/proforma" className="font-semibold text-sky-700 underline">
-                Proforma
+              <Link href="/facturation/commande" className="font-semibold text-sky-700 underline">
+                une commande
               </Link>
               .
             </div>
@@ -72,8 +86,8 @@ export default async function FacturationBlListPage() {
                   <tr>
                     <th className="px-6 py-4 font-semibold">BL</th>
                     <th className="px-6 py-4 font-semibold">Date</th>
-                    <th className="px-6 py-4 font-semibold">Proforma</th>
                     <th className="px-6 py-4 font-semibold">Client</th>
+                    <th className="px-6 py-4 font-semibold">Statut</th>
                     <th className="px-6 py-4 font-semibold">Facture</th>
                   </tr>
                 </thead>
@@ -89,8 +103,12 @@ export default async function FacturationBlListPage() {
                           </Link>
                         </td>
                         <td className="px-6 py-4 text-slate-600">{formatDate(bl.date_jour)}</td>
-                        <td className="px-6 py-4 text-slate-600">{commande?.numero_proforma ?? "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{commande?.client ?? "-"}</td>
+                        <td className="px-6 py-4">
+                          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUT_CLASSES[bl.statut] ?? "bg-slate-100 text-slate-600"}`}>
+                            {STATUT_LABELS[bl.statut] ?? bl.statut}
+                          </span>
+                        </td>
                         <td className="px-6 py-4">
                           {factureId ? (
                             <Link href={`/facturation/facture/${factureId}`} className="font-semibold text-sky-700 underline">

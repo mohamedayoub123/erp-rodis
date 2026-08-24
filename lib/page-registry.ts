@@ -658,12 +658,12 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     defaultView: false,
   },
   {
-    key: "facturationProforma",
+    key: "facturationCommande",
     module: "Facturation",
-    label: "Proforma (commandes livrees)",
-    pathPrefixes: ["/facturation/proforma"],
-    hasWrite: false,
+    label: "Commande (saisie independante)",
+    pathPrefixes: ["/facturation/commande"],
     defaultView: false,
+    defaultWrite: false,
   },
   {
     key: "facturationBl",
