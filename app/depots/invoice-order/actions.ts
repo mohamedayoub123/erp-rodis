@@ -236,9 +236,14 @@ async function verifierStockLivreEncoreIntact(
 export async function deleteInvoiceOrder(invoiceOrderId: number): Promise<void> {
   const label = await fetchInvoiceOrderLabel(invoiceOrderId);
 
+  // select("*") (pas juste id/transfer_order_id/statut) : la ligne complete
+  // sert de snapshot pour la restauration depuis l'Historique Admin
+  // (numero/date_jour/remarque etc, sinon un TI restaure perdrait son
+  // numero fige et sa date - bug reel confirme : un ancien snapshot
+  // partiel rendait la restauration TransferInvoice impossible).
   const { data: invoiceOrderData, error: invoiceOrderError } = await supabaseServer
     .from("invoice_orders")
-    .select("id, transfer_order_id, statut")
+    .select("*")
     .eq("id", invoiceOrderId)
     .maybeSingle();
 

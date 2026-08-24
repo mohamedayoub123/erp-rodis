@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { getCurrentStockUser, getUserPermissions, isAdminUser } from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
@@ -23,6 +24,21 @@ async function requireHistoriqueAccess() {
 // sont laisses a la base (jamais les anciens, deja libres/potentiellement
 // repris par autre chose entretemps).
 export async function restaurerAuditLogAction(formData: FormData) {
+  // Meme regle que partout ailleurs (formulaire natif <form action>, jamais
+  // de catch cote client possible) : un throw depuis une Server Action voit
+  // son message efface en production par Next.js (page d'erreur generique
+  // "Une erreur s'est produite", digest illisible) - bug reel confirme sur
+  // "Restauration non disponible pour ce module." Capture ici et redirige
+  // avec le vrai message en avertissement plutot que de laisser planter.
+  try {
+    await restaurerAuditLog(formData);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur pendant la restauration.";
+    redirect(`/admin/historique?avertissement=${encodeURIComponent(message)}`);
+  }
+}
+
+async function restaurerAuditLog(formData: FormData) {
   const auditLogId = Number(String(formData.get("audit_log_id") || "0"));
 
   if (!auditLogId) {
@@ -228,6 +244,90 @@ export async function restaurerAuditLogAction(formData: FormData) {
     }
 
     resumeRestauration = `PD ${entry.cible || ""} (${historyLignes.length} ligne(s)) restaure`;
+  } else if (entry.module === "TransferOrder") {
+    const donnees = entry.donnees_avant as {
+      transferOrder?: Record<string, unknown> | null;
+      lignes?: Record<string, unknown>[];
+    };
+    const transferOrder = donnees.transferOrder;
+
+    if (!transferOrder) {
+      throw new Error("Rien a restaurer pour cette entree.");
+    }
+
+    // Restaure le Transfer Order et ses lignes tel quel - jamais les
+    // allocations de lots (transfer_order_ligne_lots, pas sauvegardees) ni
+    // les Transfer Invoice lies (chacun sa propre entree "InvoiceOrder" a
+    // restaurer separement si besoin) : un "Approuver" refait la
+    // repartition FEFO normalement apres restauration.
+    const { id: _oldId, ...toFields } = transferOrder;
+    const { data: inserted, error: insertError } = await supabaseServer
+      .from("transfer_orders")
+      .insert(toFields)
+      .select("id")
+      .single();
+
+    if (insertError || !inserted) {
+      throw new Error(insertError?.message || "Impossible de restaurer ce Transfer Order.");
+    }
+
+    const lignes = donnees.lignes ?? [];
+    if (lignes.length > 0) {
+      const lignesPayload = lignes.map((ligne) => {
+        const { id: _oldLigneId, transfer_order_id: _oldToId, ...fields } = ligne;
+        return { ...fields, transfer_order_id: inserted.id };
+      });
+      const { error: lignesError } = await supabaseServer.from("transfer_order_lignes").insert(lignesPayload);
+      if (lignesError) {
+        throw new Error(lignesError.message);
+      }
+    }
+
+    resumeRestauration = `Transfer Order ${entry.cible || ""} restaure (${lignes.length} ligne(s), a re-approuver pour la repartition des lots)`;
+  } else if (entry.module === "InvoiceOrder") {
+    const donnees = entry.donnees_avant as {
+      invoiceOrder?: Record<string, unknown> | null;
+      lignes?: Record<string, unknown>[];
+    };
+    const invoiceOrder = donnees.invoiceOrder;
+
+    if (!invoiceOrder) {
+      throw new Error("Rien a restaurer pour cette entree.");
+    }
+    if (!invoiceOrder.numero || !invoiceOrder.date_jour) {
+      throw new Error(
+        "Cette suppression a ete enregistree avant que le detail complet du Transfer Invoice soit sauvegarde - restauration automatique impossible pour cette entree precise."
+      );
+    }
+
+    // Restaure toujours en "en_attente" (jamais "valide" directement, meme
+    // si l'ancien statut l'etait) - une validation restauree aveuglement
+    // redeplacerait du stock sans repasser par validateInvoiceOrder, qui
+    // est le seul endroit qui sait faire ce mouvement correctement.
+    const { id: _oldId, statut: _oldStatut, ...ioFields } = invoiceOrder;
+    const { data: inserted, error: insertError } = await supabaseServer
+      .from("invoice_orders")
+      .insert({ ...ioFields, statut: "en_attente" })
+      .select("id")
+      .single();
+
+    if (insertError || !inserted) {
+      throw new Error(insertError?.message || "Impossible de restaurer ce Transfer Invoice.");
+    }
+
+    const lignes = donnees.lignes ?? [];
+    if (lignes.length > 0) {
+      const lignesPayload = lignes.map((ligne) => {
+        const { id: _oldLigneId, invoice_order_id: _oldIoId, sortie_lot_id: _s, entree_lot_id: _e, ...fields } = ligne;
+        return { ...fields, invoice_order_id: inserted.id, sortie_lot_id: null, entree_lot_id: null };
+      });
+      const { error: lignesError } = await supabaseServer.from("invoice_order_lignes").insert(lignesPayload);
+      if (lignesError) {
+        throw new Error(lignesError.message);
+      }
+    }
+
+    resumeRestauration = `Transfer Invoice ${entry.cible || ""} restaure en attente (${lignes.length} ligne(s), a valider a nouveau si le stock doit bouger)`;
   } else {
     throw new Error("Restauration non disponible pour ce module.");
   }
