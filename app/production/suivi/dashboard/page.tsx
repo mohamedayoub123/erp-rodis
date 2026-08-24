@@ -239,6 +239,7 @@ type SearchParams = Promise<{
   gamme?: string;
   date_debut?: string;
   date_fin?: string;
+  avertissement?: string;
 }>;
 
 export default async function PlanningDashboardPage({
@@ -544,6 +545,12 @@ export default async function PlanningDashboardPage({
             </div>
           </div>
         </section>
+
+        {params.avertissement ? (
+          <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-semibold text-amber-800">
+            {params.avertissement}
+          </div>
+        ) : null}
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto_auto]">

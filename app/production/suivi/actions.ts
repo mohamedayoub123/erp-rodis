@@ -225,16 +225,36 @@ async function releaseRemainingMpReserve(ligneId: number, code: string, stage: "
   }
 }
 
-export async function markVracTermineAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
-  const ligneId = Number(String(formData.get("ligne_id") || "0"));
-  const code = String(formData.get("code") || "").trim();
-
-  await markCodeTermine(formData, "vrac");
-
-  if (ligneId && code) {
-    await consommerRemainingMpReserve(ligneId, code, currentUser, "pesage");
+// Meme regle que partout ailleurs (formulaire natif <form action>, jamais
+// de catch cote client possible) : un throw depuis une Server Action voit
+// son message efface en production par Next.js (page d'erreur generique
+// "Une erreur s'est produite", digest illisible) - bug reel confirme : un
+// "Fin programme" qui echoue (ex: permission manquante sur cet utilisateur
+// precis) plantait sans aucune explication, laissant croire au clic que le
+// code redevenait "pas termine" ("je fais terminer mais ca revient") alors
+// qu'il n'avait en fait jamais ete enregistre. Capture ici et redirige
+// avec le vrai message en avertissement plutot que de laisser planter.
+async function withAvertissementRedirect(action: () => Promise<void>) {
+  try {
+    await action();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur pendant l'operation.";
+    redirect(`/production/suivi/dashboard?avertissement=${encodeURIComponent(message)}`);
   }
+}
+
+export async function markVracTermineAction(formData: FormData) {
+  await withAvertissementRedirect(async () => {
+    const currentUser = await getCurrentStockUser();
+    const ligneId = Number(String(formData.get("ligne_id") || "0"));
+    const code = String(formData.get("code") || "").trim();
+
+    await markCodeTermine(formData, "vrac");
+
+    if (ligneId && code) {
+      await consommerRemainingMpReserve(ligneId, code, currentUser, "pesage");
+    }
+  });
 }
 
 // Fin programme independante par colonne du Dashboard : fermer Fabrication
@@ -244,7 +264,7 @@ export async function markVracTermineAction(formData: FormData) {
 // /production/retours-conditionnement jusqu'a ce que l'utilisateur y cree
 // le retour, qui la remet a 0 a ce moment-la seulement.
 export async function markCartonTermineAction(formData: FormData) {
-  await markCodeTermine(formData, "carton");
+  await withAvertissementRedirect(() => markCodeTermine(formData, "carton").then(() => undefined));
 }
 
 // Annule un "Fin programme" Conditionnement clique par erreur - supprime
@@ -507,14 +527,16 @@ export async function validerBatchAction(formData: FormData) {
 // bloquee sans jamais sortir du stock reel - consommerRemainingMpReserve
 // ne fait rien si elle a deja ete traitee (quantite deja a 0).
 export async function markEmballageTermineAction(formData: FormData) {
-  const ligneId = Number(String(formData.get("ligne_id") || "0"));
-  const code = String(formData.get("code") || "").trim();
+  await withAvertissementRedirect(async () => {
+    const ligneId = Number(String(formData.get("ligne_id") || "0"));
+    const code = String(formData.get("code") || "").trim();
 
-  await markCodeTermine(formData, "emballage");
+    await markCodeTermine(formData, "emballage");
 
-  if (ligneId && code) {
-    await releaseRemainingMpReserve(ligneId, code, "salle_conditionnement");
-  }
+    if (ligneId && code) {
+      await releaseRemainingMpReserve(ligneId, code, "salle_conditionnement");
+    }
+  });
 }
 
 export async function addCartonEntryAction(formData: FormData) {
