@@ -126,6 +126,17 @@ export const navItems: NavItem[] = [
     matchPrefixes: ["/qualite"],
     subLinks: [{ href: "/qualite/specs", label: "Specs Labo (Vrac)", pageKey: "qualiteSpecs" }],
   },
+  {
+    href: "/facturation",
+    label: "Facturation",
+    pageKey: "facturationHub",
+    matchPrefixes: ["/facturation"],
+    subLinks: [
+      { href: "/facturation/proforma", label: "Proforma", pageKey: "facturationProforma" },
+      { href: "/facturation/bl", label: "Bon de Livraison", pageKey: "facturationBl" },
+      { href: "/facturation/facture", label: "Facture", pageKey: "facturationFacture" },
+    ],
+  },
   { href: "/admin", label: "Admin", adminOnly: true },
 ];
 

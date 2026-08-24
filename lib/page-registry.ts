@@ -18,7 +18,8 @@ export type ModuleKey =
   | "Production"
   | "Statistique"
   | "Clients"
-  | "General";
+  | "General"
+  | "Facturation";
 
 export type PageDefinition = {
   key: string;
@@ -45,6 +46,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   Statistique: "Statistique",
   Clients: "Client",
   General: "General",
+  Facturation: "Facturation",
 };
 
 export const PAGE_REGISTRY: PageDefinition[] = [
@@ -645,6 +647,40 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
     defaultView: true,
   },
+  // Facturation (Proforma -> BL -> Facture) - module V2/dev, isole de
+  // "Commandes" qui reste la source de verite jamais modifiee ici.
+  {
+    key: "facturationHub",
+    module: "Facturation",
+    label: "Accueil Facturation",
+    pathPrefixes: ["/facturation"],
+    hasWrite: false,
+    defaultView: false,
+  },
+  {
+    key: "facturationProforma",
+    module: "Facturation",
+    label: "Proforma (commandes livrees)",
+    pathPrefixes: ["/facturation/proforma"],
+    hasWrite: false,
+    defaultView: false,
+  },
+  {
+    key: "facturationBl",
+    module: "Facturation",
+    label: "Bon de Livraison",
+    pathPrefixes: ["/facturation/bl"],
+    defaultView: false,
+    defaultWrite: false,
+  },
+  {
+    key: "facturationFacture",
+    module: "Facturation",
+    label: "Facture",
+    pathPrefixes: ["/facturation/facture"],
+    defaultView: false,
+    defaultWrite: false,
+  },
 ];
 
 // Regroupement affiche dans l'admin (Gestion Stock PF / Gestion Stock MP /
@@ -652,12 +688,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
 // premiere" partagent le meme module que leur equivalent produit fini
 // (ex: stockMatierePremiere est module "Stock" comme "stock") mais doivent
 // apparaitre sous Gestion Stock MP, pas Gestion Stock PF.
-export type AdminSection = "GestionStockPf" | "GestionStockMp" | "Production" | "Autre";
+export type AdminSection = "GestionStockPf" | "GestionStockMp" | "Production" | "Facturation" | "Autre";
 
 export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   GestionStockPf: "Gestion Stock PF",
   GestionStockMp: "Gestion Stock MP",
   Production: "Production",
+  Facturation: "Facturation",
   Autre: "Autre",
 };
 
@@ -665,6 +702,7 @@ export const ADMIN_SECTION_ORDER: AdminSection[] = [
   "GestionStockPf",
   "GestionStockMp",
   "Production",
+  "Facturation",
   "Autre",
 ];
 
@@ -697,6 +735,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
 export function sectionForPage(page: PageDefinition): AdminSection {
   if (MATIERE_PREMIERE_PAGE_KEYS.has(page.key)) return "GestionStockMp";
   if (page.module === "Production") return "Production";
+  if (page.module === "Facturation") return "Facturation";
   if (page.module === "Planning" || page.module === "General") return "Autre";
   return "GestionStockPf";
 }
