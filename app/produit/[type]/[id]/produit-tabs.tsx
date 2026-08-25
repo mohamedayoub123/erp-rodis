@@ -10,6 +10,9 @@ export function ProduitTabs({ type, id }: { type: string; id: number }) {
     { href: base, label: "Stock" },
     { href: `${base}/mouvement`, label: "Mouvement" },
     { href: `${base}/statistique`, label: "Statistique" },
+    // BC/Import n'a de sens que pour la matiere premiere (achetee) - un
+    // produit fini est fabrique, jamais commande a un fournisseur.
+    ...(type === "mp" ? [{ href: `${base}/commandes`, label: "Commandes (BC/Import)" }] : []),
   ];
 
   return (
