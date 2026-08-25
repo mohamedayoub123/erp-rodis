@@ -281,7 +281,24 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
     }
   }
 
-  const payload = mergedGroups.map(({ representativeId, memberIds }) => {
+  // "only_entry_id" (name/value porte par le bouton "Valider cette ligne"
+  // precis, jamais par le bouton "Valider cette entree" du groupe entier -
+  // seul le bouton reellement clique voit son name/value inclus dans le
+  // FormData soumis, comportement natif des formulaires) - demande
+  // explicite : "je veux passer un seul article, pas tout, ET je veux
+  // pouvoir aussi passer tout comme ca existe". Le formulaire soumet
+  // toujours TOUTES les lignes du groupe (entry_ids/merge_group), ce filtre
+  // reduit juste ce qui est effectivement traite a la ligne demandee.
+  const onlyEntryIdRaw = formData.get("only_entry_id");
+  const filteredGroups = onlyEntryIdRaw
+    ? mergedGroups.filter((group) => group.memberIds.includes(Number(onlyEntryIdRaw)))
+    : mergedGroups;
+
+  if (onlyEntryIdRaw && filteredGroups.length === 0) {
+    throw new Error("Ligne introuvable ou deja transferee.");
+  }
+
+  const payload = filteredGroups.map(({ representativeId, memberIds }) => {
     const members = memberIds.map((id) => pendingById.get(id)!).filter(Boolean);
     const first = members[0];
     const ligne = ligneById.get(first.programme_ligne_id);
@@ -349,7 +366,10 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
     }
   }
 
-  const extraPayload = extraLignes.map((ligne) => {
+  // Les lignes ajoutees a la main ne sont liees a aucune ligne Emballage
+  // precise - une soumission "une seule ligne" (only_entry_id) ne doit donc
+  // jamais les emporter avec elle, seulement la ligne demandee.
+  const extraPayload = (onlyEntryIdRaw ? [] : extraLignes).map((ligne) => {
     const articleId = Number(ligne.articleId);
     const numeroLot = String(ligne.code || "").trim();
     const quantite = Number(ligne.quantite);
@@ -397,12 +417,18 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
     throw new Error(groupError.message);
   }
 
+  // Uniquement les entrees REELLEMENT traitees ci-dessus (filteredGroups) -
+  // jamais pendingRows en entier, sinon une soumission "une seule ligne"
+  // marquerait a tort les AUTRES lignes du groupe comme deja transferees
+  // alors qu'aucun mouvement de stock n'a ete cree pour elles (bug reel
+  // evite : elles auraient disparu de la liste "en attente" sans jamais
+  // etre entrees en stock).
   const { error: markError } = await supabaseServer
     .from("production_emballage_entries")
     .update({ transfere_stock: true })
     .in(
       "id",
-      pendingRows.map((row) => row.id)
+      filteredGroups.flatMap((group) => group.memberIds)
     );
 
   if (markError) {

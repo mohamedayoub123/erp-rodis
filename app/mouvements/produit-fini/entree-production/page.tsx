@@ -152,24 +152,28 @@ export default async function EntreeProductionPage() {
     const ligne = ligneById.get(entry.programme_ligne_id);
     const rapport = rapportById.get(entry.programme_ligne_id);
     // Regroupe par date de SAISIE (created_at, le jour reel ou l'emballage a
-    // ete entre) et non par date_jour (la date programme, saisie a la main
-    // sur le formulaire Emballage et parfois differente du jour reel) -
-    // sinon des entrees faites le meme jour pour des programmes de dates
-    // differentes se retrouvaient a tort dans des lots "Entree Production"
-    // separes.
+    // ete entre) ET par "date d'entrer" (date_jour, la date programme saisie
+    // a la main sur le formulaire Emballage) combinees - jamais date_jour
+    // seul (des entrees faites le meme jour pour des programmes de dates
+    // differentes se retrouveraient a tort dans le meme lot "Entree
+    // Production"), mais jamais created_at seul non plus : demande
+    // explicite - "si le jour d'entrer change, il faut faire 2 entrees, pas
+    // 1" - 2 entrees saisies le meme jour reel pour 2 date_jour differentes
+    // doivent desormais donner 2 "Entree Production" distinctes.
     const date = String(entry.created_at).slice(0, 10);
+    const entryDate = String(entry.date_jour).slice(0, 10);
+    const groupKey = `${date}::${entryDate}`;
 
-    let group = groupsByDate.get(date);
+    let group = groupsByDate.get(groupKey);
     if (!group) {
       group = { date, datesEntree: [], previewNumber: 0, lignes: [], lignesByKey: new Map() };
-      groupsByDate.set(date, group);
+      groupsByDate.set(groupKey, group);
     }
 
     // "Date d'entrer" = date_jour, la date saisie a la main sur le
-    // formulaire Emballage pour CETTE production (peut differer du jour
-    // reel de validation ci-dessus, ex: emballage fait hier, valide ici
-    // aujourd'hui) - affichee en resume dans l'entete du groupe.
-    const entryDate = String(entry.date_jour).slice(0, 10);
+    // formulaire Emballage pour CETTE production - affichee en resume dans
+    // l'entete du groupe (toujours une seule valeur desormais, un groupe ne
+    // melange plus 2 date_jour differentes).
     if (entryDate && !group.datesEntree.includes(entryDate)) {
       group.datesEntree.push(entryDate);
     }
@@ -218,7 +222,12 @@ export default async function EntreeProductionPage() {
     }
   }
 
-  const dateGroups = [...groupsByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  // Tri par jour reel de saisie (date) puis par date d'entrer - plusieurs
+  // groupes peuvent maintenant partager le meme "date" (jour reel) tout en
+  // ayant chacun leur propre date d'entrer.
+  const dateGroups = [...groupsByDate.values()].sort(
+    (a, b) => a.date.localeCompare(b.date) || (a.datesEntree[0] ?? "").localeCompare(b.datesEntree[0] ?? "")
+  );
   dateGroups.forEach((group, index) => {
     group.previewNumber = existingCount + index + 1;
     group.datesEntree.sort();

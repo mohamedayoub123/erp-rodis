@@ -232,11 +232,22 @@ export function EntreeProductionBoard({
                                 />
                               </td>
                               <td className="px-4 py-3">
-                                <DeleteIconButton
-                                  label="Supprimer cette ligne (annule la quantite emballee correspondante)"
-                                  formAction={deletePendingEmballageEntriesAction.bind(null, ligne.entryIds)}
-                                  formNoValidate
-                                />
+                                <div className="flex items-center gap-2">
+                                  <SubmitButton
+                                    name="only_entry_id"
+                                    value={representativeId}
+                                    disabled={!ligne.hasArticle}
+                                    pendingLabel="..."
+                                    className="rounded-full border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    Valider cette ligne
+                                  </SubmitButton>
+                                  <DeleteIconButton
+                                    label="Supprimer cette ligne (annule la quantite emballee correspondante)"
+                                    formAction={deletePendingEmballageEntriesAction.bind(null, ligne.entryIds)}
+                                    formNoValidate
+                                  />
+                                </div>
                               </td>
                             </tr>
                           );

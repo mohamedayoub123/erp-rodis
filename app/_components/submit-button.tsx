@@ -12,6 +12,8 @@ export function SubmitButton({
   pendingLabel = "...",
   className,
   disabled = false,
+  name,
+  value,
 }: {
   children: ReactNode;
   pendingLabel?: string;
@@ -20,11 +22,18 @@ export function SubmitButton({
   // bloquer l'envoi EN PLUS de la protection anti-double-clic - les 2 se
   // cumulent, jamais l'une a la place de l'autre.
   disabled?: boolean;
+  // name/value optionnels du bouton lui-meme (pas un champ du formulaire) -
+  // seul le bouton reellement clique voit sa paire name/value incluse dans
+  // le FormData soumis (comportement natif HTML), utile pour distinguer
+  // "quel bouton d'un meme formulaire" a declenche l'envoi (ex: valider une
+  // seule ligne parmi plusieurs dans le meme <form>).
+  name?: string;
+  value?: string | number;
 }) {
   const { pending } = useFormStatus();
 
   return (
-    <button type="submit" disabled={pending || disabled} className={className}>
+    <button type="submit" name={name} value={value} disabled={pending || disabled} className={className}>
       {pending ? pendingLabel : children}
     </button>
   );
