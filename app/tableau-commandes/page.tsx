@@ -227,23 +227,6 @@ const WHITE_SECRET_CLIENT_COLUMNS = [
 
 const WHITE_SECRET_EXTRA_EMPTY_COLUMNS = 12;
 
-const WHITE_SECRET_SUMMARY_COLUMNS = [
-  "TOTAL",
-  "STOCK",
-  "RESTE",
-  "Qt en cours de Conditionnement",
-  "STOCK ALERTE PROD",
-  "PREVISION SERVICE COMERC",
-  "stock moin de 4 mois",
-  "stock moin de 2 mois",
-];
-
-// Index (dans WHITE_SECRET_SUMMARY_COLUMNS) a partir duquel les colonnes
-// sont figees a droite (sticky) - seulement les colonnes reservees/pas
-// encore utilisees, pas TOTAL/STOCK/RESTE/Qt en cours qui ont deja une
-// vraie valeur calculee et doivent rester juste apres RESTE.
-const WHITE_SECRET_STICKY_SUMMARY_INDEX = 4;
-
 function normalizeArticle(value: string) {
   return (value || "").replace(/\u00a0/g, "").trim().toUpperCase();
 }
@@ -881,339 +864,6 @@ function getWhiteSecretContenance(article: string) {
   if (unit === "KG") return amount * 1000;
   if (unit === "G" || unit === "GRS") return amount;
   return amount;
-}
-
-function renderWhiteSecretEmptyTemplate(
-  families: string[],
-  selectedFamille: string,
-  articleRows: string[],
-  commandColumns: CommandColumn[],
-  quantitiesByArticle: Map<string, Map<string, number>>,
-  stockByArticle: Map<string, number>,
-  qtEnCoursConditionnementByArticleKey: Map<string, number>,
-  hideStand: boolean
-) {
-  const visibleCommandColumns = commandColumns.filter(
-    (column) =>
-      String(column.statut || "").toUpperCase() !== "LIVREE" &&
-      (!hideStand || String(column.statut || "").toUpperCase() !== "STAND")
-  );
-  const whiteSecretDataColumns =
-    visibleCommandColumns.length > 0
-      ? visibleCommandColumns.map(() => ({
-          kind: "client" as const,
-          stand: false,
-        }))
-      : [
-          {
-            kind: "empty" as const,
-            stand: false,
-          },
-        ];
-
-  return (
-    <main className="min-h-screen bg-[#f4f6f8] px-4 py-6 text-slate-900 lg:px-6">
-      <div className="mx-auto w-full space-y-4">
-        <section className="rounded-[1.5rem] border border-slate-200 bg-white px-5 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#b95b16]">
-                ERP Rodis
-              </p>
-              <h1 className="mt-1 text-3xl font-medium tracking-tight">{selectedFamille}</h1>
-              <p className="mt-2 text-sm text-slate-600">
-                Maquette vide du tableau. On remplira le contenu aprÃ¨s.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <BackButton href="/tableau-commandes" label="Retour aux familles" />
-              <RefreshButton />
-              <form action="/tableau-commandes">
-                <input type="hidden" name="famille" value={selectedFamille} />
-                {hideStand ? null : <input type="hidden" name="hideStand" value="1" />}
-                <button
-                  type="submit"
-                  className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-[16px] font-medium text-amber-800"
-                >
-                  {hideStand ? "Afficher stand" : "Supprimer stand"}
-                </button>
-              </form>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-[1.5rem] border border-slate-200 bg-white px-4 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-          <div className="flex flex-wrap gap-2">
-            {families.map((family) => {
-              const isActive = family === selectedFamille;
-              const buttonStyle = FAMILY_BUTTON_STYLES[family] || "bg-slate-200 text-slate-950";
-
-              return (
-                <Link
-                  key={family}
-                  href={`/tableau-commandes?famille=${encodeURIComponent(family)}`}
-                  className={`rounded-md px-3 py-1.5 text-sm font-bold leading-none shadow-sm transition hover:opacity-90 ${buttonStyle} ${
-                    isActive ? "ring-2 ring-slate-950/30" : ""
-                  }`}
-                >
-                  {family}
-                </Link>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="overflow-hidden rounded-[1.5rem] border border-slate-300 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-          <div className="max-h-[75vh] overflow-auto">
-            <table className="min-w-[2160px] w-full border-separate border-spacing-0 text-center text-[17px]">
-              <colgroup>
-                <col style={{ width: "280px" }} />
-                {whiteSecretDataColumns.map((_, index) => (
-                  <col key={`white-secret-col-${index}`} style={{ width: "44px" }} />
-                ))}
-                <col style={{ width: "64px" }} />
-                <col style={{ width: "64px" }} />
-                <col style={{ width: "64px" }} />
-                <col style={{ width: "84px" }} />
-                <col style={{ width: "76px" }} />
-                <col style={{ width: "76px" }} />
-                <col style={{ width: "76px" }} />
-                <col style={{ width: "76px" }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th className="sticky top-0 left-0 z-50 border border-slate-700 bg-white px-3 py-2 text-left text-xl font-medium text-slate-900">
-                    &nbsp;
-                  </th>
-                  <th
-                    colSpan={whiteSecretDataColumns.length + WHITE_SECRET_SUMMARY_COLUMNS.length}
-                    className={`sticky top-0 z-10 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-center text-lg font-medium text-slate-950`}
-                  >
-                    White Secret
-                  </th>
-                </tr>
-                <tr>
-                  <th className="sticky top-[90px] left-0 z-50 border border-slate-700 bg-[#62ff1b] px-2 py-1 text-center text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
-                    &nbsp;
-                  </th>
-                  {visibleCommandColumns.map((column, index) => {
-                    const status = String(column.statut || "").toUpperCase();
-                    const badgeClass =
-                      status === "STAND"
-                        ? "bg-[#f59e0b] text-slate-950"
-                        : status === "BL_TRANSFORME"
-                          ? "bg-[#16a34a] text-slate-950"
-                          : "bg-[#fff200] text-slate-900";
-                    const label =
-                      status === "STAND"
-                        ? "STAND"
-                        : status === "BL_TRANSFORME"
-                          ? "BL TRANSFORME"
-                          : "EN COURS";
-
-                    return (
-                    <th key={`white-secret-empty-top-${index}`} className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 whitespace-normal break-words`}>
-                      <span className={`inline-block rounded-sm px-3 py-1 text-[16px] font-medium uppercase ${badgeClass}`}>
-                        {label}
-                      </span>
-                    </th>
-                    );
-                  })}
-                  {WHITE_SECRET_SUMMARY_COLUMNS.map((column) => (
-                    <th
-                      key={`white-secret-summary-top-${column}`}
-                      className={`sticky top-[90px] z-11 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`}
-                    />
-                  ))}
-                </tr>
-                {/* Ligne Client : les noms longs passent sur 2 lignes
-                    (whitespace-normal), donc plus haute que les autres
-                    lignes d'en-tete sticky (~113px mesures vs ~48px pour
-                    les lignes courtes) - les offsets top-[Xpx] des lignes
-                    suivantes (320/410/500) laissent une marge de securite
-                    pour ne pas chevaucher son contenu au scroll. */}
-                <tr>
-                  <th className={`sticky top-[180px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-3 font-medium text-slate-950`}>
-                    Client
-                  </th>
-                  {visibleCommandColumns.map((column) => {
-                    const status = String(column.statut || "").toUpperCase();
-                    const clientClass =
-                      status === "STAND"
-                        ? "bg-[#f59e0b] text-slate-950"
-                        : status === "BL_TRANSFORME"
-                          ? "bg-[#16a34a] text-slate-950"
-                          : "bg-[#fff200] text-slate-900";
-
-                    return (
-                      <th
-                        key={`white-secret-client-${column.key}`}
-                        title={column.client || undefined}
-                        // max-h-11 + overflow-hidden (jamais plus d'environ 2
-                        // lignes) - sans ca, un nom de client tres long ou
-                        // trop de colonnes visibles a la fois pouvait faire
-                        // deborder cette ligne au-dela des ~140px prevus par
-                        // les offsets sticky top-[Xpx] fixes des lignes
-                        // suivantes (voir commentaire au-dessus), les faisant
-                        // chevaucher son propre contenu au scroll (bug reel
-                        // signale : les chiffres des lignes articles
-                        // "rentraient dans" la ligne Client). Volontairement
-                        // PAS line-clamp (force display:-webkit-box, casse le
-                        // calcul de largeur des colonnes d'un th - deja teste,
-                        // faisait exploser toute la ligne a 886px de haut) :
-                        // max-height garde display:table-cell intact.
-                        className={`sticky top-[180px] z-12 max-h-16 overflow-hidden border border-slate-700 px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${clientClass}`}
-                      >
-                        {column.client || "\u00A0"}
-                      </th>
-                    );
-                  })}
-                  {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
-                    <th
-                      key={`white-secret-summary-header-${column}`}
-                        className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950 ${
-                          index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[180px] right-0 z-13" : "sticky top-[180px] z-12"
-                        }`}
-                    >
-                      {column}
-                    </th>
-                  ))}
-                </tr>
-                <tr>
-                  <th className={`sticky top-[320px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
-                    NOMBRE DE CAMION
-                  </th>
-                  {visibleCommandColumns.map((column) => (
-                    <th
-                      key={`white-secret-camions-${column.key}`}
-                      className={`sticky top-[320px] z-13 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
-                    >
-                      {formatTruckCount(column.nombre_camion)}
-                    </th>
-                  ))}
-                  {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
-                    <th
-                      key={`white-secret-summary-camions-${column}`}
-                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[320px] right-0 z-14" : "sticky top-[320px] z-13"}`}
-                    />
-                  ))}
-                </tr>
-                <tr>
-                  <th className={`sticky top-[410px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
-                    tC
-                  </th>
-                  {visibleCommandColumns.map((column) => (
-                    <th
-                      key={`white-secret-tc-${column.key}`}
-                      className={`sticky top-[410px] z-14 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] whitespace-normal break-words`}
-                    >
-                      {column.mode_chargement || "\u00A0"}
-                    </th>
-                  ))}
-                  {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
-                    <th
-                      key={`white-secret-summary-tc-${column}`}
-                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[410px] right-0 z-15" : "sticky top-[410px] z-14"}`}
-                    />
-                  ))}
-                </tr>
-                <tr>
-                  <th className={`sticky top-[500px] left-0 z-50 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
-                    Proforma #
-                  </th>
-                  {visibleCommandColumns.map((column) => (
-                    <th
-                      key={`white-secret-proforma-${column.key}`}
-                      className={`sticky top-[500px] z-15 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
-                    >
-                      {column.numero_proforma || "\u00A0"}
-                    </th>
-                  ))}
-                  {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
-                    <th
-                      key={`white-secret-summary-proforma-${column}`}
-                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky top-[500px] right-0 z-16" : "sticky top-[500px] z-15"}`}
-                    />
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {articleRows.map((article, rowIndex) => {
-                  const articleKey = normalizeArticle(article);
-                  const isGreenRow = article.toLowerCase().includes("bl transforme");
-
-                  const rowTotal = visibleCommandColumns.reduce((sum, column) => {
-                    return (
-                      sum +
-                      Number(quantitiesByArticle.get(articleKey)?.get(column.key) ?? 0)
-                    );
-                  }, 0);
-                  const articleStock = Number(stockByArticle.get(articleKey) ?? 0);
-                  const articleReste = articleStock - rowTotal;
-                  const qtEnCoursConditionnement = Number(
-                    qtEnCoursConditionnementByArticleKey.get(articleKey) ?? 0
-                  );
-                  const lineFillClass = articleReste < 0 ? "bg-[#fff59d] text-slate-950" : "bg-white";
-                  const articleCellClass = articleReste < 0
-                    ? "bg-[#fff59d] text-slate-950"
-                    : article.toLowerCase().includes("stand") || article.toLowerCase().includes("production")
-                      ? "bg-[#ffe01b] text-slate-950"
-                      : isGreenRow
-                        ? "bg-[#62ff1b] text-[#0d6b0d]"
-                        : `${WHITE_SECRET_TURQUOISE} text-slate-950`;
-                  const summaryFillClass =
-                    articleReste < 0 ? "bg-[#fff59d] text-red-700" : `${WHITE_SECRET_TURQUOISE} text-slate-950`;
-
-                  return (
-                    <tr key={`white-secret-empty-row-${article}`}>
-                      <td
-                        className={`sticky left-0 z-20 border border-slate-300 px-2 py-1 text-left text-[16px] font-medium leading-tight whitespace-nowrap ${articleCellClass}`}
-                      >
-                        {article || "\u00A0"}
-                      </td>
-                      {whiteSecretDataColumns.map((_, index) => {
-                        const currentColumn = visibleCommandColumns[index];
-                        const qty = currentColumn
-                          ? Number(
-                              quantitiesByArticle.get(articleKey)?.get(currentColumn.key) ?? 0
-                            )
-                          : 0;
-                        return (
-                          <td
-                            key={`white-secret-empty-cell-${rowIndex}-${index}`}
-                            className={`border border-slate-300 px-1 py-1 font-medium leading-tight whitespace-normal break-words ${lineFillClass}`}
-                          >
-                            {qty > 0 ? formatQuantity(qty) : ""}
-                          </td>
-                        );
-                      })}
-                      {WHITE_SECRET_SUMMARY_COLUMNS.map((column, index) => (
-                        <td
-                          key={`white-secret-empty-summary-${rowIndex}-${column}`}
-                          className={`border border-slate-700 px-2 py-1 font-medium ${summaryFillClass} ${index >= WHITE_SECRET_STICKY_SUMMARY_INDEX ? "sticky right-0 z-10" : ""}`}
-                        >
-                          {index === 0 && rowTotal > 0
-                            ? formatQuantity(rowTotal)
-                            : index === 1
-                              ? formatQuantity(articleStock)
-                              : index === 2
-                                ? formatQuantity(articleReste)
-                                : index === 3 && qtEnCoursConditionnement > 0
-                                  ? formatQuantity(qtEnCoursConditionnement)
-                                  : ""}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-    </main>
-  );
 }
 
 function renderGenericFamilyTemplate(
@@ -2501,7 +2151,16 @@ export default async function TableauCommandesPage({
 
   if (selectedRows.length === 0 || shouldStayEmpty) {
     if (selectedFamille === "White Secret") {
-      return renderWhiteSecretEmptyTemplate(
+      // Meme rendu que les autres familles (renderGenericFamilyTemplate) -
+      // demande explicite ("fait la page White Secret bouger comme
+      // Absolute") : l'ancien template dedie a White Secret empilait ses
+      // lignes d'en-tete via des offsets sticky top-[Xpx] fixes (voir
+      // git blame de cette section), fragile des qu'un nom de client
+      // depassait la hauteur prevue (le contenu des lignes suivantes se
+      // faisait alors recouvrir au scroll - bug reel signale). Le template
+      // generique ne fixe rien en hauteur (seule la colonne article colle
+      // a gauche au scroll horizontal), jamais ce probleme.
+      return renderGenericFamilyTemplate(
         families,
         selectedFamille,
         whiteSecretBodyRows,
@@ -2509,6 +2168,7 @@ export default async function TableauCommandesPage({
         whiteSecretQuantitiesByArticle,
         whiteSecretStockByArticle,
         qtEnCoursConditionnementByArticle,
+        undefined,
         hideStand
       );
     }
@@ -2579,7 +2239,9 @@ export default async function TableauCommandesPage({
   }
 
   if (selectedFamille === "White Secret") {
-    return renderWhiteSecretEmptyTemplate(
+    // Meme motif que ci-dessus (rendu vide) - toujours le template
+    // generique pour White Secret desormais.
+    return renderGenericFamilyTemplate(
       families,
       selectedFamille,
       whiteSecretBodyRows,
@@ -2587,6 +2249,7 @@ export default async function TableauCommandesPage({
       whiteSecretQuantitiesByArticle,
       whiteSecretStockByArticle,
       qtEnCoursConditionnementByArticle,
+      undefined,
       hideStand
     );
   }
