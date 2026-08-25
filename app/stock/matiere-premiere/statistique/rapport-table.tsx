@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { GAMME_CONFIGS } from "./gamme-config";
+import { GAMME_CONFIGS, type ColumnDescriptor } from "./gamme-config";
 import { editableFieldName } from "./field-name";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { ExportExcelButton } from "@/app/_components/export-excel-button";
 
 function combineStyle(
   base: React.CSSProperties | undefined,
@@ -84,6 +85,56 @@ function isColorsEmpty(colors: RowColors) {
   return Object.values(colors).every((c) => !c.bg && !c.text);
 }
 
+// Reconstruit exactement les memes colonnes/valeurs que le tableau affiche
+// a l'ecran (ORDRE/DESIGNATION + colonnes dynamiques de la gamme + les 2
+// colonnes fixes de fin), pour un export fidele sans avoir a redefinir les
+// colonnes a part pour chaque gamme - demande explicite : "statistique mp
+// je veux tirer on excel".
+function buildExportData(rows: RapportRowWithLive[], columns: ColumnDescriptor[]) {
+  const dataColumns = columns.filter((col) => col.kind !== "spacer");
+
+  const exportColumns = [
+    { label: "Ordre", key: "ordre" },
+    { label: "Designation", key: "designation" },
+    ...dataColumns.map((col) => ({ label: col.label, key: col.key })),
+    { label: "Statistique 6 mois (systeme)", key: "__stat6MoisSysteme__" },
+    { label: "Remarque", key: "__remarque__" },
+  ];
+
+  const exportRows = rows.map((row) => {
+    const record: Record<string, string | number | null> = {
+      ordre: row.ordre,
+      designation: row.designation,
+      __stat6MoisSysteme__: row.live ? row.live.conso6MoisSysteme : "-",
+      __remarque__: (row.donnees?.["remarque_libre"] as string) ?? "",
+    };
+
+    for (const col of dataColumns) {
+      if (col.kind !== "live") {
+        record[col.key] = row.donnees?.[col.key] ?? "";
+        continue;
+      }
+
+      if (!row.live) {
+        record[col.key] = "article introuvable";
+        continue;
+      }
+
+      if (col.liveField === "qteBcEtDate" || col.liveField === "date4d") {
+        const entries = row.live[col.liveField];
+        record[col.key] = entries.length === 0 ? "-" : entries.map((entry) => `${entry.quantite} ${entry.detail}`).join(" | ");
+        continue;
+      }
+
+      record[col.key] = col.liveField ? row.live[col.liveField] : "-";
+    }
+
+    return record;
+  });
+
+  return { exportColumns, exportRows };
+}
+
 function preventEnterSubmit(event: React.KeyboardEvent<HTMLFormElement>) {
   const target = event.target as HTMLElement;
   if (event.key === "Enter" && target.tagName === "INPUT") {
@@ -133,6 +184,7 @@ export function RapportTable({
 
   const selectedColor = selected ? colorsByRow[selected.rowId]?.[selected.target] : undefined;
   const columns = config.columns;
+  const { exportColumns, exportRows } = buildExportData(rows, columns);
   // Comparaison lexicographique valide car date_prevue_reception est
   // toujours au format ISO "AAAA-MM-JJ" (voir DateJmaFormField).
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -181,14 +233,21 @@ export function RapportTable({
             ) : null}
           </div>
 
-          {canEdit ? (
-            <SubmitButton
-              pendingLabel="Enregistrement..."
-              className="rounded-full bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-500"
-            >
-              Enregistrer
-            </SubmitButton>
-          ) : null}
+          <div className="flex items-center gap-3">
+            <ExportExcelButton
+              rows={exportRows}
+              columns={exportColumns}
+              filename={`statistique-mp-${gammeStatistique}-${new Date().toISOString().slice(0, 10)}.xlsx`}
+            />
+            {canEdit ? (
+              <SubmitButton
+                pendingLabel="Enregistrement..."
+                className="rounded-full bg-violet-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-500"
+              >
+                Enregistrer
+              </SubmitButton>
+            ) : null}
+          </div>
         </div>
       </section>
 
