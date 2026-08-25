@@ -1049,7 +1049,21 @@ function renderWhiteSecretEmptyTemplate(
                     return (
                       <th
                         key={`white-secret-client-${column.key}`}
-                        className={`sticky top-[180px] z-12 border border-slate-700 px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${clientClass}`}
+                        title={column.client || undefined}
+                        // max-h-11 + overflow-hidden (jamais plus d'environ 2
+                        // lignes) - sans ca, un nom de client tres long ou
+                        // trop de colonnes visibles a la fois pouvait faire
+                        // deborder cette ligne au-dela des ~140px prevus par
+                        // les offsets sticky top-[Xpx] fixes des lignes
+                        // suivantes (voir commentaire au-dessus), les faisant
+                        // chevaucher son propre contenu au scroll (bug reel
+                        // signale : les chiffres des lignes articles
+                        // "rentraient dans" la ligne Client). Volontairement
+                        // PAS line-clamp (force display:-webkit-box, casse le
+                        // calcul de largeur des colonnes d'un th - deja teste,
+                        // faisait exploser toute la ligne a 886px de haut) :
+                        // max-height garde display:table-cell intact.
+                        className={`sticky top-[180px] z-12 max-h-16 overflow-hidden border border-slate-700 px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${clientClass}`}
                       >
                         {column.client || "\u00A0"}
                       </th>
