@@ -13,6 +13,8 @@ type BcLigneRow = {
   statut: string | null;
   date_jour: string | null;
   fournisseur: string | null;
+  n_doss_4d: string | null;
+  n_doss_erp: string | null;
 };
 
 type ImportEvenementRow = {
@@ -57,7 +59,7 @@ export default async function ProduitCommandesPage({ params }: { params: Promise
 
   const { data: bcLignesData } = await supabaseServer
     .from("bons_commande_matiere_premiere")
-    .select("id, code, quantite, statut, date_jour, fournisseur")
+    .select("id, code, quantite, statut, date_jour, fournisseur, n_doss_4d, n_doss_erp")
     .eq("article_id", articleId)
     .order("date_jour", { ascending: false });
   const bcLignes = (bcLignesData ?? []) as BcLigneRow[];
@@ -113,13 +115,35 @@ export default async function ProduitCommandesPage({ params }: { params: Promise
       const quantite = Number(ligne.quantite ?? 0);
       const quantiteImporteeTotale = quantiteImporteeTotaleByLigneId.get(ligne.id) ?? 0;
       const quantiteRecue = quantiteRecueByLigneId.get(ligne.id) ?? 0;
+      const resteARecevoir = Math.max(0, quantite - quantiteRecue);
+      let dossiersEnAttente = [...(dossiersEnAttenteByLigneId.get(ligne.id)?.values() ?? [])];
+
+      // Repli sur le dossier saisi directement sur la ligne BC (n_doss_4d/
+      // n_doss_erp, rempli a la creation/modification du BC) quand aucun
+      // evenement "Creer import" n'a encore ete enregistre pour cette
+      // ligne - sans ca, un dossier deja connu/planifie (numero attribue,
+      // juste pas encore "importe" formellement) affichait a tort "Aucun
+      // import en cours" (bug remonte par l'utilisateur : "ya deja import
+      // mais tu le montres pas").
+      if (dossiersEnAttente.length === 0 && resteARecevoir > 0 && (ligne.n_doss_4d || ligne.n_doss_erp)) {
+        dossiersEnAttente = [
+          {
+            nDoss4d: ligne.n_doss_4d,
+            nDossErp: ligne.n_doss_erp,
+            quantite: resteARecevoir,
+            statut: "Dossier planifie (import pas encore cree)",
+            datePrevueReception: null,
+          },
+        ];
+      }
+
       return {
         ...ligne,
         quantite,
         quantiteRecue,
-        resteARecevoir: Math.max(0, quantite - quantiteRecue),
+        resteARecevoir,
         statutCalcule: computeStatutBc(quantite, quantiteImporteeTotale, ligne.statut),
-        dossiersEnAttente: [...(dossiersEnAttenteByLigneId.get(ligne.id)?.values() ?? [])],
+        dossiersEnAttente,
       };
     })
     // Ne garde que les BC pas encore entierement termines - un BC clos
