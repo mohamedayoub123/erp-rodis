@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { fetchLotsAllDepots, allocateFefo, type DepotLot } from "@/app/depots/transfer-order/stock-lots";
+import { fetchLotsAllDepotsBatch, allocateFefo, type DepotLot } from "@/app/depots/transfer-order/stock-lots";
 import { convertirEnFcfa } from "@/lib/prix-devise";
 
 // Cache optionnel {articleMpId -> lots deja recuperes} partage par
@@ -46,34 +46,42 @@ export async function fetchCoutsReelsMpDepotB(
     parArticle.set(b.articleMpId, (parArticle.get(b.articleMpId) ?? 0) + b.quantite);
   }
 
-  await Promise.all(
-    [...parArticle.entries()].map(async ([articleMpId, quantite]) => {
-      let lots = lotCache?.get(articleMpId);
-      if (!lots) {
-        lots = await fetchLotsAllDepots("MP", articleMpId);
-        lotCache?.set(articleMpId, lots);
-      }
-      const lotsAvecPrix = lots.filter((l) => l.prixUnitaireFcfa !== null);
-      const { allocations } = allocateFefo(lotsAvecPrix, quantite);
+  // Un seul aller-retour pour TOUS les articles MP pas deja en cache, au
+  // lieu d'une requete par article - avec 50-100+ ingredients distincts
+  // (une commande a plusieurs produits finis), autant de requetes
+  // individuelles restait lent meme lancees en parallele (mesure : 2s+, le
+  // nombre de requetes simultanees devenant lui-meme le goulot
+  // d'etranglement).
+  const articleIdsAFetcher = [...parArticle.keys()].filter((id) => !lotCache?.has(id));
+  if (articleIdsAFetcher.length > 0) {
+    const fetched = await fetchLotsAllDepotsBatch("MP", articleIdsAFetcher);
+    for (const articleMpId of articleIdsAFetcher) {
+      lotCache?.set(articleMpId, fetched.get(articleMpId) ?? []);
+    }
+  }
 
-      const lotByNumero = new Map(lotsAvecPrix.map((l) => [l.numeroLot, l]));
-      let coutFcfa = 0;
-      const lotsUtilises: CoutMpInfo["lots"] = [];
-      for (const alloc of allocations) {
-        const lot = lotByNumero.get(alloc.numero_lot);
-        if (!lot || lot.prixUnitaireFcfa === null) continue; // ne devrait pas arriver, garde-fou
-        coutFcfa += alloc.quantite * lot.prixUnitaireFcfa;
-        lotsUtilises.push({
-          numeroLot: alloc.numero_lot,
-          quantite: alloc.quantite,
-          prixUnitaireFcfa: lot.prixUnitaireFcfa,
-          nDossErp: lot.nDossErp,
-          nDoss4d: lot.nDoss4d,
-        });
-      }
-      result.set(articleMpId, { coutFcfa, lots: lotsUtilises });
-    })
-  );
+  for (const [articleMpId, quantite] of parArticle.entries()) {
+    const lots = lotCache?.get(articleMpId) ?? [];
+    const lotsAvecPrix = lots.filter((l) => l.prixUnitaireFcfa !== null);
+    const { allocations } = allocateFefo(lotsAvecPrix, quantite);
+
+    const lotByNumero = new Map(lotsAvecPrix.map((l) => [l.numeroLot, l]));
+    let coutFcfa = 0;
+    const lotsUtilises: CoutMpInfo["lots"] = [];
+    for (const alloc of allocations) {
+      const lot = lotByNumero.get(alloc.numero_lot);
+      if (!lot || lot.prixUnitaireFcfa === null) continue; // ne devrait pas arriver, garde-fou
+      coutFcfa += alloc.quantite * lot.prixUnitaireFcfa;
+      lotsUtilises.push({
+        numeroLot: alloc.numero_lot,
+        quantite: alloc.quantite,
+        prixUnitaireFcfa: lot.prixUnitaireFcfa,
+        nDossErp: lot.nDossErp,
+        nDoss4d: lot.nDoss4d,
+      });
+    }
+    result.set(articleMpId, { coutFcfa, lots: lotsUtilises });
+  }
 
   return result;
 }

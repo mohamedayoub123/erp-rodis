@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { convertirEnFcfa } from "@/lib/prix-devise";
+import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
 
 export type ArticleType = "MP" | "PF";
 
@@ -255,6 +256,102 @@ export async function fetchLotsAllDepots(articleType: ArticleType, articleId: nu
       if (b.dateTri) return 1;
       return a.numeroLot.localeCompare(b.numeroLot, "fr", { sensitivity: "base" });
     });
+}
+
+// Meme resultat que fetchLotsAllDepots, mais pour PLUSIEURS articles a la
+// fois en UNE requete (paginee en parallele) au lieu d'une requete par
+// article - un cout de revient de commande (voir fetchCoutsParCartonProduitsFinis)
+// peut porter sur 50-100+ ingredients MP distincts d'un coup ; meme lancees
+// en parallele, autant de requetes individuelles restait mesure a 2s+ (le
+// nombre de requetes simultanees semble lui-meme devenir le goulot
+// d'etranglement, pas seulement leur latence individuelle). Regroupees en
+// une seule requete .in(), le meme calcul ne coute plus qu'un aller-retour.
+export async function fetchLotsAllDepotsBatch(
+  articleType: ArticleType,
+  articleIds: number[]
+): Promise<Map<number, DepotLot[]>> {
+  const result = new Map<number, DepotLot[]>();
+  if (articleIds.length === 0) return result;
+
+  const table = stockTableFor(articleType);
+  const dateField = articleType === "MP" ? "date_expiration" : "date_fabrication";
+  const prixFields = articleType === "MP" ? ", prix_unitaire, devise, taux_change, n_doss_erp, n_doss_4d" : "";
+  const selectCols = `article_id, numero_lot, qte_entree, qte_sortie, ${dateField}${prixFields}`;
+
+  type BatchRow = {
+    article_id: number;
+    numero_lot: string | null;
+    qte_entree: number;
+    qte_sortie: number;
+    [key: string]: unknown;
+  };
+
+  // `table` est dynamique (pas un litteral) - supabase-js retombe alors sur
+  // un type generique pour .select(), d'ou le cast explicite (meme
+  // convention que fetchAllRows plus haut dans ce fichier).
+  const rows = await fetchAllRowsParallel<BatchRow>(
+    () =>
+      supabaseServer
+        .from(table)
+        .select("id", { count: "exact", head: true })
+        .in("article_id", articleIds) as unknown as PromiseLike<{
+        count: number | null;
+        error: { message: string } | null;
+      }>,
+    (from, to) =>
+      supabaseServer
+        .from(table)
+        .select(selectCols)
+        .in("article_id", articleIds)
+        .range(from, to) as unknown as PromiseLike<{ data: BatchRow[] | null; error: { message: string } | null }>
+  );
+
+  const byArticleAndLot = new Map<string, DepotLot>();
+  for (const row of rows) {
+    const key = `${row.article_id}::${row.numero_lot || ""}`;
+    const existing = byArticleAndLot.get(key) ?? {
+      numeroLot: row.numero_lot || "",
+      solde: 0,
+      dateTri: null,
+      prixUnitaireFcfa: null,
+      nDossErp: null,
+      nDoss4d: null,
+    };
+    existing.solde += Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
+    const dateVal = (row[dateField] as string | null) ?? null;
+    if (dateVal && !existing.dateTri) existing.dateTri = dateVal;
+
+    if (existing.prixUnitaireFcfa === null && Number(row.qte_entree ?? 0) > 0 && row.prix_unitaire != null) {
+      existing.prixUnitaireFcfa = convertirEnFcfa(
+        row.prix_unitaire as number,
+        (row.devise as string | null) ?? null,
+        (row.taux_change as number | null) ?? null
+      );
+      existing.nDossErp = (row.n_doss_erp as string | null) ?? null;
+      existing.nDoss4d = (row.n_doss_4d as string | null) ?? null;
+    }
+
+    byArticleAndLot.set(key, existing);
+  }
+
+  for (const [key, lot] of byArticleAndLot.entries()) {
+    if (lot.solde <= 1e-6) continue;
+    const articleId = Number(key.split("::")[0]);
+    const list = result.get(articleId) ?? [];
+    list.push(lot);
+    result.set(articleId, list);
+  }
+
+  for (const list of result.values()) {
+    list.sort((a, b) => {
+      if (a.dateTri && b.dateTri) return a.dateTri.localeCompare(b.dateTri);
+      if (a.dateTri) return -1;
+      if (b.dateTri) return 1;
+      return a.numeroLot.localeCompare(b.numeroLot, "fr", { sensitivity: "base" });
+    });
+  }
+
+  return result;
 }
 
 export function totalAvailable(lots: { solde: number }[]) {

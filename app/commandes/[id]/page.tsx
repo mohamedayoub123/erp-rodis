@@ -26,6 +26,7 @@ import { fetchCoutsParCartonProduitsFinis } from "@/lib/prix-revient";
 import { fetchDimensionsProduitsFinis, volumeCartonM3 } from "@/lib/dimensions-produit";
 import { COMPTE_CLIENTS } from "@/lib/comptabilite";
 import { PaiementsSection } from "./paiements-section";
+import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
 
 type CommandeDetailRow = {
   id: number;
@@ -530,46 +531,6 @@ type StockGroup = { articleId: number; code: string; quantite: number; dateFabri
 // 2 fois en parallele, ce qui doublait chaque quantite affichee (un meme
 // code additionne 2 fois dans des groupes distincts crees par 2 executions
 // concurrentes de la meme fonction).
-// Recupere toutes les pages d'une requete PostgREST EN PARALLELE plutot
-// qu'une par une - sur une commande avec beaucoup d'articles (ex: le picker
-// "Ajouter une ligne" pousse relevantArticleIds a couvrir quasi tous les
-// articles), le filtre .in("article_id", ...) ne reduit presque plus rien
-// et lots_stock (18000+ lignes) se lit en ~18 pages de 1000 - en sequentiel
-// (une requete apres l'autre) ca prenait plus de 10s a soi seul sur la page
-// Commande. Le count exact permet de connaitre le nombre de pages a
-// l'avance et de toutes les lancer d'un coup.
-async function fetchAllRowsParallel<T>(
-  countQuery: () => PromiseLike<{ count: number | null; error: { message: string } | null }>,
-  pageQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
-  pageSize = 1000
-): Promise<T[]> {
-  const { count, error: countError } = await countQuery();
-
-  if (countError) {
-    throw new Error(countError.message);
-  }
-
-  const total = count ?? 0;
-  if (total === 0) return [];
-
-  const pageStarts: number[] = [];
-  for (let from = 0; from < total; from += pageSize) {
-    pageStarts.push(from);
-  }
-
-  const pages = await Promise.all(pageStarts.map((from) => pageQuery(from, from + pageSize - 1)));
-
-  const rows: T[] = [];
-  for (const { data, error } of pages) {
-    if (error) {
-      throw new Error(error.message);
-    }
-    rows.push(...(data ?? []));
-  }
-
-  return rows;
-}
-
 type LotsStockGroupRow = {
   article_id: number | null;
   numero_lot: string | null;
