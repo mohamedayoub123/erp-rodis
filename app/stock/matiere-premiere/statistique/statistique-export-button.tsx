@@ -75,7 +75,6 @@ export function StatistiqueExportButton({
   todayIso: string;
 }) {
   async function handleExport() {
-    const dataColumns = columns.filter((col) => col.kind !== "spacer");
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet(gammeStatistique.slice(0, 31) || "Export", {
       views: [{ state: "frozen", ySplit: 0 }],
@@ -217,7 +216,17 @@ export function StatistiqueExportButton({
       applyCell("__row__", row.ordre, categorieStyle ?? undefined);
       applyCell("DESIGNATION", row.designation, { bg: designationBg, text: designationText });
 
-      for (const col of dataColumns) {
+      for (const col of columns) {
+        // La colonne spacer n'ecrit rien (case vide, comme a l'ecran) mais
+        // DOIT quand meme avancer colIndex - sinon toutes les colonnes
+        // suivantes (tonnage 1 tc, conso 1mois...) glissent d'une case vers
+        // la gauche par rapport a leur en-tete (bug reel corrige : les
+        // valeurs affichees ne correspondaient plus a leur colonne).
+        if (col.kind === "spacer") {
+          colIndex += 1;
+          continue;
+        }
+
         if (col.kind === "editable-text" || col.kind === "editable-number") {
           applyCell(col.key, formatCellValue(row.donnees?.[col.key]), undefined, {
             bold: col.key === "avis",
