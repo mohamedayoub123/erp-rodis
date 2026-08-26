@@ -14,18 +14,21 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   experimental: {
-    // Depuis Next 15, une page dynamique (cookies() utilise partout ici
-    // pour l'auth - donc TOUTES les pages) n'est plus mise en cache cote
-    // client du tout par defaut (0s, contre 30s avant) - chaque navigation,
-    // meme vers une page visitee il y a 2 secondes (bouton Retour, Link
-    // vers une page deja ouverte), redeclenche un aller-retour serveur
-    // complet. On revient a un delai raisonnable : une page revisitee dans
-    // les 30s reutilise son dernier rendu au lieu de tout recharger. Les
-    // Server Actions de l'app font toutes redirect()/revalidatePath en
-    // sortie, qui invalident deja correctement ce cache la ou il le faut.
-    staleTimes: {
-      dynamic: 30,
-    },
+    // ATTENTION : staleTimes.dynamic a ete tente ici (30s) pour accelerer
+    // la navigation "Retour"/revisite recente, puis retire - regression
+    // reelle constatee : redirect() seul (sans revalidatePath explicite,
+    // ce que login/logout et la plupart des Server Actions de l'app ne
+    // font PAS) ne garantit PAS un rendu frais de la page cible (voir la
+    // doc Next elle-meme, node_modules/next/dist/docs/01-app/02-guides/
+    // redirecting.md - l'exemple appelle explicitement revalidatePath
+    // avant redirect). Consequence reelle : apres connexion, le redirect
+    // vers "/" pouvait reafficher la page de connexion mise en cache
+    // JUSTE AVANT (login qui semble ne rien faire), l'utilisateur
+    // retapait ses identifiants et se faisait bloquer par SA PROPRE
+    // session tout juste creee ("deja connecte"). Revenir a staleTimes
+    // par defaut (0, aucun cache client) est plus lent mais correct - un
+    // audit complet de tous les redirect() de l'app serait necessaire
+    // avant de retenter ce genre de cache.
     serverActions: {
       bodySizeLimit: "50mb",
       // Next.js compare l'Origin de la requete au Host attendu avant
