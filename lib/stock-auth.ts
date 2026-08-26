@@ -719,7 +719,16 @@ export async function createStockSession(username: string) {
     throw new Error(`stock_users session write failed: ${error.message}`);
   }
 
-  cookieStore.set(STOCK_AUTH_COOKIE, `${normalized}.${expiresAt}.${token}.${signature}`, {
+  // Le username est place EN DERNIER (pas en premier) - certains usernames
+  // contiennent un point (ex: "m.mteirek"), ce qui cassait le split(".")
+  // ci-dessous en 5 morceaux au lieu de 4 : le "username" lu redevenait
+  // juste "m", inconnu de isAllowedStockUser, et la session paraissait
+  // invalide a chaque page suivante meme juste apres une connexion
+  // reussie (le formulaire de connexion revenait, vide, en boucle).
+  // expiresAt/token/signature ne contiennent jamais de point (numerique ou
+  // hexadecimal), donc placer le username apres eux et le reconstituer en
+  // rejoignant tout ce qui suit resout ce cas sans ambiguite.
+  cookieStore.set(STOCK_AUTH_COOKIE, `${expiresAt}.${token}.${signature}.${normalized}`, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -745,7 +754,11 @@ export async function getCurrentStockUser() {
     return null;
   }
 
-  const [username, expiresAt, token, signature] = raw.split(".");
+  // username en dernier dans le cookie (voir createStockSession) - tout ce
+  // qui suit expiresAt/token/signature est reassemble en un seul username,
+  // pour supporter les points internes ("m.mteirek").
+  const [expiresAt, token, signature, ...usernameParts] = raw.split(".");
+  const username = usernameParts.join(".");
 
   if (!username || !expiresAt || !token || !signature) {
     return null;
