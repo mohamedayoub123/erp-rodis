@@ -10,8 +10,7 @@ import { formatDate } from "../../production/suivi/data";
 import { ZonePrintButton } from "../zone-print-button";
 import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
 import { DispatcherRowEditor } from "../dispatcher-row-editor";
-
-const VALID_ZONES = ["B1Z1", "B1Z2", "B4Z1", "B4Z2", "B4Z3", "D"];
+import { fetchConditionnementZones } from "@/lib/machines-conditionnement";
 
 type DispatcherRow = {
   id: number;
@@ -211,7 +210,8 @@ export default async function RavitailleurParLigneZonePage({
   const canDelete = await canDeletePageUser(currentUser, "ravitailleurParLigne");
   const canEdit = await canWritePageUser(currentUser, "ravitailleurParLigne");
 
-  if (!VALID_ZONES.includes(zoneUpper)) {
+  const validZones = await fetchConditionnementZones();
+  if (!validZones.includes(zoneUpper)) {
     notFound();
   }
 

@@ -38,6 +38,19 @@ export async function fetchMachinesConditionnement(): Promise<MachineConditionne
   return rows.map((m) => ({ id: m.id, nom: m.nom, zone: m.zone || "-", typeProduit: m.type_produit ?? [] }));
 }
 
+// Liste des vraies zones (dedupliquees, triees) - pour tout endroit qui
+// doit connaitre "quelles zones existent" sans le detail des machines (ex:
+// Ravitailleur par ligne, dont les 3 pages listaient encore un catalogue
+// fixe ["B1Z1","B1Z2","B4Z1","B4Z2","B4Z3","D"] jamais mis a jour depuis le
+// passage aux vraies machines - bug reel confirme : "TALC", devenue une
+// vraie zone, n'y apparaissait jamais, et "B4Z3" (disparue) y restait).
+export async function fetchConditionnementZones(): Promise<string[]> {
+  const machines = await fetchMachinesConditionnement();
+  return [...new Set(machines.map((m) => m.zone))].sort((a, b) =>
+    a.localeCompare(b, "fr", { sensitivity: "base" })
+  );
+}
+
 export type ZoneChaineOption = { zone: string; chaine: string };
 
 // Liste plate {zone, chaine} triee zone puis chaine - pour les pickers

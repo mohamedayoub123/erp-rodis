@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { fetchConditionnementZones } from "@/lib/machines-conditionnement";
 
-const ZONE_BUTTONS = ["B1Z1", "B1Z2", "B4Z1", "B4Z2", "B4Z3", "D"];
+export default async function RavitailleurParLignePage() {
+  noStore();
+  const zoneButtons = await fetchConditionnementZones();
 
-export default function RavitailleurParLignePage() {
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -48,7 +51,7 @@ export default function RavitailleurParLignePage() {
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {ZONE_BUTTONS.map((zone) => (
+          {zoneButtons.map((zone) => (
             <Link
               key={zone}
               href={`/ravitailleur-par-ligne/${zone}`}

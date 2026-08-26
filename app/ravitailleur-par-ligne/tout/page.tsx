@@ -8,8 +8,7 @@ import { formatDate } from "../../production/suivi/data";
 import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { DispatcherRowEditor } from "../dispatcher-row-editor";
-
-const VALID_ZONES = ["B1Z1", "B1Z2", "B4Z1", "B4Z2", "B4Z3", "D"];
+import { fetchConditionnementZones } from "@/lib/machines-conditionnement";
 
 // PRODUIT (nom d'article, souvent long) a besoin de bien plus de place que
 // les colonnes booleennes/numeriques etroites - sans ca, le tableau force
@@ -221,6 +220,7 @@ export default async function RavitailleurToutesZonesPage() {
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "ravitailleurParLigne");
+  const validZones = await fetchConditionnementZones();
   const dataRows = await fetchAllDispatcherRows();
   const articleIds = [...new Set(dataRows.map((row) => row.article_id).filter((id): id is number => !!id))];
   const articlesInfo = await fetchArticlesInfo(articleIds);
@@ -235,10 +235,14 @@ export default async function RavitailleurToutesZonesPage() {
   const remarqueByGroupeId = await fetchRemarqueByGroupeId(groupeIdsInView);
   const remarques = listDistinctRemarques(dataRows, remarqueByGroupeId);
   const rowsByZone = new Map<string, DispatcherRow[]>();
-  for (const zone of VALID_ZONES) rowsByZone.set(zone, []);
+  for (const zone of validZones) rowsByZone.set(zone, []);
   for (const row of dataRows) {
-    const list = rowsByZone.get(row.zone);
-    if (list) list.push(row);
+    // Ajoute la zone a la volee si elle n'est pas (encore) dans validZones
+    // (ex: une ligne orpheline d'une machine depuis supprimee) - une ligne
+    // ne doit jamais disparaitre silencieusement de cette vue.
+    const list = rowsByZone.get(row.zone) ?? [];
+    list.push(row);
+    rowsByZone.set(row.zone, list);
   }
   const missingCodeCount = dataRows.filter((row) => !row.code || !row.code.trim()).length;
 
@@ -285,7 +289,7 @@ export default async function RavitailleurToutesZonesPage() {
           </section>
         ) : null}
 
-        {VALID_ZONES.map((zone) => {
+        {[...rowsByZone.keys()].map((zone) => {
           const zoneRows = rowsByZone.get(zone) ?? [];
 
           // Une colonne "besoin" (FLACON/POT, CAPSULE/POMPE...) entierement
