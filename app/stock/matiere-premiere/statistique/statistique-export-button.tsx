@@ -118,21 +118,24 @@ export function StatistiqueExportButton({
     const titleRow = sheet.addRow([]);
     sheet.mergeCells(titleRow.number, 1, titleRow.number, totalCols);
     const titleCell = titleRow.getCell(1);
+    // Meme ordre et memes couleurs que le fichier source reel : Date (noir)
+    // + note rouge "stock > 1 an" d'abord, puis le nom de la gamme + date de
+    // mise a jour ensuite - fond blanc (pas de bandeau fonce), texte
+    // colore uniquement.
     const titleRuns: ExcelJS.RichText[] = [
-      { font: { bold: true, italic: true, size: 12, color: { argb: "FFFFFFFF" } }, text: `Date : ${todayIso}     ` },
-      {
-        font: { bold: true, italic: true, size: 12, color: { argb: "FFFFFFFF" } },
-        text: `STATISTIQUE MP - ${gammeStatistique.toUpperCase()} - mis à jour le ${todayIso}`,
-      },
+      { font: { bold: true, italic: true, size: 12, color: { argb: "FF000000" } }, text: `Date : ${todayIso}     ` },
     ];
     if (config.highlightStockOverConso12Mois) {
       titleRuns.push({
-        font: { bold: true, italic: true, size: 12, color: { argb: "FFFF6B6B" } },
-        text: "     Stock supérieur à 1 an de conso noté en rouge",
+        font: { bold: true, italic: true, size: 12, color: { argb: "FFFF0000" } },
+        text: "Stock supérieur à 1 an de conso noté en rouge     ",
       });
     }
+    titleRuns.push({
+      font: { bold: true, italic: true, size: 12, color: { argb: "FF000000" } },
+      text: `${gammeStatistique.toUpperCase()} mis à jour le ${todayIso}`,
+    });
     titleCell.value = { richText: titleRuns };
-    titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
     titleCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     titleRow.height = 28.2;
 
@@ -228,9 +231,15 @@ export function StatistiqueExportButton({
         }
 
         if (col.kind === "editable-text" || col.kind === "editable-number") {
-          applyCell(col.key, formatCellValue(row.donnees?.[col.key]), undefined, {
-            bold: col.key === "avis",
-          });
+          // "avis" : rouge gras, meme couleur que text-red-600 a l'ecran
+          // (rapport-table.tsx) - seule colonne editable a avoir une
+          // couleur de texte fixe.
+          applyCell(
+            col.key,
+            formatCellValue(row.donnees?.[col.key]),
+            col.key === "avis" ? { text: "DC2626" } : undefined,
+            { bold: col.key === "avis" }
+          );
           continue;
         }
 
