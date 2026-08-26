@@ -109,7 +109,9 @@ async function fetchAllArticlesMp() {
 // affiche tous les tableaux a la suite, voir plus bas).
 async function buildRapportRowsWithLive(
   gammeKey: string,
-  allArticles: ArticleMpRow[]
+  articleByNormalizedName: Map<string, ArticleMpRow>,
+  articleById: Map<number, ArticleMpRow>,
+  statutByDossier: Map<string, { statut: string; datePrevueReception: string | null }>
 ): Promise<RapportRowWithLive[]> {
   const gammeConfig = GAMME_CONFIGS[gammeKey];
 
@@ -143,11 +145,6 @@ async function buildRapportRowsWithLive(
   >();
 
   if (rapportRows.length > 0) {
-    const articleByNormalizedName = new Map<string, ArticleMpRow>();
-    for (const article of allArticles) {
-      articleByNormalizedName.set(normalizeArticleNameLoose(article.nom_article), article);
-    }
-
     const matchedArticleIds: number[] = [];
     const articleIdByRapportRowId = new Map<number, number>();
     for (const row of rapportRows) {
@@ -214,27 +211,19 @@ async function buildRapportRowsWithLive(
       }
 
       const bcLigneIds = bcLignes.map((ligne) => ligne.id);
-      const [importData, statutRows] = await Promise.all([
-        bcLigneIds.length > 0
-          ? fetchAllRows<{
-              bc_ligne_id: number;
-              quantite_importee: number;
-              n_doss_4d_import: string | null;
-              n_doss_erp_import: string | null;
-              lot_stock_id: number | null;
-            }>(
-              "bons_commande_mp_imports",
-              "bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, lot_stock_id",
-              (query) => query.in("bc_ligne_id", bcLigneIds)
-            )
-          : Promise.resolve([]),
-        fetchAllRows<{
-          n_doss_4d: string | null;
-          n_doss_erp: string | null;
-          statut: string;
-          date_prevue_reception: string | null;
-        }>("dossiers_import_mp_statut", "n_doss_4d, n_doss_erp, statut, date_prevue_reception"),
-      ]);
+      const importData = bcLigneIds.length > 0
+        ? await fetchAllRows<{
+            bc_ligne_id: number;
+            quantite_importee: number;
+            n_doss_4d_import: string | null;
+            n_doss_erp_import: string | null;
+            lot_stock_id: number | null;
+          }>(
+            "bons_commande_mp_imports",
+            "bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, lot_stock_id",
+            (query) => query.in("bc_ligne_id", bcLigneIds)
+          )
+        : [];
 
       // "Qte importee" utilisee pour savoir si le BC est termine (voir
       // computeStatutBc) doit compter TOUS les evenements (receptionnes ou
@@ -256,12 +245,6 @@ async function buildRapportRowsWithLive(
       // importeeByLigneId ci-dessus, ce calcul-la doit rester filtre sur
       // lot_stock_id null : il represente ce qui reste reellement en
       // attente, pas le total jamais importe.
-      const statutByDossier = new Map(
-        statutRows.map((row) => [
-          dossierKey(row.n_doss_4d, row.n_doss_erp),
-          { statut: row.statut, datePrevueReception: row.date_prevue_reception },
-        ])
-      );
       const articleIdByBcLigneId = new Map<number, number>();
       for (const ligne of bcLignes) {
         if (ligne.article_id) articleIdByBcLigneId.set(ligne.id, ligne.article_id);
@@ -327,7 +310,7 @@ async function buildRapportRowsWithLive(
       for (const row of rapportRows) {
         const articleId = articleIdByRapportRowId.get(row.id);
         if (!articleId) continue;
-        const article = allArticles.find((candidate) => candidate.id === articleId);
+        const article = articleById.get(articleId);
         const openLignes = openBcLignesByArticleId.get(articleId) ?? [];
         const open4dLignes = open4dByArticleId.get(articleId) ?? [];
         const stock = stockByArticleId.get(articleId) ?? 0;
@@ -483,6 +466,34 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "statistiqueMp");
 
+  // Donnees partagees par TOUTES les gammes (article par nom/id, statut des
+  // dossiers import) - calculees/chargees UNE SEULE FOIS ici au lieu
+  // qu'avant chaque appel a buildRapportRowsWithLive ne refasse le meme
+  // travail (jusqu'a 25 fois pour "Tous", dont un re-telechargement complet
+  // de toute la table dossiers_import_mp_statut a chaque fois) : c'est ce
+  // qui rendait l'ouverture de la page tres lente.
+  const articleByNormalizedName = new Map<string, ArticleMpRow>();
+  const articleById = new Map<number, ArticleMpRow>();
+  for (const article of allArticles) {
+    articleByNormalizedName.set(normalizeArticleNameLoose(article.nom_article), article);
+    articleById.set(article.id, article);
+  }
+  const statutByDossier = new Map<string, { statut: string; datePrevueReception: string | null }>();
+  if (!fetchError) {
+    const statutRows = await fetchAllRows<{
+      n_doss_4d: string | null;
+      n_doss_erp: string | null;
+      statut: string;
+      date_prevue_reception: string | null;
+    }>("dossiers_import_mp_statut", "n_doss_4d, n_doss_erp, statut, date_prevue_reception");
+    for (const row of statutRows) {
+      statutByDossier.set(dossierKey(row.n_doss_4d, row.n_doss_erp), {
+        statut: row.statut,
+        datePrevueReception: row.date_prevue_reception,
+      });
+    }
+  }
+
   // "Tous" affiche TOUS les tableaux de gamme a la suite (pas juste un
   // resume) - construit chaque gamme en parallele pour rester raisonnable
   // malgre le nombre de gammes.
@@ -491,13 +502,15 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
       ? await Promise.all(
           gammeStatistiqueButtons.map(async ([value]) => ({
             gammeKey: value,
-            rows: await buildRapportRowsWithLive(value, allArticles),
+            rows: await buildRapportRowsWithLive(value, articleByNormalizedName, articleById, statutByDossier),
           }))
         )
       : [];
 
   const rowsWithLive: RapportRowWithLive[] =
-    gammeStatistique && !fetchError ? await buildRapportRowsWithLive(gammeStatistique, allArticles) : [];
+    gammeStatistique && !fetchError
+      ? await buildRapportRowsWithLive(gammeStatistique, articleByNormalizedName, articleById, statutByDossier)
+      : [];
 
   // "Mis a jour le" = toujours la date du jour ou la page est ouverte (pas
   // une date sauvegardee) - meme principe que le fichier Excel source.
