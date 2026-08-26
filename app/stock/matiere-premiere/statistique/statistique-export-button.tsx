@@ -31,6 +31,25 @@ function formatCellValue(value: string | number | null | undefined) {
   return value;
 }
 
+// Largeurs de colonnes (unites caracteres Excel) copiees du fichier source
+// reel "1 INV MP COSMETIQUE.xlsx" (inspecte cellule par cellule) - la ou une
+// colonne dynamique correspond a un vrai champ du fichier source, on reprend
+// sa largeur exacte ; sinon on retombe sur 14.66 (largeur la plus frequente
+// dans ce meme fichier pour les colonnes non mesurees), un defaut raisonnable
+// pour toutes les gammes.
+function dynamicColumnWidth(col: ColumnDescriptor): number {
+  if (col.kind === "spacer") return 19.33;
+  if (col.liveField === "qteBcEtDate") return 32.55;
+  if (col.liveField === "date4d") return 62;
+  if (col.liveField === "enCours4d") return 13.44;
+  if (col.liveField === "gamme") return 21.33;
+  if (col.liveField === "conso1Mois") return 10.89;
+  if (col.liveField === "conso12Mois") return 14.66;
+  if (col.liveField === "conso9Mois") return 11.55;
+  if (col.liveField === "conso4Mois") return 10;
+  return 14.66;
+}
+
 const THIN_BORDER: Partial<ExcelJS.Border> = { style: "thin", color: { argb: "FFCBD5E1" } };
 const ALL_BORDERS: Partial<ExcelJS.Borders> = {
   top: THIN_BORDER,
@@ -74,16 +93,9 @@ export function StatistiqueExportButton({
     ];
     const totalCols = headerLabels.length;
 
-    // Ligne 1 : titre.
-    const titleRow = sheet.addRow([`STATISTIQUE MP - ${gammeStatistique.toUpperCase()} - ${todayIso}`]);
-    sheet.mergeCells(1, 1, 1, totalCols);
-    titleRow.height = 26;
-    titleRow.getCell(1).font = { bold: true, size: 14, color: { argb: "FFFFFFFF" } };
-    titleRow.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
-    titleRow.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
-
-    // Ligne 2 : legende rotation (categorieStyles), si cette gamme en a une -
+    // Ligne 1 : legende rotation (categorieStyles), si cette gamme en a une -
     // memes couleurs que les puces affichees au-dessus du tableau a l'ecran.
+    // Ordre copie du fichier source reel : legende d'abord, titre/date ensuite.
     if (config.categorieStyles) {
       const legendEntries = Object.entries(config.categorieStyles);
       const legendRow = sheet.addRow([]);
@@ -93,13 +105,37 @@ export function StatistiqueExportButton({
         sheet.mergeCells(legendRow.number, col, legendRow.number, Math.min(col + span - 1, totalCols));
         const cell = legendRow.getCell(col);
         cell.value = label;
-        cell.font = { bold: true, color: { argb: hexColor(style.text) } };
+        cell.font = { bold: true, italic: true, color: { argb: hexColor(style.text) } };
         cell.fill = fillFor(style.bg);
         cell.alignment = { horizontal: "center", vertical: "middle" };
         col += span;
       }
       legendRow.height = 20;
     }
+
+    // Ligne 2 : titre/date - reprend le contenu reel du bandeau du fichier
+    // source (date du jour, gamme + date de mise a jour, et la note rouge
+    // "stock > 1 an" quand cette regle existe pour la gamme).
+    const titleRow = sheet.addRow([]);
+    sheet.mergeCells(titleRow.number, 1, titleRow.number, totalCols);
+    const titleCell = titleRow.getCell(1);
+    const titleRuns: ExcelJS.RichText[] = [
+      { font: { bold: true, italic: true, size: 12, color: { argb: "FFFFFFFF" } }, text: `Date : ${todayIso}     ` },
+      {
+        font: { bold: true, italic: true, size: 12, color: { argb: "FFFFFFFF" } },
+        text: `STATISTIQUE MP - ${gammeStatistique.toUpperCase()} - mis à jour le ${todayIso}`,
+      },
+    ];
+    if (config.highlightStockOverConso12Mois) {
+      titleRuns.push({
+        font: { bold: true, italic: true, size: 12, color: { argb: "FFFF6B6B" } },
+        text: "     Stock supérieur à 1 an de conso noté en rouge",
+      });
+    }
+    titleCell.value = { richText: titleRuns };
+    titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
+    titleCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    titleRow.height = 28.2;
 
     // Ligne d'en-tetes.
     const headerRow = sheet.addRow(headerLabels);
@@ -109,13 +145,24 @@ export function StatistiqueExportButton({
       cell.border = ALL_BORDERS;
       cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     });
-    headerRow.height = 30;
+    headerRow.height = 52.8;
     sheet.views = [{ state: "frozen", ySplit: headerRow.number }];
 
-    const colWidths = headerLabels.map((label) => label.length + 2);
+    // Largeurs de colonnes (unites caracteres Excel) - ORDRE/DESIGNATION
+    // reprennent exactement les valeurs mesurees dans le fichier source reel,
+    // les colonnes dynamiques via dynamicColumnWidth(), et les 2 colonnes
+    // systeme en fin de tableau des largeurs raisonnables du meme ordre de
+    // grandeur.
+    const colWidths = [
+      8.11,
+      88.89,
+      ...columns.map((col) => dynamicColumnWidth(col)),
+      14.66,
+      24.33,
+    ];
 
     function trackWidth(colIndex: number, text: string) {
-      const width = Math.min(Math.max(text.length + 2, colWidths[colIndex - 1] || 10), 60);
+      const width = Math.min(Math.max(text.length + 2, colWidths[colIndex - 1] || 10), 95);
       colWidths[colIndex - 1] = Math.max(colWidths[colIndex - 1] || 0, width);
     }
 
@@ -130,6 +177,7 @@ export function StatistiqueExportButton({
       const isSheetBoundary = rowIndex > 0 && row.categorie !== rows[rowIndex - 1].categorie;
 
       const excelRow = sheet.addRow([]);
+      excelRow.height = 20.4;
       let colIndex = 1;
 
       function resolveCellColor(target: string, base: { bg?: string; text?: string } | undefined) {
