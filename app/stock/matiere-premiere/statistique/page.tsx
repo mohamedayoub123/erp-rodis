@@ -36,24 +36,41 @@ function normalizeArticleNameLoose(value: string | null | undefined): string {
 // a 3x trop grand/negatif) des qu'une gamme depassait 1000 lignes de stock
 // cumulees sur tous ses articles (ex: BASE RED GRAPE 338454 sur WHITE
 // SECRET, confirme par comparaison avec une requete directe sans .in()).
+// Recupere la 1ere page + le compte total (count: "exact", filtre inclus),
+// puis toutes les pages restantes EN PARALLELE (Promise.all) au lieu d'une
+// boucle sequentielle qui attend chaque page avant de demander la
+// suivante - une gamme avec beaucoup de mouvements de stock (ex: MP COSM)
+// peut avoir 8-10 pages, ce qui prenait 8-10 allers-retours l'un apres
+// l'autre (source principale de lenteur a l'ouverture de la page).
 async function fetchAllRows<T>(
   table: string,
   columns: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   applyFilters: (query: any) => any = (query) => query
 ): Promise<T[]> {
-  const rows: T[] = [];
-  let from = 0;
   const pageSize = 1000;
 
-  while (true) {
-    const { data, error } = await applyFilters(supabaseServer.from(table).select(columns))
-      .order("id", { ascending: true })
-      .range(from, from + pageSize - 1);
-    if (error || !data) break;
+  const first = await applyFilters(supabaseServer.from(table).select(columns, { count: "exact" }))
+    .order("id", { ascending: true })
+    .range(0, pageSize - 1);
+  if (first.error || !first.data) return [];
+
+  const rows: T[] = [...(first.data as T[])];
+  const total = first.count ?? rows.length;
+  if (rows.length < pageSize || total <= pageSize) return rows;
+
+  const remainingPages = Math.ceil((total - pageSize) / pageSize);
+  const pageResults = await Promise.all(
+    Array.from({ length: remainingPages }, (_, i) => {
+      const from = pageSize * (i + 1);
+      return applyFilters(supabaseServer.from(table).select(columns))
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1);
+    })
+  );
+  for (const { data, error } of pageResults) {
+    if (error || !data) continue;
     rows.push(...(data as T[]));
-    if (data.length < pageSize) break;
-    from += pageSize;
   }
 
   return rows;
@@ -78,287 +95,257 @@ type RapportRow = {
   donnees: Record<string, string | number | null>;
 };
 
+const ARTICLES_MP_COLUMNS = "id, nom_article, categorie, unite, gamme, gamme_statistique, min_stock, max_stock";
+
 async function fetchAllArticlesMp() {
-  const rows: ArticleMpRow[] = [];
-  let from = 0;
   const pageSize = 1000;
 
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite, gamme, gamme_statistique, min_stock, max_stock")
-      .order("nom_article", { ascending: true })
-      .range(from, from + pageSize - 1);
+  const first = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select(ARTICLES_MP_COLUMNS, { count: "exact" })
+    .order("nom_article", { ascending: true })
+    .range(0, pageSize - 1);
 
-    if (error) {
-      return { rows, error };
+  if (first.error) {
+    return { rows: [] as ArticleMpRow[], error: first.error };
+  }
+
+  const rows: ArticleMpRow[] = [...((first.data ?? []) as ArticleMpRow[])];
+  const total = first.count ?? rows.length;
+
+  // Pages restantes EN PARALLELE (meme technique que fetchAllRows) au lieu
+  // d'une boucle sequentielle - cette liste d'articles est chargee a
+  // CHAQUE ouverture de la page, pas seulement pour "Tous".
+  if (rows.length >= pageSize && total > pageSize) {
+    const remainingPages = Math.ceil((total - pageSize) / pageSize);
+    const pageResults = await Promise.all(
+      Array.from({ length: remainingPages }, (_, i) => {
+        const from = pageSize * (i + 1);
+        return supabaseServer
+          .from("articles_matiere_premiere")
+          .select(ARTICLES_MP_COLUMNS)
+          .order("nom_article", { ascending: true })
+          .range(from, from + pageSize - 1);
+      })
+    );
+    for (const { data, error } of pageResults) {
+      if (error) return { rows, error };
+      rows.push(...((data ?? []) as ArticleMpRow[]));
     }
-
-    const chunk = (data ?? []) as ArticleMpRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
   }
 
   return { rows, error: null };
 }
 
-// Construit les lignes + donnees live d'UNE gamme - reutilise a la fois
-// pour l'affichage d'une seule gamme selectionnee et pour "Tous" (qui
-// affiche tous les tableaux a la suite, voir plus bas).
-async function buildRapportRowsWithLive(
+type LotRow = { article_id: number | null; qte_entree: number; qte_sortie: number; date_jour: string | null };
+type BcLigneRow = {
+  id: number;
+  article_id: number | null;
+  code: string;
+  quantite: number | null;
+  date_jour: string | null;
+  statut: string | null;
+  n_doss_4d: string | null;
+  n_doss_erp: string | null;
+};
+type ImportRow = {
+  bc_ligne_id: number;
+  quantite_importee: number;
+  n_doss_4d_import: string | null;
+  n_doss_erp_import: string | null;
+  lot_stock_id: number | null;
+};
+
+type LiveAggregates = {
+  stockByArticleId: Map<number, number>;
+  conso12MoisByArticleId: Map<number, number>;
+  openBcLignesByArticleId: Map<
+    number,
+    { quantite: number; nDoss4d: string | null; nDossErp: string | null; date_jour: string | null }[]
+  >;
+  open4dByArticleId: Map<
+    number,
+    { quantite: number; nDoss4d: string | null; datePrevueReception: string | null }[]
+  >;
+};
+
+// Calcule stock/BC en cours/4D en cours a partir des lignes brutes deja
+// chargees - AUCUN appel reseau ici, pur calcul en memoire. Extrait pour
+// pouvoir etre execute UNE SEULE FOIS sur l'union de toutes les gammes
+// (vue "Tous") au lieu d'une fois par gamme (jusqu'a 25x avant).
+function computeLiveAggregates(
+  lotsRows: LotRow[],
+  bcLignes: BcLigneRow[],
+  importData: ImportRow[],
+  statutByDossier: Map<string, { statut: string; datePrevueReception: string | null }>
+): LiveAggregates {
+  const stockByArticleId = new Map<number, number>();
+  // Conso reelle 12mois = somme des vraies sorties de stock (qte_sortie) des
+  // 12 derniers mois glissants - plus le snapshot Excel fige, calcule en
+  // direct depuis les mouvements reels.
+  const conso12MoisByArticleId = new Map<number, number>();
+  const douzeMoisAvant = new Date();
+  douzeMoisAvant.setDate(douzeMoisAvant.getDate() - 365);
+  const douzeMoisAvantIso = douzeMoisAvant.toISOString().slice(0, 10);
+  for (const lot of lotsRows) {
+    if (!lot.article_id) continue;
+    const mouvement = Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0);
+    stockByArticleId.set(lot.article_id, (stockByArticleId.get(lot.article_id) ?? 0) + mouvement);
+
+    if (lot.date_jour && lot.date_jour >= douzeMoisAvantIso) {
+      conso12MoisByArticleId.set(
+        lot.article_id,
+        (conso12MoisByArticleId.get(lot.article_id) ?? 0) + Number(lot.qte_sortie ?? 0)
+      );
+    }
+  }
+
+  // "Qte importee" utilisee pour savoir si le BC est termine (voir
+  // computeStatutBc) doit compter TOUS les evenements (receptionnes ou pas),
+  // sinon un BC entierement receptionne retombe a "Qte importee=0"/statut
+  // "Stand" (plus aucun evenement "encore ouvert" a sommer) - meme correctif
+  // que sur bc/page.tsx et bc/[code]/page.tsx.
+  const importeeByLigneId = new Map<number, number>();
+  for (const evenement of importData) {
+    importeeByLigneId.set(
+      evenement.bc_ligne_id,
+      (importeeByLigneId.get(evenement.bc_ligne_id) ?? 0) + Number(evenement.quantite_importee ?? 0)
+    );
+  }
+
+  // "En cours d'achat 4D" : les evenements d'import PAS ENCORE receptionnes
+  // (lot_stock_id null) ET pas encore au statut final "Receptionne Rodis" -
+  // suivi independant du statut de la ligne BC elle-meme (meme logique que
+  // la page Import MP). Contrairement a importeeByLigneId ci-dessus, ce
+  // calcul-la doit rester filtre sur lot_stock_id null : il represente ce
+  // qui reste reellement en attente, pas le total jamais importe.
+  const articleIdByBcLigneId = new Map<number, number>();
+  for (const ligne of bcLignes) {
+    if (ligne.article_id) articleIdByBcLigneId.set(ligne.id, ligne.article_id);
+  }
+  const open4dByArticleAndDossier = new Map<
+    string,
+    { articleId: number; quantite: number; nDoss4d: string | null; datePrevueReception: string | null }
+  >();
+  for (const evenement of importData) {
+    if (evenement.lot_stock_id !== null) continue;
+    const articleId = articleIdByBcLigneId.get(evenement.bc_ligne_id);
+    if (!articleId) continue;
+    const key = dossierKey(evenement.n_doss_4d_import, evenement.n_doss_erp_import);
+    const dossierInfo = statutByDossier.get(key);
+    if (dossierInfo?.statut === STATUT_DOSSIER_MP_TERMINE) continue;
+    const mapKey = `${articleId}::${key}`;
+    const existing = open4dByArticleAndDossier.get(mapKey);
+    if (existing) {
+      existing.quantite += Number(evenement.quantite_importee ?? 0);
+    } else {
+      open4dByArticleAndDossier.set(mapKey, {
+        articleId,
+        quantite: Number(evenement.quantite_importee ?? 0),
+        nDoss4d: evenement.n_doss_4d_import,
+        datePrevueReception: dossierInfo?.datePrevueReception ?? null,
+      });
+    }
+  }
+  const open4dByArticleId = new Map<
+    number,
+    { quantite: number; nDoss4d: string | null; datePrevueReception: string | null }[]
+  >();
+  for (const entry of open4dByArticleAndDossier.values()) {
+    const list = open4dByArticleId.get(entry.articleId) ?? [];
+    list.push(entry);
+    open4dByArticleId.set(entry.articleId, list);
+  }
+
+  const openBcLignesByArticleId = new Map<
+    number,
+    { quantite: number; nDoss4d: string | null; nDossErp: string | null; date_jour: string | null }[]
+  >();
+  for (const ligne of bcLignes) {
+    if (!ligne.article_id) continue;
+    const quantite = Number(ligne.quantite ?? 0);
+    const quantiteImportee = importeeByLigneId.get(ligne.id) ?? 0;
+    const statut = computeStatutBc(quantite, quantiteImportee, ligne.statut);
+    if (statut === "Termine") continue;
+    const list = openBcLignesByArticleId.get(ligne.article_id) ?? [];
+    list.push({
+      // Reste a recevoir, pas la quantite commandee brute : une ligne
+      // partiellement receptionnee (encore "En cours", pas exclue
+      // ci-dessus) affichait la quantite totale commandee au lieu de ce
+      // qu'il reste reellement a recevoir (bug reel signale).
+      quantite: Math.max(0, quantite - quantiteImportee),
+      nDoss4d: ligne.n_doss_4d,
+      nDossErp: ligne.n_doss_erp,
+      date_jour: ligne.date_jour,
+    });
+    openBcLignesByArticleId.set(ligne.article_id, list);
+  }
+
+  return { stockByArticleId, conso12MoisByArticleId, openBcLignesByArticleId, open4dByArticleId };
+}
+
+// Associe chaque ligne de rapport (une gamme) a ses donnees live, a partir
+// des agregats deja calcules - pur calcul en memoire, aucun appel reseau.
+function mapRapportRowsToLive(
+  rapportRows: RapportRow[],
   gammeKey: string,
   articleByNormalizedName: Map<string, ArticleMpRow>,
   articleById: Map<number, ArticleMpRow>,
-  statutByDossier: Map<string, { statut: string; datePrevueReception: string | null }>
-): Promise<RapportRowWithLive[]> {
+  aggregates: LiveAggregates
+): RapportRowWithLive[] {
   const gammeConfig = GAMME_CONFIGS[gammeKey];
+  const { stockByArticleId, conso12MoisByArticleId, openBcLignesByArticleId, open4dByArticleId } = aggregates;
 
-  const { data } = await supabaseServer
-    .from("rapport_gamme_statistique_mp")
-    .select("id, ordre, designation, categorie, donnees")
-    .eq("gamme_statistique", gammeKey)
-    .order("ordre", { ascending: true });
-  const rapportRows = (data ?? []) as RapportRow[];
-
-  // Gamme/stock/BC en cours : recalcules a chaque affichage a partir des
-  // vraies tables articles_matiere_premiere/lots_stock_matiere_premiere/
-  // bons_commande_matiere_premiere - jamais depuis le fichier Excel fige
-  // (donnees[...]), qui devient faux des le lendemain de l'import.
-  const liveDataByRapportRowId = new Map<
-    number,
-    {
-      gamme: string | null;
-      stock: number;
-      enCoursBc: number;
-      qteBcEtDate: { quantite: number; detail: string }[];
-      enCours4d: number;
-      date4d: { quantite: number; detail: string }[];
-      aCommander: number;
-      conso12Mois: number;
-      conso1Mois: number;
-      conso4Mois: number;
-      conso9Mois: number;
-      conso6MoisSysteme: number;
-    }
-  >();
-
-  if (rapportRows.length > 0) {
-    const matchedArticleIds: number[] = [];
-    const articleIdByRapportRowId = new Map<number, number>();
-    for (const row of rapportRows) {
-      const article = articleByNormalizedName.get(normalizeArticleNameLoose(row.designation));
-      if (!article) continue;
-      matchedArticleIds.push(article.id);
-      articleIdByRapportRowId.set(row.id, article.id);
-    }
-
-    if (matchedArticleIds.length > 0) {
-      // Un seul article peut avoir des centaines de lignes lots_stock -
-      // pagine chaque requete (offset/limit) au lieu d'un simple .in(...)
-      // sans limite : Supabase plafonne une reponse a 1000 lignes par
-      // defaut, un .in(...) sur 193 articles peut a lui seul depasser ca
-      // et tronquer silencieusement le stock calcule (meme bug que celui
-      // corrige sur le sync des articles MP).
-      const [lotsRows, bcLignes] = await Promise.all([
-        fetchAllRows<{
-          article_id: number | null;
-          qte_entree: number;
-          qte_sortie: number;
-          date_jour: string | null;
-        }>(
-          "lots_stock_matiere_premiere",
-          "article_id, qte_entree, qte_sortie, date_jour",
-          (query) => query.in("article_id", matchedArticleIds)
-        ),
-        fetchAllRows<{
-          id: number;
-          article_id: number | null;
-          code: string;
-          quantite: number | null;
-          date_jour: string | null;
-          statut: string | null;
-          n_doss_4d: string | null;
-          n_doss_erp: string | null;
-        }>(
-          "bons_commande_matiere_premiere",
-          "id, article_id, code, quantite, date_jour, statut, n_doss_4d, n_doss_erp",
-          (query) => query.in("article_id", matchedArticleIds)
-        ),
-      ]);
-
-      const stockByArticleId = new Map<number, number>();
-      // Conso reelle 12mois = somme des vraies sorties de stock (qte_sortie)
-      // des 12 derniers mois glissants - plus le snapshot Excel fige, calcule
-      // en direct depuis les mouvements reels. conso 1/4/9 mois = fraction
-      // proportionnelle de ce total (regle demandee : 12mois/12 = 1 mois).
-      const conso12MoisByArticleId = new Map<number, number>();
-      const douzeMoisAvant = new Date();
-      douzeMoisAvant.setDate(douzeMoisAvant.getDate() - 365);
-      const douzeMoisAvantIso = douzeMoisAvant.toISOString().slice(0, 10);
-      for (const lot of lotsRows) {
-        if (!lot.article_id) continue;
-        const mouvement = Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0);
-        stockByArticleId.set(lot.article_id, (stockByArticleId.get(lot.article_id) ?? 0) + mouvement);
-
-        if (lot.date_jour && lot.date_jour >= douzeMoisAvantIso) {
-          conso12MoisByArticleId.set(
-            lot.article_id,
-            (conso12MoisByArticleId.get(lot.article_id) ?? 0) + Number(lot.qte_sortie ?? 0)
-          );
-        }
-      }
-
-      const bcLigneIds = bcLignes.map((ligne) => ligne.id);
-      const importData = bcLigneIds.length > 0
-        ? await fetchAllRows<{
-            bc_ligne_id: number;
-            quantite_importee: number;
-            n_doss_4d_import: string | null;
-            n_doss_erp_import: string | null;
-            lot_stock_id: number | null;
-          }>(
-            "bons_commande_mp_imports",
-            "bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, lot_stock_id",
-            (query) => query.in("bc_ligne_id", bcLigneIds)
-          )
-        : [];
-
-      // "Qte importee" utilisee pour savoir si le BC est termine (voir
-      // computeStatutBc) doit compter TOUS les evenements (receptionnes ou
-      // pas), sinon un BC entierement receptionne retombe a "Qte
-      // importee=0"/statut "Stand" (plus aucun evenement "encore ouvert" a
-      // sommer) - meme correctif que sur bc/page.tsx et bc/[code]/page.tsx.
-      const importeeByLigneId = new Map<number, number>();
-      for (const evenement of importData) {
-        importeeByLigneId.set(
-          evenement.bc_ligne_id,
-          (importeeByLigneId.get(evenement.bc_ligne_id) ?? 0) + Number(evenement.quantite_importee ?? 0)
-        );
-      }
-
-      // "En cours d'achat 4D" : les evenements d'import PAS ENCORE
-      // receptionnes (lot_stock_id null) ET pas encore au statut final
-      // "Receptionne Rodis" - suivi independant du statut de la ligne BC
-      // elle-meme (meme logique que la page Import MP). Contrairement a
-      // importeeByLigneId ci-dessus, ce calcul-la doit rester filtre sur
-      // lot_stock_id null : il represente ce qui reste reellement en
-      // attente, pas le total jamais importe.
-      const articleIdByBcLigneId = new Map<number, number>();
-      for (const ligne of bcLignes) {
-        if (ligne.article_id) articleIdByBcLigneId.set(ligne.id, ligne.article_id);
-      }
-      const open4dByArticleAndDossier = new Map<
-        string,
-        { articleId: number; quantite: number; nDoss4d: string | null; datePrevueReception: string | null }
-      >();
-      for (const evenement of importData) {
-        if (evenement.lot_stock_id !== null) continue;
-        const articleId = articleIdByBcLigneId.get(evenement.bc_ligne_id);
-        if (!articleId) continue;
-        const key = dossierKey(evenement.n_doss_4d_import, evenement.n_doss_erp_import);
-        const dossierInfo = statutByDossier.get(key);
-        if (dossierInfo?.statut === STATUT_DOSSIER_MP_TERMINE) continue;
-        const mapKey = `${articleId}::${key}`;
-        const existing = open4dByArticleAndDossier.get(mapKey);
-        if (existing) {
-          existing.quantite += Number(evenement.quantite_importee ?? 0);
-        } else {
-          open4dByArticleAndDossier.set(mapKey, {
-            articleId,
-            quantite: Number(evenement.quantite_importee ?? 0),
-            nDoss4d: evenement.n_doss_4d_import,
-            datePrevueReception: dossierInfo?.datePrevueReception ?? null,
-          });
-        }
-      }
-      const open4dByArticleId = new Map<
-        number,
-        { quantite: number; nDoss4d: string | null; datePrevueReception: string | null }[]
-      >();
-      for (const entry of open4dByArticleAndDossier.values()) {
-        const list = open4dByArticleId.get(entry.articleId) ?? [];
-        list.push(entry);
-        open4dByArticleId.set(entry.articleId, list);
-      }
-
-      const openBcLignesByArticleId = new Map<
-        number,
-        { quantite: number; nDoss4d: string | null; nDossErp: string | null; date_jour: string | null }[]
-      >();
-      for (const ligne of bcLignes) {
-        if (!ligne.article_id) continue;
-        const quantite = Number(ligne.quantite ?? 0);
-        const quantiteImportee = importeeByLigneId.get(ligne.id) ?? 0;
-        const statut = computeStatutBc(quantite, quantiteImportee, ligne.statut);
-        if (statut === "Termine") continue;
-        const list = openBcLignesByArticleId.get(ligne.article_id) ?? [];
-        list.push({
-          // Reste a recevoir, pas la quantite commandee brute : une ligne
-          // partiellement receptionnee (encore "En cours", pas exclue
-          // ci-dessus) affichait la quantite totale commandee au lieu de ce
-          // qu'il reste reellement a recevoir (bug reel signale).
-          quantite: Math.max(0, quantite - quantiteImportee),
-          nDoss4d: ligne.n_doss_4d,
-          nDossErp: ligne.n_doss_erp,
-          date_jour: ligne.date_jour,
-        });
-        openBcLignesByArticleId.set(ligne.article_id, list);
-      }
-
-      for (const row of rapportRows) {
-        const articleId = articleIdByRapportRowId.get(row.id);
-        if (!articleId) continue;
-        const article = articleById.get(articleId);
-        const openLignes = openBcLignesByArticleId.get(articleId) ?? [];
-        const open4dLignes = open4dByArticleId.get(articleId) ?? [];
-        const stock = stockByArticleId.get(articleId) ?? 0;
-        const enCoursBc = openLignes.reduce((sum, ligne) => sum + ligne.quantite, 0);
-        const enCours4d = open4dLignes.reduce((sum, ligne) => sum + ligne.quantite, 0);
-        // Meme formule que le fichier Excel source, verifiee identique sur
-        // les 193 lignes de MP COSM : (stock + en cours d'achat BC + en
-        // cour d'achat 4D) - statistique 4D 6 mois (celle-ci reste saisie a
-        // la main, donnees[...], pas une valeur live de cette page). La cle
-        // exacte de cette "statistique" varie par gamme (espace ou non).
-        const statistique4d6Mois = Number(row.donnees?.[gammeConfig?.statistiqueKey ?? ""] ?? 0);
-        const conso12Mois = conso12MoisByArticleId.get(articleId) ?? 0;
-        // conso 1/4/9 mois : deux formules possibles selon la gamme (voir
-        // gamme-config.ts) - MP COSM se base sur les vraies sorties de
-        // stock des 12 derniers mois glissants, ELIXIR sur sa propre
-        // formule Excel (statistique 4D 6mois / 6), trouvee telle quelle
-        // dans son fichier source.
-        const conso1Mois =
-          gammeConfig?.consoFormula === "excel6mois" ? statistique4d6Mois / 6 : conso12Mois / 12;
-        liveDataByRapportRowId.set(row.id, {
-          gamme: article?.gamme ?? null,
-          stock,
-          enCoursBc,
-          qteBcEtDate: openLignes.map((ligne) => {
-            const dossier = [ligne.nDoss4d, ligne.nDossErp].filter(Boolean).join(" / ");
-            return { quantite: ligne.quantite, detail: `${dossier ? dossier + " " : ""}du ${formatDate(ligne.date_jour)}` };
-          }),
-          enCours4d,
-          date4d: open4dLignes.map((ligne) => ({
-            quantite: ligne.quantite,
-            detail: `${ligne.nDoss4d || ""} ${
-              ligne.datePrevueReception ? formatDate(ligne.datePrevueReception) : "date prevue non saisie"
-            }`,
-            datePrevueReception: ligne.datePrevueReception,
-          })),
-          aCommander: stock + enCoursBc + enCours4d - statistique4d6Mois,
-          conso12Mois,
-          conso1Mois,
-          conso4Mois: conso1Mois * 4,
-          conso9Mois: conso1Mois * 9,
-          // Colonne informative demandee separement de "Statistique 4D 6
-          // mois" (qui reste manuelle et seule utilisee dans "A commander")
-          // - simple moitie de conso12Mois (deja calcule sur les vraies
-          // sorties de stock), pour que l'utilisateur analyse lui-meme.
-          conso6MoisSysteme: conso12Mois / 2,
-        });
-      }
-    }
+  const liveDataByRapportRowId = new Map<number, RapportRowWithLive["live"]>();
+  for (const row of rapportRows) {
+    const article = articleByNormalizedName.get(normalizeArticleNameLoose(row.designation));
+    if (!article) continue;
+    const articleId = article.id;
+    const openLignes = openBcLignesByArticleId.get(articleId) ?? [];
+    const open4dLignes = open4dByArticleId.get(articleId) ?? [];
+    const stock = stockByArticleId.get(articleId) ?? 0;
+    const enCoursBc = openLignes.reduce((sum, ligne) => sum + ligne.quantite, 0);
+    const enCours4d = open4dLignes.reduce((sum, ligne) => sum + ligne.quantite, 0);
+    // Meme formule que le fichier Excel source, verifiee identique sur les
+    // 193 lignes de MP COSM : (stock + en cours d'achat BC + en cour
+    // d'achat 4D) - statistique 4D 6 mois (celle-ci reste saisie a la main,
+    // donnees[...], pas une valeur live de cette page). La cle exacte de
+    // cette "statistique" varie par gamme (espace ou non).
+    const statistique4d6Mois = Number(row.donnees?.[gammeConfig?.statistiqueKey ?? ""] ?? 0);
+    const conso12Mois = conso12MoisByArticleId.get(articleId) ?? 0;
+    // conso 1/4/9 mois : deux formules possibles selon la gamme (voir
+    // gamme-config.ts) - MP COSM se base sur les vraies sorties de stock des
+    // 12 derniers mois glissants, ELIXIR sur sa propre formule Excel
+    // (statistique 4D 6mois / 6), trouvee telle quelle dans son fichier
+    // source.
+    const conso1Mois = gammeConfig?.consoFormula === "excel6mois" ? statistique4d6Mois / 6 : conso12Mois / 12;
+    liveDataByRapportRowId.set(row.id, {
+      gamme: article.gamme ?? null,
+      stock,
+      enCoursBc,
+      qteBcEtDate: openLignes.map((ligne) => {
+        const dossier = [ligne.nDoss4d, ligne.nDossErp].filter(Boolean).join(" / ");
+        return { quantite: ligne.quantite, detail: `${dossier ? dossier + " " : ""}du ${formatDate(ligne.date_jour)}` };
+      }),
+      enCours4d,
+      date4d: open4dLignes.map((ligne) => ({
+        quantite: ligne.quantite,
+        detail: `${ligne.nDoss4d || ""} ${
+          ligne.datePrevueReception ? formatDate(ligne.datePrevueReception) : "date prevue non saisie"
+        }`,
+        datePrevueReception: ligne.datePrevueReception,
+      })),
+      aCommander: stock + enCoursBc + enCours4d - statistique4d6Mois,
+      conso12Mois,
+      conso1Mois,
+      conso4Mois: conso1Mois * 4,
+      conso9Mois: conso1Mois * 9,
+      // Colonne informative demandee separement de "Statistique 4D 6 mois"
+      // (qui reste manuelle et seule utilisee dans "A commander") - simple
+      // moitie de conso12Mois (deja calcule sur les vraies sorties de
+      // stock), pour que l'utilisateur analyse lui-meme.
+      conso6MoisSysteme: conso12Mois / 2,
+    });
   }
 
   return rapportRows.map((row) => ({
@@ -371,6 +358,134 @@ async function buildRapportRowsWithLive(
   }));
 }
 
+// Article ids matches par au moins une ligne de rapport donnee (nom
+// normalise) - sert a restreindre les requetes lots/BC/import a ce qui est
+// reellement utile, que ce soit pour une seule gamme ou l'union de toutes.
+function matchedArticleIdsForRows(
+  rapportRows: RapportRow[],
+  articleByNormalizedName: Map<string, ArticleMpRow>
+): number[] {
+  const ids = new Set<number>();
+  for (const row of rapportRows) {
+    const article = articleByNormalizedName.get(normalizeArticleNameLoose(row.designation));
+    if (article) ids.add(article.id);
+  }
+  return [...ids];
+}
+
+// Charge lots/BC/import pour un ensemble d'article ids donne - un seul jeu
+// de requetes, reutilisable aussi bien pour une gamme que pour l'union de
+// toutes les gammes (vue "Tous").
+async function fetchLiveAggregatesForArticles(
+  articleIds: number[],
+  statutByDossier: Map<string, { statut: string; datePrevueReception: string | null }>
+): Promise<LiveAggregates> {
+  if (articleIds.length === 0) {
+    return {
+      stockByArticleId: new Map(),
+      conso12MoisByArticleId: new Map(),
+      openBcLignesByArticleId: new Map(),
+      open4dByArticleId: new Map(),
+    };
+  }
+
+  // Un seul article peut avoir des centaines de lignes lots_stock - pagine
+  // chaque requete (offset/limit) au lieu d'un simple .in(...) sans limite :
+  // Supabase plafonne une reponse a 1000 lignes par defaut, un .in(...) sur
+  // beaucoup d'articles peut a lui seul depasser ca et tronquer
+  // silencieusement le stock calcule (meme bug que celui corrige sur le
+  // sync des articles MP).
+  const [lotsRows, bcLignes] = await Promise.all([
+    fetchAllRows<LotRow>(
+      "lots_stock_matiere_premiere",
+      "article_id, qte_entree, qte_sortie, date_jour",
+      (query) => query.in("article_id", articleIds)
+    ),
+    fetchAllRows<BcLigneRow>(
+      "bons_commande_matiere_premiere",
+      "id, article_id, code, quantite, date_jour, statut, n_doss_4d, n_doss_erp",
+      (query) => query.in("article_id", articleIds)
+    ),
+  ]);
+
+  const bcLigneIds = bcLignes.map((ligne) => ligne.id);
+  const importData = bcLigneIds.length > 0
+    ? await fetchAllRows<ImportRow>(
+        "bons_commande_mp_imports",
+        "bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, lot_stock_id",
+        (query) => query.in("bc_ligne_id", bcLigneIds)
+      )
+    : [];
+
+  return computeLiveAggregates(lotsRows, bcLignes, importData, statutByDossier);
+}
+
+// Construit les lignes + donnees live d'UNE gamme (utilise pour l'affichage
+// d'une seule gamme selectionnee, pas pour "Tous" qui partage les requetes
+// entre gammes - voir buildAllGammeSections plus bas).
+async function buildRapportRowsWithLive(
+  gammeKey: string,
+  articleByNormalizedName: Map<string, ArticleMpRow>,
+  articleById: Map<number, ArticleMpRow>,
+  statutByDossier: Map<string, { statut: string; datePrevueReception: string | null }>
+): Promise<RapportRowWithLive[]> {
+  const { data } = await supabaseServer
+    .from("rapport_gamme_statistique_mp")
+    .select("id, ordre, designation, categorie, donnees")
+    .eq("gamme_statistique", gammeKey)
+    .order("ordre", { ascending: true });
+  const rapportRows = (data ?? []) as RapportRow[];
+
+  const matchedArticleIds = matchedArticleIdsForRows(rapportRows, articleByNormalizedName);
+  const aggregates = await fetchLiveAggregatesForArticles(matchedArticleIds, statutByDossier);
+  return mapRapportRowsToLive(rapportRows, gammeKey, articleByNormalizedName, articleById, aggregates);
+}
+
+// Construit TOUS les tableaux de gamme d'un coup ("Tous") - une seule
+// requete rapport_gamme_statistique_mp (filtree sur toutes les gammes a la
+// fois) et une seule requete lots/BC/import (sur l'union des articles de
+// toutes les gammes), au lieu de refaire ce jeu de requetes une fois par
+// gamme (jusqu'a 25x avant, c'est ce qui rendait l'ouverture tres lente).
+async function buildAllGammeSections(
+  gammeKeys: string[],
+  articleByNormalizedName: Map<string, ArticleMpRow>,
+  articleById: Map<number, ArticleMpRow>,
+  statutByDossier: Map<string, { statut: string; datePrevueReception: string | null }>
+): Promise<{ gammeKey: string; rows: RapportRowWithLive[] }[]> {
+  if (gammeKeys.length === 0) return [];
+
+  const rapportRowsAll = await fetchAllRows<RapportRow>(
+    "rapport_gamme_statistique_mp",
+    "id, ordre, designation, categorie, donnees, gamme_statistique",
+    (query) => query.in("gamme_statistique", gammeKeys)
+  );
+  const rapportRowsByGamme = new Map<string, RapportRow[]>();
+  for (const row of rapportRowsAll as (RapportRow & { gamme_statistique: string })[]) {
+    const list = rapportRowsByGamme.get(row.gamme_statistique) ?? [];
+    list.push(row);
+    rapportRowsByGamme.set(row.gamme_statistique, list);
+  }
+  // Meme tri que la requete par gamme (order("ordre")) - .in(...) ne trie
+  // pas par groupe, chaque liste doit etre re-triee elle-meme.
+  for (const list of rapportRowsByGamme.values()) {
+    list.sort((a, b) => a.ordre - b.ordre);
+  }
+
+  const matchedArticleIds = matchedArticleIdsForRows(rapportRowsAll, articleByNormalizedName);
+  const aggregates = await fetchLiveAggregatesForArticles(matchedArticleIds, statutByDossier);
+
+  return gammeKeys.map((gammeKey) => ({
+    gammeKey,
+    rows: mapRapportRowsToLive(
+      rapportRowsByGamme.get(gammeKey) ?? [],
+      gammeKey,
+      articleByNormalizedName,
+      articleById,
+      aggregates
+    ),
+  }));
+}
+
 type SearchParams = Promise<{
   gammeStatistique?: string;
 }>;
@@ -380,7 +495,30 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
   const params = await searchParams;
   const gammeStatistique = (params.gammeStatistique || "").trim();
 
-  const { rows: allArticles, error: fetchError } = await fetchAllArticlesMp();
+  // Tout ce bloc est independant (aucune requete n'a besoin du resultat
+  // d'une autre) - lance en parallele au lieu de l'une apres l'autre
+  // (chaque aller-retour Supabase coute son propre temps de reseau, les
+  // enchainer sequentiellement les additionnait tous). rapportGammeValues
+  // couvre TOUTES les gammes de GAMME_CONFIGS (pas seulement celles sans
+  // article tague) pour ne plus dependre du resultat de allArticles avant
+  // de pouvoir se lancer - voir la fusion plus bas.
+  const [{ rows: allArticles, error: fetchError }, currentUser, statutRowsRaw, rapportGammeValues] =
+    await Promise.all([
+      fetchAllArticlesMp(),
+      getCurrentStockUser(),
+      fetchAllRows<{
+        n_doss_4d: string | null;
+        n_doss_erp: string | null;
+        statut: string;
+        date_prevue_reception: string | null;
+      }>("dossiers_import_mp_statut", "n_doss_4d, n_doss_erp, statut, date_prevue_reception"),
+      fetchAllRows<{ gamme_statistique: string }>(
+        "rapport_gamme_statistique_mp",
+        "gamme_statistique",
+        (query) => query.in("gamme_statistique", Object.keys(GAMME_CONFIGS))
+      ),
+    ]);
+  const canEdit = await canWritePageUser(currentUser, "statistiqueMp");
 
   // Un bouton uniquement pour les gammes qui ont deja un vrai rapport
   // fourni par l'utilisateur (GAMME_CONFIGS) - pas un bouton par valeur
@@ -400,21 +538,12 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
   // rapport existe bel et bien. On affiche alors le nombre de lignes du
   // rapport a la place du nombre d'articles tagues (les deux se valent
   // rarement exactement, mais garantit que le rapport reste accessible).
-  const gammesSansArticleTague = Object.keys(GAMME_CONFIGS).filter(
-    (key) => !gammeStatistiqueCounts.has(key)
-  );
-  if (gammesSansArticleTague.length > 0) {
-    const rapportGammeValues = await fetchAllRows<{ gamme_statistique: string }>(
-      "rapport_gamme_statistique_mp",
-      "gamme_statistique",
-      (query) => query.in("gamme_statistique", gammesSansArticleTague)
+  for (const row of rapportGammeValues) {
+    if (gammeStatistiqueCounts.has(row.gamme_statistique)) continue;
+    gammeStatistiqueCounts.set(
+      row.gamme_statistique,
+      (gammeStatistiqueCounts.get(row.gamme_statistique) || 0) + 1
     );
-    for (const row of rapportGammeValues) {
-      gammeStatistiqueCounts.set(
-        row.gamme_statistique,
-        (gammeStatistiqueCounts.get(row.gamme_statistique) || 0) + 1
-      );
-    }
   }
   // Ordre des boutons = numero du fichier Excel source d'origine (1 MP
   // COSM, 2 MP PLASTIQUE, 3 COLORANT PLASTIQUE...25 EGYPTIAN BEAUTY), pas
@@ -463,9 +592,6 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
     ? allArticles.filter((article) => (article.gamme_statistique || "").trim() === gammeStatistique)
     : [];
 
-  const currentUser = await getCurrentStockUser();
-  const canEdit = await canWritePageUser(currentUser, "statistiqueMp");
-
   // Donnees partagees par TOUTES les gammes (article par nom/id, statut des
   // dossiers import) - calculees/chargees UNE SEULE FOIS ici au lieu
   // qu'avant chaque appel a buildRapportRowsWithLive ne refasse le meme
@@ -479,19 +605,11 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
     articleById.set(article.id, article);
   }
   const statutByDossier = new Map<string, { statut: string; datePrevueReception: string | null }>();
-  if (!fetchError) {
-    const statutRows = await fetchAllRows<{
-      n_doss_4d: string | null;
-      n_doss_erp: string | null;
-      statut: string;
-      date_prevue_reception: string | null;
-    }>("dossiers_import_mp_statut", "n_doss_4d, n_doss_erp, statut, date_prevue_reception");
-    for (const row of statutRows) {
-      statutByDossier.set(dossierKey(row.n_doss_4d, row.n_doss_erp), {
-        statut: row.statut,
-        datePrevueReception: row.date_prevue_reception,
-      });
-    }
+  for (const row of statutRowsRaw) {
+    statutByDossier.set(dossierKey(row.n_doss_4d, row.n_doss_erp), {
+      statut: row.statut,
+      datePrevueReception: row.date_prevue_reception,
+    });
   }
 
   // "Tous" affiche TOUS les tableaux de gamme a la suite (pas juste un
@@ -499,11 +617,11 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
   // malgre le nombre de gammes.
   const allGammeSections =
     gammeStatistique === "" && !fetchError
-      ? await Promise.all(
-          gammeStatistiqueButtons.map(async ([value]) => ({
-            gammeKey: value,
-            rows: await buildRapportRowsWithLive(value, articleByNormalizedName, articleById, statutByDossier),
-          }))
+      ? await buildAllGammeSections(
+          gammeStatistiqueButtons.map(([value]) => value),
+          articleByNormalizedName,
+          articleById,
+          statutByDossier
         )
       : [];
 
@@ -555,6 +673,7 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
               <div className="flex flex-wrap gap-2">
                 <Link
                   href="/stock/matiere-premiere/statistique"
+                  prefetch={false}
                   className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition hover:opacity-90 ${
                     gammeStatistique === ""
                       ? "bg-slate-900 text-white"
@@ -567,6 +686,7 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
                   <Link
                     key={value}
                     href={`/stock/matiere-premiere/statistique?gammeStatistique=${encodeURIComponent(value)}`}
+                    prefetch={false}
                     className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition hover:opacity-90 ${
                       gammeStatistique === value
                         ? "bg-violet-600 text-white ring-2 ring-violet-900/20"
