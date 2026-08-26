@@ -11,18 +11,25 @@ type ArticleOption = { value: string; label: string };
 // que du stock > 0, date auto), mais ici l'article n'est pas fixe - donc
 // pas de <form> HTML classique : useTransition + FormData manuelle, pour
 // pouvoir reconstruire la liste de codes des que l'article choisi change.
+//
+// Les codes disponibles sont recuperes A LA DEMANDE (fetchCodesAction) au
+// moment ou l'utilisateur choisit un article - avant, la page commande les
+// precalculait pour TOUS les articles du systeme des l'ouverture, meme si
+// cette section repliee par defaut n'etait jamais utilisee (cout mesure a
+// plusieurs secondes sur chaque ouverture de commande, pour une fonction
+// rarement utilisee).
 export function FifoAddLigneForm({
   commandeId,
   articles,
-  codesByArticle,
   defaultPreparateur,
   addAction,
+  fetchCodesAction,
 }: {
   commandeId: number;
   articles: ArticleOption[];
-  codesByArticle: Record<number, CodeOption[]>;
   defaultPreparateur: string;
   addAction: (formData: FormData) => Promise<{ error: string } | void>;
+  fetchCodesAction: (articleId: number, commandeId: number) => Promise<CodeOption[]>;
 }) {
   const codeListId = useId();
   const [articleInput, setArticleInput] = useState("");
@@ -33,13 +40,14 @@ export function FifoAddLigneForm({
   const [preparateur, setPreparateur] = useState(defaultPreparateur);
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
+  const [codes, setCodes] = useState<CodeOption[]>([]);
+  const [isLoadingCodes, setIsLoadingCodes] = useState(false);
 
   const filtered = useMemo(
     () => articles.filter((option) => matchesArticleSearch(option.label, articleInput)),
     [articleInput, articles]
   );
 
-  const codes = selectedArticle ? codesByArticle[Number(selectedArticle.value)] ?? [] : [];
   const selectedCodeOption = codes.find((option) => option.code.toUpperCase() === code.toUpperCase());
   const filteredCodes = useMemo(() => {
     const query = code.trim();
@@ -55,9 +63,17 @@ export function FifoAddLigneForm({
     setArticleInput(article.label);
     setSelectedArticle(article);
     setShowOptions(false);
-    const firstCode = codesByArticle[Number(article.value)]?.[0];
-    setCode(firstCode ? firstCode.code : "");
+    setCode("");
+    setCodes([]);
     setError("");
+    setIsLoadingCodes(true);
+    fetchCodesAction(Number(article.value), commandeId)
+      .then((fetchedCodes) => {
+        setCodes(fetchedCodes);
+        setCode(fetchedCodes[0]?.code ?? "");
+      })
+      .catch(() => setError("Impossible de charger les codes disponibles."))
+      .finally(() => setIsLoadingCodes(false));
   }
 
   function handleSubmit() {
@@ -149,7 +165,7 @@ export function FifoAddLigneForm({
           value={code}
           onChange={(event) => setCode(event.target.value)}
           onKeyDown={preventEnterSubmit}
-          disabled={!selectedArticle}
+          disabled={!selectedArticle || isLoadingCodes}
           placeholder="Taper le code..."
           autoComplete="off"
           className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
@@ -164,11 +180,13 @@ export function FifoAddLigneForm({
         <span className="text-xs text-slate-500">
           {!selectedArticle
             ? ""
-            : codes.length === 0
-              ? "Aucun code en stock pour ce produit."
-              : selectedCodeOption
-                ? `${selectedCodeOption.quantite} dispo - Date fab. : ${formatDate(selectedCodeOption.dateFabrication)}`
-                : "Code inconnu ou stock epuise."}
+            : isLoadingCodes
+              ? "Chargement des codes disponibles..."
+              : codes.length === 0
+                ? "Aucun code en stock pour ce produit."
+                : selectedCodeOption
+                  ? `${selectedCodeOption.quantite} dispo - Date fab. : ${formatDate(selectedCodeOption.dateFabrication)}`
+                  : "Code inconnu ou stock epuise."}
         </span>
       </label>
 
@@ -203,7 +221,7 @@ export function FifoAddLigneForm({
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={isPending}
+          disabled={isPending || isLoadingCodes}
           className="rounded-full bg-sky-700 px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
         >
           {isPending ? "Ajout..." : "Ajouter la ligne"}

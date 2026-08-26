@@ -12,6 +12,8 @@ import {
 import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
 import { logAudit } from "@/lib/audit-log";
 import { fetchCoutsParCartonProduitsFinis, type LotUtiliseInfo } from "@/lib/prix-revient";
+import { fetchStockGroupsByArticle, fetchReservedByKey, buildAvailableCodesByArticle } from "./[id]/stock-codes";
+import type { CodeOption } from "./[id]/fifo-code-picker";
 import {
   COMPTE_BANQUE,
   COMPTE_CAISSE,
@@ -2227,6 +2229,38 @@ export async function updateAllFifoResultsAction(formData: FormData): Promise<Fi
 // produit se comporte normalement partout ailleurs : manque, impression...)
 // puis un resultat FIFO qu'on resout immediatement via le meme RPC que le
 // Save normal, pour ne pas dupliquer sa logique de validation du lot/stock.
+// Codes disponibles pour UN article (pas toute la commande) - utilise
+// UNIQUEMENT par le picker "Ajouter une ligne" (produit hors commande),
+// appele a la demande quand l'utilisateur choisit un article dans ce
+// formulaire. Avant, la fiche commande precalculait ce meme resultat pour
+// TOUS les articles du systeme (~920) des l'ouverture de la page, meme si
+// cette section repliee par defaut n'etait jamais ouverte - cout mesure a
+// plusieurs secondes, identique quelle que soit la taille de la commande.
+export async function fetchAvailableCodesForNewArticleAction(
+  articleId: number,
+  commandeId: number
+): Promise<CodeOption[]> {
+  try {
+    await requireCommandesEditAccess();
+  } catch {
+    return [];
+  }
+
+  if (!articleId) return [];
+
+  // excludeCommandeId=0 : compte TOUTES les reservations existantes (y
+  // compris celles de cette meme commande) puisqu'il s'agit d'ajouter une
+  // NOUVELLE ligne, jamais de modifier une reservation deja faite par cette
+  // commande - meme convention que l'ancien availableCodesByArticleForNewLines.
+  const [stockGroups, reservedByKey] = await Promise.all([
+    fetchStockGroupsByArticle([articleId]),
+    fetchReservedByKey([articleId], 0),
+  ]);
+
+  const byArticle = buildAvailableCodesByArticle(stockGroups, reservedByKey);
+  return byArticle[articleId] ?? [];
+}
+
 export async function addFifoLigneForNewArticleAction(
   formData: FormData
 ): Promise<FifoActionResult> {
