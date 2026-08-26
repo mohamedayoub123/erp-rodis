@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState, useTransition } from "react";
+import { useEffect, useId, useMemo, useState, useTransition } from "react";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { formatDate } from "@/lib/format-date";
 import type { CodeOption } from "./fifo-code-picker";
@@ -12,26 +12,28 @@ type ArticleOption = { value: string; label: string };
 // pas de <form> HTML classique : useTransition + FormData manuelle, pour
 // pouvoir reconstruire la liste de codes des que l'article choisi change.
 //
-// Les codes disponibles sont recuperes A LA DEMANDE (fetchCodesAction) au
-// moment ou l'utilisateur choisit un article - avant, la page commande les
-// precalculait pour TOUS les articles du systeme des l'ouverture, meme si
-// cette section repliee par defaut n'etait jamais utilisee (cout mesure a
-// plusieurs secondes sur chaque ouverture de commande, pour une fonction
-// rarement utilisee).
+// Les codes disponibles ET la liste des articles sont recuperes A LA
+// DEMANDE (au montage de ce composant, qui n'a lieu qu'a la premiere
+// ouverture de la section grace a LazyDetails) - avant, la page commande
+// precalculait la liste des ~920 articles du systeme et la serialisait a
+// CHAQUE ouverture de commande, meme si cette section repliee par defaut
+// n'etait jamais utilisee (part significative du temps de rendu observe en
+// production).
 export function FifoAddLigneForm({
   commandeId,
-  articles,
   defaultPreparateur,
   addAction,
   fetchCodesAction,
+  fetchArticlesAction,
 }: {
   commandeId: number;
-  articles: ArticleOption[];
   defaultPreparateur: string;
   addAction: (formData: FormData) => Promise<{ error: string } | void>;
   fetchCodesAction: (articleId: number, commandeId: number) => Promise<CodeOption[]>;
+  fetchArticlesAction: () => Promise<ArticleOption[]>;
 }) {
   const codeListId = useId();
+  const [articles, setArticles] = useState<ArticleOption[]>([]);
   const [articleInput, setArticleInput] = useState("");
   const [selectedArticle, setSelectedArticle] = useState<ArticleOption | null>(null);
   const [showOptions, setShowOptions] = useState(false);
@@ -42,6 +44,10 @@ export function FifoAddLigneForm({
   const [isPending, startTransition] = useTransition();
   const [codes, setCodes] = useState<CodeOption[]>([]);
   const [isLoadingCodes, setIsLoadingCodes] = useState(false);
+
+  useEffect(() => {
+    fetchArticlesAction().then(setArticles);
+  }, [fetchArticlesAction]);
 
   const filtered = useMemo(
     () => articles.filter((option) => matchesArticleSearch(option.label, articleInput)),

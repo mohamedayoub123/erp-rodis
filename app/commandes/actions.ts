@@ -2222,6 +2222,38 @@ export async function updateAllFifoResultsAction(formData: FormData): Promise<Fi
   revalidateCommandeDependentPages(commandeId);
 }
 
+// Liste de TOUS les articles (id + nom) pour les pickers "Ajouter une
+// ligne" et "Modifier cette commande" - recuperee A LA DEMANDE (au premier
+// affichage cote client de ces sections, toutes deux repliees par defaut,
+// voir LazyDetails) au lieu d'etre precalculee et serialisee dans le rendu
+// de CHAQUE fiche commande. Avant, ces ~920 articles etaient envoyes 2 fois
+// (une par section) a chaque ouverture de page, meme quand ni l'une ni
+// l'autre section n'etait jamais ouverte - part significative du temps de
+// rendu observe en production.
+export async function fetchArticleOptionsAction(): Promise<{ value: string; label: string }[]> {
+  const rows: { id: number; nom_article: string }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article")
+      .order("nom_article", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data as { id: number; nom_article: string }[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows.map((article) => ({ value: String(article.id), label: article.nom_article }));
+}
+
 // "Ajouter une ligne" sur le Resultat FIFO : dispatcher un produit qui
 // n'a jamais ete demande dans cette commande (contrairement a
 // addManualFifoLotAction, qui ne fait que combler le manque d'une ligne

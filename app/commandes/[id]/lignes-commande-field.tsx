@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { matchesArticleSearch } from "@/lib/article-search";
 
 type ArticleOption = { value: string; label: string };
@@ -11,14 +11,24 @@ type ArticleOption = { value: string; label: string };
 // produit. Garde le meme format texte (aucun changement cote serveur) mais
 // ajoute un picker qui l'ecrit a la bonne place, pour ne plus avoir a
 // retaper un nom d'article de memoire.
+//
+// La liste des articles est recuperee A LA DEMANDE au montage (qui n'a lieu
+// qu'a la premiere ouverture de la section grace a LazyDetails) plutot que
+// precalculee par la page pour les ~920 articles du systeme a chaque
+// ouverture de commande - voir FifoAddLigneForm, meme principe.
 export function LignesCommandeField({
-  articles,
+  fetchArticlesAction,
   defaultValue,
 }: {
-  articles: ArticleOption[];
+  fetchArticlesAction: () => Promise<ArticleOption[]>;
   defaultValue: string;
 }) {
+  const [articles, setArticles] = useState<ArticleOption[]>([]);
   const [lignesValue, setLignesValue] = useState(defaultValue);
+
+  useEffect(() => {
+    fetchArticlesAction().then(setArticles);
+  }, [fetchArticlesAction]);
   const [articleInput, setArticleInput] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
   const [quantite, setQuantite] = useState("");

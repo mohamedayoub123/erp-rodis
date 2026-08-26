@@ -8,10 +8,12 @@ import {
   cancelFifoBatchAction,
   deleteCommandeTruckAction,
   deliverCommandeAction,
+  fetchArticleOptionsAction,
   fetchAvailableCodesForNewArticleAction,
   updateAllFifoResultsAction,
   updateManualCommandeAction,
 } from "../actions";
+import { LazyDetails } from "@/app/_components/lazy-details";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeleteCommandesUser, canVoirPrixUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { PrintButton } from "./print-button";
@@ -492,31 +494,6 @@ async function fetchAllClientNamesForCommandeDetail() {
   return rows;
 }
 
-// Pour le picker "Ajouter une ligne" (produit hors commande) - meme
-// pagination que fetchAllClientNamesForCommandeDetail.
-async function fetchAllArticlesForCommandeDetail() {
-  const rows: { id: number; nom_article: string }[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("articles")
-      .select("id, nom_article")
-      .order("nom_article", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (error) break;
-
-    const chunk = (data as { id: number; nom_article: string }[] | null) ?? [];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows.map((article) => ({ value: String(article.id), label: article.nom_article }));
-}
 
 type CommandePaiementRow = {
   id: number;
@@ -577,7 +554,7 @@ export default async function CommandeDetailPage({
   // savoir QUOI charger (seulement pour l'affichage plus bas) - les lancer
   // ensemble economise un aller-retour serveur entier par rapport a
   // attendre l'utilisateur d'abord.
-  const [currentStockUser, { data: selectedCommandeData }, { data: fifoData }, commandesData, articleOptions] =
+  const [currentStockUser, { data: selectedCommandeData }, { data: fifoData }, commandesData] =
     await Promise.all([
       getCurrentStockUser(),
       supabaseServer
@@ -596,7 +573,6 @@ export default async function CommandeDetailPage({
         .order("ordre_ligne", { ascending: true })
         .order("id", { ascending: true }),
       fetchAllClientNamesForCommandeDetail(),
-      fetchAllArticlesForCommandeDetail(),
     ]);
 
   // readUsers() (donc getUserPermissions) est deja en cache depuis
@@ -1097,19 +1073,18 @@ export default async function CommandeDetailPage({
             />
 
             {canEditCommandes ? (
-              <details className="no-print mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-                  Ajouter une ligne (produit qui n&apos;est pas dans cette commande)
-                </summary>
-
+              <LazyDetails
+                className="no-print mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                summary="Ajouter une ligne (produit qui n'est pas dans cette commande)"
+              >
                 <FifoAddLigneForm
                   commandeId={selectedCommande.id}
-                  articles={articleOptions}
                   defaultPreparateur={selectedPreparateur}
                   addAction={addFifoLigneForNewArticleAction}
                   fetchCodesAction={fetchAvailableCodesForNewArticleAction}
+                  fetchArticlesAction={fetchArticleOptionsAction}
                 />
-              </details>
+              </LazyDetails>
             ) : null}
           </div>
 
@@ -1171,11 +1146,10 @@ export default async function CommandeDetailPage({
           ) : null}
 
           {canEditCommandes && !isCommandeLivree ? (
-            <details className="no-print mt-5 rounded-[1.5rem] border border-slate-200 bg-white p-4">
-              <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-                Modifier cette commande
-              </summary>
-
+            <LazyDetails
+              className="no-print mt-5 rounded-[1.5rem] border border-slate-200 bg-white p-4"
+              summary="Modifier cette commande"
+            >
               <form action={updateManualCommandeAction} className="mt-4 grid gap-4">
                 <input type="hidden" name="commande_id" value={selectedCommande.id} />
 
@@ -1237,7 +1211,7 @@ export default async function CommandeDetailPage({
                 </p>
 
                 <LignesCommandeField
-                  articles={articleOptions}
+                  fetchArticlesAction={fetchArticleOptionsAction}
                   defaultValue={sortedCommandeLignes
                     .map((ligne) => `${getArticleName(ligne.articles)} | ${ligne.quantite_demandee}`)
                     .join("\n")}
@@ -1258,7 +1232,7 @@ export default async function CommandeDetailPage({
                   </SubmitButton>
                 </div>
               </form>
-            </details>
+            </LazyDetails>
           ) : isCommandeLivree ? (
             <p className="mt-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
               Commande livree : modification desactivee (le stock a deja ete sorti).
