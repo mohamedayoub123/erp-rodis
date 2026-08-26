@@ -571,6 +571,9 @@ export default async function CommandeDetailPage({
   const { id } = await params;
   const commandeId = Number(id);
   const { erreur } = await searchParams;
+  const perfStart = Date.now();
+  const perfMarks: string[] = [];
+  const mark = (label: string) => perfMarks.push(`${label}:${Date.now() - perfStart}ms`);
 
   // getCurrentStockUser() ne depend d'aucune de ces requetes (juste le
   // cookie de session) et rien ci-dessous ne depend de son resultat pour
@@ -598,6 +601,7 @@ export default async function CommandeDetailPage({
       fetchAllClientNamesForCommandeDetail(),
       fetchAllArticlesForCommandeDetail(),
     ]);
+  mark("stageA_bigData");
 
   // readUsers() (donc getUserPermissions) est deja en cache depuis
   // getCurrentStockUser() ci-dessus (React.cache()) - ces verifications ne
@@ -717,6 +721,7 @@ export default async function CommandeDetailPage({
       .order("id", { ascending: true }),
     fetchMontantFactureCommande(selectedCommande.id),
   ]);
+  mark("stageB_bigParallel");
 
   // Pur calcul en memoire (aucun appel reseau) - peut rester synchrone.
   const availableCodesByArticle = buildAvailableCodesByArticle(stockGroups, reservedByKeyForCommande);
@@ -795,10 +800,14 @@ export default async function CommandeDetailPage({
   const selectedPreparateur = extractPreparateur(selectedCommande.commentaire);
 
   const commandePaiements = (paiementsData as CommandePaiementRow[] | null) ?? [];
+  mark("beforeRender");
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#eef6ff_0%,#f8fbff_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <div className="mx-auto w-full space-y-6">
+        <div style={{ background: "#000", color: "#0f0", fontFamily: "monospace", fontSize: 12, padding: 8 }}>
+          PERF DEBUG (relevantArticleIds={relevantArticleIds.length}): {perfMarks.join(" | ")}
+        </div>
         {erreur ? (
           <div className="rounded-[1.5rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
             {erreur}
