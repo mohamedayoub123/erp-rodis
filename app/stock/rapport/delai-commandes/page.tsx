@@ -286,8 +286,8 @@ export default async function RapportDelaiCommandesPage() {
                   <tr>
                     <th className="px-4 py-3 font-semibold">Mois</th>
                     <th className="px-4 py-3 font-semibold">Camions</th>
-                    <th className="px-4 py-3 font-semibold">Dans les {DELAI_LIMITE_JOURS}j</th>
-                    <th className="px-4 py-3 font-semibold">Depasse {DELAI_LIMITE_JOURS}j</th>
+                    <th className="px-4 py-3 font-semibold">A livrer dans le delai</th>
+                    <th className="px-4 py-3 font-semibold">Delai depasse</th>
                     <th className="px-4 py-3 font-semibold">Sans donnee</th>
                   </tr>
                 </thead>
