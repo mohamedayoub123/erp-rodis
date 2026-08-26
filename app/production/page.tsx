@@ -75,11 +75,11 @@ const TILES = [
     description: "Tous les rapports de production.",
   },
   {
-    label: "Machines",
+    label: "Equipements",
     href: "/production/machines",
     pageKey: "machines",
     icon: "\u{2699}\u{FE0F}",
-    description: "Liste des machines de production : zone, type, capacite.",
+    description: "Liste des equipements de production : zone, type, capacite.",
   },
   {
     label: "Recette Fabrication",

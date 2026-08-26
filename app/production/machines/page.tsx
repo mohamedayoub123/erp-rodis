@@ -125,10 +125,10 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
                 ERP Rodis
               </p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Machines</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Equipements</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Liste des machines de production. Ouvre une machine pour lui associer ses produits,
-                avec la capacite, le min/max et le temps par produit.
+                Liste des equipements de production. Ouvre un equipement pour lui associer ses
+                produits, avec la capacite, le min/max et le temps par produit.
               </p>
             </div>
 
@@ -142,7 +142,7 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
         {canEdit ? (
           <details className="group overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold text-sky-700 marker:content-none">
-              + Ajouter machine
+              + Ajouter equipement
             </summary>
             <AddMachineForm
               existingZones={distinctZones}
@@ -183,7 +183,7 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
               name="nom"
               defaultValue={params.nom || ""}
               options={machineOptions}
-              placeholder="Machine"
+              placeholder="Equipement"
             />
             <button
               type="submit"
@@ -225,7 +225,7 @@ export default async function MachinesPage({ searchParams }: { searchParams: Sea
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conso. electrique (kW)</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conso. gaz (L/h)</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conso. gasoil (L/h)</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Machine Energie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Equipement Energie</th>
                     {canDelete ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Action</th> : null}
                   </tr>
                 </thead>

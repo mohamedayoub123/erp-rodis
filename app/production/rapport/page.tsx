@@ -34,11 +34,11 @@ const TILES = [
     description: "Par code : carton commande vs carton reellement fabrique, avec KPI globaux.",
   },
   {
-    label: "Capacite Machines",
+    label: "Capacite Equipements",
     href: "/production/rapport/machines-capacite",
     pageKey: "productionRapportMachinesCapacite",
     icon: "\u{2699}\u{FE0F}",
-    description: "Combien de machines de l'usine tournent en ce moment, sur le total disponible.",
+    description: "Combien d'equipements de l'usine tournent en ce moment, sur le total disponible.",
   },
   {
     label: "Carton Mensuel",

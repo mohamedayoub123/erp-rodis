@@ -110,7 +110,7 @@ export default async function MachineDetailPage({ params }: { params: Promise<{ 
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <BackButton href="/production/machines" label="Retour Machines" />
+              <BackButton href="/production/machines" label="Retour Equipements" />
               <RefreshButton />
             </div>
           </div>

@@ -236,9 +236,9 @@ export default async function RapportMachinesCapacitePage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Capacite Machines</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Capacite Equipements</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Sur toutes les machines de l&apos;usine, combien tournent en ce moment (associees a une
+                Sur tous les equipements de l&apos;usine, combien tournent en ce moment (associes a une
                 ligne de programme pas encore terminee).
               </p>
             </div>
@@ -325,7 +325,7 @@ export default async function RapportMachinesCapacitePage() {
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="bg-slate-50 text-slate-950">
                   <tr>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Machine</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Equipement</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Zone</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Type</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Statut</th>
