@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { GAMME_CONFIGS, type ColumnDescriptor } from "./gamme-config";
+import { GAMME_CONFIGS } from "./gamme-config";
 import { editableFieldName } from "./field-name";
 import { SubmitButton } from "@/app/_components/submit-button";
-import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { StatistiqueExportButton } from "./statistique-export-button";
+import { computeRowDerivedColors } from "./row-colors";
 
 function combineStyle(
   base: React.CSSProperties | undefined,
@@ -72,9 +73,9 @@ export type RapportRowWithLive = {
 // mais figee depuis l'import Excel) - ceci est la version editable depuis
 // l'appli. Une couleur de cellule l'emporte sur la couleur de ligne, qui
 // l'emporte elle-meme sur les couleurs automatiques (categorie/stock bas).
-type ColorOverride = { bg?: string; text?: string };
-type RowColorTarget = "__row__" | string;
-type RowColors = Record<RowColorTarget, ColorOverride>;
+export type ColorOverride = { bg?: string; text?: string };
+export type RowColorTarget = "__row__" | string;
+export type RowColors = Record<RowColorTarget, ColorOverride>;
 
 function parseStoredColors(value: unknown): RowColors {
   if (!value || typeof value !== "object") return {};
@@ -83,56 +84,6 @@ function parseStoredColors(value: unknown): RowColors {
 
 function isColorsEmpty(colors: RowColors) {
   return Object.values(colors).every((c) => !c.bg && !c.text);
-}
-
-// Reconstruit exactement les memes colonnes/valeurs que le tableau affiche
-// a l'ecran (ORDRE/DESIGNATION + colonnes dynamiques de la gamme + les 2
-// colonnes fixes de fin), pour un export fidele sans avoir a redefinir les
-// colonnes a part pour chaque gamme - demande explicite : "statistique mp
-// je veux tirer on excel".
-function buildExportData(rows: RapportRowWithLive[], columns: ColumnDescriptor[]) {
-  const dataColumns = columns.filter((col) => col.kind !== "spacer");
-
-  const exportColumns = [
-    { label: "Ordre", key: "ordre" },
-    { label: "Designation", key: "designation" },
-    ...dataColumns.map((col) => ({ label: col.label, key: col.key })),
-    { label: "Statistique 6 mois (systeme)", key: "__stat6MoisSysteme__" },
-    { label: "Remarque", key: "__remarque__" },
-  ];
-
-  const exportRows = rows.map((row) => {
-    const record: Record<string, string | number | null> = {
-      ordre: row.ordre,
-      designation: row.designation,
-      __stat6MoisSysteme__: row.live ? row.live.conso6MoisSysteme : "-",
-      __remarque__: (row.donnees?.["remarque_libre"] as string) ?? "",
-    };
-
-    for (const col of dataColumns) {
-      if (col.kind !== "live") {
-        record[col.key] = row.donnees?.[col.key] ?? "";
-        continue;
-      }
-
-      if (!row.live) {
-        record[col.key] = "article introuvable";
-        continue;
-      }
-
-      if (col.liveField === "qteBcEtDate" || col.liveField === "date4d") {
-        const entries = row.live[col.liveField];
-        record[col.key] = entries.length === 0 ? "-" : entries.map((entry) => `${entry.quantite} ${entry.detail}`).join(" | ");
-        continue;
-      }
-
-      record[col.key] = col.liveField ? row.live[col.liveField] : "-";
-    }
-
-    return record;
-  });
-
-  return { exportColumns, exportRows };
 }
 
 function preventEnterSubmit(event: React.KeyboardEvent<HTMLFormElement>) {
@@ -184,7 +135,6 @@ export function RapportTable({
 
   const selectedColor = selected ? colorsByRow[selected.rowId]?.[selected.target] : undefined;
   const columns = config.columns;
-  const { exportColumns, exportRows } = buildExportData(rows, columns);
   // Comparaison lexicographique valide car date_prevue_reception est
   // toujours au format ISO "AAAA-MM-JJ" (voir DateJmaFormField).
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -234,10 +184,13 @@ export function RapportTable({
           </div>
 
           <div className="flex items-center gap-3">
-            <ExportExcelButton
-              rows={exportRows}
-              columns={exportColumns}
-              filename={`statistique-mp-${gammeStatistique}-${new Date().toISOString().slice(0, 10)}.xlsx`}
+            <StatistiqueExportButton
+              gammeStatistique={gammeStatistique}
+              rows={rows}
+              columns={columns}
+              config={config}
+              colorsByRow={colorsByRow}
+              todayIso={todayIso}
             />
             {canEdit ? (
               <SubmitButton
@@ -300,23 +253,11 @@ export function RapportTable({
                 //   pas besoin d'alerter).
                 // - jaune si un BC est en cours d'achat (et qu'aucune des 2
                 //   regles import ci-dessus ne s'applique).
-                const hasOpenBc = Boolean(live && live.enCoursBc > 0);
-                const hasOpenImport = Boolean(live && live.enCours4d > 0);
-                const importIsUrgent = Boolean(
-                  live &&
-                    live.date4d.some(
-                      (entry) => !entry.datePrevueReception || entry.datePrevueReception < todayIso
-                    )
+                const { designationBg, designationText, stockCell, aCommanderCell } = computeRowDerivedColors(
+                  row,
+                  config,
+                  todayIso
                 );
-                const importSuppressesColor = hasOpenImport && !importIsUrgent;
-                const designationBg = importIsUrgent
-                  ? "#00B050"
-                  : importSuppressesColor
-                    ? undefined
-                    : hasOpenBc
-                      ? "#FFFF00"
-                      : undefined;
-                const stockDepasse1An = config.highlightStockOverConso12Mois && live ? live.stock > live.conso12Mois : false;
                 const rowColors = colorsByRow[row.id] || {};
                 const isTargetSelected = (target: RowColorTarget) =>
                   selected?.rowId === row.id && selected.target === target;
@@ -333,7 +274,7 @@ export function RapportTable({
                     <td
                       className={`whitespace-nowrap border border-slate-200 px-4 py-3 font-medium ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected("DESIGNATION") ? "ring-2 ring-inset ring-violet-500" : ""} ${sheetBoundaryClass}`}
                       style={combineStyle(
-                        { backgroundColor: designationBg, color: stockDepasse1An ? config.redText : "#0f172a" },
+                        { backgroundColor: designationBg, color: designationText },
                         rowColors["__row__"],
                         rowColors["DESIGNATION"]
                       )}
@@ -433,11 +374,11 @@ export function RapportTable({
                       const value = col.liveField ? live[col.liveField] : "-";
 
                       let cellStyle: React.CSSProperties | undefined;
-                      if (col.liveField === "stock" && live.stock < live.conso1Mois * (config.stockBasMultiplier ?? 3)) {
-                        cellStyle = { backgroundColor: config.stockBasBg, color: config.stockBasText };
+                      if (col.liveField === "stock" && stockCell) {
+                        cellStyle = { backgroundColor: stockCell.bg, color: stockCell.text };
                       }
-                      if (col.liveField === "aCommander" && live.aCommander < 0) {
-                        cellStyle = { color: config.redText, ...(config.redTextBold ? { fontWeight: 700 } : null) };
+                      if (col.liveField === "aCommander" && aCommanderCell) {
+                        cellStyle = { color: aCommanderCell.color, ...(aCommanderCell.bold ? { fontWeight: 700 } : null) };
                       }
                       if (col.liveField === "enCoursBc") {
                         cellStyle = { color: "#1E3A8A", fontWeight: 700 };
