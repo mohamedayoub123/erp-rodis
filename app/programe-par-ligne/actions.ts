@@ -6,7 +6,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { computeArticleFamilyKey, extractTrailingNumber, incrementCode } from "@/lib/article-code-family";
 import { computeQtCarton } from "@/lib/dispatcher-shared";
-import { ZONE_GROUPS } from "@/lib/zone-chaine-list";
+import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
 import { logAudit } from "@/lib/audit-log";
 import { supprimerToutesTracesProductionPourLigne } from "@/app/production/suivi-production/actions";
 
@@ -1321,17 +1321,23 @@ export async function dispatchExistingProgrammeLigneGroupAction(
     const rowIds = remplies.map((ligne) => ligne.id);
     const dateJour = lignes[0].date_jour;
 
-    // Efface TOUTE la grille (voir ZONE_GROUPS), pas seulement les chaines
-    // remplies dans ce groupe : programme_lignes ne stocke jamais les
-    // chaines laissees vides (elles ne sont jamais enregistrees), donc
-    // impossible de savoir ici lesquelles etaient blanches dans le formulaire
+    // Efface TOUTE la grille (les vraies machines Conditionnement, pas
+    // l'ancien catalogue fixe ZONE_GROUPS - bug reel confirme : une machine
+    // ajoutee apres le passage aux vraies machines n'existe pas dans
+    // ZONE_GROUPS, donc son ancienne ligne dispatcher n'etait jamais
+    // effacee ici et entrait en collision deterministe - meme code genere a
+    // chaque tentative - avec la nouvelle insertion, epuisant les 6 essais
+    // de generateAutoCodes a coup sur), pas seulement les chaines remplies
+    // dans ce groupe : programme_lignes ne stocke jamais les chaines
+    // laissees vides (elles ne sont jamais enregistrees), donc impossible
+    // de savoir ici lesquelles etaient blanches dans le formulaire
     // d'origine - sans ca, une ancienne chaine dispatchee separement (ex:
     // CHAINE 9C) qui n'apparait pas dans CE groupe restait affichee au
     // Ravitailleur indefiniment, meme apres un nouveau Dispatch qui ne la
     // concerne plus. Un Dispatch (immediat ou differe depuis l'Historique)
     // represente toujours l'etat complet de toute la grille, jamais un ajout
     // partiel.
-    const affectedZoneChaine = ZONE_GROUPS.flat();
+    const affectedZoneChaine = await fetchConditionnementZoneChaineOptions();
 
     // Contrairement a performProgrammeLigneSave, aucune suppression en cas
     // d'echec : ces lignes programme_lignes existaient deja avant cet appel
