@@ -117,7 +117,7 @@ export function FifoResultsTable({
               <th className="px-4 py-3 font-semibold">Code (stock &gt; 0)</th>
               <th className="px-4 py-3 font-semibold">Chambre</th>
               <th className="px-4 py-3 font-semibold">Preparateur</th>
-              <th className="px-4 py-3 font-semibold">Qt chargee</th>
+              <th className="px-4 py-3 font-semibold">Qt a charger</th>
               <th className="no-print px-4 py-3 font-semibold">Regle FIFO</th>
               <th className="no-print px-4 py-3 font-semibold">Supprimer</th>
             </tr>

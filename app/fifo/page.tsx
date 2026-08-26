@@ -177,7 +177,7 @@ export default async function FifoPage({
             <p className="mt-3 text-3xl font-black text-slate-900">{rows.length}</p>
           </div>
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <p className="text-sm uppercase tracking-[0.16em] text-slate-500">Qt chargee</p>
+            <p className="text-sm uppercase tracking-[0.16em] text-slate-500">Qt a charger</p>
             <p className="mt-3 text-3xl font-black text-slate-900">{totalChargee}</p>
           </div>
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -209,7 +209,7 @@ export default async function FifoPage({
                     <th className="px-4 py-3 font-semibold">Code</th>
                     <th className="px-4 py-3 font-semibold">Date fab.</th>
                     <th className="px-4 py-3 font-semibold">Chambre</th>
-                    <th className="px-4 py-3 font-semibold">Qt chargee</th>
+                    <th className="px-4 py-3 font-semibold">Qt a charger</th>
                     <th className="px-4 py-3 font-semibold">Regle</th>
                     <th className="px-4 py-3 font-semibold">Action</th>
                   </tr>

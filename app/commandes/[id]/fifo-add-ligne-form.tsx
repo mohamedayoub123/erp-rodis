@@ -173,7 +173,7 @@ export function FifoAddLigneForm({
       </label>
 
       <label className="grid gap-1 text-xs font-semibold text-slate-500">
-        Qt chargee
+        Qt a charger
         <input
           type="number"
           min="0.01"
