@@ -31,23 +31,12 @@ function formatCellValue(value: string | number | null | undefined) {
   return value;
 }
 
-// Largeurs de colonnes (unites caracteres Excel) copiees du fichier source
-// reel "1 INV MP COSMETIQUE.xlsx" (inspecte cellule par cellule) - la ou une
-// colonne dynamique correspond a un vrai champ du fichier source, on reprend
-// sa largeur exacte ; sinon on retombe sur 14.66 (largeur la plus frequente
-// dans ce meme fichier pour les colonnes non mesurees), un defaut raisonnable
-// pour toutes les gammes.
-function dynamicColumnWidth(col: ColumnDescriptor): number {
-  if (col.kind === "spacer") return 19.33;
-  if (col.liveField === "qteBcEtDate") return 32.55;
-  if (col.liveField === "date4d") return 62;
-  if (col.liveField === "enCours4d") return 13.44;
-  if (col.liveField === "gamme") return 21.33;
-  if (col.liveField === "conso1Mois") return 10.89;
-  if (col.liveField === "conso12Mois") return 14.66;
-  if (col.liveField === "conso9Mois") return 11.55;
-  if (col.liveField === "conso4Mois") return 10;
-  return 14.66;
+// Longueur de la ligne la plus longue d'un texte multi-lignes ("\n") - sert
+// a dimensionner une colonne/ligne sur la vraie largeur/hauteur necessaire,
+// jamais sur la somme de toutes les lignes empilees (qui donnait des
+// colonnes bien trop larges des qu'une case avait plusieurs dossiers BC/4D).
+function longestLine(text: string): number {
+  return Math.max(...text.split("\n").map((line) => line.length));
 }
 
 const THIN_BORDER: Partial<ExcelJS.Border> = { style: "thin", color: { argb: "FFCBD5E1" } };
@@ -151,20 +140,24 @@ export function StatistiqueExportButton({
     sheet.views = [{ state: "frozen", ySplit: headerRow.number }];
 
     // Largeurs de colonnes (unites caracteres Excel) - ORDRE/DESIGNATION
-    // reprennent exactement les valeurs mesurees dans le fichier source reel,
-    // les colonnes dynamiques via dynamicColumnWidth(), et les 2 colonnes
-    // systeme en fin de tableau des largeurs raisonnables du meme ordre de
-    // grandeur.
+    // reprennent les valeurs mesurees dans le fichier source reel (ORDRE
+    // etroit, DESIGNATION tres large pour les noms d'articles longs), la
+    // colonne spacer reste fixe (case vide, jamais de contenu) - toutes les
+    // autres colonnes partent de la largeur de leur en-tete puis s'ajustent
+    // au contenu reel via trackWidth ci-dessous (jamais plus large que ce
+    // qui est ecrit : demande explicite "ouvrir a la taille des ecritures,
+    // pas plus", les largeurs fixes copiees du fichier source donnaient
+    // beaucoup de vide des que le contenu reel etait plus court).
     const colWidths = [
       8.11,
       88.89,
-      ...columns.map((col) => dynamicColumnWidth(col)),
-      14.66,
-      24.33,
+      ...columns.map((col) => (col.kind === "spacer" ? 19.33 : longestLine(col.label) + 2)),
+      longestLine("STATISTIQUE 6 MOIS (SYSTEME)") + 2,
+      longestLine("REMARQUE") + 2,
     ];
 
     function trackWidth(colIndex: number, text: string) {
-      const width = Math.min(Math.max(text.length + 2, colWidths[colIndex - 1] || 10), 95);
+      const width = Math.min(Math.max(longestLine(text) + 2, colWidths[colIndex - 1] || 10), 60);
       colWidths[colIndex - 1] = Math.max(colWidths[colIndex - 1] || 0, width);
     }
 
@@ -179,8 +172,12 @@ export function StatistiqueExportButton({
       const isSheetBoundary = rowIndex > 0 && row.categorie !== rows[rowIndex - 1].categorie;
 
       const excelRow = sheet.addRow([]);
-      excelRow.height = 20.4;
       let colIndex = 1;
+      // Nombre de lignes empilees (BC/4D avec plusieurs dossiers) - la
+      // hauteur de ligne doit suivre le plus grand nombre de lignes d'une
+      // case, sinon les dossiers suivants sont coupes/superposes a la ligne
+      // du dessous (demande explicite : "il faut montre tout les contenu").
+      let maxLines = 1;
 
       function resolveCellColor(target: string, base: { bg?: string; text?: string } | undefined) {
         const rowOverride = rowColors["__row__"];
@@ -273,7 +270,12 @@ export function StatistiqueExportButton({
           cell.fill = fillFor(resolved.bg);
           cell.border = isSheetBoundary ? THICK_TOP_BORDER : ALL_BORDERS;
           cell.alignment = { vertical: "middle", wrapText: true };
-          trackWidth(colIndex, entries.map((e) => `${e.quantite} ${e.detail}`).join(" "));
+          // Largeur = la ligne la plus longue (pas la somme de toutes les
+          // lignes empilees) ; hauteur = nombre de dossiers empiles.
+          for (const entry of entries) {
+            trackWidth(colIndex, `${entry.quantite} ${entry.detail}`);
+          }
+          maxLines = Math.max(maxLines, entries.length);
           colIndex += 1;
           continue;
         }
@@ -303,6 +305,8 @@ export function StatistiqueExportButton({
         undefined
       );
       applyCell("__remarque__", formatCellValue((row.donnees?.["remarque_libre"] as string) ?? ""), undefined);
+
+      excelRow.height = Math.max(20.4, maxLines * 15);
     });
 
     sheet.columns.forEach((col, index) => {
