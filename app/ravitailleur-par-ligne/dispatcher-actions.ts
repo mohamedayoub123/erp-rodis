@@ -525,7 +525,20 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
   }
 
   const historyLignes = (fullHistoryRows as { code: string | null; source_groupe_id: number | null }[] | null) ?? [];
-  const deletedCodes = new Set(historyLignes.map((row) => row.code).filter((code): code is string => Boolean(code)));
+  // Map code -> groupe_id source attendu (ou null si le PD n'a pas de
+  // source_groupe_id) - un code seul ne suffit pas a identifier la bonne
+  // ligne : le meme code peut coincidentalement exister sur 2 lignes de
+  // programme differentes (articles/dates differents), et matcher par texte
+  // seul terminerait a tort la mauvaise ligne (bug reel constate : suppression
+  // du PD d'un code "AA4270V" d'une ligne a aussi termine une autre ligne qui
+  // partageait ce meme code dans son numero_lot).
+  const deletedCodeGroupes = new Map<string, Set<number | null>>();
+  for (const row of historyLignes) {
+    if (!row.code) continue;
+    const groupes = deletedCodeGroupes.get(row.code) ?? new Set<number | null>();
+    groupes.add(row.source_groupe_id);
+    deletedCodeGroupes.set(row.code, groupes);
+  }
   const sourceGroupeIds = new Set(
     historyLignes.map((row) => row.source_groupe_id).filter((id): id is number => id !== null)
   );
@@ -553,7 +566,7 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
   // code_auto configure (numero_lot reste NULL, invisibles au matching par
   // code) - sans lui elles resteraient indefiniment visibles sur le
   // Dashboard meme apres suppression de leur PD.
-  if (deletedCodes.size > 0 || sourceGroupeIds.size > 0) {
+  if (deletedCodeGroupes.size > 0 || sourceGroupeIds.size > 0) {
     const matchingIds = new Set<number>();
     let from = 0;
     const pageSize = 1000;
@@ -575,7 +588,12 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
           continue;
         }
         const codes = (row.numero_lot || "").split(",").map((code) => code.trim()).filter(Boolean);
-        if (codes.some((code) => deletedCodes.has(code))) {
+        const codeMatch = codes.some((code) => {
+          const groupes = deletedCodeGroupes.get(code);
+          if (!groupes) return false;
+          return [...groupes].some((groupeId) => groupeId === null || groupeId === row.groupe_id);
+        });
+        if (codeMatch) {
           matchingIds.add(row.id);
         }
       }
