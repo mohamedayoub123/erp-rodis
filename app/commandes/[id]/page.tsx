@@ -633,65 +633,75 @@ async function fetchStockGroupsByArticle(articleIds: number[]): Promise<Map<stri
   return groups;
 }
 
-async function computeAvailableCodesByArticle(
-  stockGroups: Map<string, StockGroup>,
+type ReservedRow = {
+  quantite_chargee: number | null;
+  numero_lot: string | null;
+  article_id: number | null;
+};
+
+// Reservations d'AUTRES commandes NON LIVREES sur ces articles, regroupees
+// par le meme code que fetchStockGroupsByArticle - a deduire du stock brut.
+// Le commentaire disait deja "non livrees" depuis toujours, mais rien ne le
+// garantissait reellement (pas de filtre sur commandes.statut) :
+// fifo_resultats n'est jamais nettoye apres une livraison (garde comme
+// historique), donc une commande LIVREE continuait a compter comme
+// "reservation en attente" ici - en plus de la vraie sortie deja deduite du
+// stock brut (qte_sortie) au moment de la livraison. Ce double comptage
+// faisait paraitre un code comme "epuise" (Code inconnu ou stock epuise.)
+// alors qu'il restait du stock reel (ex: AA4070 : 88 net reellement
+// disponible, affiche comme indisponible car une ancienne commande LIVREE
+// avait encore sa reservation de 117 comptee en plus). Meme principe que
+// getReservedByArticle plus haut dans actions.ts.
+//
+// Separee de la fusion avec stockGroups (buildAvailableCodesByArticle
+// ci-dessous) expres : cette requete ne depend PAS du resultat de
+// fetchStockGroupsByArticle, donc les deux peuvent tourner dans le meme
+// Promise.all au lieu de s'attendre l'une l'autre.
+async function fetchReservedByKey(
   articleIds: number[],
   excludeCommandeId: number
-): Promise<Record<number, CodeOption[]>> {
-  const result: Record<number, CodeOption[]> = {};
-  if (articleIds.length === 0) return result;
-
-  // Reservations d'AUTRES commandes NON LIVREES sur ces memes articles,
-  // regroupees par le meme code que ci-dessus - a deduire du stock brut. Le
-  // commentaire disait deja "non livrees" depuis toujours, mais rien ne le
-  // garantissait reellement (pas de filtre sur commandes.statut) :
-  // fifo_resultats n'est jamais nettoye apres une livraison (garde comme
-  // historique), donc une commande LIVREE continuait a compter comme
-  // "reservation en attente" ici - en plus de la vraie sortie deja deduite
-  // du stock brut (qte_sortie) au moment de la livraison. Ce double comptage
-  // faisait paraitre un code comme "epuise" (Code inconnu ou stock epuise.)
-  // alors qu'il restait du stock reel (ex: AA4070 : 88 net reellement
-  // disponible, affiche comme indisponible car une ancienne commande LIVREE
-  // avait encore sa reservation de 117 comptee en plus). Meme principe que
-  // getReservedByArticle plus haut dans actions.ts.
-  const reservedRows: {
-    quantite_chargee: number | null;
-    numero_lot: string | null;
-    article_id: number | null;
-  }[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("fifo_resultats")
-      .select("quantite_chargee, numero_lot, article_id, commandes!inner(statut)")
-      .in("article_id", articleIds)
-      .neq("commande_id", excludeCommandeId)
-      .neq("commandes.statut", "LIVREE")
-      // Meme correctif d'ordre stable que fetchStockGroupsByArticle
-      // ci-dessus - sans ca, des reservations pouvaient etre ignorees
-      // entre 2 pages, faisant apparaitre un code comme plus disponible
-      // qu'il ne l'est reellement.
-      .order("id", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (error) break;
-
-    const chunk = (data ?? []) as typeof reservedRows;
-    reservedRows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
+): Promise<Map<string, number>> {
   const reservedByKey = new Map<string, number>();
-  for (const row of reservedRows) {
+  if (articleIds.length === 0) return reservedByKey;
+
+  const rows = await fetchAllRowsParallel<ReservedRow>(
+    () =>
+      supabaseServer
+        .from("fifo_resultats")
+        .select("id, commandes!inner(statut)", { count: "exact", head: true })
+        .in("article_id", articleIds)
+        .neq("commande_id", excludeCommandeId)
+        .neq("commandes.statut", "LIVREE"),
+    (from, to) =>
+      supabaseServer
+        .from("fifo_resultats")
+        .select("quantite_chargee, numero_lot, article_id, commandes!inner(statut)")
+        .in("article_id", articleIds)
+        .neq("commande_id", excludeCommandeId)
+        .neq("commandes.statut", "LIVREE")
+        // Meme correctif d'ordre stable que fetchStockGroupsByArticle -
+        // sans ca, des reservations pouvaient etre ignorees entre 2 pages,
+        // faisant apparaitre un code comme plus disponible qu'il ne l'est
+        // reellement.
+        .order("id", { ascending: true })
+        .range(from, to)
+  );
+
+  for (const row of rows) {
     const code = (row.numero_lot || "").trim();
     if (!row.article_id || !code) continue;
     const key = `${row.article_id}::${code.toUpperCase()}`;
     reservedByKey.set(key, (reservedByKey.get(key) ?? 0) + Number(row.quantite_chargee ?? 0));
   }
+
+  return reservedByKey;
+}
+
+function buildAvailableCodesByArticle(
+  stockGroups: Map<string, StockGroup>,
+  reservedByKey: Map<string, number>
+): Record<number, CodeOption[]> {
+  const result: Record<number, CodeOption[]> = {};
 
   for (const [key, group] of stockGroups.entries()) {
     const disponible = group.quantite - (reservedByKey.get(key) ?? 0);
@@ -758,16 +768,14 @@ export default async function CommandeDetailPage({
   const commandeId = Number(id);
   const { erreur } = await searchParams;
 
-  const currentStockUser = await getCurrentStockUser();
-  const [canWriteCommandes, canDeleteCommandes, canVoirPrix] = await Promise.all([
-    canWritePageUser(currentStockUser, "commandesDetail"),
-    canDeleteCommandesUser(currentStockUser),
-    canVoirPrixUser(currentStockUser),
-  ]);
-  const canEditCommandes = canWriteCommandes;
-
-  const [{ data: selectedCommandeData }, { data: fifoData }, commandesData, articleOptions] =
+  // getCurrentStockUser() ne depend d'aucune de ces requetes (juste le
+  // cookie de session) et rien ci-dessous ne depend de son resultat pour
+  // savoir QUOI charger (seulement pour l'affichage plus bas) - les lancer
+  // ensemble economise un aller-retour serveur entier par rapport a
+  // attendre l'utilisateur d'abord.
+  const [currentStockUser, { data: selectedCommandeData }, { data: fifoData }, commandesData, articleOptions] =
     await Promise.all([
+      getCurrentStockUser(),
       supabaseServer
         .from("commandes")
         .select(
@@ -786,6 +794,16 @@ export default async function CommandeDetailPage({
       fetchAllClientNamesForCommandeDetail(),
       fetchAllArticlesForCommandeDetail(),
     ]);
+
+  // readUsers() (donc getUserPermissions) est deja en cache depuis
+  // getCurrentStockUser() ci-dessus (React.cache()) - ces verifications ne
+  // font plus aucun aller-retour reseau supplementaire.
+  const [canWriteCommandes, canDeleteCommandes, canVoirPrix] = await Promise.all([
+    canWritePageUser(currentStockUser, "commandesDetail"),
+    canDeleteCommandesUser(currentStockUser),
+    canVoirPrixUser(currentStockUser),
+  ]);
+  const canEditCommandes = canWriteCommandes;
 
   const selectedCommande = (selectedCommandeData as CommandeDetailRow | null) ?? null;
 
@@ -850,6 +868,8 @@ export default async function CommandeDetailPage({
   // de fetchStockGroupsByArticle/getArticleAvailabilityMap ci-dessus).
   const [
     stockGroups,
+    reservedByKeyForCommande,
+    reservedByKeyForNewLines,
     { data: siblingTrucksData },
     [coutsParCarton, dimensionsParArticle],
     availabilityMap,
@@ -866,7 +886,13 @@ export default async function CommandeDetailPage({
     // y compris celles de cette meme commande - sinon un code deja
     // entierement utilise par une autre ligne de cette commande semblait
     // encore disponible et permettait de le reserver une 2e fois en double.
+    // Les 2 requetes de reservations (fetchReservedByKey) ne dependent PAS
+    // de fetchStockGroupsByArticle - seule leur FUSION finale (plus bas,
+    // buildAvailableCodesByArticle, pur calcul en memoire) en a besoin,
+    // donc les 3 partent ici ensemble plutot que d'attendre l'une l'autre.
     fetchStockGroupsByArticle(relevantArticleIds),
+    fetchReservedByKey(relevantArticleIds, commandeId),
+    fetchReservedByKey(relevantArticleIds, 0),
     supabaseServer
       .from("commandes")
       .select("id, numero_proforma, statut, commande_lignes(id, quantite_demandee)")
@@ -891,12 +917,9 @@ export default async function CommandeDetailPage({
     fetchMontantFactureCommande(selectedCommande.id),
   ]);
 
-  // Depend du resultat de fetchStockGroupsByArticle ci-dessus, doit donc
-  // rester apres le Promise.all principal.
-  const [availableCodesByArticle, availableCodesByArticleForNewLines] = await Promise.all([
-    computeAvailableCodesByArticle(stockGroups, relevantArticleIds, commandeId),
-    computeAvailableCodesByArticle(stockGroups, relevantArticleIds, 0),
-  ]);
+  // Pur calcul en memoire (aucun appel reseau) - peut rester synchrone.
+  const availableCodesByArticle = buildAvailableCodesByArticle(stockGroups, reservedByKeyForCommande);
+  const availableCodesByArticleForNewLines = buildAvailableCodesByArticle(stockGroups, reservedByKeyForNewLines);
 
   const siblingTrucks = (
     (siblingTrucksData as
