@@ -200,7 +200,7 @@ function buildDispatcherDraftRows(
     // si chaque chaine prise individuellement aurait suffi pour son propre
     // lot (ex: 1500 + 1500 avec un max de 3000 -> 1 seul code, pas 2).
     if (totalVrac <= maxVal) {
-      let batchIndex = 0;
+      const batchIndex = 0;
       for (const entry of entries) {
         const vrac = entry.row.vrac_a_fabriquer;
         if (!vrac || vrac <= 0) {
@@ -1243,97 +1243,118 @@ export async function saveProgrammeLigneBatchAction(
 // "Relancer", qui rejouait tout un nouveau Save) - utile pour un programme
 // d'abord pose via Save (sans Dispatch) puis engage en fabrication plus
 // tard, depuis sa propre page d'historique.
-export async function dispatchExistingProgrammeLigneGroupAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
+// Next.js remplace tout throw non attrape venant d'une Server Action par un
+// message generique en production ("An error occurred in the Server
+// Components render...", sans le vrai message) - meme regle que
+// saveProgrammeLigneBatchAction/deleteProgrammeLigneGroupAction : cette
+// action attrape tout elle-meme et renvoie l'erreur comme donnee normale
+// (ok:false + message) plutot que de la laisser remonter comme exception
+// (bug reel signale : le bouton "Dispatch" de l'Historique programme
+// affichait la page d'erreur generique au lieu du vrai message). Ne
+// redirige plus elle-meme (redirect() jette une exception speciale qui
+// serait a tort attrapee par le catch-all ci-dessous) - c'est desormais au
+// composant client appelant de naviguer vers /ravitailleur-par-ligne une
+// fois ok:true recu (voir DispatchGroupButton).
+export async function dispatchExistingProgrammeLigneGroupAction(
+  formData: FormData
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "programeParLigne"))) {
-    throw new Error("Cet utilisateur ne peut pas dispatcher de programme.");
+    if (!(await canWritePageUser(currentUser, "programeParLigne"))) {
+      return { ok: false, message: "Cet utilisateur ne peut pas dispatcher de programme." };
+    }
+
+    const groupeId = Number(String(formData.get("groupe_id") || "0"));
+
+    if (!groupeId) {
+      return { ok: false, message: "Programme invalide." };
+    }
+
+    const { data, error } = await supabaseServer
+      .from("programme_lignes")
+      .select(
+        "id, zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, date_jour"
+      )
+      .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`)
+      .order("id", { ascending: true });
+
+    if (error) {
+      return { ok: false, message: error.message };
+    }
+
+    const lignes = (data ?? []) as {
+      id: number;
+      zone: string;
+      chaine: string;
+      article_id: number | null;
+      produit: string | null;
+      type_article: string | null;
+      qt_carton: number | null;
+      vrac_a_fabriquer: number | null;
+      plateforme: string | null;
+      date_jour: string;
+    }[];
+
+    if (lignes.length === 0) {
+      return { ok: false, message: "Programme introuvable." };
+    }
+
+    const remplies = lignes.filter((ligne) => ligne.article_id);
+
+    const filledRows: PendingProgrammeRow[] = remplies.map((ligne) => ({
+      zone: ligne.zone,
+      chaine: ligne.chaine,
+      article_id: ligne.article_id,
+      produit: ligne.produit || "",
+      type_article: ligne.type_article || "",
+      qt_carton: ligne.qt_carton,
+      vrac_a_fabriquer: ligne.vrac_a_fabriquer,
+      plateforme: ligne.plateforme || "",
+      programe: "",
+    }));
+
+    if (filledRows.length === 0) {
+      return { ok: false, message: "Aucune ligne avec un article a dispatcher." };
+    }
+
+    const rowIds = remplies.map((ligne) => ligne.id);
+    const dateJour = lignes[0].date_jour;
+
+    // Efface TOUTE la grille (voir ZONE_GROUPS), pas seulement les chaines
+    // remplies dans ce groupe : programme_lignes ne stocke jamais les
+    // chaines laissees vides (elles ne sont jamais enregistrees), donc
+    // impossible de savoir ici lesquelles etaient blanches dans le formulaire
+    // d'origine - sans ca, une ancienne chaine dispatchee separement (ex:
+    // CHAINE 9C) qui n'apparait pas dans CE groupe restait affichee au
+    // Ravitailleur indefiniment, meme apres un nouveau Dispatch qui ne la
+    // concerne plus. Un Dispatch (immediat ou differe depuis l'Historique)
+    // represente toujours l'etat complet de toute la grille, jamais un ajout
+    // partiel.
+    const affectedZoneChaine = ZONE_GROUPS.flat();
+
+    // Contrairement a performProgrammeLigneSave, aucune suppression en cas
+    // d'echec : ces lignes programme_lignes existaient deja avant cet appel
+    // (pas creees par lui), les effacer sur un echec de Dispatch perdrait un
+    // programme deja valide pour rien.
+    await assignDispatcherCodesAndInsert(filledRows, dateJour, groupeId, affectedZoneChaine, rowIds);
+
+    revalidatePath("/historique-programme");
+    revalidatePath(`/historique-programme/${groupeId}`);
+    revalidatePath("/ravitailleur-par-ligne");
+    revalidatePath("/code-par-article");
+    revalidatePath("/articles/produit-fini");
+    revalidatePath("/production/suivi");
+    revalidatePath("/production/suivi/dashboard");
+    revalidatePath("/production/suivi/calendrier");
+
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Erreur inconnue pendant le dispatch.",
+    };
   }
-
-  const groupeId = Number(String(formData.get("groupe_id") || "0"));
-
-  if (!groupeId) {
-    throw new Error("Programme invalide.");
-  }
-
-  const { data, error } = await supabaseServer
-    .from("programme_lignes")
-    .select(
-      "id, zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, date_jour"
-    )
-    .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`)
-    .order("id", { ascending: true });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  const lignes = (data ?? []) as {
-    id: number;
-    zone: string;
-    chaine: string;
-    article_id: number | null;
-    produit: string | null;
-    type_article: string | null;
-    qt_carton: number | null;
-    vrac_a_fabriquer: number | null;
-    plateforme: string | null;
-    date_jour: string;
-  }[];
-
-  if (lignes.length === 0) {
-    throw new Error("Programme introuvable.");
-  }
-
-  const remplies = lignes.filter((ligne) => ligne.article_id);
-
-  const filledRows: PendingProgrammeRow[] = remplies.map((ligne) => ({
-    zone: ligne.zone,
-    chaine: ligne.chaine,
-    article_id: ligne.article_id,
-    produit: ligne.produit || "",
-    type_article: ligne.type_article || "",
-    qt_carton: ligne.qt_carton,
-    vrac_a_fabriquer: ligne.vrac_a_fabriquer,
-    plateforme: ligne.plateforme || "",
-    programe: "",
-  }));
-
-  if (filledRows.length === 0) {
-    throw new Error("Aucune ligne avec un article a dispatcher.");
-  }
-
-  const rowIds = remplies.map((ligne) => ligne.id);
-  const dateJour = lignes[0].date_jour;
-
-  // Efface TOUTE la grille (voir ZONE_GROUPS), pas seulement les chaines
-  // remplies dans ce groupe : programme_lignes ne stocke jamais les
-  // chaines laissees vides (elles ne sont jamais enregistrees), donc
-  // impossible de savoir ici lesquelles etaient blanches dans le formulaire
-  // d'origine - sans ca, une ancienne chaine dispatchee separement (ex:
-  // CHAINE 9C) qui n'apparait pas dans CE groupe restait affichee au
-  // Ravitailleur indefiniment, meme apres un nouveau Dispatch qui ne la
-  // concerne plus. Un Dispatch (immediat ou differe depuis l'Historique)
-  // represente toujours l'etat complet de toute la grille, jamais un ajout
-  // partiel.
-  const affectedZoneChaine = ZONE_GROUPS.flat();
-
-  // Contrairement a performProgrammeLigneSave, aucune suppression en cas
-  // d'echec : ces lignes programme_lignes existaient deja avant cet appel
-  // (pas creees par lui), les effacer sur un echec de Dispatch perdrait un
-  // programme deja valide pour rien.
-  await assignDispatcherCodesAndInsert(filledRows, dateJour, groupeId, affectedZoneChaine, rowIds);
-
-  revalidatePath("/historique-programme");
-  revalidatePath(`/historique-programme/${groupeId}`);
-  revalidatePath("/ravitailleur-par-ligne");
-  revalidatePath("/code-par-article");
-  revalidatePath("/articles/produit-fini");
-  revalidatePath("/production/suivi");
-  revalidatePath("/production/suivi/dashboard");
-  revalidatePath("/production/suivi/calendrier");
-
-  redirect("/ravitailleur-par-ligne");
 }
 
 // Retourne { ok:false, message } au lieu de "throw" pour les cas attendus
