@@ -158,25 +158,33 @@ export function StatistiqueExportButton({
         colIndex += 1;
       }
 
+      // La couleur de categorie (orange FORTE ROTATION, etc.) ne colore QUE
+      // la cellule ORDRE a l'ecran (voir rapport-table.tsx : `style` n'est
+      // passe qu'au 1er <td>) - toutes les autres cellules restent blanches
+      // sauf leur propre regle (stock bas, A COMMANDER negatif...). Bug
+      // corrige : cette fonction appliquait a tort categorieStyle comme
+      // fond de base sur TOUTES les cellules de la ligne, noyant le
+      // tableau dans la couleur de categorie et rendant le vrai rouge/rose
+      // illisible en plus de ne pas correspondre a l'ecran.
       applyCell("__row__", row.ordre, categorieStyle ?? undefined);
       applyCell("DESIGNATION", row.designation, { bg: designationBg, text: designationText });
 
       for (const col of dataColumns) {
         if (col.kind === "editable-text" || col.kind === "editable-number") {
-          applyCell(col.key, formatCellValue(row.donnees?.[col.key]), categorieStyle ?? undefined, {
+          applyCell(col.key, formatCellValue(row.donnees?.[col.key]), undefined, {
             bold: col.key === "avis",
           });
           continue;
         }
 
         if (col.kind === "static") {
-          applyCell(col.key, formatCellValue(row.donnees?.[col.key]), categorieStyle ?? undefined);
+          applyCell(col.key, formatCellValue(row.donnees?.[col.key]), undefined);
           continue;
         }
 
         // kind === "live"
         if (!row.live) {
-          applyCell(col.key, "article introuvable", categorieStyle ?? undefined);
+          applyCell(col.key, "article introuvable", undefined);
           continue;
         }
         const live = row.live;
@@ -195,7 +203,7 @@ export function StatistiqueExportButton({
               ]),
             };
           }
-          const resolved = resolveCellColor(col.key, categorieStyle ?? undefined);
+          const resolved = resolveCellColor(col.key, undefined);
           cell.fill = fillFor(resolved.bg);
           cell.border = isSheetBoundary ? THICK_TOP_BORDER : ALL_BORDERS;
           cell.alignment = { vertical: "middle", wrapText: true };
@@ -205,7 +213,7 @@ export function StatistiqueExportButton({
         }
 
         const value = col.liveField ? live[col.liveField] : "-";
-        let base: { bg?: string; text?: string } | undefined = categorieStyle ?? undefined;
+        let base: { bg?: string; text?: string } | undefined;
         let bold = false;
         if (col.liveField === "stock" && stockCell) base = stockCell;
         if (col.liveField === "aCommander" && aCommanderCell) {
@@ -226,9 +234,9 @@ export function StatistiqueExportButton({
       applyCell(
         "__stat6MoisSysteme__",
         row.live ? formatCellValue(row.live.conso6MoisSysteme) : "-",
-        categorieStyle ?? undefined
+        undefined
       );
-      applyCell("__remarque__", formatCellValue((row.donnees?.["remarque_libre"] as string) ?? ""), categorieStyle ?? undefined);
+      applyCell("__remarque__", formatCellValue((row.donnees?.["remarque_libre"] as string) ?? ""), undefined);
     });
 
     sheet.columns.forEach((col, index) => {
