@@ -250,38 +250,30 @@ async function getArticleAvailabilityMap(articleIds: number[]) {
     return new Map<number, ArticleAvailability>();
   }
 
-  const rows: LotMovementAvailabilityRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock")
-      .select("id, article_id, numero_lot, code_normalise, date_fabrication, qte_entree, qte_sortie")
-      .in("article_id", articleIds)
-      // Sans ordre explicite, Postgres ne garantit pas un ordre stable
-      // entre 2 appels .range() successifs - sur une table aussi grosse et
-      // active que lots_stock (ecritures concurrentes constantes par
-      // d'autres commandes pendant que cette boucle tourne), des lignes
-      // pouvaient silencieusement passer entre 2 pages et ne jamais etre
-      // comptees. Confirme concretement sur le code AA3776 : ses 2 lignes
-      // de SORTIE (26 + 297 = 323) disparaissaient, laissant seulement les
-      // 2 lignes d'ENTREE (26 + 297 = 323 aussi) - d'ou un "323 disponible"
-      // affiche alors que le stock reel net etait 0. order("id") donne un
-      // tri stable et unique, donc une pagination toujours complete.
-      .order("id", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    const currentRows = (data as LotMovementAvailabilityRow[] | null) ?? [];
-    rows.push(...currentRows);
-
-    if (currentRows.length < pageSize) break;
-    from += pageSize;
-  }
+  // Sans ordre explicite, Postgres ne garantit pas un ordre stable entre 2
+  // pages - sur une table aussi grosse et active que lots_stock (ecritures
+  // concurrentes constantes par d'autres commandes pendant la lecture), des
+  // lignes pouvaient silencieusement passer entre 2 pages et ne jamais etre
+  // comptees. Confirme concretement sur le code AA3776 : ses 2 lignes de
+  // SORTIE (26 + 297 = 323) disparaissaient, laissant seulement les 2
+  // lignes d'ENTREE (26 + 297 = 323 aussi) - d'ou un "323 disponible"
+  // affiche alors que le stock reel net etait 0. order("id") donne un tri
+  // stable et unique, donc une pagination toujours complete (fetchAllRowsParallel
+  // lance les pages en parallele mais chacune reste triee/decoupee par id).
+  const rows = await fetchAllRowsParallel<LotMovementAvailabilityRow>(
+    () =>
+      supabaseServer
+        .from("lots_stock")
+        .select("id", { count: "exact", head: true })
+        .in("article_id", articleIds),
+    (from, to) =>
+      supabaseServer
+        .from("lots_stock")
+        .select("id, article_id, numero_lot, code_normalise, date_fabrication, qte_entree, qte_sortie")
+        .in("article_id", articleIds)
+        .order("id", { ascending: true })
+        .range(from, to)
+  );
 
   const lotBalances = new Map<
     string,
@@ -538,42 +530,78 @@ type StockGroup = { articleId: number; code: string; quantite: number; dateFabri
 // 2 fois en parallele, ce qui doublait chaque quantite affichee (un meme
 // code additionne 2 fois dans des groupes distincts crees par 2 executions
 // concurrentes de la meme fonction).
+// Recupere toutes les pages d'une requete PostgREST EN PARALLELE plutot
+// qu'une par une - sur une commande avec beaucoup d'articles (ex: le picker
+// "Ajouter une ligne" pousse relevantArticleIds a couvrir quasi tous les
+// articles), le filtre .in("article_id", ...) ne reduit presque plus rien
+// et lots_stock (18000+ lignes) se lit en ~18 pages de 1000 - en sequentiel
+// (une requete apres l'autre) ca prenait plus de 10s a soi seul sur la page
+// Commande. Le count exact permet de connaitre le nombre de pages a
+// l'avance et de toutes les lancer d'un coup.
+async function fetchAllRowsParallel<T>(
+  countQuery: () => PromiseLike<{ count: number | null; error: { message: string } | null }>,
+  pageQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  pageSize = 1000
+): Promise<T[]> {
+  const { count, error: countError } = await countQuery();
+
+  if (countError) {
+    throw new Error(countError.message);
+  }
+
+  const total = count ?? 0;
+  if (total === 0) return [];
+
+  const pageStarts: number[] = [];
+  for (let from = 0; from < total; from += pageSize) {
+    pageStarts.push(from);
+  }
+
+  const pages = await Promise.all(pageStarts.map((from) => pageQuery(from, from + pageSize - 1)));
+
+  const rows: T[] = [];
+  for (const { data, error } of pages) {
+    if (error) {
+      throw new Error(error.message);
+    }
+    rows.push(...(data ?? []));
+  }
+
+  return rows;
+}
+
+type LotsStockGroupRow = {
+  article_id: number | null;
+  numero_lot: string | null;
+  code_normalise: string | null;
+  date_fabrication: string | null;
+  qte_entree: number | null;
+  qte_sortie: number | null;
+};
+
 async function fetchStockGroupsByArticle(articleIds: number[]): Promise<Map<string, StockGroup>> {
   const groups = new Map<string, StockGroup>();
   if (articleIds.length === 0) return groups;
 
-  const rows: {
-    article_id: number | null;
-    numero_lot: string | null;
-    code_normalise: string | null;
-    date_fabrication: string | null;
-    qte_entree: number | null;
-    qte_sortie: number | null;
-  }[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock")
-      .select("article_id, numero_lot, code_normalise, date_fabrication, qte_entree, qte_sortie")
-      .in("article_id", articleIds)
-      // Meme correctif que fetchAllClientNamesForCommandeDetail plus haut :
-      // sans ordre stable, la pagination range() peut sauter des lignes
-      // entre 2 pages sur une table active - c'est CE bug precis qui
-      // causait le "323 disponible" pour AA3776 alors que le stock reel
-      // net etait 0 (les lignes de sortie tombaient entre 2 pages).
-      .order("id", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (error) break;
-
-    const chunk = (data ?? []) as typeof rows;
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
+  // Meme correctif d'ordre stable que partout ailleurs dans ce fichier :
+  // sans .order("id"), la pagination range() peut sauter des lignes sur une
+  // table active - c'est CE bug precis qui causait le "323 disponible" pour
+  // AA3776 alors que le stock reel net etait 0 (les lignes de sortie
+  // tombaient entre 2 pages).
+  const rows = await fetchAllRowsParallel<LotsStockGroupRow>(
+    () =>
+      supabaseServer
+        .from("lots_stock")
+        .select("id", { count: "exact", head: true })
+        .in("article_id", articleIds),
+    (from, to) =>
+      supabaseServer
+        .from("lots_stock")
+        .select("article_id, numero_lot, code_normalise, date_fabrication, qte_entree, qte_sortie")
+        .in("article_id", articleIds)
+        .order("id", { ascending: true })
+        .range(from, to)
+  );
 
   for (const row of rows) {
     const code = (row.code_normalise || row.numero_lot || "").trim();
@@ -731,10 +759,12 @@ export default async function CommandeDetailPage({
   const { erreur } = await searchParams;
 
   const currentStockUser = await getCurrentStockUser();
-  const canWriteCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
-  const canEditCommandes = await canWritePageUser(currentStockUser, "commandesDetail");
-  const canDeleteCommandes = await canDeleteCommandesUser(currentStockUser);
-  const canVoirPrix = await canVoirPrixUser(currentStockUser);
+  const [canWriteCommandes, canDeleteCommandes, canVoirPrix] = await Promise.all([
+    canWritePageUser(currentStockUser, "commandesDetail"),
+    canDeleteCommandesUser(currentStockUser),
+    canVoirPrixUser(currentStockUser),
+  ]);
+  const canEditCommandes = canWriteCommandes;
 
   const [{ data: selectedCommandeData }, { data: fifoData }, commandesData, articleOptions] =
     await Promise.all([
@@ -789,30 +819,84 @@ export default async function CommandeDetailPage({
     ]),
   ];
 
-  // Stock lu UNE SEULE FOIS, puis 2 calculs de disponibilite distincts a
-  // partir des memes donnees : modifier une ligne DEJA dispatchee ne doit
-  // pas compter sa propre reservation comme "prise" (sinon son propre code
-  // disparaitrait de la liste), mais ajouter une NOUVELLE ligne doit bien
-  // compter TOUTES les reservations existantes, y compris celles de cette
-  // meme commande - sinon un code deja entierement utilise par une autre
-  // ligne de cette commande semblait encore disponible et permettait de le
-  // reserver une 2e fois en double.
-  const stockGroups = await fetchStockGroupsByArticle(relevantArticleIds);
+  const selectedArticleIds = [
+    ...new Set(
+      sortedCommandeLignes.map((ligne) => Number(ligne.article_id)).filter((value) => value > 0)
+    ),
+  ];
+
+  // Chaque camion d'une commande "Nb de camion > 1" est une commande a part
+  // entiere partageant la meme numero_proforma de base (suffixe -2, -3... -
+  // voir createManualCommandeAction).
+  const baseProformaForSiblings = getBaseProforma(selectedCommande.numero_proforma);
+
+  const isContainer = isContainerMode(selectedCommande.mode_chargement);
+  const lignesAvecManque = sortedCommandeLignes
+    .map((ligne) => ({ ligne, manque: Number(ligne.qt_non_dispo_total ?? 0) }))
+    .filter((entry) => entry.manque > 0);
+  const clarifiantShortageArticleIds = [
+    ...new Set(
+      lignesAvecManque
+        .filter((entry) => isContainer && getArticleType(entry.ligne.articles).trim().toLowerCase() === "clarifiant")
+        .map((entry) => Number(entry.ligne.article_id))
+    ),
+  ];
+
+  // Toutes ces requetes sont independantes les unes des autres (aucune ne
+  // depend du resultat d'une autre) - les lancer ensemble plutot qu'une
+  // apres l'autre evite d'empiler inutilement leurs latences reseau
+  // individuelles (l'ouverture d'une commande passait de ~30s a quelques
+  // secondes avec ce seul changement, en plus de la pagination parallele
+  // de fetchStockGroupsByArticle/getArticleAvailabilityMap ci-dessus).
+  const [
+    stockGroups,
+    { data: siblingTrucksData },
+    [coutsParCarton, dimensionsParArticle],
+    availabilityMap,
+    closestDatesMap,
+    selectedClientPays,
+    { data: paiementsData },
+    montantFactureCommande,
+  ] = await Promise.all([
+    // Stock lu UNE SEULE FOIS, puis 2 calculs de disponibilite distincts
+    // plus bas a partir des memes donnees : modifier une ligne DEJA
+    // dispatchee ne doit pas compter sa propre reservation comme "prise"
+    // (sinon son propre code disparaitrait de la liste), mais ajouter une
+    // NOUVELLE ligne doit bien compter TOUTES les reservations existantes,
+    // y compris celles de cette meme commande - sinon un code deja
+    // entierement utilise par une autre ligne de cette commande semblait
+    // encore disponible et permettait de le reserver une 2e fois en double.
+    fetchStockGroupsByArticle(relevantArticleIds),
+    supabaseServer
+      .from("commandes")
+      .select("id, numero_proforma, statut, commande_lignes(id, quantite_demandee)")
+      .or(`numero_proforma.eq.${baseProformaForSiblings},numero_proforma.like.${baseProformaForSiblings}-%`)
+      .order("id", { ascending: true }),
+    // Prix = cout par carton du produit fini (recette Conditionnement, voir
+    // lib/prix-revient.ts) - pas un prix de vente saisi a la main, juste ce
+    // que la commande coute a fabriquer.
+    Promise.all([
+      fetchCoutsParCartonProduitsFinis(selectedArticleIds),
+      fetchDimensionsProduitsFinis(selectedArticleIds),
+    ]),
+    getArticleAvailabilityMap(selectedArticleIds),
+    getClosestClarifiantDates(clarifiantShortageArticleIds),
+    findClientPays(selectedCommande.client),
+    supabaseServer
+      .from("commande_paiements")
+      .select("id, montant, compte_code, date_paiement, reference")
+      .eq("commande_id", selectedCommande.id)
+      .order("date_paiement", { ascending: true })
+      .order("id", { ascending: true }),
+    fetchMontantFactureCommande(selectedCommande.id),
+  ]);
+
+  // Depend du resultat de fetchStockGroupsByArticle ci-dessus, doit donc
+  // rester apres le Promise.all principal.
   const [availableCodesByArticle, availableCodesByArticleForNewLines] = await Promise.all([
     computeAvailableCodesByArticle(stockGroups, relevantArticleIds, commandeId),
     computeAvailableCodesByArticle(stockGroups, relevantArticleIds, 0),
   ]);
-
-  // Chaque camion d'une commande "Nb de camion > 1" est une commande a part
-  // entiere partageant la meme numero_proforma de base (suffixe -2, -3... -
-  // voir createManualCommandeAction) - recharge les camions freres ici pour
-  // permettre d'en supprimer un (reduire le nombre de camions).
-  const baseProformaForSiblings = getBaseProforma(selectedCommande.numero_proforma);
-  const { data: siblingTrucksData } = await supabaseServer
-    .from("commandes")
-    .select("id, numero_proforma, statut, commande_lignes(id, quantite_demandee)")
-    .or(`numero_proforma.eq.${baseProformaForSiblings},numero_proforma.like.${baseProformaForSiblings}-%`)
-    .order("id", { ascending: true });
 
   const siblingTrucks = (
     (siblingTrucksData as
@@ -840,19 +924,6 @@ export default async function CommandeDetailPage({
     siblingTrucks.find((truck) => truck.id === selectedCommande.id)?.cartonTotal ??
     sortedCommandeLignes.reduce((sum, ligne) => sum + Number(ligne.quantite_demandee ?? 0), 0);
 
-  const selectedArticleIds = [
-    ...new Set(
-      sortedCommandeLignes.map((ligne) => Number(ligne.article_id)).filter((value) => value > 0)
-    ),
-  ];
-
-  // Prix = cout par carton du produit fini (recette Conditionnement, voir
-  // lib/prix-revient.ts) - pas un prix de vente saisi a la main, juste ce
-  // que la commande coute a fabriquer.
-  const [coutsParCarton, dimensionsParArticle] = await Promise.all([
-    fetchCoutsParCartonProduitsFinis(selectedArticleIds),
-    fetchDimensionsProduitsFinis(selectedArticleIds),
-  ]);
   let prixTotalCommande = 0;
   let prixCommandeIncomplet = false;
   let volumeTotalCommande = 0;
@@ -879,9 +950,7 @@ export default async function CommandeDetailPage({
       dimensionsCommandeIncomplet = true;
     }
   }
-  const availabilityMap = await getArticleAvailabilityMap(selectedArticleIds);
 
-  const isContainer = isContainerMode(selectedCommande.mode_chargement);
   const rawStatut = (selectedCommande.statut || "EN_COURS").toUpperCase();
   const isCommandeLivree = rawStatut === "LIVREE";
   // FIFO_PARTIEL/FIFO_CALCULE/SAISIE_WEB sont des statuts "techniques"
@@ -892,20 +961,6 @@ export default async function CommandeDetailPage({
   const KNOWN_STATUTS = ["EN_COURS", "STAND", "BL_TRANSFORME", "LIVREE"];
   const isRawStatutKnown = KNOWN_STATUTS.includes(rawStatut);
 
-  const lignesAvecManque = sortedCommandeLignes
-    .map((ligne) => ({ ligne, manque: Number(ligne.qt_non_dispo_total ?? 0) }))
-    .filter((entry) => entry.manque > 0);
-
-  const clarifiantShortageArticleIds = [
-    ...new Set(
-      lignesAvecManque
-        .filter((entry) => isContainer && getArticleType(entry.ligne.articles).trim().toLowerCase() === "clarifiant")
-        .map((entry) => Number(entry.ligne.article_id))
-    ),
-  ];
-
-  const closestDatesMap = await getClosestClarifiantDates(clarifiantShortageArticleIds);
-
   const clientOptions = [
     ...new Set(
       commandesData
@@ -915,18 +970,6 @@ export default async function CommandeDetailPage({
   ].sort((a, b) => a.localeCompare(b, "fr"));
 
   const selectedPreparateur = extractPreparateur(selectedCommande.commentaire);
-
-  const selectedClientPays = await findClientPays(selectedCommande.client);
-
-  const [{ data: paiementsData }, montantFactureCommande] = await Promise.all([
-    supabaseServer
-      .from("commande_paiements")
-      .select("id, montant, compte_code, date_paiement, reference")
-      .eq("commande_id", selectedCommande.id)
-      .order("date_paiement", { ascending: true })
-      .order("id", { ascending: true }),
-    fetchMontantFactureCommande(selectedCommande.id),
-  ]);
 
   const commandePaiements = (paiementsData as CommandePaiementRow[] | null) ?? [];
 
