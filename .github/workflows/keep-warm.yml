@@ -1,0 +1,22 @@
+name: Garder le serveur eveille
+
+# Vercel endort les fonctions serverless quand personne ne les utilise -
+# la premiere requete apres une pause paie ~1-2s de "reveil" avant meme de
+# commencer a lire quoi que ce soit en base. On evite ce reveil pendant les
+# heures de travail en pingant le site regulierement.
+#
+# Le Togo est en UTC+0 toute l'annee (pas de changement d'heure) - les
+# horaires cron ci-dessous sont donc directement en heure locale de Lome.
+on:
+  schedule:
+    - cron: "*/10 6-19 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping l'accueil
+        run: curl -s -o /dev/null -m 30 https://erp-rodis.vercel.app/ || true
+      - name: Ping le module Commandes
+        run: curl -s -o /dev/null -m 30 https://erp-rodis.vercel.app/commandes || true
