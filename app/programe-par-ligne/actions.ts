@@ -1274,7 +1274,7 @@ export async function dispatchExistingProgrammeLigneGroupAction(
     const { data, error } = await supabaseServer
       .from("programme_lignes")
       .select(
-        "id, zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, date_jour"
+        "id, zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, date_jour, numero_lot"
       )
       .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`)
       .order("id", { ascending: true });
@@ -1294,10 +1294,32 @@ export async function dispatchExistingProgrammeLigneGroupAction(
       vrac_a_fabriquer: number | null;
       plateforme: string | null;
       date_jour: string;
+      numero_lot: string | null;
     }[];
 
     if (lignes.length === 0) {
       return { ok: false, message: "Programme introuvable." };
+    }
+
+    // assignDispatcherCodesAndInsert regenere TOUJOURS des codes frais pour
+    // toutes les lignes qu'on lui passe, meme celles qui en ont deja - un
+    // re-Dispatch d'un programme deja envoye (bouton reclique par erreur, ou
+    // apres une correction dans Code par article) remplacait donc en
+    // silence des codes deja utilises en production (deja imprimes, deja
+    // dans Programme Dispatcher/Historique) par de nouveaux, deconnectant
+    // le programme de son propre historique (PD) - bug reel confirme
+    // (article "Gel douche soopure carotte 300ml", PD27). Tant qu'aucun
+    // outil de correction cible n'existe pour changer UN SEUL code deja
+    // dispatche sans toucher aux autres, on bloque plutot que de regenerer.
+    const dejaDispatchees = lignes.filter((ligne) => ligne.article_id && ligne.numero_lot);
+    if (dejaDispatchees.length > 0) {
+      return {
+        ok: false,
+        message:
+          "Ce programme a deja ete dispatche - les codes (" +
+          dejaDispatchees.map((l) => l.numero_lot).join(", ") +
+          ") sont deja utilises en production et ne peuvent plus etre changes en redispatchant. Contacte un admin si une ligne precise doit vraiment etre corrigee.",
+      };
     }
 
     const remplies = lignes.filter((ligne) => ligne.article_id);
