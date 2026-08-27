@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
+import { StatistiqueChart, type YearMonthRow } from "./statistique-chart";
 
 type LotRow = { date_jour: string | null; qte_entree: number; qte_sortie: number };
 
@@ -88,6 +89,23 @@ export default async function ProduitStatistiquePage({
       mouvementNet: totals.entree - totals.sortie,
     }))
     .sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+
+  if (type === "pf") {
+    const yearMonthRows: YearMonthRow[] = rows.map((row) => {
+      const [year, month] = row.monthKey.split("-");
+      return { year: Number(year), month: Number(month), entree: row.entree, sortie: row.sortie };
+    });
+
+    return (
+      <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+        {yearMonthRows.length === 0 ? (
+          <p className="py-8 text-center text-sm text-slate-500">Aucun mouvement enregistre pour cet article.</p>
+        ) : (
+          <StatistiqueChart rows={yearMonthRows} />
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
