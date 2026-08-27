@@ -290,11 +290,12 @@ export function StatistiqueChart({ rows }: { rows: YearMonthRow[] }) {
             </g>
 
             {/* Points de donnees, toujours visibles (pas seulement au
-                survol) - juste le point colore, sans chiffre a cote : un
-                chiffre sur chaque mois de chaque serie se superposait des
-                que plusieurs series avaient des valeurs proches (rapporte
-                par l'utilisateur). La valeur se lit au survol (infobulle
-                plus bas) ou via l'etiquette unique ci-dessous. */}
+                survol) - juste le point colore, aucun chiffre sur le
+                graphique lui-meme (demande explicite : les chiffres
+                permanents se superposaient/flottaient sur des points vides
+                selon les series affichees). La valeur, le mouvement
+                (Entree/Sortie) et l'annee se lisent uniquement au survol
+                d'un mois, via l'infobulle plus bas. */}
             {series.map((s) =>
               s.values.map((v, i) => {
                 if (v <= 0) return null;
@@ -312,51 +313,6 @@ export function StatistiqueChart({ rows }: { rows: YearMonthRow[] }) {
                 );
               })
             )}
-
-            {/* Etiquette unique par serie (valeur + annee/mouvement),
-                positionnee sur le DERNIER mois ou cette serie a reellement
-                du mouvement - jamais sur decembre si l'annee est
-                incomplete et vide apres cette date (ca affichait
-                l'etiquette flottante sur un point a 0, illisible et
-                signale par l'utilisateur). Une seule etiquette par serie,
-                donc plus d'empilement de chiffres. */}
-            {series.map((s) => {
-              let lastActiveIndex = -1;
-              for (let i = s.values.length - 1; i >= 0; i -= 1) {
-                if (s.values[i] > 0) {
-                  lastActiveIndex = i;
-                  break;
-                }
-              }
-              if (lastActiveIndex === -1) return null;
-              const cx = xFor(lastActiveIndex);
-              const cy = yFor(s.values[lastActiveIndex]);
-              return (
-                <g key={`${s.year}-${s.kind}-label`}>
-                  <text
-                    x={cx}
-                    y={s.kind === "entree" ? cy - 8 : cy + 15}
-                    textAnchor="middle"
-                    className="fill-slate-600"
-                    fontSize={9}
-                    fontWeight={600}
-                  >
-                    {formatNumber(s.values[lastActiveIndex])}
-                  </text>
-                  <text
-                    x={cx + 8}
-                    y={cy}
-                    textAnchor="start"
-                    dominantBaseline="middle"
-                    className="fill-slate-700"
-                    fontSize={10}
-                    fontWeight={700}
-                  >
-                    {s.year} {s.kind === "entree" ? "Ent." : "Sor."}
-                  </text>
-                </g>
-              );
-            })}
 
             {/* Cible de survol (zone > au marqueur visible) */}
             {MOIS_COURTS.map((_, monthIndex) => (
