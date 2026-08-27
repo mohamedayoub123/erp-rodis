@@ -40,6 +40,13 @@ const TILES = [
     description: "Vitesse de rotation de chaque article (consommation 12 mois / stock actuel) et jours de couverture.",
   },
   {
+    label: "Entree/Sortie",
+    href: "/stock/matiere-premiere/rapport/mouvements",
+    pageKey: "stockMouvementsMp",
+    icon: "\u{1F4C8}",
+    description: "Entree et sortie par mois et par annee, par article - graphique et tableau croise.",
+  },
+  {
     label: "Stock Min Propose",
     href: "/stock/matiere-premiere/rapport/stock-min",
     pageKey: "stockMinProposeMp",
