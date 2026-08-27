@@ -90,10 +90,27 @@ type ArticleMpRow = {
 type RapportRow = {
   id: number;
   ordre: number;
+  // Rempli uniquement quand l'ORDRE de cette ligne a ete change depuis
+  // l'appli (voir saveRapportGammeStatistiqueAction) - sert de departage
+  // pour les lignes qui partagent le meme ORDRE (voir compareOrdreUpdatedAt
+  // plus bas) : NULL = jamais deplacee, une date = deplacee, plus recente
+  // = deplacee plus tard.
+  ordre_updated_at: string | null;
   designation: string;
   categorie: string | null;
   donnees: Record<string, string | number | null>;
 };
+
+// Departage entre 2 lignes de meme ORDRE : celle jamais deplacee (NULL)
+// vient en premier, entre 2 lignes deplacees la plus ancienne d'abord -
+// une ligne qu'on vient de deplacer sur un numero existant doit toujours
+// finir APRES les lignes deja presentes sur ce numero, jamais avant.
+function compareOrdreUpdatedAt(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (a === null) return -1;
+  if (b === null) return 1;
+  return a < b ? -1 : 1;
+}
 
 const ARTICLES_MP_COLUMNS = "id, nom_article, categorie, unite, gamme, gamme_statistique, min_stock, max_stock";
 
@@ -442,9 +459,10 @@ async function buildRapportRowsWithLive(
 ): Promise<RapportRowWithLive[]> {
   const { data } = await supabaseServer
     .from("rapport_gamme_statistique_mp")
-    .select("id, ordre, designation, categorie, donnees")
+    .select("id, ordre, ordre_updated_at, designation, categorie, donnees")
     .eq("gamme_statistique", gammeKey)
     .order("ordre", { ascending: true })
+    .order("ordre_updated_at", { ascending: true, nullsFirst: true })
     .order("id", { ascending: true });
   const rapportRows = (data ?? []) as RapportRow[];
 
@@ -468,7 +486,7 @@ async function buildAllGammeSections(
 
   const rapportRowsAll = await fetchAllRows<RapportRow>(
     "rapport_gamme_statistique_mp",
-    "id, ordre, designation, categorie, donnees, gamme_statistique",
+    "id, ordre, ordre_updated_at, designation, categorie, donnees, gamme_statistique",
     (query) => query.in("gamme_statistique", gammeKeys)
   );
   const rapportRowsByGamme = new Map<string, RapportRow[]>();
@@ -477,14 +495,12 @@ async function buildAllGammeSections(
     list.push(row);
     rapportRowsByGamme.set(row.gamme_statistique, list);
   }
-  // Meme tri que la requete par gamme (order("ordre").order("id")) -
-  // .in(...) ne trie pas par groupe, chaque liste doit etre re-triee
-  // elle-meme. Le depart age par id est ce qui fait qu'une ligne dont le
-  // numero est change pour rejoindre un groupe existant vient toujours
-  // APRES les lignes deja presentes sur ce numero (plus vieux id = deja
-  // la, plus jeune id = vient d'etre deplacee ici).
+  // Meme tri que la requete par gamme - .in(...) ne trie pas par groupe,
+  // chaque liste doit etre re-triee elle-meme.
   for (const list of rapportRowsByGamme.values()) {
-    list.sort((a, b) => a.ordre - b.ordre || a.id - b.id);
+    list.sort(
+      (a, b) => a.ordre - b.ordre || compareOrdreUpdatedAt(a.ordre_updated_at, b.ordre_updated_at) || a.id - b.id
+    );
   }
 
   const matchedArticleIds = matchedArticleIdsForRows(rapportRowsAll, articleByNormalizedName);

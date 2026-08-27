@@ -64,7 +64,18 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
     const parsedOrdre = Number(rawOrdre);
     const ordre = Number.isFinite(parsedOrdre) && parsedOrdre > 0 ? Math.trunc(parsedOrdre) : null;
 
-    return { id, donnees, ordre };
+    // ordre_updated_at ne bouge QUE quand l'ORDRE soumis differe vraiment
+    // de celui charge au debut (ordre_original_${id}) - toutes les lignes
+    // renvoient un ordre_${id} a chaque sauvegarde (colonnes editables
+    // incluses), le bouger a chaque fois casserait le tri par groupe (voir
+    // buildRapportRowsWithLive dans page.tsx : NULL = jamais deplacee,
+    // trie en premier dans son groupe ; une vraie date = deplacee, trie
+    // apres les lignes jamais touchees de ce meme numero).
+    const rawOriginalOrdre = String(formData.get(`ordre_original_${id}`) || "").trim();
+    const originalOrdre = Number(rawOriginalOrdre);
+    const ordreChanged = ordre !== null && Number.isFinite(originalOrdre) && ordre !== originalOrdre;
+
+    return { id, donnees, ordre, ordreChanged };
   });
 
   const chunkSize = 20;
@@ -74,7 +85,11 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
       chunk.map((update) =>
         supabaseServer
           .from("rapport_gamme_statistique_mp")
-          .update({ donnees: update.donnees, ...(update.ordre !== null ? { ordre: update.ordre } : null) })
+          .update({
+            donnees: update.donnees,
+            ...(update.ordre !== null ? { ordre: update.ordre } : null),
+            ...(update.ordreChanged ? { ordre_updated_at: new Date().toISOString() } : null),
+          })
           .eq("id", update.id)
       )
     );

@@ -225,6 +225,13 @@ export function RapportTable({
       {rows.map((row) => (
         <input key={row.id} type="hidden" name="row_id" value={row.id} />
       ))}
+      {rows.map((row) => (
+        // Valeur d'ORDRE au chargement de la page - permet a l'action de
+        // detecter si l'ORDRE soumis a reellement change (et alors seule-
+        // ment mettre a jour ordre_updated_at, voir actions.ts) sans requete
+        // supplementaire pour relire l'etat actuel en base.
+        <input key={row.id} type="hidden" name={`ordre_original_${row.id}`} value={row.ordre} />
+      ))}
       {rows.map((row) => {
         const colors = colorsByRow[row.id] || {};
         return (
