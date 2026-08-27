@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, useTransition } from "react";
 import { GAMME_CONFIGS } from "./gamme-config";
 import { editableFieldName } from "./field-name";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { SearchableSelect } from "@/app/_components/searchable-select";
 import { StatistiqueExportButton } from "./statistique-export-button";
 import { computeRowDerivedColors } from "./row-colors";
 
@@ -93,16 +94,87 @@ function preventEnterSubmit(event: React.KeyboardEvent<HTMLFormElement>) {
   }
 }
 
+// Ajoute une ligne (un article) au rapport - formulaire a part (pas dans le
+// <form> principal qui enregistre les colonnes editables, on ne peut pas
+// imbriquer 2 <form>). Appel direct de l'action (pas de <form action=...>
+// natif) pour pouvoir attraper l'erreur et l'afficher - sinon un article
+// deja present (rejete par l'action) atterrit sur la page d'erreur
+// generique Next.js au lieu du message reel (meme bug deja corrige sur
+// Conditionnement/Emballage).
+function AddArticleRow({
+  gammeStatistique,
+  articleOptions,
+  addAction,
+}: {
+  gammeStatistique: string;
+  articleOptions: { value: string; label: string }[];
+  addAction: (formData: FormData) => void | Promise<void>;
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [resetKey, setResetKey] = useState(0);
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    const formData = new FormData(event.currentTarget);
+    startTransition(async () => {
+      try {
+        await addAction(formData);
+        formRef.current?.reset();
+        setResetKey((key) => key + 1);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur lors de l'ajout.");
+      }
+    });
+  }
+
+  return (
+    <form
+      ref={formRef}
+      onSubmit={handleSubmit}
+      className="flex flex-wrap items-center gap-3 rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]"
+    >
+      <input type="hidden" name="gamme_statistique" value={gammeStatistique} />
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+        Ajouter un article
+      </p>
+      <div className="w-72">
+        <SearchableSelect
+          key={resetKey}
+          name="article_id"
+          options={articleOptions}
+          placeholder="Nom de l'article a ajouter"
+          required
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={isPending}
+        className="rounded-full bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:opacity-60"
+      >
+        {isPending ? "Ajout..." : "Ajouter"}
+      </button>
+      {error ? <p className="text-sm font-semibold text-red-600">{error}</p> : null}
+    </form>
+  );
+}
+
 export function RapportTable({
   gammeStatistique,
   rows,
   canEdit,
   saveAction,
+  addAction,
+  articleOptions,
 }: {
   gammeStatistique: string;
   rows: RapportRowWithLive[];
   canEdit: boolean;
   saveAction: (formData: FormData) => void | Promise<void>;
+  addAction: (formData: FormData) => void | Promise<void>;
+  articleOptions: { value: string; label: string }[];
 }) {
   const config = GAMME_CONFIGS[gammeStatistique];
 
@@ -140,7 +212,15 @@ export function RapportTable({
   const todayIso = new Date().toISOString().slice(0, 10);
 
   return (
-    <form action={saveAction} onKeyDown={preventEnterSubmit} className="space-y-6">
+    <div className="space-y-6">
+      {canEdit ? (
+        <AddArticleRow
+          gammeStatistique={gammeStatistique}
+          articleOptions={articleOptions}
+          addAction={addAction}
+        />
+      ) : null}
+      <form action={saveAction} onKeyDown={preventEnterSubmit} className="space-y-6">
       <input type="hidden" name="gamme_statistique" value={gammeStatistique} />
       {rows.map((row) => (
         <input key={row.id} type="hidden" name="row_id" value={row.id} />
@@ -492,6 +572,7 @@ export function RapportTable({
           </button>
         </div>
       ) : null}
-    </form>
+      </form>
+    </div>
   );
 }

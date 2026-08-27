@@ -7,7 +7,7 @@ import { formatDate } from "@/lib/format-date";
 import { computeStatutBc } from "@/app/stock/matiere-premiere/bc/constants";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { RapportTable, type RapportRowWithLive } from "./rapport-table";
-import { saveRapportGammeStatistiqueAction } from "./actions";
+import { saveRapportGammeStatistiqueAction, addRapportGammeStatistiqueRowAction } from "./actions";
 import { GAMME_CONFIGS } from "./gamme-config";
 
 // Meme regle que la page Import MP (app/stock/matiere-premiere/commande) :
@@ -356,6 +356,17 @@ function mapRapportRowsToLive(
     donnees: row.donnees,
     live: liveDataByRapportRowId.get(row.id) ?? null,
   }));
+}
+
+// Options du champ "Ajouter un article" - tous les articles MP dont le nom
+// n'est pas deja utilise par une ligne de CE rapport (evite de proposer un
+// article deja present, la meme comparaison nom-normalise que le
+// rapprochement live plus haut).
+function articleOptionsForGamme(allArticles: ArticleMpRow[], existingRows: RapportRowWithLive[]) {
+  const usedNames = new Set(existingRows.map((row) => normalizeArticleNameLoose(row.designation)));
+  return allArticles
+    .filter((article) => !usedNames.has(normalizeArticleNameLoose(article.nom_article)))
+    .map((article) => ({ value: String(article.id), label: article.nom_article }));
 }
 
 // Article ids matches par au moins une ligne de rapport donnee (nom
@@ -723,6 +734,8 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
                       rows={rows}
                       canEdit={canEdit}
                       saveAction={saveRapportGammeStatistiqueAction}
+                      addAction={addRapportGammeStatistiqueRowAction}
+                      articleOptions={articleOptionsForGamme(allArticles, rows)}
                     />
                   </div>
                 ))}
@@ -743,6 +756,8 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
                   rows={rowsWithLive}
                   canEdit={canEdit}
                   saveAction={saveRapportGammeStatistiqueAction}
+                  addAction={addRapportGammeStatistiqueRowAction}
+                  articleOptions={articleOptionsForGamme(allArticles, rowsWithLive)}
                 />
               </>
             ) : (
