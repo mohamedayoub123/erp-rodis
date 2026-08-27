@@ -2,9 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { saveFabricationRapportAction } from "../../actions";
-import { DateJmaFormField, MOIS_OPTIONS, smartEntryDateDefault } from "@/app/_components/date-jma-input";
+import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input";
+import { smartEntryDateDefault } from "@/lib/smart-entry-date-default";
 import { SubmitButton } from "@/app/_components/submit-button";
-import { combineTempsJourMois, splitTempsJourMois } from "@/lib/suivi-tirage-time";
+import {
+  combineTempsJourMois,
+  smartTempsDayMonthDefault,
+  splitTempsJourMois,
+} from "@/lib/suivi-tirage-time";
 import {
   type TimeMaskState,
   handleTimeKeyDown,
@@ -70,14 +75,19 @@ export function TempsField({
   label,
   name,
   defaultValue,
+  defaultDayMonth,
 }: {
   label: string;
   name: string;
   defaultValue: string | null | undefined;
+  // Utilise seulement si defaultValue n'a rien fourni (nouvelle saisie) -
+  // voir smartTempsDayMonthDefault. Une valeur deja enregistree n'est
+  // jamais ecrasee par ce fallback.
+  defaultDayMonth?: { day: string; month: string };
 }) {
   const initial = splitTempsJourMois(defaultValue);
-  const [day, setDay] = useState(initial.day);
-  const [month, setMonth] = useState(initial.month);
+  const [day, setDay] = useState(initial.day || defaultDayMonth?.day || "");
+  const [month, setMonth] = useState(initial.month || defaultDayMonth?.month || "");
   const [timeState, setTimeState] = useState<TimeMaskState>(() => parseTimeValue(initial.time));
   const time = renderTimeState(timeState);
 
@@ -149,6 +159,11 @@ export function FabricationForm({
   });
 
   const [typeFabrication, setTypeFabrication] = useState(rapport?.type_fabrication || "");
+
+  const tempsDefaultDayMonth = useMemo(
+    () => smartTempsDayMonthDefault(ligneDateJour),
+    [ligneDateJour]
+  );
 
   const vracTotal = useMemo(() => {
     const total = Object.values(cuvesPoids).reduce<number>((sum, value) => {
@@ -349,14 +364,26 @@ export function FabricationForm({
             label="Debut preparation"
             name="temps_debut_preparation"
             defaultValue={rapport?.temps_debut_preparation}
+            defaultDayMonth={tempsDefaultDayMonth}
           />
           <TempsField
             label="Envoi echantillon labo"
             name="temps_envoi_echantillon_labo"
             defaultValue={rapport?.temps_envoi_echantillon_labo}
+            defaultDayMonth={tempsDefaultDayMonth}
           />
-          <TempsField label="Fin test" name="temps_fin_test" defaultValue={rapport?.temps_fin_test} />
-          <TempsField label="Vidange" name="temps_vidange" defaultValue={rapport?.temps_vidange} />
+          <TempsField
+            label="Fin test"
+            name="temps_fin_test"
+            defaultValue={rapport?.temps_fin_test}
+            defaultDayMonth={tempsDefaultDayMonth}
+          />
+          <TempsField
+            label="Vidange"
+            name="temps_vidange"
+            defaultValue={rapport?.temps_vidange}
+            defaultDayMonth={tempsDefaultDayMonth}
+          />
         </div>
       </div>
 

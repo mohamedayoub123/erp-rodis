@@ -611,37 +611,50 @@ export async function updateLigneZoneChaineAction(ligneId: number, zone: string,
   revalidatePath("/production/suivi/dashboard");
 }
 
+// Next.js remplace tout throw non attrape venant d'une Server Action par un
+// message generique en production ("An error occurred in the Server
+// Components render...") - meme regle que dispatchExistingProgrammeLigneGroupAction
+// (app/programe-par-ligne/actions.ts). Cette action gardait pourtant des
+// throw non-proteges (bug reel signale : "Entrer" sur Conditionnement/
+// Emballage affichait la page d'erreur generique). Plutot que de changer le
+// <form action={...}> natif (qui fonctionne bien avec redirect()), on
+// attrape tout ici et on redirige avec le MEME parametre &erreur= deja
+// affiche par la page pour l'erreur de validation existante - seule
+// l'exception speciale de redirect() (digest NEXT_REDIRECT, les 2 redirect()
+// normaux de cette fonction) doit continuer a passer telle quelle.
 export async function saveConditionnementRapportAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
-
-  if (!(await canWritePageUser(currentUser, "productionSuiviProductionConditionnement"))) {
-    throw new Error("Cet utilisateur ne peut pas enregistrer de rapport production.");
-  }
-
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
-  // Le code du lot precis en cours de saisie (ex: "AA4141V" sur une ligne
-  // decoupee en 3) - vide seulement pour une vieille ligne jamais reouverte
-  // depuis l'ajout du suivi par code (voir la page de saisie, qui retombe
-  // alors sur l'ancien rapport partage "" pour prefill).
   const code = String(formData.get("code") || "").trim();
-  // Present seulement quand le formulaire a ete pre-rempli depuis une
-  // fournee existante (voir la page) - id de CETTE fournee, pour corriger
-  // sa ligne au lieu d'en creer une nouvelle. Vide sur "Nouvelle fournee"
-  // (lien explicite sur la page, formulaire remis a zero).
-  const fourneeId = Number(String(formData.get("fournee_id") || "0")) || null;
 
-  if (!ligneId) {
-    throw new Error("Ligne invalide.");
-  }
+  try {
+    const currentUser = await getCurrentStockUser();
 
-  const erreurConditionnement = await messageSiConditionnementInvalide(ligneId, code);
-  if (erreurConditionnement) {
-    redirect(
-      `/production/suivi-production/conditionnement/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurConditionnement)}`
-    );
-  }
+    if (!(await canWritePageUser(currentUser, "productionSuiviProductionConditionnement"))) {
+      throw new Error("Cet utilisateur ne peut pas enregistrer de rapport production.");
+    }
 
-  const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
+    // Le code du lot precis en cours de saisie (ex: "AA4141V" sur une ligne
+    // decoupee en 3) - vide seulement pour une vieille ligne jamais reouverte
+    // depuis l'ajout du suivi par code (voir la page de saisie, qui retombe
+    // alors sur l'ancien rapport partage "" pour prefill).
+    // Present seulement quand le formulaire a ete pre-rempli depuis une
+    // fournee existante (voir la page) - id de CETTE fournee, pour corriger
+    // sa ligne au lieu d'en creer une nouvelle. Vide sur "Nouvelle fournee"
+    // (lien explicite sur la page, formulaire remis a zero).
+    const fourneeId = Number(String(formData.get("fournee_id") || "0")) || null;
+
+    if (!ligneId) {
+      throw new Error("Ligne invalide.");
+    }
+
+    const erreurConditionnement = await messageSiConditionnementInvalide(ligneId, code);
+    if (erreurConditionnement) {
+      redirect(
+        `/production/suivi-production/conditionnement/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurConditionnement)}`
+      );
+    }
+
+    const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
   // date_fabrication_conditionnement/date_peremption restent sur
@@ -768,16 +781,25 @@ export async function saveConditionnementRapportAction(formData: FormData) {
           ])
         : { error: null };
 
-  if (cartonInsert.error) {
-    throw new Error(cartonInsert.error.message);
-  }
+    if (cartonInsert.error) {
+      throw new Error(cartonInsert.error.message);
+    }
 
-  if (!modeCorrection && qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique) {
-    await consommerCartonProportionnel(ligneId, code, qtFabriquer, currentUser);
-  }
+    if (!modeCorrection && qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique) {
+      await consommerCartonProportionnel(ligneId, code, qtFabriquer, currentUser);
+    }
 
-  revalidateRapportPages();
-  redirect("/production/suivi/dashboard");
+    revalidateRapportPages();
+    redirect("/production/suivi/dashboard");
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : "Erreur inconnue pendant l'enregistrement.";
+    redirect(
+      `/production/suivi-production/conditionnement/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(message)}`
+    );
+  }
 }
 
 // Recalcule (efface + recree si un cout est trouve) l'ecriture comptable
@@ -1128,94 +1150,108 @@ export async function ajouterAjustementMpTestLaboAction(formData: FormData) {
   redirect(`/production/suivi-production/fabrication/${ligneId}/test-labo?code=${encodeURIComponent(code)}&ajuste=1`);
 }
 
+// Meme correctif que saveConditionnementRapportAction juste au-dessus (voir
+// son commentaire) : plus de throw non-protege, une vraie erreur redirige
+// desormais vers la page Emballage avec &erreur= (nouveau parametre - voir
+// emballage/[ligneId]/page.tsx, meme mecanisme d'affichage que Conditionnement).
 export async function saveEmballageRapportAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
-
-  if (!(await canWritePageUser(currentUser, "productionSuiviProductionEmballage"))) {
-    throw new Error("Cet utilisateur ne peut pas enregistrer de rapport production.");
-  }
-
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();
 
-  if (!ligneId) {
-    throw new Error("Ligne invalide.");
-  }
+  try {
+    const currentUser = await getCurrentStockUser();
 
-  const quantite = parseOptionalNumber(formData, "quantite");
-  const dateEmballage = parseOptionalText(formData, "date_emballage");
-
-  // date_emballage/date_peremption restent sur production_rapports
-  // (proprietes du lot/code) - tout le reste (chef/machine/operateur/
-  // scotcheuse/arrets/temps...) va desormais directement sur la ligne
-  // production_emballage_entries de CETTE fournee (meme correctif que
-  // Conditionnement juste au-dessus - bug reel d'ecrasement entre plusieurs
-  // fournees du meme code).
-  const fields: Record<string, unknown> = {
-    date_emballage: dateEmballage,
-  };
-
-  // date_peremption vient normalement du rapport Conditionnement DEJA saisi
-  // pour ce meme (ligne, code) - meme ligne de production_rapports, colonne
-  // partagee entre les etapes (voir upsertRapport). Le formulaire "Entrer"
-  // normal ne renvoie donc jamais ce champ (affiche en lecture seule) : ne
-  // l'ecrase que si la page l'a explicitement envoye (le cas de la fiche
-  // "nouveau", ou aucun Conditionnement n'existe pour fournir la date).
-  if (formData.get("date_peremption") !== null) {
-    fields.date_peremption = parseOptionalText(formData, "date_peremption");
-  }
-
-  await upsertRapport(ligneId, code, fields);
-
-  // Alimente le journal emballage (meme principe que carton/vrac) pour que
-  // le "reste" par rapport a ce qui a deja ete conditionne se recalcule
-  // tout seul. date_jour vient de la date saisie sur le rapport (Date
-  // emballage) au lieu de la date automatique (aujourd'hui, valeur par
-  // defaut) - c'est ce qui alimente la colonne "Date emballage" de Suivi
-  // Production. L'emballage se saisit comme un AJOUT (voir Conditionnement
-  // plus haut, meme conclusion apres le cas WA1219). Toutes les infos de
-  // CETTE fournee sont portees directement par cette ligne, plus jamais
-  // partagees avec les autres fournees du meme code.
-  //
-  // PAS de dernierEntreeQuantiteIdentique ici, contrairement a Vrac/Carton :
-  // ce champ "quantite" repart TOUJOURS de 0 sur ce formulaire (pas de
-  // colonne dediee sur production_rapports pour le pre-remplir avec la
-  // derniere valeur, contrairement a qt_fabriquer pour Conditionnement) -
-  // "meme quantite que la derniere fois" ne peut donc jamais venir d'une
-  // reouverture-resaisie-sans-rien-changer, seulement d'une 2e fournee
-  // reelle de la meme taille (cas reel observe : KI0298, 2 fournees de 39
-  // cartons chacune, la 2e silencieusement ignoree par cette verification).
-  if (quantite && quantite > 0) {
-    const { error: emballageError } = await supabaseServer.from("production_emballage_entries").insert([
-      {
-        programme_ligne_id: ligneId,
-        code,
-        quantite,
-        ...(dateEmballage ? { date_jour: dateEmballage } : {}),
-        emballage_chef_zone: parseOptionalText(formData, "emballage_chef_zone"),
-        emballage_machine: parseOptionalText(formData, "emballage_machine"),
-        emballage_operateur: parseOptionalText(formData, "emballage_operateur"),
-        emballage_scotcheuse: parseOptionalText(formData, "emballage_scotcheuse"),
-        nb_journaliers_emballage: parseOptionalNumber(formData, "nb_journaliers_emballage"),
-        emballage_temps_demarrer: parseOptionalText(formData, "emballage_temps_demarrer"),
-        emballage_temps_arret: parseOptionalText(formData, "emballage_temps_arret"),
-        emballage_arret_changement_bobine: parseOptionalNumber(formData, "emballage_arret_changement_bobine"),
-        emballage_arret_technique: parseOptionalNumber(formData, "emballage_arret_technique"),
-        emballage_arret_reglage: parseOptionalNumber(formData, "emballage_arret_reglage"),
-        emballage_arret_coupure: parseOptionalNumber(formData, "emballage_arret_coupure"),
-        emballage_arret_autre: parseOptionalNumber(formData, "emballage_arret_autre"),
-        utilisateur_emballage: currentUser,
-        date_saisie_emballage: new Date().toISOString(),
-      },
-    ]);
-
-    if (emballageError) {
-      throw new Error(emballageError.message);
+    if (!(await canWritePageUser(currentUser, "productionSuiviProductionEmballage"))) {
+      throw new Error("Cet utilisateur ne peut pas enregistrer de rapport production.");
     }
-  }
 
-  revalidateRapportPages();
-  redirect("/production/suivi/dashboard");
+    if (!ligneId) {
+      throw new Error("Ligne invalide.");
+    }
+
+    const quantite = parseOptionalNumber(formData, "quantite");
+    const dateEmballage = parseOptionalText(formData, "date_emballage");
+
+    // date_emballage/date_peremption restent sur production_rapports
+    // (proprietes du lot/code) - tout le reste (chef/machine/operateur/
+    // scotcheuse/arrets/temps...) va desormais directement sur la ligne
+    // production_emballage_entries de CETTE fournee (meme correctif que
+    // Conditionnement juste au-dessus - bug reel d'ecrasement entre plusieurs
+    // fournees du meme code).
+    const fields: Record<string, unknown> = {
+      date_emballage: dateEmballage,
+    };
+
+    // date_peremption vient normalement du rapport Conditionnement DEJA saisi
+    // pour ce meme (ligne, code) - meme ligne de production_rapports, colonne
+    // partagee entre les etapes (voir upsertRapport). Le formulaire "Entrer"
+    // normal ne renvoie donc jamais ce champ (affiche en lecture seule) : ne
+    // l'ecrase que si la page l'a explicitement envoye (le cas de la fiche
+    // "nouveau", ou aucun Conditionnement n'existe pour fournir la date).
+    if (formData.get("date_peremption") !== null) {
+      fields.date_peremption = parseOptionalText(formData, "date_peremption");
+    }
+
+    await upsertRapport(ligneId, code, fields);
+
+    // Alimente le journal emballage (meme principe que carton/vrac) pour que
+    // le "reste" par rapport a ce qui a deja ete conditionne se recalcule
+    // tout seul. date_jour vient de la date saisie sur le rapport (Date
+    // emballage) au lieu de la date automatique (aujourd'hui, valeur par
+    // defaut) - c'est ce qui alimente la colonne "Date emballage" de Suivi
+    // Production. L'emballage se saisit comme un AJOUT (voir Conditionnement
+    // plus haut, meme conclusion apres le cas WA1219). Toutes les infos de
+    // CETTE fournee sont portees directement par cette ligne, plus jamais
+    // partagees avec les autres fournees du meme code.
+    //
+    // PAS de dernierEntreeQuantiteIdentique ici, contrairement a Vrac/Carton :
+    // ce champ "quantite" repart TOUJOURS de 0 sur ce formulaire (pas de
+    // colonne dediee sur production_rapports pour le pre-remplir avec la
+    // derniere valeur, contrairement a qt_fabriquer pour Conditionnement) -
+    // "meme quantite que la derniere fois" ne peut donc jamais venir d'une
+    // reouverture-resaisie-sans-rien-changer, seulement d'une 2e fournee
+    // reelle de la meme taille (cas reel observe : KI0298, 2 fournees de 39
+    // cartons chacune, la 2e silencieusement ignoree par cette verification).
+    if (quantite && quantite > 0) {
+      const { error: emballageError } = await supabaseServer.from("production_emballage_entries").insert([
+        {
+          programme_ligne_id: ligneId,
+          code,
+          quantite,
+          ...(dateEmballage ? { date_jour: dateEmballage } : {}),
+          emballage_chef_zone: parseOptionalText(formData, "emballage_chef_zone"),
+          emballage_machine: parseOptionalText(formData, "emballage_machine"),
+          emballage_operateur: parseOptionalText(formData, "emballage_operateur"),
+          emballage_scotcheuse: parseOptionalText(formData, "emballage_scotcheuse"),
+          nb_journaliers_emballage: parseOptionalNumber(formData, "nb_journaliers_emballage"),
+          emballage_temps_demarrer: parseOptionalText(formData, "emballage_temps_demarrer"),
+          emballage_temps_arret: parseOptionalText(formData, "emballage_temps_arret"),
+          emballage_arret_changement_bobine: parseOptionalNumber(formData, "emballage_arret_changement_bobine"),
+          emballage_arret_technique: parseOptionalNumber(formData, "emballage_arret_technique"),
+          emballage_arret_reglage: parseOptionalNumber(formData, "emballage_arret_reglage"),
+          emballage_arret_coupure: parseOptionalNumber(formData, "emballage_arret_coupure"),
+          emballage_arret_autre: parseOptionalNumber(formData, "emballage_arret_autre"),
+          utilisateur_emballage: currentUser,
+          date_saisie_emballage: new Date().toISOString(),
+        },
+      ]);
+
+      if (emballageError) {
+        throw new Error(emballageError.message);
+      }
+    }
+
+    revalidateRapportPages();
+    redirect("/production/suivi/dashboard");
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : "Erreur inconnue pendant l'enregistrement.";
+    redirect(
+      `/production/suivi-production/emballage/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(message)}`
+    );
+  }
 }
 
 // Bouton "Supprimer" sur la colonne Emballage du Dashboard : efface tout ce

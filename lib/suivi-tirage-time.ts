@@ -47,6 +47,22 @@ export function combineTempsJourMois(day: string, month: string, time: string) {
   return day && month ? `${day.padStart(2, "0")}/${month} ${time}` : time;
 }
 
+// Jour/mois par defaut "intelligent" pour un TempsField sur une NOUVELLE
+// saisie (pas de temps deja enregistre) : jour = jour du programme
+// (date_jour de la ligne), mois = mois d'aujourd'hui - meme principe que
+// smartEntryDateDefault (date-jma-input.tsx) pour le champ Date, applique
+// ici sans annee (ce format n'en a pas). L'heure reste vide (jamais
+// devinee) - seuls jour/mois sont pre-remplis.
+export function smartTempsDayMonthDefault(ligneDateJour: string | null | undefined): {
+  day: string;
+  month: string;
+} {
+  const day = (ligneDateJour || "").slice(8, 10);
+  if (!day) return { day: "", month: "" };
+  const month = String(new Date().getMonth() + 1).padStart(2, "0");
+  return { day, month };
+}
+
 // Duree entre 2 temps Fabrication "JJ/MM HH:MM", en minutes - contrairement
 // a hhmmDiffMinutes (qui retourne 0 si une valeur manque, correct pour de
 // l'affichage), retourne null quand l'un des 2 est manquant/invalide : un

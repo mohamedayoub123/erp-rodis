@@ -6,7 +6,8 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
 import { saveEmballageRapportAction } from "../../actions";
-import { DateJmaFormField, smartEntryDateDefault } from "@/app/_components/date-jma-input";
+import { DateJmaFormField } from "@/app/_components/date-jma-input";
+import { smartEntryDateDefault } from "@/lib/smart-entry-date-default";
 import { formatDateTime } from "@/lib/format-date";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { TimeTextInput } from "@/app/_components/time-text-input";
@@ -59,7 +60,7 @@ type DerniereFourneeInfo = {
   date_saisie_emballage: string | null;
 };
 
-type SearchParams = Promise<{ code?: string }>;
+type SearchParams = Promise<{ code?: string; erreur?: string }>;
 
 export default async function RapportEmballagePage({
   params,
@@ -71,7 +72,7 @@ export default async function RapportEmballagePage({
   noStore();
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
-  const { code: codeParam } = await searchParams;
+  const { code: codeParam, erreur } = await searchParams;
   const code = (codeParam || "").trim();
 
   if (!ligneIdNumber) {
@@ -167,6 +168,12 @@ export default async function RapportEmballagePage({
             </div>
           </div>
         </section>
+
+        {erreur ? (
+          <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
+            {erreur}
+          </div>
+        ) : null}
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           {!canWrite ? (

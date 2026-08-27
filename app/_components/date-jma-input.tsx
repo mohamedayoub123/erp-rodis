@@ -41,27 +41,10 @@ export const ANNEE_OPTIONS = [
   "2040",
 ];
 
-// Valeur par defaut "intelligente" pour un champ DateJmaFormField qui
-// represente LA date d'une saisie Fabrication/Conditionnement/Emballage
-// (pas une date independante comme la peremption) : si une date a deja ete
-// enregistree (on rouvre une saisie existante), elle est gardee telle
-// quelle - sinon (nouvelle saisie), le jour vient du programme (date_jour
-// de programme_lignes, le jour prevu de cette production) et le mois/annee
-// sont ceux d'aujourd'hui (cas courant : la saisie se fait le jour meme ou
-// tres peu apres) - demande explicite, les 3 champs restent modifiables a
-// la main ensuite.
-export function smartEntryDateDefault(
-  existingValue: string | null | undefined,
-  ligneDateJour: string | null | undefined
-): string {
-  if (existingValue) return existingValue;
-  const day = (ligneDateJour || "").slice(8, 10);
-  if (!day) return "";
-  const today = new Date();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const year = String(today.getFullYear());
-  return `${year}-${month}-${day}`;
-}
+// smartEntryDateDefault a demenage dans lib/smart-entry-date-default.ts -
+// un export de fichier "use client" ne peut pas etre appele depuis du code
+// serveur (bug reel confirme : Conditionnement/Emballage l'appelaient
+// directement dans leur rendu, page cassee - voir ce nouveau fichier).
 
 function splitIso(value: string) {
   const [year = "", month = "", day = ""] = (value || "").slice(0, 10).split("-");
