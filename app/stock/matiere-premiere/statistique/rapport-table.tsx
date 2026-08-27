@@ -25,7 +25,15 @@ function combineStyle(
 
 function formatCellValue(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return "-";
+  // "statistique 4D"/"statistique 4D 6mois" etc. (editable-number) peut
+  // contenir une vraie note texte au lieu d'un chiffre (ex: "voir ayoub",
+  // "annule" - usage reel trouve dans COLORANT PLASTIQUE, copie telle
+  // quelle depuis le fichier Excel source). A COMMANDER/conso 1 mois s'en
+  // servent dans un calcul (Number(...) -> NaN), qui se propageait ensuite
+  // ici en "NaN" affiche a l'ecran - remplace par "-" comme une valeur
+  // manquante, jamais le texte NaN.
   if (typeof value === "number") {
+    if (!Number.isFinite(value)) return "-";
     return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
   }
   return value;
@@ -404,8 +412,21 @@ export function RapportTable({
                         return (
                           <td key={colKey} className={`border border-slate-200 p-1 ${sheetBoundaryClass}`}>
                             <input
-                              type={col.kind === "editable-number" ? "number" : "text"}
-                              step={col.kind === "editable-number" ? "0.01" : undefined}
+                              // "text" pour les 2 kinds, meme pour
+                              // editable-number : un <input type="number">
+                              // renvoie une valeur VIDE des que le contenu
+                              // stocke n'est pas un chiffre - une vraie
+                              // note ("voir ayoub", "annule", trouve tel
+                              // quel dans COLORANT PLASTIQUE, copiee depuis
+                              // le fichier Excel source) devenait alors
+                              // invisible dans le champ ET etait effacee
+                              // (remplacee par null) au prochain
+                              // Enregistrer, meme sans y toucher (bug reel
+                              // confirme - donnee perdue silencieusement).
+                              // inputMode="decimal" garde un clavier
+                              // numerique sur mobile sans le blocage natif.
+                              type="text"
+                              inputMode={col.kind === "editable-number" ? "decimal" : undefined}
                               name={editableFieldName(row.id, col.key)}
                               defaultValue={(row.donnees?.[col.key] as string | number) ?? ""}
                               disabled={!canEdit}

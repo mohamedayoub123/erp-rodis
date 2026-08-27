@@ -27,7 +27,14 @@ function fillFor(bg: string | undefined): ExcelJS.Fill {
 
 function formatCellValue(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "number") return value;
+  // Un champ "statistique 4D..." (editable-number) peut contenir une vraie
+  // note texte au lieu d'un chiffre (ex: "voir ayoub" - trouve tel quel
+  // dans COLORANT PLASTIQUE, copie depuis le fichier Excel source). A
+  // COMMANDER/conso 1 mois s'en servent dans un calcul (Number(...) ->
+  // NaN) - un NaN ecrit dans une cellule Excel NUMERIQUE (sans type texte)
+  // est invalide au sens du format, Excel refusait d'ouvrir le fichier
+  // sans le "reparer" (bug reel confirme, cellules N/Q corrompues).
+  if (typeof value === "number") return Number.isFinite(value) ? value : "-";
   return value;
 }
 

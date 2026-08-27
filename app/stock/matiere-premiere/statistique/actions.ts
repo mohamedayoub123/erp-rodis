@@ -50,7 +50,20 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
       const raw = String(formData.get(editableFieldName(id, col.key)) || "").trim();
       if (col.kind === "editable-number") {
         const normalized = raw.replace(",", ".");
-        donnees[col.key] = normalized ? Number(normalized) : null;
+        if (!normalized) {
+          donnees[col.key] = null;
+        } else {
+          const parsed = Number(normalized);
+          // Une colonne "editable-number" recoit parfois une vraie note
+          // texte a la place d'un chiffre (ex: "voir ayoub", "annule" -
+          // usage reel trouve dans COLORANT PLASTIQUE, copie depuis le
+          // fichier Excel source) - Number(...) donnerait NaN, qui
+          // corrompait ensuite l'export Excel (cellule numerique avec un
+          // NaN litteral, fichier rejete par Excel comme "reparable"; bug
+          // reel confirme). Garde le texte tel quel plutot que d'ecraser
+          // avec NaN/null.
+          donnees[col.key] = Number.isFinite(parsed) ? parsed : raw;
+        }
       } else {
         donnees[col.key] = raw || null;
       }
