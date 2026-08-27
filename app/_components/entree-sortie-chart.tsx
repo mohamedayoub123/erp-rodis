@@ -290,59 +290,71 @@ export function StatistiqueChart({ rows }: { rows: YearMonthRow[] }) {
             </g>
 
             {/* Points de donnees, toujours visibles (pas seulement au
-                survol) - avec la quantite au-dessus (Entree) ou en-dessous
-                (Sortie) de chaque point, pour lire chaque mois sans avoir a
-                survoler. Petit texte, encre neutre (jamais la couleur de la
-                serie - l'identite vient du point colore juste a cote). */}
+                survol) - juste le point colore, sans chiffre a cote : un
+                chiffre sur chaque mois de chaque serie se superposait des
+                que plusieurs series avaient des valeurs proches (rapporte
+                par l'utilisateur). La valeur se lit au survol (infobulle
+                plus bas) ou via l'etiquette unique ci-dessous. */}
             {series.map((s) =>
               s.values.map((v, i) => {
                 if (v <= 0) return null;
-                const cx = xFor(i);
-                const cy = yFor(v);
                 const isHovered = hoverMonth === i;
                 return (
-                  <g key={`${s.year}-${s.kind}-${i}`}>
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r={isHovered ? 4 : 3}
-                      fill={s.color}
-                      stroke="#fcfcfb"
-                      strokeWidth={2}
-                    />
-                    <text
-                      x={cx}
-                      y={s.kind === "entree" ? cy - 8 : cy + 15}
-                      textAnchor="middle"
-                      className="fill-slate-600"
-                      fontSize={9}
-                      fontWeight={isHovered ? 700 : 500}
-                    >
-                      {formatNumber(v)}
-                    </text>
-                  </g>
+                  <circle
+                    key={`${s.year}-${s.kind}-${i}`}
+                    cx={xFor(i)}
+                    cy={yFor(v)}
+                    r={isHovered ? 4 : 3}
+                    fill={s.color}
+                    stroke="#fcfcfb"
+                    strokeWidth={2}
+                  />
                 );
               })
             )}
 
-            {/* Etiquette de fin de ligne - identifie chaque serie (annee +
-                mouvement) directement sur le graphique, pas seulement dans
-                la legende en dessous. */}
+            {/* Etiquette unique par serie (valeur + annee/mouvement),
+                positionnee sur le DERNIER mois ou cette serie a reellement
+                du mouvement - jamais sur decembre si l'annee est
+                incomplete et vide apres cette date (ca affichait
+                l'etiquette flottante sur un point a 0, illisible et
+                signale par l'utilisateur). Une seule etiquette par serie,
+                donc plus d'empilement de chiffres. */}
             {series.map((s) => {
-              const lastIndex = s.values.length - 1;
+              let lastActiveIndex = -1;
+              for (let i = s.values.length - 1; i >= 0; i -= 1) {
+                if (s.values[i] > 0) {
+                  lastActiveIndex = i;
+                  break;
+                }
+              }
+              if (lastActiveIndex === -1) return null;
+              const cx = xFor(lastActiveIndex);
+              const cy = yFor(s.values[lastActiveIndex]);
               return (
-                <text
-                  key={`${s.year}-${s.kind}-end`}
-                  x={xFor(lastIndex) + 6}
-                  y={yFor(s.values[lastIndex])}
-                  textAnchor="start"
-                  dominantBaseline="middle"
-                  className="fill-slate-700"
-                  fontSize={10}
-                  fontWeight={700}
-                >
-                  {s.year} {s.kind === "entree" ? "Ent." : "Sor."}
-                </text>
+                <g key={`${s.year}-${s.kind}-label`}>
+                  <text
+                    x={cx}
+                    y={s.kind === "entree" ? cy - 8 : cy + 15}
+                    textAnchor="middle"
+                    className="fill-slate-600"
+                    fontSize={9}
+                    fontWeight={600}
+                  >
+                    {formatNumber(s.values[lastActiveIndex])}
+                  </text>
+                  <text
+                    x={cx + 8}
+                    y={cy}
+                    textAnchor="start"
+                    dominantBaseline="middle"
+                    className="fill-slate-700"
+                    fontSize={10}
+                    fontWeight={700}
+                  >
+                    {s.year} {s.kind === "entree" ? "Ent." : "Sor."}
+                  </text>
+                </g>
               );
             })}
 

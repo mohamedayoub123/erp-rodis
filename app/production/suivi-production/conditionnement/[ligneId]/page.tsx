@@ -367,6 +367,10 @@ export default async function RapportConditionnementPage({
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Date de peremption
+                    <span className="font-normal normal-case text-red-600">
+                      Obligatoire - aucune valeur par defaut, le bouton Entrer ne
+                      fait rien tant qu&apos;elle n&apos;est pas remplie.
+                    </span>
                     <DateJmaFormField
                       name="date_peremption"
                       defaultValue={rapport?.date_peremption}
