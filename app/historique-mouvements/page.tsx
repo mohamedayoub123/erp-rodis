@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { StatistiqueChart, type YearMonthRow } from "./statistique-chart";
 
 type SearchParams = Promise<{
   article_q?: string;
@@ -33,24 +34,6 @@ type ArticleStatsRow = {
 };
 
 const PAGE_SIZE = 100;
-
-function buildChartPoints(values: number[]) {
-  const width = 760;
-  const height = 260;
-  const padding = 28;
-  const maxValue = Math.max(...values, 1);
-  const innerWidth = width - padding * 2;
-  const innerHeight = height - padding * 2;
-
-  return values
-    .map((value, index) => {
-      const x =
-        padding + (values.length <= 1 ? innerWidth / 2 : (index / (values.length - 1)) * innerWidth);
-      const y = padding + innerHeight - (value / maxValue) * innerHeight;
-      return `${x},${y}`;
-    })
-    .join(" ");
-}
 
 function getMonthKey(value: string | null) {
   if (!value) return "";
@@ -180,6 +163,63 @@ export default async function HistoriqueMouvementsPage({
   const effectiveError = error;
   const showChartOnly = articleQ.length > 0;
 
+  // Entree ET sortie, par annee et par mois, pour chaque article affiche
+  // ci-dessous dans la vue detaillee (showChartOnly) - la table de synthese
+  // plus haut reste volontairement sortie-seule (vue "ventes"), ce
+  // graphique/tableau croise couvre les 2 mouvements avec plusieurs annees
+  // comparables (contrairement au graphe precedent, limite a 1 courbe/12
+  // derniers mois glissants, sortie uniquement).
+  const yearMonthRowsByArticle = new Map<number, YearMonthRow[]>();
+  if (showChartOnly && pagedRows.length > 0) {
+    const chartArticleIds = pagedRows
+      .map((row) => row.article_id)
+      .filter((id): id is number => id !== null);
+
+    if (chartArticleIds.length > 0) {
+      const movementRows: { article_id: number | null; date_jour: string | null; qte_entree: number; qte_sortie: number }[] = [];
+      let movementFrom = 0;
+      const movementPageSize = 1000;
+
+      while (true) {
+        const { data, error: movementError } = await supabaseServer
+          .from("lots_stock")
+          .select("article_id, date_jour, qte_entree, qte_sortie")
+          .in("article_id", chartArticleIds)
+          .order("id", { ascending: true })
+          .range(movementFrom, movementFrom + movementPageSize - 1);
+
+        if (movementError) break;
+
+        const chunk = (data ?? []) as typeof movementRows;
+        movementRows.push(...chunk);
+
+        if (chunk.length < movementPageSize) break;
+        movementFrom += movementPageSize;
+      }
+
+      const byArticleYearMonth = new Map<number, Map<string, { entree: number; sortie: number }>>();
+      for (const row of movementRows) {
+        if (!row.article_id || !row.date_jour) continue;
+        const [yearStr, monthStr] = row.date_jour.split("-");
+        const key = `${yearStr}-${monthStr}`;
+        const byYearMonth = byArticleYearMonth.get(row.article_id) ?? new Map();
+        const current = byYearMonth.get(key) ?? { entree: 0, sortie: 0 };
+        current.entree += Number(row.qte_entree ?? 0);
+        current.sortie += Number(row.qte_sortie ?? 0);
+        byYearMonth.set(key, current);
+        byArticleYearMonth.set(row.article_id, byYearMonth);
+      }
+
+      for (const [articleId, byYearMonth] of byArticleYearMonth.entries()) {
+        const list: YearMonthRow[] = [...byYearMonth.entries()].map(([key, totals]) => {
+          const [year, month] = key.split("-");
+          return { year: Number(year), month: Number(month), entree: totals.entree, sortie: totals.sortie };
+        });
+        yearMonthRowsByArticle.set(articleId, list);
+      }
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f9ff_0%,#fbfdff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <PersistPageFilters />
@@ -262,9 +302,8 @@ export default async function HistoriqueMouvementsPage({
         {showChartOnly && !effectiveError && pagedRows.length > 0 ? (
           <section className="space-y-5">
             {pagedRows.map((row) => {
-              const chartValues = monthColumns.map((monthKey) => Number(row.by_month[monthKey] ?? 0));
-              const points = buildChartPoints(chartValues);
-              const chartMax = Math.max(...chartValues, 1);
+              if (row.article_id === null) return null;
+              const yearMonthRows = yearMonthRowsByArticle.get(row.article_id) ?? [];
 
               return (
                 <article
@@ -286,74 +325,20 @@ export default async function HistoriqueMouvementsPage({
 
                     <div className="flex gap-3">
                       <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm">
-                        Total vendu :
+                        Total vendu (12 derniers mois) :
                         <span className="ml-2 font-bold text-emerald-900">{row.total_vendu}</span>
-                      </div>
-                      <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm">
-                        Pic mois :
-                        <span className="ml-2 font-bold text-slate-900">{chartMax}</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="mt-5 overflow-x-auto">
-                    <div className="min-w-[780px] rounded-[1.5rem] border border-sky-100 bg-[linear-gradient(180deg,#f8fbff_0%,#eef6ff_100%)] p-4">
-                      <svg viewBox="0 0 760 260" className="h-72 w-full">
-                        {[0, 1, 2, 3].map((line) => {
-                          const y = 28 + ((260 - 56) / 3) * line;
-                          return (
-                            <line
-                              key={line}
-                              x1="28"
-                              y1={y}
-                              x2="732"
-                              y2={y}
-                              stroke="#cbd5e1"
-                              strokeDasharray="4 6"
-                              strokeWidth="1"
-                            />
-                          );
-                        })}
-
-                        <polyline
-                          fill="none"
-                          stroke="#0f172a"
-                          strokeWidth="4"
-                          strokeLinejoin="round"
-                          strokeLinecap="round"
-                          points={points}
-                        />
-
-                        {chartValues.map((value, index) => {
-                          const [x, y] = points
-                            .split(" ")
-                            [index].split(",")
-                            .map((item) => Number(item));
-
-                          return (
-                            <g key={`${row.nom_article}-${monthColumns[index]}`}>
-                              <circle cx={x} cy={y} r="5" fill="#0ea5e9" />
-                              <text
-                                x={x}
-                                y={Math.max(18, y - 12)}
-                                textAnchor="middle"
-                                className="fill-slate-700 text-[11px] font-semibold"
-                              >
-                                {value}
-                              </text>
-                              <text
-                                x={x}
-                                y="248"
-                                textAnchor="middle"
-                                className="fill-slate-500 text-[11px] font-medium"
-                              >
-                                {formatMonthLabel(monthColumns[index])}
-                              </text>
-                            </g>
-                          );
-                        })}
-                      </svg>
-                    </div>
+                  <div className="mt-5">
+                    {yearMonthRows.length === 0 ? (
+                      <p className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
+                        Aucun mouvement enregistre pour cet article.
+                      </p>
+                    ) : (
+                      <StatistiqueChart rows={yearMonthRows} />
+                    )}
                   </div>
                 </article>
               );
