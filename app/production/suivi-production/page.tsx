@@ -4,10 +4,9 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
-import { formatDate } from "../suivi/data";
-import { DeleteRowButton } from "./delete-row-button";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { SuiviProductionTableBody } from "./suivi-production-table-body";
 
 // Meme calcul que Historique programme (PL1.2026, PL2.2026... remis a 1
 // chaque nouvelle annee de date_jour, rang par ordre de creation) - permet
@@ -41,24 +40,12 @@ function computePlCodesByGroupeId(
   return codeByGroupeId;
 }
 
-function formatDateTime(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = date.getFullYear();
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${day}-${month}-${year} ${hours}:${minutes}`;
-}
-
-function dispositionQualiteLabel(value: string | null | undefined) {
-  if (value === "a_recuperer") return "A recuperer";
-  if (value === "a_detruire") return "A detruire";
-  if (value) return "Conforme";
-  return "-";
-}
-
+// formatDateTime/dispositionQualiteLabel ont demenage dans
+// suivi-production-table-body.tsx (composant client qui rend desormais les
+// <tr>) - copies locales la-bas, plus utilisees ici. Les 3 listes de
+// libelles ARRET_* restent ICI AUSSI (dupliquees, memes valeurs) car le
+// <thead> (qui reste dans cette page serveur) les utilise pour generer les
+// en-tetes de colonnes.
 type ArretField =
   | "arret_depot"
   | "arret_consommable_non_livre"
@@ -312,7 +299,7 @@ type StageEntry = Omit<EntryRow, "id" | "programme_ligne_id" | "code" | "date_jo
   date: string;
 };
 
-type DisplayRow = {
+export type DisplayRow = {
   key: string;
   ligne: LigneRow;
   rapport: RapportRow | null;
@@ -324,6 +311,14 @@ type DisplayRow = {
   displayCode: string;
   displayVrac: number | null;
   displayCarton: number | null;
+  // Fournees Conditionnement/Emballage supplementaires pour ce meme code
+  // (ex: 2 passages faits des jours differents) - repliees par defaut,
+  // deployees independamment l'une de l'autre au clic (voir
+  // SuiviProductionTableBody). Chaque extra est un DisplayRow complet
+  // (meme forme, memes cellules "-" pour les etapes non concernees) pour
+  // reutiliser exactement le meme template de rendu qu'une ligne de base.
+  conditionnementExtras: DisplayRow[];
+  emballageExtras: DisplayRow[];
 };
 
 // Une ligne "Programme par ligne" decoupee en plusieurs lots (voir
@@ -546,6 +541,8 @@ function buildDisplayRows(
           displayCode: split.code,
           displayVrac: split.vrac,
           displayCarton: split.carton,
+          conditionnementExtras: [],
+          emballageExtras: [],
         });
       });
       continue;
@@ -568,13 +565,49 @@ function buildDisplayRows(
       const codeSpecific = rapportByLigneAndCode.get(`${ligne.id}::${split.code}`) ?? null;
       const legacy = legacyRapportByLigne.get(ligne.id) ?? null;
       const rapport = mergeRapports(codeSpecific, legacy);
-
-      // Une ligne supplementaire n'est creee que si une MEME etape a ete
-      // faite plusieurs fois POUR CE CODE (ex: 2 passages d'emballage un
-      // jour different chacun) : la 2eme occurrence va sur une ligne de
-      // plus, avec seulement les colonnes de cette etape remplies.
-      const extraCount = Math.max(vracForCode.length, cartonForCode.length, emballageForCode.length, 1) - 1;
       const keyPrefix = `ligne-${ligneId}-code${splitIndex}`;
+
+      // Fabrication n'a jamais qu'UN SEUL evenement par (ligne, code) par
+      // conception (voir upsertRapport/saveFabricationRapportAction) -
+      // seule sa 1ere entree compte. Conditionnement/Emballage peuvent
+      // avoir plusieurs "fournees" pour ce meme code (plusieurs passages a
+      // des jours differents) : la 1ere va sur la ligne de base, les
+      // suivantes deviennent des extras INDEPENDANTS par etape (repliees
+      // par defaut, deployees separement au clic - voir
+      // SuiviProductionTableBody), au lieu d'etre zippees par index sur des
+      // lignes partagees comme avant (qui melangeait a tort le 2e passage
+      // Conditionnement avec le 2e passage Emballage sur la meme ligne,
+      // meme quand ce ne sont pas les memes evenements).
+      const conditionnementExtras: DisplayRow[] = cartonForCode.slice(1).map((entry, i) => ({
+        key: `${keyPrefix}-cond${i + 1}`,
+        ligne,
+        rapport,
+        fabrication: null,
+        conditionnement: toStageEntry(entry),
+        emballage: null,
+        isGeneral: false,
+        generalRapportId: null,
+        displayCode: split.code,
+        displayVrac: null,
+        displayCarton: null,
+        conditionnementExtras: [],
+        emballageExtras: [],
+      }));
+      const emballageExtras: DisplayRow[] = emballageForCode.slice(1).map((entry, i) => ({
+        key: `${keyPrefix}-emb${i + 1}`,
+        ligne,
+        rapport,
+        fabrication: null,
+        conditionnement: null,
+        emballage: toStageEntry(entry),
+        isGeneral: false,
+        generalRapportId: null,
+        displayCode: split.code,
+        displayVrac: null,
+        displayCarton: null,
+        conditionnementExtras: [],
+        emballageExtras: [],
+      }));
 
       rows.push({
         key: `${keyPrefix}-0`,
@@ -588,36 +621,24 @@ function buildDisplayRows(
         displayCode: split.code,
         displayVrac: split.vrac,
         displayCarton: split.carton,
+        conditionnementExtras,
+        emballageExtras,
       });
-
-      for (let i = 1; i <= extraCount; i++) {
-        const fabrication = toStageEntry(vracForCode[i]);
-        const conditionnement = toStageEntry(cartonForCode[i]);
-        const emballage = toStageEntry(emballageForCode[i]);
-        if (!fabrication && !conditionnement && !emballage) continue;
-
-        rows.push({
-          key: `${keyPrefix}-${i}`,
-          ligne,
-          rapport,
-          fabrication,
-          conditionnement,
-          emballage,
-          isGeneral: false,
-          generalRapportId: null,
-          displayCode: split.code,
-          displayVrac: split.vrac,
-          displayCarton: split.carton,
-        });
-      }
     });
+  }
+
+  // Considere aussi les extras (fournees repliees) - un groupe reste trie a
+  // la date/id la plus recente meme quand c'est une fournee repliee qui la
+  // porte, pas seulement sa ligne de base.
+  function allEntriesOf(row: DisplayRow): DisplayRow[] {
+    return [row, ...row.conditionnementExtras, ...row.emballageExtras];
   }
 
   function rowRecencyId(row: DisplayRow): number {
     return Math.max(
-      row.fabrication?.entryId ?? 0,
-      row.conditionnement?.entryId ?? 0,
-      row.emballage?.entryId ?? 0,
+      ...allEntriesOf(row).map((entry) =>
+        Math.max(entry.fabrication?.entryId ?? 0, entry.conditionnement?.entryId ?? 0, entry.emballage?.entryId ?? 0)
+      ),
       row.generalRapportId ?? 0
     );
   }
@@ -631,8 +652,10 @@ function buildDisplayRows(
   // plus ancien. L'id ne sert plus que de departage entre 2 lignes de la
   // meme date.
   function rowSortDate(row: DisplayRow): string {
-    const dates = [row.fabrication?.date, row.conditionnement?.date, row.emballage?.date].filter(
-      (date): date is string => Boolean(date)
+    const dates = allEntriesOf(row).flatMap((entry) =>
+      [entry.fabrication?.date, entry.conditionnement?.date, entry.emballage?.date].filter(
+        (date): date is string => Boolean(date)
+      )
     );
     if (dates.length === 0) return row.ligne.date_jour || "";
     return dates.reduce((max, date) => (date > max ? date : max));
@@ -685,6 +708,10 @@ export default async function SuiviProductionListPage({
   const lignesVisibles = lignesResult.rows.filter((ligne) => !ligne.exclu_rapports);
 
   const plCodeByGroupeId = computePlCodesByGroupeId(lignesVisibles);
+  // Un composant client ne peut pas recevoir une Map en prop (non
+  // serialisable au travers de la frontiere serveur/client) - converti en
+  // objet simple juste avant de le passer a SuiviProductionTableBody.
+  const plCodeByGroupeIdObject = Object.fromEntries(plCodeByGroupeId);
 
   const allRows = buildDisplayRows(
     lignesVisibles,
@@ -701,6 +728,15 @@ export default async function SuiviProductionListPage({
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
     .map((label, id) => ({ id, label }));
 
+  // Repli auto sur une section (Conditionnement/Emballage) dont seule une
+  // fournee repliee correspond au filtre date - sinon le groupe apparaitrait
+  // dans les resultats sans montrer visiblement pourquoi il matche.
+  const initialExpandedByKey: Record<string, { cond: boolean; emb: boolean }> = {};
+
+  function stageEntryMatchesDate(entry: StageEntry | null): boolean {
+    return Boolean(dateFilter && entry?.date === dateFilter);
+  }
+
   const rows = allRows.filter((row) => {
     if (codeFilter && !row.displayCode.toLowerCase().includes(codeFilter)) {
       return false;
@@ -709,18 +745,25 @@ export default async function SuiviProductionListPage({
       return false;
     }
     // Une ligne a plusieurs dates possibles (date du programme, date de
-    // chaque etape faite) - le filtre matche si l'une d'elles correspond,
-    // pas seulement la date du programme, sinon une ligne dont seule
-    // l'etape (fabrication/conditionnement/emballage) a ete faite au jour
-    // recherche resterait invisible.
-    if (
-      dateFilter &&
-      row.ligne.date_jour !== dateFilter &&
-      row.fabrication?.date !== dateFilter &&
-      row.conditionnement?.date !== dateFilter &&
-      row.emballage?.date !== dateFilter
-    ) {
-      return false;
+    // chaque etape faite, y compris sur les fournees repliees) - le filtre
+    // matche si l'une d'elles correspond, pas seulement la date du
+    // programme/de la ligne de base, sinon une ligne dont seule l'etape
+    // (ou une fournee repliee) a ete faite au jour recherche resterait
+    // invisible.
+    if (dateFilter) {
+      const condExtraMatch = row.conditionnementExtras.some((extra) => stageEntryMatchesDate(extra.conditionnement));
+      const embExtraMatch = row.emballageExtras.some((extra) => stageEntryMatchesDate(extra.emballage));
+      const matches =
+        row.ligne.date_jour === dateFilter ||
+        stageEntryMatchesDate(row.fabrication) ||
+        stageEntryMatchesDate(row.conditionnement) ||
+        stageEntryMatchesDate(row.emballage) ||
+        condExtraMatch ||
+        embExtraMatch;
+      if (!matches) return false;
+      if (condExtraMatch || embExtraMatch) {
+        initialExpandedByKey[row.key] = { cond: condExtraMatch, emb: embExtraMatch };
+      }
     }
     return true;
   });
@@ -953,268 +996,12 @@ export default async function SuiviProductionListPage({
                     <th className="sticky top-[49px] z-10 bg-slate-50 px-6 py-3 font-semibold">Date saisie (emballage)</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {pagedRows.map((row) => {
-                    const r = row.rapport;
-                    const showFab = row.fabrication !== null || row.isGeneral;
-                    const showCond = row.conditionnement !== null || row.isGeneral;
-                    const showEmb = row.emballage !== null || row.isGeneral;
-
-                    return (
-                      <tr key={row.key} className="border-t border-slate-100 align-top">
-                        <td className="px-6 py-4 text-slate-600">{row.ligne.produit || "-"}</td>
-                        <td className="px-6 py-4 font-medium text-slate-900">{row.displayCode}</td>
-                        <td className="px-6 py-4 text-slate-600">{row.displayVrac ?? "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {row.displayCarton !== null ? Math.round(row.displayCarton * 100) / 100 : "-"}
-                        </td>
-                        <td className="px-6 py-4 font-medium text-slate-900">
-                          {row.ligne.groupe_id !== null ? plCodeByGroupeId.get(row.ligne.groupe_id) ?? "-" : "-"}
-                        </td>
-
-                        {/* Test labo */}
-                        <td className="px-6 py-4 text-slate-600">
-                          {showFab && r?.date_prise_echantillon ? formatDate(r.date_prise_echantillon) : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showFab ? r?.heure_prise_echantillon || "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showFab ? r?.heure_debut_analyse || "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showFab ? r?.heure_fin_analyse || "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.ph ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.densite ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.viscosite ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.degre_alcool ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.stabilite || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.couleur || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.temperature_test ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.odeur || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.taux_humidite ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showFab ? r?.pression_atmospherique ?? "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.texture || "-" : "-"}</td>
-                        <td
-                          className={`px-6 py-4 ${
-                            showFab && r?.disposition_qualite ? "font-semibold text-red-700" : "text-slate-600"
-                          }`}
-                        >
-                          {showFab ? dispositionQualiteLabel(r?.disposition_qualite) : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showFab ? (r?.sous_derogation ? "Oui" : "Non") : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.motif_derogation || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.remarque || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.nom_labo || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showFab ? r?.utilisateur_test_labo || "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showFab ? formatDateTime(r?.date_saisie_test_labo ?? null) : "-"}
-                        </td>
-
-                        {/* Fabrication */}
-                        <td className="px-6 py-4 text-slate-900 font-semibold">
-                          {row.fabrication ? formatDate(row.fabrication.date) : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.machine || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.type_fabrication || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.preparateur || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.nb_journaliers_fabrication ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.cuve_1_numero || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.cuve_1_poids ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.cuve_2_numero || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.cuve_2_poids ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.cuve_3_numero || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.cuve_3_poids ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.cuve_4_numero || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.cuve_4_poids ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showFab ? r?.temps_debut_preparation || "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showFab ? r?.temps_envoi_echantillon_labo || "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.temps_fin_test || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.temps_vidange || "-" : "-"}</td>
-                        <td className="px-6 py-4 font-semibold text-slate-900">
-                          {(() => {
-                            if (!showFab) return "-";
-                            const base = row.fabrication ? row.fabrication.quantite : r?.vrac_fabrique;
-                            if (base === null || base === undefined) return "-";
-                            // Le vrac recupere (d'un autre code, voir "Code vrac
-                            // recupere") s'ajoute au vrac fabrique de ce code -
-                            // sinon la colonne ne montrait que ce qui sortait de
-                            // la cuve, pas ce qui a reellement ete disponible.
-                            const recupere = Number(r?.qt_vrac_recupere ?? 0);
-                            return recupere > 0 ? Number(base) + recupere : base;
-                          })()}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.qt_vrac_recupere ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.code_vrac_recupere || "-" : "-"}</td>
-                        {FABRICATION_ARRET_LABELS.map(({ field }) => (
-                          <td
-                            key={field}
-                            className={`px-6 py-4 ${
-                              showFab && Number(r?.[field] ?? 0) > 0
-                                ? "font-semibold text-red-700"
-                                : "text-slate-400"
-                            }`}
-                          >
-                            {showFab ? r?.[field] ?? "-" : "-"}
-                          </td>
-                        ))}
-                        <td className="px-6 py-4 text-slate-600">{showFab ? r?.utilisateur_fabrication || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showFab ? formatDateTime(r?.date_saisie_fabrication ?? null) : "-"}
-                        </td>
-
-                        {/* Conditionnement */}
-                        <td className="px-6 py-4 text-slate-900 font-semibold">
-                          {row.conditionnement ? formatDate(row.conditionnement.date) : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showCond ? row.conditionnement?.zone || row.ligne.zone : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showCond ? row.conditionnement?.chaine || row.ligne.chaine : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.chef_zone || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.chef_ligne || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.ravitailleur || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.tireur || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.nb_journaliers_conditionnement ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.cadence ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.poids_reel ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_sleeve ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_capsule ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_pompe ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_flacon ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_pot ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showCond ? row.conditionnement?.dechet_etiquette ?? "-" : "-"}</td>
-                        {ARRET_LABELS.map(({ field }) => (
-                          <td
-                            key={field}
-                            className={`px-6 py-4 ${
-                              showCond && Number(row.conditionnement?.[field] ?? 0) > 0
-                                ? "font-semibold text-red-700"
-                                : "text-slate-400"
-                            }`}
-                          >
-                            {showCond ? row.conditionnement?.[field] ?? "-" : "-"}
-                          </td>
-                        ))}
-                        <td className="px-6 py-4 text-slate-600">
-                          {showCond ? row.conditionnement?.temps_demarage_lot || "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showCond ? row.conditionnement?.temps_arret_batch || "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showCond && r?.date_fabrication_conditionnement
-                            ? formatDate(r.date_fabrication_conditionnement)
-                            : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showCond && r?.date_peremption ? formatDate(r.date_peremption) : "-"}
-                        </td>
-                        <td className="px-6 py-4 font-semibold text-slate-900">
-                          {row.conditionnement
-                            ? row.conditionnement.quantite
-                            : showCond
-                              ? r?.qt_fabriquer ?? "-"
-                              : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showCond ? row.conditionnement?.utilisateur_conditionnement || "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showCond ? formatDateTime(row.conditionnement?.date_saisie_conditionnement ?? null) : "-"}
-                        </td>
-
-                        {/* Emballage */}
-                        <td className="px-6 py-4 text-slate-900 font-semibold">
-                          {row.emballage ? formatDate(row.emballage.date) : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">{showEmb ? row.emballage?.emballage_machine || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showEmb ? row.emballage?.emballage_operateur || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showEmb ? row.emballage?.emballage_scotcheuse || "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">{showEmb ? row.emballage?.nb_journaliers_emballage ?? "-" : "-"}</td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showEmb ? row.emballage?.emballage_temps_demarrer || "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showEmb ? row.emballage?.emballage_temps_arret || "-" : "-"}
-                        </td>
-                        {EMBALLAGE_ARRET_LABELS.map(({ field }) => (
-                          <td
-                            key={field}
-                            className={`px-6 py-4 ${
-                              showEmb && Number(row.emballage?.[field] ?? 0) > 0
-                                ? "font-semibold text-red-700"
-                                : "text-slate-400"
-                            }`}
-                          >
-                            {showEmb ? row.emballage?.[field] ?? "-" : "-"}
-                          </td>
-                        ))}
-                        <td className="px-6 py-4 font-semibold text-slate-900">
-                          {row.emballage ? row.emballage.quantite : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showEmb ? row.emballage?.utilisateur_emballage || "-" : "-"}
-                        </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {showEmb ? formatDateTime(row.emballage?.date_saisie_emballage ?? null) : "-"}
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {showFab ? (
-                              <Link
-                                href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.displayCode)}`}
-                                className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400"
-                              >
-                                Modifier fab.
-                              </Link>
-                            ) : null}
-                            {showCond ? (
-                              <Link
-                                href={`/production/suivi-production/conditionnement/${row.ligne.id}?code=${encodeURIComponent(row.displayCode)}`}
-                                className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400"
-                              >
-                                Modifier cond.
-                              </Link>
-                            ) : null}
-                            {showEmb ? (
-                              <Link
-                                href={`/production/suivi-production/emballage/${row.ligne.id}?code=${encodeURIComponent(row.displayCode)}`}
-                                className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400"
-                              >
-                                Modifier emb.
-                              </Link>
-                            ) : null}
-                            {canDelete ? (
-                              <DeleteRowButton
-                                fabricationId={row.fabrication?.entryId}
-                                conditionnementId={row.conditionnement?.entryId}
-                                emballageId={row.emballage?.entryId}
-                                rapportId={row.isGeneral ? row.generalRapportId : null}
-                                ligneId={row.ligne.id}
-                                code={row.displayCode}
-                              />
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
+                <SuiviProductionTableBody
+                  rows={pagedRows}
+                  plCodeByGroupeId={plCodeByGroupeIdObject}
+                  canDelete={canDelete}
+                  initialExpandedByKey={initialExpandedByKey}
+                />
               </table>
             </div>
           </section>
