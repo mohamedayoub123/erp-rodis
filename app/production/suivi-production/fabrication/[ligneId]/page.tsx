@@ -211,6 +211,7 @@ export default async function RapportFabricationPage({
               rapport={rapport}
               vracRecupereLots={vracRecupereLots}
               machines={machines}
+              ligneDateJour={ligne.date_jour}
             />
           )}
         </section>

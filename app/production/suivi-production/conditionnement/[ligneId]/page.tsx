@@ -8,7 +8,7 @@ import { formatDate } from "../../../suivi/data";
 import { saveConditionnementRapportAction, messageSiConditionnementInvalide } from "../../actions";
 import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
 import { LigneZoneChaineEditor } from "./zone-chaine-editor";
-import { DateJmaFormField } from "@/app/_components/date-jma-input";
+import { DateJmaFormField, smartEntryDateDefault } from "@/app/_components/date-jma-input";
 import { formatDateTime } from "@/lib/format-date";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { TimeTextInput } from "@/app/_components/time-text-input";
@@ -357,7 +357,10 @@ export default async function RapportConditionnementPage({
                     Date de fabrication
                     <DateJmaFormField
                       name="date_fabrication_conditionnement"
-                      defaultValue={rapport?.date_fabrication_conditionnement}
+                      defaultValue={smartEntryDateDefault(
+                        rapport?.date_fabrication_conditionnement,
+                        ligne.date_jour
+                      )}
                       required
                     />
                   </label>

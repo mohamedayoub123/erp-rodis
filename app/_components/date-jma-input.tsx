@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 // Jour / Mois (nomme) / Annee separes - un champ date natif affiche
 // l'ordre jour/mois selon la langue du navigateur, ce qui a deja cause une
@@ -40,6 +40,28 @@ export const ANNEE_OPTIONS = [
   "2039",
   "2040",
 ];
+
+// Valeur par defaut "intelligente" pour un champ DateJmaFormField qui
+// represente LA date d'une saisie Fabrication/Conditionnement/Emballage
+// (pas une date independante comme la peremption) : si une date a deja ete
+// enregistree (on rouvre une saisie existante), elle est gardee telle
+// quelle - sinon (nouvelle saisie), le jour vient du programme (date_jour
+// de programme_lignes, le jour prevu de cette production) et le mois/annee
+// sont ceux d'aujourd'hui (cas courant : la saisie se fait le jour meme ou
+// tres peu apres) - demande explicite, les 3 champs restent modifiables a
+// la main ensuite.
+export function smartEntryDateDefault(
+  existingValue: string | null | undefined,
+  ligneDateJour: string | null | undefined
+): string {
+  if (existingValue) return existingValue;
+  const day = (ligneDateJour || "").slice(8, 10);
+  if (!day) return "";
+  const today = new Date();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const year = String(today.getFullYear());
+  return `${year}-${month}-${day}`;
+}
 
 function splitIso(value: string) {
   const [year = "", month = "", day = ""] = (value || "").slice(0, 10).split("-");
@@ -136,10 +158,13 @@ export function DateJmaInput({
   const [year, setYear] = useState(() => splitIso(value).year);
 
   // Resynchronise l'etat local si `value` change depuis l'exterieur (ex:
-  // remise a zero du formulaire apres "Valider entree").
-  const lastValueRef = useRef(value);
-  if (lastValueRef.current !== value) {
-    lastValueRef.current = value;
+  // remise a zero du formulaire apres "Valider entree") - "adjusting state
+  // during render" via un useState de comparaison (pattern documente par
+  // React), pas une ref : lire/ecrire une ref pendant le rendu est interdit
+  // (erreur reelle corrigee : react-hooks/refs).
+  const [lastValue, setLastValue] = useState(value);
+  if (lastValue !== value) {
+    setLastValue(value);
     const next = splitIso(value);
     if (next.day !== day) setDay(next.day);
     if (next.month !== month) setMonth(next.month);

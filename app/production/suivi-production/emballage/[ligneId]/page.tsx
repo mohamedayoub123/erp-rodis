@@ -6,7 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
 import { saveEmballageRapportAction } from "../../actions";
-import { DateJmaFormField } from "@/app/_components/date-jma-input";
+import { DateJmaFormField, smartEntryDateDefault } from "@/app/_components/date-jma-input";
 import { formatDateTime } from "@/lib/format-date";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { TimeTextInput } from "@/app/_components/time-text-input";
@@ -186,7 +186,11 @@ export default async function RapportEmballagePage({
                 </p>
                 <label className="grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
                   Date emballage
-                  <DateJmaFormField name="date_emballage" defaultValue={rapport?.date_emballage} required />
+                  <DateJmaFormField
+                    name="date_emballage"
+                    defaultValue={smartEntryDateDefault(rapport?.date_emballage, ligne.date_jour)}
+                    required
+                  />
                 </label>
                 <p className="mt-3 text-xs font-semibold text-slate-500">
                   Date d&apos;expiration : {rapport?.date_peremption || "non renseignee"} (reprise

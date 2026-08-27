@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { saveFabricationRapportAction } from "../../actions";
-import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input";
+import { DateJmaFormField, MOIS_OPTIONS, smartEntryDateDefault } from "@/app/_components/date-jma-input";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { combineTempsJourMois, splitTempsJourMois } from "@/lib/suivi-tirage-time";
 import {
@@ -132,12 +132,14 @@ export function FabricationForm({
   rapport,
   vracRecupereLots,
   machines,
+  ligneDateJour,
 }: {
   ligneId: number;
   code: string;
   rapport: RapportInfo | null;
   vracRecupereLots: { numeroLot: string; solde: number }[];
   machines: { nom: string; typeProduit: string[] }[];
+  ligneDateJour: string;
 }) {
   const [cuvesPoids, setCuvesPoids] = useState({
     cuve_1_poids: rapport?.cuve_1_poids ?? "0",
@@ -171,7 +173,7 @@ export function FabricationForm({
           Date fabrication
           <DateJmaFormField
             name="date_fabrication_conditionnement"
-            defaultValue={rapport?.date_fabrication_conditionnement}
+            defaultValue={smartEntryDateDefault(rapport?.date_fabrication_conditionnement, ligneDateJour)}
             required
           />
         </label>
