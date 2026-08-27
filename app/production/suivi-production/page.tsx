@@ -565,6 +565,18 @@ function buildDisplayRows(
       const codeSpecific = rapportByLigneAndCode.get(`${ligne.id}::${split.code}`) ?? null;
       const legacy = legacyRapportByLigne.get(ligne.id) ?? null;
       const rapport = mergeRapports(codeSpecific, legacy);
+
+      // Un code n'apparait que si QUELQUE CHOSE a reellement ete rempli
+      // pour LUI (vrac/carton/emballage/rapport) - avant, des qu'UN SEUL
+      // code d'une chaine coupee en plusieurs lots avait ete travaille, TOUS
+      // les autres codes de cette meme chaine (jamais touches) recevaient
+      // quand meme une ligne vide (juste le vrac/carton demande, aucune
+      // colonne de production reelle) - bug reel signale : "3 code sans
+      // aucune information, comment c'est venu ?".
+      const hasAnyDataForCode =
+        vracForCode.length > 0 || cartonForCode.length > 0 || emballageForCode.length > 0 || Boolean(rapport);
+      if (!hasAnyDataForCode) return;
+
       const keyPrefix = `ligne-${ligneId}-code${splitIndex}`;
 
       // Fabrication n'a jamais qu'UN SEUL evenement par (ligne, code) par
