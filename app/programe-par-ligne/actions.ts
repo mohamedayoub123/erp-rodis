@@ -733,10 +733,23 @@ async function assignDispatcherCodesAndInsert(
   rowIds: number[]
 ): Promise<void> {
   const articleIds = [...new Set(filledRows.map((row) => row.article_id as number))];
-  const [articleInfoById, allArticleCodeRows] = await Promise.all([
+  const [articleInfoById, allArticleCodeRows, { data: existingLignesData }] = await Promise.all([
     fetchArticleInfoMap(articleIds),
     fetchAllArticleCodeRows(),
+    // Codes AVANT ce Dispatch, pour pouvoir faire correspondre "ancien code
+    // -> nouveau code" plus bas si cette ligne etait deja dispatchee (voir
+    // le bloc qui met a jour programme_dispatcher_history) - lu ici, avant
+    // toute ecriture.
+    rowIds.length > 0
+      ? supabaseServer.from("programme_lignes").select("id, numero_lot_detail").in("id", rowIds)
+      : Promise.resolve({ data: [] as { id: number; numero_lot_detail: unknown }[] }),
   ]);
+  const existingDetailById = new Map<number, { code: string }[]>(
+    ((existingLignesData ?? []) as { id: number; numero_lot_detail: { code: string }[] | null }[]).map((row) => [
+      row.id,
+      row.numero_lot_detail ?? [],
+    ])
+  );
 
   // Deux "Save"/"Dispatch" lances a quelques millisecondes d'ecart sur la
   // meme famille (gamme+forme) peuvent tous les deux lire le meme dernier
@@ -975,23 +988,57 @@ async function assignDispatcherCodesAndInsert(
       throw new Error(reactivateError.message);
     }
 
-    // Une ligne deja confirmee (confirme_production=true) qui se fait
-    // redispatcher recoit ICI un nouveau numero_lot/numero_lot_detail, mais
-    // Ravitailleur ne l'a pas encore reconfirme avec ces nouveaux codes -
-    // sans ce reset, le Dashboard continuait a la montrer (confirme_production
-    // etait resté a true depuis l'ANCIENNE confirmation) avec les codes du
-    // redispatch, jamais valides sur Ravitailleur (bug remonte : "Parfum
-    // Target" visible en PD2 avec un code, mais un autre code sur le
-    // Dashboard). Elle redisparait donc du Dashboard jusqu'a ce que
-    // Ravitailleur confirme a nouveau (voir saveProgrammeDispatcherSnapshotAction).
-    const { error: unconfirmError } = await supabaseServer
-      .from("programme_lignes")
-      .update({ confirme_production: false })
-      .in("id", dispatchedLigneIds)
-      .eq("confirme_production", true);
+    // Quand une ligne DEJA dispatchee (donc deja dans un PD - Programme
+    // Dispatcher History) est redispatchee pour corriger un code errone
+    // (Code par article, puis Dispatch), son PD doit refleter le meme
+    // correctif tout de suite - demande explicite : le PD garde son meme
+    // numero (ex: PD27), corrige en meme temps que Programme par ligne, pas
+    // besoin de repasser par Ravitailleur pour "reconfirmer" (ce qui
+    // creerait un TOUT NOUVEAU PD au lieu de corriger l'existant). La
+    // correspondance ancien code -> nouveau code se fait par position dans
+    // numero_lot_detail (lu AVANT ecriture, voir existingDetailById plus
+    // haut) - valable seulement si le nombre de lots n'a pas change (une
+    // simple correction de code, pas une quantite modifiee). Si le compte
+    // differe, on retombe sur l'ancien comportement de secours
+    // (deconfirmer, redemander une vraie confirmation Ravitailleur) plutot
+    // que de deviner une correspondance qui pourrait etre fausse.
+    const ligneIdsNeedingUnconfirm: number[] = [];
+    for (const update of numeroLotUpdates) {
+      const oldDetail = existingDetailById.get(update.id) ?? [];
+      const newDetail = update.numero_lot_detail as { code: string }[];
 
-    if (unconfirmError) {
-      throw new Error(unconfirmError.message);
+      if (oldDetail.length === 0 || oldDetail.length !== newDetail.length) {
+        ligneIdsNeedingUnconfirm.push(update.id);
+        continue;
+      }
+
+      for (let i = 0; i < oldDetail.length; i++) {
+        const oldCode = oldDetail[i]?.code;
+        const newCode = newDetail[i]?.code;
+        if (!oldCode || !newCode || oldCode === newCode) continue;
+
+        const { error: historyError } = await supabaseServer
+          .from("programme_dispatcher_history")
+          .update({ code: newCode })
+          .eq("source_groupe_id", groupeId)
+          .eq("code", oldCode);
+
+        if (historyError) {
+          throw new Error(historyError.message);
+        }
+      }
+    }
+
+    if (ligneIdsNeedingUnconfirm.length > 0) {
+      const { error: unconfirmError } = await supabaseServer
+        .from("programme_lignes")
+        .update({ confirme_production: false })
+        .in("id", ligneIdsNeedingUnconfirm)
+        .eq("confirme_production", true);
+
+      if (unconfirmError) {
+        throw new Error(unconfirmError.message);
+      }
     }
   }
 }
@@ -1274,7 +1321,7 @@ export async function dispatchExistingProgrammeLigneGroupAction(
     const { data, error } = await supabaseServer
       .from("programme_lignes")
       .select(
-        "id, zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, date_jour, numero_lot"
+        "id, zone, chaine, article_id, produit, type_article, qt_carton, vrac_a_fabriquer, plateforme, date_jour"
       )
       .or(`groupe_id.eq.${groupeId},and(groupe_id.is.null,id.eq.${groupeId})`)
       .order("id", { ascending: true });
@@ -1294,32 +1341,10 @@ export async function dispatchExistingProgrammeLigneGroupAction(
       vrac_a_fabriquer: number | null;
       plateforme: string | null;
       date_jour: string;
-      numero_lot: string | null;
     }[];
 
     if (lignes.length === 0) {
       return { ok: false, message: "Programme introuvable." };
-    }
-
-    // assignDispatcherCodesAndInsert regenere TOUJOURS des codes frais pour
-    // toutes les lignes qu'on lui passe, meme celles qui en ont deja - un
-    // re-Dispatch d'un programme deja envoye (bouton reclique par erreur, ou
-    // apres une correction dans Code par article) remplacait donc en
-    // silence des codes deja utilises en production (deja imprimes, deja
-    // dans Programme Dispatcher/Historique) par de nouveaux, deconnectant
-    // le programme de son propre historique (PD) - bug reel confirme
-    // (article "Gel douche soopure carotte 300ml", PD27). Tant qu'aucun
-    // outil de correction cible n'existe pour changer UN SEUL code deja
-    // dispatche sans toucher aux autres, on bloque plutot que de regenerer.
-    const dejaDispatchees = lignes.filter((ligne) => ligne.article_id && ligne.numero_lot);
-    if (dejaDispatchees.length > 0) {
-      return {
-        ok: false,
-        message:
-          "Ce programme a deja ete dispatche - les codes (" +
-          dejaDispatchees.map((l) => l.numero_lot).join(", ") +
-          ") sont deja utilises en production et ne peuvent plus etre changes en redispatchant. Contacte un admin si une ligne precise doit vraiment etre corrigee.",
-      };
     }
 
     const remplies = lignes.filter((ligne) => ligne.article_id);

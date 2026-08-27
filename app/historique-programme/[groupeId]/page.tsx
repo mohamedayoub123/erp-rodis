@@ -159,7 +159,7 @@ export default async function HistoriqueProgrammeDetailPage({
                   Verifier stock
                 </Link>
               ) : null}
-              {canRelaunch && pdRefs.length === 0 ? (
+              {canRelaunch ? (
                 <DispatchGroupButton groupeId={groupeIdNumber} dispatchAction={dispatchExistingProgrammeLigneGroupAction} />
               ) : null}
               {canDelete ? (
