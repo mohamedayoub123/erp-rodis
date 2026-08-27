@@ -347,9 +347,26 @@ export function RapportTable({
                       className={`border border-slate-200 px-4 py-3 text-center font-semibold ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected("__row__") ? "ring-2 ring-inset ring-violet-500" : ""} ${sheetBoundaryClass}`}
                       style={combineStyle(style ? { backgroundColor: style.bg, color: style.text } : undefined, rowColors["__row__"], undefined)}
                       onClick={() => selectTarget(row.id, "__row__")}
-                      title={canEdit ? "Cliquer pour colorer toute la ligne" : undefined}
+                      title={canEdit ? "Cliquer autour du chiffre pour colorer toute la ligne" : undefined}
                     >
-                      {row.ordre}
+                      {canEdit ? (
+                        // Numero modifiable - plusieurs lignes peuvent
+                        // partager le meme numero (plus de contrainte
+                        // d'unicite en base), elles restent alors triees
+                        // entre elles par ordre de creation - demande
+                        // explicite : deplacer une ligne (ex: 17 -> 4) doit
+                        // juste la faire apparaitre apres les lignes deja
+                        // numerotees 4, pas les remplacer ni les decaler.
+                        <input
+                          type="number"
+                          name={`ordre_${row.id}`}
+                          defaultValue={row.ordre}
+                          onClick={(event) => event.stopPropagation()}
+                          className="w-14 rounded-lg border border-slate-200 bg-white px-1 py-1 text-center text-sm font-semibold outline-none"
+                        />
+                      ) : (
+                        row.ordre
+                      )}
                     </td>
                     <td
                       className={`whitespace-nowrap border border-slate-200 px-4 py-3 font-medium ${canEdit ? "cursor-pointer" : ""} ${isTargetSelected("DESIGNATION") ? "ring-2 ring-inset ring-violet-500" : ""} ${sheetBoundaryClass}`}

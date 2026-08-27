@@ -56,7 +56,15 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
       }
     }
 
-    return { id, donnees };
+    // ORDRE modifiable (voir rapport-table.tsx) - colonne dediee, pas dans
+    // donnees. Ignore une valeur vide/invalide plutot que d'ecraser avec
+    // 0 (le champ garde toujours une defaultValue numerique, ce cas ne
+    // devrait survenir qu'en cas de saisie effacee par erreur).
+    const rawOrdre = String(formData.get(`ordre_${id}`) || "").trim();
+    const parsedOrdre = Number(rawOrdre);
+    const ordre = Number.isFinite(parsedOrdre) && parsedOrdre > 0 ? Math.trunc(parsedOrdre) : null;
+
+    return { id, donnees, ordre };
   });
 
   const chunkSize = 20;
@@ -64,7 +72,10 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
     const chunk = updates.slice(i, i + chunkSize);
     const results = await Promise.all(
       chunk.map((update) =>
-        supabaseServer.from("rapport_gamme_statistique_mp").update({ donnees: update.donnees }).eq("id", update.id)
+        supabaseServer
+          .from("rapport_gamme_statistique_mp")
+          .update({ donnees: update.donnees, ...(update.ordre !== null ? { ordre: update.ordre } : null) })
+          .eq("id", update.id)
       )
     );
     const failed = results.find((result) => result.error);

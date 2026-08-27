@@ -444,7 +444,8 @@ async function buildRapportRowsWithLive(
     .from("rapport_gamme_statistique_mp")
     .select("id, ordre, designation, categorie, donnees")
     .eq("gamme_statistique", gammeKey)
-    .order("ordre", { ascending: true });
+    .order("ordre", { ascending: true })
+    .order("id", { ascending: true });
   const rapportRows = (data ?? []) as RapportRow[];
 
   const matchedArticleIds = matchedArticleIdsForRows(rapportRows, articleByNormalizedName);
@@ -476,10 +477,14 @@ async function buildAllGammeSections(
     list.push(row);
     rapportRowsByGamme.set(row.gamme_statistique, list);
   }
-  // Meme tri que la requete par gamme (order("ordre")) - .in(...) ne trie
-  // pas par groupe, chaque liste doit etre re-triee elle-meme.
+  // Meme tri que la requete par gamme (order("ordre").order("id")) -
+  // .in(...) ne trie pas par groupe, chaque liste doit etre re-triee
+  // elle-meme. Le depart age par id est ce qui fait qu'une ligne dont le
+  // numero est change pour rejoindre un groupe existant vient toujours
+  // APRES les lignes deja presentes sur ce numero (plus vieux id = deja
+  // la, plus jeune id = vient d'etre deplacee ici).
   for (const list of rapportRowsByGamme.values()) {
-    list.sort((a, b) => a.ordre - b.ordre);
+    list.sort((a, b) => a.ordre - b.ordre || a.id - b.id);
   }
 
   const matchedArticleIds = matchedArticleIdsForRows(rapportRowsAll, articleByNormalizedName);
