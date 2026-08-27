@@ -120,7 +120,9 @@ export function StatistiqueChart({ rows }: { rows: YearMonthRow[] }) {
   const width = 900;
   const height = 340;
   const marginLeft = 56;
-  const marginRight = 16;
+  // Assez large pour l'etiquette de fin de ligne ("2025 Ent.") sans qu'elle
+  // deborde du viewBox.
+  const marginRight = 74;
   const marginTop = 16;
   const marginBottom = 32;
   const plotWidth = width - marginLeft - marginRight;
@@ -135,7 +137,9 @@ export function StatistiqueChart({ rows }: { rows: YearMonthRow[] }) {
 
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((fraction) => Math.round(maxValue * fraction));
 
-  const pivotYears = [...allYears].sort((a, b) => b - a);
+  // Ordre chronologique croissant - les annees sont maintenant des colonnes
+  // (gauche = plus ancienne), plus naturel a lire que l'inverse.
+  const pivotYears = [...allYears].sort((a, b) => a - b);
 
   return (
     <div className="space-y-6">
@@ -285,7 +289,64 @@ export function StatistiqueChart({ rows }: { rows: YearMonthRow[] }) {
               ))}
             </g>
 
-            {/* Points de donnees + cible de survol (zone > au marqueur visible) */}
+            {/* Points de donnees, toujours visibles (pas seulement au
+                survol) - avec la quantite au-dessus (Entree) ou en-dessous
+                (Sortie) de chaque point, pour lire chaque mois sans avoir a
+                survoler. Petit texte, encre neutre (jamais la couleur de la
+                serie - l'identite vient du point colore juste a cote). */}
+            {series.map((s) =>
+              s.values.map((v, i) => {
+                if (v <= 0) return null;
+                const cx = xFor(i);
+                const cy = yFor(v);
+                const isHovered = hoverMonth === i;
+                return (
+                  <g key={`${s.year}-${s.kind}-${i}`}>
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={isHovered ? 4 : 3}
+                      fill={s.color}
+                      stroke="#fcfcfb"
+                      strokeWidth={2}
+                    />
+                    <text
+                      x={cx}
+                      y={s.kind === "entree" ? cy - 8 : cy + 15}
+                      textAnchor="middle"
+                      className="fill-slate-600"
+                      fontSize={9}
+                      fontWeight={isHovered ? 700 : 500}
+                    >
+                      {formatNumber(v)}
+                    </text>
+                  </g>
+                );
+              })
+            )}
+
+            {/* Etiquette de fin de ligne - identifie chaque serie (annee +
+                mouvement) directement sur le graphique, pas seulement dans
+                la legende en dessous. */}
+            {series.map((s) => {
+              const lastIndex = s.values.length - 1;
+              return (
+                <text
+                  key={`${s.year}-${s.kind}-end`}
+                  x={xFor(lastIndex) + 6}
+                  y={yFor(s.values[lastIndex])}
+                  textAnchor="start"
+                  dominantBaseline="middle"
+                  className="fill-slate-700"
+                  fontSize={10}
+                  fontWeight={700}
+                >
+                  {s.year} {s.kind === "entree" ? "Ent." : "Sor."}
+                </text>
+              );
+            })}
+
+            {/* Cible de survol (zone > au marqueur visible) */}
             {MOIS_COURTS.map((_, monthIndex) => (
               <rect
                 key={monthIndex}
@@ -297,21 +358,6 @@ export function StatistiqueChart({ rows }: { rows: YearMonthRow[] }) {
                 onMouseEnter={() => setHoverMonth(monthIndex)}
               />
             ))}
-            {series.map((s) =>
-              s.values.map((v, i) =>
-                hoverMonth === i ? (
-                  <circle
-                    key={`${s.year}-${s.kind}-${i}`}
-                    cx={xFor(i)}
-                    cy={yFor(v)}
-                    r={4}
-                    fill={s.color}
-                    stroke="#fcfcfb"
-                    strokeWidth={2}
-                  />
-                ) : null
-              )
-            )}
           </svg>
 
           {/* Legende - toujours presente (>= 2 series) : couleur = annee, trait = mouvement */}
@@ -395,6 +441,14 @@ function PivotTable({
   valueFor: (year: number, month: number) => number;
   accentClassName: string;
 }) {
+  // Mois en ligne (12 lignes fixes), annees en colonne - une seule table
+  // couvrant toutes les annees connues (pas seulement celles cochees dans
+  // le graphique au-dessus).
+  const yearTotals = years.map((year) =>
+    Array.from({ length: 12 }, (_, i) => valueFor(year, i + 1)).reduce((sum, v) => sum + v, 0)
+  );
+  const grandTotal = yearTotals.reduce((sum, v) => sum + v, 0);
+
   return (
     <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white">
       <h3 className="border-b border-slate-100 px-5 py-3 text-sm font-bold text-slate-900">{title}</h3>
@@ -402,24 +456,24 @@ function PivotTable({
         <table className="min-w-full text-right text-xs">
           <thead className="bg-slate-50 text-slate-500">
             <tr>
-              <th className="px-3 py-2 text-left font-semibold">Annee</th>
-              {MOIS_COURTS.map((label) => (
-                <th key={label} className="px-3 py-2 font-semibold">
-                  {label}
+              <th className="px-3 py-2 text-left font-semibold">Mois</th>
+              {years.map((year) => (
+                <th key={year} className="px-3 py-2 font-semibold">
+                  {year}
                 </th>
               ))}
               <th className="px-3 py-2 font-semibold">Total</th>
             </tr>
           </thead>
           <tbody>
-            {years.map((year) => {
-              const monthValues = Array.from({ length: 12 }, (_, i) => valueFor(year, i + 1));
-              const total = monthValues.reduce((sum, v) => sum + v, 0);
+            {MOIS_COURTS.map((label, monthIndex) => {
+              const yearValues = years.map((year) => valueFor(year, monthIndex + 1));
+              const total = yearValues.reduce((sum, v) => sum + v, 0);
               return (
-                <tr key={year} className="border-t border-slate-100">
-                  <td className="px-3 py-2 text-left font-semibold text-slate-900">{year}</td>
-                  {monthValues.map((v, i) => (
-                    <td key={i} className={`px-3 py-2 tabular-nums ${v > 0 ? accentClassName : "text-slate-300"}`}>
+                <tr key={label} className="border-t border-slate-100">
+                  <td className="px-3 py-2 text-left font-semibold text-slate-900">{label}</td>
+                  {yearValues.map((v, i) => (
+                    <td key={years[i]} className={`px-3 py-2 tabular-nums ${v > 0 ? accentClassName : "text-slate-300"}`}>
                       {v > 0 ? formatNumber(v) : "-"}
                     </td>
                   ))}
@@ -427,6 +481,15 @@ function PivotTable({
                 </tr>
               );
             })}
+            <tr className="border-t-2 border-slate-200 bg-slate-50">
+              <td className="px-3 py-2 text-left font-bold text-slate-900">Total</td>
+              {yearTotals.map((total, i) => (
+                <td key={years[i]} className="px-3 py-2 font-bold tabular-nums text-slate-900">
+                  {formatNumber(total)}
+                </td>
+              ))}
+              <td className="px-3 py-2 font-bold tabular-nums text-slate-900">{formatNumber(grandTotal)}</td>
+            </tr>
           </tbody>
         </table>
       </div>
