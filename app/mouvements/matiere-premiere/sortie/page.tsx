@@ -37,13 +37,31 @@ async function fetchAllArticlesForSortie() {
 // (RPC stock_mp_lot_balances) plutot qu'en rapatriant toute la table
 // lots_stock_matiere_premiere (dizaines de milliers de lignes) pour agreger
 // cote Node - cette derniere approche rendait la page tres lente (~12s).
+//
+// Pagine (.range()) - un simple appel RPC sans pagination plafonne
+// silencieusement a 1000 lignes (limite par defaut Supabase/PostgREST),
+// et il y a largement plus de 1000 combinaisons article+lot distinctes -
+// sans ordre garanti sur la fonction SQL, un article+lot pouvait tomber
+// hors des 1000 premieres lignes et disparaitre de la liste : la Sortie le
+// refusait alors comme "aucun lot en stock" alors qu'il existe bel et bien
+// (bug reel confirme : ETUIS SAVON ELIXIR LIGHT 200 GR / "ancien lot",
+// 629171 en stock, refuse par Sortie).
 async function fetchLotBalancesForSortie() {
   type Row = { article_id: number; numero_lot: string; stock: number };
-  const { data, error } = await supabaseServer.rpc("stock_mp_lot_balances");
+  const pageSize = 1000;
+  const rows: Row[] = [];
+  let from = 0;
 
-  if (error) return [];
+  while (true) {
+    const { data, error } = await supabaseServer.rpc("stock_mp_lot_balances").range(from, from + pageSize - 1);
+    if (error) return [];
+    const chunk = (data as Row[] | null) ?? [];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
 
-  return (data as Row[] | null) ?? [];
+  return rows;
 }
 
 export default async function MouvementsMatierePremiereSortiePage() {
