@@ -384,24 +384,33 @@ export async function createSortieMpBatchAction(formData: FormData) {
     const dateEcriture = new Date().toISOString().slice(0, 10);
     const batchRef = (rpcResult as { groupes?: number[] } | null)?.groupes?.[0] ?? Date.now();
 
-    for (const [articleId, info] of parArticle) {
-      const montant = couts.get(articleId)?.coutFcfa;
-      if (montant === undefined || montant <= 0) continue;
+    // Une ecriture par article DISTINCT, en parallele plutot qu'en
+    // sequence - une sortie touchant beaucoup d'articles differents en une
+    // fois (chacun avec son propre lookup de compte + insert ecriture +
+    // insert lignes) additionnait sinon leurs latences reseau une par une,
+    // principale source de lenteur remontee sur "Sortie MP" avec plusieurs
+    // lignes. Chaque ecriture est independante (source_id different),
+    // aucun risque a les lancer ensemble.
+    await Promise.all(
+      [...parArticle.entries()].map(([articleId, info]) => {
+        const montant = couts.get(articleId)?.coutFcfa;
+        if (montant === undefined || montant <= 0) return null;
 
-      const lotsTexte = [...info.lots].join(", ");
-      await creerEcriture({
-        dateEcriture,
-        pieceReference: lotsTexte,
-        libelle: `Perte MP - ${nomById.get(articleId) ?? `#${articleId}`} - ${lotsTexte}`,
-        sourceType: "perte_mp_sortie",
-        sourceId: `${batchRef}-${articleId}`,
-        createdBy: lignes[0]?.utilisateur || null,
-        lignes: [
-          { compteCode: COMPTE_PERTES_STOCK, debit: montant, credit: 0 },
-          { compteCode: COMPTE_STOCK_MP, debit: 0, credit: montant },
-        ],
-      });
-    }
+        const lotsTexte = [...info.lots].join(", ");
+        return creerEcriture({
+          dateEcriture,
+          pieceReference: lotsTexte,
+          libelle: `Perte MP - ${nomById.get(articleId) ?? `#${articleId}`} - ${lotsTexte}`,
+          sourceType: "perte_mp_sortie",
+          sourceId: `${batchRef}-${articleId}`,
+          createdBy: lignes[0]?.utilisateur || null,
+          lignes: [
+            { compteCode: COMPTE_PERTES_STOCK, debit: montant, credit: 0 },
+            { compteCode: COMPTE_STOCK_MP, debit: 0, credit: montant },
+          ],
+        });
+      })
+    );
   } catch (comptaError) {
     console.error("Ecriture comptable perte MP (Sortie MP) echouee:", comptaError);
   }
