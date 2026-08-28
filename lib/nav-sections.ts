@@ -115,6 +115,24 @@ export const navItems: NavItem[] = [
     ],
   },
   {
+    href: "/production-plastique",
+    label: "Production Plastique",
+    pageKey: "productionPlastique",
+    matchPrefixes: ["/production-plastique"],
+    subLinks: [
+      { href: "/production-plastique/articles", label: "Articles", pageKey: "productionPlastique" },
+      { href: "/production-plastique/recettes", label: "Recette Plastique", pageKey: "productionPlastique" },
+      { href: "/production-plastique/programme", label: "Ajouter Programme", pageKey: "productionPlastique" },
+      {
+        href: "/production-plastique/historique-matiere",
+        label: "Historique Matiere",
+        pageKey: "productionPlastique",
+      },
+      { href: "/production-plastique/statistique", label: "Statistique", pageKey: "productionPlastique" },
+      { href: "/production-plastique/commandes", label: "Commandes", pageKey: "productionPlastique" },
+    ],
+  },
+  {
     href: "/produit",
     label: "Produit",
     pageKey: "produit",
