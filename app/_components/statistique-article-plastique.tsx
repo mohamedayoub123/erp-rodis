@@ -6,6 +6,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { SubmitButton } from "@/app/_components/submit-button";
 import { SaveCommandeButton } from "@/app/_components/save-commande-plastique-button";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { familyRank } from "@/lib/gamme-families";
 import { CATEGORIES_PLASTIQUE } from "@/app/production-plastique/shared";
 import { updateAvisFabricationAction, saveCommandeArticlePlastiqueAction } from "@/app/_components/statistique-article-plastique-actions";
 
@@ -119,11 +120,9 @@ export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; erro
       };
     })
     .sort((a, b) => {
-      const gammeA = a.gamme || "";
-      const gammeB = b.gamme || "";
       return (
-        (gammeA === "" ? 1 : 0) - (gammeB === "" ? 1 : 0) ||
-        gammeA.localeCompare(gammeB, "fr", { sensitivity: "base" }) ||
+        familyRank(a.gamme) - familyRank(b.gamme) ||
+        (a.gamme || "").localeCompare(b.gamme || "", "fr", { sensitivity: "base" }) ||
         categorieSortIndex(a.categorie) - categorieSortIndex(b.categorie) ||
         a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" })
       );
