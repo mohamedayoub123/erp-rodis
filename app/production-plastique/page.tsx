@@ -33,6 +33,12 @@ const TILES = [
     icon: "\u{1F9F4}",
     description: "Flacon, flacon PET, pot, capsule, topette - stock actuel, stock min et stock max.",
   },
+  {
+    label: "Commandes Article Plastique",
+    href: "/production-plastique/commandes",
+    icon: "\u{1F4CB}",
+    description: "Enregistrees depuis Statistique Article Plastique (E3) via Save.",
+  },
 ] as const;
 
 export default function ProductionPlastiquePage() {

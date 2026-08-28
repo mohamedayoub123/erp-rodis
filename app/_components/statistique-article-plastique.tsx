@@ -4,9 +4,10 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { SaveCommandeButton } from "@/app/_components/save-commande-plastique-button";
 import { matchesArticleSearch } from "@/lib/article-search";
-import { CATEGORIES_PLASTIQUE, normalizeCategoriePlastique } from "@/app/production-plastique/shared";
-import { updateAvisFabricationAction } from "@/app/_components/statistique-article-plastique-actions";
+import { CATEGORIES_PLASTIQUE } from "@/app/production-plastique/shared";
+import { updateAvisFabricationAction, saveCommandeArticlePlastiqueAction } from "@/app/_components/statistique-article-plastique-actions";
 
 // Module partage - meme rendu utilise depuis Rapport MP
 // (stock/matiere-premiere/rapport/plastique) et Production Plastique
@@ -30,7 +31,7 @@ type ArticleDetailRow = {
   avis_fabrication: string | null;
 };
 
-type PlastiqueRow = {
+export type PlastiqueRow = {
   article_id: number;
   nom_article: string;
   categorie: string | null;
@@ -44,6 +45,24 @@ type PlastiqueRow = {
 
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+}
+
+// Regroupe CAPSULES/CAPSULES-IMP sous "CAPSULE" (variantes de la meme
+// famille physique) mais garde FLACON et FLACONS PET DISTINCTS - contraire
+// a normalizeCategoriePlastique (production-plastique/shared.ts) qui les
+// fusionne tous les 2 sous "FLACON" - demande explicite ici : l'ordre de
+// tri doit justement pouvoir les distinguer (Flacon avant Flacon PET).
+function displayCategorie(categorie: string | null): string {
+  if (categorie === "CAPSULES" || categorie === "CAPSULES-IMP") return "CAPSULE";
+  return categorie || "-";
+}
+
+// Ordre d'affichage demande explicitement : Flacon, Pot, Capsule, Flacon
+// PET - tout le reste (Topette...) vient apres, triees entre elles par nom.
+const CATEGORIE_SORT_ORDER = ["FLACON", "POTS", "CAPSULE", "FLACONS PET"];
+function categorieSortIndex(categorie: string | null): number {
+  const index = CATEGORIE_SORT_ORDER.indexOf(displayCategorie(categorie));
+  return index === -1 ? CATEGORIE_SORT_ORDER.length : index;
 }
 
 // stock_actuel_mp_rows() renvoie une ligne par article MP (2700+) - un
@@ -69,7 +88,7 @@ async function fetchAllStockActuelMpRows(): Promise<{ rows: StockActuelMpRpcRow[
   return { rows, error: null };
 }
 
-async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; error: string | null }> {
+export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; error: string | null }> {
   const [stockResult, detailResult] = await Promise.all([
     fetchAllStockActuelMpRows(),
     supabaseServer
@@ -99,7 +118,11 @@ async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; error: stri
         avis_fabrication: detail?.avis_fabrication ?? null,
       };
     })
-    .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
+    .sort(
+      (a, b) =>
+        categorieSortIndex(a.categorie) - categorieSortIndex(b.categorie) ||
+        a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" })
+    );
 
   return { rows, error: null };
 }
@@ -108,7 +131,7 @@ async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; error: stri
 // le stock est sous le minimum (sinon rien a produire dans l'urgence) et
 // que min/max sont tous les 2 renseignes pour cet article (sinon aucune
 // cible fiable a viser).
-function computeAFabriquer(row: PlastiqueRow): number | null {
+export function computeAFabriquer(row: PlastiqueRow): number | null {
   if (row.min_stock === null || row.max_stock === null) return null;
   if (row.stock_actuel >= row.min_stock) return 0;
   return Math.max(0, row.max_stock - row.stock_actuel);
@@ -121,22 +144,27 @@ export async function StatistiqueArticlePlastique({
 }: {
   pageHref: string;
   canEdit: boolean;
-  searchParams: Promise<{ q?: string; categorie?: string }>;
+  searchParams: Promise<{ q?: string; categorie?: string; gamme?: string }>;
 }) {
   noStore();
   const params = await searchParams;
   const q = (params.q || "").trim();
   const categorieFilter = (params.categorie || "").trim();
-  const hasFilters = Boolean(q || categorieFilter);
+  const gammeFilter = (params.gamme || "").trim();
+  const hasFilters = Boolean(q || categorieFilter || gammeFilter);
 
   const { rows: allRows, error } = await fetchPlastiqueRows();
 
   const rows = allRows
     .filter((row) => !q || matchesArticleSearch(row.nom_article, q))
-    .filter((row) => !categorieFilter || normalizeCategoriePlastique(row.categorie) === categorieFilter);
+    .filter((row) => !categorieFilter || displayCategorie(row.categorie) === categorieFilter)
+    .filter((row) => !gammeFilter || (row.gamme || "").toLowerCase() === gammeFilter.toLowerCase());
 
   const articleOptions = allRows.map((row, index) => ({ id: index, label: row.nom_article }));
-  const categorieOptions = [...new Set(allRows.map((row) => normalizeCategoriePlastique(row.categorie)))].map(
+  const categorieOptions = [...new Set(allRows.map((row) => displayCategorie(row.categorie)))].map(
+    (label, index) => ({ id: index, label })
+  );
+  const gammeOptions = [...new Set(allRows.map((row) => row.gamme).filter((g): g is string => Boolean(g)))].map(
     (label, index) => ({ id: index, label })
   );
 
@@ -154,7 +182,7 @@ export async function StatistiqueArticlePlastique({
   const exportRows = rows.map((row) => ({
     article: row.nom_article,
     gamme: row.gamme || "-",
-    categorie: normalizeCategoriePlastique(row.categorie),
+    categorie: displayCategorie(row.categorie),
     unite: row.unite || "-",
     stock: row.stock_actuel,
     min: row.min_stock ?? "-",
@@ -166,7 +194,7 @@ export async function StatistiqueArticlePlastique({
   return (
     <div className="space-y-6">
       <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-        <form className="grid gap-3 sm:grid-cols-4">
+        <form className="grid gap-3 sm:grid-cols-3">
           <SearchableFilterInput name="q" defaultValue={q} options={articleOptions} placeholder="Article..." />
           <SearchableFilterInput
             name="categorie"
@@ -174,7 +202,8 @@ export async function StatistiqueArticlePlastique({
             options={categorieOptions}
             placeholder="Categorie..."
           />
-          <div className="flex gap-3 sm:col-span-2">
+          <SearchableFilterInput name="gamme" defaultValue={gammeFilter} options={gammeOptions} placeholder="Gamme..." />
+          <div className="flex flex-wrap gap-3 sm:col-span-3">
             <button
               type="submit"
               className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
@@ -189,7 +218,8 @@ export async function StatistiqueArticlePlastique({
                 Effacer
               </Link>
             ) : null}
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              {canEdit ? <SaveCommandeButton saveAction={saveCommandeArticlePlastiqueAction} /> : null}
               <ExportExcelButton
                 rows={exportRows}
                 columns={exportColumns}
@@ -242,7 +272,7 @@ export async function StatistiqueArticlePlastique({
                     <tr key={row.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.gamme || "-"}</td>
-                      <td className="px-6 py-4 text-slate-600">{normalizeCategoriePlastique(row.categorie)}</td>
+                      <td className="px-6 py-4 text-slate-600">{displayCategorie(row.categorie)}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4">
                         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
