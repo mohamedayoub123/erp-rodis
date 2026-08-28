@@ -121,6 +121,7 @@ export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; erro
     .sort(
       (a, b) =>
         categorieSortIndex(a.categorie) - categorieSortIndex(b.categorie) ||
+        (a.gamme || "").localeCompare(b.gamme || "", "fr", { sensitivity: "base" }) ||
         a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" })
     );
 
