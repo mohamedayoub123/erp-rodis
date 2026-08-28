@@ -1,6 +1,7 @@
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { StatistiqueArticlePlastique } from "@/app/_components/statistique-article-plastique";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
 type SearchParams = Promise<{ q?: string; categorie?: string }>;
 
@@ -9,6 +10,9 @@ export default async function StatistiqueArticlePlastiqueMpPage({
 }: {
   searchParams: SearchParams;
 }) {
+  const currentUser = await getCurrentStockUser();
+  const canEdit = await canWritePageUser(currentUser, "stockPlastiqueMp");
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#fffaf3_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -35,6 +39,7 @@ export default async function StatistiqueArticlePlastiqueMpPage({
 
         <StatistiqueArticlePlastique
           pageHref="/stock/matiere-premiere/rapport/plastique"
+          canEdit={canEdit}
           searchParams={searchParams}
         />
       </div>

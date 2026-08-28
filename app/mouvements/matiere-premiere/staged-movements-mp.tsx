@@ -552,6 +552,29 @@ export function SortiePanelMp({
       setErrorMessage("Numero de lot obligatoire.");
       return;
     }
+    // En mode normal, un lot tape a la main qui ne correspond a AUCUN lot
+    // existant de cet article passait quand meme (aucune verification cote
+    // client) - la ligne s'ajoutait a la liste, et l'erreur reelle
+    // n'apparaissait qu'au clic sur "Approuver sortie", sous la forme
+    // "Stock insuffisant (disponible : 0)" - lue a tort comme "le lot
+    // n'existe pas" (bug reel signale : lot qui existe bel et bien, juste
+    // mal orthographie/pas choisi dans la liste). Bloque desormais tout de
+    // suite, avec un message qui pointe vers la vraie cause.
+    if (mode === "normal") {
+      const normalizedInput = numeroLot.trim().toUpperCase();
+      const matchesExistingLot = lotsForArticle.some(
+        (lot) => lot.numero_lot.trim().toUpperCase() === normalizedInput
+      );
+      if (!matchesExistingLot) {
+        setMessage("");
+        setErrorMessage(
+          lotsForArticle.length > 0
+            ? `"${numeroLot.trim()}" ne correspond a aucun lot existant de cet article - choisis-le dans la liste qui s'affiche (verifie l'orthographe exacte).`
+            : "Cet article n'a aucun lot en stock actuellement."
+        );
+        return;
+      }
+    }
     if (!dateSortie) {
       setMessage("");
       setErrorMessage("Date de sortie obligatoire.");

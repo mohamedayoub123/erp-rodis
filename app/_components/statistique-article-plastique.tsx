@@ -3,8 +3,10 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { SubmitButton } from "@/app/_components/submit-button";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { CATEGORIES_PLASTIQUE, normalizeCategoriePlastique } from "@/app/production-plastique/shared";
+import { updateAvisFabricationAction } from "@/app/_components/statistique-article-plastique-actions";
 
 // Module partage - meme rendu utilise depuis Rapport MP
 // (stock/matiere-premiere/rapport/plastique) et Production Plastique
@@ -20,10 +22,12 @@ type StockActuelMpRpcRow = {
   stock_actuel: number;
 };
 
-type MinMaxRow = {
+type ArticleDetailRow = {
   id: number;
   min_stock: number | null;
   max_stock: number | null;
+  gamme: string | null;
+  avis_fabrication: string | null;
 };
 
 type PlastiqueRow = {
@@ -31,9 +35,11 @@ type PlastiqueRow = {
   nom_article: string;
   categorie: string | null;
   unite: string | null;
+  gamme: string | null;
   stock_actuel: number;
   min_stock: number | null;
   max_stock: number | null;
+  avis_fabrication: string | null;
 };
 
 function formatNumber(value: number) {
@@ -64,39 +70,57 @@ async function fetchAllStockActuelMpRows(): Promise<{ rows: StockActuelMpRpcRow[
 }
 
 async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; error: string | null }> {
-  const [stockResult, minMaxResult] = await Promise.all([
+  const [stockResult, detailResult] = await Promise.all([
     fetchAllStockActuelMpRows(),
-    supabaseServer.from("articles_matiere_premiere").select("id, min_stock, max_stock").in("categorie", CATEGORIES_PLASTIQUE),
+    supabaseServer
+      .from("articles_matiere_premiere")
+      .select("id, min_stock, max_stock, gamme, avis_fabrication")
+      .in("categorie", CATEGORIES_PLASTIQUE),
   ]);
 
   if (stockResult.error) return { rows: [], error: stockResult.error };
-  if (minMaxResult.error) return { rows: [], error: minMaxResult.error.message };
+  if (detailResult.error) return { rows: [], error: detailResult.error.message };
 
-  const minMaxById = new Map(
-    (minMaxResult.data as MinMaxRow[]).map((row) => [row.id, { min: row.min_stock, max: row.max_stock }])
-  );
+  const detailById = new Map((detailResult.data as ArticleDetailRow[]).map((row) => [row.id, row]));
 
   const rows = stockResult.rows
     .filter((row) => (CATEGORIES_PLASTIQUE as readonly string[]).includes(row.categorie || ""))
-    .map((row) => ({
-      article_id: row.article_id,
-      nom_article: row.nom_article,
-      categorie: row.categorie,
-      unite: row.unite,
-      stock_actuel: Number(row.stock_actuel ?? 0),
-      min_stock: minMaxById.get(row.article_id)?.min ?? null,
-      max_stock: minMaxById.get(row.article_id)?.max ?? null,
-    }))
+    .map((row) => {
+      const detail = detailById.get(row.article_id);
+      return {
+        article_id: row.article_id,
+        nom_article: row.nom_article,
+        categorie: row.categorie,
+        unite: row.unite,
+        gamme: detail?.gamme ?? null,
+        stock_actuel: Number(row.stock_actuel ?? 0),
+        min_stock: detail?.min_stock ?? null,
+        max_stock: detail?.max_stock ?? null,
+        avis_fabrication: detail?.avis_fabrication ?? null,
+      };
+    })
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
   return { rows, error: null };
 }
 
+// Quantite a fabriquer pour ramener le stock au maximum - seulement quand
+// le stock est sous le minimum (sinon rien a produire dans l'urgence) et
+// que min/max sont tous les 2 renseignes pour cet article (sinon aucune
+// cible fiable a viser).
+function computeAFabriquer(row: PlastiqueRow): number | null {
+  if (row.min_stock === null || row.max_stock === null) return null;
+  if (row.stock_actuel >= row.min_stock) return 0;
+  return Math.max(0, row.max_stock - row.stock_actuel);
+}
+
 export async function StatistiqueArticlePlastique({
   pageHref,
+  canEdit,
   searchParams,
 }: {
   pageHref: string;
+  canEdit: boolean;
   searchParams: Promise<{ q?: string; categorie?: string }>;
 }) {
   noStore();
@@ -118,19 +142,25 @@ export async function StatistiqueArticlePlastique({
 
   const exportColumns = [
     { label: "Article", key: "article" },
+    { label: "Gamme", key: "gamme" },
     { label: "Categorie", key: "categorie" },
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stock" },
     { label: "Stock min", key: "min" },
     { label: "Stock max", key: "max" },
+    { label: "A fabriquer", key: "aFabriquer" },
+    { label: "Avis de fabrication", key: "avis" },
   ];
   const exportRows = rows.map((row) => ({
     article: row.nom_article,
+    gamme: row.gamme || "-",
     categorie: normalizeCategoriePlastique(row.categorie),
     unite: row.unite || "-",
     stock: row.stock_actuel,
     min: row.min_stock ?? "-",
     max: row.max_stock ?? "-",
+    aFabriquer: computeAFabriquer(row) ?? "-",
+    avis: row.avis_fabrication || "-",
   }));
 
   return (
@@ -183,11 +213,14 @@ export async function StatistiqueArticlePlastique({
               <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Article</th>
+                  <th className="px-6 py-4 font-semibold">Gamme</th>
                   <th className="px-6 py-4 font-semibold">Categorie</th>
                   <th className="px-6 py-4 font-semibold">Unite</th>
                   <th className="px-6 py-4 font-semibold">Stock actuel</th>
                   <th className="px-6 py-4 font-semibold">Stock min</th>
                   <th className="px-6 py-4 font-semibold">Stock max</th>
+                  <th className="px-6 py-4 font-semibold">A fabriquer</th>
+                  <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
                 </tr>
               </thead>
               <tbody>
@@ -204,9 +237,11 @@ export async function StatistiqueArticlePlastique({
                     : aboveMax
                       ? "bg-amber-100 text-amber-800"
                       : "bg-emerald-100 text-emerald-800";
+                  const aFabriquer = computeAFabriquer(row);
                   return (
                     <tr key={row.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.gamme || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{normalizeCategoriePlastique(row.categorie)}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4">
@@ -219,6 +254,31 @@ export async function StatistiqueArticlePlastique({
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.max_stock !== null ? formatNumber(row.max_stock) : "-"}
+                      </td>
+                      <td className="px-6 py-4 font-bold text-red-600">
+                        {aFabriquer ? formatNumber(aFabriquer) : "-"}
+                      </td>
+                      <td className="px-6 py-4">
+                        {canEdit ? (
+                          <form action={updateAvisFabricationAction} className="flex items-center gap-2">
+                            <input type="hidden" name="article_id" value={row.article_id} />
+                            <input
+                              type="text"
+                              name="avis_fabrication"
+                              defaultValue={row.avis_fabrication ?? ""}
+                              placeholder="Avis..."
+                              className="w-40 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
+                            />
+                            <SubmitButton
+                              pendingLabel="..."
+                              className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                            >
+                              OK
+                            </SubmitButton>
+                          </form>
+                        ) : (
+                          <span className="text-slate-600">{row.avis_fabrication || "-"}</span>
+                        )}
                       </td>
                     </tr>
                   );

@@ -208,7 +208,6 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     module: "Stock",
     label: "Statistique Article Plastique MP (E3)",
     pathPrefixes: ["/stock/matiere-premiere/rapport/plastique"],
-    hasWrite: false,
   },
   {
     key: "stockRotationMp",
