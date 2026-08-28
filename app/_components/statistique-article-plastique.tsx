@@ -118,12 +118,16 @@ export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; erro
         avis_fabrication: detail?.avis_fabrication ?? null,
       };
     })
-    .sort(
-      (a, b) =>
+    .sort((a, b) => {
+      const gammeA = a.gamme || "";
+      const gammeB = b.gamme || "";
+      return (
+        (gammeA === "" ? 1 : 0) - (gammeB === "" ? 1 : 0) ||
+        gammeA.localeCompare(gammeB, "fr", { sensitivity: "base" }) ||
         categorieSortIndex(a.categorie) - categorieSortIndex(b.categorie) ||
-        (a.gamme || "").localeCompare(b.gamme || "", "fr", { sensitivity: "base" }) ||
         a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" })
-    );
+      );
+    });
 
   return { rows, error: null };
 }
