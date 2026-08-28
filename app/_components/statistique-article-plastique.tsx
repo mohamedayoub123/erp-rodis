@@ -1,0 +1,233 @@
+import Link from "next/link";
+import { unstable_noStore as noStore } from "next/cache";
+import { supabaseServer } from "@/lib/supabase-server";
+import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { matchesArticleSearch } from "@/lib/article-search";
+import { CATEGORIES_PLASTIQUE, normalizeCategoriePlastique } from "@/app/production-plastique/shared";
+
+// Module partage - meme rendu utilise depuis Rapport MP
+// (stock/matiere-premiere/rapport/plastique) et Production Plastique
+// (production-plastique/statistique), demande explicite : "la meme
+// module" aux 2 endroits plutot que 2 versions dupliquees a maintenir
+// separement.
+
+type StockActuelMpRpcRow = {
+  article_id: number;
+  nom_article: string;
+  categorie: string | null;
+  unite: string | null;
+  stock_actuel: number;
+};
+
+type MinMaxRow = {
+  id: number;
+  min_stock: number | null;
+  max_stock: number | null;
+};
+
+type PlastiqueRow = {
+  article_id: number;
+  nom_article: string;
+  categorie: string | null;
+  unite: string | null;
+  stock_actuel: number;
+  min_stock: number | null;
+  max_stock: number | null;
+};
+
+function formatNumber(value: number) {
+  return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+}
+
+// stock_actuel_mp_rows() renvoie une ligne par article MP (2700+) - un
+// simple .rpc() sans .range() plafonne silencieusement a 1000 lignes
+// (limite par defaut Supabase/PostgREST), qui coupait la table AVANT
+// d'atteindre la plupart des articles plastique (aucun ordre garanti sur
+// une fonction SQL sans ORDER BY) - cette page revenait vide. Meme
+// pagination que fetchAllRows ailleurs dans l'appli.
+async function fetchAllStockActuelMpRows(): Promise<{ rows: StockActuelMpRpcRow[]; error: string | null }> {
+  const pageSize = 1000;
+  const rows: StockActuelMpRpcRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabaseServer.rpc("stock_actuel_mp_rows").range(from, from + pageSize - 1);
+    if (error) return { rows: [], error: error.message };
+    const chunk = (data ?? []) as StockActuelMpRpcRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
+async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; error: string | null }> {
+  const [stockResult, minMaxResult] = await Promise.all([
+    fetchAllStockActuelMpRows(),
+    supabaseServer.from("articles_matiere_premiere").select("id, min_stock, max_stock").in("categorie", CATEGORIES_PLASTIQUE),
+  ]);
+
+  if (stockResult.error) return { rows: [], error: stockResult.error };
+  if (minMaxResult.error) return { rows: [], error: minMaxResult.error.message };
+
+  const minMaxById = new Map(
+    (minMaxResult.data as MinMaxRow[]).map((row) => [row.id, { min: row.min_stock, max: row.max_stock }])
+  );
+
+  const rows = stockResult.rows
+    .filter((row) => (CATEGORIES_PLASTIQUE as readonly string[]).includes(row.categorie || ""))
+    .map((row) => ({
+      article_id: row.article_id,
+      nom_article: row.nom_article,
+      categorie: row.categorie,
+      unite: row.unite,
+      stock_actuel: Number(row.stock_actuel ?? 0),
+      min_stock: minMaxById.get(row.article_id)?.min ?? null,
+      max_stock: minMaxById.get(row.article_id)?.max ?? null,
+    }))
+    .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
+
+  return { rows, error: null };
+}
+
+export async function StatistiqueArticlePlastique({
+  pageHref,
+  searchParams,
+}: {
+  pageHref: string;
+  searchParams: Promise<{ q?: string; categorie?: string }>;
+}) {
+  noStore();
+  const params = await searchParams;
+  const q = (params.q || "").trim();
+  const categorieFilter = (params.categorie || "").trim();
+  const hasFilters = Boolean(q || categorieFilter);
+
+  const { rows: allRows, error } = await fetchPlastiqueRows();
+
+  const rows = allRows
+    .filter((row) => !q || matchesArticleSearch(row.nom_article, q))
+    .filter((row) => !categorieFilter || normalizeCategoriePlastique(row.categorie) === categorieFilter);
+
+  const articleOptions = allRows.map((row, index) => ({ id: index, label: row.nom_article }));
+  const categorieOptions = [...new Set(allRows.map((row) => normalizeCategoriePlastique(row.categorie)))].map(
+    (label, index) => ({ id: index, label })
+  );
+
+  const exportColumns = [
+    { label: "Article", key: "article" },
+    { label: "Categorie", key: "categorie" },
+    { label: "Unite", key: "unite" },
+    { label: "Stock actuel", key: "stock" },
+    { label: "Stock min", key: "min" },
+    { label: "Stock max", key: "max" },
+  ];
+  const exportRows = rows.map((row) => ({
+    article: row.nom_article,
+    categorie: normalizeCategoriePlastique(row.categorie),
+    unite: row.unite || "-",
+    stock: row.stock_actuel,
+    min: row.min_stock ?? "-",
+    max: row.max_stock ?? "-",
+  }));
+
+  return (
+    <div className="space-y-6">
+      <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+        <form className="grid gap-3 sm:grid-cols-4">
+          <SearchableFilterInput name="q" defaultValue={q} options={articleOptions} placeholder="Article..." />
+          <SearchableFilterInput
+            name="categorie"
+            defaultValue={categorieFilter}
+            options={categorieOptions}
+            placeholder="Categorie..."
+          />
+          <div className="flex gap-3 sm:col-span-2">
+            <button
+              type="submit"
+              className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Filtrer
+            </button>
+            {hasFilters ? (
+              <Link
+                href={pageHref}
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+              >
+                Effacer
+              </Link>
+            ) : null}
+            <div className="ml-auto">
+              <ExportExcelButton
+                rows={exportRows}
+                columns={exportColumns}
+                filename={`statistique-article-plastique-${new Date().toISOString().slice(0, 10)}.xlsx`}
+              />
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+        {error ? (
+          <p className="px-6 py-8 text-sm font-medium text-red-700">{error}</p>
+        ) : rows.length === 0 ? (
+          <p className="px-6 py-8 text-sm text-slate-500">
+            {hasFilters ? "Aucun resultat pour ce filtre." : "Aucun article plastique trouve."}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-6 py-4 font-semibold">Article</th>
+                  <th className="px-6 py-4 font-semibold">Categorie</th>
+                  <th className="px-6 py-4 font-semibold">Unite</th>
+                  <th className="px-6 py-4 font-semibold">Stock actuel</th>
+                  <th className="px-6 py-4 font-semibold">Stock min</th>
+                  <th className="px-6 py-4 font-semibold">Stock max</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  // Rouge = sous le minimum (a commander/produire), ambre =
+                  // au-dessus du maximum (surstock), vert = dans la
+                  // fourchette - memes couleurs que Stock Alert MP, seuils
+                  // ignores quand min/max ne sont pas renseignes pour cet
+                  // article.
+                  const belowMin = row.min_stock !== null && row.stock_actuel < row.min_stock;
+                  const aboveMax = row.max_stock !== null && row.stock_actuel > row.max_stock;
+                  const badgeClass = belowMin
+                    ? "bg-rose-100 text-rose-800"
+                    : aboveMax
+                      ? "bg-amber-100 text-amber-800"
+                      : "bg-emerald-100 text-emerald-800";
+                  return (
+                    <tr key={row.article_id} className="border-t border-slate-100">
+                      <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
+                      <td className="px-6 py-4 text-slate-600">{normalizeCategoriePlastique(row.categorie)}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
+                      <td className="px-6 py-4">
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
+                          {formatNumber(row.stock_actuel)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {row.min_stock !== null ? formatNumber(row.min_stock) : "-"}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {row.max_stock !== null ? formatNumber(row.max_stock) : "-"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

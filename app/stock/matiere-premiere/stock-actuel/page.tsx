@@ -65,10 +65,30 @@ type StockRow = {
 // scripts/sql/add_stock_actuel_rpcs.sql) - avant, cette page rapatriait
 // TOUTE la table lots_stock_matiere_premiere (un journal de mouvements qui
 // ne fait que grossir) pour la sommer en JS a chaque chargement.
+//
+// Pagine (.range()) au lieu d'un simple appel sans limite - la fonction
+// renvoie une ligne par article MP (2700+), et Supabase/PostgREST plafonne
+// une reponse a 1000 lignes par defaut meme pour un appel RPC. Sans
+// pagination, la table etait coupee a 1000 lignes AVANT d'atteindre la
+// plupart des articles (aucun ORDER BY sur la fonction SQL, donc aucun
+// ordre garanti) - plus de 1700 articles MP restaient invisibles sur cette
+// page (bug reel confirme en construisant Statistique Article Plastique,
+// qui utilisait le meme appel et revenait totalement vide).
 async function fetchStockActuelMp() {
-  const { data, error } = await supabaseServer.rpc("stock_actuel_mp_rows");
-  if (error) return { rows: [] as StockActuelMpRpcRow[], error };
-  return { rows: (data ?? []) as StockActuelMpRpcRow[], error: null };
+  const pageSize = 1000;
+  const rows: StockActuelMpRpcRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabaseServer.rpc("stock_actuel_mp_rows").range(from, from + pageSize - 1);
+    if (error) return { rows: [] as StockActuelMpRpcRow[], error };
+    const chunk = (data ?? []) as StockActuelMpRpcRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
 }
 
 async function fetchAllBcLignes() {

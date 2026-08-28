@@ -26,10 +26,27 @@ type StockRow = {
 // scripts/sql/add_stock_actuel_rpcs.sql) - avant, cette page rapatriait
 // TOUTE la table lots_stock (un journal de mouvements qui ne fait que
 // grossir, 16 000+ lignes) pour la sommer en JS a chaque chargement.
+//
+// Pagine (.range()) - sous les 1000 articles PF actuels ca ne changeait
+// rien, mais un simple appel RPC sans pagination plafonne silencieusement a
+// 1000 lignes (limite par defaut Supabase/PostgREST) des que le catalogue
+// depasse ce seuil - bug reel confirme sur l'equivalent MP (voir
+// fetchStockActuelMp, meme fichier cote MP), corrige ici par prevention.
 async function fetchStockActuelPf() {
-  const { data, error } = await supabaseServer.rpc("stock_actuel_pf_rows");
-  if (error) return { rows: [] as StockActuelPfRpcRow[], error };
-  return { rows: (data ?? []) as StockActuelPfRpcRow[], error: null };
+  const pageSize = 1000;
+  const rows: StockActuelPfRpcRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabaseServer.rpc("stock_actuel_pf_rows").range(from, from + pageSize - 1);
+    if (error) return { rows: [] as StockActuelPfRpcRow[], error };
+    const chunk = (data ?? []) as StockActuelPfRpcRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
 }
 
 function formatNumber(value: number) {

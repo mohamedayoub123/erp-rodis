@@ -27,6 +27,12 @@ const TILES = [
     icon: "\u{1F9EE}",
     description: "Par code : quelle resine/colorant, quelle quantite, quel lot et quel prix.",
   },
+  {
+    label: "Statistique Article Plastique (E3)",
+    href: "/production-plastique/statistique",
+    icon: "\u{1F9F4}",
+    description: "Flacon, flacon PET, pot, capsule, topette - stock actuel, stock min et stock max.",
+  },
 ] as const;
 
 export default function ProductionPlastiquePage() {

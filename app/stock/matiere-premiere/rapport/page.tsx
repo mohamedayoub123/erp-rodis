@@ -74,6 +74,13 @@ const TILES = [
     icon: "\u{1F4E6}",
     description: "Articles avec plus de 6 mois de stock actuel : le surplus par rapport au besoin reel.",
   },
+  {
+    label: "Statistique Article Plastique (E3)",
+    href: "/stock/matiere-premiere/rapport/plastique",
+    pageKey: "stockPlastiqueMp",
+    icon: "\u{1F9F4}",
+    description: "Flacon, flacon PET, pot, capsule, topette - stock actuel, stock min et stock max.",
+  },
 ] as const;
 
 export default async function RapportMpPage() {
