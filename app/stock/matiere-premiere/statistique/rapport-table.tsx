@@ -405,7 +405,13 @@ export function RapportTable({
                           name={`ordre_${row.id}`}
                           defaultValue={row.ordre}
                           onClick={(event) => event.stopPropagation()}
-                          className="w-14 rounded-lg border border-slate-200 bg-white px-1 py-1 text-center text-sm font-semibold outline-none"
+                          // text-slate-900 explicite : sans ca, le chiffre
+                          // hereite du blanc de la categorie (ex: FORTE
+                          // ROTATION, fond orange/texte blanc sur la <td>
+                          // parente) et devient invisible sur le fond blanc
+                          // de ce champ - bug reel signale (case ORDRE vide
+                          // a l'oeil alors que la valeur est bien la).
+                          className="w-14 rounded-lg border border-slate-200 bg-white px-1 py-1 text-center text-sm font-semibold text-slate-900 outline-none"
                         />
                       ) : (
                         row.ordre
