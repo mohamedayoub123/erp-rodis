@@ -128,6 +128,147 @@ async function resoudrePrixLotConnu(articleMpId: number, numeroLot: string): Pro
 
 export type CoutReserveInfo = { coutFcfa: number; lotsUtilises: LotUtiliseInfo[]; lignesSansPrix: number[] };
 
+// Version groupee de fetchCoutReelDepuisReservation, pour plusieurs codes a
+// la fois - la page Cout Reel par article (tout l'historique par defaut)
+// appelait l'equivalent de fetchCoutReelDepuisReservation + resoudrePrixLotConnu
+// UNE FOIS PAR CODE, en sequence (jusqu'a 90+ codes pour un article ancien,
+// x2 stages) : mesure reelle, ~500ms par aller-retour, extrapole a 90+ sec
+// pour l'article le plus charge. Ici : 3 requetes groupees au total (peu
+// importe le nombre de codes), au lieu d'une cascade en cours-du-jour ->
+// reservation -> prix par code. Retourne une Map cle "programmeLigneId::code"
+// -> CoutReserveInfo (absente si aucune reservation tracee pour ce code,
+// meme semantique que le retour null de fetchCoutReelDepuisReservation).
+export async function fetchCoutsReelsDepuisReservationBatch(
+  codes: { programmeLigneId: number; code: string }[],
+  stage: "pesage" | "salle_conditionnement"
+): Promise<Map<string, CoutReserveInfo>> {
+  const result = new Map<string, CoutReserveInfo>();
+  if (codes.length === 0) return result;
+
+  const ligneIds = [...new Set(codes.map((c) => c.programmeLigneId))];
+
+  const termineRows: { id: number; programme_ligne_id: number; code: string }[] = [];
+  {
+    let from = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await supabaseServer
+        .from("production_code_termine")
+        .select("id, programme_ligne_id, code")
+        .eq("stage", stage)
+        .in("programme_ligne_id", ligneIds)
+        .range(from, from + pageSize - 1);
+      if (error) break;
+      const chunk = (data ?? []) as { id: number; programme_ligne_id: number; code: string }[];
+      termineRows.push(...chunk);
+      if (chunk.length < pageSize) break;
+      from += pageSize;
+    }
+  }
+
+  const wantedKeys = new Set(codes.map((c) => `${c.programmeLigneId}::${c.code}`));
+  const termineIdToKey = new Map<number, string>();
+  for (const row of termineRows) {
+    const key = `${row.programme_ligne_id}::${row.code}`;
+    if (wantedKeys.has(key)) termineIdToKey.set(row.id, key);
+  }
+  const termineIds = [...termineIdToKey.keys()];
+  if (termineIds.length === 0) return result;
+
+  type ReserveRow = {
+    production_code_termine_id: number;
+    article_mp_id: number;
+    numero_lot: string | null;
+    quantite_initiale: number;
+    quantite: number;
+  };
+  const reserveRows: ReserveRow[] = [];
+  {
+    let from = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await supabaseServer
+        .from("production_mp_reserve")
+        .select("production_code_termine_id, article_mp_id, numero_lot, quantite_initiale, quantite")
+        .in("production_code_termine_id", termineIds)
+        .range(from, from + pageSize - 1);
+      if (error) break;
+      const chunk = (data ?? []) as ReserveRow[];
+      reserveRows.push(...chunk);
+      if (chunk.length < pageSize) break;
+      from += pageSize;
+    }
+  }
+
+  const articleMpIds = [...new Set(reserveRows.map((r) => r.article_mp_id))];
+  const priceByKey = new Map<string, number>();
+  if (articleMpIds.length > 0) {
+    let from = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await supabaseServer
+        .from("lots_stock_matiere_premiere")
+        .select("article_id, numero_lot, prix_unitaire, devise, taux_change")
+        .in("article_id", articleMpIds)
+        .gt("qte_entree", 0)
+        .not("prix_unitaire", "is", null)
+        .range(from, from + pageSize - 1);
+      if (error) break;
+      const chunk = (data ?? []) as {
+        article_id: number;
+        numero_lot: string | null;
+        prix_unitaire: number | null;
+        devise: string | null;
+        taux_change: number | null;
+      }[];
+      for (const row of chunk) {
+        if (!row.numero_lot || row.prix_unitaire == null) continue;
+        const key = `${row.article_id}::${row.numero_lot}`;
+        if (priceByKey.has(key)) continue; // meme choix arbitraire que .limit(1) cote appel individuel
+        const prixFcfa = convertirEnFcfa(row.prix_unitaire, row.devise, row.taux_change);
+        if (prixFcfa !== null) priceByKey.set(key, prixFcfa);
+      }
+      if (chunk.length < pageSize) break;
+      from += pageSize;
+    }
+  }
+
+  const reservesByTermineId = new Map<number, ReserveRow[]>();
+  for (const row of reserveRows) {
+    const list = reservesByTermineId.get(row.production_code_termine_id) ?? [];
+    list.push(row);
+    reservesByTermineId.set(row.production_code_termine_id, list);
+  }
+
+  for (const [termineId, key] of termineIdToKey.entries()) {
+    const reserves = reservesByTermineId.get(termineId) ?? [];
+    if (reserves.length === 0) continue;
+
+    let coutFcfa = 0;
+    const lotsUtilises: LotUtiliseInfo[] = [];
+    const lignesSansPrix: number[] = [];
+    for (const reserve of reserves) {
+      const consomme = Math.max(0, reserve.quantite_initiale - reserve.quantite);
+      if (consomme <= 1e-9 || !reserve.numero_lot) continue;
+      const prixUnitaireFcfa = priceByKey.get(`${reserve.article_mp_id}::${reserve.numero_lot}`);
+      if (prixUnitaireFcfa === undefined) {
+        lignesSansPrix.push(reserve.article_mp_id);
+        continue;
+      }
+      coutFcfa += consomme * prixUnitaireFcfa;
+      lotsUtilises.push({
+        articleMpId: reserve.article_mp_id,
+        numeroLot: reserve.numero_lot,
+        quantite: consomme,
+        prixUnitaireFcfa,
+      });
+    }
+    result.set(key, { coutFcfa, lotsUtilises, lignesSansPrix });
+  }
+
+  return result;
+}
+
 // Cout REEL d'une production a partir des lots EFFECTIVEMENT reserves/tires
 // pour elle (production_mp_reserve garde une trace exacte lot par lot,
 // quantite_initiale ne bouge jamais meme apres consommation complete).

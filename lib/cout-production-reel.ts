@@ -3,7 +3,7 @@ import {
   fetchCoutsReelsMpDepotB,
   computeRecetteCost,
   fetchCoutVracParKg,
-  fetchCoutReelDepuisReservation,
+  fetchCoutsReelsDepuisReservationBatch,
 } from "@/lib/prix-revient";
 import { resolveVracArticleId } from "@/lib/vrac-article";
 import { normalizeMachineName } from "@/lib/machine-match";
@@ -346,23 +346,18 @@ async function fetchCoutReelTraceParStage(
     quantiteParCode.set(key, (quantiteParCode.get(key) ?? 0) + Number(e.quantite ?? 0));
   }
 
+  const codesDemandes = [...quantiteParCode.keys()].map((key) => {
+    const [ligneIdStr, code] = key.split("::");
+    return { programmeLigneId: Number(ligneIdStr), code };
+  });
+  const infosByKey = await fetchCoutsReelsDepuisReservationBatch(codesDemandes, stage);
+
   let coutTotal = 0;
   let quantiteTracee = 0;
   let certainesSansPrix = false;
 
   for (const [key, quantite] of quantiteParCode.entries()) {
-    const [ligneIdStr, code] = key.split("::");
-    const { data: termineData } = await supabaseServer
-      .from("production_code_termine")
-      .select("id")
-      .eq("programme_ligne_id", Number(ligneIdStr))
-      .eq("code", code)
-      .eq("stage", stage)
-      .maybeSingle();
-    const termine = termineData as { id: number } | null;
-    if (!termine) continue;
-
-    const info = await fetchCoutReelDepuisReservation(termine.id);
+    const info = infosByKey.get(key);
     if (!info || info.lotsUtilises.length === 0) continue;
 
     coutTotal += info.coutFcfa;
