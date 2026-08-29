@@ -84,6 +84,7 @@ export function StatistiqueExportButton({
       "DESIGNATION",
       ...columns.map((col) => (col.kind === "spacer" ? "" : col.label.toUpperCase())),
       "STATISTIQUE 6 MOIS (SYSTEME)",
+      "AUTONOMIE STOCK (MOIS)",
       "REMARQUE",
     ];
     const totalCols = headerLabels.length;
@@ -121,12 +122,13 @@ export function StatistiqueExportButton({
     const titleRuns: ExcelJS.RichText[] = [
       { font: { bold: true, italic: true, size: 12, color: { argb: "FF000000" } }, text: `Date : ${todayIso}     ` },
     ];
-    if (config.highlightStockOverConso12Mois) {
-      titleRuns.push({
-        font: { bold: true, italic: true, size: 12, color: { argb: "FFFF0000" } },
-        text: "Stock supérieur à 1 an de conso noté en rouge     ",
-      });
-    }
+    // Regle desormais universelle (voir row-colors.ts) - meme banniere que
+    // celle deja affichee a l'ecran pour toutes les gammes (page.tsx),
+    // jamais conditionnee a une gamme precise.
+    titleRuns.push({
+      font: { bold: true, italic: true, size: 12, color: { argb: "FFFF0000" } },
+      text: "Stock supérieur à 1 an de conso noté en rouge     ",
+    });
     titleRuns.push({
       font: { bold: true, italic: true, size: 12, color: { argb: "FF000000" } },
       text: `${gammeStatistique.toUpperCase()} mis à jour le ${todayIso}`,
@@ -160,6 +162,7 @@ export function StatistiqueExportButton({
       88.89,
       ...columns.map((col) => (col.kind === "spacer" ? 19.33 : longestLine(col.label) + 2)),
       longestLine("STATISTIQUE 6 MOIS (SYSTEME)") + 2,
+      longestLine("AUTONOMIE STOCK (MOIS)") + 2,
       longestLine("REMARQUE") + 2,
     ];
 
@@ -169,11 +172,8 @@ export function StatistiqueExportButton({
     }
 
     rows.forEach((row, rowIndex) => {
-      const { designationBg, designationText, stockCell, aCommanderCell } = computeRowDerivedColors(
-        row,
-        config,
-        todayIso
-      );
+      const { designationBg, designationText, stockCell, aCommanderCell, autonomieMois, autonomieCell } =
+        computeRowDerivedColors(row, config, todayIso);
       const categorieStyle = row.categorie ? config.categorieStyles?.[row.categorie] : null;
       const rowColors = colorsByRow[row.id] || {};
       const isSheetBoundary = rowIndex > 0 && row.categorie !== rows[rowIndex - 1].categorie;
@@ -310,6 +310,12 @@ export function StatistiqueExportButton({
         "__stat6MoisSysteme__",
         row.live ? formatCellValue(row.live.conso6MoisSysteme) : "-",
         undefined
+      );
+      applyCell(
+        "__autonomieMois__",
+        autonomieMois === null ? "-" : Number(autonomieMois.toFixed(1)),
+        autonomieCell ?? undefined,
+        { bold: true }
       );
       applyCell("__remarque__", formatCellValue((row.donnees?.["remarque_libre"] as string) ?? ""), undefined);
 

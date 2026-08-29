@@ -49,7 +49,11 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
     for (const col of editableColumns) {
       const raw = String(formData.get(editableFieldName(id, col.key)) || "").trim();
       if (col.kind === "editable-number") {
-        const normalized = raw.replace(",", ".");
+        // Le champ affiche desormais la valeur separee par milliers (ex:
+        // "1 000 000", espace insecable fine de toLocaleString("fr-FR")) -
+        // \s couvre aussi ce caractere Unicode, retire avant de reconvertir
+        // en nombre pour ne pas la stocker telle quelle comme "texte".
+        const normalized = raw.replace(/\s/g, "").replace(",", ".");
         if (!normalized) {
           donnees[col.key] = null;
         } else {

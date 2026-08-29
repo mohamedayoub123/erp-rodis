@@ -23,6 +23,15 @@ function combineStyle(
   };
 }
 
+// Une colonne "static" importee d'Excel garde parfois son chiffre au format
+// texte brut (cellule Excel non numerique cote import) - sans ca, ce genre
+// de valeur echappait a la separation par milliers ci-dessous (typeof
+// "string" jamais reconnu comme un chiffre). Ne reformate QUE si la chaine
+// est un nombre pur (rien d'alphabetique autour, ex: pas "0658" un code ni
+// "FCFA 500" un texte) - un vrai texte (fournisseur, "voir ayoub"...) est
+// laisse tel quel.
+const PURE_NUMBER_STRING = /^-?\d+([.,]\d+)?$/;
+
 function formatCellValue(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return "-";
   // "statistique 4D"/"statistique 4D 6mois" etc. (editable-number) peut
@@ -35,6 +44,25 @@ function formatCellValue(value: string | number | null | undefined) {
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return "-";
     return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+  }
+  if (PURE_NUMBER_STRING.test(value.trim())) {
+    const parsed = Number(value.trim().replace(",", "."));
+    if (Number.isFinite(parsed)) return parsed.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+  }
+  return value;
+}
+
+// Meme formatage que formatCellValue, mais pour la defaultValue d'un champ
+// "editable-number" - "" (pas "-") pour une valeur vide, un champ de saisie
+// vide n'affiche jamais de tiret.
+function formatEditableNumberValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value.toLocaleString("fr-FR", { maximumFractionDigits: 2 }) : "";
+  }
+  if (PURE_NUMBER_STRING.test(value.trim())) {
+    const parsed = Number(value.trim().replace(",", "."));
+    if (Number.isFinite(parsed)) return parsed.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
   }
   return value;
 }
@@ -325,6 +353,9 @@ export function RapportTable({
                 <th className="sticky top-0 z-10 max-w-[110px] whitespace-normal break-words border border-slate-200 bg-slate-50 px-2 py-2 font-semibold">
                   Statistique 6 mois (systeme)
                 </th>
+                <th className="sticky top-0 z-10 max-w-[110px] whitespace-normal break-words border border-slate-200 bg-slate-50 px-2 py-2 font-semibold">
+                  Autonomie stock (mois)
+                </th>
                 <th className="sticky top-0 z-10 whitespace-nowrap border border-slate-200 bg-slate-50 px-4 py-4 font-semibold">Remarque</th>
               </tr>
             </thead>
@@ -348,11 +379,8 @@ export function RapportTable({
                 //   pas besoin d'alerter).
                 // - jaune si un BC est en cours d'achat (et qu'aucune des 2
                 //   regles import ci-dessus ne s'applique).
-                const { designationBg, designationText, stockCell, aCommanderCell } = computeRowDerivedColors(
-                  row,
-                  config,
-                  todayIso
-                );
+                const { designationBg, designationText, stockCell, aCommanderCell, autonomieMois, autonomieCell } =
+                  computeRowDerivedColors(row, config, todayIso);
                 const rowColors = colorsByRow[row.id] || {};
                 const isTargetSelected = (target: RowColorTarget) =>
                   selected?.rowId === row.id && selected.target === target;
@@ -428,7 +456,11 @@ export function RapportTable({
                               type="text"
                               inputMode={col.kind === "editable-number" ? "decimal" : undefined}
                               name={editableFieldName(row.id, col.key)}
-                              defaultValue={(row.donnees?.[col.key] as string | number) ?? ""}
+                              defaultValue={
+                                col.kind === "editable-number"
+                                  ? formatEditableNumberValue(row.donnees?.[col.key] as string | number | null)
+                                  : ((row.donnees?.[col.key] as string | number) ?? "")
+                              }
                               disabled={!canEdit}
                               className={`w-32 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none disabled:border-transparent disabled:bg-transparent ${
                                 isAvis ? "font-bold text-red-600" : ""
@@ -528,6 +560,16 @@ export function RapportTable({
                       className={`whitespace-nowrap border border-slate-200 px-4 py-3 text-slate-600 ${sheetBoundaryClass}`}
                     >
                       {live ? formatCellValue(live.conso6MoisSysteme) : "-"}
+                    </td>
+                    <td
+                      className={`whitespace-nowrap border border-slate-200 px-4 py-3 font-semibold ${sheetBoundaryClass}`}
+                      style={
+                        autonomieCell
+                          ? { backgroundColor: autonomieCell.bg, color: autonomieCell.text }
+                          : { color: "#334155" }
+                      }
+                    >
+                      {autonomieMois === null ? "-" : autonomieMois.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}
                     </td>
                     <td className={`border border-slate-200 p-1 ${sheetBoundaryClass}`}>
                       <input
