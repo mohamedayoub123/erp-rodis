@@ -5,7 +5,6 @@ import {
   fetchCoutVracParKg,
   fetchCoutsReelsDepuisReservationBatch,
 } from "@/lib/prix-revient";
-import { resolveVracArticleId } from "@/lib/vrac-article";
 import { normalizeMachineName } from "@/lib/machine-match";
 import {
   hhmmDiffMinutes,
@@ -873,15 +872,41 @@ export async function computeCoutReelArticle(
   articleId: number,
   periode: CoutReelPeriode
 ): Promise<CoutReelResult> {
-  const article = await fetchArticle(articleId);
+  // Ces 4 lectures sont totalement independantes (aucune n'a besoin du
+  // resultat d'une autre) - parties en parallele plutot qu'en cascade.
+  // Mesure reelle : ~500ms par aller-retour reseau, une vingtaine de
+  // requetes sequentielles suffisait a elle seule a expliquer 10-12 sec,
+  // independamment du nombre de codes historiques de l'article (voir aussi
+  // fetchCoutsReelsDepuisReservationBatch plus haut pour le cote "par
+  // code").
+  const [article, lignesProgramme, machinesResponse, programmeLignesChaineGlobal] = await Promise.all([
+    fetchArticle(articleId),
+    fetchProgrammeLignesForArticle(articleId),
+    supabaseServer
+      .from("machines")
+      .select(
+        "id, nom, type, consommation_electrique_kw, consommation_gaz_litres_heure, consommation_gasoil_litres_heure, energie_machine_ids"
+      ),
+    fetchAllProgrammeLignesChaine(),
+  ]);
+
   if (!article) {
     throw new Error("Article introuvable.");
   }
 
   const nature: "vrac" | "fini" = article.nature === "vrac" ? "vrac" : "fini";
   const uniteQuantite: "kg" | "carton" = nature === "vrac" ? "kg" : "carton";
+  // Meme donnee que l'ancien resolveVracArticleId(articleId) (nature +
+  // vrac_article_id de l'article) - deja rapportee par fetchArticle
+  // ci-dessus, jamais besoin d'un aller-retour separe pour relire la meme
+  // ligne une 2e fois.
+  const vracArticleId: number | null = nature === "vrac" ? articleId : (article.vrac_article_id ?? null);
 
-  const lignesProgramme = await fetchProgrammeLignesForArticle(articleId);
+  const allMachines = (machinesResponse.data ?? []) as MachineRow[];
+  const machineByName = new Map(allMachines.map((m) => [normalizeMachineName(m.nom), m]));
+  const energieMachineById = new Map(allMachines.map((m) => [m.id, m]));
+  const chaineByLigneIdGlobal = new Map(programmeLignesChaineGlobal.map((l) => [l.id, l.chaine]));
+
   const ligneIds = lignesProgramme.map((l) => l.id);
   const chaineByLigneId = new Map(lignesProgramme.map((l) => [l.id, l.chaine]));
 
@@ -915,8 +940,17 @@ export async function computeCoutReelArticle(
   // Quantite reellement produite : vrac fabrique pour un article de nature
   // "vrac", sinon TOUJOURS les cartons du Conditionnement (jamais
   // l'Emballage, decision actee avec l'utilisateur).
-  const entriesRaw =
-    nature === "vrac" ? await fetchAllVracEntries(ligneIds) : await fetchAllCartonEntries(ligneIds);
+  //
+  // Ces 4 lectures ne dependent que de ligneIds (deja connu) - jamais l'une
+  // de l'autre - parties en parallele (cartonEntriesTemps/emballageEntriesTemps
+  // etaient avant fetchees bien plus loin, en sequence, alors qu'elles ne
+  // dependent de rien de ce qui se passe entre-temps).
+  const [entriesRaw, rapports, cartonEntriesTemps, emballageEntriesTemps] = await Promise.all([
+    nature === "vrac" ? fetchAllVracEntries(ligneIds) : fetchAllCartonEntries(ligneIds),
+    fetchRapportsCout(ligneIds),
+    fetchCartonEntriesTemps(ligneIds),
+    fetchEmballageEntriesTemps(ligneIds),
+  ]);
   const entries = entriesRaw.filter((e) => matchesPeriode(e.date_jour, periode) && matchesCode(e.code, periode));
   const quantiteTotaleProduite = entries.reduce((sum, e) => sum + Number(e.quantite ?? 0), 0);
 
@@ -925,8 +959,15 @@ export async function computeCoutReelArticle(
   // detecter les recuperations (qt_vrac_recupere/code_vrac_recupere) avant
   // meme de chiffrer le vrac ; reutilise plus bas pour electricite/journaliers.
   const codeKeys = new Set(entries.map((e) => `${e.programme_ligne_id}::${e.code}`));
-  const rapports = await fetchRapportsCout(ligneIds);
   const rapportsPertinents = rapports.filter((r) => codeKeys.has(`${r.programme_ligne_id}::${r.code}`));
+  // Filtrees ici aussi (electricite/journaliers Conditionnement/Emballage,
+  // voir plus bas) - meme motif que rapportsPertinents ci-dessus.
+  const cartonEntriesPertinents = cartonEntriesTemps.filter(
+    (e) => matchesPeriode(e.date_jour, periode) && matchesCode(e.code, periode)
+  );
+  const emballageEntriesPertinentes = emballageEntriesTemps.filter(
+    (e) => matchesPeriode(e.date_jour, periode) && matchesCode(e.code, periode)
+  );
 
   // Cout vrac/conditionnement REEL = ratio de la recette (deja base sur les
   // vrais prix MP moyens ponderes) x quantite REELLEMENT produite - pas la
@@ -945,10 +986,12 @@ export async function computeCoutReelArticle(
   }));
 
   if (nature === "vrac") {
-    const trace = await fetchCoutReelTraceParStage(entriesPourTrace, "pesage");
-
-    const { qtRecupereTotal, coutTransfereTotal, incertaines: incertainesRecup } =
-      await computeCoutTransfereRecuperation(rapportsPertinents, articleId);
+    // trace et recup sont independantes l'une de l'autre - parallelisees.
+    const [trace, recup] = await Promise.all([
+      fetchCoutReelTraceParStage(entriesPourTrace, "pesage"),
+      computeCoutTransfereRecuperation(rapportsPertinents, articleId),
+    ]);
+    const { qtRecupereTotal, coutTransfereTotal, incertaines: incertainesRecup } = recup;
     lignesIncertaines.push(...incertainesRecup);
 
     // La partie non tracee (systeme trop ancien, aucune reservation
@@ -974,10 +1017,18 @@ export async function computeCoutReelArticle(
       lignesIncertaines.push({ ligneId: 0, code: "", motifs: ["Certaines matieres tracees n'ont pas de prix connu - cout partiel."] });
     }
   } else {
-    const vracArticleId = await resolveVracArticleId(articleId);
-    const traceConditionnement = await fetchCoutReelTraceParStage(entriesPourTrace, "salle_conditionnement");
-    const { coutConditionnementParCarton, qtVracParCarton, lignesSansPrixConditionnement } =
-      await fetchRatiosConditionnement(article, quantiteTotaleProduite);
+    // traceConditionnement, ratiosConditionnement, traceVracPrecurseur et
+    // recupVrac sont 4 lectures mutuellement independantes (aucune n'a
+    // besoin du resultat d'une autre) - avant, enchainees une par une en
+    // sequence ; parallelisees ici. Les 2 dernieres restent conditionnees a
+    // vracArticleId (deja connu, plus besoin de resolveVracArticleId).
+    const [traceConditionnement, ratiosConditionnement, traceVracPrecurseur, recupVrac] = await Promise.all([
+      fetchCoutReelTraceParStage(entriesPourTrace, "salle_conditionnement"),
+      fetchRatiosConditionnement(article, quantiteTotaleProduite),
+      vracArticleId ? fetchCoutReelTraceParStage(entriesPourTrace, "pesage") : Promise.resolve(null),
+      vracArticleId ? computeCoutTransfereRecuperation(rapportsPertinents, vracArticleId) : Promise.resolve(null),
+    ]);
+    const { coutConditionnementParCarton, qtVracParCarton, lignesSansPrixConditionnement } = ratiosConditionnement;
 
     const coutConditionnementFallback =
       traceConditionnement.quantiteNonTracee > 0 && coutConditionnementParCarton !== null
@@ -1002,15 +1053,12 @@ export async function computeCoutReelArticle(
     }
 
     let coutVracParCarton: number | null = null;
-    if (vracArticleId) {
-      const traceVracPrecurseur = await fetchCoutReelTraceParStage(entriesPourTrace, "pesage");
-
+    if (vracArticleId && traceVracPrecurseur && recupVrac) {
       // Vrac recupere reutilise (voir computeCoutTransfereRecuperation) :
       // n'est jamais de la MP neuve pour CE code, deduit de la quantite a
       // chiffrer en frais - son cout (deja paye a la fabrication SOURCE) est
       // transfere tel quel plutot que recalcule.
-      const { qtRecupereTotal, coutTransfereTotal, incertaines: incertainesRecup } =
-        await computeCoutTransfereRecuperation(rapportsPertinents, vracArticleId);
+      const { qtRecupereTotal, coutTransfereTotal, incertaines: incertainesRecup } = recupVrac;
       lignesIncertaines.push(...incertainesRecup);
 
       // Seule la portion NON tracee (par code) a besoin d'une estimation FEFO
@@ -1063,26 +1111,9 @@ export async function computeCoutReelArticle(
   }
 
   // Electricite + journaliers : uniquement pour les lots (programme_ligne,
-  // code) qui ont reellement produit sur la periode (codeKeys/rapportsPertinents
-  // deja calcules plus haut, avant le cout vrac).
-  const cartonEntriesTemps = await fetchCartonEntriesTemps(ligneIds);
-  const cartonEntriesPertinents = cartonEntriesTemps.filter(
-    (e) => matchesPeriode(e.date_jour, periode) && matchesCode(e.code, periode)
-  );
-  const emballageEntriesTemps = await fetchEmballageEntriesTemps(ligneIds);
-  const emballageEntriesPertinentes = emballageEntriesTemps.filter(
-    (e) => matchesPeriode(e.date_jour, periode) && matchesCode(e.code, periode)
-  );
-
-  const { data: machinesData } = await supabaseServer
-    .from("machines")
-    .select(
-      "id, nom, type, consommation_electrique_kw, consommation_gaz_litres_heure, consommation_gasoil_litres_heure, energie_machine_ids"
-    );
-  const allMachines = (machinesData ?? []) as MachineRow[];
-  const machineByName = new Map(allMachines.map((m) => [normalizeMachineName(m.nom), m]));
-  const energieMachineById = new Map(allMachines.map((m) => [m.id, m]));
-
+  // code) qui ont reellement produit sur la periode (codeKeys/rapportsPertinents,
+  // cartonEntriesPertinents/emballageEntriesPertinentes et allMachines deja
+  // calcules tout en haut, en parallele avec le reste).
   const moisUtiles = [
     ...new Set([
       ...rapportsPertinents.map((r) => r.date_fabrication_conditionnement).filter((d): d is string => !!d),
@@ -1107,21 +1138,20 @@ export async function computeCoutReelArticle(
 
   // Diviseur des machines Energie partagees (voir computeEnergieShareCout) -
   // portee volontairement GLOBALE (toute l'usine, pas juste cet article),
-  // fetch une seule fois par appel.
-  const [rapportsEnergie, cartonEntriesEnergieGlobal, programmeLignesChaineGlobal] = await Promise.all([
+  // fetch une seule fois par appel. prixMoisByKey ne depend que de moisUtiles
+  // (deja connu) - jamais des 2 autres, regroupee dans le meme aller-retour
+  // plutot qu'attendue separement juste apres.
+  const [rapportsEnergie, cartonEntriesEnergieGlobal, prixMoisByKey] = await Promise.all([
     fetchAllRapportsForEnergie(dateRangeGlobal),
     fetchCartonEntriesTemps(undefined, dateRangeGlobal),
-    fetchAllProgrammeLignesChaine(),
+    fetchPrixMoisMap(moisUtiles),
   ]);
-  const chaineByLigneIdGlobal = new Map(programmeLignesChaineGlobal.map((l) => [l.id, l.chaine]));
   const intervalsByEnergie = buildIntervalsByEnergie(
     rapportsEnergie,
     cartonEntriesEnergieGlobal,
     chaineByLigneIdGlobal,
     machineByName
   );
-
-  const prixMoisByKey = await fetchPrixMoisMap(moisUtiles);
 
   let coutElectricite = 0;
   let coutJournaliers = 0;
