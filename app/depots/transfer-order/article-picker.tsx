@@ -19,13 +19,22 @@ export function TransferArticlePicker({
   articlesMp,
   articlesPf,
   depotSourceId,
+  defaultType = "MP",
+  defaultArticleId = null,
+  defaultLabel = "",
 }: {
   articlesMp: { id: number; label: string }[];
   articlesPf: { id: number; label: string }[];
   depotSourceId: number | null;
+  // Pre-remplit la ligne (edition d'une ligne existante, voir
+  // TransferOrderLignesEditorEnAttente) - vide par defaut (nouvelle ligne,
+  // formulaire de creation).
+  defaultType?: "MP" | "PF";
+  defaultArticleId?: number | null;
+  defaultLabel?: string;
 }) {
-  const [type, setType] = useState<"MP" | "PF">("MP");
-  const [articleId, setArticleId] = useState<number | null>(null);
+  const [type, setType] = useState<"MP" | "PF">(defaultType);
+  const [articleId, setArticleId] = useState<number | null>(defaultArticleId);
   const [lots, setLots] = useState<DepotLot[] | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -87,6 +96,8 @@ export function TransferArticlePicker({
         <ProduitPickerField
           key={type}
           articles={type === "MP" ? articlesMp : articlesPf}
+          defaultValue={type === defaultType ? defaultLabel : ""}
+          defaultArticleId={type === defaultType ? defaultArticleId : null}
           hiddenName="article_id"
           textName="produit"
           onSelect={setArticleId}

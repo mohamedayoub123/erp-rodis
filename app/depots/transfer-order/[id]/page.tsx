@@ -16,9 +16,11 @@ import {
   deleteTransferOrderAction,
   postToInvoiceOrderAction,
   updateAllLigneLotsAction,
+  updateTransferOrderLignesEnAttenteAction,
   updateTransferOrderRemarqueAction,
 } from "../actions";
 import { TransferOrderLignesEditor } from "../lignes-editor";
+import { TransferOrderLignesEditorEnAttente } from "../lignes-editor-en-attente";
 import { fetchFluxInfo } from "../flux";
 import { FluxSection } from "../flux-section";
 
@@ -293,32 +295,22 @@ export default async function TransferOrderDetailPage({
         <FluxSection flux={flux} />
 
         {transferOrder.statut === "en_attente" ? (
-          <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-6 py-4 font-semibold">Article</th>
-                    <th className="px-6 py-4 font-semibold">Qt</th>
-                    <th className="px-6 py-4 font-semibold">Stock</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lignesEnrichies.map((ligne) => (
-                    <tr key={ligne.id} className="border-t border-slate-100">
-                      <td className="px-6 py-4 font-medium text-slate-900">{ligne.nom}</td>
-                      <td className="px-6 py-4 text-slate-600">{ligne.quantite_demandee.toLocaleString("fr-FR")}</td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {ligne.lotsDisponibles
-                          .reduce((sum, lot) => sum + lot.solde, 0)
-                          .toLocaleString("fr-FR")}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <TransferOrderLignesEditorEnAttente
+            transferOrderId={transferOrderId}
+            lignes={lignesEnrichies.map((ligne) => ({
+              id: ligne.id,
+              nom: ligne.nom,
+              article_type: ligne.article_type,
+              article_id: ligne.article_id,
+              quantite_demandee: ligne.quantite_demandee,
+              disponible: ligne.lotsDisponibles.reduce((sum, lot) => sum + lot.solde, 0),
+            }))}
+            articlesMp={articlesMp}
+            articlesPf={articlesPf}
+            depotSourceId={transferOrder.depot_source_id}
+            updateAction={updateTransferOrderLignesEnAttenteAction}
+            canEditLignes={canEdit}
+          />
         ) : (
           <TransferOrderLignesEditor
             transferOrderId={transferOrderId}

@@ -366,6 +366,127 @@ export async function approveTransferOrderAction(formData: FormData) {
   await approveTransferOrder(transferOrderId);
 }
 
+// Modifie les lignes (article/quantite, ajout/suppression) d'un Transfer
+// Order encore "en_attente" - avant approbation, aucun lot n'est encore
+// reserve (transfer_order_ligne_lots ne se remplit qu'a l'approbation), donc
+// pas de picker de lot ici, juste article + quantite demandee. Demande
+// explicite : pouvoir changer l'article choisi par erreur AVANT d'approuver,
+// jusqu'ici impossible (page en lecture seule tant que "en_attente").
+// "existing_ligne_id" = 0/vide pour une ligne toute nouvelle (ajoutee en
+// mode Modifier), sinon l'id reel de la ligne existante a mettre a jour.
+// "article_type"/"article_id"/"quantite_demandee" : memes noms de champ que
+// TransferArticlePicker/TransferOrderLinesForm (formulaire de creation) -
+// reutilise TransferArticlePicker tel quel ici (meme aperçu "Disponible :
+// X" en direct), pas besoin de noms distincts.
+export async function updateTransferOrderLignesEnAttenteAction(formData: FormData) {
+  await requireWriteAccess();
+
+  const transferOrderId = Number(formData.get("transfer_order_id") || "0");
+  if (!transferOrderId) {
+    throw new Error("Transfer Order invalide.");
+  }
+
+  const { data: transferOrderData, error: transferOrderError } = await supabaseServer
+    .from("transfer_orders")
+    .select("id, depot_source_id, statut")
+    .eq("id", transferOrderId)
+    .maybeSingle();
+
+  if (transferOrderError || !transferOrderData) {
+    throw new Error("Transfer Order introuvable.");
+  }
+  const transferOrder = transferOrderData as { id: number; depot_source_id: number; statut: string };
+  if (transferOrder.statut !== "en_attente") {
+    throw new Error("Ce Transfer Order n'est plus en attente - impossible de modifier ses lignes ici.");
+  }
+
+  const supprimerIds = new Set(
+    formData
+      .getAll("supprimer_ligne_id")
+      .map((raw) => Number(raw || "0"))
+      .filter((id) => id > 0)
+  );
+
+  const ligneIdsRaw = formData.getAll("existing_ligne_id");
+  const articleTypes = formData.getAll("article_type");
+  const articleIds = formData.getAll("article_id");
+  const quantites = formData.getAll("quantite_demandee");
+
+  const lignes = ligneIdsRaw
+    .map((rawLigneId, index) => ({
+      ligneId: Number(rawLigneId || "0"),
+      articleType: parseArticleType(articleTypes[index]),
+      articleId: Number(articleIds[index] || "0"),
+      quantiteDemandee: Number(String(quantites[index] || "0").replace(",", ".")),
+    }))
+    .filter((ligne) => !supprimerIds.has(ligne.ligneId) && ligne.articleId > 0 && ligne.quantiteDemandee > 0);
+
+  if (lignes.length === 0) {
+    throw new Error("Ajoute au moins un article avec une quantite.");
+  }
+
+  for (const ligne of lignes) {
+    const lots = await fetchLotsInDepot(
+      ligne.articleType,
+      ligne.articleId,
+      transferOrder.depot_source_id,
+      transferOrderId
+    );
+    const disponible = totalAvailable(lots);
+    if (ligne.quantiteDemandee > disponible + 1e-6) {
+      throw new Error(
+        `Stock insuffisant dans le depot source pour un des articles - disponible : ${disponible.toLocaleString("fr-FR")}.`
+      );
+    }
+  }
+
+  if (supprimerIds.size > 0) {
+    const { error: deleteError } = await supabaseServer
+      .from("transfer_order_lignes")
+      .delete()
+      .in("id", [...supprimerIds]);
+    if (deleteError) throw new Error(deleteError.message);
+  }
+
+  const existingLignes = lignes.filter((l) => l.ligneId > 0);
+  const newLignes = lignes.filter((l) => l.ligneId <= 0);
+
+  for (const ligne of existingLignes) {
+    const { error: updateError } = await supabaseServer
+      .from("transfer_order_lignes")
+      .update({
+        article_type: ligne.articleType,
+        article_id: ligne.articleId,
+        quantite_demandee: ligne.quantiteDemandee,
+      })
+      .eq("id", ligne.ligneId);
+    if (updateError) throw new Error(updateError.message);
+  }
+
+  if (newLignes.length > 0) {
+    const { error: insertError } = await supabaseServer.from("transfer_order_lignes").insert(
+      newLignes.map((ligne) => ({
+        transfer_order_id: transferOrderId,
+        article_type: ligne.articleType,
+        article_id: ligne.articleId,
+        quantite_demandee: ligne.quantiteDemandee,
+      }))
+    );
+    if (insertError) throw new Error(insertError.message);
+  }
+
+  const label = await fetchTransferOrderLabel(transferOrderId);
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "TransferOrder",
+    action: "modification",
+    cible: label,
+    resume: `Transfer Order ${label} modifie (lignes, avant approbation)`,
+  });
+
+  revalidatePath(`/depots/transfer-order/${transferOrderId}`);
+}
+
 // Remplace la repartition par lot de TOUTES les lignes d'un coup, depuis un
 // seul tableau/un seul bouton "Enregistrer" (ligne_id[], numero_lot[],
 // quantite[] - meme convention getAll() indexee que partout ailleurs dans
