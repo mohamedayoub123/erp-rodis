@@ -4,6 +4,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
@@ -260,7 +261,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="no-print flex flex-wrap gap-3">
             <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
             <RefreshButton />
             <Link
@@ -269,10 +270,11 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
             >
               Prix des lots
             </Link>
+            {groups.length > 0 ? <SimplePrintButton label="Imprimer la liste" /> : null}
           </div>
         </div>
 
-        <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+        <section className="no-print rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-3">
             <SearchableFilterInput
               name="article"
@@ -366,7 +368,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
             </div>
           ) : (
             <div className="max-h-[75vh] overflow-auto">
-              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+              <table className="print-readable-table min-w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="bg-slate-50 text-slate-950">
                   <tr>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Doss. 4D</th>
@@ -376,7 +378,9 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Date recente</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Statut</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Date prevue reception</th>
-                    {canEdit || canDelete ? <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Action</th> : null}
+                    {canEdit || canDelete ? (
+                      <th className="no-print sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Action</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -404,44 +408,59 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                         <td className="px-6 py-4 text-slate-600">{formatDate(group.dateRecente)}</td>
                         <td className="px-6 py-4">
                           {canEdit && !dossierIsLocked ? (
-                            <form action={updateDossierMpStatutAction} className="flex flex-wrap items-center gap-2">
-                              <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
-                              <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
-                              {/* Ce formulaire ne touche que le statut, mais l'action ecrit
-                                  aussi date_prevue_reception - sans ce champ cache, valider ici
-                                  effacait la date deja saisie (elle arrivait "absente" du
-                                  formData, donc convertie en null). */}
-                              <input
-                                type="hidden"
-                                name="date_prevue_reception"
-                                value={group.datePrevueReception ?? ""}
-                              />
-                              <select
-                                name="statut"
-                                defaultValue={group.statut}
-                                className={`rounded-full border-none px-3 py-1 text-xs font-semibold outline-none ${statutDossierMpBadgeClass(
+                            <>
+                              {/* Formulaire editable, jamais imprime (voir le
+                                  span.print-only juste apres pour la version
+                                  texte imprimable). */}
+                              <form
+                                action={updateDossierMpStatutAction}
+                                className="no-print flex flex-wrap items-center gap-2"
+                              >
+                                <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
+                                <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
+                                {/* Ce formulaire ne touche que le statut, mais l'action ecrit
+                                    aussi date_prevue_reception - sans ce champ cache, valider ici
+                                    effacait la date deja saisie (elle arrivait "absente" du
+                                    formData, donc convertie en null). */}
+                                <input
+                                  type="hidden"
+                                  name="date_prevue_reception"
+                                  value={group.datePrevueReception ?? ""}
+                                />
+                                <select
+                                  name="statut"
+                                  defaultValue={group.statut}
+                                  className={`rounded-full border-none px-3 py-1 text-xs font-semibold outline-none ${statutDossierMpBadgeClass(
+                                    group.statut
+                                  )}`}
+                                >
+                                  {STATUT_DOSSIER_MP_OPTIONS.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
+                                <SubmitButton className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800">
+                                  OK
+                                </SubmitButton>
+                                {/* Date deja enregistree, affichee ici (a cote du statut, pas
+                                    seulement dans la colonne Date plus loin) pour confirmer
+                                    d'un coup d'oeil, sans chercher, que "OK" a bien sauvegarde
+                                    la date sur CE dossier precis - la liste se retrie par date
+                                    recente a chaque enregistrement, ce qui deplace les lignes. */}
+                                <span className="w-full text-xs text-slate-500">
+                                  Date prevue :{" "}
+                                  {group.datePrevueReception ? formatDate(group.datePrevueReception) : "non saisie"}
+                                </span>
+                              </form>
+                              <span
+                                className={`print-only rounded-full px-3 py-1 text-xs font-semibold ${statutDossierMpBadgeClass(
                                   group.statut
                                 )}`}
                               >
-                                {STATUT_DOSSIER_MP_OPTIONS.map((option) => (
-                                  <option key={option} value={option}>
-                                    {option}
-                                  </option>
-                                ))}
-                              </select>
-                              <SubmitButton className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800">
-                                OK
-                              </SubmitButton>
-                              {/* Date deja enregistree, affichee ici (a cote du statut, pas
-                                  seulement dans la colonne Date plus loin) pour confirmer
-                                  d'un coup d'oeil, sans chercher, que "OK" a bien sauvegarde
-                                  la date sur CE dossier precis - la liste se retrie par date
-                                  recente a chaque enregistrement, ce qui deplace les lignes. */}
-                              <span className="w-full text-xs text-slate-500">
-                                Date prevue :{" "}
-                                {group.datePrevueReception ? formatDate(group.datePrevueReception) : "non saisie"}
+                                {group.statut}
                               </span>
-                            </form>
+                            </>
                           ) : (
                             <div className="flex flex-wrap items-center gap-2">
                               <span
@@ -465,24 +484,32 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                               dossier verrouille AVANT d'avoir eu sa date saisie ne
                               doit jamais rester bloque a "-" pour toujours. */}
                           {canEdit ? (
-                            <form action={updateDossierMpStatutAction} className="flex items-center gap-2">
-                              <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
-                              <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
-                              <input type="hidden" name="statut" value={group.statut} />
-                              <DateJmaFormField
-                                name="date_prevue_reception"
-                                defaultValue={group.datePrevueReception}
-                              />
-                              <SubmitButton className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800">
-                                OK
-                              </SubmitButton>
-                            </form>
+                            <>
+                              <form
+                                action={updateDossierMpStatutAction}
+                                className="no-print flex items-center gap-2"
+                              >
+                                <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
+                                <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
+                                <input type="hidden" name="statut" value={group.statut} />
+                                <DateJmaFormField
+                                  name="date_prevue_reception"
+                                  defaultValue={group.datePrevueReception}
+                                />
+                                <SubmitButton className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800">
+                                  OK
+                                </SubmitButton>
+                              </form>
+                              <span className="print-only text-slate-600">
+                                {formatDate(group.datePrevueReception)}
+                              </span>
+                            </>
                           ) : (
                             <span className="text-slate-600">{formatDate(group.datePrevueReception)}</span>
                           )}
                         </td>
                         {canDelete ? (
-                          <td className="px-6 py-4">
+                          <td className="no-print px-6 py-4">
                             <form action={deleteDossierImportsAction}>
                               <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
                               <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
