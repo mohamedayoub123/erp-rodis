@@ -5,6 +5,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
+import { ImportMpExportButton } from "./import-mp-export-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
@@ -61,7 +62,7 @@ async function fetchAllBcLigneInfo() {
   return rows;
 }
 
-type DossierGroup = {
+export type DossierGroup = {
   nDoss4d: string | null;
   nDossErp: string | null;
   nbArticles: number;
@@ -270,7 +271,12 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
             >
               Prix des lots
             </Link>
-            {groups.length > 0 ? <SimplePrintButton label="Imprimer la liste" /> : null}
+            {groups.length > 0 ? (
+              <>
+                <SimplePrintButton label="Imprimer la liste" />
+                <ImportMpExportButton groups={groups} todayIso={new Date().toISOString().slice(0, 10)} />
+              </>
+            ) : null}
           </div>
         </div>
 
