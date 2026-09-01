@@ -1,3 +1,4 @@
+import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { createArticleMpAction } from "../actions";
 import { BackButton } from "@/app/_components/back-button";
@@ -5,8 +6,15 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 
 export default async function NouvelArticleMpPage() {
-  const currentStockUser = await getCurrentStockUser();
+  const [currentStockUser, depotsResult] = await Promise.all([
+    getCurrentStockUser(),
+    supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
+  ]);
   const canWriteArticles = await canWritePageUser(currentStockUser, "articlesMatierePremiereNouvelle");
+  const depots = ((depotsResult.data ?? []) as { id: number; nom: string }[]).map((d) => ({
+    id: d.id,
+    label: d.nom,
+  }));
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -89,6 +97,18 @@ export default async function NouvelArticleMpPage() {
                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                 />
               </div>
+              <select
+                name="depot_id"
+                defaultValue=""
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none"
+              >
+                <option value="">Sans depot</option>
+                {depots.map((depot) => (
+                  <option key={depot.id} value={depot.id}>
+                    {depot.label}
+                  </option>
+                ))}
+              </select>
 
               <div>
                 <SubmitButton

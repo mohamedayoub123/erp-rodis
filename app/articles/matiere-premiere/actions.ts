@@ -56,6 +56,8 @@ export async function createArticleMpAction(formData: FormData) {
   const utilisation = String(formData.get("utilisation") || "").trim();
   const minStock = parseOptionalNumber(formData, "min_stock");
   const maxStock = parseOptionalNumber(formData, "max_stock");
+  const depotIdRaw = String(formData.get("depot_id") || "").trim();
+  const depotId = depotIdRaw ? Number(depotIdRaw) : null;
 
   if (!nomArticle) {
     throw new Error("Le nom de l'article est obligatoire.");
@@ -84,6 +86,7 @@ export async function createArticleMpAction(formData: FormData) {
       utilisation: utilisation || null,
       min_stock: minStock,
       max_stock: maxStock,
+      depot_id: depotId,
     },
   ]);
 
