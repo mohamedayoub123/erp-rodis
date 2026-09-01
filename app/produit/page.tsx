@@ -38,6 +38,30 @@ async function fetchAll<T>(table: string, select: string) {
   return { rows, error: null };
 }
 
+// stock_by_article_depot_pf/mp renvoie 1 ligne par (article, depot) - un
+// simple .rpc() sans .range() plafonne silencieusement a 1000 lignes (limite
+// par defaut Supabase/PostgREST), ce qui faisait disparaitre le stock de
+// certains articles/depots au hasard des qu'il y avait plus de 1000
+// combinaisons au total (bug reel confirme : FLACON KINDER BLANC 200ML
+// affichait 0 partout ici alors que sa fiche article montrait bien du stock
+// reel). Meme correctif deja applique a plusieurs autres RPC cette session.
+async function fetchAllRpc<T>(rpcName: "stock_by_article_depot_pf" | "stock_by_article_depot_mp") {
+  const rows: T[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer.rpc(rpcName).range(from, from + pageSize - 1);
+    if (error) return { rows, error };
+    const chunk = (data ?? []) as T[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 }
@@ -57,23 +81,17 @@ export default async function ProduitListPage({ searchParams }: { searchParams: 
       fetchAll<DepotRow>("depots", "id, nom"),
       fetchAll<ArticlePfRow>("articles", "id, nom_article, nature, depot_id"),
       fetchAll<ArticleMpRow>("articles_matiere_premiere", "id, nom_article, depot_id"),
-      supabaseServer.rpc("stock_by_article_depot_pf"),
-      supabaseServer.rpc("stock_by_article_depot_mp"),
+      fetchAllRpc<StockByDepotRow>("stock_by_article_depot_pf"),
+      fetchAllRpc<StockByDepotRow>("stock_by_article_depot_mp"),
     ]);
 
   const sortedDepots = [...depots].sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
   const stockPfMap = new Map(
-    ((stockPfResult.data as StockByDepotRow[] | null) ?? []).map((row) => [
-      stockKey(row.article_id, row.depot_id),
-      Number(row.stock),
-    ])
+    stockPfResult.rows.map((row) => [stockKey(row.article_id, row.depot_id), Number(row.stock)])
   );
   const stockMpMap = new Map(
-    ((stockMpResult.data as StockByDepotRow[] | null) ?? []).map((row) => [
-      stockKey(row.article_id, row.depot_id),
-      Number(row.stock),
-    ])
+    stockMpResult.rows.map((row) => [stockKey(row.article_id, row.depot_id), Number(row.stock)])
   );
 
   const allRows: ProduitRow[] = [
