@@ -30,7 +30,33 @@ type ArticleStatsRow = {
   gamme: string | null;
   total_sorti: number;
   by_month: Record<string, number>;
+  stock_actuel: number;
+  sortie_6_mois: number;
+  sortie_12_mois: number;
 };
+
+type ArticleMpRow = { id: number; nom_article: string; categorie: string | null; gamme: string | null };
+type StockActuelRow = { article_id: number; stock_actuel: number };
+
+// Stock actuel calcule directement en base (fonction stock_actuel_mp_rows,
+// voir scripts/sql/add_stock_actuel_rpcs.sql) - meme fonction/meme
+// pagination que la page Stock Actuel MP, pour rester coherent.
+async function fetchStockActuelMp(): Promise<StockActuelRow[]> {
+  const pageSize = 1000;
+  const rows: StockActuelRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabaseServer.rpc("stock_actuel_mp_rows").range(from, from + pageSize - 1);
+    if (error) return rows;
+    const chunk = (data ?? []) as StockActuelRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
 
 const PAGE_SIZE = 100;
 
@@ -57,15 +83,24 @@ export default async function RapportMouvementsMpPage({
   const from = (currentPage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
+  // Meme piege .limit(1000) que le reste de cette page - un terme de
+  // recherche assez large (ex: une categorie entiere) pouvait depasser le
+  // plafond PostgREST et faire disparaitre une partie des resultats.
   const matchingArticleIds = articleQ
     ? (
-        (
-          await supabaseServer
-            .from("articles_matiere_premiere")
-            .select("id")
-            .or(`nom_article.ilike.%${articleQ}%,categorie.ilike.%${articleQ}%,gamme.ilike.%${articleQ}%`)
-            .limit(1000)
-        ).data ?? []
+        await fetchAllRowsParallel<{ id: number }>(
+          () =>
+            supabaseServer
+              .from("articles_matiere_premiere")
+              .select("id", { count: "exact", head: true })
+              .or(`nom_article.ilike.%${articleQ}%,categorie.ilike.%${articleQ}%,gamme.ilike.%${articleQ}%`),
+          (from, to) =>
+            supabaseServer
+              .from("articles_matiere_premiere")
+              .select("id")
+              .or(`nom_article.ilike.%${articleQ}%,categorie.ilike.%${articleQ}%,gamme.ilike.%${articleQ}%`)
+              .range(from, to)
+        )
       ).map((row) => row.id)
     : [];
 
@@ -107,21 +142,30 @@ export default async function RapportMouvementsMpPage({
     return query;
   }
 
-  // articleSuggestionsData et sortiesResult sont totalement independants
-  // (l'un ne depend jamais du resultat de l'autre) - partis en parallele
-  // plutot qu'en cascade.
-  const [articleSuggestionsData, sortiesResult] = await Promise.all([
+  const today = new Date().toISOString().slice(0, 10);
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+  const sixMonthsAgoIso = sixMonthsAgo.toISOString().slice(0, 10);
+  const twelveMonthsAgo = new Date();
+  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+  const twelveMonthsAgoIso = twelveMonthsAgo.toISOString().slice(0, 10);
+
+  // allArticlesData/sortiesResult/stockActuelRows sont totalement
+  // independants - partis en parallele plutot qu'en cascade.
+  const [allArticlesData, sortiesResult, stockActuelRows] = await Promise.all([
     // .limit(5000) ne suffisait pas a lui seul : PostgREST plafonne chaque
     // requete a son max-rows interne (~1000) peu importe le .limit() demande
     // - les 2/3 des articles (2704 au total) restaient silencieusement
-    // absents des suggestions au-dela des 1000 premiers par ordre
-    // alphabetique.
-    fetchAllRowsParallel<{ id: number; nom_article: string }>(
+    // absents (des suggestions ET de la liste elle-meme, qui ne montrait
+    // avant que les articles ayant deja une sortie - demande explicite :
+    // "il affiche pas toute la liste", tous les articles MP apparaissent
+    // desormais, meme sans aucune sortie).
+    fetchAllRowsParallel<ArticleMpRow>(
       () => supabaseServer.from("articles_matiere_premiere").select("id", { count: "exact", head: true }),
       (from, to) =>
         supabaseServer
           .from("articles_matiere_premiere")
-          .select("id, nom_article")
+          .select("id, nom_article, categorie, gamme")
           .order("nom_article", { ascending: true })
           .range(from, to)
     ),
@@ -137,13 +181,33 @@ export default async function RapportMouvementsMpPage({
         return { rows: [], fetchError: { message: e instanceof Error ? e.message : "Erreur inconnue." } };
       }
     })(),
+    fetchStockActuelMp(),
   ]);
 
   const rows = sortiesResult.rows;
   const error = sortiesResult.fetchError;
-  const articleSuggestions = articleSuggestionsData.map((article) => article.nom_article);
+  const articleSuggestions = allArticlesData.map((article) => article.nom_article);
+  const stockActuelByArticleId = new Map(stockActuelRows.map((row) => [row.article_id, row.stock_actuel]));
 
   const statsMap = new Map<string, ArticleStatsRow>();
+  // Base = TOUS les articles MP (pas seulement ceux qui ont deja une
+  // sortie) - un article jamais sorti apparait quand meme, avec des
+  // colonnes a 0, plutot que d'etre completement invisible.
+  for (const article of allArticlesData) {
+    statsMap.set(String(article.id), {
+      article_id: article.id,
+      nom_article: article.nom_article,
+      categorie: article.categorie,
+      gamme: article.gamme,
+      total_sorti: 0,
+      by_month: {},
+      stock_actuel: stockActuelByArticleId.get(article.id) ?? 0,
+      sortie_6_mois: 0,
+      sortie_12_mois: 0,
+    });
+  }
+  const sortie6MoisByArticleId = new Map<string, number>();
+  const sortie12MoisByArticleId = new Map<string, number>();
   const monthSet = new Set<string>();
 
   for (const row of rows) {
@@ -153,6 +217,13 @@ export default async function RapportMouvementsMpPage({
     monthSet.add(monthKey);
 
     const articleKey = String(row.article_id ?? `na-${row.articles_matiere_premiere?.nom_article || row.id}`);
+    const qteSortie = Number(row.qte_sortie ?? 0);
+    if (row.date_jour && row.date_jour >= twelveMonthsAgoIso && row.date_jour <= today) {
+      sortie12MoisByArticleId.set(articleKey, (sortie12MoisByArticleId.get(articleKey) ?? 0) + qteSortie);
+      if (row.date_jour >= sixMonthsAgoIso) {
+        sortie6MoisByArticleId.set(articleKey, (sortie6MoisByArticleId.get(articleKey) ?? 0) + qteSortie);
+      }
+    }
     const current =
       statsMap.get(articleKey) ??
       ({
@@ -162,6 +233,9 @@ export default async function RapportMouvementsMpPage({
         gamme: row.articles_matiere_premiere?.gamme || null,
         total_sorti: 0,
         by_month: {},
+        stock_actuel: row.article_id ? (stockActuelByArticleId.get(row.article_id) ?? 0) : 0,
+        sortie_6_mois: 0,
+        sortie_12_mois: 0,
       } satisfies ArticleStatsRow);
 
     current.total_sorti += Number(row.qte_sortie ?? 0);
@@ -171,8 +245,15 @@ export default async function RapportMouvementsMpPage({
     statsMap.set(articleKey, current);
   }
 
+  // Sortie 6/12 mois attachees apres coup (les 2 maps se remplissent au fil
+  // de la meme boucle que by_month/total_sorti juste au-dessus).
+  for (const [articleKey, statRow] of statsMap.entries()) {
+    statRow.sortie_6_mois = sortie6MoisByArticleId.get(articleKey) ?? 0;
+    statRow.sortie_12_mois = sortie12MoisByArticleId.get(articleKey) ?? 0;
+  }
+
   const monthColumns = [...monthSet].sort().reverse().slice(0, 12).reverse();
-  const allStatsRows = [...statsMap.values()].sort((a, b) => b.total_sorti - a.total_sorti);
+  const allStatsRows = [...statsMap.values()].sort((a, b) => b.sortie_12_mois - a.sortie_12_mois);
   const pagedRows = allStatsRows.slice(from, to + 1);
   const totalRows = allStatsRows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
@@ -334,10 +415,18 @@ export default async function RapportMouvementsMpPage({
                       </p>
                     </div>
 
-                    <div className="flex gap-3">
+                    <div className="flex flex-wrap gap-3">
+                      <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm">
+                        Stock actuel :
+                        <span className="ml-2 font-bold text-emerald-900">{row.stock_actuel}</span>
+                      </div>
+                      <div className="rounded-2xl bg-orange-50 px-4 py-3 text-sm">
+                        Sortie 6 mois :
+                        <span className="ml-2 font-bold text-orange-900">{row.sortie_6_mois}</span>
+                      </div>
                       <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm">
-                        Total sorti (12 derniers mois) :
-                        <span className="ml-2 font-bold text-red-900">{row.total_sorti}</span>
+                        Sortie 12 mois :
+                        <span className="ml-2 font-bold text-red-900">{row.sortie_12_mois}</span>
                       </div>
                     </div>
                   </div>
@@ -373,6 +462,9 @@ export default async function RapportMouvementsMpPage({
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Article</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Categorie</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Gamme</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center font-semibold">Stock actuel</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center font-semibold">Sortie 6 mois</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center font-semibold">Sortie 12 mois</th>
                     {monthColumns.map((monthKey) => (
                       <th key={monthKey} className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center font-semibold">
                         {formatMonthLabel(monthKey)}
@@ -387,6 +479,9 @@ export default async function RapportMouvementsMpPage({
                       <td className="px-4 py-3 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-4 py-3 text-slate-600">{row.categorie || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.gamme || "-"}</td>
+                      <td className="px-4 py-3 text-center font-semibold text-emerald-800">{row.stock_actuel}</td>
+                      <td className="px-4 py-3 text-center text-orange-800">{row.sortie_6_mois}</td>
+                      <td className="px-4 py-3 text-center text-red-800">{row.sortie_12_mois}</td>
                       {monthColumns.map((monthKey) => (
                         <td key={monthKey} className="px-4 py-3 text-center text-slate-700">
                           {Number(row.by_month[monthKey] ?? 0)}
