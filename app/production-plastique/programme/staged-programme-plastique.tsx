@@ -40,6 +40,7 @@ export function StagedProgrammePlastique({
   const [numeroLot, setNumeroLot] = useState("");
   const [depotSourceId, setDepotSourceId] = useState(String(depotSourceDefault));
   const [depotDestinationId, setDepotDestinationId] = useState(String(depotDestinationDefault));
+  const [remarque, setRemarque] = useState("");
   const [rows, setRows] = useState<PendingLigne[]>([]);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -110,6 +111,7 @@ export function StagedProgrammePlastique({
     const formData = new FormData();
     formData.set("depot_source_id", depotSourceId);
     formData.set("depot_destination_id", depotDestinationId);
+    formData.set("remarque", remarque.trim());
     formData.set(
       "payload",
       JSON.stringify(rows.map((row) => ({ article_id: row.article_id, quantite: row.quantite, numero_lot: row.numero_lot })))
@@ -123,6 +125,7 @@ export function StagedProgrammePlastique({
           return;
         }
         setRows([]);
+        setRemarque("");
         setMessage(
           `Programme enregistre : stock entre dans ${depotSourceLabel}. Un Transfer Order (TO) vers ${depotDestinationLabel} a ete cree en attente - va le valider (TO) puis faire le TI depuis Depots.`
         );
@@ -279,6 +282,17 @@ export function StagedProgrammePlastique({
           </div>
         )}
       </div>
+
+      <label className="mt-4 grid gap-2 text-sm font-semibold text-slate-900">
+        <span>Remarque (optionnel)</span>
+        <textarea
+          value={remarque}
+          onChange={(event) => setRemarque(event.target.value)}
+          rows={2}
+          placeholder="Ajoutee a la remarque du Transfer Order cree"
+          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none"
+        />
+      </label>
 
       {errorMessage ? (
         <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{errorMessage}</p>

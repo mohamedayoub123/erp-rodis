@@ -273,6 +273,7 @@ export async function saveProgrammePlastiqueAction(
 
   const depotSourceId = Number(formData.get("depot_source_id") || "0") || DEPOT_PLASTIQUE_SOURCE_DEFAULT;
   const depotDestinationId = Number(formData.get("depot_destination_id") || "0") || DEPOT_PLASTIQUE_DEST_DEFAULT;
+  const remarqueUtilisateur = String(formData.get("remarque") || "").trim();
   const dateJour = new Date().toISOString().slice(0, 10);
 
   const rawPayload = String(formData.get("payload") || "").trim();
@@ -424,7 +425,13 @@ export async function saveProgrammePlastiqueAction(
     depotDestinationId,
     dateJour,
     creePar: currentUser,
-    remarque: `Programme plastique #${groupeId}`,
+    // Le "#groupeId" en debut de remarque est une cle technique (voir
+    // deleteProgrammePlastiqueGroupAction, qui retrouve ce Transfer Order
+    // via un LIKE sur ce prefixe) - la remarque tapee par l'utilisateur
+    // vient s'ajouter APRES, jamais remplacer/casser ce prefixe.
+    remarque: remarqueUtilisateur
+      ? `Programme plastique #${groupeId} - ${remarqueUtilisateur}`
+      : `Programme plastique #${groupeId}`,
     lignes: lignes.map((ligne) => ({ articleType: "MP" as const, articleId: ligne.articleId, quantiteDemandee: ligne.quantite })),
   });
 
@@ -460,10 +467,14 @@ export async function deleteProgrammePlastiqueGroupAction(
   }
 
   try {
+    // Sans remarque ajoutee par l'utilisateur, la remarque est exactement
+    // "Programme plastique #<id>" ; avec, elle continue par " - <texte>" -
+    // le " - " apres le numero empeche toute confusion avec un autre groupe
+    // (ex: #12 ne matche jamais #123).
     const { data: transferOrder } = await supabaseServer
       .from("transfer_orders")
       .select("id")
-      .eq("remarque", `Programme plastique #${groupeId}`)
+      .or(`remarque.eq.Programme plastique #${groupeId},remarque.like.Programme plastique #${groupeId} - %`)
       .maybeSingle();
 
     if (transferOrder) {
