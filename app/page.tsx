@@ -75,6 +75,14 @@ const mainButtons = [
     pageKey: "coutHub" as const,
   },
   {
+    label: "Comptabilite",
+    href: "/comptabilite",
+    icon: "\u{1F4D2}",
+    accent: "from-lime-500 to-green-400",
+    panel: "bg-lime-50 text-lime-950 border-lime-200",
+    pageKey: "comptabilite" as const,
+  },
+  {
     label: "Admin",
     href: "/admin",
     icon: "\u{1F6E0}\u{FE0F}",

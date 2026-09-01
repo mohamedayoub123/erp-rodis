@@ -12,14 +12,14 @@ const TILES = [
     description: "Suivi du stock matiere premiere.",
   },
   {
-    label: "Mouvement",
+    label: "Mouvements",
     href: "/mouvements/matiere-premiere",
     pageKey: "mouvementsMatierePremiere",
     icon: "\u{1F4E6}",
     description: "Entrees/sorties de matiere premiere.",
   },
   {
-    label: "Article",
+    label: "Articles",
     href: "/articles/matiere-premiere",
     pageKey: "articlesMatierePremiere",
     icon: "\u{1F9EA}",

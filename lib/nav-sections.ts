@@ -91,6 +91,7 @@ export const navItems: NavItem[] = [
       "/code-par-article",
     ],
     subLinks: [
+      { href: "/production/programme", label: "Programme", pageKey: "programme" },
       { href: "/production/suivi", label: "Planning Production", pageKey: "productionSuiviHub" },
       {
         href: "/production/suivi-production",
@@ -110,8 +111,24 @@ export const navItems: NavItem[] = [
         pageKey: "historiqueProgrammeDispatcher",
       },
       { href: "/code-par-article", label: "Code par article", pageKey: "codeParArticle" },
+      {
+        href: "/historique-matiere-utilisee",
+        label: "Historique Matiere Utilisee",
+        pageKey: "historiqueMatiereUtilisee",
+      },
       { href: "/production/rapport", label: "Rapport", pageKey: "productionRapportHub" },
-      { href: "/production/machines", label: "Machines", pageKey: "machines" },
+      { href: "/production/machines", label: "Equipements", pageKey: "machines" },
+      { href: "/production/recette-fabrication", label: "Recette Fabrication", pageKey: "recetteFabrication" },
+      {
+        href: "/production/recette-conditionnement",
+        label: "Recette Conditionnement",
+        pageKey: "recetteConditionnement",
+      },
+      {
+        href: "/production/retours-conditionnement",
+        label: "Retours Conditionnement",
+        pageKey: "retoursConditionnement",
+      },
     ],
   },
   {
@@ -144,30 +161,63 @@ export const navItems: NavItem[] = [
     label: "Entrepot",
     pageKey: "depots",
     matchPrefixes: ["/depots"],
-    subLinks: [],
+    subLinks: [
+      { href: "/depots/transfer-order", label: "Transfer Order" },
+      { href: "/depots/invoice-order", label: "Transfer Invoice" },
+    ],
   },
   {
     href: "/qualite",
     label: "Qualite",
     pageKey: "qualiteHub",
     matchPrefixes: ["/qualite"],
-    subLinks: [],
+    subLinks: [
+      { href: "/qualite/specs", label: "Specs Labo (Vrac)", pageKey: "qualiteSpecs" },
+      { href: "/qualite/rapport", label: "Rapport Test labo", pageKey: "qualiteRapport" },
+      { href: "/qualite/historique-test-labo", label: "Historique Test labo", pageKey: "qualiteHistoriqueTestLabo" },
+      { href: "/qualite/revue-processus", label: "Revue Processus", pageKey: "qualiteRevueProcessus" },
+      { href: "/qualite/nc-confidentiel", label: "NC Confidentiel", pageKey: "qualiteNcConfidentiel" },
+      { href: "/qualite/taf-confidentiel", label: "TAF Confidentiel", pageKey: "qualiteTafConfidentiel" },
+    ],
   },
   {
     href: "/cout",
     label: "Cout",
     pageKey: "coutHub",
     matchPrefixes: ["/cout", "/charges", "/production/rapport/cout-reel"],
-    subLinks: [],
+    subLinks: [
+      { href: "/charges", label: "Charges mensuelles", pageKey: "chargesHub" },
+      { href: "/production/rapport/cout-reel", label: "Cout Reel (piece/gramme)", pageKey: "productionRapportCoutReel" },
+    ],
   },
   {
     href: "/comptabilite",
     label: "Comptabilite",
     pageKey: "comptabilite",
     matchPrefixes: ["/comptabilite", "/fournisseurs", "/clients"],
-    subLinks: [],
+    subLinks: [
+      { href: "/comptabilite/balance", label: "Balance des comptes" },
+      { href: "/comptabilite/journal", label: "Journal" },
+      { href: "/comptabilite/grand-livre", label: "Ecriture comptable" },
+      { href: "/comptabilite/plan-comptable", label: "Plan comptable" },
+      { href: "/comptabilite/ecriture-manuelle", label: "Ecriture manuelle" },
+      { href: "/comptabilite/paie", label: "Paie" },
+      { href: "/comptabilite/charges-recurrentes", label: "Charges recurrentes" },
+      { href: "/comptabilite/immobilisations", label: "Immobilisations" },
+      { href: "/comptabilite/tva", label: "TVA" },
+      { href: "/clients", label: "Clients" },
+      { href: "/fournisseurs", label: "Fournisseurs" },
+      { href: "/comptabilite/prix-vente", label: "Prix de vente" },
+      { href: "/comptabilite/bilan", label: "Bilan" },
+      { href: "/comptabilite/compte-resultat", label: "Compte de resultat" },
+    ],
   },
-  { href: "/admin", label: "Admin", adminOnly: true },
+  {
+    href: "/admin",
+    label: "Admin",
+    adminOnly: true,
+    subLinks: [{ href: "/admin/historique", label: "Historique" }],
+  },
 ];
 
 // Une section (hub + sous-pages) est visible des qu'on voit le hub LUI-MEME
