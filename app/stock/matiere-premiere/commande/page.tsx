@@ -78,6 +78,17 @@ function dossierKey(nDoss4d: string | null, nDossErp: string | null) {
   return `${nDoss4d ?? ""}|||${nDossErp ?? ""}`;
 }
 
+// Trie sur le NUMERO du dossier 4D (ex: "D 20260538" -> 20260538), pas sur
+// la date recente - demande explicite : une seule date_import erronee (ex:
+// saisie en 2027 au lieu de 2026) faisait sinon remonter tout un dossier en
+// tete de liste, meme un dossier ancien deja receptionne. "Sans dossier"
+// (nDoss4d null) part toujours en dernier.
+function doss4dSortValue(nDoss4d: string | null): number {
+  if (!nDoss4d) return -1;
+  const match = nDoss4d.match(/\d+/);
+  return match ? Number(match[0]) : -1;
+}
+
 async function fetchAllImports() {
   const rows: ImportRow[] = [];
   let from = 0;
@@ -224,7 +235,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
       if (dateFinFilter && (!group.dateRecente || group.dateRecente > dateFinFilter)) return false;
       return true;
     })
-    .sort((a, b) => (b.dateRecente ?? "").localeCompare(a.dateRecente ?? ""));
+    .sort((a, b) => doss4dSortValue(b.nDoss4d) - doss4dSortValue(a.nDoss4d));
 
   const articleOptions = [
     ...new Set(
