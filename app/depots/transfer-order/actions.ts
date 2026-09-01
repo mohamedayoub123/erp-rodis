@@ -573,6 +573,72 @@ async function applyArticleChanges(formData: FormData, skipIds: Set<number>) {
   }
 }
 
+// Supprime UNE SEULE ligne d'un Transfer Order "Approuve"/"Partiellement
+// fini", en un clic depuis le tableau verrouille - jamais besoin d'ouvrir
+// "Modifier" juste pour ca (demande explicite : meme bouton simple qu'au
+// Transfer Invoice). Reprend exactement la meme suppression que la case a
+// cocher "Supprimer" du mode Modifier (transfer_order_ligne_lots puis
+// transfer_order_lignes), juste declenchee directement.
+export async function deleteTransferOrderLigneAction(formData: FormData) {
+  await requireWriteAccess();
+
+  const ligneId = Number(formData.get("delete_transfer_order_ligne_id") || "0");
+  if (!ligneId) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const { data: ligneData, error: ligneError } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("id, transfer_order_id")
+    .eq("id", ligneId)
+    .maybeSingle();
+
+  if (ligneError || !ligneData) {
+    throw new Error("Ligne introuvable.");
+  }
+  const transferOrderId = (ligneData as { transfer_order_id: number }).transfer_order_id;
+
+  const { data: transferOrderData, error: transferOrderError } = await supabaseServer
+    .from("transfer_orders")
+    .select("id, statut")
+    .eq("id", transferOrderId)
+    .maybeSingle();
+  if (transferOrderError || !transferOrderData) {
+    throw new Error("Transfer Order introuvable.");
+  }
+  const statut = (transferOrderData as { statut: string }).statut;
+  if (statut !== "approuve" && statut !== "partiellement_fini") {
+    throw new Error(
+      'Cette ligne ne peut etre supprimee que si le Transfer Order est "Approuve" ou "Partiellement fini".'
+    );
+  }
+
+  try {
+    const { error: lotsError } = await supabaseServer
+      .from("transfer_order_ligne_lots")
+      .delete()
+      .eq("transfer_order_ligne_id", ligneId);
+    if (lotsError) throw new Error(lotsError.message);
+
+    const { error: ligneDeleteError } = await supabaseServer.from("transfer_order_lignes").delete().eq("id", ligneId);
+    if (ligneDeleteError) throw new Error(ligneDeleteError.message);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur pendant la suppression.";
+    redirect(`/depots/transfer-order/${transferOrderId}?avertissement=${encodeURIComponent(message)}`);
+  }
+
+  const label = await fetchTransferOrderLabel(transferOrderId);
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "TransferOrder",
+    action: "modification",
+    cible: label,
+    resume: `Transfer Order ${label} : 1 ligne supprimee`,
+  });
+
+  revalidatePath(`/depots/transfer-order/${transferOrderId}`);
+}
+
 export async function updateAllLigneLotsAction(formData: FormData) {
   await requireWriteAccess();
 

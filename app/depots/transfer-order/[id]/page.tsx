@@ -14,6 +14,7 @@ import {
   approveTransferOrderAction,
   copyTransferOrderAction,
   deleteTransferOrderAction,
+  deleteTransferOrderLigneAction,
   postToInvoiceOrderAction,
   updateAllLigneLotsAction,
   updateTransferOrderLignesEnAttenteAction,
@@ -328,6 +329,7 @@ export default async function TransferOrderDetailPage({
             articlesMp={articlesMp}
             articlesPf={articlesPf}
             updateAction={updateAllLigneLotsAction}
+            deleteLigneAction={deleteTransferOrderLigneAction}
             canEditLignes={canEditLots}
             depotSourceNom={depotNomById.get(transferOrder.depot_source_id) ?? "au depot source"}
           />

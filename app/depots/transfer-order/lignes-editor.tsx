@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { ProduitPickerField } from "@/app/production/suivi-production/produit-picker-field";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { LotSearchField } from "./lot-search-field";
 import type { ArticleType } from "./stock-lots";
 
@@ -50,6 +51,7 @@ export function TransferOrderLignesEditor({
   articlesMp,
   articlesPf,
   updateAction,
+  deleteLigneAction,
   canEditLignes,
   depotSourceNom,
 }: {
@@ -59,6 +61,7 @@ export function TransferOrderLignesEditor({
   articlesMp: { id: number; label: string }[];
   articlesPf: { id: number; label: string }[];
   updateAction: (formData: FormData) => void | Promise<void>;
+  deleteLigneAction: (formData: FormData) => void | Promise<void>;
   canEditLignes: boolean;
   depotSourceNom: string;
 }) {
@@ -115,6 +118,7 @@ export function TransferOrderLignesEditor({
                 <th className="px-6 py-4 font-semibold">Numero de lot</th>
                 <th className="px-6 py-4 font-semibold">Disponible {depotSourceNom}</th>
                 <th className="px-6 py-4 font-semibold">Quantite a transferer</th>
+                {canEditLignes ? <th className="px-6 py-4 font-semibold"></th> : null}
               </tr>
             </thead>
             <tbody>
@@ -152,6 +156,16 @@ export function TransferOrderLignesEditor({
                         )}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{lot.quantite.toLocaleString("fr-FR")}</td>
+                      {canEditLignes ? (
+                        <td className="px-6 py-4">
+                          {index === 0 ? (
+                            <form action={deleteLigneAction}>
+                              <input type="hidden" name="delete_transfer_order_ligne_id" value={ligne.id} />
+                              <DeleteIconButton label="Supprimer cette ligne" />
+                            </form>
+                          ) : null}
+                        </td>
+                      ) : null}
                     </tr>
                   );
                 });
