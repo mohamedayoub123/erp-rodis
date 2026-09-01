@@ -50,21 +50,26 @@ export function InvoiceOrderLignesEditor({
   lignes,
   canEditLignes,
   canValidate,
+  canDeleteLigneApprouvee,
   updateAction,
   validateAction,
   deleteLigneAction,
+  deleteLigneApprouveeAction,
   depotSourceNom,
 }: {
   invoiceOrderId: number;
   lignes: LigneRow[];
   canEditLignes: boolean;
   canValidate: boolean;
+  canDeleteLigneApprouvee: boolean;
   updateAction: (formData: FormData) => void | Promise<void>;
   validateAction: (formData: FormData) => void | Promise<void>;
   deleteLigneAction: (formData: FormData) => void | Promise<void>;
+  deleteLigneApprouveeAction: (formData: FormData) => void | Promise<void>;
   depotSourceNom: string;
 }) {
   const [isDirty, setIsDirty] = useState(false);
+  const canDeleteAnyLigne = canEditLignes || canDeleteLigneApprouvee;
 
   return (
     <>
@@ -120,13 +125,13 @@ export function InvoiceOrderLignesEditor({
                   <th className="px-6 py-4 font-semibold">Lot</th>
                   <th className="px-6 py-4 font-semibold">Disponible {depotSourceNom}</th>
                   <th className="px-6 py-4 font-semibold">Quantite</th>
-                  {canEditLignes ? <th className="px-6 py-4 font-semibold"></th> : null}
+                  {canDeleteAnyLigne ? <th className="px-6 py-4 font-semibold"></th> : null}
                 </tr>
               </thead>
               <tbody>
                 {lignes.length === 0 ? (
                   <tr>
-                    <td className="px-6 py-4 text-slate-400" colSpan={canEditLignes ? 6 : 5}>
+                    <td className="px-6 py-4 text-slate-400" colSpan={canDeleteAnyLigne ? 6 : 5}>
                       Aucune ligne - tout a deja ete livre ou efface.
                     </td>
                   </tr>
@@ -173,11 +178,15 @@ export function InvoiceOrderLignesEditor({
                           ligne.quantite.toLocaleString("fr-FR")
                         )}
                       </td>
-                      {canEditLignes ? (
+                      {canDeleteAnyLigne ? (
                         <td className="px-6 py-4">
                           <DeleteIconButton
-                            label="Supprimer cette ligne"
-                            formAction={deleteLigneAction}
+                            label={
+                              canEditLignes
+                                ? "Supprimer cette ligne"
+                                : "Supprimer cette ligne (annule et restitue le stock deja livre)"
+                            }
+                            formAction={canEditLignes ? deleteLigneAction : deleteLigneApprouveeAction}
                             formNoValidate
                             name="delete_invoice_order_ligne_id"
                             value={ligne.id}

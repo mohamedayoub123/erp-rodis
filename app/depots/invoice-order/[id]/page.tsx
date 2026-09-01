@@ -12,6 +12,7 @@ import { fetchLotsInDepot, type ArticleType } from "../../transfer-order/stock-l
 import {
   deleteInvoiceOrderAction,
   deleteInvoiceOrderLigneAction,
+  deleteInvoiceOrderLigneApprouveeAction,
   updateInvoiceOrderLignesAction,
   updateInvoiceOrderRemarqueAction,
   validateInvoiceOrderAction,
@@ -105,6 +106,11 @@ export default async function InvoiceOrderDetailPage({
 
   const canEditLignes = canEdit && invoiceOrder.statut === "draft";
   const canValidate = canEditLignes;
+  // Un TI deja approuve a deja deplace du vrai stock (voir
+  // deleteInvoiceOrderLigneApprouveeAction) - reservee au meme niveau de
+  // permission que la suppression du Transfer Invoice entier, pas la simple
+  // ecriture.
+  const canDeleteLigneApprouvee = canDelete && invoiceOrder.statut === "valide";
 
   const invoiceLignesEnrichies = await Promise.all(
     invoiceLignes.map(async (invoiceLigne) => {
@@ -217,9 +223,11 @@ export default async function InvoiceOrderDetailPage({
           }))}
           canEditLignes={canEditLignes}
           canValidate={canValidate}
+          canDeleteLigneApprouvee={canDeleteLigneApprouvee}
           updateAction={updateInvoiceOrderLignesAction}
           validateAction={validateInvoiceOrderAction}
           deleteLigneAction={deleteInvoiceOrderLigneAction}
+          deleteLigneApprouveeAction={deleteInvoiceOrderLigneApprouveeAction}
           depotSourceNom={
             (transferOrder ? depotNomById.get(transferOrder.depot_source_id) : null) ?? "au depot source"
           }

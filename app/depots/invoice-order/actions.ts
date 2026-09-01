@@ -200,6 +200,204 @@ export async function deleteInvoiceOrderLigneAction(formData: FormData) {
 }
 
 // Le stock livre par CE Transfer Invoice (article/lot, depot destination)
+// est-il encore intact - definie plus bas (verifierStockLivreEncoreIntact),
+// utilisee ici via une reference avant declaration (autorise pour les
+// fonctions "function" hissees par JS, jamais pour des const/let).
+
+// Coeur de la suppression d'UNE SEULE ligne d'un Transfer Invoice DEJA
+// APPROUVE (demande explicite : "je veux quand je rentre dans 1 TI pouvoir
+// effacer une ligne seulement si je veux" - jusqu'ici, une ligne devenait
+// intouchable des que le TI passait "valide", il fallait supprimer TOUT le
+// Transfer Invoice pour corriger une seule ligne). Reprend exactement la
+// meme logique de reversal que deleteInvoiceOrder (verifie que le stock
+// livre n'a pas deja servi ailleurs, efface les 2 mouvements de stock reels
+// sortie/entree de CETTE ligne, restitue sa quantite au Transfer Order),
+// mais scopee a une seule invoice_order_lignes au lieu de toutes - le
+// Transfer Invoice et ses autres lignes restent "valide" et intacts.
+async function deleteInvoiceOrderLigneApprouvee(
+  invoiceOrderLigneId: number
+): Promise<{ invoiceOrderId: number; transferOrderId: number }> {
+  const { data: ligneData, error: ligneError } = await supabaseServer
+    .from("invoice_order_lignes")
+    .select("id, invoice_order_id, transfer_order_ligne_id, numero_lot, quantite, sortie_lot_id, entree_lot_id")
+    .eq("id", invoiceOrderLigneId)
+    .maybeSingle();
+
+  if (ligneError || !ligneData) {
+    throw new Error("Ligne introuvable.");
+  }
+
+  const ligne = ligneData as {
+    id: number;
+    invoice_order_id: number;
+    transfer_order_ligne_id: number;
+    numero_lot: string | null;
+    quantite: number;
+    sortie_lot_id: number | null;
+    entree_lot_id: number | null;
+  };
+
+  const { data: invoiceOrderData, error: invoiceOrderError } = await supabaseServer
+    .from("invoice_orders")
+    .select("id, transfer_order_id, statut")
+    .eq("id", ligne.invoice_order_id)
+    .maybeSingle();
+
+  if (invoiceOrderError || !invoiceOrderData) {
+    throw new Error("Transfer Invoice introuvable.");
+  }
+  const invoiceOrder = invoiceOrderData as { id: number; transfer_order_id: number; statut: string };
+  if (invoiceOrder.statut !== "valide") {
+    throw new Error("Cette action n'est disponible que pour un Transfer Invoice deja approuve.");
+  }
+
+  const { data: autresLignesData, error: autresLignesError } = await supabaseServer
+    .from("invoice_order_lignes")
+    .select("id")
+    .eq("invoice_order_id", invoiceOrder.id);
+  if (autresLignesError) {
+    throw new Error(autresLignesError.message);
+  }
+  if (((autresLignesData ?? []) as { id: number }[]).length <= 1) {
+    throw new Error(
+      "Cette ligne est la seule du Transfer Invoice - supprime le Transfer Invoice entier a la place (icone Supprimer en haut de la page)."
+    );
+  }
+
+  const { data: transferOrderData, error: transferOrderError } = await supabaseServer
+    .from("transfer_orders")
+    .select("id, depot_source_id, depot_destination_id")
+    .eq("id", invoiceOrder.transfer_order_id)
+    .maybeSingle();
+  if (transferOrderError || !transferOrderData) {
+    throw new Error("Transfer Order source introuvable.");
+  }
+  const transferOrder = transferOrderData as { id: number; depot_source_id: number; depot_destination_id: number };
+
+  const { data: ligneInfoData, error: ligneInfoError } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("id, article_type, article_id")
+    .eq("id", ligne.transfer_order_ligne_id)
+    .maybeSingle();
+  if (ligneInfoError || !ligneInfoData) {
+    throw new Error("Ligne du Transfer Order introuvable.");
+  }
+  const ligneInfo = ligneInfoData as { id: number; article_type: ArticleType; article_id: number };
+  const table = stockTableFor(ligneInfo.article_type);
+
+  const stockIntact = await verifierStockLivreEncoreIntact(
+    table,
+    ligneInfo.article_id,
+    ligne.numero_lot,
+    transferOrder.depot_destination_id,
+    ligne.quantite
+  );
+  if (!stockIntact) {
+    throw new Error(
+      `Impossible de supprimer : le stock livre par cette ligne (lot ${ligne.numero_lot ?? "-"}) a deja ete utilise. Annule d'abord ce qui l'a consomme (ex: supprime le programme concerne, le stock reviendra au depot), puis tu pourras supprimer cette ligne.`
+    );
+  }
+
+  const lotIds = [ligne.sortie_lot_id, ligne.entree_lot_id].filter((id): id is number => id !== null);
+  if (lotIds.length > 0) {
+    const { error } = await supabaseServer.from(table).delete().in("id", lotIds);
+    if (error) throw new Error(error.message);
+  }
+
+  let existingQuery = supabaseServer
+    .from("transfer_order_ligne_lots")
+    .select("id, quantite")
+    .eq("transfer_order_ligne_id", ligne.transfer_order_ligne_id);
+  existingQuery =
+    ligne.numero_lot === null ? existingQuery.is("numero_lot", null) : existingQuery.eq("numero_lot", ligne.numero_lot);
+  const { data: existingLigneLot, error: existingLigneLotError } = await existingQuery.maybeSingle();
+  if (existingLigneLotError) {
+    throw new Error(existingLigneLotError.message);
+  }
+
+  if (existingLigneLot) {
+    const row = existingLigneLot as { id: number; quantite: number };
+    const { error } = await supabaseServer
+      .from("transfer_order_ligne_lots")
+      .update({ quantite: row.quantite + ligne.quantite })
+      .eq("id", row.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabaseServer.from("transfer_order_ligne_lots").insert({
+      transfer_order_ligne_id: ligne.transfer_order_ligne_id,
+      numero_lot: ligne.numero_lot,
+      quantite: ligne.quantite,
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  const { error: deleteLigneError } = await supabaseServer
+    .from("invoice_order_lignes")
+    .delete()
+    .eq("id", ligne.id);
+  if (deleteLigneError) {
+    throw new Error(deleteLigneError.message);
+  }
+
+  // Cette ligne redevient disponible sur le Transfer Order - jamais
+  // "termine" tant que ce reste n'est pas re-invoice (meme convention que
+  // validateInvoiceOrder quand il reste du stock a livrer).
+  const { error: statutError } = await supabaseServer
+    .from("transfer_orders")
+    .update({ statut: "partiellement_fini" })
+    .eq("id", transferOrder.id);
+  if (statutError) {
+    throw new Error(statutError.message);
+  }
+
+  const label = await fetchInvoiceOrderLabel(invoiceOrder.id);
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "InvoiceOrder",
+    action: "modification",
+    cible: label,
+    resume: `Transfer Invoice ${label} (approuve) : 1 ligne supprimee apres coup - stock livre annule et restitue au Transfer Order`,
+  });
+
+  return { invoiceOrderId: invoiceOrder.id, transferOrderId: transferOrder.id };
+}
+
+// Wrapper action (icone Supprimer par ligne, TI deja approuve) - meme regle
+// que deleteInvoiceOrderAction : un throw direct depuis une Server Action
+// liee a un <form> natif voit son message efface en production, capture ici
+// et redirige avec le vrai message en avertissement.
+export async function deleteInvoiceOrderLigneApprouveeAction(formData: FormData) {
+  if (!(await canDeletePageUser(await getCurrentStockUser(), "depots"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer une ligne d'un Transfer Invoice approuve.");
+  }
+
+  const invoiceOrderLigneId = Number(formData.get("delete_invoice_order_ligne_id") || "0");
+  if (!invoiceOrderLigneId) {
+    throw new Error("Ligne invalide.");
+  }
+
+  const { data: ligneLookup } = await supabaseServer
+    .from("invoice_order_lignes")
+    .select("invoice_order_id")
+    .eq("id", invoiceOrderLigneId)
+    .maybeSingle();
+  const invoiceOrderIdForRedirect = (ligneLookup as { invoice_order_id: number } | null)?.invoice_order_id ?? null;
+
+  try {
+    const { invoiceOrderId, transferOrderId } = await deleteInvoiceOrderLigneApprouvee(invoiceOrderLigneId);
+    revalidatePath(`/depots/invoice-order/${invoiceOrderId}`);
+    revalidatePath(`/depots/transfer-order/${transferOrderId}`);
+    revalidatePath("/depots");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur pendant la suppression.";
+    if (invoiceOrderIdForRedirect) {
+      redirect(`/depots/invoice-order/${invoiceOrderIdForRedirect}?avertissement=${encodeURIComponent(message)}`);
+    }
+    throw error;
+  }
+}
+
+// Le stock livre par CE Transfer Invoice (article/lot, depot destination)
 // est-il encore intact, ou une partie a-t-elle deja ete consommee ailleurs
 // (production, vente...) depuis ? Compare le solde REEL actuel du (article,
 // numero_lot) dans le depot destination a la quantite que cette ligne a
