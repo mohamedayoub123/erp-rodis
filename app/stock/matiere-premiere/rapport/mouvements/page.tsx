@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
+import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -56,12 +57,6 @@ export default async function RapportMouvementsMpPage({
   const from = (currentPage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const { data: articleSuggestionsData } = await supabaseServer
-    .from("articles_matiere_premiere")
-    .select("id, nom_article")
-    .order("nom_article", { ascending: true })
-    .limit(5000);
-
   const matchingArticleIds = articleQ
     ? (
         (
@@ -75,15 +70,14 @@ export default async function RapportMouvementsMpPage({
     : [];
 
   // PostgREST plafonne chaque requete a son max-rows interne (~1000) peu
-  // importe le .range() demande - il faut paginer en boucle, sinon la
-  // plupart des sorties sont silencieusement absentes des statistiques.
-  const rows: SortieRow[] = [];
-  let fetchError: { message: string } | null = null;
-  let sortiesFrom = 0;
-  const sortiesPageSize = 1000;
-
-  while (true) {
-    let sortiesQuery = supabaseServer
+  // importe le .range() demande - il faut paginer, sinon la plupart des
+  // sorties sont silencieusement absentes des statistiques. Sans filtre
+  // article, cette table a 40 000+ lignes de sortie (~41 pages) : une
+  // pagination SEQUENTIELLE (une page apres l'autre) prenait a elle seule
+  // 50 sec+ - toutes les pages partent maintenant en parallele (compte exact
+  // d'abord, puis chaque .range() lance d'un coup) via fetchAllRowsParallel.
+  function buildSortiesQuery(from: number, to: number) {
+    let query = supabaseServer
       .from("lots_stock_matiere_premiere")
       .select(
         "id, article_id, date_jour, qte_sortie, articles_matiere_premiere!inner(nom_article, categorie, gamme)"
@@ -91,35 +85,63 @@ export default async function RapportMouvementsMpPage({
       .gt("qte_sortie", 0)
       .order("date_jour", { ascending: false })
       .order("id", { ascending: false })
-      .range(sortiesFrom, sortiesFrom + sortiesPageSize - 1);
+      .range(from, to);
 
     if (articleQ) {
-      if (matchingArticleIds.length === 0) {
-        sortiesQuery = sortiesQuery.eq("article_id", -1);
-      } else {
-        sortiesQuery = sortiesQuery.in("article_id", matchingArticleIds);
-      }
+      query = matchingArticleIds.length === 0 ? query.eq("article_id", -1) : query.in("article_id", matchingArticleIds);
     }
 
-    const { data, error } = await sortiesQuery;
-
-    if (error) {
-      fetchError = error;
-      break;
-    }
-
-    const chunk = (data as unknown as SortieRow[] | null) ?? [];
-    rows.push(...chunk);
-
-    if (chunk.length < sortiesPageSize) break;
-    sortiesFrom += sortiesPageSize;
+    return query;
   }
 
-  const error = fetchError;
-  const articleSuggestions =
-    ((articleSuggestionsData as { id: number; nom_article: string }[] | null) ?? []).map(
-      (article) => article.nom_article
-    );
+  function buildSortiesCountQuery() {
+    let query = supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .select("id", { count: "exact", head: true })
+      .gt("qte_sortie", 0);
+
+    if (articleQ) {
+      query = matchingArticleIds.length === 0 ? query.eq("article_id", -1) : query.in("article_id", matchingArticleIds);
+    }
+
+    return query;
+  }
+
+  // articleSuggestionsData et sortiesResult sont totalement independants
+  // (l'un ne depend jamais du resultat de l'autre) - partis en parallele
+  // plutot qu'en cascade.
+  const [articleSuggestionsData, sortiesResult] = await Promise.all([
+    // .limit(5000) ne suffisait pas a lui seul : PostgREST plafonne chaque
+    // requete a son max-rows interne (~1000) peu importe le .limit() demande
+    // - les 2/3 des articles (2704 au total) restaient silencieusement
+    // absents des suggestions au-dela des 1000 premiers par ordre
+    // alphabetique.
+    fetchAllRowsParallel<{ id: number; nom_article: string }>(
+      () => supabaseServer.from("articles_matiere_premiere").select("id", { count: "exact", head: true }),
+      (from, to) =>
+        supabaseServer
+          .from("articles_matiere_premiere")
+          .select("id, nom_article")
+          .order("nom_article", { ascending: true })
+          .range(from, to)
+    ),
+    (async (): Promise<{ rows: SortieRow[]; fetchError: { message: string } | null }> => {
+      try {
+        const rows = await fetchAllRowsParallel<SortieRow>(buildSortiesCountQuery, (from, to) =>
+          buildSortiesQuery(from, to).then(
+            (res) => res as unknown as { data: SortieRow[] | null; error: { message: string } | null }
+          )
+        );
+        return { rows, fetchError: null };
+      } catch (e) {
+        return { rows: [], fetchError: { message: e instanceof Error ? e.message : "Erreur inconnue." } };
+      }
+    })(),
+  ]);
+
+  const rows = sortiesResult.rows;
+  const error = sortiesResult.fetchError;
+  const articleSuggestions = articleSuggestionsData.map((article) => article.nom_article);
 
   const statsMap = new Map<string, ArticleStatsRow>();
   const monthSet = new Set<string>();
@@ -169,26 +191,21 @@ export default async function RapportMouvementsMpPage({
       .filter((id): id is number => id !== null);
 
     if (chartArticleIds.length > 0) {
-      const movementRows: { article_id: number | null; date_jour: string | null; qte_entree: number; qte_sortie: number }[] = [];
-      let movementFrom = 0;
-      const movementPageSize = 1000;
-
-      while (true) {
-        const { data, error: movementError } = await supabaseServer
-          .from("lots_stock_matiere_premiere")
-          .select("article_id, date_jour, qte_entree, qte_sortie")
-          .in("article_id", chartArticleIds)
-          .order("id", { ascending: true })
-          .range(movementFrom, movementFrom + movementPageSize - 1);
-
-        if (movementError) break;
-
-        const chunk = (data ?? []) as typeof movementRows;
-        movementRows.push(...chunk);
-
-        if (chunk.length < movementPageSize) break;
-        movementFrom += movementPageSize;
-      }
+      type MovementRow = { article_id: number | null; date_jour: string | null; qte_entree: number; qte_sortie: number };
+      const movementRows = await fetchAllRowsParallel<MovementRow>(
+        () =>
+          supabaseServer
+            .from("lots_stock_matiere_premiere")
+            .select("id", { count: "exact", head: true })
+            .in("article_id", chartArticleIds),
+        (from, to) =>
+          supabaseServer
+            .from("lots_stock_matiere_premiere")
+            .select("article_id, date_jour, qte_entree, qte_sortie")
+            .in("article_id", chartArticleIds)
+            .order("id", { ascending: true })
+            .range(from, to)
+      );
 
       const byArticleYearMonth = new Map<number, Map<string, { entree: number; sortie: number }>>();
       for (const row of movementRows) {
