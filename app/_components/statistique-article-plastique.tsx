@@ -60,7 +60,9 @@ function displayCategorie(categorie: string | null): string {
 
 // Ordre d'affichage demande explicitement : Flacon, Pot, Capsule, Flacon
 // PET - tout le reste (Topette...) vient apres, triees entre elles par nom.
-const CATEGORIE_SORT_ORDER = ["FLACON", "POTS", "CAPSULE", "FLACONS PET"];
+// POTS PET place juste apres FLACONS PET (meme logique : variante PET
+// distincte de sa famille de base, voir displayCategorie).
+const CATEGORIE_SORT_ORDER = ["FLACON", "POTS", "CAPSULE", "FLACONS PET", "POTS PET"];
 function categorieSortIndex(categorie: string | null): number {
   const index = CATEGORIE_SORT_ORDER.indexOf(displayCategorie(categorie));
   return index === -1 ? CATEGORIE_SORT_ORDER.length : index;

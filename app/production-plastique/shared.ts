@@ -15,14 +15,17 @@ export const CATEGORIES_PLASTIQUE = [
   "CAPSULES",
   "CAPSULES-IMP",
   "POTS",
+  "POTS PET",
   "TOPETTE",
 ] as const;
 
-// Etiquette d'affichage regroupee - les variantes CAPSULES/CAPSULES-IMP et
-// FLACONS PET s'affichent sous le meme nom que leur famille principale.
+// Etiquette d'affichage regroupee - les variantes CAPSULES/CAPSULES-IMP,
+// FLACONS PET et POTS PET s'affichent sous le meme nom que leur famille
+// principale.
 export function normalizeCategoriePlastique(categorie: string | null): string {
   if (categorie === "CAPSULES" || categorie === "CAPSULES-IMP") return "CAPSULE";
   if (categorie === "FLACONS PET") return "FLACON";
+  if (categorie === "POTS PET") return "POTS";
   return categorie || "-";
 }
 
