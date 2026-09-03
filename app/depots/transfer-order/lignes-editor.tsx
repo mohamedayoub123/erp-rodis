@@ -170,6 +170,24 @@ export function TransferOrderLignesEditor({
                   );
                 });
               })}
+              <tr className="border-t-2 border-slate-200 bg-slate-50">
+                <td className="px-6 py-4 font-bold text-slate-900">Total</td>
+                <td className="px-6 py-4 font-bold text-slate-900">
+                  {lignes.reduce((sum, ligne) => sum + ligne.quantite_demandee, 0).toLocaleString("fr-FR")}
+                </td>
+                <td className="px-6 py-4"></td>
+                <td className="px-6 py-4"></td>
+                <td className="px-6 py-4 font-bold text-slate-900">
+                  {lignes
+                    .reduce(
+                      (sum, ligne) =>
+                        sum + (lotsByLigneId[ligne.id] ?? []).reduce((s, lot) => s + lot.quantite, 0),
+                      0
+                    )
+                    .toLocaleString("fr-FR")}
+                </td>
+                {canEditLignes ? <td className="px-6 py-4"></td> : null}
+              </tr>
             </tbody>
           </table>
         </div>

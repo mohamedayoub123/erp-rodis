@@ -69,6 +69,7 @@ function computeTiCodesByTransferOrderId(rows: InvoiceOrderRow[]): Map<number, s
 const STATUT_LABELS: Record<string, string> = {
   en_attente: "En attente",
   approuve: "Approuve",
+  partiellement_fini: "Partiellement fini",
   poste: "Poste",
 };
 

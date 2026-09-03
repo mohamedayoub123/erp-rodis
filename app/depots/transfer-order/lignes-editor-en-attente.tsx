@@ -73,6 +73,8 @@ export function TransferOrderLignesEditorEnAttente({
     setNewRowKeys([]);
   }
 
+  const totalQuantite = lignes.reduce((sum, ligne) => sum + ligne.quantite_demandee, 0);
+
   if (!isEditing) {
     return (
       <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -108,6 +110,11 @@ export function TransferOrderLignesEditorEnAttente({
                   <td className="px-6 py-4 text-slate-600">{ligne.disponible.toLocaleString("fr-FR")}</td>
                 </tr>
               ))}
+              <tr className="border-t-2 border-slate-200 bg-slate-50">
+                <td className="px-6 py-4 font-bold text-slate-900">Total</td>
+                <td className="px-6 py-4 font-bold text-slate-900">{totalQuantite.toLocaleString("fr-FR")}</td>
+                <td className="px-6 py-4"></td>
+              </tr>
             </tbody>
           </table>
         </div>
