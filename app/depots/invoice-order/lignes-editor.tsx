@@ -70,6 +70,7 @@ export function InvoiceOrderLignesEditor({
 }) {
   const [isDirty, setIsDirty] = useState(false);
   const canDeleteAnyLigne = canEditLignes || canDeleteLigneApprouvee;
+  const totalQuantite = lignes.reduce((sum, ligne) => sum + ligne.quantite, 0);
 
   return (
     <>
@@ -196,6 +197,16 @@ export function InvoiceOrderLignesEditor({
                     </tr>
                   ))
                 )}
+                {lignes.length > 0 ? (
+                  <tr className="border-t-2 border-slate-200 bg-slate-50">
+                    <td className="px-6 py-4 font-bold text-slate-900">Total</td>
+                    <td className="px-6 py-4"></td>
+                    <td className="px-6 py-4"></td>
+                    <td className="px-6 py-4"></td>
+                    <td className="px-6 py-4 font-bold text-slate-900">{totalQuantite.toLocaleString("fr-FR")}</td>
+                    {canDeleteAnyLigne ? <td className="px-6 py-4"></td> : null}
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
