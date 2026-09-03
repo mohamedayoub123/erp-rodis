@@ -16,7 +16,6 @@ type MonthStat = {
   monthKey: string;
   cree: number;
   livree: number;
-  livreeRapide: number;
   livreeMoisPrecedent: number;
 };
 
@@ -39,12 +38,6 @@ function formatMonthLabel(monthKey: string) {
 
   const date = new Date(Number(year), Number(month) - 1, 1);
   return new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(date);
-}
-
-function daysBetween(fromValue: string, toValue: string) {
-  const fromDate = new Date(fromValue);
-  const toDate = new Date(toValue);
-  return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);
 }
 
 async function fetchAllCommandesForStatistiqueLivraison() {
@@ -86,7 +79,6 @@ export default async function StatistiqueLivraisonPage() {
       monthKey,
       cree: 0,
       livree: 0,
-      livreeRapide: 0,
       livreeMoisPrecedent: 0,
     };
     statsByMonth.set(monthKey, current);
@@ -112,19 +104,6 @@ export default async function StatistiqueLivraisonPage() {
     if (createdMonth && createdMonth !== livreeMonth) {
       monthStat.livreeMoisPrecedent += 1;
     }
-
-    // Le delai "rapide" ne compte pas le temps passe en stand : on mesure
-    // de la sortie du stand (arret stand) jusqu'au BL transforme, pas
-    // jusqu'a la livraison.
-    const standDate = extractTransitionDate(commande.commentaire, "STAND_ENCOURS");
-    const blDate = extractTransitionDate(commande.commentaire, "ENCOURS_BLTRANSFORME");
-
-    if (standDate && blDate) {
-      const jours = daysBetween(standDate, blDate);
-      if (jours >= 0 && jours < 10) {
-        monthStat.livreeRapide += 1;
-      }
-    }
   }
 
   const months = [...statsByMonth.values()].sort((a, b) => b.monthKey.localeCompare(a.monthKey));
@@ -141,10 +120,6 @@ export default async function StatistiqueLivraisonPage() {
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
                 Statistique livraison
               </h1>
-              <p className="mt-2 text-sm text-slate-600">
-                Le delai rapide compte de la sortie du stand jusqu&apos;au BL transforme (le temps en
-                stand ne compte pas).
-              </p>
             </div>
 
             <div className="flex items-center gap-3">
@@ -171,7 +146,6 @@ export default async function StatistiqueLivraisonPage() {
                     <th className="px-4 py-3 font-semibold">Mois</th>
                     <th className="px-4 py-3 font-semibold">Commandes ecrites</th>
                     <th className="px-4 py-3 font-semibold">Commandes livrees</th>
-                    <th className="px-4 py-3 font-semibold">Livrees en moins de 10j (hors stand)</th>
                     <th className="px-4 py-3 font-semibold">Livrees / ecrites</th>
                     <th className="px-4 py-3 font-semibold">Dont commandes d&apos;un mois precedent</th>
                   </tr>
@@ -188,7 +162,6 @@ export default async function StatistiqueLivraisonPage() {
                         </td>
                         <td className="px-4 py-3 text-slate-900">{month.cree}</td>
                         <td className="px-4 py-3 font-semibold text-emerald-700">{month.livree}</td>
-                        <td className="px-4 py-3 text-slate-900">{month.livreeRapide}</td>
                         <td className="px-4 py-3 text-slate-600">
                           {ratio === null ? "-" : `${ratio}%`}
                         </td>
