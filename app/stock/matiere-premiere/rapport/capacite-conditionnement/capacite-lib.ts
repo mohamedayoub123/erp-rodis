@@ -26,21 +26,76 @@ export type LigneCapacite = {
   cartonsPossibles: number | null;
 };
 
-export async function fetchStockActuelMp(): Promise<StockActuelMpRow[]> {
-  const rows: StockActuelMpRow[] = [];
+type ArticleMpInfoRow = { id: number; nom_article: string; categorie: string | null; unite: string | null };
+type StockByDepotRow = { article_id: number; depot_id: number; stock: number };
+
+async function fetchAllArticlesMpInfo(): Promise<ArticleMpInfoRow[]> {
+  const rows: ArticleMpInfoRow[] = [];
   let from = 0;
   const pageSize = 1000;
 
   while (true) {
-    const { data, error } = await supabaseServer.rpc("stock_actuel_mp_rows").range(from, from + pageSize - 1);
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("id, nom_article, categorie, unite")
+      .range(from, from + pageSize - 1);
     if (error) return rows;
-    const chunk = (data ?? []) as StockActuelMpRow[];
+    const chunk = (data ?? []) as ArticleMpInfoRow[];
     rows.push(...chunk);
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
 
   return rows;
+}
+
+async function fetchAllStockByArticleDepot(): Promise<StockByDepotRow[]> {
+  const rows: StockByDepotRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer.rpc("stock_by_article_depot_mp").range(from, from + pageSize - 1);
+    if (error) return rows;
+    const chunk = (data ?? []) as StockByDepotRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+// La production Conditionnement ne peut utiliser que ce qui est
+// physiquement au Depot E : les articles plastique/conditionnement sont
+// fabriques au Depot F puis transferes au Depot E, qui est le seul depot
+// "disponible" pour la production reelle - le stock Depot F (ou un autre
+// depot) ne compte pas comme utilisable ici, meme si le total global est
+// plus grand.
+export async function fetchStockActuelMpDepotE(): Promise<StockActuelMpRow[]> {
+  const { data: depotE, error: depotError } = await supabaseServer
+    .from("depots")
+    .select("id")
+    .eq("nom", "Depot E")
+    .maybeSingle();
+
+  if (depotError || !depotE) return [];
+
+  const depotEId = (depotE as { id: number }).id;
+
+  const [articlesInfo, stockByDepot] = await Promise.all([fetchAllArticlesMpInfo(), fetchAllStockByArticleDepot()]);
+
+  const stockDepotEByArticleId = new Map(
+    stockByDepot.filter((row) => row.depot_id === depotEId).map((row) => [row.article_id, row.stock])
+  );
+
+  return articlesInfo.map((article) => ({
+    article_id: article.id,
+    nom_article: article.nom_article,
+    categorie: article.categorie,
+    unite: article.unite,
+    stock_actuel: stockDepotEByArticleId.get(article.id) ?? 0,
+  }));
 }
 
 // Pour chaque article de la recette, combien de cartons son stock actuel

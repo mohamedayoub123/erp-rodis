@@ -6,7 +6,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import {
   computeCartonsPossiblesTotal,
   computeLignesCapacite,
-  fetchStockActuelMp,
+  fetchStockActuelMpDepotE,
   findLigneLimitante,
 } from "../capacite-lib";
 
@@ -51,7 +51,7 @@ export default async function CapaciteConditionnementDetailPage({
       .select("id, article_mp_id, quantite")
       .eq("article_pf_id", articlePfId)
       .order("id", { ascending: true }),
-    fetchStockActuelMp(),
+    fetchStockActuelMpDepotE(),
   ]);
 
   const lignes = (lignesData ?? []) as RecetteLigneRow[];
@@ -109,7 +109,7 @@ export default async function CapaciteConditionnementDetailPage({
         ) : (
           <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Avec le stock actuel, tu peux faire environ
+              Avec le stock actuel du Depot E, tu peux faire environ
             </p>
             <p className="mt-1 text-4xl font-black text-slate-900">
               {cartonsPossiblesTotal !== null ? cartonsPossiblesTotal.toLocaleString("fr-FR") : "-"}{" "}

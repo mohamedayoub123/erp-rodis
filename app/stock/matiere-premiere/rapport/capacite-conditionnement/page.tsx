@@ -8,7 +8,7 @@ import { matchesArticleSearch } from "@/lib/article-search";
 import {
   computeCartonsPossiblesTotal,
   computeLignesCapacite,
-  fetchStockActuelMp,
+  fetchStockActuelMpDepotE,
   findLigneLimitante,
   type LigneCapacite,
   type RecetteLigneRow,
@@ -133,11 +133,14 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
     countByArticle.set(ligne.article_pf_id, (countByArticle.get(ligne.article_pf_id) ?? 0) + 1);
   }
 
-  // Seuls les produits qui ont deja une recette Conditionnement peuvent
-  // avoir une capacite calculee - meme filtre que la liste des recettes
-  // elle-meme (/production/recette-conditionnement).
+  // Tous les produits finis, meme ceux sans recette Conditionnement pour le
+  // moment (ex: parfum) - "Articles dans la recette" affiche 0 pour ceux-la,
+  // et la comparaison/le detail disent deja clairement "Aucune recette
+  // Conditionnement" si on les choisit quand meme. Avant, ces produits
+  // etaient invisibles ici (meme filtre que /production/recette-conditionnement,
+  // pertinent LA-BAS car cette page cree/edite des recettes, pas ici ou le
+  // but est justement de reperer ceux qui n'en ont pas).
   const filteredArticles = articles
-    .filter((article) => (countByArticle.get(article.id) ?? 0) > 0)
     .filter((article) => !qLower || matchesArticleSearch(article.nom_article, qLower))
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
@@ -168,7 +171,7 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
   if (comparaisonIds.length > 0) {
     const [{ rows: lignesRecette, error: lignesRecetteError }, stockActuelRows] = await Promise.all([
       fetchRecetteLignesPour(comparaisonIds),
-      fetchStockActuelMp(),
+      fetchStockActuelMpDepotE(),
     ]);
 
     comparaisonError = lignesRecetteError;
@@ -237,9 +240,9 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
                 Capacite Conditionnement
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Choisis un ou plusieurs produits finis : combien de cartons le stock actuel des
-                articles de leur recette Conditionnement (flacon, capsule, etiquette...) permet de
-                fabriquer.
+                Choisis un ou plusieurs produits finis : combien de cartons le stock actuel (Depot E
+                uniquement) des articles de leur recette Conditionnement (flacon, capsule,
+                etiquette...) permet de fabriquer.
               </p>
             </div>
 
@@ -437,9 +440,7 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
               </div>
             ) : filteredArticles.length === 0 ? (
               <div className="px-6 py-8 text-sm text-slate-500">
-                {q
-                  ? "Aucun resultat pour ce filtre."
-                  : "Aucun produit fini avec une recette Conditionnement pour le moment."}
+                {q ? "Aucun resultat pour ce filtre." : "Aucun produit fini pour le moment."}
               </div>
             ) : (
               <>
