@@ -47,6 +47,13 @@ const TILES = [
     description: "Entree et sortie par mois et par annee, par article - graphique et tableau croise.",
   },
   {
+    label: "Capacite Conditionnement",
+    href: "/stock/matiere-premiere/rapport/capacite-conditionnement",
+    pageKey: "stockCapaciteConditionnementMp",
+    icon: "\u{1F3ED}",
+    description: "Choisis un produit fini : combien de cartons le stock actuel des articles de sa recette Conditionnement permet de fabriquer.",
+  },
+  {
     label: "Stock Min Propose",
     href: "/stock/matiere-premiere/rapport/stock-min",
     pageKey: "stockMinProposeMp",

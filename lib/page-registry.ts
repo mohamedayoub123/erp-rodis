@@ -176,6 +176,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "stockCapaciteConditionnementMp",
+    module: "Stock",
+    label: "Capacite Conditionnement MP",
+    pathPrefixes: ["/stock/matiere-premiere/rapport/capacite-conditionnement"],
+    hasWrite: false,
+  },
+  {
     key: "stockBesoinCommandeMp",
     module: "Stock",
     label: "Besoin Commande MP",
@@ -925,6 +932,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockRotationMp",
   "stockMinProposeMp",
   "stockMouvementsMp",
+  "stockCapaciteConditionnementMp",
   "stockBesoinCommandeMp",
   "stockPropositionCommandeMp",
   "stockSurstockMp",
