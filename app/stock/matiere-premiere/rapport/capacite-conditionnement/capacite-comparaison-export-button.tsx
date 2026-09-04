@@ -1,6 +1,7 @@
 "use client";
 
 import ExcelJS from "exceljs";
+import { formatDate } from "@/lib/format-date";
 
 // Meme approche que statistique-export-button.tsx (Statistique MP) :
 // exceljs (pas xlsx, dont l'edition gratuite n'ecrit aucun style/couleur),
@@ -8,12 +9,18 @@ import ExcelJS from "exceljs";
 // serveur et passees en props (deja de simples objets/tableaux, rien a
 // resoudre en plus ici).
 
+export type ExportImportEnCours = {
+  statut: string;
+  datePrevueReception: string | null;
+};
+
 export type ExportCellule = {
   nomArticle: string;
   quantiteParCarton: number | null;
   unite: string | null;
   stockActuel: number;
   cartonsPossibles: number | null;
+  importEnCours: ExportImportEnCours | null;
 };
 
 export type ExportRow = {
@@ -30,7 +37,12 @@ function formatCellule(cellule: ExportCellule): string {
   const qte = `${cellule.quantiteParCarton.toLocaleString("fr-FR", { maximumFractionDigits: 3 })} ${cellule.unite || ""}`.trim();
   const cartons =
     cellule.cartonsPossibles !== null ? `${cellule.cartonsPossibles.toLocaleString("fr-FR")} cartons possibles` : "-";
-  return `${qte} (stock ${cellule.stockActuel.toLocaleString("fr-FR")}) -> ${cartons}`;
+  const base = `${qte} (stock ${cellule.stockActuel.toLocaleString("fr-FR")}) -> ${cartons}`;
+  if (!cellule.importEnCours) return base;
+  const dateImport = cellule.importEnCours.datePrevueReception
+    ? formatDate(cellule.importEnCours.datePrevueReception)
+    : "date non precisee";
+  return `${base} | Import prevu ${dateImport} (${cellule.importEnCours.statut})`;
 }
 
 function formatCase(categorie: string, cellules: ExportCellule[]): string {

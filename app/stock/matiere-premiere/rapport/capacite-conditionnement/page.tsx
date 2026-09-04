@@ -5,9 +5,11 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { formatDate } from "@/lib/format-date";
 import {
   computeCartonsPossiblesTotal,
   computeLignesCapacite,
+  fetchImportsEnCoursMp,
   fetchStockActuelMpDepotE,
   findLigneLimitante,
   type LigneCapacite,
@@ -169,9 +171,10 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
   let categorieColumns: string[] = [];
 
   if (comparaisonIds.length > 0) {
-    const [{ rows: lignesRecette, error: lignesRecetteError }, stockActuelRows] = await Promise.all([
-      fetchRecetteLignesPour(comparaisonIds),
+    const { rows: lignesRecette, error: lignesRecetteError } = await fetchRecetteLignesPour(comparaisonIds);
+    const [stockActuelRows, importsByArticleMpId] = await Promise.all([
       fetchStockActuelMpDepotE(),
+      fetchImportsEnCoursMp([...new Set(lignesRecette.map((ligne) => ligne.article_mp_id))]),
     ]);
 
     comparaisonError = lignesRecetteError;
@@ -186,7 +189,12 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
     comparaisonRows = comparaisonIds.map((id) => {
       const article = articleById.get(id)!;
       const lignesArticle = lignesParArticle.get(id) ?? [];
-      const lignesCapacite = computeLignesCapacite(lignesArticle, article.quantite_recette_base, stockById);
+      const lignesCapacite = computeLignesCapacite(
+        lignesArticle,
+        article.quantite_recette_base,
+        stockById,
+        importsByArticleMpId
+      );
       const cartonsPossiblesTotal = computeCartonsPossiblesTotal(lignesCapacite);
       const ligneLimitante = findLigneLimitante(lignesCapacite, cartonsPossiblesTotal);
 
@@ -359,6 +367,14 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
                                             ? `${ligne.cartonsPossibles.toLocaleString("fr-FR")} cartons possibles`
                                             : "-"}
                                         </div>
+                                        {ligne.importEnCours ? (
+                                          <div className="text-xs font-medium text-sky-700">
+                                            Import{" "}
+                                            {ligne.importEnCours.datePrevueReception
+                                              ? formatDate(ligne.importEnCours.datePrevueReception)
+                                              : "(date non precisee)"}
+                                          </div>
+                                        ) : null}
                                       </>
                                     ) : (
                                       <span className="text-slate-300">-</span>

@@ -3,9 +3,11 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { formatDate } from "@/lib/format-date";
 import {
   computeCartonsPossiblesTotal,
   computeLignesCapacite,
+  fetchImportsEnCoursMp,
   fetchStockActuelMpDepotE,
   findLigneLimitante,
 } from "../capacite-lib";
@@ -57,8 +59,9 @@ export default async function CapaciteConditionnementDetailPage({
   const lignes = (lignesData ?? []) as RecetteLigneRow[];
   const stockById = new Map(stockActuelRows.map((row) => [row.article_id, row]));
   const quantiteRecetteBase = pf.quantite_recette_base;
+  const importsByArticleMpId = await fetchImportsEnCoursMp(lignes.map((ligne) => ligne.article_mp_id));
 
-  const lignesCapacite = computeLignesCapacite(lignes, quantiteRecetteBase, stockById);
+  const lignesCapacite = computeLignesCapacite(lignes, quantiteRecetteBase, stockById, importsByArticleMpId);
   const cartonsPossiblesTotal = computeCartonsPossiblesTotal(lignesCapacite);
   const ligneLimitante = findLigneLimitante(lignesCapacite, cartonsPossiblesTotal);
 
@@ -135,6 +138,7 @@ export default async function CapaciteConditionnementDetailPage({
                     <th className="px-6 py-4 font-semibold">Qte necessaire / carton</th>
                     <th className="px-6 py-4 font-semibold">Stock actuel</th>
                     <th className="px-6 py-4 font-semibold">Cartons possibles</th>
+                    <th className="px-6 py-4 font-semibold">Import prevu</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -157,6 +161,23 @@ export default async function CapaciteConditionnementDetailPage({
                         </td>
                         <td className={`px-6 py-4 font-semibold ${estLimitante ? "text-amber-700" : "text-slate-900"}`}>
                           {ligne.cartonsPossibles !== null ? ligne.cartonsPossibles.toLocaleString("fr-FR") : "-"}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {ligne.importEnCours ? (
+                            <>
+                              <div className="font-medium text-sky-700">
+                                {ligne.importEnCours.datePrevueReception
+                                  ? formatDate(ligne.importEnCours.datePrevueReception)
+                                  : "Date non precisee"}
+                              </div>
+                              <div className="text-xs text-slate-400">
+                                {ligne.importEnCours.statut}
+                                {ligne.importEnCours.nDoss4d ? ` - ${ligne.importEnCours.nDoss4d}` : ""}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-slate-300">Aucun import en cours</span>
+                          )}
                         </td>
                       </tr>
                     );
