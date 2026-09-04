@@ -13,6 +13,7 @@ import {
   type LigneCapacite,
   type RecetteLigneRow,
 } from "./capacite-lib";
+import { CapaciteComparaisonExportButton } from "./capacite-comparaison-export-button";
 
 type ArticlePfRow = {
   id: number;
@@ -213,6 +214,16 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
     categorieColumns = [...categoriesVues].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
   }
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const exportRows = comparaisonRows.map((row) => ({
+    nomArticle: row.article.nom_article,
+    gamme: row.article.gamme,
+    cartonsPossibles: row.cartonsPossibles,
+    aucuneRecette: row.aucuneRecette,
+    manqueLot: row.manqueLot,
+    celluleParCategorie: Object.fromEntries(row.lignesParCategorie),
+  }));
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#fffaf3_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -245,12 +256,21 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
               <h2 className="text-lg font-bold text-slate-900">
                 Comparaison ({comparaisonIds.length} produit{comparaisonIds.length > 1 ? "s" : ""})
               </h2>
-              <Link
-                href="/stock/matiere-premiere/rapport/capacite-conditionnement"
-                className="text-xs font-semibold text-slate-500 underline"
-              >
-                Effacer la selection
-              </Link>
+              <div className="flex items-center gap-4">
+                {!comparaisonError ? (
+                  <CapaciteComparaisonExportButton
+                    rows={exportRows}
+                    categorieColumns={categorieColumns}
+                    todayIso={todayIso}
+                  />
+                ) : null}
+                <Link
+                  href="/stock/matiere-premiere/rapport/capacite-conditionnement"
+                  className="text-xs font-semibold text-slate-500 underline"
+                >
+                  Effacer la selection
+                </Link>
+              </div>
             </div>
             {comparaisonError ? (
               <div className="px-6 py-8">
