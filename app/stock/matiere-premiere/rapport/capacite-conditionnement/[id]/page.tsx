@@ -3,6 +3,12 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import {
+  computeCartonsPossiblesTotal,
+  computeLignesCapacite,
+  fetchStockActuelMp,
+  findLigneLimitante,
+} from "../capacite-lib";
 
 type ArticlePfRow = {
   id: number;
@@ -16,39 +22,6 @@ type RecetteLigneRow = {
   id: number;
   article_mp_id: number;
   quantite: number;
-};
-
-type StockActuelMpRow = {
-  article_id: number;
-  nom_article: string;
-  unite: string | null;
-  stock_actuel: number;
-};
-
-async function fetchStockActuelMp(): Promise<StockActuelMpRow[]> {
-  const rows: StockActuelMpRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer.rpc("stock_actuel_mp_rows").range(from, from + pageSize - 1);
-    if (error) return rows;
-    const chunk = (data ?? []) as StockActuelMpRow[];
-    rows.push(...chunk);
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
-}
-
-type LigneCapacite = {
-  ligneId: number;
-  nomArticle: string;
-  unite: string | null;
-  quantiteParCarton: number | null;
-  stockActuel: number;
-  cartonsPossibles: number | null;
 };
 
 export default async function CapaciteConditionnementDetailPage({
@@ -85,32 +58,9 @@ export default async function CapaciteConditionnementDetailPage({
   const stockById = new Map(stockActuelRows.map((row) => [row.article_id, row]));
   const quantiteRecetteBase = pf.quantite_recette_base;
 
-  const lignesCapacite: LigneCapacite[] = lignes.map((ligne) => {
-    const stockInfo = stockById.get(ligne.article_mp_id);
-    const quantiteParCarton =
-      quantiteRecetteBase && quantiteRecetteBase > 0 ? ligne.quantite / quantiteRecetteBase : null;
-    const stockActuel = stockInfo?.stock_actuel ?? 0;
-    const cartonsPossibles =
-      quantiteParCarton !== null && quantiteParCarton > 0 ? Math.floor(stockActuel / quantiteParCarton) : null;
-
-    return {
-      ligneId: ligne.id,
-      nomArticle: stockInfo?.nom_article || `Article #${ligne.article_mp_id}`,
-      unite: stockInfo?.unite ?? null,
-      quantiteParCarton,
-      stockActuel,
-      cartonsPossibles,
-    };
-  });
-
-  const cartonsPossiblesValides = lignesCapacite
-    .map((ligne) => ligne.cartonsPossibles)
-    .filter((value): value is number => value !== null);
-  const cartonsPossiblesTotal = cartonsPossiblesValides.length > 0 ? Math.min(...cartonsPossiblesValides) : null;
-  const ligneLimitante =
-    cartonsPossiblesTotal !== null
-      ? lignesCapacite.find((ligne) => ligne.cartonsPossibles === cartonsPossiblesTotal) ?? null
-      : null;
+  const lignesCapacite = computeLignesCapacite(lignes, quantiteRecetteBase, stockById);
+  const cartonsPossiblesTotal = computeCartonsPossiblesTotal(lignesCapacite);
+  const ligneLimitante = findLigneLimitante(lignesCapacite, cartonsPossiblesTotal);
 
   const lignesTriees = [...lignesCapacite].sort((a, b) => {
     if (a.cartonsPossibles === null) return 1;
