@@ -150,18 +150,19 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
   let comparaisonRows: {
     article: ArticlePfRow;
     lignesCapacite: LigneCapacite[];
-    lignesParArticleMpId: Map<number, LigneCapacite>;
+    lignesParCategorie: Map<string, LigneCapacite[]>;
     cartonsPossibles: number | null;
     ligneLimitanteId: number | null;
     manqueLot: boolean;
     aucuneRecette: boolean;
   }[] = [];
   let comparaisonError: { message: string } | null = null;
-  // Union de tous les articles de conditionnement utilises par AU MOINS UN
-  // des produits selectionnes - une colonne par article (ex: "SLEEVE"), pour
-  // comparer directement la quantite necessaire de chacun produit par
-  // produit, meme quand un article est partage par plusieurs recettes.
-  let articleColumns: { articleMpId: number; nomArticle: string; unite: string | null }[] = [];
+  // Union de toutes les CATEGORIES d'articles de conditionnement utilisees
+  // par au moins un des produits selectionnes - une colonne par categorie
+  // (ex: "POTS", "CARTON", "SLEEVE"), pas par article precis : 2 produits
+  // avec chacun leur propre pot (tailles/couleurs differentes) partagent la
+  // meme colonne "POTS", chacun avec son propre chiffre dans sa case.
+  let categorieColumns: string[] = [];
 
   if (comparaisonIds.length > 0) {
     const [{ rows: lignesRecette, error: lignesRecetteError }, stockActuelRows] = await Promise.all([
@@ -185,10 +186,17 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
       const cartonsPossiblesTotal = computeCartonsPossiblesTotal(lignesCapacite);
       const ligneLimitante = findLigneLimitante(lignesCapacite, cartonsPossiblesTotal);
 
+      const lignesParCategorie = new Map<string, LigneCapacite[]>();
+      for (const ligne of lignesCapacite) {
+        const list = lignesParCategorie.get(ligne.categorie) ?? [];
+        list.push(ligne);
+        lignesParCategorie.set(ligne.categorie, list);
+      }
+
       return {
         article,
         lignesCapacite,
-        lignesParArticleMpId: new Map(lignesCapacite.map((ligne) => [ligne.articleMpId, ligne])),
+        lignesParCategorie,
         cartonsPossibles: cartonsPossiblesTotal,
         ligneLimitanteId: ligneLimitante?.ligneId ?? null,
         manqueLot: lignesArticle.length > 0 && !article.quantite_recette_base,
@@ -196,21 +204,13 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
       };
     });
 
-    const columnsById = new Map<number, { articleMpId: number; nomArticle: string; unite: string | null }>();
+    const categoriesVues = new Set<string>();
     for (const row of comparaisonRows) {
       for (const ligne of row.lignesCapacite) {
-        if (!columnsById.has(ligne.articleMpId)) {
-          columnsById.set(ligne.articleMpId, {
-            articleMpId: ligne.articleMpId,
-            nomArticle: ligne.nomArticle,
-            unite: ligne.unite,
-          });
-        }
+        categoriesVues.add(ligne.categorie);
       }
     }
-    articleColumns = [...columnsById.values()].sort((a, b) =>
-      a.nomArticle.localeCompare(b.nomArticle, "fr", { sensitivity: "base" })
-    );
+    categorieColumns = [...categoriesVues].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
   }
 
   return (
@@ -266,9 +266,9 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
                       <th className="px-6 py-4 font-semibold">Produit fini</th>
                       <th className="px-6 py-4 font-semibold">Gamme</th>
                       <th className="px-6 py-4 font-semibold">Cartons possibles</th>
-                      {articleColumns.map((col) => (
-                        <th key={col.articleMpId} className="px-6 py-4 font-semibold">
-                          {col.nomArticle}
+                      {categorieColumns.map((categorie) => (
+                        <th key={categorie} className="px-6 py-4 font-semibold">
+                          {categorie}
                         </th>
                       ))}
                       <th className="px-6 py-4 font-semibold"></th>
@@ -299,28 +299,49 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
                                 ? row.cartonsPossibles.toLocaleString("fr-FR")
                                 : "-"}
                         </td>
-                        {articleColumns.map((col) => {
-                          const ligne = row.lignesParArticleMpId.get(col.articleMpId);
-                          const estLimitante = ligne !== undefined && ligne.ligneId === row.ligneLimitanteId;
+                        {categorieColumns.map((categorie) => {
+                          // Normalement 1 seul article de cette categorie par
+                          // recette (ex: un seul "POTS") - gere quand meme
+                          // plusieurs lignes empilees dans la meme case, au
+                          // cas ou une recette en utiliserait 2.
+                          const lignesCategorie = row.lignesParCategorie.get(categorie) ?? [];
+                          const estLimitante = lignesCategorie.some((l) => l.ligneId === row.ligneLimitanteId);
                           return (
-                            <td
-                              key={col.articleMpId}
-                              className={`px-6 py-4 ${estLimitante ? "bg-amber-50" : ""}`}
-                            >
-                              {ligne && ligne.quantiteParCarton !== null ? (
-                                <>
-                                  <div
-                                    className={`font-semibold ${estLimitante ? "text-amber-700" : "text-slate-900"}`}
-                                  >
-                                    {ligne.quantiteParCarton.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}{" "}
-                                    <span className="font-normal text-slate-400">{ligne.unite || ""}</span>
+                            <td key={categorie} className={`px-6 py-4 ${estLimitante ? "bg-amber-50" : ""}`}>
+                              {lignesCategorie.length > 0 ? (
+                                lignesCategorie.map((ligne) => (
+                                  <div key={ligne.ligneId} className="mb-2 last:mb-0">
+                                    {lignesCategorie.length > 1 ? (
+                                      <div className="text-xs font-medium text-slate-500">{ligne.nomArticle}</div>
+                                    ) : null}
+                                    {ligne.quantiteParCarton !== null ? (
+                                      <>
+                                        <div
+                                          className={`font-semibold ${
+                                            ligne.ligneId === row.ligneLimitanteId
+                                              ? "text-amber-700"
+                                              : "text-slate-900"
+                                          }`}
+                                        >
+                                          {ligne.quantiteParCarton.toLocaleString("fr-FR", {
+                                            maximumFractionDigits: 3,
+                                          })}{" "}
+                                          <span className="font-normal text-slate-400">{ligne.unite || ""}</span>
+                                        </div>
+                                        <div className="text-xs text-slate-400">
+                                          Stock : {ligne.stockActuel.toLocaleString("fr-FR")}
+                                        </div>
+                                        <div className="text-xs text-slate-400">
+                                          {ligne.cartonsPossibles !== null
+                                            ? `${ligne.cartonsPossibles.toLocaleString("fr-FR")} cartons possibles`
+                                            : "-"}
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <span className="text-slate-300">-</span>
+                                    )}
                                   </div>
-                                  <div className="text-xs text-slate-400">
-                                    {ligne.cartonsPossibles !== null
-                                      ? `${ligne.cartonsPossibles.toLocaleString("fr-FR")} cartons possibles`
-                                      : "-"}
-                                  </div>
-                                </>
+                                ))
                               ) : (
                                 <span className="text-slate-300">-</span>
                               )}
@@ -407,12 +428,26 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
                     Coche plusieurs produits puis clique &quot;Comparer&quot; pour un tableau cote a
                     cote.
                   </p>
-                  <button
-                    type="submit"
-                    className="rounded-full bg-amber-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-amber-500"
-                  >
-                    Comparer la selection
-                  </button>
+                  <div className="flex items-center gap-3">
+                    {selectedIds.length > 0 ? (
+                      <Link
+                        href={
+                          q
+                            ? `/stock/matiere-premiere/rapport/capacite-conditionnement?q=${encodeURIComponent(q)}`
+                            : "/stock/matiere-premiere/rapport/capacite-conditionnement"
+                        }
+                        className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                      >
+                        Decocher tout
+                      </Link>
+                    ) : null}
+                    <button
+                      type="submit"
+                      className="rounded-full bg-amber-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-amber-500"
+                    >
+                      Comparer la selection
+                    </button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-left text-sm">

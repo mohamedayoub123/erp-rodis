@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 export type StockActuelMpRow = {
   article_id: number;
   nom_article: string;
+  categorie: string | null;
   unite: string | null;
   stock_actuel: number;
 };
@@ -18,6 +19,7 @@ export type LigneCapacite = {
   ligneId: number;
   articleMpId: number;
   nomArticle: string;
+  categorie: string;
   unite: string | null;
   quantiteParCarton: number | null;
   stockActuel: number;
@@ -61,6 +63,7 @@ export function computeLignesCapacite(
       ligneId: ligne.id,
       articleMpId: ligne.article_mp_id,
       nomArticle: stockInfo?.nom_article || `Article #${ligne.article_mp_id}`,
+      categorie: stockInfo?.categorie || "AUTRE",
       unite: stockInfo?.unite ?? null,
       quantiteParCarton,
       stockActuel,
