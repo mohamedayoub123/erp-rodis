@@ -10,6 +10,7 @@ import {
   computeLignesCapacite,
   fetchStockActuelMp,
   findLigneLimitante,
+  type LigneCapacite,
   type RecetteLigneRow,
 } from "./capacite-lib";
 
@@ -148,12 +149,19 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
 
   let comparaisonRows: {
     article: ArticlePfRow;
+    lignesCapacite: LigneCapacite[];
+    lignesParArticleMpId: Map<number, LigneCapacite>;
     cartonsPossibles: number | null;
-    ligneLimitanteNom: string | null;
+    ligneLimitanteId: number | null;
     manqueLot: boolean;
     aucuneRecette: boolean;
   }[] = [];
   let comparaisonError: { message: string } | null = null;
+  // Union de tous les articles de conditionnement utilises par AU MOINS UN
+  // des produits selectionnes - une colonne par article (ex: "SLEEVE"), pour
+  // comparer directement la quantite necessaire de chacun produit par
+  // produit, meme quand un article est partage par plusieurs recettes.
+  let articleColumns: { articleMpId: number; nomArticle: string; unite: string | null }[] = [];
 
   if (comparaisonIds.length > 0) {
     const [{ rows: lignesRecette, error: lignesRecetteError }, stockActuelRows] = await Promise.all([
@@ -179,12 +187,30 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
 
       return {
         article,
+        lignesCapacite,
+        lignesParArticleMpId: new Map(lignesCapacite.map((ligne) => [ligne.articleMpId, ligne])),
         cartonsPossibles: cartonsPossiblesTotal,
-        ligneLimitanteNom: ligneLimitante?.nomArticle ?? null,
+        ligneLimitanteId: ligneLimitante?.ligneId ?? null,
         manqueLot: lignesArticle.length > 0 && !article.quantite_recette_base,
         aucuneRecette: lignesArticle.length === 0,
       };
     });
+
+    const columnsById = new Map<number, { articleMpId: number; nomArticle: string; unite: string | null }>();
+    for (const row of comparaisonRows) {
+      for (const ligne of row.lignesCapacite) {
+        if (!columnsById.has(ligne.articleMpId)) {
+          columnsById.set(ligne.articleMpId, {
+            articleMpId: ligne.articleMpId,
+            nomArticle: ligne.nomArticle,
+            unite: ligne.unite,
+          });
+        }
+      }
+    }
+    articleColumns = [...columnsById.values()].sort((a, b) =>
+      a.nomArticle.localeCompare(b.nomArticle, "fr", { sensitivity: "base" })
+    );
   }
 
   return (
@@ -240,14 +266,29 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
                       <th className="px-6 py-4 font-semibold">Produit fini</th>
                       <th className="px-6 py-4 font-semibold">Gamme</th>
                       <th className="px-6 py-4 font-semibold">Cartons possibles</th>
-                      <th className="px-6 py-4 font-semibold">Article limitant</th>
+                      {articleColumns.map((col) => (
+                        <th key={col.articleMpId} className="px-6 py-4 font-semibold">
+                          {col.nomArticle}
+                        </th>
+                      ))}
                       <th className="px-6 py-4 font-semibold"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {comparaisonRows.map((row) => (
                       <tr key={row.article.id} className="border-t border-slate-100">
-                        <td className="px-6 py-4 font-medium text-slate-900">{row.article.nom_article}</td>
+                        <td className="px-6 py-4 font-medium text-slate-900">
+                          {row.article.nom_article}
+                          {row.aucuneRecette ? (
+                            <p className="mt-1 text-xs font-normal text-red-600">
+                              Aucune recette Conditionnement
+                            </p>
+                          ) : row.manqueLot ? (
+                            <p className="mt-1 text-xs font-normal text-amber-600">
+                              Nombre de cartons du lot non renseigne
+                            </p>
+                          ) : null}
+                        </td>
                         <td className="px-6 py-4 text-slate-600">{row.article.gamme || "-"}</td>
                         <td className="px-6 py-4 font-semibold text-slate-900">
                           {row.aucuneRecette
@@ -258,13 +299,34 @@ export default async function CapaciteConditionnementListPage({ searchParams }: 
                                 ? row.cartonsPossibles.toLocaleString("fr-FR")
                                 : "-"}
                         </td>
-                        <td className="px-6 py-4 text-slate-600">
-                          {row.aucuneRecette
-                            ? "Aucune recette Conditionnement"
-                            : row.manqueLot
-                              ? "Nombre de cartons du lot non renseigne"
-                              : row.ligneLimitanteNom || "-"}
-                        </td>
+                        {articleColumns.map((col) => {
+                          const ligne = row.lignesParArticleMpId.get(col.articleMpId);
+                          const estLimitante = ligne !== undefined && ligne.ligneId === row.ligneLimitanteId;
+                          return (
+                            <td
+                              key={col.articleMpId}
+                              className={`px-6 py-4 ${estLimitante ? "bg-amber-50" : ""}`}
+                            >
+                              {ligne && ligne.quantiteParCarton !== null ? (
+                                <>
+                                  <div
+                                    className={`font-semibold ${estLimitante ? "text-amber-700" : "text-slate-900"}`}
+                                  >
+                                    {ligne.quantiteParCarton.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}{" "}
+                                    <span className="font-normal text-slate-400">{ligne.unite || ""}</span>
+                                  </div>
+                                  <div className="text-xs text-slate-400">
+                                    {ligne.cartonsPossibles !== null
+                                      ? `${ligne.cartonsPossibles.toLocaleString("fr-FR")} cartons possibles`
+                                      : "-"}
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="text-slate-300">-</span>
+                              )}
+                            </td>
+                          );
+                        })}
                         <td className="px-6 py-4">
                           <Link
                             href={`/stock/matiere-premiere/rapport/capacite-conditionnement/${row.article.id}`}

@@ -16,6 +16,7 @@ export type RecetteLigneRow = {
 
 export type LigneCapacite = {
   ligneId: number;
+  articleMpId: number;
   nomArticle: string;
   unite: string | null;
   quantiteParCarton: number | null;
@@ -58,6 +59,7 @@ export function computeLignesCapacite(
 
     return {
       ligneId: ligne.id,
+      articleMpId: ligne.article_mp_id,
       nomArticle: stockInfo?.nom_article || `Article #${ligne.article_mp_id}`,
       unite: stockInfo?.unite ?? null,
       quantiteParCarton,
