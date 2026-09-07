@@ -752,29 +752,36 @@ function renderArticleManquantInsideTableau(
                     <col style={{ width: "64px" }} />
                     <col style={{ width: "84px" }} />
                   </colgroup>
-                  <thead>
+                  {/* Toute la thead colle en UN seul bloc (au lieu d'une
+                  sticky top-[Npx] par ligne) - les offsets en pixels fixes
+                  ne correspondaient pas toujours a la hauteur reelle des
+                  lignes (texte client qui passe sur 2 lignes...), ce qui
+                  laissait un filet blanc entre 2 lignes d'en-tete au clic
+                  (bug reel signale). Sticky sur la thead entiere empile les
+                  lignes normalement, sans calcul de decalage a maintenir. */}
+                  <thead className="sticky top-0 z-40">
                     <tr>
-                      <th rowSpan={5} className={`sticky top-0 left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium text-slate-950`}>
+                      <th rowSpan={5} className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium text-slate-950`}>
                         Article
                       </th>
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`status-${column.key}`}
-                          className={`sticky top-0 z-10 border border-slate-700 px-1 py-2 text-center text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
+                          className={`border border-slate-700 px-1 py-2 text-center text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
                         >
                           {getStatusLabel(column.statut)}
                         </th>
                       ))}
-                      <th rowSpan={5} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={5} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         TOTAL
                       </th>
-                      <th rowSpan={5} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={5} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         STOCK
                       </th>
-                      <th rowSpan={5} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={5} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         RESTE
                       </th>
-                      <th rowSpan={5} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
+                      <th rowSpan={5} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
                         Qt en cours de Conditionnement
                       </th>
                     </tr>
@@ -782,7 +789,7 @@ function renderArticleManquantInsideTableau(
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`client-${column.key}`}
-                          className={`sticky top-[75px] z-20 border border-slate-700 px-1 py-2 text-center text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
+                          className={`border border-slate-700 px-1 py-2 text-center text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
                         >
                           {column.client || "-"}
                         </th>
@@ -792,7 +799,7 @@ function renderArticleManquantInsideTableau(
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`camion-${column.key}`}
-                          className={`sticky top-[150px] z-[25] border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                          className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
                         >
                           {formatTruckCount(column.nombre_camion)}
                         </th>
@@ -802,7 +809,7 @@ function renderArticleManquantInsideTableau(
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`proforma-${column.key}`}
-                          className={`sticky top-[225px] z-30 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                          className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
                         >
                           {column.numero_proforma || "-"}
                         </th>
@@ -812,7 +819,7 @@ function renderArticleManquantInsideTableau(
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`date-${column.key}`}
-                          className={`sticky top-[300px] z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                          className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
                         >
                           {column.date_ecriture ? formatDateCell(new Date(column.date_ecriture)) : "-"}
                         </th>
