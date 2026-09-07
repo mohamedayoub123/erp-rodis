@@ -4,6 +4,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { fetchRestantConditionnementEmballageByArticle } from "../production/suivi/data";
+import { HighlightableRow } from "./highlightable-row";
 
 type SearchParams = Promise<{
   famille?: string;
@@ -1135,7 +1136,7 @@ function renderGenericFamilyTemplate(
                   }
 
                   rows.push(
-                    <tr key={article}>
+                    <HighlightableRow key={article}>
                       <td
                         className={`sticky left-0 z-20 border border-slate-300 px-2 py-1 text-left text-[16px] font-medium leading-tight whitespace-nowrap ${articleCellClass}`}
                       >
@@ -1171,7 +1172,7 @@ function renderGenericFamilyTemplate(
                       <td className={`border border-slate-700 px-2 py-1 font-medium ${summaryFillClass}`}>
                         {qtEnCoursConditionnement > 0 ? formatQuantity(qtEnCoursConditionnement) : ""}
                       </td>
-                    </tr>
+                    </HighlightableRow>
                   );
 
                   return rows;
@@ -1186,7 +1187,7 @@ function renderGenericFamilyTemplate(
 }
 
 async function fetchAllArticlesForMissingReport() {
-  const rows: { id: number; nom_article: string | null; gamme: string | null }[] = [];
+  const rows: { id: number; nom_article: string | null; gamme: string | null; nature: string | null }[] = [];
   let from = 0;
   const pageSize = 1000;
 
@@ -1196,20 +1197,25 @@ async function fetchAllArticlesForMissingReport() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles")
-      .select("id, nom_article, gamme")
+      .select("id, nom_article, gamme, nature")
       .range(from, from + pageSize - 1);
 
     if (error) break;
 
     const chunk =
-      (data as { id: number; nom_article: string | null; gamme: string | null }[] | null) ?? [];
+      (data as { id: number; nom_article: string | null; gamme: string | null; nature: string | null }[] | null) ??
+      [];
     rows.push(...chunk);
 
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
 
-  return rows;
+  // Le vrac (matiere non conditionnee) ne se commande jamais - meme regle
+  // que le tableau de dispatch camion (genericFamilyArticles plus bas), sans
+  // quoi il apparaissait a tort comme un article "manquant" alors qu'il
+  // n'est jamais livre a un client.
+  return rows.filter((row) => row.nature !== "vrac");
 }
 
 // "Qt en cours de Conditionnement" par article, cle par nom d'article
@@ -1727,13 +1733,18 @@ export default async function TableauCommandesPage({
     selectedFamille === "White Secret"
       ? (
           (
-            await supabaseServer
-              .from("articles")
-              .select("id, nom_article, gamme")
-              .ilike("gamme", "%White Secret%")
-              .order("nom_article", { ascending: true })
-          ).data as WhiteSecretArticleRow[] | null
-        ) ?? []
+            (
+              await supabaseServer
+                .from("articles")
+                .select("id, nom_article, gamme, nature")
+                .ilike("gamme", "%White Secret%")
+                .order("nom_article", { ascending: true })
+            ).data as (WhiteSecretArticleRow & { nature: string | null })[] | null
+          ) ?? []
+        )
+          // Le vrac (matiere non conditionnee) ne se commande jamais - meme
+          // regle que le tableau de dispatch camion des autres gammes.
+          .filter((row) => row.nature !== "vrac")
       : [];
 
   const whiteSecretCommandColumns: CommandColumn[] = [];
