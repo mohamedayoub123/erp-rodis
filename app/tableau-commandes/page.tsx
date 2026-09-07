@@ -761,8 +761,8 @@ function renderArticleManquantInsideTableau(
                   lignes normalement, sans calcul de decalage a maintenir. */}
                   <thead className="sticky top-0 z-40">
                     <tr>
-                      <th rowSpan={5} className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium text-slate-950`}>
-                        Article
+                      <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
+                        Statut
                       </th>
                       {visibleCommandColumns.map((column) => (
                         <th
@@ -786,6 +786,9 @@ function renderArticleManquantInsideTableau(
                       </th>
                     </tr>
                     <tr>
+                      <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
+                        Client
+                      </th>
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`client-${column.key}`}
@@ -796,6 +799,9 @@ function renderArticleManquantInsideTableau(
                       ))}
                     </tr>
                     <tr>
+                      <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
+                        Nb camion
+                      </th>
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`camion-${column.key}`}
@@ -806,6 +812,9 @@ function renderArticleManquantInsideTableau(
                       ))}
                     </tr>
                     <tr>
+                      <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
+                        Proforma #
+                      </th>
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`proforma-${column.key}`}
@@ -816,6 +825,9 @@ function renderArticleManquantInsideTableau(
                       ))}
                     </tr>
                     <tr>
+                      <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
+                        Date de commande
+                      </th>
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`date-${column.key}`}
