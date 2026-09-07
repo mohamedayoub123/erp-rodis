@@ -5,6 +5,11 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { fetchRestantConditionnementEmballageByArticle } from "../production/suivi/data";
 import { HighlightableRow } from "./highlightable-row";
+import {
+  TableauExportButton,
+  type ExportCommandColumn,
+  type ExportDataRow,
+} from "./tableau-export-button";
 
 type SearchParams = Promise<{
   famille?: string;
@@ -32,6 +37,7 @@ type CommandColumn = {
   type_tc: string;
   numero_proforma: string;
   statut: string;
+  date_ecriture: string | null;
 };
 
 type WhiteSecretArticleRow = {
@@ -591,6 +597,38 @@ function renderArticleManquantInsideTableau(
     0
   );
 
+  // Meme donnees, meme formules que le rendu ecran juste en dessous -
+  // aplaties en objets simples pour l'export Excel (bouton place dans
+  // l'en-tete de la page).
+  const exportCommandColumns: ExportCommandColumn[] = visibleCommandColumns.map((column) => ({
+    key: column.key,
+    client: column.client,
+    numeroProforma: column.numero_proforma,
+    dateEcriture: column.date_ecriture,
+    statut: getStatusLabel(column.statut),
+  }));
+
+  const exportRows: ExportDataRow[] = visibleSections.flatMap(({ family, rows }) => {
+    const familyRows: ExportDataRow[] = [{ kind: "banner", label: family }];
+    for (const row of rows) {
+      const quantitiesByColumn: Record<string, number> = {};
+      for (const column of visibleCommandColumns) {
+        quantitiesByColumn[column.key] = Number(row.quantitiesByCommand.get(column.key) ?? 0);
+      }
+      const qtEnCours = Number(qtEnCoursConditionnementByArticleKey.get(normalizeArticle(row.article)) ?? 0);
+      familyRows.push({
+        kind: "article",
+        article: row.article,
+        quantitiesByColumn,
+        total: row.totalCommande,
+        stock: row.stock,
+        reste: row.reste,
+        qtEnCours,
+      });
+    }
+    return familyRows;
+  });
+
   return (
     <main className="min-h-screen bg-[#f4f6f8] px-4 py-6 text-slate-900 lg:px-6">
       <div className="mx-auto w-full space-y-5">
@@ -625,6 +663,12 @@ function renderArticleManquantInsideTableau(
               >
                 Commandes
               </Link>
+              <TableauExportButton
+                title={selectedFamille ? `Article manquant - ${selectedFamille}` : "Article manquant"}
+                commandColumns={exportCommandColumns}
+                rows={exportRows}
+                fileName={`article-manquant-${selectedFamille || "toutes-familles"}-${formatDateCell(new Date())}.xlsx`}
+              />
               <form action="/tableau-commandes">
                 <input type="hidden" name="vue" value="manquant" />
                 {selectedFamille ? <input type="hidden" name="famille" value={selectedFamille} /> : null}
@@ -709,7 +753,7 @@ function renderArticleManquantInsideTableau(
                   </colgroup>
                   <thead>
                     <tr>
-                      <th rowSpan={3} className={`sticky top-0 left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium text-slate-950`}>
+                      <th rowSpan={4} className={`sticky top-0 left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium text-slate-950`}>
                         Article
                       </th>
                       {visibleCommandColumns.map((column) => (
@@ -720,16 +764,16 @@ function renderArticleManquantInsideTableau(
                           {getStatusLabel(column.statut)}
                         </th>
                       ))}
-                      <th rowSpan={3} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={4} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         TOTAL
                       </th>
-                      <th rowSpan={3} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={4} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         STOCK
                       </th>
-                      <th rowSpan={3} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={4} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         RESTE
                       </th>
-                      <th rowSpan={3} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
+                      <th rowSpan={4} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
                         Qt en cours de Conditionnement
                       </th>
                     </tr>
@@ -750,6 +794,16 @@ function renderArticleManquantInsideTableau(
                           className={`sticky top-[150px] z-30 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
                         >
                           {column.numero_proforma || "-"}
+                        </th>
+                      ))}
+                    </tr>
+                    <tr>
+                      {visibleCommandColumns.map((column) => (
+                        <th
+                          key={`date-${column.key}`}
+                          className={`sticky top-[225px] z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                        >
+                          {column.date_ecriture ? formatDateCell(new Date(column.date_ecriture)) : "-"}
                         </th>
                       ))}
                     </tr>
@@ -892,6 +946,41 @@ function renderGenericFamilyTemplate(
     return { article, subGamme, showSubGammeBanner };
   });
 
+  // Meme donnees, meme formules que le rendu ecran juste en dessous - juste
+  // aplaties en objets simples pour l'export Excel (bouton place dans
+  // l'en-tete de la page).
+  const exportCommandColumns: ExportCommandColumn[] = visibleCommandColumns.map((column) => ({
+    key: column.key,
+    client: column.client,
+    numeroProforma: column.numero_proforma,
+    dateEcriture: column.date_ecriture,
+    statut: getStatusLabel(column.statut),
+  }));
+
+  const exportRows: ExportDataRow[] = rowsWithSubGamme.flatMap(({ article, subGamme, showSubGammeBanner }) => {
+    const articleKey = normalizeArticle(article);
+    const articleQuantities = quantitiesByArticle.get(articleKey);
+    const total = visibleCommandColumns.reduce(
+      (sum, column) => sum + Number(articleQuantities?.get(column.key) ?? 0),
+      0
+    );
+    const stock = Number(stockByArticle.get(articleKey) ?? 0);
+    const reste = stock - total;
+    const qtEnCours = Number(qtEnCoursConditionnementByArticleKey.get(articleKey) ?? 0);
+
+    const quantitiesByColumn: Record<string, number> = {};
+    for (const column of visibleCommandColumns) {
+      quantitiesByColumn[column.key] = Number(articleQuantities?.get(column.key) ?? 0);
+    }
+
+    const rows: ExportDataRow[] = [];
+    if (showSubGammeBanner && subGamme) {
+      rows.push({ kind: "banner", label: subGamme.label });
+    }
+    rows.push({ kind: "article", article, quantitiesByColumn, total, stock, reste, qtEnCours });
+    return rows;
+  });
+
   return (
     <main className="min-h-screen bg-[#f4f6f8] px-4 py-6 text-slate-900 lg:px-6">
       <div className="mx-auto w-full space-y-4">
@@ -910,6 +999,12 @@ function renderGenericFamilyTemplate(
             <div className="flex flex-wrap items-center gap-2">
               <BackButton href="/tableau-commandes" label="Retour aux familles" />
               <RefreshButton />
+              <TableauExportButton
+                title={selectedFamille}
+                commandColumns={exportCommandColumns}
+                rows={exportRows}
+                fileName={`tableau-commande-${selectedFamille}-${formatDateCell(new Date())}.xlsx`}
+              />
               <form action="/tableau-commandes">
                 <input type="hidden" name="famille" value={selectedFamille} />
                 {hideStand ? null : <input type="hidden" name="hideStand" value="1" />}
@@ -1083,6 +1178,27 @@ function renderGenericFamilyTemplate(
                         className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
                       >
                         {column.numero_proforma || "-"}
+                      </th>
+                    ))
+                  ) : (
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  )}
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                </tr>
+                <tr>
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
+                    Date commande
+                  </th>
+                  {commandColumns.length > 0 ? (
+                    visibleCommandColumns.map((column) => (
+                      <th
+                        key={`date-${column.key}`}
+                        className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                      >
+                        {column.date_ecriture ? formatDateCell(new Date(column.date_ecriture)) : "-"}
                       </th>
                     ))
                   ) : (
@@ -1338,7 +1454,7 @@ export default async function TableauCommandesPage({
       supabaseServer
         .from("commandes")
         .select(
-          "id, client, statut, mode_chargement, type_tc, numero_proforma, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
+          "id, client, statut, mode_chargement, type_tc, numero_proforma, created_at, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
         )
         .neq("statut", "LIVREE")
         .order("created_at", { ascending: true }),
@@ -1357,6 +1473,7 @@ export default async function TableauCommandesPage({
             mode_chargement: string | null;
             type_tc: string | null;
             numero_proforma: string | null;
+            created_at: string | null;
             commande_lignes:
               | {
                   quantite_demandee: number | null;
@@ -1393,6 +1510,7 @@ export default async function TableauCommandesPage({
         type_tc: String(commande.type_tc || "").trim(),
         numero_proforma: String(commande.numero_proforma || "").trim(),
         statut: String(commande.statut || "EN_COURS").trim(),
+        date_ecriture: commande.created_at,
       });
     }
     const sharedCommandColumns = [...sharedCommandColumnsMap.values()];
@@ -1530,7 +1648,7 @@ export default async function TableauCommandesPage({
       .order("id", { ascending: true }),
     supabaseServer
       .from("commandes")
-      .select("id, client, statut, mode_chargement, type_tc, numero_proforma")
+      .select("id, client, statut, mode_chargement, type_tc, numero_proforma, created_at")
       .neq("statut", "LIVREE")
       .order("created_at", { ascending: true }),
   ]);
@@ -1645,6 +1763,7 @@ export default async function TableauCommandesPage({
           mode_chargement: string | null;
           type_tc: string | null;
           numero_proforma: string | null;
+          created_at: string | null;
         }[]
       | null) ?? [];
 
@@ -1667,6 +1786,7 @@ export default async function TableauCommandesPage({
       type_tc: planningMeta?.type_tc || String(commande.type_tc || "").trim(),
       numero_proforma: String(commande.numero_proforma || "").trim(),
       statut: String(commande.statut || "EN_COURS").trim(),
+      date_ecriture: commande.created_at,
     });
   }
 
@@ -1788,6 +1908,7 @@ export default async function TableauCommandesPage({
           type_tc: String(commande.type_tc || "").trim(),
           numero_proforma: String(commande.numero_proforma || "").trim(),
           statut: String(commande.statut || "EN_COURS").trim(),
+          date_ecriture: null,
         });
       }
 
@@ -2042,6 +2163,7 @@ export default async function TableauCommandesPage({
         type_tc: String(row.type_tc || "").trim(),
         numero_proforma: String(row.numero_proforma || "").trim(),
         statut: "EN_COURS",
+        date_ecriture: null,
       });
     }
   }
