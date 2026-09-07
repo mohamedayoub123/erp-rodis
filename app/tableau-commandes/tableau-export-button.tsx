@@ -11,6 +11,7 @@ import ExcelJS from "exceljs";
 export type ExportCommandColumn = {
   key: string;
   client: string;
+  nombreCamion: number | null;
   numeroProforma: string;
   dateEcriture: string | null;
   statut: string;
@@ -63,7 +64,7 @@ export function TableauExportButton({
   async function handleExport() {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet(title.slice(0, 31) || "Export", {
-      views: [{ state: "frozen", ySplit: 5 }],
+      views: [{ state: "frozen", ySplit: 6 }],
     });
 
     const headerLabels = [
@@ -90,6 +91,14 @@ export function TableauExportButton({
 
     const statutRow = sheet.addRow(["Statut", ...commandColumns.map((col) => col.statut), "", "", "", ""]);
     const clientRow = sheet.addRow(["Client", ...commandColumns.map((col) => col.client || "-"), "", "", "", ""]);
+    const camionRow = sheet.addRow([
+      "Nombre de camion",
+      ...commandColumns.map((col) => (col.nombreCamion === null ? "-" : col.nombreCamion)),
+      "",
+      "",
+      "",
+      "",
+    ]);
     const proformaRow = sheet.addRow([
       "Proforma #",
       ...commandColumns.map((col) => col.numeroProforma || "-"),
@@ -107,7 +116,7 @@ export function TableauExportButton({
       "",
     ]);
 
-    for (const row of [statutRow, clientRow, proformaRow, dateRow]) {
+    for (const row of [statutRow, clientRow, camionRow, proformaRow, dateRow]) {
       row.eachCell((cell) => {
         cell.font = { bold: true };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TURQUOISE } };

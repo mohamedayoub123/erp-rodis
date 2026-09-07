@@ -603,6 +603,7 @@ function renderArticleManquantInsideTableau(
   const exportCommandColumns: ExportCommandColumn[] = visibleCommandColumns.map((column) => ({
     key: column.key,
     client: column.client,
+    nombreCamion: column.nombre_camion,
     numeroProforma: column.numero_proforma,
     dateEcriture: column.date_ecriture,
     statut: getStatusLabel(column.statut),
@@ -753,7 +754,7 @@ function renderArticleManquantInsideTableau(
                   </colgroup>
                   <thead>
                     <tr>
-                      <th rowSpan={4} className={`sticky top-0 left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium text-slate-950`}>
+                      <th rowSpan={5} className={`sticky top-0 left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium text-slate-950`}>
                         Article
                       </th>
                       {visibleCommandColumns.map((column) => (
@@ -764,16 +765,16 @@ function renderArticleManquantInsideTableau(
                           {getStatusLabel(column.statut)}
                         </th>
                       ))}
-                      <th rowSpan={4} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={5} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         TOTAL
                       </th>
-                      <th rowSpan={4} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={5} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         STOCK
                       </th>
-                      <th rowSpan={4} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                      <th rowSpan={5} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
                         RESTE
                       </th>
-                      <th rowSpan={4} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
+                      <th rowSpan={5} className={`sticky top-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
                         Qt en cours de Conditionnement
                       </th>
                     </tr>
@@ -790,8 +791,18 @@ function renderArticleManquantInsideTableau(
                     <tr>
                       {visibleCommandColumns.map((column) => (
                         <th
+                          key={`camion-${column.key}`}
+                          className={`sticky top-[150px] z-[25] border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                        >
+                          {formatTruckCount(column.nombre_camion)}
+                        </th>
+                      ))}
+                    </tr>
+                    <tr>
+                      {visibleCommandColumns.map((column) => (
+                        <th
                           key={`proforma-${column.key}`}
-                          className={`sticky top-[150px] z-30 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                          className={`sticky top-[225px] z-30 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
                         >
                           {column.numero_proforma || "-"}
                         </th>
@@ -801,7 +812,7 @@ function renderArticleManquantInsideTableau(
                       {visibleCommandColumns.map((column) => (
                         <th
                           key={`date-${column.key}`}
-                          className={`sticky top-[225px] z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
+                          className={`sticky top-[300px] z-40 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium leading-tight whitespace-normal break-words text-slate-950`}
                         >
                           {column.date_ecriture ? formatDateCell(new Date(column.date_ecriture)) : "-"}
                         </th>
@@ -952,6 +963,7 @@ function renderGenericFamilyTemplate(
   const exportCommandColumns: ExportCommandColumn[] = visibleCommandColumns.map((column) => ({
     key: column.key,
     client: column.client,
+    nombreCamion: column.nombre_camion,
     numeroProforma: column.numero_proforma,
     dateEcriture: column.date_ecriture,
     statut: getStatusLabel(column.statut),
