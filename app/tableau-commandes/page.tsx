@@ -784,7 +784,7 @@ function renderArticleManquantInsideTableau(
                           reste < 0 ? "bg-[#fff59d] text-red-700" : `${WHITE_SECRET_TURQUOISE} text-slate-950`;
 
                         return (
-                          <tr key={`${family}-${row.article}`}>
+                          <HighlightableRow key={`${family}-${row.article}`}>
                             <td
                               className={`sticky left-0 z-20 border border-slate-300 px-2 py-1 text-left text-[16px] font-medium leading-tight whitespace-nowrap ${articleCellClass}`}
                             >
@@ -813,7 +813,7 @@ function renderArticleManquantInsideTableau(
                             <td className={`border border-slate-700 px-2 py-1 text-center font-medium ${summaryFillClass}`}>
                               {qtEnCoursConditionnement > 0 ? formatQuantity(qtEnCoursConditionnement) : ""}
                             </td>
-                          </tr>
+                          </HighlightableRow>
                         );
                       }),
                     ])}
