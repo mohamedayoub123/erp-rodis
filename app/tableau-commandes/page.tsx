@@ -543,7 +543,7 @@ function renderArticleManquantInsideTableau(
                 href="/tableau-commandes/articles-sans-gamme"
                 className="rounded-full bg-amber-600 px-4 py-2 text-[16px] font-medium text-white"
               >
-                Articles sans gamme
+                Gerer les gammes
               </Link>
               <Link
                 href="/commandes"
@@ -2124,7 +2124,7 @@ export default async function TableauCommandesPage({
                   href="/tableau-commandes/articles-sans-gamme"
                   className="rounded-full bg-amber-600 px-4 py-2 text-[16px] font-medium text-white"
                 >
-                  Articles sans gamme
+                  Gerer les gammes
                 </Link>
                 <Link
                   href="/commandes"
