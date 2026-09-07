@@ -130,6 +130,10 @@ const FAMILY_SUBGAMMES: Record<string, { label: string; match: string; bannerCla
   "ECO+OFA+CDV+SKL": [
     { label: "SKIN LIGHT", match: "skin light", bannerClass: "bg-[#a6a6a6] text-white" },
     { label: "COEUR DE VASELINE", match: "c.d.v", bannerClass: "bg-[#a6a6a6] text-white" },
+    // Meme gamme, ecrite en toutes lettres sur certains articles ("Cœur de
+    // Vaseline") au lieu de l'abreviation "C.D.V" - sans cette entree ces
+    // articles ne matchaient aucune famille et disparaissaient du tableau.
+    { label: "COEUR DE VASELINE", match: "vaseline", bannerClass: "bg-[#a6a6a6] text-white" },
     { label: "ECO FAMILY", match: "eco family", bannerClass: "bg-[#a6a6a6] text-white" },
     { label: "ONE FOR ALL", match: "one for all", bannerClass: "bg-[#a6a6a6] text-white" },
     { label: "RAPIDE WHITE", match: "rapide white", bannerClass: "bg-[#a6a6a6] text-white" },
