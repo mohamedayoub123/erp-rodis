@@ -10,6 +10,16 @@ import {
   type ExportCommandColumn,
   type ExportDataRow,
 } from "./tableau-export-button";
+import {
+  FAMILY_ORDER,
+  FAMILY_BUTTON_STYLES,
+  FAMILY_SUBGAMMES,
+  getFamilySubGamme,
+  matchesFamilyGamme,
+  resolveFamilyForGamme,
+  ilikePatternForFamily,
+  fetchDynamicFamilies,
+} from "./family-lib";
 
 type SearchParams = Promise<{
   famille?: string;
@@ -46,142 +56,9 @@ type WhiteSecretArticleRow = {
   gamme: string | null;
 };
 
-const FAMILY_ORDER = [
-  "White Secret",
-  "Precious Perfect",
-  "Perfect Glow",
-  "BB Clear",
-  "BB Clear VIT C",
-  "Elixir",
-  "Pro White",
-  "Luxury Cocoa",
-  "Luxury Avocado",
-  "Egyptian Beauty",
-  "MOROCCO SKIN",
-  "ABSOLUTE CARE REALITY",
-  "REAL CARE R",
-  "TONE THERAPY R",
-  "MY FAMILY CARE",
-  "DERMATONE",
-  "Coco Clear",
-  "Cocoa Skin",
-  "ECO+OFA+CDV+SKL",
-  "SOOPURE",
-  "EDT RODIS",
-  "EDT REALITY",
-  "MENTHOLE ETDIVERS",
-];
-
 const EMPTY_TABLE_FAMILIES = new Set<string>([]);
 
-const FAMILY_BUTTON_STYLES: Record<string, string> = {
-  "White Secret": "bg-[#ff1f1f] text-white",
-  "Precious Perfect": "bg-[#7f57c2] text-white",
-  "Perfect Glow": "bg-[#e0a85d] text-white",
-  "BB Clear": "bg-[#0dbb62] text-white",
-  "BB Clear VIT C": "bg-[#f3c74c] text-white",
-  Elixir: "bg-[#bf4fc9] text-white",
-  "Pro White": "bg-[#fff137] text-white",
-  "Luxury Cocoa": "bg-[#b78b22] text-white",
-  "Luxury Avocado": "bg-[#8bc34a] text-white",
-  "Egyptian Beauty": "bg-[#4f78a8] text-white",
-  "MOROCCO SKIN": "bg-[#ffc31a] text-white",
-  "ABSOLUTE CARE REALITY": "bg-[#171717] text-white",
-  "REAL CARE R": "bg-[#f0f0f0] text-white",
-  "TONE THERAPY R": "bg-[#f7ed65] text-white",
-  "MY FAMILY CARE": "bg-[#6654b8] text-white",
-  DERMATONE: "bg-[#d94faf] text-white",
-  "Coco Clear": "bg-[#c8ecea] text-white",
-  "Cocoa Skin": "bg-[#bfd9a6] text-white",
-  "ECO+OFA+CDV+SKL": "bg-[#4f4f4f] text-white",
-  SOOPURE: "bg-[#5b5b5b] text-white",
-  "EDT RODIS": "bg-[#4f6174] text-white",
-  "EDT REALITY": "bg-[#72839a] text-white",
-  "MENTHOLE ETDIVERS": "bg-[#d9d9d9] text-white",
-};
-
 const WHITE_SECRET_TURQUOISE = "bg-[#1f9da5]";
-
-// Parent family buttons that actually cover several distinct real gamme
-// values - each sub-entry gets its own colored banner row inside that
-// family's table, in this order.
-const FAMILY_SUBGAMMES: Record<string, { label: string; match: string; bannerClass: string }[]> = {
-  "ABSOLUTE CARE REALITY": [
-    { label: "WATER LILIES", match: "absolute care water lilies", bannerClass: "bg-[#1a56db] text-white" },
-    { label: "ALOE VERA", match: "absolute care aloe vera", bannerClass: "bg-[#6aa84f] text-white" },
-    { label: "FRESH LIME", match: "fresh lime", bannerClass: "bg-[#ffd400] text-slate-950" },
-    { label: "PAPAYE", match: "absolute care papaya", bannerClass: "bg-[#e63946] text-white" },
-  ],
-  "REAL CARE R": [
-    { label: "REAL CARE FAMILY", match: "real care family", bannerClass: "bg-[#1a56db] text-white" },
-    { label: "REAL CARE MEN", match: "real care men", bannerClass: "bg-[#f5a623] text-white" },
-    { label: "REAL CARE BABY", match: "real care baby", bannerClass: "bg-[#d6f5f5] text-slate-950" },
-  ],
-  "TONE THERAPY R": [
-    { label: "TONE THERAPY INTENSE", match: "tone therapy intense", bannerClass: "bg-[#8c8c8c] text-white" },
-    { label: "TONE THERAPY ADVANCED", match: "tone therapy advanced", bannerClass: "bg-[#e6e6e6] text-slate-700" },
-  ],
-  "MY FAMILY CARE": [
-    { label: "FAMILY CARE ALMOND", match: "my family care almond", bannerClass: "bg-[#1a56db] text-white" },
-    { label: "FAMILY CARE ALOE VERA", match: "my family care aloe vera", bannerClass: "bg-[#8bc34a] text-white" },
-    { label: "FAMILY CARE LEMON", match: "my family care lemon", bannerClass: "bg-[#ffeb3b] text-slate-950" },
-    { label: "FAMILY CARE POMEGRANATE", match: "my family care pomegranate", bannerClass: "bg-[#c76b1e] text-white" },
-  ],
-  "ECO+OFA+CDV+SKL": [
-    { label: "SKIN LIGHT", match: "skin light", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "COEUR DE VASELINE", match: "c.d.v", bannerClass: "bg-[#a6a6a6] text-white" },
-    // Meme gamme, ecrite en toutes lettres sur certains articles ("Cœur de
-    // Vaseline") au lieu de l'abreviation "C.D.V" - sans cette entree ces
-    // articles ne matchaient aucune famille et disparaissaient du tableau.
-    { label: "COEUR DE VASELINE", match: "vaseline", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "ECO FAMILY", match: "eco family", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "ONE FOR ALL", match: "one for all", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "RAPIDE WHITE", match: "rapide white", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "VIT FEE", match: "vit fee", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "COCO BUTTEUR", match: "coco butteur", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "PINK LADIES", match: "pink ladies", bannerClass: "bg-[#a6a6a6] text-white" },
-  ],
-  "EDT RODIS": [
-    { label: "EDT 6SCENT", match: "6th scent", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "EDT PRETTY", match: "pretty", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "SWEET SCENT", match: "sweet scent", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "NUIT D'ORIENT", match: "nuit d", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "JANNA", match: "janna", bannerClass: "bg-[#a6a6a6] text-white" },
-  ],
-  "EDT REALITY": [
-    { label: "1001 NIGHTS", match: "1001 nights", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "ENCHANTED", match: "enchanted", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "GODDESS", match: "goddess", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "BOUQUET", match: "bouquet", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "ORIENTAL SCENT", match: "oriental scent", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "DEEM", match: "deem", bannerClass: "bg-[#a6a6a6] text-white" },
-  ],
-  "MENTHOLE ETDIVERS": [
-    { label: "MATRIX", match: "matrix", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "MENTHOL", match: "menthole", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "PARFUM", match: "parfum", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "MAMASSITA", match: "mamassita", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "AMALIA", match: "amalia", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "EFFICACITE", match: "efficacite", bannerClass: "bg-[#a6a6a6] text-white" },
-    { label: "DR JOHNSON", match: "dr johnson", bannerClass: "bg-[#a6a6a6] text-white" },
-  ],
-};
-
-function getFamilySubGamme(family: string, gamme: string) {
-  const subGammes = FAMILY_SUBGAMMES[family];
-  if (!subGammes) return null;
-
-  const gammeLower = String(gamme || "").toLowerCase();
-  return subGammes.find((entry) => gammeLower.includes(entry.match)) ?? null;
-}
-
-function familyHasSubGammeMatch(family: string, gamme: string) {
-  const subGammes = FAMILY_SUBGAMMES[family];
-  if (!subGammes) return false;
-
-  const gammeLower = String(gamme || "").toLowerCase();
-  return subGammes.some((entry) => gammeLower.includes(entry.match));
-}
 
 // Some families group their table by article TYPE (Lait, Gel, Pommade,
 // EDC...) instead of by a brand/scent sub-gamme.
@@ -661,6 +538,12 @@ function renderArticleManquantInsideTableau(
                 className="rounded-full bg-red-700 px-4 py-2 text-[16px] font-medium text-white"
               >
                 Article manquant
+              </Link>
+              <Link
+                href="/tableau-commandes/articles-sans-gamme"
+                className="rounded-full bg-amber-600 px-4 py-2 text-[16px] font-medium text-white"
+              >
+                Articles sans gamme
               </Link>
               <Link
                 href="/commandes"
@@ -1435,27 +1318,8 @@ export default async function TableauCommandesPage({
 
   if (showMissingView) {
     const selectedFamille = familleQuery || "";
-    const families = FAMILY_ORDER;
+    const families = [...FAMILY_ORDER, ...(await fetchDynamicFamilies())];
     const targetFamilies = selectedFamille ? [selectedFamille] : families;
-
-    function matchesFamilyGamme(gamme: string, family: string) {
-      const gammeLower = String(gamme || "").toLowerCase();
-      if (family === "White Secret") {
-        return gammeLower.includes("white secret");
-      }
-      // Some family buttons (ABSOLUTE CARE REALITY, REAL CARE R, TONE
-      // THERAPY R) cover several real gamme values that don't literally
-      // contain the family name - group them under that one button.
-      if (familyHasSubGammeMatch(family, gamme)) {
-        return true;
-      }
-      // The real gamme value is abbreviated "bb clear v c" (no "it"), not
-      // "vit c".
-      if (family === "BB Clear VIT C") {
-        return gammeLower.includes("bb clear v c") || gammeLower.includes("bb clear vit c");
-      }
-      return gammeLower.includes(family.toLowerCase());
-    }
 
     // Some family names are substrings of another (e.g. "BB Clear" is
     // contained in "BB Clear VIT C"), so a plain substring match would put
@@ -1466,19 +1330,13 @@ export default async function TableauCommandesPage({
     // gamme string repeats across many lines/commandes, and each lookup
     // scans every family - caching by gamme avoids redoing that scan.
     const resolveFamilyForGammeCache = new Map<string, string | null>();
-    function resolveFamilyForGamme(gamme: string) {
-      const cached = resolveFamilyForGammeCache.get(gamme);
+    function resolveFamilyForGammeCached(gamme: string, nomArticle: string) {
+      const cacheKey = `${gamme}|||${nomArticle}`;
+      const cached = resolveFamilyForGammeCache.get(cacheKey);
       if (cached !== undefined) return cached;
 
-      let best: string | null = null;
-
-      for (const family of families) {
-        if (matchesFamilyGamme(gamme, family) && (!best || family.length > best.length)) {
-          best = family;
-        }
-      }
-
-      resolveFamilyForGammeCache.set(gamme, best);
+      const best = resolveFamilyForGamme(gamme, nomArticle, families);
+      resolveFamilyForGammeCache.set(cacheKey, best);
       return best;
     }
 
@@ -1558,7 +1416,8 @@ export default async function TableauCommandesPage({
 
     for (const family of targetFamilies) {
       const familyArticles = missingArticlesData.filter(
-        (row) => resolveFamilyForGamme(String(row.gamme || "")) === family
+        (row) =>
+          resolveFamilyForGammeCached(String(row.gamme || ""), String(row.nom_article || "")) === family
       );
       familyArticlesByFamily.set(family, familyArticles);
       for (const article of familyArticles) {
@@ -1582,7 +1441,10 @@ export default async function TableauCommandesPage({
       for (const ligne of commande.commande_lignes ?? []) {
         const relation = ligne.articles;
         const article = Array.isArray(relation) ? relation[0] : relation;
-        const family = resolveFamilyForGamme(String(article?.gamme || ""));
+        const family = resolveFamilyForGammeCached(
+          String(article?.gamme || ""),
+          String(article?.nom_article || "")
+        );
         if (!family) continue;
 
         const articleKey = normalizeArticle(String(article?.nom_article || ""));
@@ -1766,7 +1628,7 @@ export default async function TableauCommandesPage({
   const selectedFamille = familleQuery || "";
   const shouldStayEmpty = EMPTY_TABLE_FAMILIES.has(selectedFamille);
 
-  const families = FAMILY_ORDER;
+  const families = [...FAMILY_ORDER, ...(await fetchDynamicFamilies())];
   const selectedRows = planningRows.filter(
     (row) => String(row.famille || "").trim() === selectedFamille
   );
@@ -1823,32 +1685,6 @@ export default async function TableauCommandesPage({
       statut: String(commande.statut || "EN_COURS").trim(),
       date_ecriture: commande.created_at,
     });
-  }
-
-  // Some gamme values don't literally contain the family name they belong
-  // to (ABSOLUTE CARE REALITY's real gammes are Water Lilies/Aloe
-  // Vera/Fresh Lime/Papaya, and BB Clear VIT C is stored abbreviated as
-  // "bb clear v c"), and "BB Clear" alone is a substring of that VIT C
-  // variant. This mirrors the same special-casing used for Article
-  // manquant so both views agree on which article belongs to which gamme.
-  function gammeMatchesSelectedFamily(gamme: string, family: string) {
-    const gammeLower = String(gamme || "").toLowerCase();
-    if (familyHasSubGammeMatch(family, gamme)) return true;
-    if (family === "BB Clear VIT C") return gammeLower.includes("bb clear v");
-    if (family === "BB Clear") return gammeLower.includes("bb clear") && !gammeLower.includes("bb clear v");
-    return gammeLower.includes(family.toLowerCase());
-  }
-
-  function ilikePatternForFamily(family: string) {
-    if (FAMILY_SUBGAMMES[family]) {
-      // Their sub-gamme real values don't share one common prefix (e.g.
-      // ECO+OFA+CDV+SKL covers "Skin Light", "C.D.V", "One For All"...),
-      // so fetch broadly and refine afterwards with
-      // gammeMatchesSelectedFamily instead of guessing a pattern.
-      return "%";
-    }
-    if (family === "BB Clear" || family === "BB Clear VIT C") return "%bb clear%";
-    return `%${family}%`;
   }
 
   const whiteSecretCommandesData =
@@ -2016,7 +1852,9 @@ export default async function TableauCommandesPage({
               | null
           ) ?? []
         )
-          .filter((row) => gammeMatchesSelectedFamily(String(row.gamme || ""), selectedFamille))
+          .filter((row) =>
+            matchesFamilyGamme(String(row.gamme || ""), String(row.nom_article || ""), selectedFamille)
+          )
           // Le vrac (matiere non conditionnee) n'a pas sa place dans le
           // tableau de dispatch camion - seuls les articles finis/emballes
           // s'y commandent et s'y chargent.
@@ -2074,7 +1912,11 @@ export default async function TableauCommandesPage({
         const relation = ligne.articles;
         const article = Array.isArray(relation) ? relation[0] : relation;
 
-        return gammeMatchesSelectedFamily(String(article?.gamme || ""), selectedFamille);
+        return matchesFamilyGamme(
+          String(article?.gamme || ""),
+          String(article?.nom_article || ""),
+          selectedFamille
+        );
       });
 
       if (lignes.length === 0) continue;
@@ -2277,6 +2119,12 @@ export default async function TableauCommandesPage({
                   className="rounded-full bg-red-700 px-4 py-2 text-[16px] font-medium text-white"
                 >
                   Article manquant
+                </Link>
+                <Link
+                  href="/tableau-commandes/articles-sans-gamme"
+                  className="rounded-full bg-amber-600 px-4 py-2 text-[16px] font-medium text-white"
+                >
+                  Articles sans gamme
                 </Link>
                 <Link
                   href="/commandes"
