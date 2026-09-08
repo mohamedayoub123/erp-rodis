@@ -472,6 +472,17 @@ export default async function AdminPage({
                     </div>
 
                     <details className="mt-3 group rounded-2xl border border-slate-200 bg-slate-50">
+                      <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold text-slate-800">
+                        <span className="flex-1">Voir / modifier les autorisations</span>
+                        <span
+                          aria-hidden="true"
+                          className="text-slate-400 transition-transform group-open:rotate-90"
+                        >
+                          &#9656;
+                        </span>
+                      </summary>
+                      <div className="border-t border-slate-200 p-3">
+                    <details className="group rounded-2xl border border-slate-200 bg-slate-50">
                       <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-2.5 text-xs font-bold text-slate-700">
                         <span className="flex-1">Changer le mot de passe</span>
                         <span
@@ -800,6 +811,8 @@ export default async function AdminPage({
                         </p>
                       )}
                     </form>
+                      </div>
+                    </details>
                   </article>
                 ))}
               </div>
