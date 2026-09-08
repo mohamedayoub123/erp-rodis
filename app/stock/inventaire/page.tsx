@@ -215,9 +215,10 @@ export default async function InventairePfPage() {
 
   const ecartsAConfirmer = lignes.filter((l) => l.statut === "ecart_confirme");
 
-  const totalTraites = lignes.length;
   const totalBon = lignes.filter((l) => l.statut === "bon").length;
   const totalEcarts = lignes.filter((l) => l.statut === "ecart_confirme" || l.statut === "regularise").length;
+  const pendingTotal = lignes.filter((l) => l.statut === "a_compter").length;
+  const totalCompte = lignes.length - pendingTotal;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f0fdf4_0%,#fbfffc_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -232,7 +233,9 @@ export default async function InventairePfPage() {
                 {activeSession.cree_par || "-"}. Lots de {activeSession.taille_lot}.
               </p>
               <p className="mt-1 text-sm font-semibold text-slate-700">
-                {totalTraites} / {totalLotsCount ?? 0} lots traites - {totalBon} bon(s), {totalEcarts} ecart(s)
+                {totalCompte} compte(s) sur {lignes.length} assigne(s) ({totalLotsCount ?? 0} au total) -{" "}
+                {totalBon} bon(s), {totalEcarts} ecart(s)
+                {pendingTotal > 0 ? ` - ${pendingTotal} restant(s) a compter` : ""}
               </p>
             </div>
             <div className="flex items-center gap-3">

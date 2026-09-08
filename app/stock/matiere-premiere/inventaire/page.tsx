@@ -11,6 +11,7 @@ import {
   annulerInventaireMpAction,
   supprimerSessionInventaireMpAction,
 } from "./actions";
+import { fetchCategorieCounts } from "./lib";
 
 type SessionRow = {
   id: number;
@@ -21,32 +22,6 @@ type SessionRow = {
   termine_at: string | null;
   categories_filtre: string[] | null;
 };
-
-type CategorieCount = { categorie: string; count: number };
-
-async function fetchCategorieCounts(): Promise<CategorieCount[]> {
-  const counts = new Map<string, number>();
-  let from = 0;
-  const pageSize = 1000;
-  for (;;) {
-    const { data, error } = await supabaseServer
-      .from("articles_matiere_premiere")
-      .select("categorie")
-      .range(from, from + pageSize - 1);
-    if (error) break;
-    const chunk = (data ?? []) as { categorie: string | null }[];
-    for (const row of chunk) {
-      const cat = (row.categorie || "").trim();
-      if (!cat) continue;
-      counts.set(cat, (counts.get(cat) ?? 0) + 1);
-    }
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-  return [...counts.entries()]
-    .map(([categorie, count]) => ({ categorie, count }))
-    .sort((a, b) => a.categorie.localeCompare(b.categorie, "fr"));
-}
 
 export default async function InventaireMpPage() {
   noStore();
@@ -123,7 +98,10 @@ export default async function InventaireMpPage() {
               />
             </label>
             <div>
-              <p className="mb-2 text-sm font-semibold text-slate-700">Categories (optionnel)</p>
+              <p className="mb-2 text-sm font-semibold text-slate-700">
+                Categories (optionnel) - le nombre entre parentheses est le nombre de lots a compter dans cette
+                categorie
+              </p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                 {categorieCounts.map(({ categorie, count }) => (
                   <label

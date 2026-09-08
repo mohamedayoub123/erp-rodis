@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
+import { fetchAllLotBalances, fetchArticleCategorieById } from "./lib";
 
 // Tolerance flottante pour comparer un comptage physique au stock systeme -
 // jamais une egalite stricte (quantites avec decimales).
@@ -11,7 +12,6 @@ const EPSILON = 0.01;
 const TAILLE_LOT_MIN = 1;
 const TAILLE_LOT_MAX = 200;
 
-type LotBalanceRow = { article_id: number; numero_lot: string; stock: number };
 type MovementCountRow = { article_id: number; mouvement_count: number };
 type LigneRow = {
   id: number;
@@ -31,30 +31,6 @@ async function requireInventaireWrite() {
   return currentUser;
 }
 
-async function fetchAllLotBalances(): Promise<LotBalanceRow[]> {
-  // Deduplique par (article_id, numero_lot) - filet de securite en plus de
-  // l'ORDER BY cote SQL (stock_mp_lot_balances) : sans ordre stable, une
-  // pagination en plusieurs appels peut renvoyer la meme ligne deux fois
-  // (bug reel confirme sur l'equivalent PF, voir
-  // scripts/sql/fix_lot_balances_pagination_order.sql), ce qui provoquait
-  // une violation de contrainte unique lors de la distribution d'un lot de
-  // travail.
-  const byKey = new Map<string, LotBalanceRow>();
-  let from = 0;
-  const pageSize = 1000;
-  for (;;) {
-    const { data, error } = await supabaseServer.rpc("stock_mp_lot_balances").range(from, from + pageSize - 1);
-    if (error) throw new Error(error.message);
-    const chunk = (data ?? []) as LotBalanceRow[];
-    for (const row of chunk) {
-      byKey.set(`${row.article_id}::${row.numero_lot}`, row);
-    }
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-  return [...byKey.values()];
-}
-
 async function fetchMovementCounts(): Promise<Map<number, number>> {
   const rows: MovementCountRow[] = [];
   let from = 0;
@@ -68,24 +44,6 @@ async function fetchMovementCounts(): Promise<Map<number, number>> {
     from += pageSize;
   }
   return new Map(rows.map((row) => [row.article_id, Number(row.mouvement_count)]));
-}
-
-async function fetchArticleCategorieById(): Promise<Map<number, string | null>> {
-  const map = new Map<number, string | null>();
-  let from = 0;
-  const pageSize = 1000;
-  for (;;) {
-    const { data, error } = await supabaseServer
-      .from("articles_matiere_premiere")
-      .select("id, categorie")
-      .range(from, from + pageSize - 1);
-    if (error) throw new Error(error.message);
-    const chunk = (data ?? []) as { id: number; categorie: string | null }[];
-    for (const row of chunk) map.set(row.id, row.categorie);
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-  return map;
 }
 
 // Choisit le prochain "lot de travail" (jusqu'a tailleLot lignes article+lot

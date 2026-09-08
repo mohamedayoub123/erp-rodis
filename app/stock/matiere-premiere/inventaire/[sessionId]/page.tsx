@@ -106,6 +106,7 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
 
   const totalBon = lignes.filter((l) => l.statut === "bon").length;
   const totalEcarts = lignes.filter((l) => l.statut === "ecart_confirme" || l.statut === "regularise").length;
+  const pendingCount = lignes.filter((l) => l.statut === "a_compter").length;
 
   const scopeLabel =
     session.categories_filtre && session.categories_filtre.length > 0
@@ -131,7 +132,8 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
                   {session.statut === "annule" ? "Annulee" : "Terminee"} le {formatDateTime(session.termine_at)}.
                 </p>
                 <p className="mt-1 text-sm font-semibold text-slate-700">
-                  {lignes.length} lot(s) - {totalBon} bon(s), {totalEcarts} ecart(s)
+                  {lignes.length} lot(s) assigne(s) - {totalBon} bon(s), {totalEcarts} ecart(s)
+                  {pendingCount > 0 ? `, ${pendingCount} jamais compte(s)` : ""}
                 </p>
               </div>
               <BackButton href="/stock/matiere-premiere/inventaire" label="Retour" />
@@ -242,7 +244,8 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
                 {session.cree_par || "-"}. Lots de {session.taille_lot}.
               </p>
               <p className="mt-1 text-sm font-semibold text-slate-700">
-                {lignes.length} lot(s) traites - {totalBon} bon(s), {totalEcarts} ecart(s)
+                {lignes.length - pendingCount} compte(s) sur {lignes.length} assigne(s) - {totalBon} bon(s),{" "}
+                {totalEcarts} ecart(s){pendingCount > 0 ? ` - ${pendingCount} restant(s) a compter` : ""}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -317,13 +320,20 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
             <ul className="mt-3 divide-y divide-slate-100">
               {doneInBatch.map((ligne) => {
                 const article = articleById.get(ligne.article_id);
+                const dernierComptage = ligne.compte_3 ?? ligne.compte_2 ?? ligne.compte_1;
                 return (
                   <li key={ligne.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                     <div>
                       <p className="font-medium text-slate-800">{article?.nom_article || `Article #${ligne.article_id}`}</p>
                       <p className="text-xs text-slate-500">Lot {ligne.numero_lot}</p>
                     </div>
-                    <StatutBadge statut={ligne.statut} />
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-slate-600">
+                        Compte : {dernierComptage !== null ? formatNumber(dernierComptage) : "-"}
+                        {article?.unite ? ` ${article.unite}` : ""}
+                      </span>
+                      <StatutBadge statut={ligne.statut} />
+                    </div>
                   </li>
                 );
               })}
