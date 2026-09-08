@@ -92,25 +92,14 @@ type RapportRow = {
   ordre: number;
   // Rempli uniquement quand l'ORDRE de cette ligne a ete change depuis
   // l'appli (voir saveRapportGammeStatistiqueAction) - sert de departage
-  // pour les lignes qui partagent le meme ORDRE (voir compareOrdreUpdatedAt
-  // plus bas) : NULL = jamais deplacee, une date = deplacee, plus recente
-  // = deplacee plus tard.
+  // pour les lignes qui partagent le meme ORDRE (la requete Supabase trie
+  // dessus, NULL en premier) : NULL = jamais deplacee, une date = deplacee,
+  // plus recente = deplacee plus tard.
   ordre_updated_at: string | null;
   designation: string;
   categorie: string | null;
   donnees: Record<string, string | number | null>;
 };
-
-// Departage entre 2 lignes de meme ORDRE : celle jamais deplacee (NULL)
-// vient en premier, entre 2 lignes deplacees la plus ancienne d'abord -
-// une ligne qu'on vient de deplacer sur un numero existant doit toujours
-// finir APRES les lignes deja presentes sur ce numero, jamais avant.
-function compareOrdreUpdatedAt(a: string | null, b: string | null): number {
-  if (a === b) return 0;
-  if (a === null) return -1;
-  if (b === null) return 1;
-  return a < b ? -1 : 1;
-}
 
 const ARTICLES_MP_COLUMNS = "id, nom_article, categorie, unite, gamme, gamme_statistique, min_stock, max_stock";
 
@@ -132,7 +121,7 @@ async function fetchAllArticlesMp() {
 
   // Pages restantes EN PARALLELE (meme technique que fetchAllRows) au lieu
   // d'une boucle sequentielle - cette liste d'articles est chargee a
-  // CHAQUE ouverture de la page, pas seulement pour "Tous".
+  // CHAQUE ouverture de la page.
   if (rows.length >= pageSize && total > pageSize) {
     const remainingPages = Math.ceil((total - pageSize) / pageSize);
     const pageResults = await Promise.all(
@@ -176,6 +165,7 @@ type ImportRow = {
 type LiveAggregates = {
   stockByArticleId: Map<number, number>;
   conso12MoisByArticleId: Map<number, number>;
+  consoMoisDernierByArticleId: Map<number, number>;
   openBcLignesByArticleId: Map<
     number,
     { quantite: number; nDoss4d: string | null; nDossErp: string | null; date_jour: string | null }[]
@@ -187,9 +177,7 @@ type LiveAggregates = {
 };
 
 // Calcule stock/BC en cours/4D en cours a partir des lignes brutes deja
-// chargees - AUCUN appel reseau ici, pur calcul en memoire. Extrait pour
-// pouvoir etre execute UNE SEULE FOIS sur l'union de toutes les gammes
-// (vue "Tous") au lieu d'une fois par gamme (jusqu'a 25x avant).
+// chargees - AUCUN appel reseau ici, pur calcul en memoire.
 function computeLiveAggregates(
   lotsRows: LotRow[],
   bcLignes: BcLigneRow[],
@@ -204,6 +192,20 @@ function computeLiveAggregates(
   const douzeMoisAvant = new Date();
   douzeMoisAvant.setDate(douzeMoisAvant.getDate() - 365);
   const douzeMoisAvantIso = douzeMoisAvant.toISOString().slice(0, 10);
+
+  // Conso 1 mois (MP COSM, "rolling12mois" - voir gamme-config.ts) = les
+  // vraies sorties de stock du DERNIER MOIS CALENDAIRE COMPLET (pas une
+  // moyenne sur 12 mois glissants) - demande explicite, la moyenne ne
+  // reflete pas assez vite un mois recent plus fort ou plus faible.
+  const consoMoisDernierByArticleId = new Map<number, number>();
+  const maintenant = new Date();
+  const debutMoisCourantIso = new Date(maintenant.getFullYear(), maintenant.getMonth(), 1)
+    .toISOString()
+    .slice(0, 10);
+  const debutMoisDernierIso = new Date(maintenant.getFullYear(), maintenant.getMonth() - 1, 1)
+    .toISOString()
+    .slice(0, 10);
+
   for (const lot of lotsRows) {
     if (!lot.article_id) continue;
     const mouvement = Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0);
@@ -213,6 +215,13 @@ function computeLiveAggregates(
       conso12MoisByArticleId.set(
         lot.article_id,
         (conso12MoisByArticleId.get(lot.article_id) ?? 0) + Number(lot.qte_sortie ?? 0)
+      );
+    }
+
+    if (lot.date_jour && lot.date_jour >= debutMoisDernierIso && lot.date_jour < debutMoisCourantIso) {
+      consoMoisDernierByArticleId.set(
+        lot.article_id,
+        (consoMoisDernierByArticleId.get(lot.article_id) ?? 0) + Number(lot.qte_sortie ?? 0)
       );
     }
   }
@@ -298,7 +307,13 @@ function computeLiveAggregates(
     openBcLignesByArticleId.set(ligne.article_id, list);
   }
 
-  return { stockByArticleId, conso12MoisByArticleId, openBcLignesByArticleId, open4dByArticleId };
+  return {
+    stockByArticleId,
+    conso12MoisByArticleId,
+    consoMoisDernierByArticleId,
+    openBcLignesByArticleId,
+    open4dByArticleId,
+  };
 }
 
 // Associe chaque ligne de rapport (une gamme) a ses donnees live, a partir
@@ -311,7 +326,13 @@ function mapRapportRowsToLive(
   aggregates: LiveAggregates
 ): RapportRowWithLive[] {
   const gammeConfig = GAMME_CONFIGS[gammeKey];
-  const { stockByArticleId, conso12MoisByArticleId, openBcLignesByArticleId, open4dByArticleId } = aggregates;
+  const {
+    stockByArticleId,
+    conso12MoisByArticleId,
+    consoMoisDernierByArticleId,
+    openBcLignesByArticleId,
+    open4dByArticleId,
+  } = aggregates;
 
   const liveDataByRapportRowId = new Map<number, RapportRowWithLive["live"]>();
   for (const row of rapportRows) {
@@ -331,11 +352,14 @@ function mapRapportRowsToLive(
     const statistique4d6Mois = Number(row.donnees?.[gammeConfig?.statistiqueKey ?? ""] ?? 0);
     const conso12Mois = conso12MoisByArticleId.get(articleId) ?? 0;
     // conso 1/4/9 mois : deux formules possibles selon la gamme (voir
-    // gamme-config.ts) - MP COSM se base sur les vraies sorties de stock des
-    // 12 derniers mois glissants, ELIXIR sur sa propre formule Excel
+    // gamme-config.ts) - MP COSM se base sur les vraies sorties de stock du
+    // dernier mois calendaire complet, ELIXIR sur sa propre formule Excel
     // (statistique 4D 6mois / 6), trouvee telle quelle dans son fichier
     // source.
-    const conso1Mois = gammeConfig?.consoFormula === "excel6mois" ? statistique4d6Mois / 6 : conso12Mois / 12;
+    const conso1Mois =
+      gammeConfig?.consoFormula === "excel6mois"
+        ? statistique4d6Mois / 6
+        : consoMoisDernierByArticleId.get(articleId) ?? 0;
     liveDataByRapportRowId.set(row.id, {
       gamme: article.gamme ?? null,
       stock,
@@ -402,8 +426,7 @@ function matchedArticleIdsForRows(
 }
 
 // Charge lots/BC/import pour un ensemble d'article ids donne - un seul jeu
-// de requetes, reutilisable aussi bien pour une gamme que pour l'union de
-// toutes les gammes (vue "Tous").
+// de requetes pour les articles de la gamme selectionnee.
 async function fetchLiveAggregatesForArticles(
   articleIds: number[],
   statutByDossier: Map<string, { statut: string; datePrevueReception: string | null }>
@@ -412,6 +435,7 @@ async function fetchLiveAggregatesForArticles(
     return {
       stockByArticleId: new Map(),
       conso12MoisByArticleId: new Map(),
+      consoMoisDernierByArticleId: new Map(),
       openBcLignesByArticleId: new Map(),
       open4dByArticleId: new Map(),
     };
@@ -449,8 +473,7 @@ async function fetchLiveAggregatesForArticles(
 }
 
 // Construit les lignes + donnees live d'UNE gamme (utilise pour l'affichage
-// d'une seule gamme selectionnee, pas pour "Tous" qui partage les requetes
-// entre gammes - voir buildAllGammeSections plus bas).
+// d'une seule gamme selectionnee).
 async function buildRapportRowsWithLive(
   gammeKey: string,
   articleByNormalizedName: Map<string, ArticleMpRow>,
@@ -469,53 +492,6 @@ async function buildRapportRowsWithLive(
   const matchedArticleIds = matchedArticleIdsForRows(rapportRows, articleByNormalizedName);
   const aggregates = await fetchLiveAggregatesForArticles(matchedArticleIds, statutByDossier);
   return mapRapportRowsToLive(rapportRows, gammeKey, articleByNormalizedName, articleById, aggregates);
-}
-
-// Construit TOUS les tableaux de gamme d'un coup ("Tous") - une seule
-// requete rapport_gamme_statistique_mp (filtree sur toutes les gammes a la
-// fois) et une seule requete lots/BC/import (sur l'union des articles de
-// toutes les gammes), au lieu de refaire ce jeu de requetes une fois par
-// gamme (jusqu'a 25x avant, c'est ce qui rendait l'ouverture tres lente).
-async function buildAllGammeSections(
-  gammeKeys: string[],
-  articleByNormalizedName: Map<string, ArticleMpRow>,
-  articleById: Map<number, ArticleMpRow>,
-  statutByDossier: Map<string, { statut: string; datePrevueReception: string | null }>
-): Promise<{ gammeKey: string; rows: RapportRowWithLive[] }[]> {
-  if (gammeKeys.length === 0) return [];
-
-  const rapportRowsAll = await fetchAllRows<RapportRow>(
-    "rapport_gamme_statistique_mp",
-    "id, ordre, ordre_updated_at, designation, categorie, donnees, gamme_statistique",
-    (query) => query.in("gamme_statistique", gammeKeys)
-  );
-  const rapportRowsByGamme = new Map<string, RapportRow[]>();
-  for (const row of rapportRowsAll as (RapportRow & { gamme_statistique: string })[]) {
-    const list = rapportRowsByGamme.get(row.gamme_statistique) ?? [];
-    list.push(row);
-    rapportRowsByGamme.set(row.gamme_statistique, list);
-  }
-  // Meme tri que la requete par gamme - .in(...) ne trie pas par groupe,
-  // chaque liste doit etre re-triee elle-meme.
-  for (const list of rapportRowsByGamme.values()) {
-    list.sort(
-      (a, b) => a.ordre - b.ordre || compareOrdreUpdatedAt(a.ordre_updated_at, b.ordre_updated_at) || a.id - b.id
-    );
-  }
-
-  const matchedArticleIds = matchedArticleIdsForRows(rapportRowsAll, articleByNormalizedName);
-  const aggregates = await fetchLiveAggregatesForArticles(matchedArticleIds, statutByDossier);
-
-  return gammeKeys.map((gammeKey) => ({
-    gammeKey,
-    rows: mapRapportRowsToLive(
-      rapportRowsByGamme.get(gammeKey) ?? [],
-      gammeKey,
-      articleByNormalizedName,
-      articleById,
-      aggregates
-    ),
-  }));
 }
 
 type SearchParams = Promise<{
@@ -624,12 +600,8 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
     ? allArticles.filter((article) => (article.gamme_statistique || "").trim() === gammeStatistique)
     : [];
 
-  // Donnees partagees par TOUTES les gammes (article par nom/id, statut des
-  // dossiers import) - calculees/chargees UNE SEULE FOIS ici au lieu
-  // qu'avant chaque appel a buildRapportRowsWithLive ne refasse le meme
-  // travail (jusqu'a 25 fois pour "Tous", dont un re-telechargement complet
-  // de toute la table dossiers_import_mp_statut a chaque fois) : c'est ce
-  // qui rendait l'ouverture de la page tres lente.
+  // Article par nom/id, statut des dossiers import - calcules une fois ici
+  // a partir des listes deja chargees, puis passes a buildRapportRowsWithLive.
   const articleByNormalizedName = new Map<string, ArticleMpRow>();
   const articleById = new Map<number, ArticleMpRow>();
   for (const article of allArticles) {
@@ -643,19 +615,6 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
       datePrevueReception: row.date_prevue_reception,
     });
   }
-
-  // "Tous" affiche TOUS les tableaux de gamme a la suite (pas juste un
-  // resume) - construit chaque gamme en parallele pour rester raisonnable
-  // malgre le nombre de gammes.
-  const allGammeSections =
-    gammeStatistique === "" && !fetchError
-      ? await buildAllGammeSections(
-          gammeStatistiqueButtons.map(([value]) => value),
-          articleByNormalizedName,
-          articleById,
-          statutByDossier
-        )
-      : [];
 
   const rowsWithLive: RapportRowWithLive[] =
     gammeStatistique && !fetchError
@@ -703,17 +662,6 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
                 Gamme Statistique
               </p>
               <div className="flex flex-wrap gap-2">
-                <Link
-                  href="/stock/matiere-premiere/statistique"
-                  prefetch={false}
-                  className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition hover:opacity-90 ${
-                    gammeStatistique === ""
-                      ? "bg-slate-900 text-white"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  }`}
-                >
-                  Tous
-                </Link>
                 {gammeStatistiqueButtons.map(([value, count]) => (
                   <Link
                     key={value}
@@ -740,26 +688,11 @@ export default async function StatistiqueMpPage({ searchParams }: { searchParams
                     </p>
                   </section>
                 ) : null}
-                {allGammeSections.map(({ gammeKey, rows }) => (
-                  <div key={gammeKey} className="space-y-4">
-                    <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-                      <p className="text-lg font-bold text-red-700">
-                        {gammeKey} mis a jour le {todayLabel}
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-red-700">
-                        Date: {todayLabel} Stock supérieur à 1an de conso noté en rouge
-                      </p>
-                    </section>
-                    <RapportTable
-                      gammeStatistique={gammeKey}
-                      rows={rows}
-                      canEdit={canEdit}
-                      saveAction={saveRapportGammeStatistiqueAction}
-                      addAction={addRapportGammeStatistiqueRowAction}
-                      articleOptions={articleOptionsForGamme(allArticles, rows)}
-                    />
-                  </div>
-                ))}
+                <section className="rounded-[1.75rem] border border-black/5 bg-white p-8 text-center shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                  <p className="text-sm text-slate-600">
+                    Choisis une gamme statistique ci-dessus pour voir son tableau.
+                  </p>
+                </section>
               </>
             ) : rowsWithLive.length > 0 ? (
               <>
