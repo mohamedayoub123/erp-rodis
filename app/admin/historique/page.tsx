@@ -303,6 +303,7 @@ const MODULE_OPTIONS = [
   "ProgrammeDispatcherLignes",
   "ProgrammeDispatcherHistory",
   "StatistiqueMp",
+  "InventaireMp",
 ];
 
 type SearchParams = Promise<{

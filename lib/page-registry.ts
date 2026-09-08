@@ -244,6 +244,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: true,
   },
   {
+    key: "inventaireMp",
+    module: "Stock",
+    label: "Inventaire MP (comptage physique)",
+    pathPrefixes: ["/stock/matiere-premiere/inventaire"],
+    hasWrite: true,
+  },
+  {
     key: "commandeMp",
     module: "Stock",
     label: "Import MP (vue calculee, reception, statut dossier)",
@@ -940,6 +947,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockDormantMp",
   "stockPlastiqueMp",
   "statistiqueMp",
+  "inventaireMp",
   "commandeMp",
   "commandeBcMp",
   "commandeBcMpNouvelle",
