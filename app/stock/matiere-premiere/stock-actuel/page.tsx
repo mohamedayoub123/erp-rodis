@@ -18,6 +18,8 @@ type StockActuelMpRpcRow = {
   codes: string[] | null;
 };
 
+type ArticleGammeRow = { id: number; gamme: string | null };
+
 type BcLigneRow = {
   id: number;
   article_id: number | null;
@@ -53,9 +55,9 @@ type StockRow = {
   article_id: number;
   nom_article: string;
   categorie: string | null;
+  gamme: string | null;
   unite: string | null;
   stock_actuel: number;
-  codes: string[];
   bcRefs: BcRef[];
   importRefs: DossierRef[];
 };
@@ -84,6 +86,33 @@ async function fetchStockActuelMp() {
     if (error) return { rows: [] as StockActuelMpRpcRow[], error };
     const chunk = (data ?? []) as StockActuelMpRpcRow[];
     rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { rows, error: null };
+}
+
+// La gamme n'est pas renvoyee par stock_actuel_mp_rows (fonction SQL,
+// scripts/sql/add_stock_actuel_rpcs.sql) - recuperee a part et fusionnee
+// en memoire par article_id, meme principe que bcRefsByArticle/
+// importRefsByArticle plus bas.
+async function fetchGammeByArticleId() {
+  const rows: ArticleGammeRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("id, gamme")
+      .range(from, from + pageSize - 1);
+
+    if (error) return { rows, error };
+
+    const chunk = (data ?? []) as ArticleGammeRow[];
+    rows.push(...chunk);
+
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
@@ -145,23 +174,30 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ article?: string; code?: string; categorie?: string }>;
+type SearchParams = Promise<{ article?: string; gamme?: string; categorie?: string }>;
 
 export default async function StockActuelMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
   const params = await searchParams;
   const articleFilter = (params.article || "").trim();
-  const codeFilter = (params.code || "").trim().toLowerCase();
+  const gammeFilter = (params.gamme || "").trim().toLowerCase();
   const categorieFilter = (params.categorie || "").trim().toLowerCase();
-  const hasFilters = Boolean(articleFilter || codeFilter || categorieFilter);
+  const hasFilters = Boolean(articleFilter || gammeFilter || categorieFilter);
 
   const [
     { rows: articles, error: articlesError },
+    { rows: gammeRows, error: gammeError },
     { rows: bcLignes, error: bcError },
     { rows: importEvenements, error: importError },
-  ] = await Promise.all([fetchStockActuelMp(), fetchAllBcLignes(), fetchAllImportEvenements()]);
+  ] = await Promise.all([
+    fetchStockActuelMp(),
+    fetchGammeByArticleId(),
+    fetchAllBcLignes(),
+    fetchAllImportEvenements(),
+  ]);
 
-  const error = articlesError || bcError || importError;
+  const error = articlesError || gammeError || bcError || importError;
+  const gammeByArticleId = new Map(gammeRows.map((row) => [row.id, row.gamme]));
 
   // "Qte importee TOTALE" (tous evenements confondus, receptionnes ou pas)
   // sert uniquement a calculer le statut (voir computeStatutBc) - a ne pas
@@ -229,14 +265,14 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
       article_id: article.article_id,
       nom_article: article.nom_article,
       categorie: article.categorie,
+      gamme: gammeByArticleId.get(article.article_id) ?? null,
       unite: article.unite,
       stock_actuel: Number(article.stock_actuel ?? 0),
-      codes: article.codes ?? [],
       bcRefs: bcRefsByArticle.get(article.article_id) ?? [],
       importRefs: [...(importRefsByArticle.get(article.article_id)?.values() ?? [])],
     }))
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
-    .filter((row) => !codeFilter || row.codes.some((code) => code.toLowerCase().includes(codeFilter)))
+    .filter((row) => !gammeFilter || (row.gamme || "").toLowerCase().includes(gammeFilter))
     .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
@@ -247,13 +283,14 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
   const categorieOptions = ([...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]).map(
     (label, id) => ({ id, label })
   );
-  const codeOptions = [...new Set(articles.flatMap((article) => article.codes ?? []))]
+  const gammeOptions = ([...new Set(gammeRows.map((row) => row.gamme).filter(Boolean))] as string[])
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
     .map((label, id) => ({ id, label }));
 
   const exportColumns = [
     { label: "Article", key: "article" },
     { label: "Categorie", key: "categorie" },
+    { label: "Gamme", key: "gamme" },
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stockActuel" },
     { label: "Commande (BC)", key: "commandeBc" },
@@ -263,6 +300,7 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
   const exportRows = stockRows.map((row) => ({
     article: row.nom_article,
     categorie: row.categorie || "-",
+    gamme: row.gamme || "-",
     unite: row.unite || "-",
     stockActuel: row.stock_actuel,
     commandeBc: row.bcRefs.length
@@ -312,10 +350,10 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
               placeholder="Article..."
             />
             <SearchableFilterInput
-              name="code"
-              defaultValue={params.code || ""}
-              options={codeOptions}
-              placeholder="Code (numero de lot)"
+              name="gamme"
+              defaultValue={params.gamme || ""}
+              options={gammeOptions}
+              placeholder="Gamme..."
             />
             <SearchableFilterInput
               name="categorie"
@@ -360,6 +398,7 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
                   <tr>
                     <th className="px-6 py-4 font-semibold">Article</th>
                     <th className="px-6 py-4 font-semibold">Categorie</th>
+                    <th className="px-6 py-4 font-semibold">Gamme</th>
                     <th className="px-6 py-4 font-semibold">Unite</th>
                     <th className="px-6 py-4 font-semibold">Stock actuel</th>
                     <th className="px-6 py-4 font-semibold">Commande (BC)</th>
@@ -371,6 +410,7 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
                     <tr key={row.article_id} className="border-t border-slate-100 align-top">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.gamme || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4">
                         <span
