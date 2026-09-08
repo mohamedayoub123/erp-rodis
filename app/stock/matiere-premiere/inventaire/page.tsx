@@ -197,6 +197,15 @@ export default async function InventaireMpPage() {
             <ul className="mt-3 divide-y divide-slate-100">
               {activeSessions.map((s) => {
                 const stats = statsBySession.get(s.id) ?? { total: 0, bon: 0, ecarts: 0 };
+                const total = scopeTotal(
+                  s.categories_filtre,
+                  s.gammes_filtre,
+                  categorieCounts,
+                  gammeCounts,
+                  totalLotsCount ?? 0
+                );
+                const assigned = stats.total;
+                const restant = Math.max(0, total - assigned);
                 return (
                   <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
                     <Link href={`/stock/matiere-premiere/inventaire/${s.id}`} className="flex-1 hover:opacity-80">
@@ -204,16 +213,9 @@ export default async function InventaireMpPage() {
                         Inventaire {rankById.get(s.id) ?? s.id} - {scopeLabel(s.categories_filtre, s.gammes_filtre)}
                       </p>
                       <p className="text-slate-500">
-                        Ouvert le {formatDateTime(s.created_at)} par {s.cree_par || "-"} - {stats.bon + stats.ecarts}{" "}
-                        compte(s) sur{" "}
-                        {scopeTotal(
-                          s.categories_filtre,
-                          s.gammes_filtre,
-                          categorieCounts,
-                          gammeCounts,
-                          totalLotsCount ?? 0
-                        )}{" "}
-                        au total dans ce perimetre - {stats.bon} bon(s), {stats.ecarts} ecart(s)
+                        Ouvert le {formatDateTime(s.created_at)} par {s.cree_par || "-"} - {assigned} lot(s) en cours
+                        sur {total} au total dans ce perimetre ({restant} pas encore distribue(s)) -{" "}
+                        {stats.bon + stats.ecarts} compte(s), {stats.bon} bon(s), {stats.ecarts} ecart(s)
                       </p>
                     </Link>
                     {peutDemarrer ? (

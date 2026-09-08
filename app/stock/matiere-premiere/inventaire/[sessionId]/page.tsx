@@ -292,8 +292,9 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
                 {session.taille_lot}.
               </p>
               <p className="mt-1 text-sm font-semibold text-slate-700">
-                {lignes.length - pendingCount} compte(s) sur {totalLotsScope} au total dans ce perimetre (
-                {lignes.length} deja assigne(s)) - {totalBon} bon(s), {totalEcarts} ecart(s)
+                {lignes.length} lot(s) en cours sur {totalLotsScope} au total dans ce perimetre (
+                {Math.max(0, totalLotsScope - lignes.length)} pas encore distribue(s)) - {lignes.length - pendingCount}{" "}
+                compte(s), {totalBon} bon(s), {totalEcarts} ecart(s)
                 {pendingCount > 0 ? ` - ${pendingCount} restant(s) a compter dans ce lot` : ""}
               </p>
             </div>

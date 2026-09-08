@@ -265,8 +265,9 @@ export default async function InventairePfPage() {
                 {activeSession.taille_lot}.
               </p>
               <p className="mt-1 text-sm font-semibold text-slate-700">
-                {totalCompte} compte(s) sur {lignes.length} assigne(s) ({totalLotsCount ?? 0} au total) -{" "}
-                {totalBon} bon(s), {totalEcarts} ecart(s)
+                {lignes.length} lot(s) en cours sur {totalLotsCount ?? 0} au total (
+                {Math.max(0, (totalLotsCount ?? 0) - lignes.length)} pas encore distribue(s)) - {totalCompte}{" "}
+                compte(s), {totalBon} bon(s), {totalEcarts} ecart(s)
                 {pendingTotal > 0 ? ` - ${pendingTotal} restant(s) a compter` : ""}
               </p>
             </div>
