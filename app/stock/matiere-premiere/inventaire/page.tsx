@@ -98,7 +98,7 @@ export default async function InventaireMpPage() {
 
     return (
       <main className="min-h-screen bg-[linear-gradient(180deg,#f0fdf4_0%,#fbfffc_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
-        <div className="mx-auto w-full max-w-4xl space-y-6">
+        <div className="mx-auto w-full space-y-6">
           <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
@@ -235,33 +235,36 @@ export default async function InventaireMpPage() {
               Compte physiquement chaque lot ci-dessous et rentre la quantite trouvee - le stock systeme n&apos;est
               pas affiche pour un comptage a l&apos;aveugle.
             </p>
-            <form action={soumettreComptageAction} className="mt-4 space-y-3">
+            <form action={soumettreComptageAction} className="mt-4 space-y-4">
               <input type="hidden" name="session_id" value={activeSession.id} />
-              {pendingInBatch.map((ligne) => {
-                const article = articleById.get(ligne.article_id);
-                return (
-                  <div
-                    key={ligne.id}
-                    className="grid grid-cols-1 items-center gap-2 rounded-2xl border border-slate-200 p-3 sm:grid-cols-[1fr_10rem_10rem]"
-                  >
-                    <input type="hidden" name="ligne_id" value={ligne.id} />
-                    <div>
-                      <p className="font-semibold text-slate-900">{article?.nom_article || `Article #${ligne.article_id}`}</p>
-                      <p className="text-xs text-slate-500">
-                        Lot {ligne.numero_lot} - {attemptLabel(ligne.nombre_comptages)}
-                      </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {pendingInBatch.map((ligne) => {
+                  const article = articleById.get(ligne.article_id);
+                  return (
+                    <div key={ligne.id} className="flex flex-col gap-2 rounded-2xl border border-slate-200 p-3">
+                      <input type="hidden" name="ligne_id" value={ligne.id} />
+                      <div>
+                        <p className="font-semibold text-slate-900">
+                          {article?.nom_article || `Article #${ligne.article_id}`}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Lot {ligne.numero_lot} - {attemptLabel(ligne.nombre_comptages)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          name={`compte_${ligne.id}`}
+                          placeholder="Qte comptee"
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <span className="text-sm text-slate-500">{article?.unite || ""}</span>
+                      </div>
                     </div>
-                    <div className="text-sm text-slate-500">{article?.unite || ""}</div>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      name={`compte_${ligne.id}`}
-                      placeholder="Qte comptee"
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
               <button
                 type="submit"
                 className="rounded-full bg-emerald-600 px-5 py-2.5 text-[15px] font-semibold text-white shadow-sm transition hover:opacity-90"

@@ -40,6 +40,13 @@ const TILES = [
     description: "En attente de configuration.",
   },
   {
+    label: "Inventaire",
+    href: "/stock/matiere-premiere/inventaire",
+    pageKey: "inventaireMp",
+    icon: "\u{1F4DD}",
+    description: "Comptage physique du stock, lot par lot, en aveugle.",
+  },
+  {
     label: "Import",
     href: "/stock/matiere-premiere/commande",
     pageKey: "commandeMp",
