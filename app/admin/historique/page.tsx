@@ -302,6 +302,7 @@ const MODULE_OPTIONS = [
   "ProductionCartonEntries",
   "ProgrammeDispatcherLignes",
   "ProgrammeDispatcherHistory",
+  "StatistiqueMp",
 ];
 
 type SearchParams = Promise<{

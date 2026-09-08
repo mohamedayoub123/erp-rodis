@@ -3,8 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { logAudit } from "@/lib/audit-log";
 import { GAMME_CONFIGS } from "./gamme-config";
 import { editableFieldName } from "./field-name";
+import { statistiqueChangedKeys } from "./audit-diff";
+
+// "Gamme - Designation", identifiant lisible et cherchable (audit_log.cible)
+// pour un article d'une gamme statistique - utilise a la fois pour l'affichage
+// et pour filtrer l'historique par gamme (voir historique/page.tsx).
+function statistiqueMpCible(gammeStatistique: string, designation: string) {
+  return `${gammeStatistique} - ${designation}`;
+}
 
 // Enregistre les colonnes "editable-*" de la config de la gamme (les seuls
 // champs saisis a la main sur ce rapport) pour toutes les lignes soumises
@@ -37,6 +46,19 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
     .getAll("row_id")
     .map((value) => Number(value))
     .filter((id) => Number.isFinite(id) && id > 0);
+
+  // Etat avant sauvegarde, pour ne journaliser (voir logAudit plus bas) que
+  // les lignes reellement changees - le formulaire soumet TOUTES les lignes
+  // affichees a chaque "Enregistrer", pas seulement celles touchees.
+  const { data: avantRowsData } = await supabaseServer
+    .from("rapport_gamme_statistique_mp")
+    .select("id, designation, donnees, ordre")
+    .in("id", rowIds);
+  const avantById = new Map(
+    ((avantRowsData ?? []) as { id: number; designation: string; donnees: Record<string, unknown>; ordre: number }[]).map(
+      (row) => [row.id, row]
+    )
+  );
 
   const updates = rowIds.map((id) => {
     let donnees: Record<string, unknown> = {};
@@ -114,6 +136,28 @@ export async function saveRapportGammeStatistiqueAction(formData: FormData) {
     if (failed?.error) throw new Error(failed.error.message);
   }
 
+  // Une entree par ligne reellement modifiee (donnees ou ordre) - jamais
+  // pour les lignes soumises sans changement, sinon chaque "Enregistrer"
+  // noierait l'historique de tout le tableau.
+  for (const update of updates) {
+    const avant = avantById.get(update.id);
+    if (!avant) continue;
+
+    const changedKeys = statistiqueChangedKeys(avant.donnees, update.donnees);
+    if (changedKeys.length === 0 && !update.ordreChanged) continue;
+
+    const ordreApres = update.ordre !== null ? update.ordre : avant.ordre;
+    await logAudit({
+      utilisateur: currentUser,
+      module: "StatistiqueMp",
+      action: "modification",
+      cible: statistiqueMpCible(gammeStatistique, avant.designation),
+      resume: `${avant.designation} (${gammeStatistique}) modifie`,
+      avant: { ...avant.donnees, ordre: avant.ordre },
+      apres: { ...update.donnees, ordre: ordreApres },
+    });
+  }
+
   if (gammeStatistique) {
     revalidatePath(
       `/stock/matiere-premiere/statistique?gammeStatistique=${encodeURIComponent(gammeStatistique)}`
@@ -184,6 +228,15 @@ export async function addRapportGammeStatistiqueRowAction(formData: FormData) {
     donnees: {},
   });
   if (insertError) throw new Error(insertError.message);
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "StatistiqueMp",
+    action: "creation",
+    cible: statistiqueMpCible(gammeStatistique, article.nom_article),
+    resume: `${article.nom_article} ajoute a la gamme ${gammeStatistique}`,
+    apres: { gamme_statistique: gammeStatistique, designation: article.nom_article },
+  });
 
   if (gammeStatistique) {
     revalidatePath(
