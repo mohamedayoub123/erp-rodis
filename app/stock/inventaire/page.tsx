@@ -5,10 +5,10 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDateTime } from "@/lib/format-date";
 import { AnnulerInventaireButton } from "@/app/_components/annuler-inventaire-button";
 import {
-  demarrerInventaireMpAction,
-  soumettreComptageAction,
-  regulariserLigneAction,
-  annulerInventaireMpAction,
+  demarrerInventairePfAction,
+  soumettreComptagePfAction,
+  regulariserLignePfAction,
+  annulerInventairePfAction,
 } from "./actions";
 
 type SessionRow = {
@@ -34,8 +34,6 @@ type LigneRow = {
   regularise_par: string | null;
 };
 
-type ArticleInfo = { nom_article: string; unite: string | null };
-
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
@@ -57,25 +55,25 @@ function StatutBadge({ statut }: { statut: LigneRow["statut"] }) {
   return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${className}`}>{label}</span>;
 }
 
-export default async function InventaireMpPage() {
+export default async function InventairePfPage() {
   noStore();
 
   const { data: activeSessionData } = await supabaseServer
-    .from("inventaire_mp_sessions")
+    .from("inventaire_pf_sessions")
     .select("id, statut, taille_lot, cree_par, created_at, termine_at")
     .eq("statut", "en_cours")
     .maybeSingle();
   const activeSession = activeSessionData as SessionRow | null;
 
   const { count: totalLotsCount } = await supabaseServer.rpc(
-    "stock_mp_lot_balances",
+    "stock_pf_lot_balances",
     {},
     { count: "exact", head: true }
   );
 
   if (!activeSession) {
     const { data: historyData } = await supabaseServer
-      .from("inventaire_mp_sessions")
+      .from("inventaire_pf_sessions")
       .select("id, statut, taille_lot, cree_par, created_at, termine_at")
       .in("statut", ["termine", "annule"])
       .order("termine_at", { ascending: false })
@@ -86,7 +84,7 @@ export default async function InventaireMpPage() {
     const statsBySession = new Map<number, { total: number; bon: number; ecarts: number }>();
     if (historyIds.length > 0) {
       const { data: lignesHistData } = await supabaseServer
-        .from("inventaire_mp_lignes")
+        .from("inventaire_pf_lignes")
         .select("session_id, statut")
         .in("session_id", historyIds);
       for (const row of (lignesHistData as { session_id: number; statut: string }[] | null) ?? []) {
@@ -105,14 +103,14 @@ export default async function InventaireMpPage() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">ERP Rodis</p>
-                <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Inventaire MP</h1>
+                <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Inventaire PF</h1>
                 <p className="mt-2 text-sm text-slate-600">
-                  Comptage physique du stock, lot par lot, en aveugle. {totalLotsCount ?? 0} lot(s) au total en
-                  stock actuellement.
+                  Comptage physique du stock produit fini, lot par lot, en aveugle. {totalLotsCount ?? 0} lot(s) au
+                  total en stock actuellement.
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <BackButton href="/stock/matiere-premiere" label="Retour" />
+                <BackButton href="/gestion-stock-pf" label="Retour" />
                 <RefreshButton />
               </div>
             </div>
@@ -124,7 +122,7 @@ export default async function InventaireMpPage() {
               Choisis combien de lots te donner a la fois. Les articles qui bougent le plus seront distribues en
               premier. Une fois un lot de travail entierement compte, le suivant arrive automatiquement.
             </p>
-            <form action={demarrerInventaireMpAction} className="mt-4 flex flex-wrap items-end gap-3">
+            <form action={demarrerInventairePfAction} className="mt-4 flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1 text-sm text-slate-600">
                 Nombre de lots a la fois
                 <input
@@ -183,7 +181,7 @@ export default async function InventaireMpPage() {
   }
 
   const { data: lignesData } = await supabaseServer
-    .from("inventaire_mp_lignes")
+    .from("inventaire_pf_lignes")
     .select(
       "id, article_id, numero_lot, lot_numero, stock_systeme, compte_1, compte_2, compte_3, nombre_comptages, statut, regularise_par"
     )
@@ -194,13 +192,10 @@ export default async function InventaireMpPage() {
 
   const articleIds = [...new Set(lignes.map((l) => l.article_id))];
   const { data: articlesData } = articleIds.length
-    ? await supabaseServer.from("articles_matiere_premiere").select("id, nom_article, unite").in("id", articleIds)
+    ? await supabaseServer.from("articles").select("id, nom_article").in("id", articleIds)
     : { data: [] };
   const articleById = new Map(
-    ((articlesData as { id: number; nom_article: string; unite: string | null }[] | null) ?? []).map((a) => [
-      a.id,
-      { nom_article: a.nom_article, unite: a.unite } as ArticleInfo,
-    ])
+    ((articlesData as { id: number; nom_article: string }[] | null) ?? []).map((a) => [a.id, a.nom_article])
   );
 
   const maxLotNumero = lignes.reduce((max, l) => Math.max(max, l.lot_numero), 0);
@@ -221,7 +216,7 @@ export default async function InventaireMpPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">ERP Rodis</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Inventaire MP en cours</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Inventaire PF en cours</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Session #{activeSession.id} - demarree le {formatDateTime(activeSession.created_at)} par{" "}
                 {activeSession.cree_par || "-"}. Lots de {activeSession.taille_lot}.
@@ -231,9 +226,9 @@ export default async function InventaireMpPage() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <BackButton href="/stock/matiere-premiere" label="Retour" />
+              <BackButton href="/gestion-stock-pf" label="Retour" />
               <RefreshButton />
-              <form action={annulerInventaireMpAction}>
+              <form action={annulerInventairePfAction}>
                 <input type="hidden" name="session_id" value={activeSession.id} />
                 <AnnulerInventaireButton />
               </form>
@@ -248,32 +243,29 @@ export default async function InventaireMpPage() {
               Compte physiquement chaque lot ci-dessous et rentre la quantite trouvee - le stock systeme n&apos;est
               pas affiche pour un comptage a l&apos;aveugle.
             </p>
-            <form action={soumettreComptageAction} className="mt-4 space-y-4">
+            <form action={soumettreComptagePfAction} className="mt-4 space-y-4">
               <input type="hidden" name="session_id" value={activeSession.id} />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {pendingInBatch.map((ligne) => {
-                  const article = articleById.get(ligne.article_id);
+                  const nomArticle = articleById.get(ligne.article_id);
                   return (
                     <div key={ligne.id} className="flex flex-col gap-2 rounded-2xl border border-slate-200 p-3">
                       <input type="hidden" name="ligne_id" value={ligne.id} />
                       <div>
                         <p className="font-semibold text-slate-900">
-                          {article?.nom_article || `Article #${ligne.article_id}`}
+                          {nomArticle || `Article #${ligne.article_id}`}
                         </p>
                         <p className="text-xs text-slate-500">
                           Lot {ligne.numero_lot} - {attemptLabel(ligne.nombre_comptages)}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          name={`compte_${ligne.id}`}
-                          placeholder="Qte comptee"
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                        <span className="text-sm text-slate-500">{article?.unite || ""}</span>
-                      </div>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        name={`compte_${ligne.id}`}
+                        placeholder="Qte comptee"
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
                     </div>
                   );
                 })}
@@ -300,11 +292,11 @@ export default async function InventaireMpPage() {
             <h2 className="text-lg font-bold text-slate-900">Deja traites dans ce lot de travail</h2>
             <ul className="mt-3 divide-y divide-slate-100">
               {doneInBatch.map((ligne) => {
-                const article = articleById.get(ligne.article_id);
+                const nomArticle = articleById.get(ligne.article_id);
                 return (
                   <li key={ligne.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                     <div>
-                      <p className="font-medium text-slate-800">{article?.nom_article || `Article #${ligne.article_id}`}</p>
+                      <p className="font-medium text-slate-800">{nomArticle || `Article #${ligne.article_id}`}</p>
                       <p className="text-xs text-slate-500">Lot {ligne.numero_lot}</p>
                     </div>
                     <StatutBadge statut={ligne.statut} />
@@ -326,13 +318,13 @@ export default async function InventaireMpPage() {
             </p>
             <ul className="mt-3 divide-y divide-slate-100">
               {ecartsAConfirmer.map((ligne) => {
-                const article = articleById.get(ligne.article_id);
+                const nomArticle = articleById.get(ligne.article_id);
                 const dernierComptage = ligne.compte_3 ?? ligne.compte_2 ?? ligne.compte_1 ?? 0;
                 const ecart = dernierComptage - ligne.stock_systeme;
                 return (
                   <li key={ligne.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
                     <div>
-                      <p className="font-semibold text-slate-900">{article?.nom_article || `Article #${ligne.article_id}`}</p>
+                      <p className="font-semibold text-slate-900">{nomArticle || `Article #${ligne.article_id}`}</p>
                       <p className="text-xs text-slate-500">
                         Lot {ligne.numero_lot} - Systeme: {formatNumber(ligne.stock_systeme)} - Compte:{" "}
                         {formatNumber(dernierComptage)} -{" "}
@@ -342,7 +334,7 @@ export default async function InventaireMpPage() {
                         </span>
                       </p>
                     </div>
-                    <form action={regulariserLigneAction}>
+                    <form action={regulariserLignePfAction}>
                       <input type="hidden" name="ligne_id" value={ligne.id} />
                       <button
                         type="submit"

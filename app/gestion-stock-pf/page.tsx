@@ -26,6 +26,13 @@ const TILES = [
     description: "Liste des articles produit fini et matiere premiere.",
   },
   {
+    label: "Inventaire",
+    href: "/stock/inventaire",
+    pageKey: "inventairePf",
+    icon: "\u{1F4DD}",
+    description: "Comptage physique du stock, lot par lot, en aveugle.",
+  },
+  {
     label: "Mouvements",
     href: "/mouvements",
     pageKey: "mouvementsHub",

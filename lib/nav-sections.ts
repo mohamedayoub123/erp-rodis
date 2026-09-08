@@ -35,6 +35,7 @@ export const navItems: NavItem[] = [
     subLinks: [
       { href: "/stock", label: "Stock", pageKey: "stock" },
       { href: "/stock/rapport", label: "Rapport", pageKey: "stockRapportPf" },
+      { href: "/stock/inventaire", label: "Inventaire", pageKey: "inventairePf" },
       { href: "/articles", label: "Articles", pageKey: "articlesHub" },
       { href: "/mouvements", label: "Mouvements", pageKey: "mouvementsHub" },
       { href: "/commandes", label: "Commandes", pageKey: "commandesListe" },

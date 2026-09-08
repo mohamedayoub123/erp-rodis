@@ -25,8 +25,8 @@ type LigneRow = {
 
 async function requireInventaireWrite() {
   const currentUser = await getCurrentStockUser();
-  if (!(await canWritePageUser(currentUser, "inventaireMp"))) {
-    throw new Error("Cet utilisateur ne peut pas gerer l'inventaire MP.");
+  if (!(await canWritePageUser(currentUser, "inventairePf"))) {
+    throw new Error("Cet utilisateur ne peut pas gerer l'inventaire PF.");
   }
   return currentUser;
 }
@@ -36,7 +36,7 @@ async function fetchAllLotBalances(): Promise<LotBalanceRow[]> {
   let from = 0;
   const pageSize = 1000;
   for (;;) {
-    const { data, error } = await supabaseServer.rpc("stock_mp_lot_balances").range(from, from + pageSize - 1);
+    const { data, error } = await supabaseServer.rpc("stock_pf_lot_balances").range(from, from + pageSize - 1);
     if (error) throw new Error(error.message);
     const chunk = (data ?? []) as LotBalanceRow[];
     rows.push(...chunk);
@@ -51,7 +51,7 @@ async function fetchMovementCounts(): Promise<Map<number, number>> {
   let from = 0;
   const pageSize = 1000;
   for (;;) {
-    const { data, error } = await supabaseServer.rpc("mp_movement_counts").range(from, from + pageSize - 1);
+    const { data, error } = await supabaseServer.rpc("pf_movement_counts").range(from, from + pageSize - 1);
     if (error) throw new Error(error.message);
     const chunk = (data ?? []) as MovementCountRow[];
     rows.push(...chunk);
@@ -61,18 +61,42 @@ async function fetchMovementCounts(): Promise<Map<number, number>> {
   return new Map(rows.map((row) => [row.article_id, Number(row.mouvement_count)]));
 }
 
+// Articles produit fini reellement inventoriables - exclut le vrac (matiere
+// non conditionnee, non comptable physiquement comme un article fini),
+// meme regle que le reste du site (Tableau de commandes, etc.).
+async function fetchArticlesFiniIds(): Promise<Set<number>> {
+  const ids = new Set<number>();
+  let from = 0;
+  const pageSize = 1000;
+  for (;;) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id")
+      .eq("nature", "fini")
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const chunk = (data ?? []) as { id: number }[];
+    for (const row of chunk) ids.add(row.id);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+  return ids;
+}
+
 // Choisit le prochain "lot de travail" (jusqu'a tailleLot lignes article+lot
-// physique) : parmi tout ce qui a un stock systeme positif et n'a pas
-// encore ete distribue dans CETTE session, priorise l'article le plus
-// actif (mp_movement_counts) d'abord. Retourne le nombre de lignes creees -
-// 0 = plus rien a distribuer, la session peut etre cloturee.
+// physique) : parmi tout ce qui a un stock systeme positif (articles finis
+// seulement, jamais le vrac) et n'a pas encore ete distribue dans CETTE
+// session, priorise l'article le plus actif (pf_movement_counts) d'abord.
+// Retourne le nombre de lignes creees - 0 = plus rien a distribuer, la
+// session peut etre cloturee.
 async function distribuerProchainLot(sessionId: number, tailleLot: number): Promise<number> {
-  const [balances, movementCounts, assignedResult, maxLotResult] = await Promise.all([
+  const [balances, movementCounts, articlesFiniIds, assignedResult, maxLotResult] = await Promise.all([
     fetchAllLotBalances(),
     fetchMovementCounts(),
-    supabaseServer.from("inventaire_mp_lignes").select("article_id, numero_lot").eq("session_id", sessionId),
+    fetchArticlesFiniIds(),
+    supabaseServer.from("inventaire_pf_lignes").select("article_id, numero_lot").eq("session_id", sessionId),
     supabaseServer
-      .from("inventaire_mp_lignes")
+      .from("inventaire_pf_lignes")
       .select("lot_numero")
       .eq("session_id", sessionId)
       .order("lot_numero", { ascending: false })
@@ -86,7 +110,9 @@ async function distribuerProchainLot(sessionId: number, tailleLot: number): Prom
     )
   );
 
-  const restants = balances.filter((row) => !assignedKeys.has(`${row.article_id}::${row.numero_lot}`));
+  const restants = balances.filter(
+    (row) => articlesFiniIds.has(row.article_id) && !assignedKeys.has(`${row.article_id}::${row.numero_lot}`)
+  );
 
   restants.sort((a, b) => {
     const moveDiff = (movementCounts.get(b.article_id) ?? 0) - (movementCounts.get(a.article_id) ?? 0);
@@ -100,7 +126,7 @@ async function distribuerProchainLot(sessionId: number, tailleLot: number): Prom
 
   const nextLotNumero = Number((maxLotResult.data as { lot_numero: number } | null)?.lot_numero ?? 0) + 1;
 
-  const { error } = await supabaseServer.from("inventaire_mp_lignes").insert(
+  const { error } = await supabaseServer.from("inventaire_pf_lignes").insert(
     selection.map((row) => ({
       session_id: sessionId,
       article_id: row.article_id,
@@ -114,11 +140,11 @@ async function distribuerProchainLot(sessionId: number, tailleLot: number): Prom
   return selection.length;
 }
 
-export async function demarrerInventaireMpAction(formData: FormData) {
+export async function demarrerInventairePfAction(formData: FormData) {
   const currentUser = await requireInventaireWrite();
 
   const { data: activeSession } = await supabaseServer
-    .from("inventaire_mp_sessions")
+    .from("inventaire_pf_sessions")
     .select("id")
     .eq("statut", "en_cours")
     .maybeSingle();
@@ -133,7 +159,7 @@ export async function demarrerInventaireMpAction(formData: FormData) {
   }
 
   const { data: session, error } = await supabaseServer
-    .from("inventaire_mp_sessions")
+    .from("inventaire_pf_sessions")
     .insert({ taille_lot: tailleLot, cree_par: currentUser })
     .select("id")
     .single();
@@ -144,34 +170,33 @@ export async function demarrerInventaireMpAction(formData: FormData) {
 
   if (distribues === 0) {
     await supabaseServer
-      .from("inventaire_mp_sessions")
+      .from("inventaire_pf_sessions")
       .update({ statut: "termine", termine_at: new Date().toISOString() })
       .eq("id", sessionId);
   }
 
   await logAudit({
     utilisateur: currentUser,
-    module: "InventaireMp",
+    module: "InventairePf",
     action: "creation",
     cible: `Session #${sessionId}`,
-    resume: `Inventaire MP demarre (lots de ${tailleLot})`,
+    resume: `Inventaire PF demarre (lots de ${tailleLot})`,
   });
 
-  revalidatePath("/stock/matiere-premiere/inventaire");
+  revalidatePath("/stock/inventaire");
 }
 
 // Abandonne une session en cours (bouton "Annuler l'inventaire") - rien
-// n'est supprime (lignes deja comptees/regularisees restent en base pour
-// l'historique/l'audit), seul le statut change pour liberer la page et
-// permettre de demarrer une nouvelle session.
-export async function annulerInventaireMpAction(formData: FormData) {
+// n'est supprime, seul le statut change pour liberer la page et permettre
+// de demarrer une nouvelle session.
+export async function annulerInventairePfAction(formData: FormData) {
   const currentUser = await requireInventaireWrite();
 
   const sessionId = Number(formData.get("session_id"));
   if (!sessionId) throw new Error("Session invalide.");
 
   const { data: sessionData, error: sessionError } = await supabaseServer
-    .from("inventaire_mp_sessions")
+    .from("inventaire_pf_sessions")
     .select("id, statut")
     .eq("id", sessionId)
     .maybeSingle();
@@ -181,20 +206,20 @@ export async function annulerInventaireMpAction(formData: FormData) {
   }
 
   const { error } = await supabaseServer
-    .from("inventaire_mp_sessions")
+    .from("inventaire_pf_sessions")
     .update({ statut: "annule", termine_at: new Date().toISOString() })
     .eq("id", sessionId);
   if (error) throw new Error(error.message);
 
   await logAudit({
     utilisateur: currentUser,
-    module: "InventaireMp",
+    module: "InventairePf",
     action: "modification",
     cible: `Session #${sessionId}`,
-    resume: `Inventaire MP annule`,
+    resume: `Inventaire PF annule`,
   });
 
-  revalidatePath("/stock/matiere-premiere/inventaire");
+  revalidatePath("/stock/inventaire");
 }
 
 // Enregistre le comptage saisi pour chaque ligne du lot de travail courant
@@ -202,14 +227,14 @@ export async function annulerInventaireMpAction(formData: FormData) {
 // stock systeme deja fige sur la ligne (jamais affiche a l'utilisateur avant
 // l'ecart confirme), avance vers bon/recompte/ecart confirme, puis distribue
 // le lot de travail suivant si celui-ci est desormais entierement resolu.
-export async function soumettreComptageAction(formData: FormData) {
+export async function soumettreComptagePfAction(formData: FormData) {
   const currentUser = await requireInventaireWrite();
 
   const sessionId = Number(formData.get("session_id"));
   if (!sessionId) throw new Error("Session invalide.");
 
   const { data: sessionData, error: sessionError } = await supabaseServer
-    .from("inventaire_mp_sessions")
+    .from("inventaire_pf_sessions")
     .select("id, statut, taille_lot")
     .eq("id", sessionId)
     .maybeSingle();
@@ -224,7 +249,7 @@ export async function soumettreComptageAction(formData: FormData) {
   if (ligneIds.length === 0) throw new Error("Aucune ligne a enregistrer.");
 
   const { data: lignesData, error: lignesError } = await supabaseServer
-    .from("inventaire_mp_lignes")
+    .from("inventaire_pf_lignes")
     .select("id, stock_systeme, compte_1, compte_2, compte_3, nombre_comptages, statut")
     .in("id", ligneIds)
     .eq("session_id", sessionId);
@@ -246,7 +271,7 @@ export async function soumettreComptageAction(formData: FormData) {
     const nouveauStatut = match ? "bon" : nombreComptages >= 3 ? "ecart_confirme" : "a_compter";
 
     const { error: updateError } = await supabaseServer
-      .from("inventaire_mp_lignes")
+      .from("inventaire_pf_lignes")
       .update({
         [compteField]: valeur,
         nombre_comptages: nombreComptages,
@@ -262,7 +287,7 @@ export async function soumettreComptageAction(formData: FormData) {
   // "a_compter" dedans) ? Si oui, distribue le suivant, sinon la page
   // recontinuera de montrer les lignes qui ont encore besoin d'un recomptage.
   const { data: maxLotData } = await supabaseServer
-    .from("inventaire_mp_lignes")
+    .from("inventaire_pf_lignes")
     .select("lot_numero")
     .eq("session_id", sessionId)
     .order("lot_numero", { ascending: false })
@@ -272,7 +297,7 @@ export async function soumettreComptageAction(formData: FormData) {
 
   if (currentLotNumero > 0) {
     const { count: pendingCount } = await supabaseServer
-      .from("inventaire_mp_lignes")
+      .from("inventaire_pf_lignes")
       .select("id", { count: "exact", head: true })
       .eq("session_id", sessionId)
       .eq("lot_numero", currentLotNumero)
@@ -282,29 +307,31 @@ export async function soumettreComptageAction(formData: FormData) {
       const distribues = await distribuerProchainLot(sessionId, session.taille_lot);
       if (distribues === 0) {
         await supabaseServer
-          .from("inventaire_mp_sessions")
+          .from("inventaire_pf_sessions")
           .update({ statut: "termine", termine_at: new Date().toISOString() })
           .eq("id", sessionId);
       }
     }
   }
 
-  revalidatePath("/stock/matiere-premiere/inventaire");
+  revalidatePath("/stock/inventaire");
 }
 
-// Cree le mouvement de correction (une ligne dans lots_stock_matiere_premiere,
-// meme article + meme lot/code) pour ramener le stock systeme au dernier
-// comptage physique retenu - jamais automatique, uniquement sur action
-// explicite de l'utilisateur depuis la page, une fois l'ecart confirme
-// (3 comptages discordants).
-export async function regulariserLigneAction(formData: FormData) {
+// Cree le mouvement de correction (une ligne dans lots_stock, meme article +
+// meme lot/code) pour ramener le stock systeme au dernier comptage physique
+// retenu - jamais automatique, uniquement sur action explicite de
+// l'utilisateur depuis la page, une fois l'ecart confirme (3 comptages
+// discordants). lots_stock (PF) n'a pas de colonne unite/depot_id fiable
+// (contrairement a lots_stock_matiere_premiere) - la correction se limite
+// aux champs reellement utilises sur les autres ecritures PF.
+export async function regulariserLignePfAction(formData: FormData) {
   const currentUser = await requireInventaireWrite();
 
   const ligneId = Number(formData.get("ligne_id"));
   if (!ligneId) throw new Error("Ligne invalide.");
 
   const { data: ligneData, error: ligneError } = await supabaseServer
-    .from("inventaire_mp_lignes")
+    .from("inventaire_pf_lignes")
     .select("id, session_id, article_id, numero_lot, stock_systeme, compte_1, compte_2, compte_3, statut")
     .eq("id", ligneId)
     .maybeSingle();
@@ -335,43 +362,23 @@ export async function regulariserLigneAction(formData: FormData) {
     throw new Error("Aucun ecart a regulariser.");
   }
 
-  const [{ data: articleData }, { data: lotDepotData }] = await Promise.all([
-    supabaseServer
-      .from("articles_matiere_premiere")
-      .select("unite, depot_id")
-      .eq("id", ligne.article_id)
-      .maybeSingle(),
-    supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select("depot_id")
-      .eq("article_id", ligne.article_id)
-      .eq("numero_lot", ligne.numero_lot)
-      .not("depot_id", "is", null)
-      .limit(1)
-      .maybeSingle(),
-  ]);
-  const article = articleData as { unite: string | null; depot_id: number | null } | null;
-  const depotId = (lotDepotData as { depot_id: number | null } | null)?.depot_id ?? article?.depot_id ?? null;
-
   const nombreComptages = ligne.compte_3 !== null ? 3 : ligne.compte_2 !== null ? 2 : 1;
 
-  const { error: insertError } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
+  const { error: insertError } = await supabaseServer.from("lots_stock").insert({
     article_id: ligne.article_id,
     numero_lot: ligne.numero_lot,
     code_normalise: ligne.numero_lot.toUpperCase(),
     date_jour: new Date().toISOString().slice(0, 10),
     qte_entree: diff > 0 ? diff : 0,
     qte_sortie: diff < 0 ? -diff : 0,
-    unite: article?.unite ?? null,
-    depot_id: depotId,
     note: `Regularisation inventaire #${ligne.session_id} - ecart constate apres ${nombreComptages} comptage(s)`,
     utilisateur: currentUser,
-    source_import: "web:inventaire-mp",
+    source_import: "web:inventaire-pf",
   });
   if (insertError) throw new Error(insertError.message);
 
   const { error: updateError } = await supabaseServer
-    .from("inventaire_mp_lignes")
+    .from("inventaire_pf_lignes")
     .update({
       statut: "regularise",
       regularise_par: currentUser,
@@ -382,13 +389,13 @@ export async function regulariserLigneAction(formData: FormData) {
 
   await logAudit({
     utilisateur: currentUser,
-    module: "InventaireMp",
+    module: "InventairePf",
     action: "modification",
     cible: `${ligne.numero_lot} (article #${ligne.article_id})`,
-    resume: `Regularisation stock inventaire - ecart de ${diff > 0 ? "+" : ""}${diff}`,
+    resume: `Regularisation stock inventaire PF - ecart de ${diff > 0 ? "+" : ""}${diff}`,
     avant: { stock_systeme: ligne.stock_systeme },
     apres: { stock_compte: valeurRetenue },
   });
 
-  revalidatePath("/stock/matiere-premiere/inventaire");
+  revalidatePath("/stock/inventaire");
 }
