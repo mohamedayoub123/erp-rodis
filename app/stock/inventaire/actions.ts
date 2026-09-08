@@ -231,6 +231,42 @@ export async function annulerInventairePfAction(formData: FormData) {
   revalidatePath("/stock/inventaire");
 }
 
+// Supprime definitivement une session de l'historique (bouton corbeille) -
+// uniquement une session terminee/annulee, jamais celle en cours (qui doit
+// passer par "Annuler l'inventaire" d'abord). Les regularisations deja
+// appliquees restent en place sur lots_stock - supprimer la session
+// n'annule pas les corrections de stock deja faites, seulement la trace de
+// la session elle-meme.
+export async function supprimerSessionInventairePfAction(formData: FormData) {
+  const currentUser = await requireInventaireWrite();
+
+  const sessionId = Number(formData.get("session_id"));
+  if (!sessionId) throw new Error("Session invalide.");
+
+  const { data: sessionData, error: sessionError } = await supabaseServer
+    .from("inventaire_pf_sessions")
+    .select("id, statut")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (sessionError || !sessionData) throw new Error("Session introuvable.");
+  if ((sessionData as { statut: string }).statut === "en_cours") {
+    throw new Error("Annule d'abord cet inventaire avant de le supprimer.");
+  }
+
+  const { error } = await supabaseServer.from("inventaire_pf_sessions").delete().eq("id", sessionId);
+  if (error) throw new Error(error.message);
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "InventairePf",
+    action: "suppression",
+    cible: `Session #${sessionId}`,
+    resume: `Inventaire PF supprime de l'historique`,
+  });
+
+  revalidatePath("/stock/inventaire");
+}
+
 // Enregistre le comptage saisi pour chaque ligne du lot de travail courant
 // (un champ par ligne encore "a_compter") - compare a l'aveugle contre le
 // stock systeme deja fige sur la ligne (jamais affiche a l'utilisateur avant

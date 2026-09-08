@@ -70,15 +70,43 @@ async function fetchMovementCounts(): Promise<Map<number, number>> {
   return new Map(rows.map((row) => [row.article_id, Number(row.mouvement_count)]));
 }
 
+async function fetchArticleCategorieById(): Promise<Map<number, string | null>> {
+  const map = new Map<number, string | null>();
+  let from = 0;
+  const pageSize = 1000;
+  for (;;) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("id, categorie")
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const chunk = (data ?? []) as { id: number; categorie: string | null }[];
+    for (const row of chunk) map.set(row.id, row.categorie);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+  return map;
+}
+
 // Choisit le prochain "lot de travail" (jusqu'a tailleLot lignes article+lot
 // physique) : parmi tout ce qui a un stock systeme positif et n'a pas
 // encore ete distribue dans CETTE session, priorise l'article le plus
-// actif (mp_movement_counts) d'abord. Retourne le nombre de lignes creees -
-// 0 = plus rien a distribuer, la session peut etre cloturee.
-async function distribuerProchainLot(sessionId: number, tailleLot: number): Promise<number> {
-  const [balances, movementCounts, assignedResult, maxLotResult] = await Promise.all([
+// actif (mp_movement_counts) d'abord. categoriesFiltre limite l'univers de
+// cette session a certaines categories seulement (null/vide = tout le MP) -
+// demande explicite : pouvoir lancer plusieurs inventaires en parallele,
+// chacun sur ses propres categories choisies a la main (ex: un inventaire
+// "conditionnement plastique", un autre "conditionnement cosmetique").
+// Retourne le nombre de lignes creees - 0 = plus rien a distribuer dans le
+// perimetre de cette session, elle peut etre cloturee.
+async function distribuerProchainLot(
+  sessionId: number,
+  tailleLot: number,
+  categoriesFiltre: string[] | null
+): Promise<number> {
+  const [balances, movementCounts, categorieByArticleId, assignedResult, maxLotResult] = await Promise.all([
     fetchAllLotBalances(),
     fetchMovementCounts(),
+    categoriesFiltre && categoriesFiltre.length > 0 ? fetchArticleCategorieById() : Promise.resolve(null),
     supabaseServer.from("inventaire_mp_lignes").select("article_id, numero_lot").eq("session_id", sessionId),
     supabaseServer
       .from("inventaire_mp_lignes")
@@ -95,7 +123,14 @@ async function distribuerProchainLot(sessionId: number, tailleLot: number): Prom
     )
   );
 
-  const restants = balances.filter((row) => !assignedKeys.has(`${row.article_id}::${row.numero_lot}`));
+  const categorieSet =
+    categoriesFiltre && categoriesFiltre.length > 0 ? new Set(categoriesFiltre) : null;
+
+  const restants = balances.filter((row) => {
+    if (assignedKeys.has(`${row.article_id}::${row.numero_lot}`)) return false;
+    if (categorieSet && !categorieSet.has(categorieByArticleId?.get(row.article_id) ?? "")) return false;
+    return true;
+  });
 
   restants.sort((a, b) => {
     const moveDiff = (movementCounts.get(b.article_id) ?? 0) - (movementCounts.get(a.article_id) ?? 0);
@@ -126,30 +161,30 @@ async function distribuerProchainLot(sessionId: number, tailleLot: number): Prom
 export async function demarrerInventaireMpAction(formData: FormData) {
   const currentUser = await requireInventaireWrite();
 
-  const { data: activeSession } = await supabaseServer
-    .from("inventaire_mp_sessions")
-    .select("id")
-    .eq("statut", "en_cours")
-    .maybeSingle();
-  if (activeSession) {
-    throw new Error("Un inventaire est deja en cours.");
-  }
-
   const tailleLotRaw = Number(formData.get("taille_lot"));
   const tailleLot = Number.isFinite(tailleLotRaw) ? Math.trunc(tailleLotRaw) : 0;
   if (tailleLot < TAILLE_LOT_MIN || tailleLot > TAILLE_LOT_MAX) {
     throw new Error(`Choisis un nombre d'articles entre ${TAILLE_LOT_MIN} et ${TAILLE_LOT_MAX}.`);
   }
 
+  // Plusieurs sessions peuvent tourner en meme temps (demande explicite),
+  // chacune sur ses propres categories - vide/rien coche = tout le MP,
+  // comme avant.
+  const categories = formData.getAll("categorie").map((value) => String(value).trim()).filter(Boolean);
+
   const { data: session, error } = await supabaseServer
     .from("inventaire_mp_sessions")
-    .insert({ taille_lot: tailleLot, cree_par: currentUser })
+    .insert({
+      taille_lot: tailleLot,
+      cree_par: currentUser,
+      categories_filtre: categories.length > 0 ? categories : null,
+    })
     .select("id")
     .single();
   if (error) throw new Error(error.message);
 
   const sessionId = (session as { id: number }).id;
-  const distribues = await distribuerProchainLot(sessionId, tailleLot);
+  const distribues = await distribuerProchainLot(sessionId, tailleLot, categories.length > 0 ? categories : null);
 
   if (distribues === 0) {
     await supabaseServer
@@ -163,7 +198,9 @@ export async function demarrerInventaireMpAction(formData: FormData) {
     module: "InventaireMp",
     action: "creation",
     cible: `Session #${sessionId}`,
-    resume: `Inventaire MP demarre (lots de ${tailleLot})`,
+    resume: `Inventaire MP demarre (lots de ${tailleLot}${
+      categories.length > 0 ? `, categories: ${categories.join(", ")}` : ""
+    })`,
   });
 
   revalidatePath("/stock/matiere-premiere/inventaire");
@@ -206,6 +243,42 @@ export async function annulerInventaireMpAction(formData: FormData) {
   revalidatePath("/stock/matiere-premiere/inventaire");
 }
 
+// Supprime definitivement une session de l'historique (bouton corbeille) -
+// uniquement une session terminee/annulee, jamais celle en cours (qui doit
+// passer par "Annuler l'inventaire" d'abord). Les regularisations deja
+// appliquees restent en place sur lots_stock_matiere_premiere - supprimer
+// la session n'annule pas les corrections de stock deja faites, seulement
+// la trace de la session elle-meme.
+export async function supprimerSessionInventaireMpAction(formData: FormData) {
+  const currentUser = await requireInventaireWrite();
+
+  const sessionId = Number(formData.get("session_id"));
+  if (!sessionId) throw new Error("Session invalide.");
+
+  const { data: sessionData, error: sessionError } = await supabaseServer
+    .from("inventaire_mp_sessions")
+    .select("id, statut")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (sessionError || !sessionData) throw new Error("Session introuvable.");
+  if ((sessionData as { statut: string }).statut === "en_cours") {
+    throw new Error("Annule d'abord cet inventaire avant de le supprimer.");
+  }
+
+  const { error } = await supabaseServer.from("inventaire_mp_sessions").delete().eq("id", sessionId);
+  if (error) throw new Error(error.message);
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "InventaireMp",
+    action: "suppression",
+    cible: `Session #${sessionId}`,
+    resume: `Inventaire MP supprime de l'historique`,
+  });
+
+  revalidatePath("/stock/matiere-premiere/inventaire");
+}
+
 // Enregistre le comptage saisi pour chaque ligne du lot de travail courant
 // (un champ par ligne encore "a_compter") - compare a l'aveugle contre le
 // stock systeme deja fige sur la ligne (jamais affiche a l'utilisateur avant
@@ -219,11 +292,16 @@ export async function soumettreComptageAction(formData: FormData) {
 
   const { data: sessionData, error: sessionError } = await supabaseServer
     .from("inventaire_mp_sessions")
-    .select("id, statut, taille_lot")
+    .select("id, statut, taille_lot, categories_filtre")
     .eq("id", sessionId)
     .maybeSingle();
   if (sessionError || !sessionData) throw new Error("Session introuvable.");
-  const session = sessionData as { id: number; statut: string; taille_lot: number };
+  const session = sessionData as {
+    id: number;
+    statut: string;
+    taille_lot: number;
+    categories_filtre: string[] | null;
+  };
   if (session.statut !== "en_cours") throw new Error("Cet inventaire est deja termine.");
 
   const ligneIds = formData
@@ -288,7 +366,7 @@ export async function soumettreComptageAction(formData: FormData) {
       .eq("statut", "a_compter");
 
     if ((pendingCount ?? 0) === 0) {
-      const distribues = await distribuerProchainLot(sessionId, session.taille_lot);
+      const distribues = await distribuerProchainLot(sessionId, session.taille_lot, session.categories_filtre);
       if (distribues === 0) {
         await supabaseServer
           .from("inventaire_mp_sessions")

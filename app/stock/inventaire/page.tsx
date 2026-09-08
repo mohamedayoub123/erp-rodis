@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDateTime } from "@/lib/format-date";
 import { AnnulerInventaireButton } from "@/app/_components/annuler-inventaire-button";
 import {
@@ -9,6 +11,7 @@ import {
   soumettreComptagePfAction,
   regulariserLignePfAction,
   annulerInventairePfAction,
+  supprimerSessionInventairePfAction,
 } from "./actions";
 
 type SessionRow = {
@@ -154,14 +157,14 @@ export default async function InventairePfPage() {
                   const stats = statsBySession.get(s.id) ?? { total: 0, bon: 0, ecarts: 0 };
                   return (
                     <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
-                      <div>
-                        <p className="font-semibold text-slate-800">
+                      <Link href={`/stock/inventaire/${s.id}`} className="flex-1 hover:opacity-80">
+                        <p className="font-semibold text-sky-700 underline">
                           Session #{s.id} - {formatDateTime(s.termine_at)}
                         </p>
                         <p className="text-slate-500">
                           {stats.total} lot(s) compte(s), {stats.bon} bon(s), {stats.ecarts} ecart(s)
                         </p>
-                      </div>
+                      </Link>
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-semibold ${
                           s.statut === "annule" ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800"
@@ -169,6 +172,13 @@ export default async function InventairePfPage() {
                       >
                         {s.statut === "annule" ? "Annule" : "Termine"}
                       </span>
+                      <form action={supprimerSessionInventairePfAction}>
+                        <input type="hidden" name="session_id" value={s.id} />
+                        <DeleteIconButton
+                          label="Supprimer cet inventaire"
+                          confirmMessage="Supprimer cet inventaire de l'historique ? Cette action est definitive (les regularisations deja appliquees restent en place)."
+                        />
+                      </form>
                     </li>
                   );
                 })}
@@ -243,7 +253,7 @@ export default async function InventairePfPage() {
               Compte physiquement chaque lot ci-dessous et rentre la quantite trouvee - le stock systeme n&apos;est
               pas affiche pour un comptage a l&apos;aveugle.
             </p>
-            <form action={soumettreComptagePfAction} className="mt-4 space-y-4">
+            <form action={soumettreComptagePfAction} autoComplete="off" className="mt-4 space-y-4">
               <input type="hidden" name="session_id" value={activeSession.id} />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {pendingInBatch.map((ligne) => {
@@ -263,6 +273,7 @@ export default async function InventairePfPage() {
                         type="text"
                         inputMode="decimal"
                         name={`compte_${ligne.id}`}
+                        autoComplete="off"
                         placeholder="Qte comptee"
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                       />
