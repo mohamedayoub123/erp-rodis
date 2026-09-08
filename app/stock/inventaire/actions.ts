@@ -32,18 +32,27 @@ async function requireInventaireWrite() {
 }
 
 async function fetchAllLotBalances(): Promise<LotBalanceRow[]> {
-  const rows: LotBalanceRow[] = [];
+  // Deduplique par (article_id, numero_lot) - filet de securite en plus de
+  // l'ORDER BY cote SQL (stock_pf_lot_balances) : sans ordre stable, une
+  // pagination en plusieurs appels peut renvoyer la meme ligne deux fois
+  // (bug reel confirme : 457 doublons sur 1861 lignes recuperees avant ce
+  // correctif), ce qui provoquait une violation de contrainte unique lors
+  // de la distribution d'un lot de travail. Voir
+  // scripts/sql/fix_lot_balances_pagination_order.sql.
+  const byKey = new Map<string, LotBalanceRow>();
   let from = 0;
   const pageSize = 1000;
   for (;;) {
     const { data, error } = await supabaseServer.rpc("stock_pf_lot_balances").range(from, from + pageSize - 1);
     if (error) throw new Error(error.message);
     const chunk = (data ?? []) as LotBalanceRow[];
-    rows.push(...chunk);
+    for (const row of chunk) {
+      byKey.set(`${row.article_id}::${row.numero_lot}`, row);
+    }
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
-  return rows;
+  return [...byKey.values()];
 }
 
 async function fetchMovementCounts(): Promise<Map<number, number>> {
@@ -364,11 +373,17 @@ export async function regulariserLignePfAction(formData: FormData) {
 
   const nombreComptages = ligne.compte_3 !== null ? 3 : ligne.compte_2 !== null ? 2 : 1;
 
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  // date_fabrication est NOT NULL sur lots_stock (contrairement a ce qu'un
+  // premier passage laissait supposer) - une regularisation n'a pas de
+  // vraie date de fabrication, on retombe donc sur la date du jour comme le
+  // reste de la ligne.
   const { error: insertError } = await supabaseServer.from("lots_stock").insert({
     article_id: ligne.article_id,
     numero_lot: ligne.numero_lot,
     code_normalise: ligne.numero_lot.toUpperCase(),
-    date_jour: new Date().toISOString().slice(0, 10),
+    date_jour: aujourdhui,
+    date_fabrication: aujourdhui,
     qte_entree: diff > 0 ? diff : 0,
     qte_sortie: diff < 0 ? -diff : 0,
     note: `Regularisation inventaire #${ligne.session_id} - ecart constate apres ${nombreComptages} comptage(s)`,

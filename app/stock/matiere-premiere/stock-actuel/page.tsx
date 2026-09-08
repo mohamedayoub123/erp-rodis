@@ -8,15 +8,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { matchesArticleSearch } from "@/lib/article-search";
 import { encodeDossierId } from "../commande/dossier-id";
 import { computeStatutBc } from "../bc/constants";
-
-type StockActuelMpRpcRow = {
-  article_id: number;
-  nom_article: string;
-  categorie: string | null;
-  unite: string | null;
-  stock_actuel: number;
-  codes: string[] | null;
-};
+import { fetchStockActuelMpDepotE } from "../rapport/capacite-conditionnement/capacite-lib";
 
 type ArticleGammeRow = { id: number; gamme: string | null };
 
@@ -62,35 +54,16 @@ type StockRow = {
   importRefs: DossierRef[];
 };
 
-// Le stock par article (somme de tous les mouvements TE/TS) est calcule
-// directement en base (fonction stock_actuel_mp_rows, voir
-// scripts/sql/add_stock_actuel_rpcs.sql) - avant, cette page rapatriait
-// TOUTE la table lots_stock_matiere_premiere (un journal de mouvements qui
-// ne fait que grossir) pour la sommer en JS a chaque chargement.
-//
-// Pagine (.range()) au lieu d'un simple appel sans limite - la fonction
-// renvoie une ligne par article MP (2700+), et Supabase/PostgREST plafonne
-// une reponse a 1000 lignes par defaut meme pour un appel RPC. Sans
-// pagination, la table etait coupee a 1000 lignes AVANT d'atteindre la
-// plupart des articles (aucun ORDER BY sur la fonction SQL, donc aucun
-// ordre garanti) - plus de 1700 articles MP restaient invisibles sur cette
-// page (bug reel confirme en construisant Statistique Article Plastique,
-// qui utilisait le meme appel et revenait totalement vide).
+// Stock du Depot E seulement, pas la somme de tous les depots - c'est le
+// seul depot reellement disponible pour la production (le plastique/
+// conditionnement est fabrique au Depot F puis transfere au Depot E), meme
+// regle deja appliquee sur Capacite Conditionnement (voir
+// fetchStockActuelMpDepotE, capacite-lib.ts) - demande explicite : le stock
+// global melangeant tous les depots ne reflete pas ce qui est vraiment
+// utilisable.
 async function fetchStockActuelMp() {
-  const pageSize = 1000;
-  const rows: StockActuelMpRpcRow[] = [];
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabaseServer.rpc("stock_actuel_mp_rows").range(from, from + pageSize - 1);
-    if (error) return { rows: [] as StockActuelMpRpcRow[], error };
-    const chunk = (data ?? []) as StockActuelMpRpcRow[];
-    rows.push(...chunk);
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
+  const rows = await fetchStockActuelMpDepotE();
+  return { rows, error: null as { message: string } | null };
 }
 
 // La gamme n'est pas renvoyee par stock_actuel_mp_rows (fonction SQL,
@@ -325,8 +298,8 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
               Stock Actuel MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Tous les articles matiere premiere avec leur stock actuel (calcule depuis les
-              mouvements TE/TS), meme a zero, et les BC/import en cours.
+              Tous les articles matiere premiere avec leur stock actuel au Depot E uniquement
+              (calcule depuis les mouvements TE/TS), meme a zero, et les BC/import en cours.
             </p>
           </div>
 
