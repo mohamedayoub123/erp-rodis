@@ -707,6 +707,67 @@ export default async function AdminPage({
                             className="h-4 w-4 rounded border-slate-300"
                           />
                         </div>
+
+                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                          <p className="text-sm font-semibold text-slate-800">Inventaire MP - Demarrer/annuler</p>
+                          <input
+                            type="checkbox"
+                            name="inventaireMpDemarrer"
+                            defaultChecked={user.permissions.inventaireMpDemarrer}
+                            disabled={user.isAdmin}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                          <p className="text-sm font-semibold text-slate-800">Inventaire MP - Compter (stock physique)</p>
+                          <input
+                            type="checkbox"
+                            name="inventaireMpCompter"
+                            defaultChecked={user.permissions.inventaireMpCompter}
+                            disabled={user.isAdmin}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                          <p className="text-sm font-semibold text-slate-800">Inventaire MP - Regulariser le stock</p>
+                          <input
+                            type="checkbox"
+                            name="inventaireMpRegulariser"
+                            defaultChecked={user.permissions.inventaireMpRegulariser}
+                            disabled={user.isAdmin}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                          <p className="text-sm font-semibold text-slate-800">Inventaire PF - Demarrer/annuler</p>
+                          <input
+                            type="checkbox"
+                            name="inventairePfDemarrer"
+                            defaultChecked={user.permissions.inventairePfDemarrer}
+                            disabled={user.isAdmin}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                          <p className="text-sm font-semibold text-slate-800">Inventaire PF - Compter (stock physique)</p>
+                          <input
+                            type="checkbox"
+                            name="inventairePfCompter"
+                            defaultChecked={user.permissions.inventairePfCompter}
+                            disabled={user.isAdmin}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                          <p className="text-sm font-semibold text-slate-800">Inventaire PF - Regulariser le stock</p>
+                          <input
+                            type="checkbox"
+                            name="inventairePfRegulariser"
+                            defaultChecked={user.permissions.inventairePfRegulariser}
+                            disabled={user.isAdmin}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                        </div>
                       </div>
 
                       {!user.isAdmin ? (

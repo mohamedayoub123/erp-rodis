@@ -229,6 +229,12 @@ export async function updateUserPermissionsAction(formData: FormData) {
     manageUsers: readPermissionFlag(formData, "manageUsers"),
     voirPrix: readPermissionFlag(formData, "voirPrix"),
     changerMachineConditionnement: readPermissionFlag(formData, "changerMachineConditionnement"),
+    inventaireMpDemarrer: readPermissionFlag(formData, "inventaireMpDemarrer"),
+    inventaireMpCompter: readPermissionFlag(formData, "inventaireMpCompter"),
+    inventaireMpRegulariser: readPermissionFlag(formData, "inventaireMpRegulariser"),
+    inventairePfDemarrer: readPermissionFlag(formData, "inventairePfDemarrer"),
+    inventairePfCompter: readPermissionFlag(formData, "inventairePfCompter"),
+    inventairePfRegulariser: readPermissionFlag(formData, "inventairePfRegulariser"),
   };
 
   const updated = await updateUserPermissions(username, nextPermissions);

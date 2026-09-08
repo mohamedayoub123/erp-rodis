@@ -2,9 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import {
+  getCurrentStockUser,
+  canInventaireMpDemarrerUser,
+  canInventaireMpCompterUser,
+  canInventaireMpRegulariserUser,
+} from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
-import { fetchAllLotBalances, fetchArticleCategorieById } from "./lib";
+import { fetchAllLotBalances, fetchArticleCategorieById, fetchArticleGammeById } from "./lib";
 
 // Tolerance flottante pour comparer un comptage physique au stock systeme -
 // jamais une egalite stricte (quantites avec decimales).
@@ -23,10 +28,29 @@ type LigneRow = {
   statut: string;
 };
 
-async function requireInventaireWrite() {
+// 3 autorisations distinctes (demande explicite) au lieu d'un seul "write"
+// generique - demarrer/annuler une session, saisir un comptage physique et
+// regulariser le stock sont 3 responsabilites separees.
+async function requireInventaireDemarrer() {
   const currentUser = await getCurrentStockUser();
-  if (!(await canWritePageUser(currentUser, "inventaireMp"))) {
-    throw new Error("Cet utilisateur ne peut pas gerer l'inventaire MP.");
+  if (!(await canInventaireMpDemarrerUser(currentUser))) {
+    throw new Error("Cet utilisateur ne peut pas demarrer/annuler un inventaire MP.");
+  }
+  return currentUser;
+}
+
+async function requireInventaireCompter() {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canInventaireMpCompterUser(currentUser))) {
+    throw new Error("Cet utilisateur ne peut pas saisir de comptage sur l'inventaire MP.");
+  }
+  return currentUser;
+}
+
+async function requireInventaireRegulariser() {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canInventaireMpRegulariserUser(currentUser))) {
+    throw new Error("Cet utilisateur ne peut pas regulariser le stock MP.");
   }
   return currentUser;
 }
@@ -49,31 +73,38 @@ async function fetchMovementCounts(): Promise<Map<number, number>> {
 // Choisit le prochain "lot de travail" (jusqu'a tailleLot lignes article+lot
 // physique) : parmi tout ce qui a un stock systeme positif et n'a pas
 // encore ete distribue dans CETTE session, priorise l'article le plus
-// actif (mp_movement_counts) d'abord. categoriesFiltre limite l'univers de
-// cette session a certaines categories seulement (null/vide = tout le MP) -
-// demande explicite : pouvoir lancer plusieurs inventaires en parallele,
-// chacun sur ses propres categories choisies a la main (ex: un inventaire
-// "conditionnement plastique", un autre "conditionnement cosmetique").
+// actif (mp_movement_counts) d'abord. categoriesFiltre/gammesFiltre limite
+// l'univers de cette session a certaines categories et/ou gammes (null/vide
+// = pas de filtre sur cette dimension ; un article passe des qu'il
+// correspond a l'UNE des deux, ex: "toute la gamme X" OU "toute la
+// categorie Y") - demande explicite : pouvoir lancer plusieurs inventaires
+// en parallele, chacun sur son propre perimetre choisi a la main.
 // Retourne le nombre de lignes creees - 0 = plus rien a distribuer dans le
 // perimetre de cette session, elle peut etre cloturee.
 async function distribuerProchainLot(
   sessionId: number,
   tailleLot: number,
-  categoriesFiltre: string[] | null
+  categoriesFiltre: string[] | null,
+  gammesFiltre: string[] | null
 ): Promise<number> {
-  const [balances, movementCounts, categorieByArticleId, assignedResult, maxLotResult] = await Promise.all([
-    fetchAllLotBalances(),
-    fetchMovementCounts(),
-    categoriesFiltre && categoriesFiltre.length > 0 ? fetchArticleCategorieById() : Promise.resolve(null),
-    supabaseServer.from("inventaire_mp_lignes").select("article_id, numero_lot").eq("session_id", sessionId),
-    supabaseServer
-      .from("inventaire_mp_lignes")
-      .select("lot_numero")
-      .eq("session_id", sessionId)
-      .order("lot_numero", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  const hasCategorieFiltre = !!categoriesFiltre && categoriesFiltre.length > 0;
+  const hasGammeFiltre = !!gammesFiltre && gammesFiltre.length > 0;
+
+  const [balances, movementCounts, categorieByArticleId, gammeByArticleId, assignedResult, maxLotResult] =
+    await Promise.all([
+      fetchAllLotBalances(),
+      fetchMovementCounts(),
+      hasCategorieFiltre ? fetchArticleCategorieById() : Promise.resolve(null),
+      hasGammeFiltre ? fetchArticleGammeById() : Promise.resolve(null),
+      supabaseServer.from("inventaire_mp_lignes").select("article_id, numero_lot").eq("session_id", sessionId),
+      supabaseServer
+        .from("inventaire_mp_lignes")
+        .select("lot_numero")
+        .eq("session_id", sessionId)
+        .order("lot_numero", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
   const assignedKeys = new Set(
     ((assignedResult.data ?? []) as { article_id: number; numero_lot: string }[]).map(
@@ -81,13 +112,15 @@ async function distribuerProchainLot(
     )
   );
 
-  const categorieSet =
-    categoriesFiltre && categoriesFiltre.length > 0 ? new Set(categoriesFiltre) : null;
+  const categorieSet = hasCategorieFiltre ? new Set(categoriesFiltre) : null;
+  const gammeSet = hasGammeFiltre ? new Set(gammesFiltre) : null;
 
   const restants = balances.filter((row) => {
     if (assignedKeys.has(`${row.article_id}::${row.numero_lot}`)) return false;
-    if (categorieSet && !categorieSet.has(categorieByArticleId?.get(row.article_id) ?? "")) return false;
-    return true;
+    if (!categorieSet && !gammeSet) return true;
+    const matchesCategorie = categorieSet ? categorieSet.has(categorieByArticleId?.get(row.article_id) ?? "") : false;
+    const matchesGamme = gammeSet ? gammeSet.has(gammeByArticleId?.get(row.article_id) ?? "") : false;
+    return matchesCategorie || matchesGamme;
   });
 
   restants.sort((a, b) => {
@@ -117,7 +150,7 @@ async function distribuerProchainLot(
 }
 
 export async function demarrerInventaireMpAction(formData: FormData) {
-  const currentUser = await requireInventaireWrite();
+  const currentUser = await requireInventaireDemarrer();
 
   const tailleLotRaw = Number(formData.get("taille_lot"));
   const tailleLot = Number.isFinite(tailleLotRaw) ? Math.trunc(tailleLotRaw) : 0;
@@ -126,9 +159,10 @@ export async function demarrerInventaireMpAction(formData: FormData) {
   }
 
   // Plusieurs sessions peuvent tourner en meme temps (demande explicite),
-  // chacune sur ses propres categories - vide/rien coche = tout le MP,
-  // comme avant.
+  // chacune sur ses propres categories et/ou gammes - vide/rien coche =
+  // tout le MP, comme avant.
   const categories = formData.getAll("categorie").map((value) => String(value).trim()).filter(Boolean);
+  const gammes = formData.getAll("gamme").map((value) => String(value).trim()).filter(Boolean);
 
   const { data: session, error } = await supabaseServer
     .from("inventaire_mp_sessions")
@@ -136,13 +170,19 @@ export async function demarrerInventaireMpAction(formData: FormData) {
       taille_lot: tailleLot,
       cree_par: currentUser,
       categories_filtre: categories.length > 0 ? categories : null,
+      gammes_filtre: gammes.length > 0 ? gammes : null,
     })
     .select("id")
     .single();
   if (error) throw new Error(error.message);
 
   const sessionId = (session as { id: number }).id;
-  const distribues = await distribuerProchainLot(sessionId, tailleLot, categories.length > 0 ? categories : null);
+  const distribues = await distribuerProchainLot(
+    sessionId,
+    tailleLot,
+    categories.length > 0 ? categories : null,
+    gammes.length > 0 ? gammes : null
+  );
 
   if (distribues === 0) {
     await supabaseServer
@@ -151,14 +191,17 @@ export async function demarrerInventaireMpAction(formData: FormData) {
       .eq("id", sessionId);
   }
 
+  const scopeParts = [
+    categories.length > 0 ? `categories: ${categories.join(", ")}` : null,
+    gammes.length > 0 ? `gammes: ${gammes.join(", ")}` : null,
+  ].filter(Boolean);
+
   await logAudit({
     utilisateur: currentUser,
     module: "InventaireMp",
     action: "creation",
     cible: `Session #${sessionId}`,
-    resume: `Inventaire MP demarre (lots de ${tailleLot}${
-      categories.length > 0 ? `, categories: ${categories.join(", ")}` : ""
-    })`,
+    resume: `Inventaire MP demarre (lots de ${tailleLot}${scopeParts.length > 0 ? `, ${scopeParts.join(", ")}` : ""})`,
   });
 
   revalidatePath("/stock/matiere-premiere/inventaire");
@@ -169,7 +212,7 @@ export async function demarrerInventaireMpAction(formData: FormData) {
 // l'historique/l'audit), seul le statut change pour liberer la page et
 // permettre de demarrer une nouvelle session.
 export async function annulerInventaireMpAction(formData: FormData) {
-  const currentUser = await requireInventaireWrite();
+  const currentUser = await requireInventaireDemarrer();
 
   const sessionId = Number(formData.get("session_id"));
   if (!sessionId) throw new Error("Session invalide.");
@@ -208,7 +251,7 @@ export async function annulerInventaireMpAction(formData: FormData) {
 // la session n'annule pas les corrections de stock deja faites, seulement
 // la trace de la session elle-meme.
 export async function supprimerSessionInventaireMpAction(formData: FormData) {
-  const currentUser = await requireInventaireWrite();
+  const currentUser = await requireInventaireDemarrer();
 
   const sessionId = Number(formData.get("session_id"));
   if (!sessionId) throw new Error("Session invalide.");
@@ -243,14 +286,14 @@ export async function supprimerSessionInventaireMpAction(formData: FormData) {
 // l'ecart confirme), avance vers bon/recompte/ecart confirme, puis distribue
 // le lot de travail suivant si celui-ci est desormais entierement resolu.
 export async function soumettreComptageAction(formData: FormData) {
-  const currentUser = await requireInventaireWrite();
+  const currentUser = await requireInventaireCompter();
 
   const sessionId = Number(formData.get("session_id"));
   if (!sessionId) throw new Error("Session invalide.");
 
   const { data: sessionData, error: sessionError } = await supabaseServer
     .from("inventaire_mp_sessions")
-    .select("id, statut, taille_lot, categories_filtre")
+    .select("id, statut, taille_lot, categories_filtre, gammes_filtre")
     .eq("id", sessionId)
     .maybeSingle();
   if (sessionError || !sessionData) throw new Error("Session introuvable.");
@@ -259,6 +302,7 @@ export async function soumettreComptageAction(formData: FormData) {
     statut: string;
     taille_lot: number;
     categories_filtre: string[] | null;
+    gammes_filtre: string[] | null;
   };
   if (session.statut !== "en_cours") throw new Error("Cet inventaire est deja termine.");
 
@@ -324,7 +368,12 @@ export async function soumettreComptageAction(formData: FormData) {
       .eq("statut", "a_compter");
 
     if ((pendingCount ?? 0) === 0) {
-      const distribues = await distribuerProchainLot(sessionId, session.taille_lot, session.categories_filtre);
+      const distribues = await distribuerProchainLot(
+        sessionId,
+        session.taille_lot,
+        session.categories_filtre,
+        session.gammes_filtre
+      );
       if (distribues === 0) {
         await supabaseServer
           .from("inventaire_mp_sessions")
@@ -343,7 +392,7 @@ export async function soumettreComptageAction(formData: FormData) {
 // explicite de l'utilisateur depuis la page, une fois l'ecart confirme
 // (3 comptages discordants).
 export async function regulariserLigneAction(formData: FormData) {
-  const currentUser = await requireInventaireWrite();
+  const currentUser = await requireInventaireRegulariser();
 
   const ligneId = Number(formData.get("ligne_id"));
   if (!ligneId) throw new Error("Ligne invalide.");

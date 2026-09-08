@@ -55,6 +55,16 @@ export default async function InventairePfSessionDetailPage({ params }: { params
     .maybeSingle();
   const session = sessionData as SessionRow | null;
 
+  // Numero "Inventaire N" = rang chronologique de creation (pas l'id brut,
+  // qui a des trous des qu'une session est supprimee de l'historique).
+  const { data: allSessionsData } = await supabaseServer
+    .from("inventaire_pf_sessions")
+    .select("id")
+    .order("created_at", { ascending: true });
+  const rank = session
+    ? ((allSessionsData as { id: number }[] | null) ?? []).findIndex((s) => s.id === session.id) + 1 || session.id
+    : null;
+
   if (!session) {
     return (
       <main className="min-h-screen bg-[linear-gradient(180deg,#f0fdf4_0%,#fbfffc_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -98,14 +108,12 @@ export default async function InventairePfSessionDetailPage({ params }: { params
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">ERP Rodis</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
-                Inventaire PF - Session #{session.id}
-              </h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Inventaire {rank}</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Demarree le {formatDateTime(session.created_at)} par {session.cree_par || "-"}. Lots de{" "}
+                Ouvert le {formatDateTime(session.created_at)} par {session.cree_par || "-"}. Lots de{" "}
                 {session.taille_lot}.
                 {session.termine_at
-                  ? ` ${session.statut === "annule" ? "Annulee" : "Terminee"} le ${formatDateTime(session.termine_at)}.`
+                  ? ` ${session.statut === "annule" ? "Annule" : "Termine"} le ${formatDateTime(session.termine_at)}.`
                   : ""}
               </p>
               <p className="mt-1 text-sm font-semibold text-slate-700">

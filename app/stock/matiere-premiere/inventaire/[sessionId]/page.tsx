@@ -4,7 +4,14 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDateTime } from "@/lib/format-date";
 import { AnnulerInventaireButton } from "@/app/_components/annuler-inventaire-button";
+import {
+  getCurrentStockUser,
+  canInventaireMpDemarrerUser,
+  canInventaireMpCompterUser,
+  canInventaireMpRegulariserUser,
+} from "@/lib/stock-auth";
 import { soumettreComptageAction, regulariserLigneAction, annulerInventaireMpAction } from "../actions";
+import { fetchCategorieCounts, fetchGammeCounts } from "../lib";
 
 type SessionRow = {
   id: number;
@@ -14,6 +21,7 @@ type SessionRow = {
   created_at: string;
   termine_at: string | null;
   categories_filtre: string[] | null;
+  gammes_filtre: string[] | null;
 };
 
 type LigneRow = {
@@ -61,9 +69,16 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
   const { sessionId: sessionIdParam } = await params;
   const sessionId = Number(sessionIdParam);
 
+  const currentUser = await getCurrentStockUser();
+  const [peutDemarrer, peutCompter, peutRegulariser] = await Promise.all([
+    canInventaireMpDemarrerUser(currentUser),
+    canInventaireMpCompterUser(currentUser),
+    canInventaireMpRegulariserUser(currentUser),
+  ]);
+
   const { data: sessionData } = await supabaseServer
     .from("inventaire_mp_sessions")
-    .select("id, statut, taille_lot, cree_par, created_at, termine_at, categories_filtre")
+    .select("id, statut, taille_lot, cree_par, created_at, termine_at, categories_filtre, gammes_filtre")
     .eq("id", sessionId)
     .maybeSingle();
   const session = sessionData as SessionRow | null;
@@ -82,6 +97,15 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
       </main>
     );
   }
+
+  // Numero "Inventaire N" = rang chronologique de creation (pas l'id brut,
+  // qui a des trous des qu'une session est supprimee de l'historique).
+  const { data: allSessionsData } = await supabaseServer
+    .from("inventaire_mp_sessions")
+    .select("id")
+    .order("created_at", { ascending: true });
+  const rank =
+    ((allSessionsData as { id: number }[] | null) ?? []).findIndex((s) => s.id === session.id) + 1 || session.id;
 
   const { data: lignesData } = await supabaseServer
     .from("inventaire_mp_lignes")
@@ -108,10 +132,33 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
   const totalEcarts = lignes.filter((l) => l.statut === "ecart_confirme" || l.statut === "regularise").length;
   const pendingCount = lignes.filter((l) => l.statut === "a_compter").length;
 
-  const scopeLabel =
-    session.categories_filtre && session.categories_filtre.length > 0
-      ? session.categories_filtre.join(", ")
-      : "tout le MP";
+  const hasCategorieFiltre = !!session.categories_filtre && session.categories_filtre.length > 0;
+  const hasGammeFiltre = !!session.gammes_filtre && session.gammes_filtre.length > 0;
+  const scopeLabel = [
+    hasCategorieFiltre ? session.categories_filtre!.join(", ") : null,
+    hasGammeFiltre ? session.gammes_filtre!.join(", ") : null,
+  ]
+    .filter(Boolean)
+    .join(" / ") || "tout le MP";
+
+  // Total de lots dans le PERIMETRE de cette session (pas seulement ce qui
+  // lui a deja ete distribue par lots de N) - demande explicite : savoir
+  // "sur combien au total" pour une session limitee a une categorie/gamme,
+  // pas juste le compteur du lot de travail courant.
+  let totalLotsScope: number;
+  if (hasCategorieFiltre || hasGammeFiltre) {
+    const [categorieCounts, gammeCounts] = await Promise.all([fetchCategorieCounts(), fetchGammeCounts()]);
+    const catSet = hasCategorieFiltre ? new Set(session.categories_filtre) : null;
+    const gamSet = hasGammeFiltre ? new Set(session.gammes_filtre) : null;
+    const fromCat = catSet
+      ? categorieCounts.filter((c) => catSet.has(c.categorie)).reduce((sum, c) => sum + c.count, 0)
+      : 0;
+    const fromGamme = gamSet ? gammeCounts.filter((g) => gamSet.has(g.gamme)).reduce((sum, g) => sum + g.count, 0) : 0;
+    totalLotsScope = catSet && gamSet ? Math.max(fromCat, fromGamme) : fromCat || fromGamme;
+  } else {
+    const { count } = await supabaseServer.rpc("stock_mp_lot_balances", {}, { count: "exact", head: true });
+    totalLotsScope = count ?? 0;
+  }
 
   // Sessions terminees/annulees : vue lecture seule (tableau complet), pas
   // de saisie possible.
@@ -124,15 +171,16 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">ERP Rodis</p>
                 <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
-                  Inventaire MP - Session #{session.id}
+                  Inventaire {rank} - {scopeLabel}
                 </h1>
                 <p className="mt-2 text-sm text-slate-600">
-                  Perimetre : {scopeLabel}. Demarree le {formatDateTime(session.created_at)} par{" "}
-                  {session.cree_par || "-"}. Lots de {session.taille_lot}.{" "}
-                  {session.statut === "annule" ? "Annulee" : "Terminee"} le {formatDateTime(session.termine_at)}.
+                  Ouvert le {formatDateTime(session.created_at)} par {session.cree_par || "-"}. Lots de{" "}
+                  {session.taille_lot}. {session.statut === "annule" ? "Annule" : "Termine"} le{" "}
+                  {formatDateTime(session.termine_at)}.
                 </p>
                 <p className="mt-1 text-sm font-semibold text-slate-700">
-                  {lignes.length} lot(s) assigne(s) - {totalBon} bon(s), {totalEcarts} ecart(s)
+                  {lignes.length} / {totalLotsScope} lot(s) du perimetre assigne(s) - {totalBon} bon(s),{" "}
+                  {totalEcarts} ecart(s)
                   {pendingCount > 0 ? `, ${pendingCount} jamais compte(s)` : ""}
                 </p>
               </div>
@@ -237,29 +285,38 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
-                Inventaire MP en cours - Session #{session.id}
+                Inventaire {rank} en cours - {scopeLabel}
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Perimetre : {scopeLabel}. Demarree le {formatDateTime(session.created_at)} par{" "}
-                {session.cree_par || "-"}. Lots de {session.taille_lot}.
+                Ouvert le {formatDateTime(session.created_at)} par {session.cree_par || "-"}. Lots de{" "}
+                {session.taille_lot}.
               </p>
               <p className="mt-1 text-sm font-semibold text-slate-700">
-                {lignes.length - pendingCount} compte(s) sur {lignes.length} assigne(s) - {totalBon} bon(s),{" "}
-                {totalEcarts} ecart(s){pendingCount > 0 ? ` - ${pendingCount} restant(s) a compter` : ""}
+                {lignes.length - pendingCount} compte(s) sur {totalLotsScope} au total dans ce perimetre (
+                {lignes.length} deja assigne(s)) - {totalBon} bon(s), {totalEcarts} ecart(s)
+                {pendingCount > 0 ? ` - ${pendingCount} restant(s) a compter dans ce lot` : ""}
               </p>
             </div>
             <div className="flex items-center gap-3">
               <BackButton href="/stock/matiere-premiere/inventaire" label="Retour" />
               <RefreshButton />
-              <form action={annulerInventaireMpAction}>
-                <input type="hidden" name="session_id" value={session.id} />
-                <AnnulerInventaireButton />
-              </form>
+              {peutDemarrer ? (
+                <form action={annulerInventaireMpAction}>
+                  <input type="hidden" name="session_id" value={session.id} />
+                  <AnnulerInventaireButton />
+                </form>
+              ) : null}
             </div>
           </div>
         </section>
 
-        {pendingInBatch.length > 0 ? (
+        {!peutCompter ? (
+          <section className="rounded-[1.75rem] border border-amber-200 bg-amber-50 p-6 text-center shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <p className="text-sm font-semibold text-amber-800">
+              Tu n&apos;as pas l&apos;autorisation de saisir un comptage physique sur l&apos;inventaire MP.
+            </p>
+          </section>
+        ) : pendingInBatch.length > 0 ? (
           <section className="rounded-[1.75rem] border border-emerald-200 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <h2 className="text-lg font-bold text-slate-900">A compter ({pendingInBatch.length})</h2>
             <p className="mt-1 text-sm text-slate-600">
@@ -368,15 +425,21 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
                         </span>
                       </p>
                     </div>
-                    <form action={regulariserLigneAction}>
-                      <input type="hidden" name="ligne_id" value={ligne.id} />
-                      <button
-                        type="submit"
-                        className="rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90"
-                      >
-                        Regulariser le stock
-                      </button>
-                    </form>
+                    {peutRegulariser ? (
+                      <form action={regulariserLigneAction}>
+                        <input type="hidden" name="ligne_id" value={ligne.id} />
+                        <button
+                          type="submit"
+                          className="rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90"
+                        >
+                          Regulariser le stock
+                        </button>
+                      </form>
+                    ) : (
+                      <span className="text-xs font-semibold text-slate-400">
+                        Autorisation regularisation requise
+                      </span>
+                    )}
                   </li>
                 );
               })}

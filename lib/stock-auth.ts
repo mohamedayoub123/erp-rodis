@@ -30,6 +30,18 @@ export type StockPermissions = {
   // comportement normal - seuls les utilisateurs coches ici peuvent la
   // changer).
   changerMachineConditionnement: boolean;
+  // Inventaire MP/PF : 3 autorisations distinctes plutot qu'un seul
+  // "write" generique - demande explicite (compter le stock physique n'est
+  // pas la meme responsabilite que demarrer une campagne d'inventaire ou
+  // que corriger le stock systeme). Remplace le "write" de la page
+  // inventaireMp/inventairePf (voir page-registry.ts, hasWrite: false sur
+  // ces deux entrees).
+  inventaireMpDemarrer: boolean;
+  inventaireMpCompter: boolean;
+  inventaireMpRegulariser: boolean;
+  inventairePfDemarrer: boolean;
+  inventairePfCompter: boolean;
+  inventairePfRegulariser: boolean;
 };
 
 // Forme stockee cote base : peut etre l'ancien format (module) ou le
@@ -129,6 +141,12 @@ function getDefaultPermissions(username: string): StockPermissions {
     manageUsers: isAdmin,
     voirPrix: isAdmin,
     changerMachineConditionnement: isAdmin,
+    inventaireMpDemarrer: isAdmin,
+    inventaireMpCompter: isAdmin,
+    inventaireMpRegulariser: isAdmin,
+    inventairePfDemarrer: isAdmin,
+    inventairePfCompter: isAdmin,
+    inventairePfRegulariser: isAdmin,
   };
 }
 
@@ -240,6 +258,36 @@ function normalizeUserRecord(
       : typeof source.changerMachineConditionnement === "boolean"
         ? source.changerMachineConditionnement
         : defaults.changerMachineConditionnement,
+    inventaireMpDemarrer: isAdmin
+      ? true
+      : typeof source.inventaireMpDemarrer === "boolean"
+        ? source.inventaireMpDemarrer
+        : defaults.inventaireMpDemarrer,
+    inventaireMpCompter: isAdmin
+      ? true
+      : typeof source.inventaireMpCompter === "boolean"
+        ? source.inventaireMpCompter
+        : defaults.inventaireMpCompter,
+    inventaireMpRegulariser: isAdmin
+      ? true
+      : typeof source.inventaireMpRegulariser === "boolean"
+        ? source.inventaireMpRegulariser
+        : defaults.inventaireMpRegulariser,
+    inventairePfDemarrer: isAdmin
+      ? true
+      : typeof source.inventairePfDemarrer === "boolean"
+        ? source.inventairePfDemarrer
+        : defaults.inventairePfDemarrer,
+    inventairePfCompter: isAdmin
+      ? true
+      : typeof source.inventairePfCompter === "boolean"
+        ? source.inventairePfCompter
+        : defaults.inventairePfCompter,
+    inventairePfRegulariser: isAdmin
+      ? true
+      : typeof source.inventairePfRegulariser === "boolean"
+        ? source.inventairePfRegulariser
+        : defaults.inventairePfRegulariser,
   };
 
   return {
@@ -527,6 +575,36 @@ export async function canChangerMachineConditionnementUser(username: string | nu
   return permissions.changerMachineConditionnement;
 }
 
+export async function canInventaireMpDemarrerUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.inventaireMpDemarrer;
+}
+
+export async function canInventaireMpCompterUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.inventaireMpCompter;
+}
+
+export async function canInventaireMpRegulariserUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.inventaireMpRegulariser;
+}
+
+export async function canInventairePfDemarrerUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.inventairePfDemarrer;
+}
+
+export async function canInventairePfCompterUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.inventairePfCompter;
+}
+
+export async function canInventairePfRegulariserUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.inventairePfRegulariser;
+}
+
 export async function canViewPathForUser(username: string | null | undefined, pathname: string): Promise<boolean> {
   if (pathname === "/" || pathname.startsWith("/test-supabase")) {
     return true;
@@ -657,6 +735,12 @@ export async function updateUserPermissions(
     manageUsers: boolean;
     voirPrix: boolean;
     changerMachineConditionnement: boolean;
+    inventaireMpDemarrer: boolean;
+    inventaireMpCompter: boolean;
+    inventaireMpRegulariser: boolean;
+    inventairePfDemarrer: boolean;
+    inventairePfCompter: boolean;
+    inventairePfRegulariser: boolean;
   }
 ) {
   const normalized = username.trim().toLowerCase();
@@ -683,6 +767,12 @@ export async function updateUserPermissions(
     manageUsers: !!nextPermissions.manageUsers,
     voirPrix: !!nextPermissions.voirPrix,
     changerMachineConditionnement: !!nextPermissions.changerMachineConditionnement,
+    inventaireMpDemarrer: !!nextPermissions.inventaireMpDemarrer,
+    inventaireMpCompter: !!nextPermissions.inventaireMpCompter,
+    inventaireMpRegulariser: !!nextPermissions.inventaireMpRegulariser,
+    inventairePfDemarrer: !!nextPermissions.inventairePfDemarrer,
+    inventairePfCompter: !!nextPermissions.inventairePfCompter,
+    inventairePfRegulariser: !!nextPermissions.inventairePfRegulariser,
   };
 
   await writeUsers(users);

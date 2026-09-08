@@ -2,7 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import {
+  getCurrentStockUser,
+  canInventairePfDemarrerUser,
+  canInventairePfCompterUser,
+  canInventairePfRegulariserUser,
+} from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
 
 // Tolerance flottante pour comparer un comptage physique au stock systeme -
@@ -23,10 +28,29 @@ type LigneRow = {
   statut: string;
 };
 
-async function requireInventaireWrite() {
+// 3 autorisations distinctes (demande explicite) au lieu d'un seul "write"
+// generique - demarrer/annuler une session, saisir un comptage physique et
+// regulariser le stock sont 3 responsabilites separees.
+async function requireInventaireDemarrer() {
   const currentUser = await getCurrentStockUser();
-  if (!(await canWritePageUser(currentUser, "inventairePf"))) {
-    throw new Error("Cet utilisateur ne peut pas gerer l'inventaire PF.");
+  if (!(await canInventairePfDemarrerUser(currentUser))) {
+    throw new Error("Cet utilisateur ne peut pas demarrer/annuler un inventaire PF.");
+  }
+  return currentUser;
+}
+
+async function requireInventaireCompter() {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canInventairePfCompterUser(currentUser))) {
+    throw new Error("Cet utilisateur ne peut pas saisir de comptage sur l'inventaire PF.");
+  }
+  return currentUser;
+}
+
+async function requireInventaireRegulariser() {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canInventairePfRegulariserUser(currentUser))) {
+    throw new Error("Cet utilisateur ne peut pas regulariser le stock PF.");
   }
   return currentUser;
 }
@@ -150,7 +174,7 @@ async function distribuerProchainLot(sessionId: number, tailleLot: number): Prom
 }
 
 export async function demarrerInventairePfAction(formData: FormData) {
-  const currentUser = await requireInventaireWrite();
+  const currentUser = await requireInventaireDemarrer();
 
   const { data: activeSession } = await supabaseServer
     .from("inventaire_pf_sessions")
@@ -199,7 +223,7 @@ export async function demarrerInventairePfAction(formData: FormData) {
 // n'est supprime, seul le statut change pour liberer la page et permettre
 // de demarrer une nouvelle session.
 export async function annulerInventairePfAction(formData: FormData) {
-  const currentUser = await requireInventaireWrite();
+  const currentUser = await requireInventaireDemarrer();
 
   const sessionId = Number(formData.get("session_id"));
   if (!sessionId) throw new Error("Session invalide.");
@@ -238,7 +262,7 @@ export async function annulerInventairePfAction(formData: FormData) {
 // n'annule pas les corrections de stock deja faites, seulement la trace de
 // la session elle-meme.
 export async function supprimerSessionInventairePfAction(formData: FormData) {
-  const currentUser = await requireInventaireWrite();
+  const currentUser = await requireInventaireDemarrer();
 
   const sessionId = Number(formData.get("session_id"));
   if (!sessionId) throw new Error("Session invalide.");
@@ -273,7 +297,7 @@ export async function supprimerSessionInventairePfAction(formData: FormData) {
 // l'ecart confirme), avance vers bon/recompte/ecart confirme, puis distribue
 // le lot de travail suivant si celui-ci est desormais entierement resolu.
 export async function soumettreComptagePfAction(formData: FormData) {
-  const currentUser = await requireInventaireWrite();
+  const currentUser = await requireInventaireCompter();
 
   const sessionId = Number(formData.get("session_id"));
   if (!sessionId) throw new Error("Session invalide.");
@@ -370,7 +394,7 @@ export async function soumettreComptagePfAction(formData: FormData) {
 // (contrairement a lots_stock_matiere_premiere) - la correction se limite
 // aux champs reellement utilises sur les autres ecritures PF.
 export async function regulariserLignePfAction(formData: FormData) {
-  const currentUser = await requireInventaireWrite();
+  const currentUser = await requireInventaireRegulariser();
 
   const ligneId = Number(formData.get("ligne_id"));
   if (!ligneId) throw new Error("Ligne invalide.");

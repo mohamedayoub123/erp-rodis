@@ -131,7 +131,9 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     module: "Stock",
     label: "Inventaire PF (comptage physique)",
     pathPrefixes: ["/stock/inventaire"],
-    hasWrite: true,
+    // 3 autorisations dediees remplacent le "write" generique - voir
+    // inventairePfDemarrer/Compter/Regulariser dans lib/stock-auth.ts.
+    hasWrite: false,
   },
   {
     key: "stockCodePf",
@@ -255,7 +257,9 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     module: "Stock",
     label: "Inventaire MP (comptage physique)",
     pathPrefixes: ["/stock/matiere-premiere/inventaire"],
-    hasWrite: true,
+    // 3 autorisations dediees remplacent le "write" generique - voir
+    // inventaireMpDemarrer/Compter/Regulariser dans lib/stock-auth.ts.
+    hasWrite: false,
   },
   {
     key: "commandeMp",

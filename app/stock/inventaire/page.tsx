@@ -7,6 +7,12 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDateTime } from "@/lib/format-date";
 import { AnnulerInventaireButton } from "@/app/_components/annuler-inventaire-button";
 import {
+  getCurrentStockUser,
+  canInventairePfDemarrerUser,
+  canInventairePfCompterUser,
+  canInventairePfRegulariserUser,
+} from "@/lib/stock-auth";
+import {
   demarrerInventairePfAction,
   soumettreComptagePfAction,
   regulariserLignePfAction,
@@ -61,6 +67,13 @@ function StatutBadge({ statut }: { statut: LigneRow["statut"] }) {
 export default async function InventairePfPage() {
   noStore();
 
+  const currentUser = await getCurrentStockUser();
+  const [peutDemarrer, peutCompter, peutRegulariser] = await Promise.all([
+    canInventairePfDemarrerUser(currentUser),
+    canInventairePfCompterUser(currentUser),
+    canInventairePfRegulariserUser(currentUser),
+  ]);
+
   const { data: activeSessionData } = await supabaseServer
     .from("inventaire_pf_sessions")
     .select("id, statut, taille_lot, cree_par, created_at, termine_at")
@@ -72,6 +85,17 @@ export default async function InventairePfPage() {
     "stock_pf_lot_balances",
     {},
     { count: "exact", head: true }
+  );
+
+  // Numero "Inventaire N" = rang chronologique de creation (pas l'id brut,
+  // qui a des trous des qu'une session est supprimee de l'historique) -
+  // meme principe que cote MP.
+  const { data: allSessionsData } = await supabaseServer
+    .from("inventaire_pf_sessions")
+    .select("id")
+    .order("created_at", { ascending: true });
+  const rankById = new Map<number, number>(
+    ((allSessionsData as { id: number }[] | null) ?? []).map((s, i) => [s.id, i + 1])
   );
 
   if (!activeSession) {
@@ -119,33 +143,35 @@ export default async function InventairePfPage() {
             </div>
           </section>
 
-          <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <h2 className="text-lg font-bold text-slate-900">Nouvel inventaire</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Choisis combien de lots te donner a la fois. Les articles qui bougent le plus seront distribues en
-              premier. Une fois un lot de travail entierement compte, le suivant arrive automatiquement.
-            </p>
-            <form action={demarrerInventairePfAction} className="mt-4 flex flex-wrap items-end gap-3">
-              <label className="flex flex-col gap-1 text-sm text-slate-600">
-                Nombre de lots a la fois
-                <input
-                  type="number"
-                  name="taille_lot"
-                  min={1}
-                  max={200}
-                  defaultValue={20}
-                  required
-                  className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
-              <button
-                type="submit"
-                className="rounded-full bg-emerald-600 px-5 py-2 text-[15px] font-semibold text-white shadow-sm transition hover:opacity-90"
-              >
-                Commencer
-              </button>
-            </form>
-          </section>
+          {peutDemarrer ? (
+            <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+              <h2 className="text-lg font-bold text-slate-900">Nouvel inventaire</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Choisis combien de lots te donner a la fois. Les articles qui bougent le plus seront distribues en
+                premier. Une fois un lot de travail entierement compte, le suivant arrive automatiquement.
+              </p>
+              <form action={demarrerInventairePfAction} className="mt-4 flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1 text-sm text-slate-600">
+                  Nombre de lots a la fois
+                  <input
+                    type="number"
+                    name="taille_lot"
+                    min={1}
+                    max={200}
+                    defaultValue={20}
+                    required
+                    className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="rounded-full bg-emerald-600 px-5 py-2 text-[15px] font-semibold text-white shadow-sm transition hover:opacity-90"
+                >
+                  Commencer
+                </button>
+              </form>
+            </section>
+          ) : null}
 
           <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <h2 className="text-lg font-bold text-slate-900">Inventaires precedents</h2>
@@ -158,8 +184,10 @@ export default async function InventairePfPage() {
                   return (
                     <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
                       <Link href={`/stock/inventaire/${s.id}`} className="flex-1 hover:opacity-80">
-                        <p className="font-semibold text-sky-700 underline">
-                          Session #{s.id} - {formatDateTime(s.termine_at)}
+                        <p className="font-semibold text-sky-700 underline">Inventaire {rankById.get(s.id) ?? s.id}</p>
+                        <p className="text-slate-500">
+                          Ouvert le {formatDateTime(s.created_at)} - {s.statut === "annule" ? "Annule" : "Termine"} le{" "}
+                          {formatDateTime(s.termine_at)}
                         </p>
                         <p className="text-slate-500">
                           {stats.total} lot(s) compte(s), {stats.bon} bon(s), {stats.ecarts} ecart(s)
@@ -172,13 +200,15 @@ export default async function InventairePfPage() {
                       >
                         {s.statut === "annule" ? "Annule" : "Termine"}
                       </span>
-                      <form action={supprimerSessionInventairePfAction}>
-                        <input type="hidden" name="session_id" value={s.id} />
-                        <DeleteIconButton
-                          label="Supprimer cet inventaire"
-                          confirmMessage="Supprimer cet inventaire de l'historique ? Cette action est definitive (les regularisations deja appliquees restent en place)."
-                        />
-                      </form>
+                      {peutDemarrer ? (
+                        <form action={supprimerSessionInventairePfAction}>
+                          <input type="hidden" name="session_id" value={s.id} />
+                          <DeleteIconButton
+                            label="Supprimer cet inventaire"
+                            confirmMessage="Supprimer cet inventaire de l'historique ? Cette action est definitive (les regularisations deja appliquees restent en place)."
+                          />
+                        </form>
+                      ) : null}
                     </li>
                   );
                 })}
@@ -227,10 +257,12 @@ export default async function InventairePfPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">ERP Rodis</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Inventaire PF en cours</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
+                Inventaire {rankById.get(activeSession.id) ?? activeSession.id} en cours
+              </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Session #{activeSession.id} - demarree le {formatDateTime(activeSession.created_at)} par{" "}
-                {activeSession.cree_par || "-"}. Lots de {activeSession.taille_lot}.
+                Ouvert le {formatDateTime(activeSession.created_at)} par {activeSession.cree_par || "-"}. Lots de{" "}
+                {activeSession.taille_lot}.
               </p>
               <p className="mt-1 text-sm font-semibold text-slate-700">
                 {totalCompte} compte(s) sur {lignes.length} assigne(s) ({totalLotsCount ?? 0} au total) -{" "}
@@ -241,15 +273,23 @@ export default async function InventairePfPage() {
             <div className="flex items-center gap-3">
               <BackButton href="/gestion-stock-pf" label="Retour" />
               <RefreshButton />
-              <form action={annulerInventairePfAction}>
-                <input type="hidden" name="session_id" value={activeSession.id} />
-                <AnnulerInventaireButton />
-              </form>
+              {peutDemarrer ? (
+                <form action={annulerInventairePfAction}>
+                  <input type="hidden" name="session_id" value={activeSession.id} />
+                  <AnnulerInventaireButton />
+                </form>
+              ) : null}
             </div>
           </div>
         </section>
 
-        {pendingInBatch.length > 0 ? (
+        {!peutCompter ? (
+          <section className="rounded-[1.75rem] border border-amber-200 bg-amber-50 p-6 text-center shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <p className="text-sm font-semibold text-amber-800">
+              Tu n&apos;as pas l&apos;autorisation de saisir un comptage physique sur l&apos;inventaire PF.
+            </p>
+          </section>
+        ) : pendingInBatch.length > 0 ? (
           <section className="rounded-[1.75rem] border border-emerald-200 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <h2 className="text-lg font-bold text-slate-900">A compter ({pendingInBatch.length})</h2>
             <p className="mt-1 text-sm text-slate-600">
@@ -348,15 +388,21 @@ export default async function InventairePfPage() {
                         </span>
                       </p>
                     </div>
-                    <form action={regulariserLignePfAction}>
-                      <input type="hidden" name="ligne_id" value={ligne.id} />
-                      <button
-                        type="submit"
-                        className="rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90"
-                      >
-                        Regulariser le stock
-                      </button>
-                    </form>
+                    {peutRegulariser ? (
+                      <form action={regulariserLignePfAction}>
+                        <input type="hidden" name="ligne_id" value={ligne.id} />
+                        <button
+                          type="submit"
+                          className="rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90"
+                        >
+                          Regulariser le stock
+                        </button>
+                      </form>
+                    ) : (
+                      <span className="text-xs font-semibold text-slate-400">
+                        Autorisation regularisation requise
+                      </span>
+                    )}
                   </li>
                 );
               })}
