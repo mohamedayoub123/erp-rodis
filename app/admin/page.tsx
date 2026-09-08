@@ -708,66 +708,83 @@ export default async function AdminPage({
                           />
                         </div>
 
-                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
-                          <p className="text-sm font-semibold text-slate-800">Inventaire MP - Demarrer/annuler</p>
-                          <input
-                            type="checkbox"
-                            name="inventaireMpDemarrer"
-                            defaultChecked={user.permissions.inventaireMpDemarrer}
-                            disabled={user.isAdmin}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                        </div>
-                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
-                          <p className="text-sm font-semibold text-slate-800">Inventaire MP - Compter (stock physique)</p>
-                          <input
-                            type="checkbox"
-                            name="inventaireMpCompter"
-                            defaultChecked={user.permissions.inventaireMpCompter}
-                            disabled={user.isAdmin}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                        </div>
-                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
-                          <p className="text-sm font-semibold text-slate-800">Inventaire MP - Regulariser le stock</p>
-                          <input
-                            type="checkbox"
-                            name="inventaireMpRegulariser"
-                            defaultChecked={user.permissions.inventaireMpRegulariser}
-                            disabled={user.isAdmin}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                        </div>
-                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
-                          <p className="text-sm font-semibold text-slate-800">Inventaire PF - Demarrer/annuler</p>
-                          <input
-                            type="checkbox"
-                            name="inventairePfDemarrer"
-                            defaultChecked={user.permissions.inventairePfDemarrer}
-                            disabled={user.isAdmin}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                        </div>
-                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
-                          <p className="text-sm font-semibold text-slate-800">Inventaire PF - Compter (stock physique)</p>
-                          <input
-                            type="checkbox"
-                            name="inventairePfCompter"
-                            defaultChecked={user.permissions.inventairePfCompter}
-                            disabled={user.isAdmin}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                        </div>
-                        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
-                          <p className="text-sm font-semibold text-slate-800">Inventaire PF - Regulariser le stock</p>
-                          <input
-                            type="checkbox"
-                            name="inventairePfRegulariser"
-                            defaultChecked={user.permissions.inventairePfRegulariser}
-                            disabled={user.isAdmin}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                        </div>
+                        <details className="group rounded-2xl border border-emerald-200 bg-white">
+                          <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800">
+                            <span className="flex-1">Inventaire (MP + PF)</span>
+                            <span
+                              aria-hidden="true"
+                              className="text-slate-400 transition-transform group-open:rotate-90"
+                            >
+                              &#9656;
+                            </span>
+                          </summary>
+                          <div className="space-y-2 border-t border-emerald-200 p-3">
+                            <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                              <p className="text-sm font-semibold text-slate-800">Inventaire MP - Demarrer/annuler</p>
+                              <input
+                                type="checkbox"
+                                name="inventaireMpDemarrer"
+                                defaultChecked={user.permissions.inventaireMpDemarrer}
+                                disabled={user.isAdmin}
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                              <p className="text-sm font-semibold text-slate-800">
+                                Inventaire MP - Compter (stock physique)
+                              </p>
+                              <input
+                                type="checkbox"
+                                name="inventaireMpCompter"
+                                defaultChecked={user.permissions.inventaireMpCompter}
+                                disabled={user.isAdmin}
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                              <p className="text-sm font-semibold text-slate-800">Inventaire MP - Regulariser le stock</p>
+                              <input
+                                type="checkbox"
+                                name="inventaireMpRegulariser"
+                                defaultChecked={user.permissions.inventaireMpRegulariser}
+                                disabled={user.isAdmin}
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                              <p className="text-sm font-semibold text-slate-800">Inventaire PF - Demarrer/annuler</p>
+                              <input
+                                type="checkbox"
+                                name="inventairePfDemarrer"
+                                defaultChecked={user.permissions.inventairePfDemarrer}
+                                disabled={user.isAdmin}
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                              <p className="text-sm font-semibold text-slate-800">
+                                Inventaire PF - Compter (stock physique)
+                              </p>
+                              <input
+                                type="checkbox"
+                                name="inventairePfCompter"
+                                defaultChecked={user.permissions.inventairePfCompter}
+                                disabled={user.isAdmin}
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                              <p className="text-sm font-semibold text-slate-800">Inventaire PF - Regulariser le stock</p>
+                              <input
+                                type="checkbox"
+                                name="inventairePfRegulariser"
+                                defaultChecked={user.permissions.inventairePfRegulariser}
+                                disabled={user.isAdmin}
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                            </div>
+                          </div>
+                        </details>
                       </div>
 
                       {!user.isAdmin ? (
