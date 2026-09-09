@@ -531,9 +531,32 @@ export async function getUserPermissions(username: string | null | undefined): P
   return users[normalized]?.permissions || getDefaultPermissions(normalized);
 }
 
+// Inventaire MP/PF : les 3 autorisations dediees (demarrer/compter/
+// regulariser) doivent suffire a elles seules pour voir la page et la tuile
+// Gestion Stock MP/PF - sans ca, quelqu'un coche uniquement sur "Inventaire
+// MP - Compter" se retrouve quand meme bloque a l'entree de la page (et la
+// tuile accueil ne s'affiche pas), car "voir" est un reglage separe que
+// l'admin doit alors penser a cocher en plus, cache dans la longue table de
+// pages Gestion Stock MP/PF. Bug reel signale par l'utilisateur.
+function resolvePageView(pageKey: string, permissions: StockPermissions): boolean {
+  const explicitView = permissions.pages[pageKey]?.view ?? false;
+  if (explicitView) return true;
+  if (pageKey === "inventaireMp") {
+    return (
+      permissions.inventaireMpDemarrer || permissions.inventaireMpCompter || permissions.inventaireMpRegulariser
+    );
+  }
+  if (pageKey === "inventairePf") {
+    return (
+      permissions.inventairePfDemarrer || permissions.inventairePfCompter || permissions.inventairePfRegulariser
+    );
+  }
+  return false;
+}
+
 export async function canViewPageUser(username: string | null | undefined, pageKey: string) {
   const permissions = await getUserPermissions(username);
-  return permissions.pages[pageKey]?.view ?? false;
+  return resolvePageView(pageKey, permissions);
 }
 
 export async function canWritePageUser(username: string | null | undefined, pageKey: string) {
@@ -637,7 +660,7 @@ export async function getPageViewMap(username: string | null | undefined): Promi
   const map: Record<string, boolean> = {};
 
   for (const page of PAGE_REGISTRY) {
-    map[page.key] = permissions.pages[page.key]?.view ?? false;
+    map[page.key] = resolvePageView(page.key, permissions);
   }
 
   return map;
