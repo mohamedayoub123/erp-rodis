@@ -62,6 +62,73 @@ function StatutBadge({ statut }: { statut: LigneRow["statut"] }) {
   return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${className}`}>{label}</span>;
 }
 
+// Utilisee a la fois en session "en_cours" et en lecture seule
+// (termine/annule) - un ecart confirme sur le dernier lot distribue peut
+// tomber pile au moment ou la session bascule "termine" (plus rien a
+// distribuer), donc la regularisation doit rester possible meme apres coup,
+// sans quoi ces lignes restent fausses definitivement dans le stock systeme.
+function EcartsAConfirmerSection({
+  lignes,
+  articleById,
+  peutRegulariser,
+}: {
+  lignes: LigneRow[];
+  articleById: Map<number, ArticleInfo>;
+  peutRegulariser: boolean;
+}) {
+  const ecartsAConfirmer = lignes.filter((l) => l.statut === "ecart_confirme");
+  if (ecartsAConfirmer.length === 0) return null;
+
+  return (
+    <section className="rounded-[1.75rem] border border-red-200 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+      <h2 className="text-lg font-bold text-red-800">
+        Ecarts confirmes a regulariser ({ecartsAConfirmer.length})
+      </h2>
+      <p className="mt-1 text-sm text-slate-600">
+        3 comptages discordants - le dernier comptage est retenu. Regulariser cree un mouvement de correction
+        sur ce lot.
+      </p>
+      <ul className="mt-3 divide-y divide-slate-100">
+        {ecartsAConfirmer.map((ligne) => {
+          const article = articleById.get(ligne.article_id);
+          const dernierComptage = ligne.compte_3 ?? ligne.compte_2 ?? ligne.compte_1 ?? 0;
+          const ecart = dernierComptage - ligne.stock_systeme;
+          return (
+            <li key={ligne.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+              <div>
+                <p className="font-semibold text-slate-900">{article?.nom_article || `Article #${ligne.article_id}`}</p>
+                <p className="text-xs text-slate-500">
+                  Lot {ligne.numero_lot} - Systeme: {formatNumber(ligne.stock_systeme)} - Compte:{" "}
+                  {formatNumber(dernierComptage)} -{" "}
+                  <span className={ecart < 0 ? "font-semibold text-red-700" : "font-semibold text-emerald-700"}>
+                    Ecart {ecart > 0 ? "+" : ""}
+                    {formatNumber(ecart)}
+                  </span>
+                </p>
+              </div>
+              {peutRegulariser ? (
+                <form action={regulariserLigneAction}>
+                  <input type="hidden" name="ligne_id" value={ligne.id} />
+                  <button
+                    type="submit"
+                    className="rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90"
+                  >
+                    Regulariser le stock
+                  </button>
+                </form>
+              ) : (
+                <span className="text-xs font-semibold text-slate-400">
+                  Autorisation regularisation requise
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 type PageParams = Promise<{ sessionId: string }>;
 
 export default async function InventaireMpSessionPage({ params }: { params: PageParams }) {
@@ -188,6 +255,8 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
             </div>
           </section>
 
+          <EcartsAConfirmerSection lignes={lignes} articleById={articleById} peutRegulariser={peutRegulariser} />
+
           <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
             <div className="max-h-[75vh] overflow-auto">
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
@@ -275,7 +344,6 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
   const currentBatch = lignes.filter((l) => l.lot_numero === maxLotNumero);
   const pendingInBatch = currentBatch.filter((l) => l.statut === "a_compter");
   const doneInBatch = currentBatch.filter((l) => l.statut !== "a_compter");
-  const ecartsAConfirmer = lignes.filter((l) => l.statut === "ecart_confirme");
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f0fdf4_0%,#fbfffc_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -399,54 +467,7 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
           </section>
         ) : null}
 
-        {ecartsAConfirmer.length > 0 ? (
-          <section className="rounded-[1.75rem] border border-red-200 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <h2 className="text-lg font-bold text-red-800">
-              Ecarts confirmes a regulariser ({ecartsAConfirmer.length})
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              3 comptages discordants - le dernier comptage est retenu. Regulariser cree un mouvement de correction
-              sur ce lot.
-            </p>
-            <ul className="mt-3 divide-y divide-slate-100">
-              {ecartsAConfirmer.map((ligne) => {
-                const article = articleById.get(ligne.article_id);
-                const dernierComptage = ligne.compte_3 ?? ligne.compte_2 ?? ligne.compte_1 ?? 0;
-                const ecart = dernierComptage - ligne.stock_systeme;
-                return (
-                  <li key={ligne.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
-                    <div>
-                      <p className="font-semibold text-slate-900">{article?.nom_article || `Article #${ligne.article_id}`}</p>
-                      <p className="text-xs text-slate-500">
-                        Lot {ligne.numero_lot} - Systeme: {formatNumber(ligne.stock_systeme)} - Compte:{" "}
-                        {formatNumber(dernierComptage)} -{" "}
-                        <span className={ecart < 0 ? "font-semibold text-red-700" : "font-semibold text-emerald-700"}>
-                          Ecart {ecart > 0 ? "+" : ""}
-                          {formatNumber(ecart)}
-                        </span>
-                      </p>
-                    </div>
-                    {peutRegulariser ? (
-                      <form action={regulariserLigneAction}>
-                        <input type="hidden" name="ligne_id" value={ligne.id} />
-                        <button
-                          type="submit"
-                          className="rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90"
-                        >
-                          Regulariser le stock
-                        </button>
-                      </form>
-                    ) : (
-                      <span className="text-xs font-semibold text-slate-400">
-                        Autorisation regularisation requise
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ) : null}
+        <EcartsAConfirmerSection lignes={lignes} articleById={articleById} peutRegulariser={peutRegulariser} />
       </div>
     </main>
   );
