@@ -166,9 +166,15 @@ export default async function RapportMachinesCapacitePage({ searchParams }: { se
   if (dateFin < dateDebut) {
     [dateDebut, dateFin] = [dateFin, dateDebut];
   }
-  const days = daysBetweenInclusive(dateDebut, dateFin);
+  const calendarDays = daysBetweenInclusive(dateDebut, dateFin);
 
   const [machines, lignesInRange] = await Promise.all([fetchAllMachines(), fetchLignesInRange(dateDebut, dateFin)]);
+
+  // Un jour sans AUCUNE ligne de programme (weekend, jour ferie...) ne doit
+  // pas compter comme "0% de capacite" dans la moyenne - demande explicite,
+  // ce n'est pas un jour travaille, donc pas un jour a evaluer.
+  const joursAvecProgramme = new Set(lignesInRange.map((l) => l.date_jour));
+  const days = calendarDays.filter((d) => joursAvecProgramme.has(d));
 
   const ligneIds = lignesInRange.map((l) => l.id);
   const articleIds = [...new Set(lignesInRange.map((l) => l.article_id).filter((id): id is number => id !== null))];
@@ -184,6 +190,10 @@ export default async function RapportMachinesCapacitePage({ searchParams }: { se
   const joursActifsByMachineNameFabrication = new Map<string, Set<string>>();
   // Produits vus sur la periode pour chaque nom-machine (Fabrication).
   const produitsByMachineNameFabrication = new Map<string, Set<string>>();
+  // Type d'article (articles.type_article) vu sur la periode pour chaque
+  // nom-machine Fabrication - meme principe que Conditionnement, demande
+  // explicite pour avoir la meme repartition par type cote Fabrication.
+  const typesByMachineNameFabrication = new Map<string, Set<string>>();
   for (const rapport of rapportsMachine) {
     const key = normalize(rapport.machine);
     if (!key) continue;
@@ -197,6 +207,13 @@ export default async function RapportMachinesCapacitePage({ searchParams }: { se
     const produitsSet = produitsByMachineNameFabrication.get(key) ?? new Set<string>();
     produitsSet.add(ligne.produit || "-");
     produitsByMachineNameFabrication.set(key, produitsSet);
+
+    const typeArticle = ligne.article_id ? articleTypeById.get(ligne.article_id) : null;
+    if (typeArticle) {
+      const typeSet = typesByMachineNameFabrication.get(key) ?? new Set<string>();
+      typeSet.add(typeArticle);
+      typesByMachineNameFabrication.set(key, typeSet);
+    }
   }
 
   // Meme principe pour les machines non-Fabrication (Conditionnement...),
@@ -240,7 +257,7 @@ export default async function RapportMachinesCapacitePage({ searchParams }: { se
       const produits = isFabrication
         ? produitsByMachineNameFabrication.get(key)
         : produitsByChaineName.get(key) ?? produitsByMachineNameFabrication.get(key);
-      const types = isFabrication ? undefined : typesByChaineName.get(key);
+      const types = isFabrication ? typesByMachineNameFabrication.get(key) : typesByChaineName.get(key);
 
       return {
         ...machine,
@@ -279,24 +296,35 @@ export default async function RapportMachinesCapacitePage({ searchParams }: { se
   const fabricationPct = moyennePct(fabricationParJour);
   const conditionnementPct = moyennePct(conditionnementParJour);
 
-  // Repartition des machines Conditionnement actives AU MOINS UN JOUR de la
-  // periode, par type de produit - une machine active sans type connu
-  // (article pas rattache a un type_article) part dans "Type non renseigne".
-  const conditionnementActives = conditionnementRows.filter((r) => r.activeAuMoinsUnJour);
-  const typeBreakdown = new Map<string, number>();
-  for (const machine of conditionnementActives) {
-    const types = machine.types.length > 0 ? machine.types : ["Type non renseigne"];
-    for (const type of types) {
-      typeBreakdown.set(type, (typeBreakdown.get(type) ?? 0) + 1);
+  // Repartition des machines actives AU MOINS UN JOUR de la periode, par
+  // type de produit - une machine active sans type connu (article pas
+  // rattache a un type_article) part dans "Type non renseigne". Meme calcul
+  // pour Conditionnement et Fabrication - demande explicite.
+  function typeBreakdownFor(rows: typeof machineRows) {
+    const actives = rows.filter((r) => r.activeAuMoinsUnJour);
+    const breakdown = new Map<string, number>();
+    for (const machine of actives) {
+      const types = machine.types.length > 0 ? machine.types : ["Type non renseigne"];
+      for (const type of types) {
+        breakdown.set(type, (breakdown.get(type) ?? 0) + 1);
+      }
     }
+    const rowsOut = [...breakdown.entries()]
+      .map(([type, count]) => ({
+        type,
+        count,
+        pct: actives.length > 0 ? (count / actives.length) * 100 : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+    return { actives, rows: rowsOut };
   }
-  const typeBreakdownRows = [...typeBreakdown.entries()]
-    .map(([type, count]) => ({
-      type,
-      count,
-      pct: conditionnementActives.length > 0 ? (count / conditionnementActives.length) * 100 : 0,
-    }))
-    .sort((a, b) => b.count - a.count);
+
+  const conditionnementBreakdown = typeBreakdownFor(conditionnementRows);
+  const conditionnementActives = conditionnementBreakdown.actives;
+  const typeBreakdownRows = conditionnementBreakdown.rows;
+  const fabricationBreakdown = typeBreakdownFor(fabricationRows);
+  const fabricationActives = fabricationBreakdown.actives;
+  const fabricationTypeBreakdownRows = fabricationBreakdown.rows;
 
   function formatPct(value: number | null) {
     return value === null ? "-" : `${Math.round(value)}%`;
@@ -356,7 +384,11 @@ export default async function RapportMachinesCapacitePage({ searchParams }: { se
               Aujourd&apos;hui
             </Link>
             <p className="text-xs text-slate-400">
-              {days.length} jour{days.length > 1 ? "s" : ""} du {formatDateFr(dateDebut)} au {formatDateFr(dateFin)}
+              {days.length} jour{days.length > 1 ? "s" : ""} avec programme sur la periode du{" "}
+              {formatDateFr(dateDebut)} au {formatDateFr(dateFin)}
+              {calendarDays.length !== days.length
+                ? ` (${calendarDays.length - days.length} jour(s) sans programme ignore(s))`
+                : ""}
             </p>
           </form>
         </section>
@@ -435,6 +467,36 @@ export default async function RapportMachinesCapacitePage({ searchParams }: { se
                   })}
                 </tbody>
               </table>
+            </div>
+          </section>
+        ) : null}
+
+        {fabricationTypeBreakdownRows.length > 0 ? (
+          <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <h2 className="text-lg font-bold text-slate-900">
+              Fabrication active - repartition par type
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Parmi les {fabricationActives.length} machine{fabricationActives.length > 1 ? "s" : ""} Fabrication
+              actives au moins un jour sur la periode, quel type de produit elles fabriquent.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {fabricationTypeBreakdownRows.map((row) => (
+                <div key={row.type} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold capitalize text-slate-900">{row.type}</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className="h-full rounded-full bg-amber-500"
+                        style={{ width: `${Math.min(100, Math.round(row.pct))}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-semibold text-slate-600">
+                      {row.count} ({Math.round(row.pct)}%)
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
         ) : null}
