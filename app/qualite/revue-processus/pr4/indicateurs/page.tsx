@@ -68,6 +68,11 @@ async function fetchCartonMonthly(): Promise<Map<string, { commande: number; fab
     fetchAllCartonEntries(),
   ]);
 
+  const codeTermineRows = await fetchAllCodeTermineRows(lignes.map((ligne) => ligne.id));
+  const terminatedCodes = new Set(
+    codeTermineRows.map((row) => `${row.programme_ligne_id}::${row.code}::${row.stage}`)
+  );
+
   const cartonByLigne = groupCartonEntriesByLigne(cartonEntries);
   const lignesWithLot = lignes.filter((ligne) => ligne.numero_lot);
   const byMonth = new Map<string, { commande: number; fabrique: number }>();
@@ -93,6 +98,19 @@ async function fetchCartonMonthly(): Promise<Map<string, { commande: number; fab
       const demande = cartonDemandeByCode.get(code) ?? 0;
       const fabrique = cartonFabriqueByCode.get(code) ?? 0;
       if (demande <= 0 && fabrique <= 0) continue;
+
+      // Meme filtre que Rapport Carton : ne compter que les codes
+      // effectivement TERMINES (carton), pas ceux encore en cours/pas
+      // commences - sinon le total ne correspond pas au meme rapport sur
+      // la meme periode. Bug reel signale par l'utilisateur (chiffres
+      // differents entre cet indicateur et Rapport Carton pour le meme
+      // mois).
+      const cartonManuel = Boolean(
+        ligne.programme_termine || ligne.carton_termine || terminatedCodes.has(`${ligne.id}::${code}::carton`)
+      );
+      const cartonNaturel = demande <= 0 || fabrique >= demande;
+      if (!cartonManuel && !cartonNaturel) continue;
+
       current.commande += demande;
       current.fabrique += fabrique;
     }
@@ -120,10 +138,14 @@ function normalizeMachine(value: string | null | undefined) {
 async function fetchCapaciteMonthly(): Promise<Map<string, number>> {
   const { data: machinesData } = await supabaseServer.from("machines").select("id, nom, type");
   const machines = (machinesData ?? []) as { id: number; nom: string; type: string | null }[];
-  const conditionnementNames = new Set(
-    machines.filter((m) => normalizeMachine(m.type) === "conditionnement").map((m) => normalizeMachine(m.nom))
-  );
-  if (conditionnementNames.size === 0) return new Map();
+  // Une par MACHINE (ligne), jamais dedupliquee par nom normalise - plusieurs
+  // machines distinctes partagent parfois le meme nom (ex: "chaine 1" existe
+  // sur 3 zones differentes), chacune doit compter separement au denominateur,
+  // exactement comme Rapport Capacite Machines. Un Set de noms ici avait fait
+  // tomber le denominateur de 41 a 28 machines - bug reel confirme (26% vs
+  // 42% pour la meme periode).
+  const conditionnementMachines = machines.filter((m) => normalizeMachine(m.type) === "conditionnement");
+  if (conditionnementMachines.length === 0) return new Map();
 
   const lignes: { chaine: string | null; date_jour: string | null }[] = [];
   let from = 0;
@@ -142,6 +164,16 @@ async function fetchCapaciteMonthly(): Promise<Map<string, number>> {
     from += pageSize;
   }
 
+  // Jours ou un programme existe - N'IMPORTE QUELLE ligne, pas seulement
+  // celles avec une chaine renseignee (une ligne Fabrication sans chaine
+  // compte quand meme comme "jour travaille") - meme critere que Rapport
+  // Capacite Machines, sinon un jour sans AUCUNE ligne a chaine (mais avec
+  // de la Fabrication) etait exclu de la moyenne au lieu de compter comme
+  // 0% Conditionnement ce jour-la, ce qui gonflait la moyenne a tort (bug
+  // reel signale par l'utilisateur : ecart avec Rapport Capacite Machines
+  // sur le meme mois).
+  const joursAvecProgramme = new Set(lignes.map((l) => l.date_jour).filter((d): d is string => Boolean(d)));
+
   // Chaines actives distinctes par jour (date_jour).
   const activeChainesByDay = new Map<string, Set<string>>();
   for (const ligne of lignes) {
@@ -155,11 +187,12 @@ async function fetchCapaciteMonthly(): Promise<Map<string, number>> {
 
   // % journalier -> regroupe par mois -> moyenne.
   const dailyPctByMonth = new Map<string, number[]>();
-  for (const [day, activeChaines] of activeChainesByDay.entries()) {
+  for (const day of joursAvecProgramme) {
     const mois = day.slice(0, 7);
     if (mois.length !== 7) continue;
-    const activeCount = [...conditionnementNames].filter((name) => activeChaines.has(name)).length;
-    const pct = (activeCount / conditionnementNames.size) * 100;
+    const activeChaines = activeChainesByDay.get(day) ?? new Set<string>();
+    const activeCount = conditionnementMachines.filter((m) => activeChaines.has(normalizeMachine(m.nom))).length;
+    const pct = (activeCount / conditionnementMachines.length) * 100;
     const list = dailyPctByMonth.get(mois) ?? [];
     list.push(pct);
     dailyPctByMonth.set(mois, list);
