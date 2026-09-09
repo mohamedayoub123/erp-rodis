@@ -565,31 +565,30 @@ const ARRET_FIELDS = [
   "arret_autre",
 ] as const;
 
-type ArretRapportRow = { temps_demarage_lot: string | null; temps_arret_batch: string | null } & Record<
+type CartonEntryArretRow = { date_jour: string | null; temps_demarage_lot: string | null; temps_arret_batch: string | null } & Record<
   (typeof ARRET_FIELDS)[number],
   number | null
 >;
 
-type ArretLigneRow = {
-  date_jour: string | null;
-  production_rapports: ArretRapportRow | ArretRapportRow[] | null;
-};
-
+// Lu depuis production_carton_entries (une ligne PAR FOURNEE), PAS depuis
+// programme_lignes + production_rapports - ce dernier ne garde qu'une seule
+// ligne par code, ECRASEE a chaque nouvelle fournee de conditionnement, donc
+// les temps d'arret des fournees precedentes y disparaissent silencieusement
+// (meme bug reel que Rapport Temps d'Arret, voir
+// app/production/rapport/temps-arret/page.tsx - corrige ici a l'identique).
 async function fetchTempsArretMonthly(): Promise<Map<string, { arret: number; travail: number }>> {
-  const select =
-    "date_jour," +
-    `production_rapports!inner(temps_demarage_lot,temps_arret_batch,${ARRET_FIELDS.join(",")})`;
+  const select = `date_jour,temps_demarage_lot,temps_arret_batch,${ARRET_FIELDS.join(",")}`;
 
-  const rows: ArretLigneRow[] = [];
+  const rows: CartonEntryArretRow[] = [];
   let from = 0;
   const pageSize = 1000;
   while (true) {
     const { data, error } = await supabaseServer
-      .from("programme_lignes")
+      .from("production_carton_entries")
       .select(select)
       .range(from, from + pageSize - 1);
     if (error) break;
-    const chunk = (data as unknown as ArretLigneRow[] | null) ?? [];
+    const chunk = (data as unknown as CartonEntryArretRow[] | null) ?? [];
     rows.push(...chunk);
     if (chunk.length < pageSize) break;
     from += pageSize;
@@ -597,13 +596,11 @@ async function fetchTempsArretMonthly(): Promise<Map<string, { arret: number; tr
 
   const byMonth = new Map<string, { arret: number; travail: number }>();
   for (const row of rows) {
-    const rapport = Array.isArray(row.production_rapports) ? row.production_rapports[0] : row.production_rapports;
-    if (!rapport) continue;
     const mois = (row.date_jour || "").slice(0, 7);
     if (mois.length !== 7) continue;
 
-    const arretMinutes = ARRET_FIELDS.reduce((sum, field) => sum + Math.round(Number(rapport[field] ?? 0)), 0);
-    const planifieMinutes = hhmmDiffMinutes(rapport.temps_demarage_lot, rapport.temps_arret_batch);
+    const arretMinutes = ARRET_FIELDS.reduce((sum, field) => sum + Math.round(Number(row[field] ?? 0)), 0);
+    const planifieMinutes = hhmmDiffMinutes(row.temps_demarage_lot, row.temps_arret_batch);
     const travailMinutes = planifieMinutes + arretMinutes;
 
     const current = byMonth.get(mois) ?? { arret: 0, travail: 0 };

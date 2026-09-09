@@ -34,29 +34,23 @@ type SearchParams = Promise<{
   page?: string;
 }>;
 
-type ProductionRapportRow = { temps_demarage_lot: string | null; temps_arret_batch: string | null } & Record<
-  ArretKey,
-  number | null
->;
-
-type ProgrammeLigneRow = {
-  id: number;
-  date_jour: string | null;
-  zone: string | null;
+// Lu depuis production_carton_entries (une ligne PAR FOURNEE de
+// conditionnement), PAS depuis production_rapports - ce dernier ne garde
+// qu'une seule ligne par code, ECRASEE a chaque nouvelle fournee, donc les
+// temps d'arret des fournees precedentes y disparaissent silencieusement
+// (bug reel signale par l'utilisateur : des arrets bien saisis pour un mois
+// donne remontaient a 0 dans ce rapport). production_carton_entries garde
+// une ligne distincte par fournee, avec sa propre date_jour et ses propres
+// arret_* - meme table que Suivi Production (voir CARTON_ENTRY_COLUMNS dans
+// app/production/suivi-production/page.tsx).
+type CartonEntryRow = { id: number; programme_ligne_id: number; code: string | null; date_jour: string | null } & {
   chaine: string | null;
-  produit: string | null;
-  numero_lot: string | null;
-  production_rapports: ProductionRapportRow | ProductionRapportRow[] | null;
-};
+  zone: string | null;
+  temps_demarage_lot: string | null;
+  temps_arret_batch: string | null;
+} & Record<ArretKey, number | null>;
 
 const PAGE_SIZE = 200;
-
-function firstRapport(
-  value: ProductionRapportRow | ProductionRapportRow[] | null
-): ProductionRapportRow | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
-}
 
 function monthLabel(monthKey: string) {
   const [year, month] = monthKey.split("-").map(Number);
@@ -77,11 +71,10 @@ function currentMonthRange() {
   return { fromIso, toIso };
 }
 
-const ROW_SELECT =
-  "id,date_jour,zone,chaine,produit,numero_lot," +
-  "production_rapports!inner(temps_demarage_lot,temps_arret_batch,arret_depot,arret_consommable_non_livre," +
-  "arret_manque_conditionnement,arret_manque_vrac,arret_technique,arret_coupure_courant,arret_raclage_vrac," +
-  "arret_changement_lot,arret_flacons_nc,arret_autre)";
+const CARTON_ENTRY_SELECT =
+  "id, programme_ligne_id, code, date_jour, chaine, zone, temps_demarage_lot, temps_arret_batch, " +
+  "arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, " +
+  "arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre";
 
 export default async function RapportTempsArretPage({
   searchParams,
@@ -107,8 +100,8 @@ export default async function RapportTempsArretPage({
   const monthPageSize = 1000;
   while (true) {
     const { data: monthChunk } = await supabaseServer
-      .from("programme_lignes")
-      .select("date_jour, production_rapports!inner(id)")
+      .from("production_carton_entries")
+      .select("date_jour")
       .not("date_jour", "is", null)
       .range(monthFrom, monthFrom + monthPageSize - 1);
 
@@ -120,18 +113,18 @@ export default async function RapportTempsArretPage({
   }
   const availableMonths = [...monthSet].sort();
 
-  let rows: ProgrammeLigneRow[] = [];
+  let entries: CartonEntryRow[] = [];
   let error: { message: string } | null = null;
-  let rowsFrom = 0;
-  const rowsPageSize = 1000;
+  let entriesFrom = 0;
+  const entriesPageSize = 1000;
 
   while (true) {
     let query = supabaseServer
-      .from("programme_lignes")
-      .select(ROW_SELECT)
+      .from("production_carton_entries")
+      .select(CARTON_ENTRY_SELECT)
       .order("date_jour", { ascending: true })
       .order("chaine", { ascending: true })
-      .range(rowsFrom, rowsFrom + rowsPageSize - 1);
+      .range(entriesFrom, entriesFrom + entriesPageSize - 1);
 
     if (dateFrom) query = query.gte("date_jour", dateFrom);
     if (dateTo) query = query.lte("date_jour", dateTo);
@@ -143,53 +136,61 @@ export default async function RapportTempsArretPage({
       break;
     }
 
-    const chunkRows = (chunk as unknown as ProgrammeLigneRow[] | null) ?? [];
-    rows.push(...chunkRows);
+    const chunkRows = (chunk as unknown as CartonEntryRow[] | null) ?? [];
+    entries.push(...chunkRows);
 
-    if (chunkRows.length < rowsPageSize) break;
-    rowsFrom += rowsPageSize;
+    if (chunkRows.length < entriesPageSize) break;
+    entriesFrom += entriesPageSize;
   }
 
   if (selectedMonths.length > 0) {
-    rows = rows.filter((row) => row.date_jour && selectedMonths.includes(row.date_jour.slice(0, 7)));
+    entries = entries.filter((entry) => entry.date_jour && selectedMonths.includes(entry.date_jour.slice(0, 7)));
   }
 
-  const availableChaines = [...new Set(rows.map((row) => row.chaine).filter(Boolean))].sort() as string[];
-  const availableZones = [...new Set(rows.map((row) => row.zone).filter(Boolean))].sort() as string[];
+  const availableChaines = [...new Set(entries.map((entry) => entry.chaine).filter(Boolean))].sort() as string[];
+  const availableZones = [...new Set(entries.map((entry) => entry.zone).filter(Boolean))].sort() as string[];
 
   const chaineFilter = (params.chaine || "").trim();
   const zoneFilter = (params.zone || "").trim();
 
   if (chaineFilter) {
-    rows = rows.filter((row) => row.chaine === chaineFilter);
+    entries = entries.filter((entry) => entry.chaine === chaineFilter);
   }
   if (zoneFilter) {
-    rows = rows.filter((row) => row.zone === zoneFilter);
+    entries = entries.filter((entry) => entry.zone === zoneFilter);
   }
 
-  const enriched = rows
-    .map((row) => {
-      const rapport = firstRapport(row.production_rapports);
-      if (!rapport) return null;
+  // Article (produit) n'est pas sur production_carton_entries - recupere
+  // via la ligne de programme parente pour l'affichage uniquement.
+  const ligneIds = [...new Set(entries.map((entry) => entry.programme_ligne_id))];
+  const produitByLigneId = new Map<number, string | null>();
+  if (ligneIds.length > 0) {
+    const { data: lignesData } = await supabaseServer
+      .from("programme_lignes")
+      .select("id, produit")
+      .in("id", ligneIds);
+    for (const ligne of (lignesData ?? []) as { id: number; produit: string | null }[]) {
+      produitByLigneId.set(ligne.id, ligne.produit);
+    }
+  }
 
-      // arret_* sont deja en minutes dans production_rapports (formulaire
-      // Rapport Conditionnement), pas de conversion a faire ici.
-      const arrets = ARRET_FIELDS.map((field) => ({
-        ...field,
-        minutes: Math.round(Number(rapport[field.key] ?? 0)),
-      }));
-      const arretTotalMinutes = arrets.reduce((sum, arret) => sum + arret.minutes, 0);
-      const tempsPlanifieMinutes = hhmmDiffMinutes(rapport.temps_demarage_lot, rapport.temps_arret_batch);
-      const tempsTravailTotalMinutes = tempsPlanifieMinutes + arretTotalMinutes;
+  const enriched = entries.map((entry) => {
+    // arret_* sont deja en minutes (formulaire Rapport Conditionnement).
+    const arrets = ARRET_FIELDS.map((field) => ({
+      ...field,
+      minutes: Math.round(Number(entry[field.key] ?? 0)),
+    }));
+    const arretTotalMinutes = arrets.reduce((sum, arret) => sum + arret.minutes, 0);
+    const tempsPlanifieMinutes = hhmmDiffMinutes(entry.temps_demarage_lot, entry.temps_arret_batch);
+    const tempsTravailTotalMinutes = tempsPlanifieMinutes + arretTotalMinutes;
 
-      return { row, arrets, arretTotalMinutes, tempsPlanifieMinutes, tempsTravailTotalMinutes };
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    return { entry, arrets, arretTotalMinutes, tempsPlanifieMinutes, tempsTravailTotalMinutes };
+  });
 
   const totalsByType = ARRET_FIELDS.map((field) => ({
     label: field.label,
     totalMinutes: enriched.reduce(
-      (sum, entry) => sum + (entry.arrets.find((a) => a.key === field.key)?.minutes ?? 0),
+      (sum, item) => sum + (item.arrets.find((a) => a.key === field.key)?.minutes ?? 0),
       0
     ),
   }));
@@ -198,14 +199,14 @@ export default async function RapportTempsArretPage({
   const grandTotalTravailMinutes = enriched.reduce((sum, e) => sum + e.tempsTravailTotalMinutes, 0);
 
   // % taux d'arret par mois = temps d'arret / temps de travail total, sur
-  // TOUTES les lignes filtrees (enriched, pas juste la page affichee).
+  // TOUTES les fournees filtrees (enriched, pas juste la page affichee).
   const arretByMonth = new Map<string, number>();
   const travailByMonth = new Map<string, number>();
-  for (const entry of enriched) {
-    const key = (entry.row.date_jour || "").slice(0, 7);
+  for (const item of enriched) {
+    const key = (item.entry.date_jour || "").slice(0, 7);
     if (key.length !== 7) continue;
-    arretByMonth.set(key, (arretByMonth.get(key) ?? 0) + entry.arretTotalMinutes);
-    travailByMonth.set(key, (travailByMonth.get(key) ?? 0) + entry.tempsTravailTotalMinutes);
+    arretByMonth.set(key, (arretByMonth.get(key) ?? 0) + item.arretTotalMinutes);
+    travailByMonth.set(key, (travailByMonth.get(key) ?? 0) + item.tempsTravailTotalMinutes);
   }
   const tauxArretMonthKeys = [...arretByMonth.keys()].sort((a, b) => a.localeCompare(b));
   const tauxArretChartSeries = [
@@ -249,7 +250,8 @@ export default async function RapportTempsArretPage({
                 Rapport Temps d&apos;Arret
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Temps d&apos;arret par chaine/zone/article, totaux par cause, et temps de travail par code.
+                Temps d&apos;arret par chaine/zone/article, totaux par cause, et temps de travail par code -
+                une ligne par fournee de conditionnement.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -405,8 +407,8 @@ export default async function RapportTempsArretPage({
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="border-b border-slate-100 px-6 py-5">
-            <h2 className="text-xl font-bold text-slate-900">Detail par ligne</h2>
-            <p className="mt-1 text-sm text-slate-500">{totalRows} ligne(s)</p>
+            <h2 className="text-xl font-bold text-slate-900">Detail par fournee</h2>
+            <p className="mt-1 text-sm text-slate-500">{totalRows} fournee(s)</p>
           </div>
 
           {error ? (
@@ -416,7 +418,7 @@ export default async function RapportTempsArretPage({
               </p>
             </div>
           ) : totalRows === 0 ? (
-            <div className="p-6 text-sm text-slate-500">Aucune ligne pour cette periode.</div>
+            <div className="p-6 text-sm text-slate-500">Aucune fournee pour cette periode.</div>
           ) : (
             <div className="max-h-[75vh] overflow-auto">
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
@@ -438,13 +440,15 @@ export default async function RapportTempsArretPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {pagedEnriched.map(({ row, arrets, arretTotalMinutes, tempsPlanifieMinutes, tempsTravailTotalMinutes }) => (
-                    <tr key={row.id} className="border-t border-slate-100">
-                      <td className="px-4 py-3 text-xs text-slate-600">{formatDate(row.date_jour)}</td>
-                      <td className="px-4 py-3 text-slate-600">{row.zone || "-"}</td>
-                      <td className="px-4 py-3 text-slate-600">{row.chaine || "-"}</td>
-                      <td className="px-4 py-3 font-medium text-slate-900">{row.produit || "-"}</td>
-                      <td className="px-4 py-3 text-slate-600">{row.numero_lot || "-"}</td>
+                  {pagedEnriched.map(({ entry, arrets, arretTotalMinutes, tempsPlanifieMinutes, tempsTravailTotalMinutes }) => (
+                    <tr key={entry.id} className="border-t border-slate-100">
+                      <td className="px-4 py-3 text-xs text-slate-600">{formatDate(entry.date_jour)}</td>
+                      <td className="px-4 py-3 text-slate-600">{entry.zone || "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">{entry.chaine || "-"}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900">
+                        {produitByLigneId.get(entry.programme_ligne_id) || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{entry.code || "-"}</td>
                       {arrets.map((a) => (
                         <td key={a.key} className="px-4 py-3 text-slate-600">
                           {a.minutes > 0 ? `${a.minutes} min` : "-"}
