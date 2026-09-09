@@ -18,6 +18,7 @@ import {
   sectionForPage,
   type AdminSection,
   type ModuleKey,
+  type PageDefinition,
 } from "@/lib/page-registry";
 import { getWorkbookSourceLabel, resolveWorkbookPath } from "@/lib/workbook-path";
 import { ModuleViewToggle } from "./module-view-toggle";
@@ -93,56 +94,74 @@ export default async function AdminPage({
 
   const stockUsers = await listStockUsers();
 
-  const pagesByModule = new Map<ModuleKey, typeof PAGE_REGISTRY>();
-  for (const page of PAGE_REGISTRY) {
-    const list = pagesByModule.get(page.module) ?? [];
-    list.push(page);
-    pagesByModule.set(page.module, list);
+  // Groupe d'affichage Admin : adminGroup si defini (sous-decoupe plus fine
+  // qu'un ModuleKey, ex: "Rapport (Matiere Premiere)"), sinon le ModuleKey
+  // brut (comportement d'avant, inchange pour les modules qui n'ont pas
+  // besoin d'etre sous-decoupes).
+  function adminGroupKey(page: PageDefinition): string {
+    return page.adminGroup ?? page.module;
   }
 
-  // Modules regroupes par section admin (Gestion Stock PF / Gestion Stock
+  const pagesByGroup = new Map<string, typeof PAGE_REGISTRY>();
+  for (const page of PAGE_REGISTRY) {
+    const key = adminGroupKey(page);
+    const list = pagesByGroup.get(key) ?? [];
+    list.push(page);
+    pagesByGroup.set(key, list);
+  }
+
+  // Groupes regroupes par section admin (Gestion Stock PF / Gestion Stock
   // MP / Production / Autre) - une page "matiere premiere" peut faire
   // basculer tout son module dans une section differente de celle des
   // autres pages du meme module (ex: Articles a des pages en PF et en MP).
-  const modulesBySection = new Map<AdminSection, ModuleKey[]>();
+  const groupsBySection = new Map<AdminSection, string[]>();
   for (const page of PAGE_REGISTRY) {
     const section = sectionForPage(page);
-    const modules = modulesBySection.get(section) ?? [];
-    if (!modules.includes(page.module)) modules.push(page.module);
-    modulesBySection.set(section, modules);
+    const groups = groupsBySection.get(section) ?? [];
+    const key = adminGroupKey(page);
+    if (!groups.includes(key)) groups.push(key);
+    groupsBySection.set(section, groups);
   }
 
-  // Modules qui apparaissent dans plusieurs sections (Stock/Articles/
-  // Mouvements ont chacun des pages PF et des pages MP) - sans suffixe, ces
-  // modules s'affichaient deux fois avec exactement le meme nom "Stock",
-  // "Articles" ou "Mouvements" sous deux titres differents, ce qui a fait
-  // cocher la mauvaise case a l'utilisateur (Stock MP au lieu de Stock PF).
+  // Modules (ModuleKey bruts, pas les adminGroup deja qualifies) qui
+  // apparaissent dans plusieurs sections (Stock/Articles/Mouvements ont
+  // chacun des pages PF et des pages MP) - sans suffixe, ces modules
+  // s'affichaient deux fois avec exactement le meme nom "Stock", "Articles"
+  // ou "Mouvements" sous deux titres differents, ce qui a fait cocher la
+  // mauvaise case a l'utilisateur (Stock MP au lieu de Stock PF).
   const modulesInMultipleSections = new Set<ModuleKey>();
-  for (const modules of modulesBySection.values()) {
-    for (const moduleKey of modules) {
+  for (const modules of groupsBySection.values()) {
+    for (const groupKey of modules) {
+      if (!(groupKey in MODULE_LABELS)) continue;
+      const moduleKey = groupKey as ModuleKey;
       let sectionsForModule = 0;
-      for (const otherModules of modulesBySection.values()) {
+      for (const otherModules of groupsBySection.values()) {
         if (otherModules.includes(moduleKey)) sectionsForModule += 1;
       }
       if (sectionsForModule > 1) modulesInMultipleSections.add(moduleKey);
     }
   }
 
-  function moduleLabelForSection(moduleKey: ModuleKey, section: AdminSection) {
+  // Un adminGroup (ex: "Rapport (Matiere Premiere)") est deja un libelle
+  // final, pret a afficher. Une cle qui matche un ModuleKey brut (ex:
+  // "Stock", "Articles") passe par le meme suffixage qu'avant.
+  function groupLabelForSection(groupKey: string, section: AdminSection) {
+    if (!(groupKey in MODULE_LABELS)) return groupKey;
+    const moduleKey = groupKey as ModuleKey;
     if (!modulesInMultipleSections.has(moduleKey)) return MODULE_LABELS[moduleKey];
     const suffix = section === "GestionStockMp" ? "Matiere Premiere" : "Produit Fini";
     return `${MODULE_LABELS[moduleKey]} (${suffix})`;
   }
 
-  // Un module peut apparaitre dans plusieurs sections (ex: "Articles" a des
+  // Un groupe peut apparaitre dans plusieurs sections (ex: "Articles" a des
   // pages en Gestion Stock PF et d'autres en Gestion Stock MP) - on ne
   // montre, dans chaque section, que les pages qui appartiennent vraiment a
-  // cette section, pas tout le module. Les pages "reservees" (defaultView
+  // cette section, pas tout le groupe. Les pages "reservees" (defaultView
   // false - Entrepot/Produit/Charges Usine...) remontent en tete de liste,
-  // sinon elles se perdent dans un module de 30+ pages (demande explicite,
+  // sinon elles se perdent dans un groupe de 30+ pages (demande explicite,
   // l'admin ne les trouvait pas).
-  function pagesForModuleInSection(moduleKey: ModuleKey, section: AdminSection) {
-    return (pagesByModule.get(moduleKey) ?? [])
+  function pagesForGroupInSection(groupKey: string, section: AdminSection) {
+    return (pagesByGroup.get(groupKey) ?? [])
       .filter((page) => sectionForPage(page) === section)
       .sort((a, b) => Number(a.defaultView === false ? 0 : 1) - Number(b.defaultView === false ? 0 : 1));
   }
@@ -530,9 +549,14 @@ export default async function AdminPage({
 
                       <div className="space-y-3">
                         {ADMIN_SECTION_ORDER.filter(
-                          (section) => (modulesBySection.get(section) ?? []).length > 0
+                          (section) => (groupsBySection.get(section) ?? []).length > 0
                         ).map((section) => {
-                          const modulesInSection = modulesBySection.get(section) ?? [];
+                          const groupsInSection = groupsBySection.get(section) ?? [];
+                          const sectionHasAnyView = groupsInSection.some((groupKey) =>
+                            pagesForGroupInSection(groupKey, section).some(
+                              (page) => user.permissions.pages[page.key]?.view
+                            )
+                          );
 
                           return (
                             <details
@@ -540,6 +564,9 @@ export default async function AdminPage({
                               className="group rounded-2xl border border-slate-300 bg-slate-50"
                             >
                               <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold uppercase tracking-wide text-slate-900">
+                                {!user.isAdmin ? (
+                                  <ModuleViewToggle defaultChecked={sectionHasAnyView} />
+                                ) : null}
                                 <span className="flex-1">{ADMIN_SECTION_LABELS[section]}</span>
                                 <span
                                   aria-hidden="true"
@@ -550,26 +577,26 @@ export default async function AdminPage({
                               </summary>
 
                               <div className="space-y-2 border-t border-slate-200 p-3">
-                                {modulesInSection.map((moduleKey) => {
-                                  const pages = pagesForModuleInSection(moduleKey, section);
+                                {groupsInSection.map((groupKey) => {
+                                  const pages = pagesForGroupInSection(groupKey, section);
                                   const moduleHasAnyView = pages.some(
                                     (page) => user.permissions.pages[page.key]?.view
                                   );
 
                                   return (
                                     <details
-                                      key={`${section}-${moduleKey}`}
-                                      // Un seul module dans cette section (Entrepot/Produit/Charges
+                                      key={`${section}-${groupKey}`}
+                                      // Un seul groupe dans cette section (Entrepot/Produit/Charges
                                       // Usine) : ouvert par defaut pour donner l'acces en un clic
                                       // (celui de la section), sans sous-menu a ouvrir en plus.
-                                      open={modulesInSection.length === 1}
+                                      open={groupsInSection.length === 1}
                                       className="group rounded-2xl border border-slate-200 bg-white"
                                     >
                                       <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800">
                                         {!user.isAdmin ? (
                                           <ModuleViewToggle defaultChecked={moduleHasAnyView} />
                                         ) : null}
-                                        <span className="flex-1">{moduleLabelForSection(moduleKey, section)}</span>
+                                        <span className="flex-1">{groupLabelForSection(groupKey, section)}</span>
                                         <span
                                           aria-hidden="true"
                                           className="text-slate-400 transition-transform group-open:rotate-90"
@@ -586,7 +613,7 @@ export default async function AdminPage({
                                               <th className="px-4 py-2 text-center font-semibold">Voir</th>
                                               <th className="px-4 py-2 text-center font-semibold">Modifier</th>
                                               <th className="px-4 py-2 text-center font-semibold">Supprimer</th>
-                                              {moduleKey === "Commandes" ? (
+                                              {groupKey === "Commandes" ? (
                                                 <th className="px-4 py-2 text-center font-semibold">Changer statut</th>
                                               ) : null}
                                             </tr>
@@ -630,7 +657,7 @@ export default async function AdminPage({
                                                   )}
                                                 </td>
                                                 <td className="px-4 py-2 text-center">
-                                                  {moduleKey === "Commandes" ? (
+                                                  {groupKey === "Commandes" ? (
                                                     page.key === "commandesDetail" ? (
                                                       <input
                                                         type="checkbox"
@@ -654,7 +681,7 @@ export default async function AdminPage({
                                                     />
                                                   )}
                                                 </td>
-                                                {moduleKey === "Commandes" ? (
+                                                {groupKey === "Commandes" ? (
                                                   <td className="px-4 py-2 text-center">
                                                     {page.key === "commandesDetail" ? (
                                                       <input

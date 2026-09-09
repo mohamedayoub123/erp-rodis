@@ -37,6 +37,15 @@ export type PageDefinition = {
   legacyWrite?: string;
   defaultView?: boolean;
   defaultWrite?: boolean;
+  // Sous-groupe affiche dans Admin, plus fin que "module" - un ModuleKey
+  // comme "Stock" peut contenir des pages tres differentes (Rapport,
+  // Statistique, Inventaire, Import, Commande...) qui ont chacune leur
+  // PROPRE tuile sur le hub reel de l'appli (ex: app/stock/matiere-premiere/page.tsx).
+  // Sans ca, l'admin voyait un seul bloc de 19 pages toutes melangees sous
+  // "Stock (Matiere Premiere)", sans rapport avec ce qu'un utilisateur voit
+  // vraiment en naviguant - demande explicite. Absent = pas de sous-decoupe,
+  // le module entier reste un seul groupe (comportement d'avant).
+  adminGroup?: string;
 };
 
 export const MODULE_LABELS: Record<ModuleKey, string> = {
@@ -104,6 +113,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Accueil Gestion Stock PF",
     pathPrefixes: ["/gestion-stock-pf"],
     hasWrite: false,
+    adminGroup: "Stock (Produit Fini)",
   },
   {
     key: "stock",
@@ -111,6 +121,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Stock (liste, modifier, supprimer)",
     pathPrefixes: ["/stock"],
     legacyWrite: "editStock",
+    adminGroup: "Stock (Produit Fini)",
   },
   {
     key: "stockRapportPf",
@@ -118,6 +129,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport PF (accueil)",
     pathPrefixes: ["/stock/rapport"],
     hasWrite: false,
+    adminGroup: "Rapport (Produit Fini)",
   },
   {
     key: "stockActuelPf",
@@ -125,6 +137,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Stock Actuel PF",
     pathPrefixes: ["/stock/stock-actuel"],
     hasWrite: false,
+    adminGroup: "Rapport (Produit Fini)",
   },
   {
     key: "inventairePf",
@@ -134,6 +147,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     // 3 autorisations dediees remplacent le "write" generique - voir
     // inventairePfDemarrer/Compter/Regulariser dans lib/stock-auth.ts.
     hasWrite: false,
+    adminGroup: "Inventaire (Produit Fini)",
   },
   {
     key: "stockCodePf",
@@ -141,6 +155,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Stock par Code PF",
     pathPrefixes: ["/stock/rapport/code"],
     hasWrite: false,
+    adminGroup: "Rapport (Produit Fini)",
   },
   {
     key: "stockDelaiCommandesPf",
@@ -148,6 +163,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Delai commande -> pret PF",
     pathPrefixes: ["/stock/rapport/delai-commandes"],
     hasWrite: false,
+    adminGroup: "Rapport (Produit Fini)",
   },
   {
     key: "stockMatierePremiere",
@@ -155,6 +171,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Stock Matiere Premiere",
     pathPrefixes: ["/stock/matiere-premiere"],
     hasWrite: false,
+    adminGroup: "Stock (Matiere Premiere)",
   },
   {
     key: "stockAlerteMp",
@@ -162,6 +179,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Stock Alert MP",
     pathPrefixes: ["/stock/matiere-premiere/alerte"],
     hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockRapportMp",
@@ -169,6 +187,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport MP (accueil)",
     pathPrefixes: ["/stock/matiere-premiere/rapport"],
     hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockMinProposeMp",
@@ -176,6 +195,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Stock Min Propose MP",
     pathPrefixes: ["/stock/matiere-premiere/rapport/stock-min"],
     hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockMouvementsMp",
@@ -183,6 +203,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Entree/Sortie MP",
     pathPrefixes: ["/stock/matiere-premiere/rapport/mouvements"],
     hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockCapaciteConditionnementMp",
@@ -190,6 +211,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Capacite Conditionnement MP",
     pathPrefixes: ["/stock/matiere-premiere/rapport/capacite-conditionnement"],
     hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockBesoinCommandeMp",
@@ -197,6 +219,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Besoin Commande MP",
     pathPrefixes: ["/stock/matiere-premiere/rapport/commande"],
     hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockPropositionCommandeMp",
@@ -204,6 +227,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Proposition de Commande MP",
     pathPrefixes: ["/stock/matiere-premiere/rapport/proposition"],
     hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockSurstockMp",
@@ -211,6 +235,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Surstock MP",
     pathPrefixes: ["/stock/matiere-premiere/rapport/surstock"],
     hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockActuelMp",
@@ -218,12 +243,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Stock Actuel MP",
     pathPrefixes: ["/stock/matiere-premiere/stock-actuel"],
     hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockPlastiqueMp",
     module: "Stock",
     label: "Statistique Article Plastique MP (E3)",
     pathPrefixes: ["/stock/matiere-premiere/rapport/plastique"],
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockRotationMp",
@@ -231,12 +258,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rotation de Stock MP",
     pathPrefixes: ["/stock/matiere-premiere/rotation"],
     hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockPerimeMp",
     module: "Stock",
     label: "Stock Perime MP (liste + note)",
     pathPrefixes: ["/stock/matiere-premiere/perime"],
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "stockDormantMp",
@@ -244,6 +273,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Stock Dormant MP",
     pathPrefixes: ["/stock/matiere-premiere/dormant"],
     hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
   },
   {
     key: "statistiqueMp",
@@ -251,6 +281,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Statistique MP",
     pathPrefixes: ["/stock/matiere-premiere/statistique"],
     hasWrite: true,
+    adminGroup: "Statistique (Matiere Premiere)",
   },
   {
     key: "inventaireMp",
@@ -260,24 +291,28 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     // 3 autorisations dediees remplacent le "write" generique - voir
     // inventaireMpDemarrer/Compter/Regulariser dans lib/stock-auth.ts.
     hasWrite: false,
+    adminGroup: "Inventaire (Matiere Premiere)",
   },
   {
     key: "commandeMp",
     module: "Stock",
     label: "Import MP (vue calculee, reception, statut dossier)",
     pathPrefixes: ["/stock/matiere-premiere/commande"],
+    adminGroup: "Import (Matiere Premiere)",
   },
   {
     key: "commandeBcMp",
     module: "Stock",
     label: "Commande MP - BC (liste + modifier)",
     pathPrefixes: ["/stock/matiere-premiere/bc"],
+    adminGroup: "Commande (Matiere Premiere)",
   },
   {
     key: "commandeBcMpNouvelle",
     module: "Stock",
     label: "Nouvelle commande MP - BC",
     pathPrefixes: ["/stock/matiere-premiere/bc/nouvelle"],
+    adminGroup: "Commande (Matiere Premiere)",
   },
 
   // Commandes
@@ -473,12 +508,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Planning Production (accueil)",
     pathPrefixes: ["/production/suivi"],
     hasWrite: false,
+    adminGroup: "Planning Production",
   },
   {
     key: "productionSuiviDashboard",
     module: "Production",
     label: "Dashboard Production (Fin programme)",
     pathPrefixes: ["/production/suivi/dashboard"],
+    adminGroup: "Planning Production",
   },
   {
     key: "productionSuiviCalendrier",
@@ -486,6 +523,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Calendrier Production",
     pathPrefixes: ["/production/suivi/calendrier"],
     hasWrite: false,
+    adminGroup: "Planning Production",
   },
   {
     key: "productionSuiviEnCours",
@@ -493,6 +531,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Suivi par Etape",
     pathPrefixes: ["/production/suivi/en-cours"],
     hasWrite: false,
+    adminGroup: "Planning Production",
   },
   {
     key: "productionSuiviProductionListe",
@@ -500,12 +539,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Suivi Production (liste, supprimer)",
     pathPrefixes: ["/production/suivi-production"],
     legacyWrite: "editProduction",
+    adminGroup: "Suivi Production",
   },
   {
     key: "productionSuiviProductionFabrication",
     module: "Production",
     label: "Rapport Fabrication",
     pathPrefixes: ["/production/suivi-production/fabrication"],
+    adminGroup: "Suivi Production",
   },
   // Cle separee pour le Test labo (sous-page de Fabrication) : un
   // utilisateur peut avoir le droit d'ecrire le Test labo sans avoir celui
@@ -522,18 +563,21 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/production/suivi-production/fabrication"],
     defaultView: false,
     defaultWrite: false,
+    adminGroup: "Suivi Production",
   },
   {
     key: "productionSuiviProductionConditionnement",
     module: "Production",
     label: "Rapport Conditionnement",
     pathPrefixes: ["/production/suivi-production/conditionnement"],
+    adminGroup: "Suivi Production",
   },
   {
     key: "productionSuiviProductionEmballage",
     module: "Production",
     label: "Rapport Emballage",
     pathPrefixes: ["/production/suivi-production/emballage"],
+    adminGroup: "Suivi Production",
   },
   {
     key: "productionSuiviProductionLegacyDetail",
@@ -542,12 +586,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/production/suivi-production/__legacy__"],
     defaultView: false,
     defaultWrite: false,
+    adminGroup: "Suivi Production",
   },
   {
     key: "programeParLigne",
     module: "Production",
     label: "Programme par ligne",
     pathPrefixes: ["/programe-par-ligne"],
+    adminGroup: "Programme par ligne",
   },
   {
     key: "historiqueProgramme",
@@ -555,12 +601,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Historique programme (MB) - supprimer",
     pathPrefixes: ["/historique-programme"],
     legacyWrite: "editProduction",
+    adminGroup: "Historique programme",
   },
   {
     key: "ravitailleurParLigne",
     module: "Production",
     label: "Ravitailleur par ligne (Dispatcher, Save, Supprimer, Imprimer)",
     pathPrefixes: ["/ravitailleur-par-ligne"],
+    adminGroup: "Ravitailleur par ligne",
   },
   {
     key: "historiqueProgrammeDispatcher",
@@ -568,6 +616,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Historique Programme Dispatcher (PD) - supprimer",
     pathPrefixes: ["/historique-programme-dispatcher"],
     legacyWrite: "editProduction",
+    adminGroup: "Historique Programme Dispatcher",
   },
   {
     key: "historiqueMatiereUtilisee",
@@ -575,6 +624,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Historique Matiere Utilisee (par code)",
     pathPrefixes: ["/historique-matiere-utilisee"],
     hasWrite: false,
+    adminGroup: "Historique Matiere Utilisee",
   },
   {
     key: "retoursConditionnement",
@@ -582,6 +632,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Retours Conditionnement (par PD) - creer un Transfer Order de retour",
     pathPrefixes: ["/production/retours-conditionnement"],
     hasWrite: true,
+    adminGroup: "Retours Conditionnement",
   },
   {
     key: "codeParArticle",
@@ -589,6 +640,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Code par article",
     pathPrefixes: ["/code-par-article"],
     legacyWrite: "editArticles",
+    adminGroup: "Code par article",
   },
   {
     key: "productionRapportHub",
@@ -596,30 +648,35 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport (accueil)",
     pathPrefixes: ["/production/rapport"],
     hasWrite: false,
+    adminGroup: "Rapport",
   },
   {
     key: "programme",
     module: "Production",
     label: "Programme",
     pathPrefixes: ["/production/programme"],
+    adminGroup: "Programme",
   },
   {
     key: "recetteFabrication",
     module: "Production",
     label: "Recette Fabrication",
     pathPrefixes: ["/production/recette-fabrication"],
+    adminGroup: "Recette Fabrication",
   },
   {
     key: "recetteConditionnement",
     module: "Production",
     label: "Recette Conditionnement",
     pathPrefixes: ["/production/recette-conditionnement"],
+    adminGroup: "Recette Conditionnement",
   },
   {
     key: "machines",
     module: "Production",
     label: "Machines",
     pathPrefixes: ["/production/machines"],
+    adminGroup: "Equipements",
   },
   // depots/produit : portes depuis V2, reserves au compte admin pour le
   // moment (defaultView false) - aucun utilisateur existant n'avait deja
@@ -648,6 +705,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport Ecarts Production - supprimer",
     pathPrefixes: ["/production/rapport/ecarts"],
     legacyWrite: "editProduction",
+    adminGroup: "Rapport",
   },
   {
     key: "productionRapportTempsArret",
@@ -655,6 +713,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport Temps d'Arret",
     pathPrefixes: ["/production/rapport/temps-arret"],
     hasWrite: false,
+    adminGroup: "Rapport",
   },
   {
     key: "productionRapportBalanceMatiere",
@@ -662,6 +721,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport Balance Matiere",
     pathPrefixes: ["/production/rapport/balance-matiere"],
     hasWrite: false,
+    adminGroup: "Rapport",
   },
   {
     key: "productionRapportCarton",
@@ -669,6 +729,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport Carton",
     pathPrefixes: ["/production/rapport/carton"],
     hasWrite: false,
+    adminGroup: "Rapport",
   },
   {
     key: "productionRapportMachinesCapacite",
@@ -676,6 +737,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport Capacite Machines",
     pathPrefixes: ["/production/rapport/machines-capacite"],
     hasWrite: false,
+    adminGroup: "Rapport",
   },
   {
     key: "productionRapportCoutReel",
@@ -683,6 +745,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport Cout Reel (piece/gramme)",
     pathPrefixes: ["/production/rapport/cout-reel"],
     hasWrite: false,
+    adminGroup: "Rapport",
   },
   {
     key: "productionRapportCartonMensuel",
@@ -690,6 +753,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport Carton Mensuel",
     pathPrefixes: ["/production/rapport/carton-mensuel"],
     hasWrite: false,
+    adminGroup: "Rapport",
   },
   {
     key: "productionRapportCartonGamme",
@@ -697,6 +761,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport Carton par Gamme",
     pathPrefixes: ["/production/rapport/carton-gamme"],
     hasWrite: false,
+    adminGroup: "Rapport",
   },
   {
     key: "productionRapportDechets",
@@ -704,6 +769,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport Dechets",
     pathPrefixes: ["/production/rapport/dechets"],
     hasWrite: false,
+    adminGroup: "Rapport",
   },
   {
     key: "productionRapportFluxCode",
@@ -713,6 +779,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
     defaultView: false,
     defaultWrite: false,
+    adminGroup: "Rapport",
   },
 
   // Qualite
