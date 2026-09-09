@@ -250,6 +250,33 @@ export default async function RapportBalanceMatierePage({
     return result;
   }
 
+  // Cascade UNIQUEMENT la part du pool pas deja attribuee directement par
+  // computeProduitParCode (entrees qui portent deja le bon
+  // programme_ligne_id + code) - le reste (entrees historiques en code
+  // partage "") continue de se repartir par demande, comme avant. Sans ce
+  // garde-fou, une ligne du groupe SANS AUCUNE entree a elle (ex: le meme
+  // code reliste sur 2 lignes differentes, dont une sans donnee reelle)
+  // absorbait a tort la production d'une autre ligne du meme groupe - bug
+  // reel confirme (une ligne affichait "3000 kg fabrique" alors que la
+  // vraie fabrication, 2989.2 kg, etait enregistree sur l'autre ligne du
+  // groupe qui partage ce code).
+  function residualCascade(
+    tuples: { key: string; demande: number; dejaAttribue: number }[],
+    totalPool: number
+  ): Map<string, number> {
+    const dejaAttribueTotal = tuples.reduce((sum, t) => sum + t.dejaAttribue, 0);
+    const residualPool = Math.max(0, totalPool - dejaAttribueTotal);
+    const residualByTuple = cascadeFamily(
+      tuples.map((t) => ({ key: t.key, demande: Math.max(0, t.demande - t.dejaAttribue) })),
+      residualPool
+    );
+    const result = new Map<string, number>();
+    for (const t of tuples) {
+      result.set(t.key, t.dejaAttribue + (residualByTuple.get(t.key) ?? 0));
+    }
+    return result;
+  }
+
   type CodeRowBase = {
     ligne: ProgrammeLigneRow;
     code: string;
@@ -344,12 +371,20 @@ export default async function RapportBalanceMatierePage({
       0
     );
 
-    const vracByTuple = cascadeFamily(
-      tupleKeys.map((key) => ({ key, demande: baseRowsByKey.get(key)?.vracDemande ?? 0 })),
+    const vracByTuple = residualCascade(
+      tupleKeys.map((key) => ({
+        key,
+        demande: baseRowsByKey.get(key)?.vracDemande ?? 0,
+        dejaAttribue: baseRowsByKey.get(key)?.vracFabrique ?? 0,
+      })),
       familyVracPool
     );
-    const cartonByTuple = cascadeFamily(
-      tupleKeys.map((key) => ({ key, demande: baseRowsByKey.get(key)?.cartonDemande ?? 0 })),
+    const cartonByTuple = residualCascade(
+      tupleKeys.map((key) => ({
+        key,
+        demande: baseRowsByKey.get(key)?.cartonDemande ?? 0,
+        dejaAttribue: baseRowsByKey.get(key)?.cartonFabrique ?? 0,
+      })),
       familyCartonPool
     );
 
@@ -401,8 +436,12 @@ export default async function RapportBalanceMatierePage({
       (sum, id) => sum + sumEntries((emballageByLigne.get(id) ?? []) as { quantite: number }[]),
       0
     );
-    const emballageByTuple = cascadeFamily(
-      tupleKeys.map((key) => ({ key, demande: baseRowsByKey.get(key)?.cartonFabrique ?? 0 })),
+    const emballageByTuple = residualCascade(
+      tupleKeys.map((key) => ({
+        key,
+        demande: baseRowsByKey.get(key)?.cartonFabrique ?? 0,
+        dejaAttribue: baseRowsByKey.get(key)?.cartonEmballe ?? 0,
+      })),
       familyEmballagePool
     );
     for (const key of tupleKeys) {
@@ -456,11 +495,13 @@ export default async function RapportBalanceMatierePage({
     const contenance = poidsReelGrammes !== null ? poidsReelGrammes / 1000 : factor?.contenance ?? null;
     const canConvert = pieceParCarton !== null && contenance !== null && pieceParCarton > 0 && contenance > 0;
     const cartonFabriqueKg = canConvert ? cartonFabrique * (pieceParCarton as number) * (contenance as number) : null;
-    // Ecart = vrac COMMANDE - carton (vrac tire), pas vrac fabrique - voir
-    // aussi les KPI globaux en haut de page (meme principe).
-    const ecartMatiereKg = cartonFabriqueKg !== null ? vracDemande - cartonFabriqueKg : null;
+    // Ecart = carton fabrique converti (vrac tire) - vrac FABRIQUE (pas
+    // demande) : perte/gain matiere reelle pendant le process, pas un ecart
+    // de planning (demande vs realise) - demande explicite. Negatif = perte
+    // (moins tire que fabrique), positif = gain.
+    const ecartMatiereKg = cartonFabriqueKg !== null ? cartonFabriqueKg - vracFabrique : null;
     const ecartPct =
-      ecartMatiereKg !== null && vracDemande > 0 ? (ecartMatiereKg / vracDemande) * 100 : null;
+      ecartMatiereKg !== null && vracFabrique > 0 ? (ecartMatiereKg / vracFabrique) * 100 : null;
 
     return {
       statut,

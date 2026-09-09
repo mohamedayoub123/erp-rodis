@@ -346,6 +346,30 @@ function cascadeFamily(tuples: { key: string; demande: number }[], totalPool: nu
   return result;
 }
 
+// Cascade UNIQUEMENT la part du pool pas deja attribuee directement par
+// computeProduitParCode (entrees qui portent deja le bon programme_ligne_id
+// + code) - le reste (entrees historiques en code partage "") continue de
+// se repartir par demande, comme avant. Meme correctif que Rapport Balance
+// Matiere (app/production/rapport/balance-matiere/page.tsx) : sans ce
+// garde-fou, une ligne du groupe SANS AUCUNE entree a elle absorbait a tort
+// la production d'une autre ligne du meme groupe partageant ce code.
+function residualCascade(
+  tuples: { key: string; demande: number; dejaAttribue: number }[],
+  totalPool: number
+): Map<string, number> {
+  const dejaAttribueTotal = tuples.reduce((sum, t) => sum + t.dejaAttribue, 0);
+  const residualPool = Math.max(0, totalPool - dejaAttribueTotal);
+  const residualByTuple = cascadeFamily(
+    tuples.map((t) => ({ key: t.key, demande: Math.max(0, t.demande - t.dejaAttribue) })),
+    residualPool
+  );
+  const result = new Map<string, number>();
+  for (const t of tuples) {
+    result.set(t.key, t.dejaAttribue + (residualByTuple.get(t.key) ?? 0));
+  }
+  return result;
+}
+
 async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracCommande: number; cartonFabriqueKg: number }>> {
   const [{ rows: lignes }, vracEntries, cartonEntries, emballageEntries] = await Promise.all([
     fetchAllProgrammeLignes(),
@@ -438,12 +462,20 @@ async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracCommande:
       (sum, id) => sum + sumEntries((cartonByLigne.get(id) ?? []) as { quantite: number }[]),
       0
     );
-    const vracByTuple = cascadeFamily(
-      tupleKeys.map((key) => ({ key, demande: baseByKey.get(key)?.vracDemande ?? 0 })),
+    const vracByTuple = residualCascade(
+      tupleKeys.map((key) => ({
+        key,
+        demande: baseByKey.get(key)?.vracDemande ?? 0,
+        dejaAttribue: baseByKey.get(key)?.vracFabrique ?? 0,
+      })),
       familyVracPool
     );
-    const cartonByTuple = cascadeFamily(
-      tupleKeys.map((key) => ({ key, demande: baseByKey.get(key)?.cartonDemande ?? 0 })),
+    const cartonByTuple = residualCascade(
+      tupleKeys.map((key) => ({
+        key,
+        demande: baseByKey.get(key)?.cartonDemande ?? 0,
+        dejaAttribue: baseByKey.get(key)?.cartonFabrique ?? 0,
+      })),
       familyCartonPool
     );
     for (const key of tupleKeys) {
@@ -488,8 +520,12 @@ async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracCommande:
       (sum, id) => sum + sumEntries((emballageByLigne.get(id) ?? []) as { quantite: number }[]),
       0
     );
-    const emballageByTuple = cascadeFamily(
-      tupleKeys.map((key) => ({ key, demande: baseByKey.get(key)?.cartonFabrique ?? 0 })),
+    const emballageByTuple = residualCascade(
+      tupleKeys.map((key) => ({
+        key,
+        demande: baseByKey.get(key)?.cartonFabrique ?? 0,
+        dejaAttribue: baseByKey.get(key)?.cartonEmballe ?? 0,
+      })),
       familyEmballagePool
     );
     for (const key of tupleKeys) {
