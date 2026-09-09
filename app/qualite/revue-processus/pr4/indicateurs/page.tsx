@@ -22,14 +22,11 @@ import type { ManuelRow } from "./fields";
 
 // PR4 - Indicateurs Cosmetique : reprend le fichier Excel de suivi ISO
 // "Objectif et INDICATEUR PR4 cosmetique.xlsx" (sheet "CALCULE INDICATEUR"),
-// formules confirmees une par une avec l'utilisateur. 8 des 9 indicateurs
+// formules confirmees une par une avec l'utilisateur. Les 9 indicateurs
 // automatisables sont calcules ici depuis les donnees deja suivies dans
 // l'ERP (memes calculs que les rapports existants, duplique volontairement
 // plutot que partage - meme convention que Rapport Balance Matiere/Ecarts,
-// pour ne jamais faire deriver un rapport existant en le touchant). Le 9e
-// (capacite machines) est un instantane "en ce moment", pas historisable
-// par mois avec le modele de donnees actuel - affiche seulement sur le mois
-// en cours, "-" ailleurs (voir note sur la page).
+// pour ne jamais faire deriver un rapport existant en le touchant).
 //
 // 4 indicateurs restent hors perimetre pour l'instant (aucune donnee
 // source dans l'ERP, l'utilisateur doit encore definir la saisie) : taux
@@ -106,35 +103,73 @@ async function fetchCartonMonthly(): Promise<Map<string, { commande: number; fab
 }
 
 // ---------------------------------------------------------------------
-// Indicateur 3 : capacite machines - instantane "en ce moment" de la
-// capacite CONDITIONNEMENT uniquement (carte "Capacite Conditionnement" du
-// Rapport Capacite Machines, pas la capacite globale toutes machines),
-// rattache uniquement au mois en cours.
+// Indicateur 3 : capacite machines Conditionnement uniquement (carte
+// "Capacite Conditionnement" du Rapport Capacite Machines, pas la capacite
+// globale toutes machines) - PAR MOIS : pour chaque jour ou un programme
+// existe (programme_lignes.date_jour), quelle proportion des machines
+// Conditionnement a tourne ce jour-la, puis moyenne de ces % journaliers
+// sur le mois - un jour sans aucun programme (weekend, ferie) n'entre pas
+// dans la moyenne. Meme calcul que app/production/rapport/machines-capacite
+// (duplique volontairement, voir note en tete de fichier), historise pour
+// tous les mois au lieu d'un instantane limite au mois en cours.
 // ---------------------------------------------------------------------
 function normalizeMachine(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
 }
 
-async function fetchCapaciteActuelle(): Promise<number | null> {
+async function fetchCapaciteMonthly(): Promise<Map<string, number>> {
   const { data: machinesData } = await supabaseServer.from("machines").select("id, nom, type");
   const machines = (machinesData ?? []) as { id: number; nom: string; type: string | null }[];
-  const conditionnementMachines = machines.filter((m) => normalizeMachine(m.type) === "conditionnement");
-  if (conditionnementMachines.length === 0) return null;
+  const conditionnementNames = new Set(
+    machines.filter((m) => normalizeMachine(m.type) === "conditionnement").map((m) => normalizeMachine(m.nom))
+  );
+  if (conditionnementNames.size === 0) return new Map();
 
-  const { data: lignesData } = await supabaseServer
-    .from("programme_lignes")
-    .select("id, chaine")
-    .or("programme_termine.eq.false,programme_termine.is.null")
-    .eq("exclu_rapports", false);
-  const lignesActives = (lignesData ?? []) as { id: number; chaine: string | null }[];
+  const lignes: { chaine: string | null; date_jour: string | null }[] = [];
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("programme_lignes")
+      .select("chaine, date_jour")
+      .eq("exclu_rapports", false)
+      .not("date_jour", "is", null)
+      .range(from, from + pageSize - 1);
+    if (error) break;
+    const chunk = (data ?? []) as { chaine: string | null; date_jour: string | null }[];
+    lignes.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
 
-  const activeChaineNames = new Set(lignesActives.map((l) => normalizeMachine(l.chaine)).filter(Boolean));
+  // Chaines actives distinctes par jour (date_jour).
+  const activeChainesByDay = new Map<string, Set<string>>();
+  for (const ligne of lignes) {
+    const chaine = normalizeMachine(ligne.chaine);
+    const day = ligne.date_jour;
+    if (!chaine || !day) continue;
+    const set = activeChainesByDay.get(day) ?? new Set<string>();
+    set.add(chaine);
+    activeChainesByDay.set(day, set);
+  }
 
-  const activeCount = conditionnementMachines.filter((machine) =>
-    activeChaineNames.has(normalizeMachine(machine.nom))
-  ).length;
+  // % journalier -> regroupe par mois -> moyenne.
+  const dailyPctByMonth = new Map<string, number[]>();
+  for (const [day, activeChaines] of activeChainesByDay.entries()) {
+    const mois = day.slice(0, 7);
+    if (mois.length !== 7) continue;
+    const activeCount = [...conditionnementNames].filter((name) => activeChaines.has(name)).length;
+    const pct = (activeCount / conditionnementNames.size) * 100;
+    const list = dailyPctByMonth.get(mois) ?? [];
+    list.push(pct);
+    dailyPctByMonth.set(mois, list);
+  }
 
-  return (activeCount / conditionnementMachines.length) * 100;
+  const byMonth = new Map<string, number>();
+  for (const [mois, pcts] of dailyPctByMonth.entries()) {
+    byMonth.set(mois, pcts.reduce((sum, p) => sum + p, 0) / pcts.length);
+  }
+  return byMonth;
 }
 
 // ---------------------------------------------------------------------
@@ -811,7 +846,7 @@ const EXPORT_COLUMNS = [
   { label: "1 - Nb carton fabrique", key: "cartonFabrique" },
   { label: "2 - Carton commande", key: "cartonCommande" },
   { label: "2 - % programme fait dans les temps (cible 98%)", key: "pctProgrammeLabel" },
-  { label: "3 - % capacite machines conditionnement (mois en cours seulement)", key: "capaciteLabel" },
+  { label: "3 - % capacite machines conditionnement", key: "capaciteLabel" },
   { label: "5/6 - Preparations Test Labo", key: "preparations" },
   { label: "5 - % non conforme detruit (cible < 0,5%)", key: "pctADetruireLabel" },
   { label: "6 - % sous derogation (cible < 10%)", key: "pctSousDerogationLabel" },
@@ -846,7 +881,7 @@ export default async function Pr4Page() {
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - 4 + i);
 
-  const [cartonMonthly, testLaboMonthly, balanceMonthly, arretMonthly, dechetsMonthly, delaiMonthly, capaciteActuelle, manuel] =
+  const [cartonMonthly, testLaboMonthly, balanceMonthly, arretMonthly, dechetsMonthly, delaiMonthly, capaciteMonthly, manuel] =
     await Promise.all([
       fetchCartonMonthly(),
       fetchTestLaboMonthly(),
@@ -854,7 +889,7 @@ export default async function Pr4Page() {
       fetchTempsArretMonthly(),
       fetchDechetsMonthly(),
       fetchDelaiLivraisonMonthly(),
-      fetchCapaciteActuelle(),
+      fetchCapaciteMonthly(),
       fetchManuelByMonth(),
     ]);
 
@@ -871,6 +906,7 @@ export default async function Pr4Page() {
     ...dechetsMonthly.keys(),
     ...delaiMonthly.keys(),
     ...prixCartonMonthly.keys(),
+    ...capaciteMonthly.keys(),
     ...manuel.byMonth.keys(),
     currentMoisKey,
   ]);
@@ -885,6 +921,7 @@ export default async function Pr4Page() {
       const hasDechetsAuto = dechetsMonthly.has(mois);
       const hasPrixCartonAuto = prixCartonMonthly.has(mois);
       const hasDelaiAuto = delaiMonthly.has(mois);
+      const hasCapaciteAuto = capaciteMonthly.has(mois);
       const manuelRow = manuel.byMonth.get(mois) ?? null;
 
       const carton = hasCartonAuto
@@ -907,7 +944,7 @@ export default async function Pr4Page() {
         ? dechetsMonthly.get(mois)!
         : { pieces: manuelRow?.pieces_fabriquees ?? 0, dechet: manuelRow?.dechet_pieces ?? 0 };
       const prixCarton = hasPrixCartonAuto ? prixCartonMonthly.get(mois)! : manuelRow?.prix_carton ?? null;
-      const capacite = mois === currentMoisKey ? capaciteActuelle : manuelRow?.capacite_pct ?? null;
+      const capacite = hasCapaciteAuto ? capaciteMonthly.get(mois)! : manuelRow?.capacite_pct ?? null;
 
       const isManuel = {
         carton: !hasCartonAuto && Boolean(manuelRow),
@@ -916,7 +953,7 @@ export default async function Pr4Page() {
         arret: !hasArretAuto && Boolean(manuelRow),
         dechets: !hasDechetsAuto && Boolean(manuelRow),
         prixCarton: !hasPrixCartonAuto && manuelRow?.prix_carton != null,
-        capacite: mois !== currentMoisKey && manuelRow?.capacite_pct != null,
+        capacite: !hasCapaciteAuto && manuelRow?.capacite_pct != null,
         delai: !hasDelaiAuto && Boolean(manuelRow),
       };
 
