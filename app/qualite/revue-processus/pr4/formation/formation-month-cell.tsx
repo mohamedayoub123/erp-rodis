@@ -56,7 +56,13 @@ export function FormationMonthCell({
   const [files, setFiles] = useState<AttachmentFile[]>(initialFiles);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [pendingViewUrl, setPendingViewUrl] = useState<{ url: string; name: string } | null>(null);
+  // URLs signees pre-chargees des l'ouverture du popover (pas au clic sur
+  // le fichier) - un <a href=...> avec une URL deja resolue s'ouvre toujours
+  // en un clic, sans jamais passer par le blocage anti-popup du navigateur
+  // (qui n'apparait que si l'ouverture attend un await APRES le clic).
+  // Signees pour 5 minutes (voir getFormationFileUrlAction), largement
+  // assez pour le temps d'ouvrir le popover et cliquer.
+  const [fileUrls, setFileUrls] = useState<Record<string, string>>({});
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -65,6 +71,30 @@ export function FormationMonthCell({
       folderInputRef.current.setAttribute("directory", "");
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || files.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        files.map(async (f) => {
+          const result = await getFormationFileUrlAction(f.path);
+          return [f.path, result.ok && result.url ? result.url : null] as const;
+        })
+      );
+      if (cancelled) return;
+      setFileUrls((prev) => {
+        const next = { ...prev };
+        for (const [path, url] of entries) {
+          if (url) next[path] = url;
+        }
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, files]);
 
   async function handleUpload(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
@@ -100,29 +130,6 @@ export function FormationMonthCell({
       }
     }
     setBusy(false);
-  }
-
-  function handleOpenFile(path: string, name: string) {
-    setError("");
-    setPendingViewUrl(null);
-    // Ouvre l'onglet tout de suite (dans le clic, pendant que le navigateur
-    // considere encore que c'est un geste de l'utilisateur) puis le
-    // redirige une fois l'URL signee recuperee - meme motif que AuditTable
-    // (un window.open() appele APRES un await est bloque silencieusement).
-    const win = window.open("", "_blank", "noopener,noreferrer");
-    void (async () => {
-      const result = await getFormationFileUrlAction(path);
-      if (!result.ok || !result.url) {
-        setError(result.message || "Fichier introuvable.");
-        win?.close();
-        return;
-      }
-      if (win) {
-        win.location.href = result.url;
-      } else {
-        setPendingViewUrl({ url: result.url, name });
-      }
-    })();
   }
 
   async function handleDeleteFile(path: string) {
@@ -204,7 +211,7 @@ export function FormationMonthCell({
       </button>
 
       {open ? (
-        <div className="absolute left-1/2 top-full z-40 mt-1 w-64 -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
+        <div className="absolute left-1/2 top-full z-40 mt-1 w-[48rem] max-w-[90vw] -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
             Pieces jointes
           </p>
@@ -214,14 +221,21 @@ export function FormationMonthCell({
             <ul className="mb-2 space-y-1">
               {files.map((f) => (
                 <li key={f.path} className="flex items-center justify-between gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenFile(f.path, f.name)}
-                    className="truncate text-left text-violet-700 underline"
-                    title={f.name}
-                  >
-                    {f.name}
-                  </button>
+                  {fileUrls[f.path] ? (
+                    <a
+                      href={fileUrls[f.path]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="truncate text-left text-violet-700 underline"
+                      title={f.name}
+                    >
+                      {f.name}
+                    </a>
+                  ) : (
+                    <span className="truncate text-left text-slate-400" title={f.name}>
+                      {f.name}
+                    </span>
+                  )}
                   {canEdit ? (
                     <button
                       type="button"
@@ -261,21 +275,6 @@ export function FormationMonthCell({
                 />
               </label>
             </div>
-          ) : null}
-          {pendingViewUrl ? (
-            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-800">
-              Onglet bloque -{" "}
-              <a
-                href={pendingViewUrl.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-semibold underline"
-                onClick={() => setPendingViewUrl(null)}
-              >
-                clique ici pour ouvrir &quot;{pendingViewUrl.name}&quot;
-              </a>
-              .
-            </p>
           ) : null}
           {error ? <p className="mt-2 text-[10px] font-semibold text-red-700">{error}</p> : null}
           <button
