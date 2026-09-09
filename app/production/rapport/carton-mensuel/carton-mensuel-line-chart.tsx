@@ -17,8 +17,14 @@ type Series = {
 const WIDTH = 720;
 const HEIGHT = 320;
 const PAD_LEFT = 48;
-const PAD_RIGHT = 16;
-const PAD_TOP = 26;
+// La derniere valeur de chaque courbe est etiquetee juste apres son point
+// (voir plus bas, x = xFor(lastIndex) + 6) - avec seulement 16px de marge
+// droite, ce texte (des nombres a 6 chiffres avec separateur de milliers,
+// ex: "103 439") depassait le viewBox et se faisait couper net par le
+// clipping SVG par defaut (overflow: hidden sur <svg>) - bug reel signale
+// par l'utilisateur, chiffre illisible ("34" au lieu de "34 xxx").
+const PAD_RIGHT = 72;
+const PAD_TOP = 32;
 const PAD_BOTTOM = 40;
 const TOOLTIP_WIDTH = 190;
 const HIT_RADIUS = 16;

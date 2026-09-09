@@ -5,8 +5,14 @@ type Series = { key: string; label: string; color: string; values: number[] };
 const WIDTH = 720;
 const HEIGHT = 320;
 const PAD_LEFT = 40;
-const PAD_RIGHT = 16;
-const PAD_TOP = 16;
+// La derniere valeur de chaque courbe est etiquetee juste apres son point
+// (voir plus bas, x = xFor(lastIndex) + 6) - avec seulement 16px de marge
+// droite, ce texte (ex: "100.0%") depassait le viewBox et se faisait
+// couper net par le clipping SVG par defaut (overflow: hidden sur <svg>) -
+// bug reel signale par l'utilisateur, chiffre illisible ("8." au lieu de
+// "8.1%"). Assez de marge pour un libelle a 6 caracteres en gras.
+const PAD_RIGHT = 56;
+const PAD_TOP = 24;
 const PAD_BOTTOM = 40;
 
 // Evolution dans le temps par mois, plusieurs series sur le meme axe Y
