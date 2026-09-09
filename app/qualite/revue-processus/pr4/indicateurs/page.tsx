@@ -841,6 +841,51 @@ function daysBetweenDates(fromValue: string, toValue: string) {
   return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);
 }
 
+// ---------------------------------------------------------------------
+// Indicateur 9 : Taux suivi formation - lit directement le plan de
+// formation (app/qualite/revue-processus/pr4/formation, table
+// pr4_formation_plan) au lieu d'une saisie manuelle mensuelle repetee :
+// pour un mois donne, "a faire" = nombre de formations planifiees ce
+// mois-la (m{n}_planifie = true), "realisee" = celles qui ont deja une
+// date de realisation (m{n}_date rempli). Sans donnee de planification
+// (aucune formation planifiee ce mois), pas de repli manuel - 0 planifie
+// = 0 a faire, ce qui donne 100% plus bas (rien a rattraper).
+// ---------------------------------------------------------------------
+type FormationPlanRow = { annee: number } & Record<`m${number}_planifie`, boolean | null> &
+  Record<`m${number}_date`, string | null>;
+
+async function fetchFormationMonthly(): Promise<Map<string, { aFaire: number; realisee: number }>> {
+  const monthCols = Array.from({ length: 12 }, (_, i) => `m${i + 1}_planifie, m${i + 1}_date`).join(", ");
+  const rows: FormationPlanRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("pr4_formation_plan")
+      .select(`annee, ${monthCols}`)
+      .range(from, from + pageSize - 1);
+    if (error) break;
+    const chunk = (data ?? []) as unknown as FormationPlanRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const byMonth = new Map<string, { aFaire: number; realisee: number }>();
+  for (const row of rows) {
+    for (let n = 1; n <= 12; n++) {
+      const planifie = Boolean(row[`m${n}_planifie`]);
+      if (!planifie) continue;
+      const mois = `${row.annee}-${String(n).padStart(2, "0")}`;
+      const current = byMonth.get(mois) ?? { aFaire: 0, realisee: 0 };
+      current.aFaire += 1;
+      if (row[`m${n}_date`]) current.realisee += 1;
+      byMonth.set(mois, current);
+    }
+  }
+  return byMonth;
+}
+
 async function fetchDelaiLivraisonMonthly(): Promise<Map<string, { commande: number; depasse: number }>> {
   const rows: DelaiCommandeRow[] = [];
   let from = 0;
@@ -953,7 +998,7 @@ export default async function Pr4Page() {
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - 4 + i);
 
-  const [cartonMonthly, testLaboMonthly, balanceMonthly, arretMonthly, dechetsMonthly, delaiMonthly, capaciteMonthly, manuel] =
+  const [cartonMonthly, testLaboMonthly, balanceMonthly, arretMonthly, dechetsMonthly, delaiMonthly, capaciteMonthly, formationMonthly, manuel] =
     await Promise.all([
       fetchCartonMonthly(),
       fetchTestLaboMonthly(),
@@ -962,6 +1007,7 @@ export default async function Pr4Page() {
       fetchDechetsMonthly(),
       fetchDelaiLivraisonMonthly(),
       fetchCapaciteMonthly(),
+      fetchFormationMonthly(),
       fetchManuelByMonth(),
     ]);
 
@@ -979,6 +1025,7 @@ export default async function Pr4Page() {
     ...delaiMonthly.keys(),
     ...prixCartonMonthly.keys(),
     ...capaciteMonthly.keys(),
+    ...formationMonthly.keys(),
     ...manuel.byMonth.keys(),
     currentMoisKey,
   ]);
@@ -1018,6 +1065,8 @@ export default async function Pr4Page() {
       const prixCarton = hasPrixCartonAuto ? prixCartonMonthly.get(mois)! : manuelRow?.prix_carton ?? null;
       const capacite = hasCapaciteAuto ? capaciteMonthly.get(mois)! : manuelRow?.capacite_pct ?? null;
 
+      const hasFormationAuto = formationMonthly.has(mois);
+
       const isManuel = {
         carton: !hasCartonAuto && Boolean(manuelRow),
         testLabo: !hasTestLaboAuto && Boolean(manuelRow),
@@ -1027,6 +1076,7 @@ export default async function Pr4Page() {
         prixCarton: !hasPrixCartonAuto && manuelRow?.prix_carton != null,
         capacite: !hasCapaciteAuto && manuelRow?.capacite_pct != null,
         delai: !hasDelaiAuto && Boolean(manuelRow),
+        formation: !hasFormationAuto && Boolean(manuelRow),
       };
 
       const pctProgramme = carton.commande > 0 ? (carton.fabrique / carton.commande) * 100 : null;
@@ -1037,15 +1087,20 @@ export default async function Pr4Page() {
       const pctArret = arret.travail > 0 ? (arret.arret / arret.travail) * 100 : null;
       const pctDechets = dechets.pieces + dechets.dechet > 0 ? (dechets.dechet / (dechets.pieces + dechets.dechet)) * 100 : null;
 
-      // Indicateurs 4/9/11/12 : aucune donnee automatique dans l'ERP pour
+      // Indicateurs 4/11/12 : aucune donnee automatique dans l'ERP pour
       // l'instant - purement saisis a la main (l'utilisateur les reprend
       // directement de son fichier Excel). Le denominateur de l'indicateur
       // 11 (qt fabriquee) reutilise les pieces deja calculees pour
       // l'indicateur 10, pour ne pas redemander le meme chiffre 2 fois.
       const heuresSupplementairesPct = manuelRow?.heures_supplementaires_pct ?? null;
-      const formationAFaire = manuelRow?.formation_a_faire ?? 0;
-      const formationRealisee = manuelRow?.formation_realisee ?? 0;
-      const pctFormation = formationAFaire > 0 ? (formationRealisee / formationAFaire) * 100 : null;
+      // Indicateur 9 : lu depuis le plan de formation (voir
+      // fetchFormationMonthly) - repli sur la saisie manuelle uniquement
+      // pour les mois sans aucune formation planifiee dans le plan.
+      const formationMois = hasFormationAuto ? formationMonthly.get(mois)! : null;
+      const formationAFaire = hasFormationAuto ? formationMois!.aFaire : manuelRow?.formation_a_faire ?? 0;
+      const formationRealisee = hasFormationAuto ? formationMois!.realisee : manuelRow?.formation_realisee ?? 0;
+      // Rien a faire ce mois-la = rien a rattraper -> 100%, pas "-".
+      const pctFormation = formationAFaire > 0 ? (formationRealisee / formationAFaire) * 100 : 100;
       const qtRetourneeNc = manuelRow?.qt_retournee_nc ?? 0;
       const pctReclamationNc = dechets.pieces > 0 ? (qtRetourneeNc / dechets.pieces) * 100 : null;
       const delaiAuto = hasDelaiAuto ? delaiMonthly.get(mois)! : null;
