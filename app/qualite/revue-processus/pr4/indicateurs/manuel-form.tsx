@@ -19,19 +19,33 @@ const GROUPS = [
   "13 - Cout",
 ] as const;
 
-function defaultValueFor(existing: ManuelRow | null, key: (typeof MANUEL_FIELDS)[number]["key"]) {
-  const value = existing?.[key];
-  return value === null || value === undefined ? "" : String(value);
+// Priorite : valeur manuelle deja enregistree (existing) > valeur
+// actuellement affichee (auto ou manuel anterieur, via computedByMonth) >
+// vide - pour que le formulaire montre toujours ce qui est reellement
+// affiche ailleurs sur la page, pas une case vide qui ferait croire qu'il
+// n'y a rien.
+function defaultValueFor(
+  existing: ManuelRow | null,
+  computed: Partial<Record<(typeof MANUEL_FIELDS)[number]["key"], number>> | undefined,
+  key: (typeof MANUEL_FIELDS)[number]["key"]
+) {
+  const existingValue = existing?.[key];
+  if (existingValue !== null && existingValue !== undefined) return String(existingValue);
+  const computedValue = computed?.[key];
+  if (computedValue !== null && computedValue !== undefined) return String(Math.round(computedValue * 100) / 100);
+  return "";
 }
 
 export function Pr4ManuelForm({
   rows,
   yearOptions,
   currentYear,
+  computedByMonth,
 }: {
   rows: ManuelRow[];
   yearOptions: number[];
   currentYear: number;
+  computedByMonth: Record<string, Partial<Record<(typeof MANUEL_FIELDS)[number]["key"], number>>>;
 }) {
   const [annee, setAnnee] = useState(currentYear);
   const [mois, setMois] = useState(new Date().getMonth() + 1);
@@ -43,6 +57,7 @@ export function Pr4ManuelForm({
   }, [rows]);
 
   const existing = rowByKey.get(`${annee}-${mois}`) ?? null;
+  const computed = computedByMonth[`${annee}-${String(mois).padStart(2, "0")}`];
 
   return (
     <details className="group overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -56,6 +71,11 @@ export function Pr4ManuelForm({
           <p className="rounded-2xl bg-violet-50 px-4 py-3 text-xs font-semibold text-violet-700">
             {MOIS_NOMS[mois - 1]} {annee} est deja enregistre manuellement - les valeurs ci-dessous sont
             pre-remplies, modifiez puis enregistrez pour corriger.
+          </p>
+        ) : computed ? (
+          <p className="rounded-2xl bg-sky-50 px-4 py-3 text-xs font-semibold text-sky-700">
+            {MOIS_NOMS[mois - 1]} {annee} : les valeurs ci-dessous sont celles deja calculees automatiquement -
+            laisse tel quel pour ne rien changer, ou modifie puis enregistre pour forcer une valeur differente.
           </p>
         ) : null}
 
@@ -104,7 +124,7 @@ export function Pr4ManuelForm({
                     step="0.01"
                     name={field.key}
                     placeholder="0"
-                    defaultValue={defaultValueFor(existing, field.key)}
+                    defaultValue={defaultValueFor(existing, computed, field.key)}
                     className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                   />
                 </label>

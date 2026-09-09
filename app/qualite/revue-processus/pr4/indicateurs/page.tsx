@@ -18,7 +18,7 @@ import {
   type ProgrammeLigneRow,
 } from "../../../../production/suivi/data";
 import { Pr4ManuelForm } from "./manuel-form";
-import type { ManuelRow } from "./fields";
+import { MANUEL_FIELDS, type ManuelRow } from "./fields";
 
 // PR4 - Indicateurs Cosmetique : reprend le fichier Excel de suivi ISO
 // "Objectif et INDICATEUR PR4 cosmetique.xlsx" (sheet "CALCULE INDICATEUR"),
@@ -663,6 +663,12 @@ const DECHET_FIELDS = [
 
 type DechetRow = { programme_ligne_id: number; code: string } & Record<(typeof DECHET_FIELDS)[number], number | null>;
 
+// Lu depuis production_carton_entries (une ligne PAR FOURNEE), PAS depuis
+// production_rapports - ce dernier ne garde qu'une seule ligne par code,
+// ECRASEE a chaque nouvelle fournee de conditionnement, donc les dechets
+// d'une fournee anterieure disparaissaient silencieusement des qu'un
+// meme code recevait une fournee plus recente (meme bug reel deja corrige
+// pour Rapport Dechets et Rapport Temps d'Arret).
 async function fetchDechetsByLigneCode(ligneIds: number[]): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   if (ligneIds.length === 0) return map;
@@ -672,7 +678,7 @@ async function fetchDechetsByLigneCode(ligneIds: number[]): Promise<Map<string, 
   const pageSize = 1000;
   while (true) {
     const { data, error } = await supabaseServer
-      .from("production_rapports")
+      .from("production_carton_entries")
       .select(columns)
       .in("programme_ligne_id", ligneIds)
       .range(from, from + pageSize - 1);
@@ -1122,6 +1128,35 @@ export default async function Pr4Page() {
   // EXPORT_COLUMNS comptent de toute facon.
   const exportRows = monthRows.map(({ isManuel: _isManuel, ...row }) => row);
 
+  // Valeurs ACTUELLEMENT affichees (auto ou deja manuel) par mois, pour
+  // pre-remplir le formulaire "Saisir un mois ancien" au lieu de le montrer
+  // vide - demande explicite : voir ce qui a deja ete calcule pour pouvoir
+  // le garder tel quel ou le corriger, plutot que de saisir a l'aveugle.
+  const computedByMonth: Record<string, Partial<Record<(typeof MANUEL_FIELDS)[number]["key"], number>>> = {};
+  for (const row of monthRows) {
+    computedByMonth[row.mois] = {
+      carton_commande: row.cartonCommande,
+      carton_fabrique: row.cartonFabrique,
+      capacite_pct: row.capacite ?? undefined,
+      test_labo_preparations: row.preparations,
+      test_labo_a_detruire: row.aDetruireCount,
+      test_labo_sous_derogation: row.sousDerogationCount,
+      vrac_fabrique_kg: row.vracFabriqueKg,
+      carton_fabrique_kg: row.cartonFabriqueKgBalance,
+      arret_minutes: row.arretMinutes,
+      travail_minutes: row.travailMinutes,
+      pieces_fabriquees: row.pieces,
+      dechet_pieces: row.dechet,
+      prix_carton: row.prixCarton ?? undefined,
+      heures_supplementaires_pct: row.heuresSupplementairesPct ?? undefined,
+      formation_a_faire: row.formationAFaire,
+      formation_realisee: row.formationRealisee,
+      qt_retournee_nc: row.qtRetourneeNc,
+      qt_commande_livraison: row.qtCommandeLivraison,
+      qt_livree_a_temps: row.qtLivreeATemps,
+    };
+  }
+
   // Meme mise en forme que le fichier Excel : indicateurs en ligne (avec
   // #/cible/methode empiles en sous-lignes numerateur-denominateur-%), mois
   // en colonne du plus recent au plus ancien (aout 2026 en premier) - meme
@@ -1418,7 +1453,14 @@ export default async function Pr4Page() {
         </section>
 
 
-        {canEdit ? <Pr4ManuelForm rows={manuel.rows} yearOptions={yearOptions} currentYear={currentYear} /> : null}
+        {canEdit ? (
+          <Pr4ManuelForm
+            rows={manuel.rows}
+            yearOptions={yearOptions}
+            currentYear={currentYear}
+            computedByMonth={computedByMonth}
+          />
+        ) : null}
 
         {monthRows.length === 0 ? (
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-8 text-center text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
