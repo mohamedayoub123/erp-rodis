@@ -40,6 +40,13 @@ type DechetRow = { programme_ligne_id: number; code: string } & Record<
   number | null
 >;
 
+// Lu depuis production_carton_entries (une ligne PAR FOURNEE), PAS depuis
+// production_rapports - ce dernier ne garde qu'une seule ligne par code,
+// ECRASEE a chaque nouvelle fournee de conditionnement, donc les dechets
+// d'une fournee anterieure disparaissaient silencieusement des qu'un
+// meme code recevait une fournee plus recente (meme bug reel deja corrige
+// pour Rapport Temps d'Arret, voir
+// app/production/rapport/temps-arret/page.tsx).
 async function fetchDechetsByLigneCode(ligneIds: number[]): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   if (ligneIds.length === 0) return map;
@@ -50,7 +57,7 @@ async function fetchDechetsByLigneCode(ligneIds: number[]): Promise<Map<string, 
 
   while (true) {
     const { data, error } = await supabaseServer
-      .from("production_rapports")
+      .from("production_carton_entries")
       .select(columns)
       .in("programme_ligne_id", ligneIds)
       .range(from, from + pageSize - 1);
