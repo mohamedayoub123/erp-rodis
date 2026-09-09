@@ -252,23 +252,32 @@ export default async function RapportMachinesCapacitePage({ searchParams }: { se
     })
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
-  // Pourcentage MOYEN sur la periode : pour chaque jour du filtre, quelle
-  // proportion des machines de "rows" a tourne ce jour-la, puis moyenne de
-  // ces pourcentages journaliers - pas un instantane "maintenant".
-  function capacitePctMoyen(rows: typeof machineRows) {
-    if (rows.length === 0 || days.length === 0) return null;
-    const dailyPcts = days.map((day) => {
+  // Detail JOUR PAR JOUR : pour chaque jour du filtre, combien de machines
+  // de "rows" ont tourne ce jour-la (compte brut, pas juste le %) - demande
+  // explicite pour voir le detail derriere la moyenne, pas seulement le
+  // resultat final.
+  function capaciteParJour(rows: typeof machineRows) {
+    return days.map((day) => {
       const activeCount = rows.filter((r) => r.joursActifs.has(day)).length;
-      return (activeCount / rows.length) * 100;
+      return { day, activeCount, total: rows.length, pct: rows.length > 0 ? (activeCount / rows.length) * 100 : 0 };
     });
-    return dailyPcts.reduce((sum, pct) => sum + pct, 0) / dailyPcts.length;
   }
 
-  const totalPct = capacitePctMoyen(machineRows);
+  // Pourcentage MOYEN sur la periode = moyenne des % journaliers ci-dessus -
+  // pas un instantane "maintenant".
+  function moyennePct(parJour: ReturnType<typeof capaciteParJour>) {
+    if (parJour.length === 0) return null;
+    return parJour.reduce((sum, j) => sum + j.pct, 0) / parJour.length;
+  }
+
   const fabricationRows = machineRows.filter((r) => normalize(r.type) === "fabrication");
   const conditionnementRows = machineRows.filter((r) => normalize(r.type) === "conditionnement");
-  const fabricationPct = capacitePctMoyen(fabricationRows);
-  const conditionnementPct = capacitePctMoyen(conditionnementRows);
+  const totalParJour = capaciteParJour(machineRows);
+  const fabricationParJour = capaciteParJour(fabricationRows);
+  const conditionnementParJour = capaciteParJour(conditionnementRows);
+  const totalPct = moyennePct(totalParJour);
+  const fabricationPct = moyennePct(fabricationParJour);
+  const conditionnementPct = moyennePct(conditionnementParJour);
 
   // Repartition des machines Conditionnement actives AU MOINS UN JOUR de la
   // periode, par type de produit - une machine active sans type connu
@@ -384,6 +393,51 @@ export default async function RapportMachinesCapacitePage({ searchParams }: { se
             </p>
           </div>
         </section>
+
+        {days.length > 1 ? (
+          <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <div className="p-5 pb-0">
+              <h2 className="text-lg font-bold text-slate-900">Detail par jour</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Combien de machines ont demarre chaque jour de la periode - la moyenne de cette colonne donne le %
+                affiche au-dessus.
+              </p>
+            </div>
+            <div className="max-h-[60vh] overflow-auto p-5 pt-3">
+              <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="bg-slate-50 text-slate-950">
+                  <tr>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Fabrication</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Conditionnement</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {days.map((day, index) => {
+                    const fab = fabricationParJour[index];
+                    const cond = conditionnementParJour[index];
+                    const tot = totalParJour[index];
+                    return (
+                      <tr key={day} className="border-t border-slate-100">
+                        <td className="px-4 py-2.5 font-semibold text-slate-900">{formatDateFr(day)}</td>
+                        <td className="px-4 py-2.5 text-amber-800">
+                          {fab.activeCount} / {fab.total} ({Math.round(fab.pct)}%)
+                        </td>
+                        <td className="px-4 py-2.5 text-sky-800">
+                          {cond.activeCount} / {cond.total} ({Math.round(cond.pct)}%)
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-700">
+                          {tot.activeCount} / {tot.total} ({Math.round(tot.pct)}%)
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
 
         {typeBreakdownRows.length > 0 ? (
           <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
