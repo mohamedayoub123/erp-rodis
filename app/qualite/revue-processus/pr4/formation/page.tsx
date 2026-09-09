@@ -9,6 +9,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { deleteFormationRowAction } from "./actions";
 import { FormationForm } from "./formation-form";
 import { FormationMonthCell } from "./formation-month-cell";
+import { monthStatus } from "./month-status";
 import { MOIS_FIELD_KEYS, MOIS_NOMS, type FormationRow } from "./fields";
 
 // PR4 > Formation : reprend le fichier Excel "GFPC-ENR-015 Plan de
@@ -89,6 +90,27 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
     row,
     showCategorie: index === 0 || row.categorie !== trainingRows[index - 1].categorie,
   }));
+
+  // Lignes "Formation realisee"/"Formation ratee" du Bilan : comptees
+  // automatiquement (vert/rouge) sur toutes les formations du plan de cette
+  // annee, mois par mois - plus besoin de les cocher/dater a la main en
+  // plus, demande explicite.
+  const bilanCountsByMois: Record<number, { done: number; late: number }> = {};
+  for (const { mois, planifieKey, dateKey } of MOIS_FIELD_KEYS) {
+    let done = 0;
+    let late = 0;
+    for (const row of trainingRows) {
+      const status = monthStatus(row.annee, mois, Boolean(row[planifieKey]), Boolean(row[dateKey]));
+      if (status === "done") done += 1;
+      if (status === "late") late += 1;
+    }
+    bilanCountsByMois[mois] = { done, late };
+  }
+
+  const DIACRITICS_RE = new RegExp("[\\u0300-\\u036f]", "g");
+  function normalizeLabel(value: string) {
+    return value.toLowerCase().normalize("NFD").replace(DIACRITICS_RE, "").trim();
+  }
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f0ff_0%,#faf8ff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -219,23 +241,47 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
             <div className="overflow-x-auto">
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
                 <tbody>
-                  {bilanRows.map((row) => (
+                  {bilanRows.map((row) => {
+                    // "Formation realisee"/"Formation ratee" ne se cochent
+                    // plus a la main : comptees automatiquement (vert/rouge)
+                    // sur toutes les formations du plan de l'annee, mois par
+                    // mois - demande explicite.
+                    const normalized = normalizeLabel(row.formation);
+                    const autoKind = normalized.includes("realisee")
+                      ? "done"
+                      : normalized.includes("ratee")
+                        ? "late"
+                        : null;
+
+                    return (
                     <tr key={row.id} className="border-t border-slate-100">
                       <td className="w-[440px] min-w-[440px] max-w-[440px] border border-slate-200 bg-violet-50 px-3 py-2 font-semibold text-violet-800">
                         {row.formation}
                       </td>
-                      {MOIS_FIELD_KEYS.map(({ mois, planifieKey, dateKey, piecesJointesKey }) => (
-                        <FormationMonthCell
-                          key={planifieKey}
-                          rowId={row.id}
-                          mois={mois}
-                          annee={row.annee}
-                          planifie={Boolean(row[planifieKey])}
-                          date={row[dateKey] as string | null}
-                          initialFiles={(row[piecesJointesKey] as FormationRow["m1_pieces_jointes"]) ?? []}
-                          canEdit={canEdit}
-                        />
-                      ))}
+                      {MOIS_FIELD_KEYS.map(({ mois, planifieKey, dateKey, piecesJointesKey }) =>
+                        autoKind ? (
+                          <td
+                            key={planifieKey}
+                            className={`border border-slate-200 px-3 py-2 text-center font-semibold ${
+                              autoKind === "done" ? "text-emerald-700" : "text-red-700"
+                            }`}
+                            title="Calcule automatiquement a partir des formations ci-dessus"
+                          >
+                            {bilanCountsByMois[mois][autoKind === "done" ? "done" : "late"]}
+                          </td>
+                        ) : (
+                          <FormationMonthCell
+                            key={planifieKey}
+                            rowId={row.id}
+                            mois={mois}
+                            annee={row.annee}
+                            planifie={Boolean(row[planifieKey])}
+                            date={row[dateKey] as string | null}
+                            initialFiles={(row[piecesJointesKey] as FormationRow["m1_pieces_jointes"]) ?? []}
+                            canEdit={canEdit}
+                          />
+                        )
+                      )}
                       {canDelete ? (
                         <td className="border border-slate-200 px-3 py-2 text-center">
                           <form action={deleteFormationRowAction}>
@@ -245,7 +291,8 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
                         </td>
                       ) : null}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

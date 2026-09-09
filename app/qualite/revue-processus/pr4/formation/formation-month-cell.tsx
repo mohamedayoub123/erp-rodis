@@ -9,19 +9,7 @@ import {
   updateFormationDateAction,
 } from "./actions";
 import type { AttachmentFile } from "./fields";
-
-// Statut de la cellule : la date fait office d'indicateur "realise" -
-// vert des qu'une date est ecrite, rouge si le mois cible (annee/mois de la
-// colonne, pas forcement le texte de la date lui-meme) est deja passe sans
-// aucune date, jaune si planifie mais le mois n'est pas encore passe, "-"
-// si le mois n'est pas du tout planifie.
-function monthStatus(annee: number, mois: number, planifie: boolean, hasDate: boolean) {
-  if (!planifie) return "none";
-  if (hasDate) return "done";
-  const now = new Date();
-  const overdue = annee < now.getFullYear() || (annee === now.getFullYear() && mois < now.getMonth() + 1);
-  return overdue ? "late" : "pending";
-}
+import { monthStatus } from "./month-status";
 
 const STATUS_STYLES: Record<string, string> = {
   none: "text-slate-300",
@@ -100,7 +88,15 @@ export function FormationMonthCell({
     if (!fileList || fileList.length === 0) return;
     setBusy(true);
     setError("");
-    for (const file of Array.from(fileList)) {
+    // "Ou un dossier entier" remonte aussi les fichiers systeme que
+    // l'OS depose lui-meme dans le dossier (miniatures Windows,
+    // metadonnees Mac) - jamais de vraies pieces jointes, a exclure avant
+    // l'envoi plutot que de laisser l'utilisateur les supprimer a la main
+    // apres coup (bug reel : "Thumbs.db" telecharge, Windows ne sait pas
+    // quoi en faire a l'ouverture).
+    const JUNK_FILENAMES = new Set(["thumbs.db", ".ds_store", "desktop.ini"]);
+    const files = Array.from(fileList).filter((file) => !JUNK_FILENAMES.has(file.name.toLowerCase()));
+    for (const file of files) {
       const displayName = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
       const slot = await createFormationUploadSlotAction(rowId, mois, file.name);
       if (!slot.ok || !slot.path || !slot.signedUrl) {
@@ -184,27 +180,27 @@ export function FormationMonthCell({
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                 if (e.key === "Escape") setEditingDate(false);
               }}
-              className="mt-0.5 w-full rounded border border-slate-300 px-1 py-0.5 text-[10px] text-slate-900 outline-none"
+              className="mt-0.5 w-full rounded border border-slate-300 px-1 py-0.5 text-[20px] text-slate-900 outline-none"
             />
           ) : (
             <button
               type="button"
               onClick={() => setEditingDate(true)}
-              className="mt-0.5 block w-full truncate text-[10px] text-slate-500 hover:text-slate-800 hover:underline"
+              className="mt-0.5 block w-full truncate text-[20px] text-slate-500 hover:text-slate-800 hover:underline"
               title="Ecrire la date une fois la formation faite"
             >
               {dateState || (status === "none" ? "-" : "ecrire date")}
             </button>
           )
         ) : (
-          <div className="mt-0.5 text-[10px] text-slate-500">{dateState || (status === "none" ? "-" : "")}</div>
+          <div className="mt-0.5 text-[20px] text-slate-500">{dateState || (status === "none" ? "-" : "")}</div>
         )}
       </div>
 
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="mt-1 inline-flex items-center gap-0.5 text-[10px] font-semibold text-slate-400 hover:text-slate-700"
+        className="mt-1 inline-flex items-center gap-0.5 text-[20px] font-semibold text-slate-400 hover:text-slate-700"
         title="Fichiers / dossier joint"
       >
         📎 {files.length > 0 ? files.length : ""}
@@ -212,7 +208,7 @@ export function FormationMonthCell({
 
       {open ? (
         <div className="absolute left-1/2 top-full z-40 mt-1 w-[48rem] max-w-[90vw] -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
+          <p className="mb-2 text-[20px] font-semibold uppercase tracking-[0.1em] text-slate-400">
             Pieces jointes
           </p>
           {files.length === 0 ? (
@@ -253,17 +249,17 @@ export function FormationMonthCell({
           )}
           {canEdit ? (
             <div className="grid gap-2">
-              <label className="text-[10px] font-semibold text-slate-500">
+              <label className="text-[20px] font-semibold text-slate-500">
                 Fichier(s)
                 <input
                   type="file"
                   multiple
                   disabled={busy}
                   onChange={(e) => handleUpload(e.target.files)}
-                  className="mt-1 block w-full text-[10px]"
+                  className="mt-1 block w-full text-[20px]"
                 />
               </label>
-              <label className="text-[10px] font-semibold text-slate-500">
+              <label className="text-[20px] font-semibold text-slate-500">
                 Ou un dossier entier
                 <input
                   ref={folderInputRef}
@@ -271,16 +267,16 @@ export function FormationMonthCell({
                   multiple
                   disabled={busy}
                   onChange={(e) => handleUpload(e.target.files)}
-                  className="mt-1 block w-full text-[10px]"
+                  className="mt-1 block w-full text-[20px]"
                 />
               </label>
             </div>
           ) : null}
-          {error ? <p className="mt-2 text-[10px] font-semibold text-red-700">{error}</p> : null}
+          {error ? <p className="mt-2 text-[20px] font-semibold text-red-700">{error}</p> : null}
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="mt-2 w-full rounded-full bg-slate-100 px-3 py-1 text-[10px] font-semibold text-slate-600"
+            className="mt-2 w-full rounded-full bg-slate-100 px-3 py-1 text-[20px] font-semibold text-slate-600"
           >
             Fermer
           </button>
