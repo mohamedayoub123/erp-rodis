@@ -43,7 +43,19 @@ type RapportInfo = {
 // nouvelle fournee du meme code) - ce formulaire se pre-remplit depuis la
 // fournee la PLUS RECENTE de ce (ligne, code) comme point de depart
 // pratique, sans plus jamais ecraser les fournees precedentes.
+//
+// id/quantite ajoutes (meme motif que Conditionnement, voir
+// conditionnement/[ligneId]/page.tsx) - bug reel corrige : "Save" creait
+// TOUJOURS une nouvelle ligne, meme pour corriger un champ (chef de zone,
+// machine...) d'une fournee deja saisie, laissant l'ancienne ligne intacte
+// a cote (doublon, quantite comptee 2 fois). fournee_id (hidden, plus bas)
+// + quantite pre-remplie (au lieu d'un "0" fixe) permettent au Save de
+// distinguer une vraie correction (quantite laissee identique -> update en
+// place) d'un vrai 2e lot (quantite differente -> nouvelle ligne, comme
+// avant) - voir saveEmballageRapportAction.
 type DerniereFourneeInfo = {
+  id: number;
+  quantite: number | null;
   emballage_machine: string | null;
   emballage_operateur: string | null;
   emballage_scotcheuse: string | null;
@@ -60,7 +72,7 @@ type DerniereFourneeInfo = {
   date_saisie_emballage: string | null;
 };
 
-type SearchParams = Promise<{ code?: string; erreur?: string }>;
+type SearchParams = Promise<{ code?: string; erreur?: string; nouvelle?: string }>;
 
 export default async function RapportEmballagePage({
   params,
@@ -72,8 +84,13 @@ export default async function RapportEmballagePage({
   noStore();
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
-  const { code: codeParam, erreur } = await searchParams;
+  const { code: codeParam, erreur, nouvelle } = await searchParams;
   const code = (codeParam || "").trim();
+  // Meme convention que Conditionnement : formulaire vide, aucun fournee_id
+  // envoye au Save - une vraie nouvelle ligne est creee, meme si la
+  // quantite tapee est identique a la derniere fournee (2e lot reel de la
+  // meme taille).
+  const modeNouvelle = nouvelle === "1";
 
   if (!ligneIdNumber) {
     notFound();
@@ -84,7 +101,7 @@ export default async function RapportEmballagePage({
 
   const RAPPORT_FIELDS = "date_emballage, date_peremption";
   const FOURNEE_FIELDS =
-    "emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_chef_zone, nb_journaliers_emballage, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, utilisateur_emballage, date_saisie_emballage";
+    "id, quantite, emballage_machine, emballage_operateur, emballage_scotcheuse, emballage_chef_zone, nb_journaliers_emballage, emballage_temps_demarrer, emballage_temps_arret, emballage_arret_changement_bobine, emballage_arret_technique, emballage_arret_reglage, emballage_arret_coupure, emballage_arret_autre, utilisateur_emballage, date_saisie_emballage";
 
   const [{ data: ligneData }, { data: rapportData }, { data: fourneeData }, machines] =
     await Promise.all([
@@ -112,12 +129,12 @@ export default async function RapportEmballagePage({
 
   const ligne = ligneData as LigneInfo | null;
   const rapport = rapportData as RapportInfo | null;
-  let derniereFournee = fourneeData as DerniereFourneeInfo | null;
+  let derniereFournee = modeNouvelle ? null : (fourneeData as DerniereFourneeInfo | null);
 
   // Meme repli que Conditionnement : seulement pour une ligne jamais
   // decoupee en plusieurs lots, l'ancienne fournee partagee (code "") reste
   // sans ambiguite le bon prefill.
-  if (!derniereFournee && code) {
+  if (!derniereFournee && code && !modeNouvelle) {
     const numeroLotCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
     if (numeroLotCodes.length <= 1) {
       const { data: legacyFournee } = await supabaseServer
@@ -160,6 +177,19 @@ export default async function RapportEmballagePage({
                     : ""}
                 </p>
               ) : null}
+              {derniereFournee && canWrite ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Modifie cette fournee (Save corrige la ligne ci-dessous) - pour ajouter une VRAIE nouvelle
+                  fournee plutot que corriger celle-ci,{" "}
+                  <a
+                    href={`/production/suivi-production/emballage/${ligneId}?code=${encodeURIComponent(code)}&nouvelle=1`}
+                    className="font-semibold text-sky-700 underline"
+                  >
+                    clique ici pour un formulaire vide
+                  </a>
+                  .
+                </p>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-3">
@@ -184,6 +214,7 @@ export default async function RapportEmballagePage({
             <form action={saveEmballageRapportAction} className="grid gap-6">
               <input type="hidden" name="ligne_id" value={ligne.id} />
               <input type="hidden" name="code" value={code} />
+              <input type="hidden" name="fournee_id" value={derniereFournee?.id ?? ""} />
 
               <div>
                 <h2 className="mb-1 text-lg font-bold text-slate-900">Date</h2>
@@ -312,7 +343,8 @@ export default async function RapportEmballagePage({
                 <h2 className="mb-1 text-lg font-bold text-slate-900">Production</h2>
                 <p className="mb-3 text-xs text-slate-500">
                   Ce qui est saisi ici est retire de ce qui reste a emballer (visible dans le
-                  Dashboard).
+                  Dashboard). Laisse la meme quantite pour corriger seulement les autres champs -
+                  change-la pour ajouter un vrai nouveau lot.
                 </p>
                 <label className="grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
                   Qt emballee
@@ -320,7 +352,7 @@ export default async function RapportEmballagePage({
                     type="number"
                     step="0.01"
                     name="quantite"
-                    defaultValue="0"
+                    defaultValue={derniereFournee?.quantite ?? "0"}
                     required
                     className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                   />
@@ -332,7 +364,7 @@ export default async function RapportEmballagePage({
                   pendingLabel="Enregistrement..."
                   className="rounded-full bg-amber-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-500"
                 >
-                  Save
+                  {derniereFournee ? "Corriger cette fournee" : "Save"}
                 </SubmitButton>
               </div>
             </form>
