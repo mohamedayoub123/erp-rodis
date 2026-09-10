@@ -54,14 +54,21 @@ function classerDuree(dureeMinutes: number, estSamedi: boolean) {
 // jour c'est 8h, le reste c'est dormir" - decoupe donc l'intervalle en
 // tranches par jour calendaire, et chaque jour touche ne compte JAMAIS plus
 // de 8h (le reste de ce jour-la est ignore, ni normal ni sup - personne n'a
-// travaille 16h+ d'affilee). Un jour touche qui est un samedi bascule ses 8h
-// (au lieu de moins si le segment est plus court) en jour sup plutot qu'en
-// normal - jamais de sup "classique" genere par un etalement multi-jours,
-// seule une VRAIE fournee sur un seul jour (classerDuree ci-dessus) peut en
-// produire.
+// travaille 16h+ d'affilee).
+//
+// Un samedi simplement TRAVERSE par cet etalement (les autres chaines/
+// machines ne tournent pas ce jour-la) n'est PAS compte comme du jour sup -
+// demande explicite suite au 1er correctif : "si les autres chaine et
+// machine ne fonctionnent pas samedi... il ne faut pas compter qu'on a
+// travaille le samedi" juste parce que la date tombe dans la fenetre d'une
+// longue macceration/attente labo. Ce jour-la est simplement ignore (ni
+// normal ni jour sup), comme la nuit. Seule une VRAIE fournee tenant sur
+// UN SEUL jour tombant un samedi (classerDuree ci-dessus - Fabrication,
+// Conditionnement ou Emballage) reste comptee en jour sup, puisque la
+// preuve directe (heure de debut/fin saisie CE jour-la) montre que
+// quelqu'un est reellement venu travailler.
 function classerFabricationMultiJours(startMs: number, endMs: number) {
   let normalesMinutes = 0;
-  let joursSupMinutes = 0;
 
   const cursor = new Date(startMs);
   cursor.setHours(0, 0, 0, 0);
@@ -75,15 +82,13 @@ function classerFabricationMultiJours(startMs: number, endMs: number) {
     const segStart = Math.max(startMs, jourDebutMs);
     const segEnd = Math.min(endMs, jourFinMs);
     if (segEnd <= segStart) continue;
+    if (estSamediCeJour) continue;
 
     const segMinutes = Math.round((segEnd - segStart) / 60000);
-    const compteMinutes = Math.min(segMinutes, NORMAL_MINUTES_PAR_FOURNEE);
-
-    if (estSamediCeJour) joursSupMinutes += compteMinutes;
-    else normalesMinutes += compteMinutes;
+    normalesMinutes += Math.min(segMinutes, NORMAL_MINUTES_PAR_FOURNEE);
   }
 
-  return { normalesMinutes, supMinutes: 0, joursSupMinutes };
+  return { normalesMinutes, supMinutes: 0, joursSupMinutes: 0 };
 }
 
 type CartonRow = {
