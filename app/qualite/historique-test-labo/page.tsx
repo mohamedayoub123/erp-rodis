@@ -169,7 +169,17 @@ export default async function QualiteHistoriqueTestLaboPage({
     return {
       ...r,
       produit: ligne?.produit || "-",
-      date: ligne?.date_jour || (r.date_saisie_test_labo ? r.date_saisie_test_labo.slice(0, 10) : ""),
+      // Priorite a la date de prise d'echantillon (saisie reelle du labo) sur
+      // la date programmee (programme_lignes.date_jour) - une fabrication qui
+      // deborde sur la nuit programme le jour J mais l'echantillon est pris
+      // la veille au soir, ce qui affichait a tort le jour J comme "Date" au
+      // lieu du jour reel de prelevement (bug remonte par l'utilisateur).
+      // Repli sur l'ancien comportement uniquement pour les rapports sans
+      // date_prise_echantillon renseignee (champ ajoute apres coup).
+      date:
+        r.date_prise_echantillon ||
+        ligne?.date_jour ||
+        (r.date_saisie_test_labo ? r.date_saisie_test_labo.slice(0, 10) : ""),
       typeLabel: plateformeLabel(ligne?.plateforme),
     };
   });
