@@ -346,7 +346,7 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
 
   const { data: rowData, error: rowError } = await supabaseServer
     .from("programme_dispatcher_lignes")
-    .select("id, zone, chaine, article_id, groupe_id")
+    .select("id, zone, chaine, article_id, groupe_id, code")
     .eq("id", id)
     .maybeSingle();
 
@@ -360,7 +360,9 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
     chaine: string;
     article_id: number | null;
     groupe_id: number | null;
+    code: string | null;
   };
+  const oldCode = (row.code || "").trim();
 
   let qtCarton: number | null = null;
   if (row.article_id && qtVrac && qtVrac > 0) {
@@ -395,7 +397,7 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
     const [{ data: sourceLignes }, { data: dispatcherSiblings }] = await Promise.all([
       supabaseServer
         .from("programme_lignes")
-        .select("id, plateforme")
+        .select("id, plateforme, numero_lot_detail")
         .eq("groupe_id", row.groupe_id)
         .eq("article_id", row.article_id)
         .eq("zone", row.zone)
@@ -409,7 +411,14 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
         .eq("chaine", row.chaine),
     ]);
 
-    const lignes = (sourceLignes as { id: number; plateforme: string | null }[] | null) ?? [];
+    const lignes =
+      (sourceLignes as
+        | {
+            id: number;
+            plateforme: string | null;
+            numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
+          }[]
+        | null) ?? [];
     const plateforme = lignes[0]?.plateforme;
 
     if (trimmedCode && (plateforme === "M" || plateforme === "A")) {
@@ -428,27 +437,88 @@ export async function updateDispatcherLigneAction(id: number, code: string, qtVr
     // le code affiche ici (programme_dispatcher_lignes.code) - sans cette
     // synchro, un code ajoute/corrige a la main ici restait invisible du
     // Dashboard (et de l'historique PD une fois confirme, mais absent cote
-    // PL) meme apres confirmation Ravitailleur. On ne le fait que quand le
-    // lien (groupe_id, article_id, zone, chaine) est sans ambiguite (une
-    // seule ligne programme_lignes ET une seule ligne dispatcher pour cette
-    // chaine precise) - un meme article reparti sur PLUSIEURS CHAINES (ex:
-    // DSR Elixir sur CHAINE 5 et CHAINE 6) a une ligne programme_lignes
-    // distincte PAR CHAINE, donc le filtre zone+chaine suffit a lever
-    // l'ambiguite pour ce cas frequent ; seul un lot repArti en plusieurs
-    // codes SUR LA MEME chaine (plusieurs lignes dispatcher pour la meme
-    // chaine) reste ignore ici, faute de savoir a quelle portion du
-    // decoupage ce code appartient.
-    if (lignes.length === 1 && (dispatcherSiblings?.length ?? 0) === 1) {
-      const numeroLotDetail = trimmedCode
-        ? [{ code: trimmedCode, qt_vrac: qtVrac, qt_carton: qtCarton }]
-        : [];
-      const { error: syncError } = await supabaseServer
-        .from("programme_lignes")
-        .update({ numero_lot: trimmedCode || null, numero_lot_detail: numeroLotDetail })
-        .eq("id", lignes[0].id);
+    // PL) meme apres confirmation Ravitailleur. On ne le fait que quand une
+    // seule ligne programme_lignes correspond au lien (groupe_id, article_id,
+    // zone, chaine) - un meme article reparti sur PLUSIEURS CHAINES (ex: DSR
+    // Elixir sur CHAINE 5 et CHAINE 6) a une ligne programme_lignes distincte
+    // PAR CHAINE, donc le filtre zone+chaine suffit a lever l'ambiguite pour
+    // ce cas frequent.
+    if (lignes.length === 1) {
+      const ligne = lignes[0];
+      const existingDetail = Array.isArray(ligne.numero_lot_detail) ? ligne.numero_lot_detail : [];
+      const matchIndex = oldCode ? existingDetail.findIndex((entry) => entry.code === oldCode) : -1;
 
-      if (syncError) {
-        throw new Error(syncError.message);
+      if (matchIndex !== -1) {
+        // Cas d'un lot deja connu de programme_lignes qu'on renomme/corrige :
+        // ne touche QUE l'entree concernee (retrouvee par son ancien code) et
+        // garde les autres lots du meme groupe/chaine intacts - avant ce
+        // correctif, un lot reparti en plusieurs codes SUR LA MEME chaine
+        // (ex: PD47 avec DB0016V/DB0017V/DB0018V) etait entierement ignore
+        // ici (voir bug remonte : "PD correct, Dashboard incorrect" apres une
+        // correction manuelle de code faite depuis le Ravitailleur).
+        const newDetail = trimmedCode
+          ? existingDetail.map((entry, i) =>
+              i === matchIndex ? { code: trimmedCode, qt_vrac: qtVrac, qt_carton: qtCarton } : entry
+            )
+          : existingDetail.filter((_, i) => i !== matchIndex);
+        const newNumeroLot = newDetail.map((entry) => entry.code).join(", ") || null;
+
+        const { error: syncError } = await supabaseServer
+          .from("programme_lignes")
+          .update({ numero_lot: newNumeroLot, numero_lot_detail: newDetail.length > 0 ? newDetail : null })
+          .eq("id", ligne.id);
+
+        if (syncError) {
+          throw new Error(syncError.message);
+        }
+
+        // Filet de securite si la production avait deja commence sous
+        // l'ancien code avant cette correction (meme logique que
+        // renameLotCodeAction, cote Dashboard).
+        if (trimmedCode && trimmedCode !== oldCode) {
+          await Promise.all([
+            supabaseServer
+              .from("production_carton_entries")
+              .update({ code: trimmedCode })
+              .eq("programme_ligne_id", ligne.id)
+              .eq("code", oldCode),
+            supabaseServer
+              .from("production_vrac_entries")
+              .update({ code: trimmedCode })
+              .eq("programme_ligne_id", ligne.id)
+              .eq("code", oldCode),
+            supabaseServer
+              .from("production_emballage_entries")
+              .update({ code: trimmedCode })
+              .eq("programme_ligne_id", ligne.id)
+              .eq("code", oldCode),
+            supabaseServer
+              .from("production_code_termine")
+              .update({ code: trimmedCode })
+              .eq("programme_ligne_id", ligne.id)
+              .eq("code", oldCode),
+            supabaseServer
+              .from("production_rapports")
+              .update({ code: trimmedCode })
+              .eq("programme_ligne_id", ligne.id)
+              .eq("code", oldCode),
+          ]);
+        }
+      } else if (!oldCode && (dispatcherSiblings?.length ?? 0) === 1) {
+        // Ancien code introuvable dans numero_lot_detail (ex: code jamais
+        // encore confirme cote PL) - reste sans ambiguite seulement si une
+        // seule ligne dispatcher existe pour cette chaine.
+        const numeroLotDetail = trimmedCode
+          ? [{ code: trimmedCode, qt_vrac: qtVrac, qt_carton: qtCarton }]
+          : [];
+        const { error: syncError } = await supabaseServer
+          .from("programme_lignes")
+          .update({ numero_lot: trimmedCode || null, numero_lot_detail: numeroLotDetail })
+          .eq("id", ligne.id);
+
+        if (syncError) {
+          throw new Error(syncError.message);
+        }
       }
     }
   }
