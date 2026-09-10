@@ -19,6 +19,7 @@ type StockMpExportRow = {
   nom_article: string | null;
   mouvement_type: "entree" | "sortie";
   categorie: string | null;
+  sous_famille: string | null;
   gamme: string | null;
   numero_lot: string | null;
   unite: string | null;

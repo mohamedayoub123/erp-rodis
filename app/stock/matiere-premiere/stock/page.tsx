@@ -34,6 +34,7 @@ type DisplayRow = {
   nom_article: string | null;
   gamme: string | null;
   categorie: string | null;
+  sous_famille: string | null;
   mouvement_type: "entree" | "sortie";
   numero_lot: string | null;
   code_normalise: string | null;
@@ -377,6 +378,7 @@ export default async function StockMatierePremiereStockPage({
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Type</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">TE/TS</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Categorie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Sous Famille</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Gamme</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Lot</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Unite</th>
@@ -429,6 +431,9 @@ export default async function StockMatierePremiereStockPage({
                       </td>
                       <td className="px-4 py-3 text-slate-600">
                         {row.categorie || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {row.sous_famille || "-"}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
                         {row.gamme || "-"}
