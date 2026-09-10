@@ -47,6 +47,45 @@ function classerDuree(dureeMinutes: number, estSamedi: boolean) {
   };
 }
 
+// Une preparation Fabrication peut s'etaler sur plusieurs jours calendaires
+// (ex: debut vendredi 14h20, vidange dimanche 10h18 - vrai cas trouve en
+// donnees) - ca ne veut jamais dire que quelqu'un a travaille sans dormir
+// pendant 44h. Demande explicite de l'utilisateur : "il faut prendre que le
+// jour c'est 8h, le reste c'est dormir" - decoupe donc l'intervalle en
+// tranches par jour calendaire, et chaque jour touche ne compte JAMAIS plus
+// de 8h (le reste de ce jour-la est ignore, ni normal ni sup - personne n'a
+// travaille 16h+ d'affilee). Un jour touche qui est un samedi bascule ses 8h
+// (au lieu de moins si le segment est plus court) en jour sup plutot qu'en
+// normal - jamais de sup "classique" genere par un etalement multi-jours,
+// seule une VRAIE fournee sur un seul jour (classerDuree ci-dessus) peut en
+// produire.
+function classerFabricationMultiJours(startMs: number, endMs: number) {
+  let normalesMinutes = 0;
+  let joursSupMinutes = 0;
+
+  const cursor = new Date(startMs);
+  cursor.setHours(0, 0, 0, 0);
+
+  while (cursor.getTime() < endMs) {
+    const jourDebutMs = cursor.getTime();
+    const estSamediCeJour = cursor.getDay() === 6;
+    cursor.setDate(cursor.getDate() + 1);
+    const jourFinMs = cursor.getTime();
+
+    const segStart = Math.max(startMs, jourDebutMs);
+    const segEnd = Math.min(endMs, jourFinMs);
+    if (segEnd <= segStart) continue;
+
+    const segMinutes = Math.round((segEnd - segStart) / 60000);
+    const compteMinutes = Math.min(segMinutes, NORMAL_MINUTES_PAR_FOURNEE);
+
+    if (estSamediCeJour) joursSupMinutes += compteMinutes;
+    else normalesMinutes += compteMinutes;
+  }
+
+  return { normalesMinutes, supMinutes: 0, joursSupMinutes };
+}
+
 type CartonRow = {
   code: string;
   date_jour: string;
@@ -187,8 +226,24 @@ export async function fetchBlocsHeuresSup(periode: {
     if (!interval) continue;
     const dureeMinutes = Math.round((interval.endMs - interval.startMs) / 60000);
     if (dureeMinutes <= 0) continue;
+    // Garde-fou : une saisie ou la vidange tombe (jour/mois) avant le debut
+    // sur la meme partie d'annee se fait interpreter par ddmmHhmmToInterval
+    // comme un vrai changement decembre -> janvier, et lui ajoute 1 an entier
+    // - vrai cas trouve en donnees (ecart de quelques heures dans l'intention,
+    // devient ~365 jours calcules). Une macceration/preparation reelle peut
+    // durer plusieurs jours (confirme : jusqu'a 10 jours pour un serum en
+    // donnees reelles) mais jamais des mois - au-dela de 60 jours, ignore la
+    // ligne plutot que d'afficher un total absurde.
+    if (dureeMinutes > 60 * 24 * 60) continue;
     const dateDebut = new Date(interval.startMs);
-    const estSamedi = dateDebut.getDay() === 6;
+    const dateFin = new Date(interval.endMs);
+    const estMultiJours =
+      dateDebut.getFullYear() !== dateFin.getFullYear() ||
+      dateDebut.getMonth() !== dateFin.getMonth() ||
+      dateDebut.getDate() !== dateFin.getDate();
+    const classement = estMultiJours
+      ? classerFabricationMultiJours(interval.startMs, interval.endMs)
+      : classerDuree(dureeMinutes, dateDebut.getDay() === 6);
     blocs.push({
       source: "fabrication",
       chaine: row.machine || "-",
@@ -198,8 +253,8 @@ export async function fetchBlocsHeuresSup(periode: {
       finLabel: row.temps_vidange,
       nbPersonnes: Number(row.nb_journaliers_fabrication),
       dureeMinutes,
-      estSamedi,
-      ...classerDuree(dureeMinutes, estSamedi),
+      estSamedi: classement.joursSupMinutes > 0,
+      ...classement,
     });
   }
 
