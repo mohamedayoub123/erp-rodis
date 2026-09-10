@@ -13,12 +13,13 @@ import { hhmmDiffMinutes, ddmmHhmmToInterval } from "@/lib/suivi-tirage-time";
 // "jour sup", jamais decoupee en normal/sup comme en semaine.
 const NORMAL_MINUTES_PAR_FOURNEE = 8 * 60;
 
-export type SourceEtape = "fabrication" | "conditionnement" | "emballage";
+export type SourceEtape = "fabrication" | "conditionnement" | "emballage" | "manuel";
 
 export const SOURCE_LABELS: Record<SourceEtape, string> = {
   fabrication: "Fabrication",
   conditionnement: "Conditionnement",
   emballage: "Emballage",
+  manuel: "Manuel (saisie libre)",
 };
 
 export type BlocHeuresSup = {
@@ -91,6 +92,17 @@ function classerFabricationMultiJours(startMs: number, endMs: number) {
   return { normalesMinutes, supMinutes: 0, joursSupMinutes: 0 };
 }
 
+// Une ligne saisie dans Heures Sup Manuel (activites hors suivi automatique
+// - Sleevage, Impression, Recuperation...) EST du supplementaire par
+// definition (demande explicite, voir app/production/heures-sup-manuel) -
+// jamais de part "normale" a en retirer comme pour une vraie fournee.
+function classerManuel(dureeMinutes: number, estSamedi: boolean) {
+  if (estSamedi) {
+    return { normalesMinutes: 0, supMinutes: 0, joursSupMinutes: dureeMinutes };
+  }
+  return { normalesMinutes: 0, supMinutes: dureeMinutes, joursSupMinutes: 0 };
+}
+
 type CartonRow = {
   code: string;
   date_jour: string;
@@ -118,11 +130,24 @@ type RapportRow = {
   date_fabrication_conditionnement: string | null;
 };
 
+type ActiviteRow = { id: number; nom: string };
+type ManuelRow = {
+  date_jour: string;
+  nb_journaliers: number;
+  nb_heures: number;
+  heures_sup_activites: ActiviteRow | ActiviteRow[] | null;
+};
+
+function nomActivite(value: ActiviteRow | ActiviteRow[] | null): string {
+  const row = Array.isArray(value) ? (value[0] ?? null) : value;
+  return row?.nom || "-";
+}
+
 export async function fetchBlocsHeuresSup(periode: {
   dateFrom: string;
   dateTo: string;
 }): Promise<BlocHeuresSup[]> {
-  const [cartonRows, emballageRows, rapportRows] = await Promise.all([
+  const [cartonRows, emballageRows, rapportRows, manuelRows] = await Promise.all([
     fetchAllRowsParallel<CartonRow>(
       () =>
         supabaseServer
@@ -174,6 +199,25 @@ export async function fetchBlocsHeuresSup(periode: {
           .gte("date_fabrication_conditionnement", periode.dateFrom)
           .lte("date_fabrication_conditionnement", periode.dateTo)
           .order("date_fabrication_conditionnement", { ascending: true })
+          .range(from, to)
+    ),
+    // Heures Sup Manuel (app/production/heures-sup-manuel) : demande explicite
+    // de fusionner ces lignes dans ce meme rapport, plutot que de les laisser
+    // separees.
+    fetchAllRowsParallel<ManuelRow>(
+      () =>
+        supabaseServer
+          .from("heures_sup_manuel")
+          .select("id", { count: "exact", head: true })
+          .gte("date_jour", periode.dateFrom)
+          .lte("date_jour", periode.dateTo),
+      (from, to) =>
+        supabaseServer
+          .from("heures_sup_manuel")
+          .select("date_jour, nb_journaliers, nb_heures, heures_sup_activites(id, nom)")
+          .gte("date_jour", periode.dateFrom)
+          .lte("date_jour", periode.dateTo)
+          .order("date_jour", { ascending: true })
           .range(from, to)
     ),
   ]);
@@ -260,6 +304,24 @@ export async function fetchBlocsHeuresSup(periode: {
       dureeMinutes,
       estSamedi: classement.joursSupMinutes > 0,
       ...classement,
+    });
+  }
+
+  for (const row of manuelRows) {
+    const dureeMinutes = Math.round(Number(row.nb_heures) * 60);
+    if (dureeMinutes <= 0 || !(Number(row.nb_journaliers) > 0)) continue;
+    const estSamedi = new Date(`${row.date_jour}T00:00:00`).getDay() === 6;
+    blocs.push({
+      source: "manuel",
+      chaine: nomActivite(row.heures_sup_activites),
+      code: "-",
+      dateJour: row.date_jour,
+      debutLabel: "-",
+      finLabel: "-",
+      nbPersonnes: Number(row.nb_journaliers),
+      dureeMinutes,
+      estSamedi,
+      ...classerManuel(dureeMinutes, estSamedi),
     });
   }
 

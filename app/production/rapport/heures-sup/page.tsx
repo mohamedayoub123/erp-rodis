@@ -49,7 +49,7 @@ export default async function RapportHeuresSupPage({ searchParams }: { searchPar
   const chaineFilter = (params.chaine || "").trim().toLowerCase();
   const sourceParam = params.source ? (Array.isArray(params.source) ? params.source : [params.source]) : [];
   const sourceFilter = new Set<SourceEtape>(
-    (sourceParam.length > 0 ? sourceParam : ["fabrication", "conditionnement", "emballage"]) as SourceEtape[]
+    (sourceParam.length > 0 ? sourceParam : ["fabrication", "conditionnement", "emballage", "manuel"]) as SourceEtape[]
   );
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
 
@@ -115,7 +115,8 @@ export default async function RapportHeuresSupPage({ searchParams }: { searchPar
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Heures Supplementaires</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Par fournee (Fabrication/Conditionnement/Emballage) : normal 8h, au-dela c&apos;est de la
-                sup - le samedi, toute la duree compte en jour sup.
+                sup - le samedi, toute la duree compte en jour sup. Inclut aussi les lignes saisies dans
+                Heures Sup Manuel (toujours comptees en sup).
               </p>
             </div>
             <div className="flex items-center gap-3">
