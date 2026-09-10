@@ -1,13 +1,19 @@
 -- Normalise "ancien_lot" / "ancien lot" en "ancien-lot" (demande explicite) -
 -- numero_lot est utilise comme cle de correspondance EXACTE entre plusieurs
--- tables (reservations, transferts, factures, ecritures comptables,
--- inventaire), pas seulement dans le stock lui-meme - verifie avant envoi :
--- 43162+6174 lignes dans lots_stock_matiere_premiere, plus des milliers
--- d'autres dans les tables liees ci-dessous, toutes avec exactement les
--- memes 2 variantes. Toutes les tables sont mises a jour ENSEMBLE dans une
+-- tables (reservations, transferts, factures, ecritures comptables), pas
+-- seulement dans le stock lui-meme - toutes mises a jour ENSEMBLE dans une
 -- seule transaction pour ne jamais laisser une table avec la nouvelle
--- orthographe et une autre avec l'ancienne (ce qui casserait la
--- correspondance entre elles).
+-- orthographe et une autre avec l'ancienne.
+--
+-- inventaire_mp_lignes VOLONTAIREMENT EXCLUE de ce script : un inventaire en
+-- cours (session_id=18, compte par "valentin", comptages deja saisis
+-- aujourd'hui) a des lignes SEPAREES pour "ancien_lot" et "ancien lot" sur
+-- les memes articles, avec des comptages parfois DIFFERENTS sur chacune -
+-- fusionner l'orthographe ici percuterait la contrainte d'unicite
+-- (session_id, article_id, numero_lot) et risquerait d'ecraser un vrai
+-- comptage en cours. A traiter separement, une fois cette session
+-- d'inventaire terminee (ou avec Mohamed pour decider quoi faire des 2
+-- comptages quand ils different).
 begin;
 
 update lots_stock_matiere_premiere
@@ -27,10 +33,6 @@ set numero_lot = 'ancien-lot'
 where numero_lot in ('ancien_lot', 'ancien lot');
 
 update ecriture_cout_lots
-set numero_lot = 'ancien-lot'
-where numero_lot in ('ancien_lot', 'ancien lot');
-
-update inventaire_mp_lignes
 set numero_lot = 'ancien-lot'
 where numero_lot in ('ancien_lot', 'ancien lot');
 
