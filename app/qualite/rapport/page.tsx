@@ -18,6 +18,7 @@ type RapportRow = {
   sous_derogation: boolean | null;
   utilisateur_test_labo: string | null;
   date_saisie_test_labo: string | null;
+  date_prise_echantillon: string | null;
 };
 
 type LigneInfo = {
@@ -36,7 +37,7 @@ async function fetchAllTestLaboRapports(): Promise<RapportRow[]> {
     const { data, error } = await supabaseServer
       .from("production_rapports")
       .select(
-        "id, programme_ligne_id, code, disposition_qualite, sous_derogation, utilisateur_test_labo, date_saisie_test_labo"
+        "id, programme_ligne_id, code, disposition_qualite, sous_derogation, utilisateur_test_labo, date_saisie_test_labo, date_prise_echantillon"
       )
       .not("utilisateur_test_labo", "is", null)
       .range(from, from + pageSize - 1);
@@ -261,7 +262,14 @@ export default async function QualiteRapportPage({
     return {
       ...r,
       produit: ligne?.produit || "-",
-      date: ligne?.date_jour || (r.date_saisie_test_labo ? r.date_saisie_test_labo.slice(0, 10) : ""),
+      // Priorite a la date de prise d'echantillon (saisie reelle du labo) sur
+      // la date programmee - meme correctif que Historique Test Labo (voir
+      // app/qualite/historique-test-labo/page.tsx), demande explicite pour
+      // que les 2 pages restent coherentes entre elles.
+      date:
+        r.date_prise_echantillon ||
+        ligne?.date_jour ||
+        (r.date_saisie_test_labo ? r.date_saisie_test_labo.slice(0, 10) : ""),
       typeLabel: plateformeLabel(ligne?.plateforme),
       typeArticleLabel: capitalize(article?.type_article),
       gammeLabel: article?.gamme?.trim() || "-",
