@@ -1198,9 +1198,19 @@ export async function saveEmballageRapportAction(formData: FormData) {
     // production_emballage_entries de CETTE fournee (meme correctif que
     // Conditionnement juste au-dessus - bug reel d'ecrasement entre plusieurs
     // fournees du meme code).
-    const fields: Record<string, unknown> = {
-      date_emballage: dateEmballage,
-    };
+    //
+    // En mode correction, ne JAMAIS ecraser date_emballage - demande
+    // explicite : corriger un champ (chef de zone, machine...) sur une
+    // fournee deja saisie ne doit jamais faire bouger sa date, meme si le
+    // champ Date du formulaire affichait autre chose que la valeur d'origine
+    // de CETTE fournee (le champ Date est partage par tout le CODE sur
+    // production_rapports, pas par fournee individuelle - un code avec
+    // plusieurs fournees sur des jours differents pouvait donc voir la date
+    // d'une fournee ecraser celle d'une autre au moindre "Corriger").
+    const fields: Record<string, unknown> = {};
+    if (!modeCorrection) {
+      fields.date_emballage = dateEmballage;
+    }
 
     // date_peremption vient normalement du rapport Conditionnement DEJA saisi
     // pour ce meme (ligne, code) - meme ligne de production_rapports, colonne
@@ -1236,11 +1246,15 @@ export async function saveEmballageRapportAction(formData: FormData) {
     // modeCorrection exige la MEME quantite, jamais juste "un fournee_id
     // present").
     if (modeCorrection && fourneeId) {
+      // date_jour/utilisateur_emballage/date_saisie_emballage volontairement
+      // ABSENTS ici (contrairement a la branche insert plus bas) - demande
+      // explicite : une correction (chef de zone, machine...) ne doit jamais
+      // faire bouger ni la date, ni "derniere saisie par/le" de la fournee
+      // d'origine.
       const { error: emballageError } = await supabaseServer
         .from("production_emballage_entries")
         .update({
           quantite,
-          ...(dateEmballage ? { date_jour: dateEmballage } : {}),
           emballage_chef_zone: parseOptionalText(formData, "emballage_chef_zone"),
           emballage_machine: parseOptionalText(formData, "emballage_machine"),
           emballage_operateur: parseOptionalText(formData, "emballage_operateur"),
@@ -1253,8 +1267,6 @@ export async function saveEmballageRapportAction(formData: FormData) {
           emballage_arret_reglage: parseOptionalNumber(formData, "emballage_arret_reglage"),
           emballage_arret_coupure: parseOptionalNumber(formData, "emballage_arret_coupure"),
           emballage_arret_autre: parseOptionalNumber(formData, "emballage_arret_autre"),
-          utilisateur_emballage: currentUser,
-          date_saisie_emballage: new Date().toISOString(),
         })
         .eq("id", fourneeId);
 
