@@ -386,6 +386,7 @@ export async function fetchBlocsHeuresSup(periode: {
 export type JourAgg = {
   source: SourceEtape;
   chaine: string;
+  typeArticle: string | null;
   dateJour: string;
   nbBlocs: number;
   nbPersonnes: number;
@@ -433,6 +434,7 @@ export function regrouperParChaineJour(blocs: BlocHeuresSup[]): JourAgg[] {
     resultat.push({
       source: representatif.source,
       chaine: representatif.chaine,
+      typeArticle: representatif.typeArticle,
       dateJour: representatif.dateJour,
       nbBlocs: groupe.length,
       nbPersonnes,

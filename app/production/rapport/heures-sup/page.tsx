@@ -123,6 +123,75 @@ export default async function RapportHeuresSupPage({ searchParams }: { searchPar
     (a, b) => b.supMinutes + b.joursSupMinutes - (a.supMinutes + a.joursSupMinutes)
   );
 
+  // % de sup par type de produit / par etape (demande explicite : "voire le %
+  // de supp par type" + "et une par etape") - part toujours du regroupement
+  // par (chaine + jour) comme le reste du rapport, jamais des blocs bruts,
+  // pour la meme raison (ne pas compter une meme equipe plusieurs fois).
+  type PctAggRow = {
+    label: string;
+    nbGroupes: number;
+    normalesMinutes: number;
+    supMinutes: number;
+    joursSupMinutes: number;
+    totalMinutes: number;
+    pctSup: number;
+  };
+  function aggregerParCle(keyFn: (j: (typeof joursAgg)[number]) => string): PctAggRow[] {
+    const map = new Map<string, PctAggRow>();
+    for (const j of joursAgg) {
+      const label = keyFn(j);
+      const current = map.get(label) ?? {
+        label,
+        nbGroupes: 0,
+        normalesMinutes: 0,
+        supMinutes: 0,
+        joursSupMinutes: 0,
+        totalMinutes: 0,
+        pctSup: 0,
+      };
+      current.nbGroupes += 1;
+      current.normalesMinutes += j.nbPersonnes * j.normalesMinutes;
+      current.supMinutes += j.nbPersonnes * j.supMinutes;
+      current.joursSupMinutes += j.nbPersonnes * j.joursSupMinutes;
+      map.set(label, current);
+    }
+    const result = [...map.values()];
+    for (const r of result) {
+      r.totalMinutes = r.normalesMinutes + r.supMinutes + r.joursSupMinutes;
+      r.pctSup = pct(r.supMinutes + r.joursSupMinutes, r.totalMinutes);
+    }
+    return result.sort((a, b) => b.pctSup - a.pctSup);
+  }
+  const parTypeRows = aggregerParCle((j) => j.typeArticle || "Sans type / Manuel");
+  const parEtapeRows = aggregerParCle((j) => SOURCE_LABELS[j.source]);
+  // Meme echelle (axisMaxPct) sur les 2 graphiques pour rester comparables
+  // directement l'un a l'autre.
+  const axisMaxPct = Math.max(
+    10,
+    Math.ceil(Math.max(1, ...parTypeRows.map((r) => r.pctSup), ...parEtapeRows.map((r) => r.pctSup)) / 10) * 10
+  );
+  function renderBarRows(rows: PctAggRow[]) {
+    return (
+      <div className="flex flex-col gap-2.5">
+        {rows.map((r) => (
+          <div key={r.label} className="grid grid-cols-[9rem_1fr_3.25rem] items-center gap-3 sm:grid-cols-[11rem_1fr_3.25rem]">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-slate-900">{r.label}</p>
+              <p className="text-[11px] text-slate-400">n = {r.nbGroupes}</p>
+            </div>
+            <div className="relative h-4 overflow-hidden rounded bg-slate-100">
+              <div
+                className="absolute inset-y-0 left-0 rounded bg-sky-600"
+                style={{ width: `${Math.min(100, (r.pctSup / axisMaxPct) * 100)}%` }}
+              />
+            </div>
+            <div className="text-right text-sm font-semibold tabular-nums text-slate-900">{r.pctSup}%</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   const totalRows = blocs.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
   const pageFrom = (currentPage - 1) * PAGE_SIZE;
@@ -246,6 +315,24 @@ export default async function RapportHeuresSupPage({ searchParams }: { searchPar
             <span className="ml-2 font-bold text-sky-900">{totalPctSup}%</span>
           </div>
         </section>
+
+        {parTypeRows.length > 0 ? (
+          <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <h2 className="text-lg font-bold text-slate-900">% de sup par type de produit</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              &laquo; n &raquo; = nombre de creneaux (chaine + jour) derriere chaque type - un % eleve sur
+              peu de creneaux est moins fiable qu&apos;un % plus bas sur beaucoup de creneaux.
+            </p>
+            <div className="mt-4">{renderBarRows(parTypeRows)}</div>
+          </section>
+        ) : null}
+
+        {parEtapeRows.length > 0 ? (
+          <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <h2 className="text-lg font-bold text-slate-900">% de sup par etape</h2>
+            <div className="mt-4">{renderBarRows(parEtapeRows)}</div>
+          </section>
+        ) : null}
 
         {chaineRows.length > 0 ? (
           <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
