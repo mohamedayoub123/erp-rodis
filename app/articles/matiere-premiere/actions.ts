@@ -50,6 +50,7 @@ export async function createArticleMpAction(formData: FormData) {
 
   const nomArticle = String(formData.get("nom_article") || "").trim();
   const categorie = String(formData.get("categorie") || "").trim();
+  const sousFamille = String(formData.get("sous_famille") || "").trim();
   const unite = String(formData.get("unite") || "").trim();
   const gamme = String(formData.get("gamme") || "").trim();
   const gammeStatistique = String(formData.get("gamme_statistique") || "").trim();
@@ -80,6 +81,7 @@ export async function createArticleMpAction(formData: FormData) {
       nom_article: nomArticle,
       article_normalise: articleNormalise,
       categorie: categorie || null,
+      sous_famille: sousFamille || null,
       unite: unite || null,
       gamme: gamme || null,
       gamme_statistique: gammeStatistique || null,
@@ -132,6 +134,7 @@ export async function updateArticleMpAction(formData: FormData) {
   const articleId = Number(String(formData.get("article_id") || "0"));
   const nomArticle = String(formData.get("nom_article") || "").trim();
   const categorie = String(formData.get("categorie") || "").trim();
+  const sousFamille = String(formData.get("sous_famille") || "").trim();
   const unite = String(formData.get("unite") || "").trim();
   const gamme = String(formData.get("gamme") || "").trim();
   const gammeStatistique = String(formData.get("gamme_statistique") || "").trim();
@@ -164,6 +167,7 @@ export async function updateArticleMpAction(formData: FormData) {
       nom_article: nomArticle,
       article_normalise: articleNormalise,
       categorie: categorie || null,
+      sous_famille: sousFamille || null,
       unite: unite || null,
       gamme: gamme || null,
       gamme_statistique: gammeStatistique || null,

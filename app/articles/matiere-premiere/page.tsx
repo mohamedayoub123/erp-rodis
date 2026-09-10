@@ -14,6 +14,7 @@ import { matchesArticleSearch } from "@/lib/article-search";
 const EXPORT_COLUMNS = [
   { label: "Article", key: "nom_article" },
   { label: "Categorie", key: "categorie" },
+  { label: "Sous Famille", key: "sous_famille" },
   { label: "Unite", key: "unite" },
   { label: "Gamme", key: "gamme" },
   { label: "Gamme Statistique", key: "gamme_statistique" },
@@ -28,6 +29,7 @@ type ArticleMpRow = {
   id: number;
   nom_article: string;
   categorie: string | null;
+  sous_famille: string | null;
   unite: string | null;
   gamme: string | null;
   gamme_statistique: string | null;
@@ -38,7 +40,7 @@ type ArticleMpRow = {
 };
 
 const ARTICLES_MP_COLUMNS =
-  "id, nom_article, categorie, unite, gamme, gamme_statistique, utilisation, min_stock, max_stock, depot_id";
+  "id, nom_article, categorie, sous_famille, unite, gamme, gamme_statistique, utilisation, min_stock, max_stock, depot_id";
 
 // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le .range()
 // demande - la table (~2200 lignes) a donc toujours besoin de plusieurs
@@ -212,6 +214,7 @@ export default async function ArticlesMatierePremierePage({
                     <tr>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Sous Famille</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme Statistique</th>
@@ -230,6 +233,7 @@ export default async function ArticlesMatierePremierePage({
                       <tr key={article.id} className="border-t border-slate-100 align-top">
                         <td className="px-6 py-4 font-medium text-slate-900">{article.nom_article}</td>
                         <td className="px-6 py-4 text-slate-600">{article.categorie || "-"}</td>
+                        <td className="px-6 py-4 text-slate-600">{article.sous_famille || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.unite || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.gamme || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.gamme_statistique || "-"}</td>
@@ -260,6 +264,13 @@ export default async function ArticlesMatierePremierePage({
                                   name="categorie"
                                   defaultValue={article.categorie || ""}
                                   placeholder="Categorie"
+                                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                                />
+                                <input
+                                  type="text"
+                                  name="sous_famille"
+                                  defaultValue={article.sous_famille || ""}
+                                  placeholder="Sous Famille"
                                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                                 />
                                 <input

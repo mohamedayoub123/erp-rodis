@@ -59,6 +59,12 @@ export default async function NouvelArticleMpPage() {
               />
               <input
                 type="text"
+                name="sous_famille"
+                placeholder="Sous Famille"
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+              />
+              <input
+                type="text"
                 name="unite"
                 placeholder="Unite"
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
