@@ -83,6 +83,15 @@ export default async function HistoriqueProgrammeDetailPage({
   ]);
   const code = plCodeByGroupeId.get(groupeIdNumber) ?? `PL-${groupeIdNumber}`;
   const pdRefs = pdRefsBySourceGroupeId.get(groupeIdNumber) ?? [];
+  // Un programme deja dispatche (confirme dans au moins un PD) ne doit plus
+  // pouvoir etre re-dispatche directement - un re-Dispatch remplace les
+  // codes deja en cours d'utilisation cote Ravitailleur/production, ce qui a
+  // deja cause des decalages de code non propages au Dashboard (voir
+  // updateDispatcherLigneAction). "Copier" repart sur un NOUVEAU programme
+  // (performProgrammeLigneSave insere toujours de nouvelles lignes, jamais
+  // de mise a jour) sans jamais toucher celui-ci - demande explicite de
+  // l'utilisateur.
+  const isAlreadyDispatched = pdRefs.length > 0;
 
   const dateJour = lignes[0]?.date_jour;
 
@@ -137,6 +146,12 @@ export default async function HistoriqueProgrammeDetailPage({
                   <span className="text-slate-400">pas encore dispatche</span>
                 )}
               </p>
+              {isAlreadyDispatched && canRelaunch ? (
+                <p className="mt-2 text-xs text-slate-400">
+                  Deja dispatche - utilise &laquo;&nbsp;Copier&nbsp;&raquo; pour repartir sur un nouveau
+                  programme (celui-ci ne sera pas modifie).
+                </p>
+              ) : null}
             </div>
 
             <div className="no-print flex flex-wrap items-center gap-3">
@@ -148,7 +163,7 @@ export default async function HistoriqueProgrammeDetailPage({
                   href={`/programe-par-ligne?groupe_id=${groupeIdNumber}`}
                   className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
                 >
-                  Charger dans Programme par ligne
+                  {isAlreadyDispatched ? "Copier (nouveau programme)" : "Charger dans Programme par ligne"}
                 </Link>
               ) : null}
               {canRelaunch ? (
@@ -159,7 +174,7 @@ export default async function HistoriqueProgrammeDetailPage({
                   Verifier stock
                 </Link>
               ) : null}
-              {canRelaunch ? (
+              {canRelaunch && !isAlreadyDispatched ? (
                 <DispatchGroupButton groupeId={groupeIdNumber} dispatchAction={dispatchExistingProgrammeLigneGroupAction} />
               ) : null}
               {canDelete ? (

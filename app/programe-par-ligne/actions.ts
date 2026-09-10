@@ -1318,6 +1318,31 @@ export async function dispatchExistingProgrammeLigneGroupAction(
       return { ok: false, message: "Programme invalide." };
     }
 
+    // Un programme deja confirme dans un PD ne doit plus pouvoir etre
+    // re-dispatche directement - verifie ici cote serveur en plus de
+    // masquer le bouton (voir historique-programme/[groupeId]/page.tsx),
+    // au cas ou l'appel arriverait quand meme (page pas rechargee, appel
+    // direct). "Copier" (charger dans Programme par ligne, qui insere
+    // toujours un nouveau groupe au Save) est le chemin desormais prevu
+    // pour repartir d'un programme deja dispatche - demande explicite de
+    // l'utilisateur.
+    const { data: existingHistory, error: historyCheckError } = await supabaseServer
+      .from("programme_dispatcher_history")
+      .select("id")
+      .eq("source_groupe_id", groupeId)
+      .limit(1);
+
+    if (historyCheckError) {
+      return { ok: false, message: historyCheckError.message };
+    }
+
+    if (existingHistory && existingHistory.length > 0) {
+      return {
+        ok: false,
+        message: "Ce programme est deja dispatche - utilise \"Copier\" pour repartir sur un nouveau programme.",
+      };
+    }
+
     const { data, error } = await supabaseServer
       .from("programme_lignes")
       .select(
