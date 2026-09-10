@@ -300,6 +300,7 @@ export default async function RapportHeuresSupPage({ searchParams }: { searchPar
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Etape</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Chaine / machine</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Code</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Type</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Debut</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Fin</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Personnes</th>
@@ -319,6 +320,7 @@ export default async function RapportHeuresSupPage({ searchParams }: { searchPar
                       <td className="px-4 py-3 text-slate-600">{SOURCE_LABELS[b.source]}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{b.chaine}</td>
                       <td className="px-4 py-3 text-slate-600">{b.code}</td>
+                      <td className="px-4 py-3 text-slate-600">{b.typeArticle || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{b.debutLabel}</td>
                       <td className="px-4 py-3 text-slate-600">{b.finLabel}</td>
                       <td className="px-4 py-3 text-center text-slate-700">{b.nbPersonnes}</td>

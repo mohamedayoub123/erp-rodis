@@ -26,6 +26,7 @@ export type BlocHeuresSup = {
   source: SourceEtape;
   chaine: string;
   code: string;
+  typeArticle: string | null;
   dateJour: string;
   debutLabel: string;
   finLabel: string;
@@ -105,6 +106,7 @@ function classerManuel(dureeMinutes: number, estSamedi: boolean) {
 
 type CartonRow = {
   code: string;
+  programme_ligne_id: number | null;
   date_jour: string;
   chaine: string | null;
   temps_demarage_lot: string | null;
@@ -114,6 +116,7 @@ type CartonRow = {
 
 type EmballageRow = {
   code: string;
+  programme_ligne_id: number | null;
   date_jour: string;
   emballage_machine: string | null;
   emballage_temps_demarrer: string | null;
@@ -123,6 +126,7 @@ type EmballageRow = {
 
 type RapportRow = {
   code: string;
+  programme_ligne_id: number | null;
   machine: string | null;
   temps_debut_preparation: string | null;
   temps_vidange: string | null;
@@ -158,7 +162,9 @@ export async function fetchBlocsHeuresSup(periode: {
       (from, to) =>
         supabaseServer
           .from("production_carton_entries")
-          .select("code, date_jour, chaine, temps_demarage_lot, temps_arret_batch, nb_journaliers_conditionnement")
+          .select(
+            "code, programme_ligne_id, date_jour, chaine, temps_demarage_lot, temps_arret_batch, nb_journaliers_conditionnement"
+          )
           .gte("date_jour", periode.dateFrom)
           .lte("date_jour", periode.dateTo)
           .order("date_jour", { ascending: true })
@@ -174,7 +180,9 @@ export async function fetchBlocsHeuresSup(periode: {
       (from, to) =>
         supabaseServer
           .from("production_emballage_entries")
-          .select("code, date_jour, emballage_machine, emballage_temps_demarrer, emballage_temps_arret, nb_journaliers_emballage")
+          .select(
+            "code, programme_ligne_id, date_jour, emballage_machine, emballage_temps_demarrer, emballage_temps_arret, nb_journaliers_emballage"
+          )
           .gte("date_jour", periode.dateFrom)
           .lte("date_jour", periode.dateTo)
           .order("date_jour", { ascending: true })
@@ -195,7 +203,9 @@ export async function fetchBlocsHeuresSup(periode: {
       (from, to) =>
         supabaseServer
           .from("production_rapports")
-          .select("code, machine, temps_debut_preparation, temps_vidange, nb_journaliers_fabrication, date_fabrication_conditionnement")
+          .select(
+            "code, programme_ligne_id, machine, temps_debut_preparation, temps_vidange, nb_journaliers_fabrication, date_fabrication_conditionnement"
+          )
           .gte("date_fabrication_conditionnement", periode.dateFrom)
           .lte("date_fabrication_conditionnement", periode.dateTo)
           .order("date_fabrication_conditionnement", { ascending: true })
@@ -222,6 +232,46 @@ export async function fetchBlocsHeuresSup(periode: {
     ),
   ]);
 
+  // Type de produit (clarifiant, gel douche, hydratant...) affiche a cote du
+  // code pour clarifier de quel article il s'agit. Le code texte seul
+  // (production_carton_entries.code etc.) NE PEUT PAS servir de cle vers
+  // articles.code_auto/code_manu : ce sont des codes de PRODUCTION incrementes
+  // a chaque nouveau lot (voir lib/article-code-family.ts), alors que
+  // articles.code_auto/code_manu ne garde que le code courant/le plus recent
+  // - verifie sur donnees reelles, a peine 10% des codes historiques
+  // matchaient encore. Le vrai lien stable est programme_ligne_id ->
+  // programme_lignes.article_id -> articles.type_article.
+  const ligneIds = [
+    ...new Set(
+      [...cartonRows, ...emballageRows, ...rapportRows]
+        .map((r) => r.programme_ligne_id)
+        .filter((id): id is number => id != null)
+    ),
+  ];
+  const articleIdParLigneId = new Map<number, number>();
+  for (let i = 0; i < ligneIds.length; i += 1000) {
+    const chunk = ligneIds.slice(i, i + 1000);
+    const { data } = await supabaseServer.from("programme_lignes").select("id, article_id").in("id", chunk);
+    for (const row of (data ?? []) as { id: number; article_id: number | null }[]) {
+      if (row.article_id != null) articleIdParLigneId.set(row.id, row.article_id);
+    }
+  }
+  const articleIds = [...new Set(articleIdParLigneId.values())];
+  const typeArticleParArticleId = new Map<number, string | null>();
+  for (let i = 0; i < articleIds.length; i += 1000) {
+    const chunk = articleIds.slice(i, i + 1000);
+    const { data } = await supabaseServer.from("articles").select("id, type_article").in("id", chunk);
+    for (const row of (data ?? []) as { id: number; type_article: string | null }[]) {
+      typeArticleParArticleId.set(row.id, row.type_article);
+    }
+  }
+  function resolveTypeArticle(ligneId: number | null): string | null {
+    if (ligneId == null) return null;
+    const articleId = articleIdParLigneId.get(ligneId);
+    if (articleId == null) return null;
+    return typeArticleParArticleId.get(articleId) ?? null;
+  }
+
   const blocs: BlocHeuresSup[] = [];
 
   for (const row of cartonRows) {
@@ -233,6 +283,7 @@ export async function fetchBlocsHeuresSup(periode: {
       source: "conditionnement",
       chaine: row.chaine || "-",
       code: row.code,
+      typeArticle: resolveTypeArticle(row.programme_ligne_id),
       dateJour: row.date_jour,
       debutLabel: row.temps_demarage_lot,
       finLabel: row.temps_arret_batch,
@@ -252,6 +303,7 @@ export async function fetchBlocsHeuresSup(periode: {
       source: "emballage",
       chaine: row.emballage_machine || "-",
       code: row.code,
+      typeArticle: resolveTypeArticle(row.programme_ligne_id),
       dateJour: row.date_jour,
       debutLabel: row.emballage_temps_demarrer,
       finLabel: row.emballage_temps_arret,
@@ -297,6 +349,7 @@ export async function fetchBlocsHeuresSup(periode: {
       source: "fabrication",
       chaine: row.machine || "-",
       code: row.code,
+      typeArticle: resolveTypeArticle(row.programme_ligne_id),
       dateJour: row.date_fabrication_conditionnement,
       debutLabel: row.temps_debut_preparation,
       finLabel: row.temps_vidange,
@@ -315,6 +368,7 @@ export async function fetchBlocsHeuresSup(periode: {
       source: "manuel",
       chaine: nomActivite(row.heures_sup_activites),
       code: "-",
+      typeArticle: null,
       dateJour: row.date_jour,
       debutLabel: "-",
       finLabel: "-",
