@@ -1,5 +1,92 @@
 import Link from "next/link";
-import type { CodeFlux } from "@/lib/production-code-flux";
+import type { CodeFlux, CodeFluxMpSource, CodeFluxStageEntry } from "@/lib/production-code-flux";
+import { formatDate, formatDateTime } from "@/lib/format-date";
+
+function MpSourceItem({ mp }: { mp: CodeFluxMpSource }) {
+  return (
+    <div className="rounded-xl bg-white px-3 py-2 text-sm">
+      <p className="font-semibold text-slate-900">
+        {mp.articleNom} {mp.numeroLot ? `(lot ${mp.numeroLot})` : ""} - {mp.quantiteReservee.toLocaleString("fr-FR")}{" "}
+        <span className="font-normal text-slate-500">
+          - depot {mp.depotNom}
+          {mp.datePeremption ? ` - expire le ${formatDate(mp.datePeremption)}` : ""}
+        </span>
+      </p>
+      {mp.tos.length === 0 ? (
+        <p className="mt-1 text-xs text-slate-500">
+          Aucun Transfer Order valide retrouve pour ce lot/depot (stock peut-etre plus ancien que le suivi TO/TI).
+        </p>
+      ) : (
+        <div className="mt-1 text-xs text-slate-600">
+          {mp.tos.length > 1 ? (
+            <p className="text-slate-500">
+              {mp.tos.length} Transfer Order ont reellement livre ce lot a ce depot (numero de lot reutilise sur
+              plusieurs livraisons) :
+            </p>
+          ) : null}
+          <ul className="mt-0.5 space-y-0.5">
+            {mp.tos.map((to) => (
+              <li key={to.href}>
+                <Link href={to.href} className="font-semibold text-sky-700 underline">
+                  {to.label}
+                </Link>
+                {to.tis.length > 0 ? (
+                  <>
+                    {" "}
+                    -{" "}
+                    {to.tis.map((ti, i) => (
+                      <span key={ti.href}>
+                        <Link href={ti.href} className="font-semibold text-sky-700 underline">
+                          {ti.label}
+                        </Link>
+                        {i < to.tis.length - 1 ? ", " : ""}
+                      </span>
+                    ))}
+                  </>
+                ) : (
+                  <span className="text-amber-700"> - pas encore de Transfer Invoice valide</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StageEntries({
+  title,
+  entries,
+  dateFormatter,
+}: {
+  title: string;
+  entries: CodeFluxStageEntry[];
+  dateFormatter: (value: string | null) => string;
+}) {
+  const total = entries.reduce((sum, e) => sum + e.quantite, 0);
+  return (
+    <div className="rounded-xl bg-white px-3 py-2 text-sm">
+      <p className="font-semibold text-slate-900">
+        {title} - {total.toLocaleString("fr-FR")}
+      </p>
+      {entries.length === 0 ? (
+        <p className="mt-1 text-xs text-slate-500">Rien de saisi.</p>
+      ) : (
+        <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
+          {entries.map((e, i) => (
+            <li key={i}>
+              {e.quantite.toLocaleString("fr-FR")}
+              {e.machine ? ` - ${e.machine}` : ""}
+              {e.operateur ? ` - ${e.operateur}` : ""}
+              {e.dateJour ? ` - ${dateFormatter(e.dateJour)}` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 // Carte d'affichage du flux complet d'un code de dispatch (PL, PD, TO
 // d'origine de la matiere, entree stock du produit fini, sortie/proforma si
@@ -43,68 +130,70 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
 
       <div className="mt-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Matiere premiere consommee (TO/TI d&apos;origine)</p>
-        {flux.mpSources.length === 0 ? (
+        {flux.mpSources.filter((mp) => !mp.estConditionnement).length === 0 ? (
           <p className="mt-1 text-sm text-slate-500">Aucune reservation MP tracee pour ce code.</p>
         ) : (
           <div className="mt-1 space-y-2">
-            {flux.mpSources.map((mp, i) => (
-              <div key={`${mp.articleNom}-${mp.numeroLot}-${i}`} className="rounded-xl bg-white px-3 py-2 text-sm">
-                <p className="font-semibold text-slate-900">
-                  {mp.articleNom} {mp.numeroLot ? `(lot ${mp.numeroLot})` : ""} - {mp.quantiteReservee.toLocaleString("fr-FR")}{" "}
-                  <span className="font-normal text-slate-500">- depot {mp.depotNom}</span>
-                </p>
-                {mp.tos.length === 0 ? (
-                  <p className="mt-1 text-xs text-slate-500">
-                    Aucun Transfer Order valide retrouve pour ce lot/depot (stock peut-etre plus ancien que le suivi TO/TI).
-                  </p>
-                ) : (
-                  <div className="mt-1 text-xs text-slate-600">
-                    {mp.tos.length > 1 ? (
-                      <p className="text-slate-500">
-                        {mp.tos.length} Transfer Order ont reellement livre ce lot a ce depot (numero de lot reutilise sur
-                        plusieurs livraisons) :
-                      </p>
-                    ) : null}
-                    <ul className="mt-0.5 space-y-0.5">
-                      {mp.tos.map((to) => (
-                        <li key={to.href}>
-                          <Link href={to.href} className="font-semibold text-sky-700 underline">
-                            {to.label}
-                          </Link>
-                          {to.tis.length > 0 ? (
-                            <>
-                              {" "}
-                              -{" "}
-                              {to.tis.map((ti, i) => (
-                                <span key={ti.href}>
-                                  <Link href={ti.href} className="font-semibold text-sky-700 underline">
-                                    {ti.label}
-                                  </Link>
-                                  {i < to.tis.length - 1 ? ", " : ""}
-                                </span>
-                              ))}
-                            </>
-                          ) : (
-                            <span className="text-amber-700"> - pas encore de Transfer Invoice valide</span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            ))}
+            {flux.mpSources
+              .filter((mp) => !mp.estConditionnement)
+              .map((mp, i) => (
+                <MpSourceItem key={`${mp.articleNom}-${mp.numeroLot}-${i}`} mp={mp} />
+              ))}
           </div>
         )}
+      </div>
+
+      <div className="mt-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Articles de conditionnement consommes (TO/TI d&apos;origine)
+        </p>
+        {flux.mpSources.filter((mp) => mp.estConditionnement).length === 0 ? (
+          <p className="mt-1 text-sm text-slate-500">Aucune reservation d&apos;article de conditionnement tracee pour ce code.</p>
+        ) : (
+          <div className="mt-1 space-y-2">
+            {flux.mpSources
+              .filter((mp) => mp.estConditionnement)
+              .map((mp, i) => (
+                <MpSourceItem key={`${mp.articleNom}-${mp.numeroLot}-${i}`} mp={mp} />
+              ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Production</p>
+        <div className="mt-1 grid gap-2 sm:grid-cols-3">
+          <StageEntries title="Fabrication" entries={flux.production.fabrication} dateFormatter={formatDateTime} />
+          <StageEntries title="Conditionnement" entries={flux.production.conditionnement} dateFormatter={formatDate} />
+          <StageEntries title="Emballage" entries={flux.production.emballage} dateFormatter={formatDate} />
+        </div>
       </div>
 
       <div className="mt-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Produit fini</p>
         <p className="mt-1 text-sm">
           {flux.entreeProduction.entree ? (
-            <Link href={flux.entreeProduction.href} className="font-semibold text-emerald-700 underline">
-              entre en stock ({flux.entreeProduction.label})
-            </Link>
+            <>
+              <Link href={flux.entreeProduction.href} className="font-semibold text-emerald-700 underline">
+                entre en stock ({flux.entreeProduction.label})
+              </Link>
+              <span className="text-slate-600">
+                {" "}
+                - {flux.entreeProduction.quantite.toLocaleString("fr-FR")}
+                {flux.entreeProduction.chambre ? ` - chambre ${flux.entreeProduction.chambre}` : ""}
+                {flux.entreeProduction.dateFabrication
+                  ? ` - fabrique le ${formatDate(flux.entreeProduction.dateFabrication)}`
+                  : ""}
+                {" - "}
+                {flux.entreeProduction.stockRestant > 0 ? (
+                  <span className="font-semibold text-emerald-700">
+                    {flux.entreeProduction.stockRestant.toLocaleString("fr-FR")} restant en stock
+                  </span>
+                ) : (
+                  <span className="text-slate-500">tout livre, rien en stock</span>
+                )}
+              </span>
+            </>
           ) : (
             <span className="text-amber-700">pas encore entre en stock</span>
           )}
@@ -118,6 +207,7 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
                   {s.label}
                 </Link>
                 ) - {s.quantite.toLocaleString("fr-FR")}
+                {s.dateLivraison ? ` - le ${formatDate(s.dateLivraison)}` : ""}
                 {s.proforma ? ` - proforma ${s.proforma}` : s.livrePour ? ` - ${s.livrePour}` : ""}
               </li>
             ))}

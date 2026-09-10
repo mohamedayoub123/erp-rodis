@@ -356,7 +356,17 @@ export function parseSortieMeta(note: string | null, sourceImport?: string | nul
   return empty;
 }
 
-export type TraceEntreeProduction = { entree: true; label: string; href: string } | { entree: false };
+export type TraceEntreeProduction =
+  | {
+      entree: true;
+      label: string;
+      href: string;
+      quantite: number;
+      chambre: string | null;
+      dateFabrication: string | null;
+      stockRestant: number;
+    }
+  | { entree: false };
 
 export type TraceSortie = {
   label: string;
@@ -364,6 +374,7 @@ export type TraceSortie = {
   quantite: number;
   proforma: string | null;
   livrePour: string | null;
+  dateLivraison: string | null;
 };
 
 // Index unique {ligne lots_stock -> code TE/TS/"Entree Production" + lien}
@@ -415,13 +426,31 @@ export function traceProduitFiniPourCode(
         quantite: Number(r.qte_sortie ?? 0),
         proforma: meta.numero_proforma,
         livrePour: meta.livre_pour,
+        dateLivraison: r.date_jour,
       };
     });
 
+  // stockRestant recalcule ici (entree - somme des sorties de CE code) au
+  // lieu de relire lots_stock.stock_restant - webRows (MouvementSourceRow)
+  // ne le porte pas, et ce calcul reste correct meme si le lot est partage
+  // par plusieurs mouvements distincts pour le meme code.
+  const stockRestant = entreeRow
+    ? Number(entreeRow.qte_entree ?? 0) - sorties.reduce((total, s) => total + s.quantite, 0)
+    : 0;
+
   return {
-    entreeProduction: entreeInfo
-      ? { entree: true, label: entreeInfo.code, href: `/mouvements/entrees/${entreeInfo.groupeId}` }
-      : { entree: false },
+    entreeProduction:
+      entreeInfo && entreeRow
+        ? {
+            entree: true,
+            label: entreeInfo.code,
+            href: `/mouvements/entrees/${entreeInfo.groupeId}`,
+            quantite: Number(entreeRow.qte_entree ?? 0),
+            chambre: entreeRow.chambre,
+            dateFabrication: entreeRow.date_fabrication,
+            stockRestant,
+          }
+        : { entree: false },
     sorties,
   };
 }

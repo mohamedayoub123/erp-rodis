@@ -30,8 +30,10 @@ export default async function FluxParCodePage({ searchParams }: { searchParams: 
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Flux par Code</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Tape un code de dispatch (ex: AA4256) pour voir tout son parcours : programme (PL), dispatch (PD), Transfer
-                Order/Invoice qui ont livre la matiere, entree en stock du produit fini, et livraison/proforma si deja sorti.
+                Tape un code de dispatch (ex: AA4256) pour voir tout son parcours : programme (PL), dispatch (PD),
+                Transfer Order/Invoice qui ont livre la matiere, quantite fabriquee/conditionnee/emballee (par qui,
+                sur quelle machine), entree en stock du produit fini (chambre, date de fabrication, reste en stock),
+                et livraison/proforma si deja sorti.
               </p>
             </div>
 

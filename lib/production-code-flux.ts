@@ -18,9 +18,50 @@ export type CodeFluxTo = { label: string; href: string; statut: string; tis: Cod
 export type CodeFluxMpSource = {
   articleNom: string;
   numeroLot: string | null;
+  datePeremption: string | null;
+  estConditionnement: boolean;
   depotNom: string;
   quantiteReservee: number;
   tos: CodeFluxTo[];
+};
+
+// Articles de conditionnement (flacon, capsule, pompe, sleeve, carton,
+// etiquette, etui, dispenseur) n'ont pas de catalogue separe - ce sont des
+// lignes articles_matiere_premiere comme les autres, reperees par mot-cle
+// dans leur nom (aucun champ "type" dedie sur cette table). Meme
+// convention que DECHET_KEYWORDS (app/production/retours-conditionnement/
+// page.tsx) et que les besoin_* sur articles (produit fini) - reunit les 2
+// listes pour couvrir tout ce qu'un code peut consommer en conditionnement.
+const CONDITIONNEMENT_KEYWORDS = [
+  "FLACON",
+  "POT",
+  "CAPSULE",
+  "POMPE",
+  "SLEEVE",
+  "CARTON",
+  "ETIQUETTE",
+  "ETUI",
+  "DISPENSEUR",
+  "TOPETTE",
+  "SPRAY",
+];
+
+function estArticleConditionnement(nomArticle: string): boolean {
+  const nomMajuscule = nomArticle.toUpperCase();
+  return CONDITIONNEMENT_KEYWORDS.some((motCle) => nomMajuscule.includes(motCle));
+}
+
+export type CodeFluxStageEntry = {
+  quantite: number;
+  dateJour: string | null;
+  machine: string | null;
+  operateur: string | null;
+};
+
+export type CodeFluxProduction = {
+  fabrication: CodeFluxStageEntry[];
+  conditionnement: CodeFluxStageEntry[];
+  emballage: CodeFluxStageEntry[];
 };
 
 export type CodeFlux = {
@@ -29,6 +70,7 @@ export type CodeFlux = {
   pds: CodeFluxRef[];
   produit: string | null;
   mpSources: CodeFluxMpSource[];
+  production: CodeFluxProduction;
   entreeProduction: TraceEntreeProduction;
   sorties: TraceSortie[];
 };
@@ -173,6 +215,83 @@ async function fetchTosPourArticleLotDepot(
     }));
 }
 
+// Production (Fabrication/Conditionnement/Emballage) d'un code - demande
+// explicite : "qt fabrique, fabrique par qui, sur quelle machine". Interroge
+// par CODE seul (pas par programme_ligne_id) car un meme code peut etre
+// partage par plusieurs lignes (ex: meme article reparti sur 2 lignes
+// "Programme par ligne" avec la meme cuve/lot - deja vu sur des donnees
+// reelles) - chaque ligne source apparait alors comme une entree distincte
+// au lieu d'etre perdue. Fabrication vient de production_rapports (seule
+// table qui garde machine/preparateur - production_vrac_entries ne les a
+// jamais eues) : contrairement a Conditionnement/Emballage, une ligne
+// re-saisie efface donc l'ancienne machine/preparateur (meme limite deja
+// connue que le bug d'ecrasement documente ailleurs - voir
+// fetchDechetsByLigneCode) ; Conditionnement/Emballage viennent de
+// production_carton_entries/production_emballage_entries qui gardent UNE
+// ligne PAR FOURNEE avec leur propre machine/operateur, jamais ecrasees.
+async function fetchProductionParCode(code: string): Promise<CodeFluxProduction> {
+  const [{ data: rapportRows }, { data: cartonRows }, { data: embRows }] = await Promise.all([
+    supabaseServer
+      .from("production_rapports")
+      .select("vrac_fabrique, date_saisie_fabrication, machine, utilisateur_fabrication")
+      .eq("code", code),
+    supabaseServer
+      .from("production_carton_entries")
+      .select("quantite, date_jour, chaine, utilisateur_conditionnement")
+      .eq("code", code),
+    supabaseServer
+      .from("production_emballage_entries")
+      .select("quantite, date_jour, emballage_machine, utilisateur_emballage")
+      .eq("code", code),
+  ]);
+
+  const fabrication = (
+    (rapportRows ?? []) as {
+      vrac_fabrique: number | null;
+      date_saisie_fabrication: string | null;
+      machine: string | null;
+      utilisateur_fabrication: string | null;
+    }[]
+  )
+    .filter((r) => r.vrac_fabrique !== null)
+    .map((r) => ({
+      quantite: Number(r.vrac_fabrique),
+      dateJour: r.date_saisie_fabrication,
+      machine: r.machine,
+      operateur: r.utilisateur_fabrication,
+    }));
+
+  const conditionnement = (
+    (cartonRows ?? []) as {
+      quantite: number;
+      date_jour: string | null;
+      chaine: string | null;
+      utilisateur_conditionnement: string | null;
+    }[]
+  ).map((r) => ({
+    quantite: Number(r.quantite),
+    dateJour: r.date_jour,
+    machine: r.chaine,
+    operateur: r.utilisateur_conditionnement,
+  }));
+
+  const emballage = (
+    (embRows ?? []) as {
+      quantite: number;
+      date_jour: string | null;
+      emballage_machine: string | null;
+      utilisateur_emballage: string | null;
+    }[]
+  ).map((r) => ({
+    quantite: Number(r.quantite),
+    dateJour: r.date_jour,
+    machine: r.emballage_machine,
+    operateur: r.utilisateur_emballage,
+  }));
+
+  return { fabrication, conditionnement, emballage };
+}
+
 // Trace complete d'un code de dispatch precis - demande explicite : "je
 // tape un code, il me dit le flux : PL, PD, TO, TI, TE, TS, entree,
 // proforma livree". PL/PD viennent de programme_lignes ; la matiere
@@ -252,15 +371,34 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
 
   const mpSources: CodeFluxMpSource[] = [];
   for (const { articleMpId, depotId, numeroLot, quantite } of parCle.values()) {
-    const [{ data: articleData }, { data: depotData }, tos] = await Promise.all([
+    // "ancien_lot" est un numero place-holder pour du stock migre sans vrai
+    // lot (voir fetchTosPourArticleLotDepot plus haut) - jamais une clef de
+    // recherche valable sur lots_stock_matiere_premiere.
+    const rechercherPeremption = numeroLot && numeroLot !== "ancien_lot";
+    const [{ data: articleData }, { data: depotData }, tos, { data: lotStockData }] = await Promise.all([
       supabaseServer.from("articles_matiere_premiere").select("nom_article").eq("id", articleMpId).maybeSingle(),
       supabaseServer.from("depots").select("nom").eq("id", depotId).maybeSingle(),
       fetchTosPourArticleLotDepot(articleMpId, numeroLot, depotId, pl?.groupe_id ?? null),
+      rechercherPeremption
+        ? supabaseServer
+            .from("lots_stock_matiere_premiere")
+            .select("date_expiration")
+            .eq("article_id", articleMpId)
+            .eq("numero_lot", numeroLot)
+            .not("date_expiration", "is", null)
+            .order("date_expiration", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
 
+    const articleNom = (articleData as { nom_article: string } | null)?.nom_article ?? `#${articleMpId}`;
+
     mpSources.push({
-      articleNom: (articleData as { nom_article: string } | null)?.nom_article ?? `#${articleMpId}`,
+      articleNom,
       numeroLot,
+      datePeremption: (lotStockData as { date_expiration: string } | null)?.date_expiration ?? null,
+      estConditionnement: estArticleConditionnement(articleNom),
       depotNom: (depotData as { nom: string } | null)?.nom ?? `#${depotId}`,
       quantiteReservee: quantite,
       tos,
@@ -268,6 +406,7 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
   }
 
   const { entreeProduction, sorties } = traceProduitFiniPourCode(ctx.webRows, ctx.mouvementInfoByRowId, pl?.article_id, code);
+  const production = await fetchProductionParCode(code);
 
   return {
     code,
@@ -275,6 +414,7 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
     pds,
     produit: pl?.produit ?? null,
     mpSources,
+    production,
     entreeProduction,
     sorties,
   };
