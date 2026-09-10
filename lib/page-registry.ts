@@ -772,6 +772,16 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     adminGroup: "Rapport",
   },
   {
+    key: "productionRapportHeuresSup",
+    module: "Production",
+    label: "Rapport Heures Supplementaires",
+    pathPrefixes: ["/production/rapport/heures-sup"],
+    hasWrite: false,
+    defaultView: false,
+    defaultWrite: false,
+    adminGroup: "Rapport",
+  },
+  {
     key: "productionRapportFluxCode",
     module: "Production",
     label: "Flux par Code (PL/PD/TO/TI/TE/TS/proforma)",

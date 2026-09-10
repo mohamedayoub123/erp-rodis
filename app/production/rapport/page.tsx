@@ -77,6 +77,14 @@ const TILES = [
     description:
       "Tape un code : PL, PD, TO/TI qui ont livre la matiere, entree stock du produit fini, et livraison/proforma si deja sorti.",
   },
+  {
+    label: "Heures Supplementaires",
+    href: "/production/rapport/heures-sup",
+    pageKey: "productionRapportHeuresSup",
+    icon: "\u{23F0}",
+    description:
+      "Par fournee (Fabrication/Conditionnement/Emballage) : heures normales, heures sup (au-dela de 8h), jour sup (samedi).",
+  },
 ] as const;
 
 export default async function RapportPage() {
