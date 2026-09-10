@@ -328,3 +328,68 @@ export async function fetchBlocsHeuresSup(periode: {
   blocs.sort((a, b) => a.dateJour.localeCompare(b.dateJour) || a.chaine.localeCompare(b.chaine));
   return blocs;
 }
+
+export type JourAgg = {
+  source: SourceEtape;
+  chaine: string;
+  dateJour: string;
+  nbBlocs: number;
+  nbPersonnes: number;
+  dureeMinutes: number;
+  estSamedi: boolean;
+  normalesMinutes: number;
+  supMinutes: number;
+  joursSupMinutes: number;
+};
+
+// Regroupe les blocs (fournees individuelles) par (etape + chaine + jour) -
+// demande explicite : "si machine 1 travaille 4 articles avec des codes
+// differents, chacun besoin 8 journaliers, et travaille les 4 de 8h a 16h,
+// il faut prendre que le nb journalier c'est 8 seulement, pas 8x4". Une
+// meme equipe (meme chaine, meme jour) qui traite plusieurs codes n'est PAS
+// 4 equipes differentes - la BASE cree pourtant 1 ligne production_carton_entries/
+// production_emballage_entries/production_rapports PAR CODE, meme quand
+// c'est en realite la MEME equipe sur le MEME creneau.
+//
+// Prend le MAX (pas la somme) du nb de personnes sur le groupe, et reprend
+// TEL QUEL le classement (normal/sup/jour sup) deja calcule sur le bloc de
+// PLUS GRANDE duree du groupe - jamais un nouveau classerDuree() applique a
+// une duree "max" recalculee ici, qui casserait le cas Fabrication
+// multi-jours (classerFabricationMultiJours, deja plafonne 8h/jour et
+// samedi exclu - reappliquer un classerDuree simple sur sa duree brute
+// redonnerait un resultat faux). Les lignes "manuel" (Heures Sup Manuel)
+// restent JAMAIS regroupees : chacune est une vraie saisie distincte et
+// volontaire (pas un artefact du decoupage par code), voir classerManuel
+// plus haut.
+export function regrouperParChaineJour(blocs: BlocHeuresSup[]): JourAgg[] {
+  const groupes = new Map<string, BlocHeuresSup[]>();
+  let compteurManuel = 0;
+
+  for (const b of blocs) {
+    const key = b.source === "manuel" ? `manuel::${compteurManuel++}` : `${b.source}::${b.chaine}::${b.dateJour}`;
+    const list = groupes.get(key) ?? [];
+    list.push(b);
+    groupes.set(key, list);
+  }
+
+  const resultat: JourAgg[] = [];
+  for (const groupe of groupes.values()) {
+    const nbPersonnes = Math.max(...groupe.map((b) => b.nbPersonnes));
+    const representatif = groupe.reduce((max, b) => (b.dureeMinutes > max.dureeMinutes ? b : max), groupe[0]);
+    resultat.push({
+      source: representatif.source,
+      chaine: representatif.chaine,
+      dateJour: representatif.dateJour,
+      nbBlocs: groupe.length,
+      nbPersonnes,
+      dureeMinutes: representatif.dureeMinutes,
+      estSamedi: representatif.estSamedi,
+      normalesMinutes: representatif.normalesMinutes,
+      supMinutes: representatif.supMinutes,
+      joursSupMinutes: representatif.joursSupMinutes,
+    });
+  }
+
+  resultat.sort((a, b) => a.dateJour.localeCompare(b.dateJour) || a.chaine.localeCompare(b.chaine));
+  return resultat;
+}

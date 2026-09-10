@@ -5,7 +5,13 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { canVoirPrixUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { formatDate } from "@/lib/format-date";
 import { formatMinutes } from "@/lib/suivi-tirage-time";
-import { fetchBlocsHeuresSup, SOURCE_LABELS, type BlocHeuresSup, type SourceEtape } from "@/lib/heures-supplementaires";
+import {
+  fetchBlocsHeuresSup,
+  regrouperParChaineJour,
+  SOURCE_LABELS,
+  type BlocHeuresSup,
+  type SourceEtape,
+} from "@/lib/heures-supplementaires";
 
 const PAGE_SIZE = 200;
 
@@ -60,9 +66,27 @@ export default async function RapportHeuresSupPage({ searchParams }: { searchPar
 
   const availableChaines = [...new Set(tousLesBlocs.map((b) => b.chaine))].sort();
 
-  const totalNormalesMinutes = blocs.reduce((sum, b) => sum + b.normalesMinutes, 0);
-  const totalSupMinutes = blocs.reduce((sum, b) => sum + b.supMinutes, 0);
-  const totalJoursSupMinutes = blocs.reduce((sum, b) => sum + b.joursSupMinutes, 0);
+  // Demande explicite : "heures normales"/"heures sup" doivent etre en
+  // vraies heures-personnes (duree x nb de journaliers), pas juste la
+  // duree de poste seule (voir echange precedent sur ce que "75h"
+  // representait vraiment) - remplace desormais les colonnes plutot que de
+  // les dupliquer a cote.
+  //
+  // Regroupe d'abord par (etape + chaine + jour) : une meme equipe qui
+  // traite plusieurs codes article dans un seul creneau ne doit compter
+  // son nb de journaliers/heures qu'UNE fois, pas une fois par code (voir
+  // regrouperParChaineJour). Tous les totaux (cartes + tableau par chaine)
+  // partent de ce regroupement, jamais des blocs bruts.
+  function pct(supMinutes: number, totalMinutes: number) {
+    return totalMinutes > 0 ? Math.round((supMinutes / totalMinutes) * 1000) / 10 : 0;
+  }
+
+  const joursAgg = regrouperParChaineJour(blocs);
+
+  const totalNormalesMinutes = joursAgg.reduce((sum, j) => sum + j.nbPersonnes * j.normalesMinutes, 0);
+  const totalSupMinutes = joursAgg.reduce((sum, j) => sum + j.nbPersonnes * j.supMinutes, 0);
+  const totalJoursSupMinutes = joursAgg.reduce((sum, j) => sum + j.nbPersonnes * j.joursSupMinutes, 0);
+  const totalPctSup = pct(totalSupMinutes + totalJoursSupMinutes, totalNormalesMinutes + totalSupMinutes + totalJoursSupMinutes);
 
   type ChaineAgg = {
     source: SourceEtape;
@@ -72,38 +96,27 @@ export default async function RapportHeuresSupPage({ searchParams }: { searchPar
     normalesMinutes: number;
     supMinutes: number;
     joursSupMinutes: number;
-    // "Travailleurs" = duree x nb de personnes (vraies heures-personnes),
-    // contrairement a normalesMinutes/supMinutes/joursSupMinutes ci-dessus
-    // qui restent des DUREES DE POSTE (jamais multipliees par l'effectif) -
-    // demande explicite suite a une question de l'utilisateur sur ce que
-    // "75h" representait vraiment.
-    heuresTravailleursMinutes: number;
-    heuresSupTravailleursMinutes: number;
   };
   // Groupe par (etape + chaine) et non juste chaine - un meme nom de chaine
   // peut en theorie exister sur 2 etapes differentes (ex: Conditionnement et
   // Emballage), jamais melanger leurs totaux sous une seule ligne ambigue.
   const parChaine = new Map<string, ChaineAgg>();
-  for (const b of blocs) {
-    const key = `${b.source}::${b.chaine}`;
+  for (const j of joursAgg) {
+    const key = `${j.source}::${j.chaine}`;
     const current = parChaine.get(key) ?? {
-      source: b.source,
-      chaine: b.chaine,
+      source: j.source,
+      chaine: j.chaine,
       nbBlocs: 0,
       nbJournaliers: 0,
       normalesMinutes: 0,
       supMinutes: 0,
       joursSupMinutes: 0,
-      heuresTravailleursMinutes: 0,
-      heuresSupTravailleursMinutes: 0,
     };
-    current.nbBlocs += 1;
-    current.nbJournaliers += b.nbPersonnes;
-    current.normalesMinutes += b.normalesMinutes;
-    current.supMinutes += b.supMinutes;
-    current.joursSupMinutes += b.joursSupMinutes;
-    current.heuresTravailleursMinutes += b.nbPersonnes * b.dureeMinutes;
-    current.heuresSupTravailleursMinutes += b.nbPersonnes * (b.supMinutes + b.joursSupMinutes);
+    current.nbBlocs += j.nbBlocs;
+    current.nbJournaliers += j.nbPersonnes;
+    current.normalesMinutes += j.nbPersonnes * j.normalesMinutes;
+    current.supMinutes += j.nbPersonnes * j.supMinutes;
+    current.joursSupMinutes += j.nbPersonnes * j.joursSupMinutes;
     parChaine.set(key, current);
   }
   const chaineRows = [...parChaine.values()].sort(
@@ -215,18 +228,22 @@ export default async function RapportHeuresSupPage({ searchParams }: { searchPar
           </form>
         </section>
 
-        <section className="grid gap-3 sm:grid-cols-3">
+        <section className="grid gap-3 sm:grid-cols-4">
           <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm">
-            Heures normales :
+            Heures normales (travailleurs) :
             <span className="ml-2 font-bold text-emerald-900">{formatMinutes(totalNormalesMinutes)}</span>
           </div>
           <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm">
-            Heures sup (semaine) :
+            Heures sup (semaine, travailleurs) :
             <span className="ml-2 font-bold text-amber-900">{formatMinutes(totalSupMinutes)}</span>
           </div>
           <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm">
-            Jour sup (samedi) :
+            Jour sup (samedi, travailleurs) :
             <span className="ml-2 font-bold text-red-900">{formatMinutes(totalJoursSupMinutes)}</span>
+          </div>
+          <div className="rounded-2xl bg-sky-50 px-4 py-3 text-sm">
+            % heures sup :
+            <span className="ml-2 font-bold text-sky-900">{totalPctSup}%</span>
           </div>
         </section>
 
@@ -246,8 +263,6 @@ export default async function RapportHeuresSupPage({ searchParams }: { searchPar
                     <th className="px-4 py-3 font-semibold">Heures normales</th>
                     <th className="px-4 py-3 font-semibold">Heures sup</th>
                     <th className="px-4 py-3 font-semibold">Jour sup</th>
-                    <th className="px-4 py-3 font-semibold">Heures totale des travailleurs</th>
-                    <th className="px-4 py-3 font-semibold">Heures sup totale des travailleurs</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -260,10 +275,6 @@ export default async function RapportHeuresSupPage({ searchParams }: { searchPar
                       <td className="px-4 py-3 text-slate-600">{formatMinutes(row.normalesMinutes)}</td>
                       <td className="px-4 py-3 font-semibold text-amber-700">{formatMinutes(row.supMinutes)}</td>
                       <td className="px-4 py-3 font-semibold text-red-700">{formatMinutes(row.joursSupMinutes)}</td>
-                      <td className="px-4 py-3 text-slate-600">{formatMinutes(row.heuresTravailleursMinutes)}</td>
-                      <td className="px-4 py-3 font-semibold text-amber-700">
-                        {formatMinutes(row.heuresSupTravailleursMinutes)}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
