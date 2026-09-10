@@ -10,6 +10,7 @@ import { deleteFormationRowAction } from "./actions";
 import { FormationForm } from "./formation-form";
 import { FormationMonthCell } from "./formation-month-cell";
 import { monthStatus } from "./month-status";
+import { ScrollSyncX } from "./scroll-sync";
 import { MOIS_FIELD_KEYS, MOIS_NOMS, type FormationRow } from "./fields";
 
 // PR4 > Formation : reprend le fichier Excel "GFPC-ENR-015 Plan de
@@ -174,7 +175,7 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
           {trainingRows.length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-500">Aucune formation pour {selectedYear}.</div>
           ) : (
-            <div className="max-h-[75vh] overflow-auto">
+            <ScrollSyncX groupKey={`formation-${selectedYear}`} className="max-h-[75vh] overflow-auto">
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="sticky top-0 z-20 bg-slate-100 text-slate-950">
                   <tr>
@@ -229,7 +230,7 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
                   })}
                 </tbody>
               </table>
-            </div>
+            </ScrollSyncX>
           )}
         </section>
 
@@ -238,7 +239,7 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
             <div className="border-b border-slate-100 px-5 py-4">
               <h2 className="text-sm font-bold text-slate-900">Bilan {selectedYear}</h2>
             </div>
-            <div className="overflow-x-auto">
+            <ScrollSyncX groupKey={`formation-${selectedYear}`} className="overflow-x-auto">
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
                 <tbody>
                   {bilanRows.map((row) => {
@@ -295,7 +296,7 @@ export default async function FormationPage({ searchParams }: { searchParams: Se
                   })}
                 </tbody>
               </table>
-            </div>
+            </ScrollSyncX>
           </section>
         ) : null}
       </div>
