@@ -4,6 +4,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { hhmmDiffMinutes } from "@/lib/suivi-tirage-time";
+import { fetchBlocsHeuresSup } from "@/lib/heures-supplementaires";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   computeProduitParCode,
@@ -886,6 +887,33 @@ async function fetchFormationMonthly(): Promise<Map<string, { aFaire: number; re
   return byMonth;
 }
 
+// Indicateur "% heures supplementaires" : meme moteur que Rapport Heures
+// Sup (lib/heures-supplementaires.ts), demande explicite pour que les 2
+// restent coherents - sup+jour sup rapporte au total d'heures (normales +
+// sup + jour sup) de TOUTES les fournees (Fabrication/Conditionnement/
+// Emballage) + Heures Sup Manuel du mois, sur tout l'historique.
+async function fetchHeuresSupMonthly(): Promise<Map<string, number>> {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const blocs = await fetchBlocsHeuresSup({ dateFrom: "2000-01-01", dateTo: todayIso });
+
+  const parMois = new Map<string, { normales: number; sup: number; joursSup: number }>();
+  for (const b of blocs) {
+    const mois = b.dateJour.slice(0, 7);
+    const current = parMois.get(mois) ?? { normales: 0, sup: 0, joursSup: 0 };
+    current.normales += b.normalesMinutes;
+    current.sup += b.supMinutes;
+    current.joursSup += b.joursSupMinutes;
+    parMois.set(mois, current);
+  }
+
+  const result = new Map<string, number>();
+  for (const [mois, totals] of parMois) {
+    const total = totals.normales + totals.sup + totals.joursSup;
+    if (total > 0) result.set(mois, ((totals.sup + totals.joursSup) / total) * 100);
+  }
+  return result;
+}
+
 async function fetchDelaiLivraisonMonthly(): Promise<Map<string, { commande: number; depasse: number }>> {
   const rows: DelaiCommandeRow[] = [];
   let from = 0;
@@ -998,18 +1026,29 @@ export default async function Pr4Page() {
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - 4 + i);
 
-  const [cartonMonthly, testLaboMonthly, balanceMonthly, arretMonthly, dechetsMonthly, delaiMonthly, capaciteMonthly, formationMonthly, manuel] =
-    await Promise.all([
-      fetchCartonMonthly(),
-      fetchTestLaboMonthly(),
-      fetchBalanceMatiereMonthly(),
-      fetchTempsArretMonthly(),
-      fetchDechetsMonthly(),
-      fetchDelaiLivraisonMonthly(),
-      fetchCapaciteMonthly(),
-      fetchFormationMonthly(),
-      fetchManuelByMonth(),
-    ]);
+  const [
+    cartonMonthly,
+    testLaboMonthly,
+    balanceMonthly,
+    arretMonthly,
+    dechetsMonthly,
+    delaiMonthly,
+    capaciteMonthly,
+    formationMonthly,
+    heuresSupMonthly,
+    manuel,
+  ] = await Promise.all([
+    fetchCartonMonthly(),
+    fetchTestLaboMonthly(),
+    fetchBalanceMatiereMonthly(),
+    fetchTempsArretMonthly(),
+    fetchDechetsMonthly(),
+    fetchDelaiLivraisonMonthly(),
+    fetchCapaciteMonthly(),
+    fetchFormationMonthly(),
+    fetchHeuresSupMonthly(),
+    fetchManuelByMonth(),
+  ]);
 
   const cartonFabriqueOnlyByMonth = new Map<string, number>(
     [...cartonMonthly.entries()].map(([key, value]) => [key, value.fabrique])
@@ -1026,6 +1065,7 @@ export default async function Pr4Page() {
     ...prixCartonMonthly.keys(),
     ...capaciteMonthly.keys(),
     ...formationMonthly.keys(),
+    ...heuresSupMonthly.keys(),
     ...manuel.byMonth.keys(),
     currentMoisKey,
   ]);
@@ -1041,6 +1081,7 @@ export default async function Pr4Page() {
       const hasPrixCartonAuto = prixCartonMonthly.has(mois);
       const hasDelaiAuto = delaiMonthly.has(mois);
       const hasCapaciteAuto = capaciteMonthly.has(mois);
+      const hasHeuresSupAuto = heuresSupMonthly.has(mois);
       const manuelRow = manuel.byMonth.get(mois) ?? null;
 
       const carton = hasCartonAuto
@@ -1077,6 +1118,7 @@ export default async function Pr4Page() {
         capacite: !hasCapaciteAuto && manuelRow?.capacite_pct != null,
         delai: !hasDelaiAuto && Boolean(manuelRow),
         formation: !hasFormationAuto && Boolean(manuelRow),
+        heuresSup: !hasHeuresSupAuto && manuelRow?.heures_supplementaires_pct != null,
       };
 
       const pctProgramme = carton.commande > 0 ? (carton.fabrique / carton.commande) * 100 : null;
@@ -1087,12 +1129,17 @@ export default async function Pr4Page() {
       const pctArret = arret.travail > 0 ? (arret.arret / arret.travail) * 100 : null;
       const pctDechets = dechets.pieces + dechets.dechet > 0 ? (dechets.dechet / (dechets.pieces + dechets.dechet)) * 100 : null;
 
-      // Indicateurs 4/11/12 : aucune donnee automatique dans l'ERP pour
+      // Indicateurs 11/12 : aucune donnee automatique dans l'ERP pour
       // l'instant - purement saisis a la main (l'utilisateur les reprend
       // directement de son fichier Excel). Le denominateur de l'indicateur
       // 11 (qt fabriquee) reutilise les pieces deja calculees pour
       // l'indicateur 10, pour ne pas redemander le meme chiffre 2 fois.
-      const heuresSupplementairesPct = manuelRow?.heures_supplementaires_pct ?? null;
+      // Indicateur 4 : lu depuis Rapport Heures Sup (voir
+      // fetchHeuresSupMonthly), repli sur la saisie manuelle pour les mois
+      // sans aucune fournee/heure sup manuelle trouvee.
+      const heuresSupplementairesPct = hasHeuresSupAuto
+        ? heuresSupMonthly.get(mois)!
+        : manuelRow?.heures_supplementaires_pct ?? null;
       // Indicateur 9 : lu depuis le plan de formation (voir
       // fetchFormationMonthly) - repli sur la saisie manuelle uniquement
       // pour les mois sans aucune formation planifiee dans le plan.
@@ -1275,6 +1322,7 @@ export default async function Pr4Page() {
       cible: "2%",
       rowBg: "bg-amber-50/60",
       rowBgSolid: "bg-amber-50",
+      manuelKey: "heuresSup",
       headlineValue: (r) => r.heuresSupplementairesPct,
       isPercent: true,
       subRows: [{ label: "% heure supplementaire", getValue: (r) => r.heuresSupplementairesLabel }],
