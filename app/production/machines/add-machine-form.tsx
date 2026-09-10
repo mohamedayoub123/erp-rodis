@@ -1,79 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { createMachineAction } from "./actions";
 import { SubmitButton } from "@/app/_components/submit-button";
-
-const NOUVELLE_VALEUR = "__nouvelle_valeur__";
-
-// Menu deroulant avec une option "+ Nouveau ..." qui bascule vers un champ
-// libre - le meme <input name="..."> porte la valeur choisie dans le menu
-// OU tapee dans le champ libre, donc le formulaire parent n'a rien de plus
-// a gerer.
-function SelectWithAddOption({
-  name,
-  options,
-  addLabel,
-  addPlaceholder,
-}: {
-  name: string;
-  options: string[];
-  addLabel: string;
-  addPlaceholder: string;
-}) {
-  const [value, setValue] = useState("");
-  const [libre, setLibre] = useState(false);
-
-  if (libre) {
-    return (
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          name={name}
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          autoFocus
-          placeholder={addPlaceholder}
-          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-        />
-        <button
-          type="button"
-          onClick={() => {
-            setLibre(false);
-            setValue("");
-          }}
-          className="rounded-full px-2 py-1 text-xs font-semibold text-slate-400 hover:text-slate-600"
-        >
-          Annuler
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <select
-      name={name}
-      value={value}
-      onChange={(event) => {
-        if (event.target.value === NOUVELLE_VALEUR) {
-          setLibre(true);
-          setValue("");
-        } else {
-          setValue(event.target.value);
-        }
-      }}
-      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-    >
-      <option value="">-</option>
-      {options.map((option) => (
-        <option key={option} value={option}>
-          {option}
-        </option>
-      ))}
-      <option value={NOUVELLE_VALEUR}>{addLabel}</option>
-    </select>
-  );
-}
+import { SelectWithAddOption } from "@/app/_components/select-with-add-option";
 
 export function AddMachineForm({
   existingZones,

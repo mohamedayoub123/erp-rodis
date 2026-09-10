@@ -75,6 +75,13 @@ const TILES = [
     description: "Tous les rapports de production.",
   },
   {
+    label: "Heures Sup Manuel",
+    href: "/production/heures-sup-manuel",
+    pageKey: "productionHeuresSupManuel",
+    icon: "\u{1F551}",
+    description: "Saisie manuelle d'heures sup hors suivi automatique (Sleevage, Impression, Recuperation...).",
+  },
+  {
     label: "Equipements",
     href: "/production/machines",
     pageKey: "machines",
