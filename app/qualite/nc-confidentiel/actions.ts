@@ -324,40 +324,64 @@ export async function updateNcConfidentielDetailAction(formData: FormData): Prom
 
 const COMPTEURS_TABLE = "qualite_numero_compteurs";
 
-// Reglage manuel du "prochain numero" par (Audit, Annee) - demande
-// explicite : le numero (AI-{audit}-{annee}-NC-{sequence}) reste toujours
-// tape/corrige a la main sur le tableau (felicite), ce compteur ne fait
-// qu'enregistrer ou en est la sequence pour que ce soit facile a retrouver/
-// corriger apres un redemarrage ou une saisie manquee - jamais utilise pour
-// remplir automatiquement quoi que ce soit ailleurs. Un formulaire natif par
-// ligne (upsert cle sur audit+annee), plus simple qu'un tableau batch pour
-// seulement 3 champs.
+// Meme regle que partout ailleurs dans l'app (formulaire natif <form
+// action>, jamais de catch cote client possible) : un throw depuis une
+// Server Action voit son message efface en production par Next.js (page
+// d'erreur generique). Capture ici et redirige avec le vrai message en
+// avertissement (ex: numero mal formate) plutot que de laisser planter.
+async function withAvertissementRedirectCompteurs(action: () => Promise<void>) {
+  try {
+    await action();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur pendant l'operation.";
+    redirect(`/qualite/nc-confidentiel/compteurs?avertissement=${encodeURIComponent(message)}`);
+  }
+}
+
+// Reglage manuel du compteur par (Audit, Annee) - demande explicite : "dans
+// le numero il faut que je ecrit tout, pas seulement le nombre". On tape le
+// numero COMPLET tel qu'il a ete utilise (ex: "AI-1-2026-NC-033" ou
+// "AI.1.2026.1") - jamais un simple chiffre a calculer soi-meme - et le
+// "prochain numero" (sequence+1) en est deduit automatiquement, meme motif
+// que synchroniserCompteursDepuisNumeros plus haut. Sert a corriger/
+// redemarrer le compteur ; le numero du tableau NC reste toujours saisi/
+// corrige a la main comme avant, jamais rempli depuis ce compteur.
 export async function upsertNumeroCompteurAction(formData: FormData): Promise<void> {
-  const currentUser = await getCurrentStockUser();
-  if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
-    throw new Error("Cet utilisateur ne peut pas modifier les compteurs.");
-  }
+  await withAvertissementRedirectCompteurs(async () => {
+    const currentUser = await getCurrentStockUser();
+    if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
+      throw new Error("Cet utilisateur ne peut pas modifier les compteurs.");
+    }
 
-  const audit = String(formData.get("audit") || "").trim();
-  const annee = Number(formData.get("annee") || "0");
-  const prochainNumero = Number(formData.get("prochain_numero") || "0");
+    const audit = String(formData.get("audit") || "").trim();
+    const annee = Number(formData.get("annee") || "0");
+    const numero = String(formData.get("numero") || "").trim();
 
-  if (!audit || !Number.isFinite(annee) || annee <= 0 || !Number.isFinite(prochainNumero)) {
-    throw new Error("Audit, annee et prochain numero sont obligatoires.");
-  }
+    if (!audit || !Number.isFinite(annee) || annee <= 0 || !numero) {
+      throw new Error("Audit, annee et numero sont obligatoires.");
+    }
 
-  const { error } = await supabaseServer
-    .from(COMPTEURS_TABLE)
-    .upsert(
-      { audit, annee, prochain_numero: prochainNumero, updated_at: new Date().toISOString() },
-      { onConflict: "audit,annee" }
-    );
+    const match = numero.match(NUMERO_PATTERN);
+    if (!match) {
+      throw new Error(
+        `Numero "${numero}" non reconnu - format attendu : AI-1-2026-NC-033 ou AI.1.2026.1.`
+      );
+    }
+    const sequence = Number(match[3]);
 
-  if (error) {
-    throw new Error(error.message);
-  }
+    const { error } = await supabaseServer
+      .from(COMPTEURS_TABLE)
+      .upsert(
+        { audit, annee, prochain_numero: sequence + 1, updated_at: new Date().toISOString() },
+        { onConflict: "audit,annee" }
+      );
 
-  revalidatePath("/qualite/nc-confidentiel/compteurs");
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    revalidatePath("/qualite/nc-confidentiel/compteurs");
+  });
 }
 
 export async function deleteNumeroCompteurAction(formData: FormData): Promise<void> {

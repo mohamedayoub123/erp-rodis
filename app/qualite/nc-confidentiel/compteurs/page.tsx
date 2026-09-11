@@ -63,7 +63,9 @@ function numeroSuggere(audit: string, annee: number, prochainNumero: number): st
   return `AI-${audit}-${annee}-NC-${String(prochainNumero).padStart(3, "0")}`;
 }
 
-export default async function NumeroCompteursPage() {
+type SearchParams = Promise<{ avertissement?: string }>;
+
+export default async function NumeroCompteursPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
   const currentUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentUser, "qualiteNcConfidentiel");
@@ -71,6 +73,7 @@ export default async function NumeroCompteursPage() {
     redirect("/qualite/nc-confidentiel");
   }
 
+  const params = await searchParams;
   const [compteurs, derniersNumeros] = await Promise.all([fetchCompteurs(), fetchDerniersNumerosUtilises()]);
 
   const inputClass = "rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none";
@@ -84,9 +87,9 @@ export default async function NumeroCompteursPage() {
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Compteurs de numero</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Pour chaque Audit et Annee, regle le prochain numero de sequence (AI-audit-annee-NC-sequence)
-                - le numero reste toujours saisi/corrige a la main dans NC Confidentiel, ceci est juste un
-                repere.
+                Pour chaque Audit et Annee, tape le numero complet reellement utilise (ex: AI-1-2026-NC-033)
+                - le prochain numero (sequence+1) en est deduit tout seul. Le champ "numero" du tableau NC
+                Confidentiel reste toujours saisi/corrige a la main comme avant, ceci est juste un repere.
               </p>
             </div>
 
@@ -97,6 +100,12 @@ export default async function NumeroCompteursPage() {
           </div>
         </section>
 
+        {params.avertissement ? (
+          <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-semibold text-amber-800">
+            {params.avertissement}
+          </div>
+        ) : null}
+
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
@@ -105,8 +114,8 @@ export default async function NumeroCompteursPage() {
                   <th className="px-4 py-3 font-semibold">Audit</th>
                   <th className="px-4 py-3 font-semibold">Annee</th>
                   <th className="px-4 py-3 font-semibold">Dernier numero utilise</th>
-                  <th className="px-4 py-3 font-semibold">Prochain numero</th>
-                  <th className="px-4 py-3 font-semibold">Numero complet suggere</th>
+                  <th className="px-4 py-3 font-semibold">Numero (met a jour le compteur)</th>
+                  <th className="px-4 py-3 font-semibold">Prochain numero complet</th>
                   <th className="px-4 py-3 font-semibold">Action</th>
                 </tr>
               </thead>
@@ -123,10 +132,10 @@ export default async function NumeroCompteursPage() {
                           <input type="hidden" name="audit" value={c.audit} />
                           <input type="hidden" name="annee" value={c.annee} />
                           <input
-                            type="number"
-                            name="prochain_numero"
-                            defaultValue={c.prochain_numero}
-                            className="w-28 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
+                            type="text"
+                            name="numero"
+                            placeholder="Ex: AI-1-2026-NC-033"
+                            className="w-56 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
                           />
                           <SubmitButton
                             pendingLabel="..."
@@ -151,10 +160,7 @@ export default async function NumeroCompteursPage() {
                 })}
                 <tr className="border-t border-slate-100 bg-violet-50/40">
                   <td colSpan={6} className="px-4 py-4">
-                    <form
-                      action={upsertNumeroCompteurAction}
-                      className="flex flex-wrap items-end gap-3"
-                    >
+                    <form action={upsertNumeroCompteurAction} className="flex flex-wrap items-end gap-3">
                       <label className="grid gap-1 text-xs font-semibold text-slate-500">
                         Audit
                         <input type="text" name="audit" placeholder="Ex: 1" className={inputClass} required />
@@ -164,11 +170,11 @@ export default async function NumeroCompteursPage() {
                         <input type="number" name="annee" placeholder="Ex: 2026" className={inputClass} required />
                       </label>
                       <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                        Prochain numero
+                        Numero
                         <input
-                          type="number"
-                          name="prochain_numero"
-                          placeholder="Ex: 34"
+                          type="text"
+                          name="numero"
+                          placeholder="Ex: AI-1-2026-NC-033"
                           className={inputClass}
                           required
                         />
