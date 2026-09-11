@@ -45,6 +45,14 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
+// % ecart = ecart / stock systeme - pas de % si le stock systeme est 0 (rien
+// a rapporter, un ecart de +5 sur 0 n'a pas de sens en pourcentage).
+function formatEcartPct(ecart: number, stockSysteme: number): string | null {
+  if (stockSysteme === 0) return null;
+  const pct = (ecart / stockSysteme) * 100;
+  return `${pct > 0 ? "+" : ""}${pct.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}%`;
+}
+
 function attemptLabel(nombreComptages: number) {
   if (nombreComptages === 0) return "1er comptage";
   if (nombreComptages === 1) return "2e comptage (ne correspondait pas)";
@@ -240,6 +248,11 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
                             >
                               {ecart > 0 ? "+" : ""}
                               {formatNumber(ecart)}
+                              {formatEcartPct(ecart, ligne.stock_systeme) ? (
+                                <span className="ml-1 font-normal text-slate-400">
+                                  ({formatEcartPct(ecart, ligne.stock_systeme)})
+                                </span>
+                              ) : null}
                             </span>
                           )}
                         </td>
@@ -423,6 +436,7 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
                         <span className={ecart < 0 ? "font-semibold text-red-700" : "font-semibold text-emerald-700"}>
                           Ecart {ecart > 0 ? "+" : ""}
                           {formatNumber(ecart)}
+                          {formatEcartPct(ecart, ligne.stock_systeme) ? ` (${formatEcartPct(ecart, ligne.stock_systeme)})` : ""}
                         </span>
                       </p>
                     </div>

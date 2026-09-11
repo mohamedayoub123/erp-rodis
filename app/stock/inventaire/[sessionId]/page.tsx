@@ -26,6 +26,15 @@ type LigneRow = {
   regularise_par: string | null;
 };
 
+// % ecart = ecart / stock systeme - pas de % si le stock systeme est 0 (rien
+// a rapporter, un ecart de +5 sur 0 n'a pas de sens en pourcentage). Meme
+// helper que app/stock/matiere-premiere/inventaire/[sessionId]/page.tsx.
+function formatEcartPct(ecart: number, stockSysteme: number): string | null {
+  if (stockSysteme === 0) return null;
+  const pct = (ecart / stockSysteme) * 100;
+  return `${pct > 0 ? "+" : ""}${pct.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}%`;
+}
+
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
@@ -176,6 +185,11 @@ export default async function InventairePfSessionDetailPage({ params }: { params
                           >
                             {ecart > 0 ? "+" : ""}
                             {formatNumber(ecart)}
+                            {formatEcartPct(ecart, ligne.stock_systeme) ? (
+                              <span className="ml-1 font-normal text-slate-400">
+                                ({formatEcartPct(ecart, ligne.stock_systeme)})
+                              </span>
+                            ) : null}
                           </span>
                         )}
                       </td>
