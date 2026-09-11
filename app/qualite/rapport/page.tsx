@@ -250,7 +250,24 @@ export default async function QualiteRapportPage({
   );
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
 
-  const allRapports = await fetchAllTestLaboRapports();
+  const allRapportsRaw = await fetchAllTestLaboRapports();
+  // Un meme numero de lot (code) peut se retrouver sur 2 "Programme par
+  // ligne" differents (redispatche, correction...) - chacun avec sa propre
+  // ligne production_rapports/Test labo. C'est physiquement LE MEME lot :
+  // ne jamais le compter 2 fois dans les stats/graphes - demande explicite
+  // ("pas conter 2 test sur le meme numero de lot, le prendre comme un
+  // seul"). Garde la saisie la plus RECENTE par code (date_saisie_test_labo)
+  // - un 2eme passage est plus probablement une correction/retest que la
+  // 1ere saisie n'a pas a rester affichee a cote.
+  const latestByCode = new Map<string, RapportRow>();
+  for (const r of allRapportsRaw) {
+    const current = latestByCode.get(r.code);
+    if (!current || (r.date_saisie_test_labo || "") > (current.date_saisie_test_labo || "")) {
+      latestByCode.set(r.code, r);
+    }
+  }
+  const allRapports = [...latestByCode.values()];
+
   const lignesInfo = await fetchLignesInfo(allRapports.map((r) => r.programme_ligne_id));
   const articleInfos = await fetchArticleInfos(
     [...lignesInfo.values()].map((l) => l.article_id).filter((id): id is number => id !== null)
