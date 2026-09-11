@@ -97,6 +97,8 @@ export async function saveTafConfidentielBatchAction(
 // saveTafConfidentielBatchAction ci-dessus), seulement ces 7 champs.
 const DETAIL_FIELD_KEYS = ["qui", "delais", "commentaire", "t1", "t2", "t3", "t4"] as const;
 
+const T1_T4_KEYS = ["t1", "t2", "t3", "t4"] as const;
+
 export async function updateTafConfidentielDetailAction(formData: FormData): Promise<void> {
   const currentUser = await getCurrentStockUser();
   if (!(await canWritePageUser(currentUser, "qualiteTafConfidentiel"))) {
@@ -113,10 +115,33 @@ export async function updateTafConfidentielDetailAction(formData: FormData): Pro
     payload[key] = parseOptionalText(formData, key);
   }
 
-  const { error } = await supabaseServer
-    .from(TABLE)
-    .update({ ...payload, updated_at: new Date().toISOString() })
-    .eq("id", id);
+  const updatePayload: Record<string, string | null> = { ...payload, updated_at: new Date().toISOString() };
+
+  // T1-T4 ne sont plus modifiables QUE depuis cette page (voir readOnly sur
+  // ces colonnes, taf-confidentiel/page.tsx) - la cloture automatique a 100%
+  // (auparavant maybeAutoCloseProgress sur le tableau, audit-table.tsx) est
+  // donc reproduite ici plutot que perdue. Ne rouvre jamais un TAF deja
+  // cloture (meme logique qu'avant : seul le franchissement du seuil ferme,
+  // rien ne rouvre automatiquement).
+  const total = T1_T4_KEYS.reduce((sum, key) => {
+    const n = parseFloat(String(payload[key] ?? "").replace(",", "."));
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+
+  if (total >= 0.999) {
+    const { data: existing } = await supabaseServer
+      .from(TABLE)
+      .select("statut, date_realisation")
+      .eq("id", id)
+      .maybeSingle();
+    const ancien = existing as { statut: string | null; date_realisation: string | null } | null;
+    const ancienCloture = String(ancien?.statut ?? "").trim().toUpperCase() === "CLOTUREE";
+    const todayIso = new Date().toISOString().slice(0, 10);
+    updatePayload.statut = "CLOTUREE";
+    updatePayload.date_realisation = ancienCloture ? (ancien?.date_realisation ?? todayIso) : todayIso;
+  }
+
+  const { error } = await supabaseServer.from(TABLE).update(updatePayload).eq("id", id);
 
   if (error) {
     throw new Error(error.message);

@@ -611,10 +611,13 @@ export function AuditTable({
     return true;
   }
 
-  // La colonne Actions porte le Supprimer (canWrite) ET/OU le lien Detail
-  // (detailHrefPrefix, visible meme en lecture seule) - presente des que
-  // l'un des deux existe.
-  const showActionsColumn = canWrite || Boolean(detailHrefPrefix);
+  // Le lien Detail vit dans sa PROPRE colonne, tout au debut de la ligne
+  // (demande explicite : visible sans avoir a defiler jusqu'au bout d'un
+  // tableau tres large), separee de la colonne Actions/Supprimer qui reste
+  // a la fin. Visible meme en lecture seule (detailHrefPrefix seul suffit,
+  // pas besoin de canWrite).
+  const showDetailColumn = Boolean(detailHrefPrefix);
+  const showActionsColumn = canWrite;
 
   return (
     <div className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
@@ -662,6 +665,9 @@ export function AuditTable({
       <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
           <thead className="bg-slate-50 text-slate-950">
             <tr>
+              {showDetailColumn ? (
+                <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-base font-bold">Detail</th>
+              ) : null}
               {columns.map((col) => (
                 <th
                   key={col.key}
@@ -680,7 +686,10 @@ export function AuditTable({
           <tbody>
             {rowKeys.length === 0 ? (
               <tr>
-                <td colSpan={columns.length + (showActionsColumn ? 1 : 0)} className="px-4 py-6 text-center text-sm text-slate-500">
+                <td
+                  colSpan={columns.length + (showDetailColumn ? 1 : 0) + (showActionsColumn ? 1 : 0)}
+                  className="px-4 py-6 text-center text-sm text-slate-500"
+                >
                   Aucune ligne pour le moment.
                 </td>
               </tr>
@@ -689,6 +698,19 @@ export function AuditTable({
                 const row = rowsRef.current[key];
                 return (
                   <tr key={key} className="border-t border-slate-100 align-top">
+                    {showDetailColumn ? (
+                      <td className="px-4 py-3">
+                        {detailHrefPrefix && row.id ? (
+                          <Link
+                            href={`${detailHrefPrefix}/${row.id}`}
+                            title="Ouvrir le detail"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-violet-200 text-sm font-bold text-violet-700 transition hover:bg-violet-50"
+                          >
+                            📝
+                          </Link>
+                        ) : null}
+                      </td>
+                    ) : null}
                     {columns.map((col) =>
                       isColumnEditable(col) ? (
                         <td key={col.key} className="px-4 py-3">
@@ -796,28 +818,15 @@ export function AuditTable({
                     )}
                     {showActionsColumn ? (
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {detailHrefPrefix && row.id ? (
-                            <Link
-                              href={`${detailHrefPrefix}/${row.id}`}
-                              title="Ouvrir le detail"
-                              className="flex h-9 w-9 items-center justify-center rounded-xl border border-violet-200 text-sm font-bold text-violet-700 transition hover:bg-violet-50"
-                            >
-                              📝
-                            </Link>
-                          ) : null}
-                          {canWrite ? (
-                            <button
-                              type="button"
-                              onClick={() => removeRow(key)}
-                              disabled={isDeleting === key}
-                              title="Supprimer cette ligne"
-                              className="h-9 w-9 rounded-xl border border-red-200 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-60"
-                            >
-                              x
-                            </button>
-                          ) : null}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeRow(key)}
+                          disabled={isDeleting === key}
+                          title="Supprimer cette ligne"
+                          className="h-9 w-9 rounded-xl border border-red-200 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+                        >
+                          x
+                        </button>
                       </td>
                     ) : null}
                   </tr>
