@@ -61,7 +61,134 @@ export type ArticleOption = {
   piecePerCarton: number | null;
   maxVracAuto: number | null;
   vracMaxManuel: number | null;
+  // Article vrac (matiere en cuve) derriere ce produit fini - la capacite
+  // Fabrication (machine_produits) est enregistree sur CET article-la, pas
+  // sur l'article fini (voir MachineCapacite plus bas).
+  vracArticleId: number | null;
 };
+
+// Capacite d'une machine pour un article precis (app/production/machines,
+// "Ajouter un produit") - Conditionnement/Emballage : capacite = pieces/
+// minute. Fabrication : capaciteMin/capaciteMax = kg/heure. Une machine sans
+// ligne machine_produits pour cet article n'a simplement aucune entree ici
+// (pas de limite connue, jamais traite comme "0").
+export type MachineCapacite = {
+  machineId: number;
+  articleId: number;
+  capacite: number | null;
+  capaciteMin: number | null;
+  capaciteMax: number | null;
+};
+
+// Duree de reference pour convertir une cadence (piece/min, kg/h) en
+// quantite max sur "une journee" - demande explicite de l'utilisateur (pas
+// de duree saisie par ligne, une journee standard suffit). Coherent avec la
+// journee normale deja utilisee par Heures Sup (lib/heures-supplementaires.ts,
+// NORMAL_MINUTES_PAR_FOURNEE = 8h).
+const HEURES_PAR_JOUR = 8;
+
+// "Max possible" sur cette ligne = le plus limitant des 2 machines (jamais
+// juste Conditionnement) - demande explicite : "toujours on prend le
+// machine qui peut fait moins". Conditionnement connu via (machineId
+// Conditionnement, article fini) ; Fabrication connue via (machineId
+// Fabrication, article VRAC - vracArticleId). Une seule des 2 connue = son
+// propre max sert de limite ; aucune des 2 connue = pas de limite calculable
+// (retourne null, jamais 0 - une capacite non renseignee n'est pas "zero").
+function computeMaxPossible(
+  article: ArticleOption | null,
+  machineConditionnementId: number | null,
+  machineFabricationId: number | null,
+  capacites: Map<string, MachineCapacite>
+): { maxKg: number; maxCarton: number | null; limitant: "conditionnement" | "fabrication" | "les deux" } | null {
+  if (!article) return null;
+
+  const capaCondi =
+    machineConditionnementId != null ? capacites.get(`${machineConditionnementId}::${article.id}`) : undefined;
+  // La capacite Fabrication est normalement saisie sur le vrac_article_id de
+  // l'article fini, mais certaines fiches machine (voir "Ajouter un produit")
+  // ont ete saisies directement sur l'article fini faute de distinction dans
+  // le formulaire - on tente le vrac d'abord, puis l'article fini en repli.
+  const capaFab =
+    (machineFabricationId != null && article.vracArticleId != null
+      ? capacites.get(`${machineFabricationId}::${article.vracArticleId}`)
+      : undefined) ?? (machineFabricationId != null ? capacites.get(`${machineFabricationId}::${article.id}`) : undefined);
+
+  let maxKgCondi: number | null = null;
+  if (capaCondi?.capacite && article.contenance && article.contenance > 0) {
+    const maxPieces = capaCondi.capacite * HEURES_PAR_JOUR * 60;
+    maxKgCondi = maxPieces * article.contenance;
+  }
+
+  let maxKgFab: number | null = null;
+  if (capaFab?.capaciteMax) {
+    maxKgFab = capaFab.capaciteMax * HEURES_PAR_JOUR;
+  }
+
+  if (maxKgCondi === null && maxKgFab === null) return null;
+
+  let maxKg: number;
+  let limitant: "conditionnement" | "fabrication" | "les deux";
+  if (maxKgCondi !== null && maxKgFab !== null) {
+    if (Math.abs(maxKgCondi - maxKgFab) < 0.01) {
+      maxKg = maxKgCondi;
+      limitant = "les deux";
+    } else if (maxKgCondi < maxKgFab) {
+      maxKg = maxKgCondi;
+      limitant = "conditionnement";
+    } else {
+      maxKg = maxKgFab;
+      limitant = "fabrication";
+    }
+  } else if (maxKgCondi !== null) {
+    maxKg = maxKgCondi;
+    limitant = "conditionnement";
+  } else {
+    maxKg = maxKgFab!;
+    limitant = "fabrication";
+  }
+
+  const maxCarton =
+    article.contenance && article.contenance > 0 && article.piecePerCarton && article.piecePerCarton > 0
+      ? Math.floor(maxKg / article.contenance / article.piecePerCarton)
+      : null;
+
+  return { maxKg, maxCarton, limitant };
+}
+
+function MaxPossibleCell({
+  article,
+  machineConditionnementId,
+  machineFabricationId,
+  capacites,
+}: {
+  article: ArticleOption | null;
+  machineConditionnementId: number | null;
+  machineFabricationId: number | null;
+  capacites: Map<string, MachineCapacite>;
+}) {
+  const result = computeMaxPossible(article, machineConditionnementId, machineFabricationId, capacites);
+
+  if (!result) {
+    return <td className="px-4 py-3 text-xs text-slate-400">-</td>;
+  }
+
+  const label =
+    result.limitant === "les deux"
+      ? "Conditionnement + Fabrication"
+      : result.limitant === "conditionnement"
+        ? "Conditionnement"
+        : "Fabrication";
+
+  return (
+    <td className="px-4 py-3 text-xs">
+      <p className="font-semibold text-slate-800">
+        {Math.round(result.maxKg).toLocaleString("fr-FR")} kg
+        {result.maxCarton !== null ? ` - ${result.maxCarton.toLocaleString("fr-FR")} carton(s)` : ""}
+      </p>
+      <p className="text-slate-400">limite par {label}</p>
+    </td>
+  );
+}
 
 type RowState = {
   zone: string;
@@ -443,6 +570,7 @@ function ProgrammeRow({
   canChangerMachine,
   articles,
   fabricationMachines,
+  machineCapacites,
   prefillArticle,
   prefillVracInput,
   prefillTypeArticle,
@@ -465,6 +593,7 @@ function ProgrammeRow({
   canChangerMachine: boolean;
   articles: ArticleOption[];
   fabricationMachines: FabricationMachineOption[];
+  machineCapacites: Map<string, MachineCapacite>;
   prefillArticle: ArticleOption | null;
   prefillVracInput?: string;
   prefillTypeArticle?: string | null;
@@ -491,6 +620,23 @@ function ProgrammeRow({
   // le prefill historique ne doit s'appliquer qu'une seule fois, au tout
   // premier rendu.
   const [resetToken, setResetToken] = useState(0);
+  // Miroir local (en plus de rowsRef, qui ne redeclenche pas de rendu) du
+  // strict necessaire pour la cellule "Max possible" - LigneRowCells et
+  // MachineFabricationAndPlateformeCells gardent chacun leur propre etat,
+  // interne, jamais expose autrement que via onUpdate.
+  const [articleForMax, setArticleForMax] = useState<ArticleOption | null>(prefillArticle);
+  const [machineFabricationIdForMax, setMachineFabricationIdForMax] = useState<number | null>(
+    prefillMachineFabricationId ?? null
+  );
+
+  function handleUpdate(partial: Partial<RowState>) {
+    if (partial.typeArticle !== undefined) setTypeArticle(partial.typeArticle);
+    if (partial.articleId !== undefined) {
+      setArticleForMax(partial.articleId ? articles.find((a) => a.id === partial.articleId) ?? null : null);
+    }
+    if (partial.machineFabricationId !== undefined) setMachineFabricationIdForMax(partial.machineFabricationId);
+    onUpdate(partial);
+  }
 
   return (
     <tr className="border-t border-slate-100 align-top">
@@ -502,9 +648,8 @@ function ProgrammeRow({
             value={machine.machineId}
             onChange={(nextMachine) => {
               setMachine(nextMachine);
-              setTypeArticle("");
               setResetToken((token) => token + 1);
-              onUpdate({
+              handleUpdate({
                 machineId: nextMachine.machineId,
                 chaine: nextMachine.chaine,
                 articleId: null,
@@ -526,17 +671,20 @@ function ProgrammeRow({
         machineTypeProduit={machine.typeProduit}
         initialArticle={resetToken === 0 ? prefillArticle : null}
         initialVracInput={resetToken === 0 ? prefillVracInput : undefined}
-        onUpdate={(partial) => {
-          if (partial.typeArticle !== undefined) setTypeArticle(partial.typeArticle);
-          onUpdate(partial);
-        }}
+        onUpdate={handleUpdate}
       />
       <MachineFabricationAndPlateformeCells
         fabricationMachines={fabricationMachines}
         typeArticle={typeArticle}
         initialMachineFabricationId={prefillMachineFabricationId}
         initialPlateforme={prefillPlateforme}
-        onUpdate={onUpdate}
+        onUpdate={handleUpdate}
+      />
+      <MaxPossibleCell
+        article={articleForMax}
+        machineConditionnementId={machine.machineId}
+        machineFabricationId={machineFabricationIdForMax}
+        capacites={machineCapacites}
       />
       <td className="px-4 py-3">
         <ProgrameCell
@@ -578,6 +726,7 @@ export function ProgrammeLigneTable({
   prefillLignes = [],
   prefillRemarque = "",
   canChangerMachine,
+  machineCapacites,
 }: {
   zoneGroups: LigneRow[][];
   articles: ArticleOption[];
@@ -585,8 +734,16 @@ export function ProgrammeLigneTable({
   prefillLignes?: PrefillLigne[];
   prefillRemarque?: string;
   canChangerMachine: boolean;
+  machineCapacites: MachineCapacite[];
 }) {
   const router = useRouter();
+  const capacitesByMachineArticle = useMemo(() => {
+    const map = new Map<string, MachineCapacite>();
+    for (const capacite of machineCapacites) {
+      map.set(`${capacite.machineId}::${capacite.articleId}`, capacite);
+    }
+    return map;
+  }, [machineCapacites]);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -854,6 +1011,7 @@ export function ProgrammeLigneTable({
             <th className="px-4 py-3 font-semibold">Vrac a fabriquer</th>
             <th className="px-4 py-3 font-semibold">Machine Fabrication</th>
             <th className="px-4 py-3 font-semibold">Plateforme</th>
+            <th className="px-4 py-3 font-semibold">Max possible</th>
             <th className="px-4 py-3 font-semibold">Programme</th>
             <th className="px-4 py-3 font-semibold">Actions</th>
           </tr>
@@ -863,7 +1021,7 @@ export function ProgrammeLigneTable({
             <Fragment key={`group-${groupIndex}`}>
               {groupIndex > 0 ? (
                 <tr key={`divider-${groupIndex}`}>
-                  <td colSpan={11} className="bg-slate-300 px-4 py-2" />
+                  <td colSpan={12} className="bg-slate-300 px-4 py-2" />
                 </tr>
               ) : null}
               {group.flatMap((row, rowIndex) => {
@@ -888,6 +1046,7 @@ export function ProgrammeLigneTable({
                       canChangerMachine={canChangerMachine}
                       articles={articles}
                       fabricationMachines={fabricationMachines}
+                      machineCapacites={capacitesByMachineArticle}
                       prefillArticle={prefillArticle}
                       prefillVracInput={
                         prefill?.vrac_a_fabriquer != null ? String(prefill.vrac_a_fabriquer) : undefined

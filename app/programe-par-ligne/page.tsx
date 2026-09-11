@@ -7,6 +7,7 @@ import {
   type ArticleOption,
   type FabricationMachineOption,
   type LigneRow,
+  type MachineCapacite,
   type PrefillLigne,
 } from "./programme-table";
 import { BackButton } from "@/app/_components/back-button";
@@ -83,7 +84,9 @@ async function fetchAllArticleOptions(): Promise<ArticleOption[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles")
-      .select("id, nom_article, type_article, contenance, piece_par_carton, max_vrac_auto, vrac_max_manuel")
+      .select(
+        "id, nom_article, type_article, contenance, piece_par_carton, max_vrac_auto, vrac_max_manuel, vrac_article_id"
+      )
       .order("nom_article", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -97,6 +100,7 @@ async function fetchAllArticleOptions(): Promise<ArticleOption[]> {
       piece_par_carton: number | null;
       max_vrac_auto: number | null;
       vrac_max_manuel: number | null;
+      vrac_article_id: number | null;
     }[];
     rows.push(
       ...chunk.map((article) => ({
@@ -107,6 +111,7 @@ async function fetchAllArticleOptions(): Promise<ArticleOption[]> {
         piecePerCarton: article.piece_par_carton,
         maxVracAuto: article.max_vrac_auto,
         vracMaxManuel: article.vrac_max_manuel,
+        vracArticleId: article.vrac_article_id,
       }))
     );
 
@@ -115,6 +120,36 @@ async function fetchAllArticleOptions(): Promise<ArticleOption[]> {
   }
 
   return rows;
+}
+
+// Capacite machine x article (voir app/production/machines - "Ajouter un
+// produit" sur une machine) - Conditionnement/Emballage : capacite = pieces/
+// minute ; Fabrication : capacite_min/capacite_max = kg/heure. Sert a
+// calculer le "max possible" par ligne (demande explicite : prendre la
+// machine la plus limitante entre Conditionnement et Fabrication, jamais
+// juste Conditionnement comme le fait l'ancienne page "Programme").
+async function fetchMachineCapacites(): Promise<MachineCapacite[]> {
+  const { data, error } = await supabaseServer
+    .from("machine_produits")
+    .select("machine_id, article_id, capacite, capacite_min, capacite_max");
+
+  if (error) return [];
+
+  return (
+    (data ?? []) as {
+      machine_id: number;
+      article_id: number;
+      capacite: number | null;
+      capacite_min: number | null;
+      capacite_max: number | null;
+    }[]
+  ).map((row) => ({
+    machineId: row.machine_id,
+    articleId: row.article_id,
+    capacite: row.capacite,
+    capaciteMin: row.capacite_min,
+    capaciteMax: row.capacite_max,
+  }));
 }
 
 // Rempli automatiquement la grille a partir d'un programme de l'historique
@@ -147,13 +182,15 @@ export default async function ProgrameParLignePage({
 
   const currentUser = await getCurrentStockUser();
 
-  const [articles, prefillLignes, zoneGroups, fabricationMachines, canChangerMachine] = await Promise.all([
-    fetchAllArticleOptions(),
-    prefillGroupeId ? fetchPrefillLignes(prefillGroupeId) : Promise.resolve([]),
-    fetchConditionnementZoneGroups(),
-    fetchFabricationMachines(),
-    canChangerMachineConditionnementUser(currentUser),
-  ]);
+  const [articles, prefillLignes, zoneGroups, fabricationMachines, canChangerMachine, machineCapacites] =
+    await Promise.all([
+      fetchAllArticleOptions(),
+      prefillGroupeId ? fetchPrefillLignes(prefillGroupeId) : Promise.resolve([]),
+      fetchConditionnementZoneGroups(),
+      fetchFabricationMachines(),
+      canChangerMachineConditionnementUser(currentUser),
+      fetchMachineCapacites(),
+    ]);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -191,6 +228,7 @@ export default async function ProgrameParLignePage({
               prefillLignes={prefillLignes}
               prefillRemarque={prefillLignes[0]?.remarque || ""}
               canChangerMachine={canChangerMachine}
+              machineCapacites={machineCapacites}
             />
           </div>
         </section>
