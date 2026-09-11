@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[] };
@@ -411,6 +412,7 @@ export function AuditTable({
   closureOpenStatus,
   restrictedColumnKeys,
   canEditRestrictedColumns,
+  addRowHref,
 }: {
   columns: AuditColumn[];
   initialRows: AuditRow[];
@@ -452,6 +454,12 @@ export function AuditTable({
   // compris l'admin), sauf si canEditRestrictedColumns est vrai.
   restrictedColumnKeys?: string[];
   canEditRestrictedColumns?: boolean;
+  // Remplace le bouton "+ Ajouter une ligne" (ligne vierge inline, tous les
+  // champs en une seule rangee) par un lien vers une page dediee - demande
+  // explicite pour NC : trop de colonnes pour saisir confortablement une
+  // nouvelle NC directement dans le tableau, une page en formulaire vertical
+  // (juste le constat initial) est plus lisible.
+  addRowHref?: string;
 }) {
   const [rowKeys, setRowKeys] = useState<string[]>(() => initialRows.map((r) => `row-${r.id}`));
   const rowsRef = useRef<Record<string, AuditRow>>(
@@ -599,13 +607,22 @@ export function AuditTable({
           defilement. */}
       {canWrite ? (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4">
-          <button
-            type="button"
-            onClick={addRow}
-            className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
-          >
-            + Ajouter une ligne
-          </button>
+          {addRowHref ? (
+            <Link
+              href={addRowHref}
+              className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+            >
+              + Ajouter
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={addRow}
+              className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+            >
+              + Ajouter une ligne
+            </button>
+          )}
           <div className="flex items-center gap-3">
             {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
             {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}

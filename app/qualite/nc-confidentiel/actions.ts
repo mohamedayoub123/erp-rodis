@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import type { AuditRow } from "../audit-table";
@@ -125,6 +126,44 @@ export async function saveNcConfidentielBatchAction(
 
   revalidatePath("/qualite/nc-confidentiel");
   return { ok: true, insertedIds };
+}
+
+function parseOptionalText(formData: FormData, key: string): string | null {
+  const value = String(formData.get(key) || "").trim();
+  return value || null;
+}
+
+// Creation d'une nouvelle NC depuis /qualite/nc-confidentiel/nouvelle - page
+// dediee (formulaire vertical) plutot que la ligne vierge de AuditTable,
+// demande explicite ("il faut pas qu'il me ajoute une ligne, il faut qu'il
+// ouvre page ecran plein"). Ne capture QUE le constat initial (Audit,
+// Constat, Classe, Processus/Service concerne, Norme/Chapitre) - jamais les
+// champs de suivi (Correction, AC, statuts, dates...), remplis plus tard
+// via le tableau normal une fois l'instruction/investigation en cours.
+export async function createNcConfidentielAction(formData: FormData): Promise<void> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
+    throw new Error("Cet utilisateur ne peut pas ajouter de NC.");
+  }
+
+  const { error } = await supabaseServer.from(TABLE).insert({
+    audit: parseOptionalText(formData, "audit"),
+    constat: parseOptionalText(formData, "constat"),
+    classe: parseOptionalText(formData, "classe"),
+    processus_concerne: parseOptionalText(formData, "processus_concerne"),
+    service_concerne: parseOptionalText(formData, "service_concerne"),
+    norme_concernee: parseOptionalText(formData, "norme_concernee"),
+    chapitre: parseOptionalText(formData, "chapitre"),
+    sous_chapitre: parseOptionalText(formData, "sous_chapitre"),
+    sous_sous_chapitre: parseOptionalText(formData, "sous_sous_chapitre"),
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/qualite/nc-confidentiel");
+  redirect("/qualite/nc-confidentiel");
 }
 
 export async function deleteNcConfidentielRowAction(id: number): Promise<void> {

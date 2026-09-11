@@ -285,6 +285,7 @@ export default async function NcConfidentielPage({ searchParams }: { searchParam
           closureOpenStatus="EN COURS"
           restrictedColumnKeys={RESTRICTED_COLUMN_KEYS}
           canEditRestrictedColumns={currentUser === "felicite"}
+          addRowHref="/qualite/nc-confidentiel/nouvelle"
         />
       </div>
     </main>
