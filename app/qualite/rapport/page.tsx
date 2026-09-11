@@ -160,7 +160,7 @@ function decisionLabel(row: { disposition_qualite: string | null; sous_derogatio
   if (row.disposition_qualite === "a_recuperer" || row.sous_derogation) return "Sous derogation";
   // "Non conforme" auto (parametre hors spec) sans A recuperer/A detruire
   // choisi ensuite - decision encore en attente.
-  if (row.disposition_qualite === "non_conforme") return "A decider";
+  if (row.disposition_qualite === "non_conforme") return "A recuperer";
   return "-";
 }
 
@@ -171,7 +171,7 @@ function DecisionBadge({ row }: { row: { disposition_qualite: string | null; sou
       ? "bg-red-100 text-red-800"
       : label === "Sous derogation"
         ? "bg-fuchsia-100 text-fuchsia-800"
-        : label === "A decider"
+        : label === "A recuperer"
           ? "bg-orange-100 text-orange-800"
           : "bg-slate-100 text-slate-500";
 
@@ -313,14 +313,14 @@ export default async function QualiteRapportPage({
   // (date/produit/code/type), pas sur l'ensemble - pour repondre a "combien
   // sur telle periode / tel produit" sans devoir recompter a la main.
   // Non conforme = tout ce qui a une decision (A detruire, Sous derogation,
-  // ou A decider) - "sous derogation" veut dire que le lot etait hors spec,
-  // donc non conforme, meme si le statut qualite est reste "Conforme".
+  // ou A recuperer) - "sous derogation" veut dire que le lot etait hors
+  // spec, donc non conforme, meme si le statut qualite est reste "Conforme".
   const total = rows.length;
   const decisions = rows.map((r) => decisionLabel(r));
   const aDetruire = decisions.filter((d) => d === "A detruire").length;
   const sousDerogation = decisions.filter((d) => d === "Sous derogation").length;
-  const aDecider = decisions.filter((d) => d === "A decider").length;
-  const nonConforme = aDetruire + sousDerogation + aDecider;
+  const aRecuperer = decisions.filter((d) => d === "A recuperer").length;
+  const nonConforme = aDetruire + sousDerogation + aRecuperer;
   const conforme = total - nonConforme;
 
   const countByType = new Map<string, number>();
@@ -536,7 +536,7 @@ export default async function QualiteRapportPage({
           <StatCard label="Preparations" value={total} />
           <StatCard label="Conforme" value={conforme} className="text-emerald-700" />
           <StatCard label="Non conforme" value={nonConforme} className="text-amber-700" />
-          <StatCard label="A decider" value={aDecider} className="text-orange-700" />
+          <StatCard label="A recuperer" value={aRecuperer} className="text-orange-700" />
           <StatCard label="A detruire" value={aDetruire} className="text-red-700" />
           <StatCard label="Sous derogation" value={sousDerogation} className="text-violet-700" />
         </section>
@@ -550,7 +550,7 @@ export default async function QualiteRapportPage({
               conforme={conforme}
               aDetruire={aDetruire}
               sousDerogation={sousDerogation}
-              aDecider={aDecider}
+              aRecuperer={aRecuperer}
             />
           </div>
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">

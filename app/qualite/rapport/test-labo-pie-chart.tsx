@@ -31,21 +31,21 @@ export function TestLaboPieChart({
   conforme,
   aDetruire,
   sousDerogation,
-  aDecider,
+  aRecuperer,
 }: {
   conforme: number;
   aDetruire: number;
   sousDerogation: number;
-  aDecider: number;
+  aRecuperer: number;
 }) {
   const gradientId = useId();
-  const total = conforme + aDetruire + sousDerogation + aDecider;
+  const total = conforme + aDetruire + sousDerogation + aRecuperer;
 
   const slices: Slice[] = [
     { label: "Conforme", value: conforme, color: "#059669" },
     { label: "A detruire", value: aDetruire, color: "#dc2626" },
     { label: "Sous derogation", value: sousDerogation, color: "#c026d3" },
-    { label: "A decider", value: aDecider, color: "#ea580c" },
+    { label: "A recuperer", value: aRecuperer, color: "#ea580c" },
   ].filter((slice) => slice.value > 0);
 
   let cursor = 0;
