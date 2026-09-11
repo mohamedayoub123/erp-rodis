@@ -212,26 +212,42 @@ async function fetchCapaciteMonthly(): Promise<Map<string, number>> {
 // ---------------------------------------------------------------------
 type TestLaboRow = {
   programme_ligne_id: number;
+  code: string;
   disposition_qualite: string | null;
   sous_derogation: boolean | null;
+  date_saisie_test_labo: string | null;
 };
 
 async function fetchTestLaboMonthly(): Promise<Map<string, { total: number; aDetruire: number; sousDerogation: number }>> {
-  const rows: TestLaboRow[] = [];
+  const rowsRaw: TestLaboRow[] = [];
   let from = 0;
   const pageSize = 1000;
   while (true) {
     const { data, error } = await supabaseServer
       .from("production_rapports")
-      .select("programme_ligne_id, disposition_qualite, sous_derogation")
+      .select("programme_ligne_id, code, disposition_qualite, sous_derogation, date_saisie_test_labo")
       .not("utilisateur_test_labo", "is", null)
       .range(from, from + pageSize - 1);
     if (error) break;
     const chunk = (data ?? []) as TestLaboRow[];
-    rows.push(...chunk);
+    rowsRaw.push(...chunk);
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
+
+  // Un meme numero de lot (code) peut se retrouver sur plusieurs
+  // programme_ligne_id (redispatche vers une autre machine/chaine...) -
+  // c'est physiquement le meme lot, jamais 2 preparations distinctes. Meme
+  // regle que Rapport Test Labo (app/qualite/rapport/page.tsx) : garde la
+  // saisie la plus recente par code.
+  const latestByCode = new Map<string, TestLaboRow>();
+  for (const r of rowsRaw) {
+    const current = latestByCode.get(r.code);
+    if (!current || (r.date_saisie_test_labo || "") > (current.date_saisie_test_labo || "")) {
+      latestByCode.set(r.code, r);
+    }
+  }
+  const rows = [...latestByCode.values()];
 
   const ligneIds = [...new Set(rows.map((r) => r.programme_ligne_id))];
   const dateByLigne = new Map<number, string>();

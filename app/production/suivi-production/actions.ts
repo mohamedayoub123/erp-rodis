@@ -1071,7 +1071,7 @@ export async function saveTestLaboAction(formData: FormData) {
     );
   }
 
-  await upsertRapport(ligneId, code, {
+  const testLaboFields = {
     ph,
     densite,
     viscosite,
@@ -1096,7 +1096,30 @@ export async function saveTestLaboAction(formData: FormData) {
     nom_labo: "Laboratoire Rodis",
     utilisateur_test_labo: currentUser,
     date_saisie_test_labo: new Date().toISOString(),
-  });
+  };
+
+  await upsertRapport(ligneId, code, testLaboFields);
+
+  // Un meme numero de lot (code) peut se retrouver sur PLUSIEURS machines/
+  // chaines (donc plusieurs programme_ligne_id), typiquement apres un
+  // redispatch - demande explicite : "si sa trouve sur des autre machine il
+  // faut que sa prend automatique le meme que sa que je deja remplire". Un
+  // meme lot physique n'a jamais subi qu'un seul vrai test labo, donc les
+  // memes valeurs s'appliquent partout ou ce code apparait. UPDATE (jamais
+  // upsert) : ne touche que des lignes production_rapports DEJA existantes
+  // pour ce code sur une autre ligne - ne cree jamais de ligne fantome sans
+  // fabrication reelle derriere.
+  if (code) {
+    const { error: propagationError } = await supabaseServer
+      .from("production_rapports")
+      .update(testLaboFields)
+      .eq("code", code)
+      .neq("programme_ligne_id", ligneId);
+
+    if (propagationError) {
+      throw new Error(propagationError.message);
+    }
+  }
 
   revalidateRapportPages();
   revalidatePath(`/production/suivi-production/fabrication/${ligneId}/test-labo`);
