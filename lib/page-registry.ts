@@ -829,6 +829,15 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
   },
   {
+    key: "qualiteRapportNcTaf",
+    module: "Qualite",
+    label: "Rapport NC & TAF (nb par audit A1-A4 et par annee, realise)",
+    pathPrefixes: ["/qualite/rapport-nc-taf"],
+    hasWrite: false,
+    defaultView: false,
+    defaultWrite: false,
+  },
+  {
     key: "qualiteRevueProcessus",
     module: "Qualite",
     label: "Revue Processus (PR4 - indicateurs, saisie manuelle mois anciens)",

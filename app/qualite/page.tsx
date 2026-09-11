@@ -50,6 +50,13 @@ const TILES: Tile[] = [
     description: "Suivi des Non-Conformites d'audit interne.",
   },
   {
+    label: "Rapport NC & TAF",
+    href: "/qualite/rapport-nc-taf",
+    pageKey: "qualiteRapportNcTaf",
+    icon: "\u{1F4CA}",
+    description: "Nombre de NC et de TAF par audit (A1 a A4) et par annee, combien realise.",
+  },
+  {
     label: "TAF Confidentiel",
     href: "/qualite/taf-confidentiel",
     pageKey: "qualiteTafConfidentiel",
