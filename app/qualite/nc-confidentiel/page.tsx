@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
@@ -14,7 +15,15 @@ import {
   confirmNcConfidentielUploadAction,
   getNcConfidentielFileUrlAction,
   deleteNcConfidentielFileAction,
+  addNcEntryAction,
+  updateNcEntryTextAction,
+  createNcEntryUploadSlotAction,
+  confirmNcEntryUploadAction,
+  deleteNcEntryFileAction,
+  type CorrectionEntry,
+  type EntryField,
 } from "./actions";
+import { CorrectionEntries } from "./correction-entries";
 
 // Memes 4 valeurs pour Statut correction et Statut AC.
 const STATUT_OPTIONS = ["REALISEE", "EN COURS", "NON REALISEE", "NOUVELLE NC OUVERTE ANNEE N+1"];
@@ -95,9 +104,16 @@ const COLUMNS: AuditColumn[] = [
   { key: "date_realisation", label: "Date de clôture", readOnly: true },
 ];
 
-async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<number, AttachmentFile[]> }> {
+async function fetchAllRows(): Promise<{
+  rows: AuditRow[];
+  attachments: Record<number, AttachmentFile[]>;
+  correctionEntriesById: Record<number, CorrectionEntry[]>;
+  acEntriesById: Record<number, CorrectionEntry[]>;
+}> {
   const rows: AuditRow[] = [];
   const attachments: Record<number, AttachmentFile[]> = {};
+  const correctionEntriesById: Record<number, CorrectionEntry[]> = {};
+  const acEntriesById: Record<number, CorrectionEntry[]> = {};
   let from = 0;
   const pageSize = 1000;
 
@@ -129,13 +145,15 @@ async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<n
       }
       rows.push(row);
       attachments[id] = Array.isArray(raw.pieces_jointes) ? (raw.pieces_jointes as AttachmentFile[]) : [];
+      correctionEntriesById[id] = (raw.correction_entries as CorrectionEntry[] | null) ?? [];
+      acEntriesById[id] = (raw.action_corrective_ac_entries as CorrectionEntry[] | null) ?? [];
     }
 
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
 
-  return { rows, attachments };
+  return { rows, attachments, correctionEntriesById, acEntriesById };
 }
 
 type SearchParams = Promise<{
@@ -158,7 +176,12 @@ export default async function NcConfidentielPage({ searchParams }: { searchParam
   const params = await searchParams;
   const currentUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentUser, "qualiteNcConfidentiel");
-  const { rows: rowsFetched, attachments: attachmentsFetched } = await fetchAllRows();
+  const {
+    rows: rowsFetched,
+    attachments: attachmentsFetched,
+    correctionEntriesById,
+    acEntriesById,
+  } = await fetchAllRows();
 
   // Donnees confidentielles d'audit - en plus de la permission de page,
   // chaque compte ne voit que les lignes de son perimetre "Processus
@@ -205,6 +228,42 @@ export default async function NcConfidentielPage({ searchParams }: { searchParam
       return false;
     return true;
   });
+
+  // Correction/Action Corrective : demande explicite - le bouton "Joindre"
+  // et les fichiers doivent etre visibles directement dans le tableau (pas
+  // seulement sur la page dediee /qualite/nc-confidentiel/[id]) - le meme
+  // composant CorrectionEntries est donc pre-rendu ici et pousse comme
+  // "customCells" (voir audit-table.tsx : une fonction ne peut pas
+  // traverser la frontiere Server->Client Component, un noeud deja rendu
+  // le peut). allowEdit=false : modifier le texte d'une entree ou en
+  // ajouter une nouvelle reste reserve a la page dediee - demande
+  // explicite ("pour le modification et l'ajout je veux pas ca ici").
+  const ENTRY_FIELDS: { key: EntryField; entriesById: Record<number, CorrectionEntry[]> }[] = [
+    { key: "correction", entriesById: correctionEntriesById },
+    { key: "action_corrective_ac", entriesById: acEntriesById },
+  ];
+  const customCells: Record<string, ReactNode> = {};
+  for (const row of rows) {
+    if (row.id == null) continue;
+    for (const { key, entriesById } of ENTRY_FIELDS) {
+      customCells[`${row.id}::${key}`] = (
+        <CorrectionEntries
+          key={`${key}-${row.id}`}
+          ncId={row.id}
+          field={key}
+          initialEntries={entriesById[row.id] ?? []}
+          canWrite={canWrite}
+          allowEdit={false}
+          addEntryAction={addNcEntryAction}
+          updateEntryTextAction={updateNcEntryTextAction}
+          createUploadSlotAction={createNcEntryUploadSlotAction}
+          confirmUploadAction={confirmNcEntryUploadAction}
+          getFileUrlAction={getNcConfidentielFileUrlAction}
+          deleteFileAction={deleteNcEntryFileAction}
+        />
+      );
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f0ff_0%,#faf8ff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -314,6 +373,7 @@ export default async function NcConfidentielPage({ searchParams }: { searchParam
           canEditRestrictedColumns={currentUser === "felicite"}
           addRowHref="/qualite/nc-confidentiel/nouvelle"
           detailHrefPrefix="/qualite/nc-confidentiel"
+          customCells={customCells}
         />
       </div>
     </main>

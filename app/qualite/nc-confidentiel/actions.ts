@@ -637,6 +637,42 @@ export async function addNcEntryAction(
   return { ok: true, entry };
 }
 
+// Modifie le texte d'une entree DEJA existante (ouvrir la ligne pour la
+// corriger) - demande explicite ("il faut que je peux modifier si je rentre
+// sur le ligne"). Ne touche jamais a la date (garde la date de creation de
+// l'entree) ni aux fichiers deja joints.
+export async function updateNcEntryTextAction(
+  ncId: number,
+  field: EntryField,
+  entryId: string,
+  texte: string
+): Promise<{ ok: boolean; message?: string }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas modifier cette NC." };
+  }
+
+  const trimmed = texte.trim();
+  if (!ncId || !entryId || !trimmed) {
+    return { ok: false, message: "Texte vide." };
+  }
+
+  const currentEntries = await fetchEntries(ncId, field);
+  const nextEntries = currentEntries.map((entry) => (entry.id === entryId ? { ...entry, texte: trimmed } : entry));
+
+  const { error } = await supabaseServer
+    .from(TABLE)
+    .update({ [entriesColumn(field)]: nextEntries, updated_at: new Date().toISOString() })
+    .eq("id", ncId);
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+
+  revalidatePath("/qualite/nc-confidentiel");
+  revalidatePath(`/qualite/nc-confidentiel/${ncId}`);
+  return { ok: true };
+}
+
 // Meme principe que createNcConfidentielUploadSlotAction/confirmNcConfidentielUploadAction
 // (upload direct au Storage via lien signe), mais range le fichier dans les
 // fichiers de CETTE entree precise plutot que dans pieces_jointes au niveau

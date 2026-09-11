@@ -9,15 +9,25 @@ type AttachmentFile = { name: string; path: string };
 // champ texte - demande explicite ("possibilite d'ajouter une 2eme"). Les
 // fichiers joints restent visibles directement sur la ligne de l'entree (a
 // cote du texte), jamais caches dans une fenetre a ouvrir - demande
-// explicite ("il faut sortir a cote, a l'exterieur"). Le texte de l'entree
-// accepte plusieurs lignes (textarea, pas un simple champ d'une ligne).
+// explicite ("il faut sortir a cote, a l'exterieur"). Ouvrir une ligne
+// (clic sur la date/l'apercu) la rend modifiable - demande explicite ("il
+// faut que je peux modifier si je rentre sur le ligne"), pour CHAQUE
+// entree independamment (la 1ere, la 2eme...). Le texte accepte plusieurs
+// lignes (textarea, pas un simple champ d'une ligne).
+// Modifier/Ajouter (allowEdit) restent reserves a la page dediee
+// /qualite/nc-confidentiel/[id] - demande explicite ("pour le modification
+// et l'ajout je veux pas ca ici") : la cellule du tableau reste consultation
+// + pieces jointes uniquement (toujours visible/joignable ici, voir
+// canWrite), le texte lui-meme ne se corrige que depuis la page detail.
 export function CorrectionEntries({
   ncId,
   field,
-  label,
+  label = "",
   initialEntries,
   canWrite,
+  allowEdit = true,
   addEntryAction,
+  updateEntryTextAction,
   createUploadSlotAction,
   confirmUploadAction,
   getFileUrlAction,
@@ -25,10 +35,17 @@ export function CorrectionEntries({
 }: {
   ncId: number;
   field: EntryField;
-  label: string;
+  // Vide quand utilise dans une cellule de tableau (l'entete de colonne
+  // fait deja office de titre) - non-vide sur la page detail.
+  label?: string;
   initialEntries: CorrectionEntry[];
   canWrite: boolean;
+  // false dans le tableau (voir page.tsx) : masque "+ Ajouter une entree"
+  // et la textarea d'edition d'une entree existante, garde uniquement la
+  // consultation et les pieces jointes.
+  allowEdit?: boolean;
   addEntryAction: (ncId: number, field: EntryField, texte: string) => Promise<{ ok: boolean; message?: string; entry?: CorrectionEntry }>;
+  updateEntryTextAction: (ncId: number, field: EntryField, entryId: string, texte: string) => Promise<{ ok: boolean; message?: string }>;
   createUploadSlotAction: (
     ncId: number,
     field: EntryField,
@@ -67,8 +84,8 @@ export function CorrectionEntries({
 
   return (
     <div className="grid gap-2 text-xs font-semibold text-slate-500 sm:col-span-2">
-      {label}
-      <div className="grid gap-2">
+      {label ? label : null}
+      <div className="grid min-w-[22rem] gap-2">
         {entries.length === 0 ? (
           <p className="text-sm font-normal text-slate-400">Aucune entree pour le moment.</p>
         ) : (
@@ -79,11 +96,16 @@ export function CorrectionEntries({
               field={field}
               entry={entry}
               canWrite={canWrite}
+              allowEdit={allowEdit}
               isOpen={openEntryId === entry.id}
               onToggle={() => setOpenEntryId((current) => (current === entry.id ? null : entry.id))}
               onFilesChanged={(nextFiles) =>
                 setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, fichiers: nextFiles } : e)))
               }
+              onTexteChanged={(nextTexte) =>
+                setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, texte: nextTexte } : e)))
+              }
+              updateEntryTextAction={updateEntryTextAction}
               createUploadSlotAction={createUploadSlotAction}
               confirmUploadAction={confirmUploadAction}
               getFileUrlAction={getFileUrlAction}
@@ -93,7 +115,7 @@ export function CorrectionEntries({
         )}
       </div>
 
-      {canWrite ? (
+      {canWrite && allowEdit ? (
         <div className="grid gap-2 rounded-2xl border border-dashed border-slate-200 p-3">
           <textarea
             value={nouveauTexte}
@@ -124,9 +146,12 @@ function EntryRow({
   field,
   entry,
   canWrite,
+  allowEdit,
   isOpen,
   onToggle,
   onFilesChanged,
+  onTexteChanged,
+  updateEntryTextAction,
   createUploadSlotAction,
   confirmUploadAction,
   getFileUrlAction,
@@ -136,9 +161,12 @@ function EntryRow({
   field: EntryField;
   entry: CorrectionEntry;
   canWrite: boolean;
+  allowEdit: boolean;
   isOpen: boolean;
   onToggle: () => void;
   onFilesChanged: (files: AttachmentFile[]) => void;
+  onTexteChanged: (texte: string) => void;
+  updateEntryTextAction: (ncId: number, field: EntryField, entryId: string, texte: string) => Promise<{ ok: boolean; message?: string }>;
   createUploadSlotAction: (
     ncId: number,
     field: EntryField,
@@ -159,6 +187,36 @@ function EntryRow({
   const [error, setError] = useState("");
   const [pendingViewUrl, setPendingViewUrl] = useState<{ url: string; name: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Texte editable - demande explicite ("il faut que je peux modifier si je
+  // rentre sur la ligne"). Reinitialise depuis entry.texte a chaque
+  // ouverture/fermeture (jamais pendant l'edition elle-meme) via
+  // handleToggle plutot qu'un effet, pour repartir propre si une autre
+  // session a modifie entre-temps.
+  const [editTexte, setEditTexte] = useState(entry.texte);
+
+  function handleToggle() {
+    setEditTexte(entry.texte);
+    onToggle();
+  }
+
+  function handleSaveTexte() {
+    setError("");
+    const trimmed = editTexte.trim();
+    if (!trimmed) {
+      setError("Texte vide.");
+      return;
+    }
+    startTransition(async () => {
+      const result = await updateEntryTextAction(ncId, field, entry.id, trimmed);
+      if (!result.ok) {
+        setError(result.message || "Erreur pendant l'enregistrement.");
+        return;
+      }
+      onTexteChanged(trimmed);
+      onToggle();
+    });
+  }
 
   function handleUpload(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
@@ -240,18 +298,48 @@ function EntryRow({
   return (
     <div className="rounded-2xl border border-slate-200 px-4 py-3">
       <div className="flex flex-wrap items-start gap-3">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="min-w-0 flex-1 text-left text-sm font-normal text-slate-700"
-        >
-          <span className="mr-2 text-xs font-semibold text-slate-400">{entry.date}</span>
-          {isOpen ? (
-            <span className="mt-1 block whitespace-pre-wrap">{entry.texte}</span>
-          ) : (
+        {isOpen ? (
+          <div className="min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={handleToggle}
+              className="text-xs font-semibold text-slate-400 hover:underline"
+            >
+              {entry.date} - reduire
+            </button>
+            {canWrite && allowEdit ? (
+              <>
+                <textarea
+                  value={editTexte}
+                  onChange={(e) => setEditTexte(e.target.value)}
+                  rows={4}
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-700 outline-none"
+                />
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleSaveTexte}
+                    disabled={isPending || !editTexte.trim()}
+                    className="rounded-full bg-violet-700 px-5 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-600 disabled:opacity-60"
+                  >
+                    {isPending ? "Enregistrement..." : "Enregistrer"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <span className="mt-1 block whitespace-pre-wrap text-sm font-normal text-slate-700">{entry.texte}</span>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handleToggle}
+            className="min-w-0 flex-1 text-left text-sm font-normal text-slate-700"
+          >
+            <span className="mr-2 text-xs font-semibold text-slate-400">{entry.date}</span>
             <span className="line-clamp-1">{entry.texte}</span>
-          )}
-        </button>
+          </button>
+        )}
 
         {/* Fichiers directement visibles a cote, jamais caches dans une
             fenetre a ouvrir - demande explicite. */}

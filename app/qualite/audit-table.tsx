@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 
 // readOnly : jamais modifiable par PERSONNE, meme felicite/l'admin - a la
 // difference de restrictedColumnKeys (plus bas sur AuditTable) qui reste
@@ -419,6 +419,7 @@ export function AuditTable({
   canEditRestrictedColumns,
   addRowHref,
   detailHrefPrefix,
+  customCells,
 }: {
   columns: AuditColumn[];
   initialRows: AuditRow[];
@@ -474,6 +475,15 @@ export function AuditTable({
   // la page dediee) - une ligne pas encore enregistree (row.id === null) ne
   // l'affiche jamais, rien a ouvrir avant le 1er Enregistrer.
   detailHrefPrefix?: string;
+  // Contenu personnalise pour une cellule precise (cle "rowId::columnKey"),
+  // pre-rendu cote serveur (ex: liste d'entrees + pieces jointes pour
+  // Correction/Action Corrective - voir correction-entries.tsx) - remplace
+  // entierement le rendu select/long/texte habituel de cette cellule quand
+  // present, ignore isColumnEditable/readOnly (le composant fourni gere
+  // lui-meme ses propres droits d'ecriture). Une fonction ne peut pas
+  // traverser la frontiere Server->Client Component, d'ou un noeud deja
+  // rendu plutot qu'un "renderCell(row)".
+  customCells?: Record<string, ReactNode>;
 }) {
   const [rowKeys, setRowKeys] = useState<string[]>(() => initialRows.map((r) => `row-${r.id}`));
   const rowsRef = useRef<Record<string, AuditRow>>(
@@ -718,8 +728,16 @@ export function AuditTable({
                         ) : null}
                       </td>
                     ) : null}
-                    {columns.map((col) =>
-                      isColumnEditable(col) ? (
+                    {columns.map((col) => {
+                      const customContent = row.id != null ? customCells?.[`${row.id}::${col.key}`] : undefined;
+                      if (customContent !== undefined) {
+                        return (
+                          <td key={col.key} className="px-4 py-3">
+                            {customContent}
+                          </td>
+                        );
+                      }
+                      return isColumnEditable(col) ? (
                         <td key={col.key} className="px-4 py-3">
                           {col.select ? (
                             <select
@@ -821,8 +839,8 @@ export function AuditTable({
                             />
                           ) : null}
                         </td>
-                      )
-                    )}
+                      );
+                    })}
                     {showActionsColumn ? (
                       <td className="px-4 py-3">
                         <button
