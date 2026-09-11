@@ -23,21 +23,8 @@ const STATUT_OPTIONS = ["REALISEE", "EN COURS", "NON REALISEE", "NOUVELLE NC OUV
 const STATUT_CLOTURE_OPTIONS = ["CLOTUREE", "EN COURS"];
 
 // Ces colonnes restent en lecture seule pour tout le monde, meme l'admin -
-// seule felicite peut les modifier. "created_at"/"date_realisation*" ne
-// sont de toute facon jamais ecrites depuis ce qui est affiche (voir
-// actions.ts, toujours recalculees cote serveur) - restreintes ici
-// seulement pour ne pas laisser croire qu'on peut les corriger a la main.
-const RESTRICTED_COLUMN_KEYS = [
-  "audit",
-  "numero",
-  "constat",
-  "processus_concerne",
-  "service_concerne",
-  "created_at",
-  "date_realisation_correction",
-  "date_realisation_ac",
-  "date_realisation",
-];
+// seule felicite peut les modifier.
+const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "constat", "processus_concerne", "service_concerne"];
 
 const DATE_COLUMN_KEYS = ["created_at", "date_realisation_correction", "date_realisation_ac", "date_realisation"];
 
@@ -47,8 +34,13 @@ const DATE_COLUMN_KEYS = ["created_at", "date_realisation_correction", "date_rea
 // en 1ere colonne, puis chaque date de realisation juste a cote de son
 // statut (Correction, AC, puis Cloture globale) plutot que toutes
 // regroupees a la fin.
+// readOnly (les 4 colonnes de date) : toujours calculees cote serveur (voir
+// actions.ts), jamais saisies a la main - meme felicite ne peut pas les
+// corriger, contrairement aux colonnes de RESTRICTED_COLUMN_KEYS ci-dessus.
+// Demande explicite : uniquement de l'information vue, jamais un champ
+// ecrivable.
 const COLUMNS: AuditColumn[] = [
-  { key: "created_at", label: "Date" },
+  { key: "created_at", label: "Date", readOnly: true },
   { key: "audit", label: "Audit" },
   { key: "numero", label: "N°" },
   { key: "constat", label: "Constat", long: true },
@@ -64,20 +56,20 @@ const COLUMNS: AuditColumn[] = [
   { key: "delais_correction", label: "Délais Correction" },
   { key: "commentaire", label: "Commentaire", long: true },
   { key: "statut_correction", label: "Statut correction", select: STATUT_OPTIONS },
-  { key: "date_realisation_correction", label: "Date correction réalisée" },
+  { key: "date_realisation_correction", label: "Date correction réalisée", readOnly: true },
   { key: "analyse_causes", label: "Analyse des causes", long: true },
   { key: "action_corrective_ac", label: "Action Corrective (AC)", long: true },
   { key: "responsable_ac", label: "Responsable AC" },
   { key: "delais_ac", label: "Délais AC" },
   { key: "commentaire2", label: "commentaire2", long: true },
   { key: "statut_ac", label: "Statut AC", select: STATUT_OPTIONS },
-  { key: "date_realisation_ac", label: "Date AC réalisée" },
+  { key: "date_realisation_ac", label: "Date AC réalisée", readOnly: true },
   { key: "methode_mesure_efficacite_ac", label: "Methode de Mesure efficacité AC", long: true },
   { key: "mesure_efficacite_ac", label: "Mesure efficacité AC", long: true },
   { key: "realise_par", label: "Réalisé par" },
   { key: "commentaire3", label: "commentaire3", long: true },
   { key: "statut_cloture", label: "Statut cloture", select: STATUT_CLOTURE_OPTIONS },
-  { key: "date_realisation", label: "Date de clôture" },
+  { key: "date_realisation", label: "Date de clôture", readOnly: true },
 ];
 
 async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<number, AttachmentFile[]> }> {

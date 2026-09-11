@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 
-export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[] };
+// readOnly : jamais modifiable par PERSONNE, meme felicite/l'admin - a la
+// difference de restrictedColumnKeys (plus bas sur AuditTable) qui reste
+// modifiable par un utilisateur precis. Sert aux colonnes calculees cote
+// serveur (ex: Date, Date de realisation - voir nc-confidentiel/page.tsx)
+// qu'il ne faut meme pas laisser croire editables.
+export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[]; readOnly?: boolean };
 
 export type AuditRow = { id: number | null; [columnKey: string]: string | number | null };
 
@@ -591,6 +596,7 @@ export function AuditTable({
     "w-48 rounded-xl border px-3 py-2 text-sm font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60";
 
   function isColumnEditable(col: AuditColumn): boolean {
+    if (col.readOnly) return false;
     if (!canWrite) return false;
     if (restrictedColumnKeys?.includes(col.key)) return Boolean(canEditRestrictedColumns);
     return true;

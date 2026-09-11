@@ -21,19 +21,8 @@ const STATUT_OPTIONS = ["EN COURS", "CLOTUREE", "PAS D'ACTION"];
 
 // Ces colonnes restent en lecture seule pour tout le monde, meme l'admin -
 // seule felicite peut les modifier. "Constat" a ete retire de cette liste -
-// modifiable par tout le monde comme "Commentaire". "created_at"/
-// "date_realisation" ne sont de toute facon jamais ecrites depuis ce qui
-// est affiche (voir actions.ts, toujours recalculees cote serveur) -
-// restreintes ici seulement pour ne pas laisser croire qu'on peut les
-// corriger a la main.
-const RESTRICTED_COLUMN_KEYS = [
-  "audit",
-  "numero",
-  "processus_concerne",
-  "service_concerne",
-  "created_at",
-  "date_realisation",
-];
+// modifiable par tout le monde comme "Commentaire".
+const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "processus_concerne", "service_concerne"];
 
 // Memes titres, dans le meme ordre, que la feuille "TAF Confidentiel" du
 // classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne), plus "Date"
@@ -41,8 +30,13 @@ const RESTRICTED_COLUMN_KEYS = [
 // dans le classeur d'origine - demande explicite : la date de creation
 // d'une nouvelle ligne, et la date a laquelle elle passe reellement
 // CLOTUREE.
+// readOnly (Date/Date de realisation) : toujours calculees cote serveur
+// (voir actions.ts), jamais saisies a la main - meme felicite ne peut pas
+// les corriger, contrairement aux colonnes de RESTRICTED_COLUMN_KEYS
+// ci-dessus. Demande explicite : uniquement de l'information vue, jamais un
+// champ ecrivable.
 const COLUMNS: AuditColumn[] = [
-  { key: "created_at", label: "Date" },
+  { key: "created_at", label: "Date", readOnly: true },
   { key: "audit", label: "Audit" },
   { key: "numero", label: "n°" },
   { key: "constat", label: "Constat", long: true },
@@ -61,7 +55,7 @@ const COLUMNS: AuditColumn[] = [
   { key: "t4", label: "T4" },
   { key: "tx_progression", label: "Tx de progression" },
   { key: "statut", label: "Statut", select: STATUT_OPTIONS },
-  { key: "date_realisation", label: "Date de realisation" },
+  { key: "date_realisation", label: "Date de realisation", readOnly: true },
 ];
 
 async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<number, AttachmentFile[]> }> {
