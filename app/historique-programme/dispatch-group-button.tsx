@@ -17,7 +17,7 @@ export function DispatchGroupButton({
   dispatchAction,
 }: {
   groupeId: number;
-  dispatchAction: (formData: FormData) => Promise<{ ok: true } | { ok: false; message: string }>;
+  dispatchAction: (formData: FormData) => Promise<{ ok: true; warnings: string[] } | { ok: false; message: string }>;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -30,6 +30,9 @@ export function DispatchGroupButton({
       if (!result.ok) {
         window.alert(result.message);
         return;
+      }
+      if (result.warnings.length > 0) {
+        window.alert(result.warnings.join("\n"));
       }
       router.push("/ravitailleur-par-ligne");
     });

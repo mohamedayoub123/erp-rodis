@@ -7,6 +7,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { computeArticleFamilyKey, extractTrailingNumber, incrementCode } from "@/lib/article-code-family";
 import { computeQtCarton } from "@/lib/dispatcher-shared";
 import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
+import { HEURES_PAR_JOUR, findCapaciteFabrication, type MachineCapacite } from "@/lib/machine-capacite";
 import { logAudit } from "@/lib/audit-log";
 import { supprimerToutesTracesProductionPourLigne } from "@/app/production/suivi-production/actions";
 
@@ -39,6 +40,9 @@ type ArticleFullInfo = {
   max_vrac_auto: number | null;
   vrac_max_manuel: number | null;
   min_vrac: number | null;
+  // Article vrac derriere l'article fini - voir lib/machine-capacite.ts,
+  // c'est sur cet id que la capacite Fabrication est normalement saisie.
+  vrac_article_id: number | null;
 };
 
 // Une ligne dispatcher = un lot physique reel (apres decoupage du vrac
@@ -96,12 +100,57 @@ async function fetchArticleInfoMap(articleIds: number[]): Promise<Map<number, Ar
   const { data } = await supabaseServer
     .from("articles")
     .select(
-      "id, gamme, type_article, code_manu, code_auto, contenance, piece_par_carton, max_vrac_auto, vrac_max_manuel, min_vrac"
+      "id, gamme, type_article, code_manu, code_auto, contenance, piece_par_carton, max_vrac_auto, vrac_max_manuel, min_vrac, vrac_article_id"
     )
     .in("id", articleIds);
 
   for (const row of (data as ArticleFullInfo[] | null) ?? []) {
     map.set(row.id, row);
+  }
+
+  return map;
+}
+
+// Capacite machine x article (voir lib/machine-capacite.ts) - table tres
+// eparse (quelques lignes au total), on la recupere donc en entier plutot
+// que de filtrer par machine, comme fait deja "Max possible" (page.tsx).
+async function fetchMachineCapaciteMap(): Promise<Map<string, MachineCapacite>> {
+  const { data, error } = await supabaseServer
+    .from("machine_produits")
+    .select("machine_id, article_id, capacite, capacite_min, capacite_max");
+
+  const map = new Map<string, MachineCapacite>();
+  if (error) return map;
+
+  for (const row of (data ?? []) as {
+    machine_id: number;
+    article_id: number;
+    capacite: number | null;
+    capacite_min: number | null;
+    capacite_max: number | null;
+  }[]) {
+    map.set(`${row.machine_id}::${row.article_id}`, {
+      machineId: row.machine_id,
+      articleId: row.article_id,
+      capacite: row.capacite,
+      capaciteMin: row.capacite_min,
+      capaciteMax: row.capacite_max,
+    });
+  }
+
+  return map;
+}
+
+// Nom des machines Fabrication choisies sur les lignes - sert uniquement au
+// message d'avertissement quand un article n'a pas de capacite configuree
+// sur sa machine (voir buildDispatcherDraftRows).
+async function fetchMachineNameMap(machineIds: number[]): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  if (machineIds.length === 0) return map;
+
+  const { data } = await supabaseServer.from("machines").select("id, nom").in("id", machineIds);
+  for (const row of (data ?? []) as { id: number; nom: string }[]) {
+    map.set(row.id, row.nom);
   }
 
   return map;
@@ -117,12 +166,21 @@ async function fetchArticleInfoMap(articleIds: number[]): Promise<Map<number, Ar
 // materiellement reparti sur 2 chaines et partage donc un seul code.
 function buildDispatcherDraftRows(
   filledRows: PendingProgrammeRow[],
-  articleInfoById: Map<number, ArticleFullInfo>
-): DispatcherDraftRow[] {
+  articleInfoById: Map<number, ArticleFullInfo>,
+  machineCapacites: Map<string, MachineCapacite>,
+  machineNameById: Map<number, string>
+): { draftRows: DispatcherDraftRow[]; warnings: string[] } {
   const draftRows: DispatcherDraftRow[] = [];
+  const warnings: string[] = [];
 
   const groups = new Map<string, { row: PendingProgrammeRow; sourceIndex: number }[]>();
   const groupOrder: string[] = [];
+
+  // Capacite (en kg/jour, voir HEURES_PAR_JOUR) de la machine Fabrication
+  // choisie sur chaque ligne, quand elle est connue - alimente le max/min de
+  // son groupe plus bas (meme logique "prend la machine la plus limitante"
+  // que "Max possible" sur la grille).
+  const machineBoundsBySourceIndex = new Map<number, { maxKg: number | null; minKg: number | null }>();
 
   // Regroupe par FAMILLE (gamme+forme, ex: "DERMATONE::GEL DOUCHE") et non
   // par article_id exact : sans ca, 2 contenances differentes (300ml/500ml)
@@ -130,8 +188,40 @@ function buildDispatcherDraftRows(
   // jamais leur lot ni leur code, meme quand elles sont physiquement
   // fabriquees a partir du meme vrac et devraient donc se partager le meme
   // max de fabrication.
+  //
+  // Une ligne dont la machine Fabrication choisie n'a AUCUNE capacite
+  // configuree pour cet article (ni sur son vrac, ni sur l'article fini -
+  // voir findCapaciteFabrication) est exclue du dispatch : elle n'entre dans
+  // aucun groupe, ne produit donc aucune ligne Dispatcher/code, mais garde
+  // sa ligne "Programme par ligne" (deja enregistree avant cet appel) - un
+  // avertissement nomme l'article et la machine en cause plutot que de
+  // bloquer tout le Dispatch pour les autres lignes (demande explicite).
+  // Une ligne SANS machine Fabrication choisie n'est jamais concernee (la
+  // tres grande majorite des machines n'ont encore aucune capacite
+  // configuree - voir Max possible).
   filledRows.forEach((row, sourceIndex) => {
     const info = row.article_id ? articleInfoById.get(row.article_id) : undefined;
+
+    if (row.machine_fabrication_id != null) {
+      const capa = findCapaciteFabrication(
+        machineCapacites,
+        row.machine_fabrication_id,
+        info?.vrac_article_id,
+        row.article_id
+      );
+      if (!capa) {
+        const machineName = machineNameById.get(row.machine_fabrication_id) ?? `machine #${row.machine_fabrication_id}`;
+        warnings.push(
+          `"${row.produit || "Cet article"}" (${row.zone} ${row.chaine}) : aucune capacite Fabrication configuree pour "${machineName}" - article non dispatche.`
+        );
+        return;
+      }
+      machineBoundsBySourceIndex.set(sourceIndex, {
+        maxKg: capa.capaciteMax != null ? capa.capaciteMax * HEURES_PAR_JOUR : null,
+        minKg: capa.capaciteMin != null ? capa.capaciteMin * HEURES_PAR_JOUR : null,
+      });
+    }
+
     const familyKey = computeArticleFamilyKey(row.produit, info?.gamme ?? null);
     const key = `${familyKey}::${row.plateforme}`;
     if (!groups.has(key)) {
@@ -173,6 +263,11 @@ function buildDispatcherDraftRows(
     // plateforme.
     let max: number | null | undefined = null;
     let min: number | null | undefined = null;
+    // Capacite machine Fabrication (kg/jour) des lignes de ce groupe qui en
+    // ont une - meme logique bottleneck que "Max possible" : la plus
+    // limitante des lignes du groupe l'emporte (min des max, max des min).
+    let machineMax: number | null = null;
+    let machineMin: number | null = null;
     for (const entry of entries) {
       const info = entry.row.article_id ? articleInfoById.get(entry.row.article_id) : undefined;
       if (max === null) {
@@ -182,6 +277,23 @@ function buildDispatcherDraftRows(
       if (min === null && info?.min_vrac && info.min_vrac > 0) {
         min = info.min_vrac;
       }
+      const bounds = machineBoundsBySourceIndex.get(entry.sourceIndex);
+      if (bounds?.maxKg != null && (machineMax === null || bounds.maxKg < machineMax)) {
+        machineMax = bounds.maxKg;
+      }
+      if (bounds?.minKg != null && (machineMin === null || bounds.minKg > machineMin)) {
+        machineMin = bounds.minKg;
+      }
+    }
+
+    // La machine Fabrication (quand connue) plafonne/plancher le lot en plus
+    // du max/min deja configure sur l'article - le plus restrictif des deux
+    // s'applique, jamais l'un au lieu de l'autre.
+    if (machineMax !== null) {
+      max = max && max > 0 ? Math.min(max, machineMax) : machineMax;
+    }
+    if (machineMin !== null) {
+      min = min && min > 0 ? Math.max(min, machineMin) : machineMin;
     }
 
     const totalVrac = entries.reduce((sum, entry) => sum + (entry.row.vrac_a_fabriquer ?? 0), 0);
@@ -459,7 +571,7 @@ function buildDispatcherDraftRows(
     });
   }
 
-  return draftRows;
+  return { draftRows, warnings };
 }
 
 // Genere automatiquement le code de chaque ligne dispatcher ou Plateforme
@@ -731,19 +843,25 @@ async function assignDispatcherCodesAndInsert(
   groupeId: number,
   affectedZoneChaine: { zone: string; chaine: string }[],
   rowIds: number[]
-): Promise<void> {
+): Promise<{ warnings: string[] }> {
   const articleIds = [...new Set(filledRows.map((row) => row.article_id as number))];
-  const [articleInfoById, allArticleCodeRows, { data: existingLignesData }] = await Promise.all([
-    fetchArticleInfoMap(articleIds),
-    fetchAllArticleCodeRows(),
-    // Codes AVANT ce Dispatch, pour pouvoir faire correspondre "ancien code
-    // -> nouveau code" plus bas si cette ligne etait deja dispatchee (voir
-    // le bloc qui met a jour programme_dispatcher_history) - lu ici, avant
-    // toute ecriture.
-    rowIds.length > 0
-      ? supabaseServer.from("programme_lignes").select("id, numero_lot_detail").in("id", rowIds)
-      : Promise.resolve({ data: [] as { id: number; numero_lot_detail: unknown }[] }),
-  ]);
+  const fabricationMachineIds = [
+    ...new Set(filledRows.map((row) => row.machine_fabrication_id).filter((id): id is number => id != null)),
+  ];
+  const [articleInfoById, allArticleCodeRows, { data: existingLignesData }, machineCapacites, machineNameById] =
+    await Promise.all([
+      fetchArticleInfoMap(articleIds),
+      fetchAllArticleCodeRows(),
+      // Codes AVANT ce Dispatch, pour pouvoir faire correspondre "ancien code
+      // -> nouveau code" plus bas si cette ligne etait deja dispatchee (voir
+      // le bloc qui met a jour programme_dispatcher_history) - lu ici, avant
+      // toute ecriture.
+      rowIds.length > 0
+        ? supabaseServer.from("programme_lignes").select("id, numero_lot_detail").in("id", rowIds)
+        : Promise.resolve({ data: [] as { id: number; numero_lot_detail: unknown }[] }),
+      fetchMachineCapaciteMap(),
+      fetchMachineNameMap(fabricationMachineIds),
+    ]);
   const existingDetailById = new Map<number, { code: string }[]>(
     ((existingLignesData ?? []) as { id: number; numero_lot_detail: { code: string }[] | null }[]).map((row) => [
       row.id,
@@ -765,9 +883,13 @@ async function assignDispatcherCodesAndInsert(
   let detailBySourceIndex = new Map<number, { code: string; qt_vrac: number | null; qt_carton: number | null }[]>();
   let finalCodeUpdatesByArticleId = new Map<number, { code_manu?: string; code_auto?: string }>();
   let dispatcherSucceeded = false;
+  // Meme resultat a chaque tentative (ne depend que de filledRows/capacites,
+  // jamais des codes generes) - ecrase sans souci a chaque iteration.
+  let dispatchWarnings: string[] = [];
 
   for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
-    const draftRows = buildDispatcherDraftRows(filledRows, articleInfoById);
+    const { draftRows, warnings } = buildDispatcherDraftRows(filledRows, articleInfoById, machineCapacites, machineNameById);
+    dispatchWarnings = warnings;
     const articleCodeRowsForAttempt = attempt === 1 ? allArticleCodeRows : await fetchAllArticleCodeRows();
     const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(
       draftRows,
@@ -1041,6 +1163,8 @@ async function assignDispatcherCodesAndInsert(
       }
     }
   }
+
+  return { warnings: dispatchWarnings };
 }
 
 // Revalide cote serveur (jamais confiance au seul filtrage cote client) que
@@ -1107,7 +1231,7 @@ async function performProgrammeLigneSave(
   // Historique programme) sans toucher au Dispatcher - pour poser un
   // programme sans encore l'engager en fabrication.
   withDispatch: boolean
-): Promise<{ ok: true; code: string; groupe_id: number }> {
+): Promise<{ ok: true; code: string; groupe_id: number; warnings: string[] }> {
   // Le code PL1.2026, PL2.2026... n'est pas stocke dans la colonne
   // "programe" (qui reste un champ libre tape par l'utilisateur,
   // independant) - il est seulement retourne ici pour le message de
@@ -1181,7 +1305,7 @@ async function performProgrammeLigneSave(
   if (!withDispatch) {
     revalidatePath("/programe-par-ligne");
     revalidatePath("/historique-programme");
-    return { ok: true, code: generatedCode, groupe_id: groupeId };
+    return { ok: true, code: generatedCode, groupe_id: groupeId, warnings: [] };
   }
 
   // Le Dispatcher (copie vers "Programme Dispatcher <ZONE>", codes,
@@ -1191,8 +1315,10 @@ async function performProgrammeLigneSave(
   // remonter l'erreur, pour qu'un Save rate ne laisse jamais un programme
   // "fantome" visible sur Suivi Production/Dashboard alors que son
   // Dispatcher/Ravitailleur n'a jamais ete cree.
+  let dispatchWarnings: string[] = [];
   try {
-    await assignDispatcherCodesAndInsert(filledRows, dateJour, groupeId, affectedZoneChaine, insertedIds);
+    const result = await assignDispatcherCodesAndInsert(filledRows, dateJour, groupeId, affectedZoneChaine, insertedIds);
+    dispatchWarnings = result.warnings;
   } catch (error) {
     await supabaseServer.from("programme_lignes").delete().in("id", insertedIds);
     throw error;
@@ -1206,7 +1332,7 @@ async function performProgrammeLigneSave(
   revalidatePath("/production/suivi/dashboard");
   revalidatePath("/production/suivi/calendrier");
 
-  return { ok: true, code: generatedCode, groupe_id: groupeId };
+  return { ok: true, code: generatedCode, groupe_id: groupeId, warnings: dispatchWarnings };
 }
 
 // Next.js remplace tout throw non attrape venant d'une Server Action par un
@@ -1217,7 +1343,9 @@ async function performProgrammeLigneSave(
 // (ok:false + message) plutot que de la laisser remonter comme exception.
 export async function saveProgrammeLigneBatchAction(
   formData: FormData
-): Promise<{ ok: true; code: string; groupe_id: number } | { ok: false; message: string }> {
+): Promise<
+  { ok: true; code: string; groupe_id: number; warnings: string[] } | { ok: false; message: string }
+> {
   try {
     const currentUser = await getCurrentStockUser();
 
@@ -1304,7 +1432,7 @@ export async function saveProgrammeLigneBatchAction(
 // fois ok:true recu (voir DispatchGroupButton).
 export async function dispatchExistingProgrammeLigneGroupAction(
   formData: FormData
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; warnings: string[] } | { ok: false; message: string }> {
   try {
     const currentUser = await getCurrentStockUser();
 
@@ -1415,7 +1543,7 @@ export async function dispatchExistingProgrammeLigneGroupAction(
     // d'echec : ces lignes programme_lignes existaient deja avant cet appel
     // (pas creees par lui), les effacer sur un echec de Dispatch perdrait un
     // programme deja valide pour rien.
-    await assignDispatcherCodesAndInsert(filledRows, dateJour, groupeId, affectedZoneChaine, rowIds);
+    const { warnings } = await assignDispatcherCodesAndInsert(filledRows, dateJour, groupeId, affectedZoneChaine, rowIds);
 
     revalidatePath("/historique-programme");
     revalidatePath(`/historique-programme/${groupeId}`);
@@ -1426,7 +1554,7 @@ export async function dispatchExistingProgrammeLigneGroupAction(
     revalidatePath("/production/suivi/dashboard");
     revalidatePath("/production/suivi/calendrier");
 
-    return { ok: true };
+    return { ok: true, warnings };
   } catch (error) {
     return {
       ok: false,
