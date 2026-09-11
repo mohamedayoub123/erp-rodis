@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
-  CATEGORIES_PLASTIQUE,
+  CATEGORIE_PLASTIQUE,
   DEPOT_PLASTIQUE_DEST_DEFAULT,
   DEPOT_PLASTIQUE_SOURCE_DEFAULT,
   type RecettePlastiqueLigne,
@@ -316,9 +316,7 @@ export async function saveProgrammePlastiqueAction(
   }[];
   const articleById = new Map(articles.map((a) => [a.id, a]));
 
-  const plastiqueIds = articles
-    .filter((a) => (CATEGORIES_PLASTIQUE as readonly string[]).includes(a.categorie || ""))
-    .map((a) => a.id);
+  const plastiqueIds = articles.filter((a) => a.categorie === CATEGORIE_PLASTIQUE).map((a) => a.id);
 
   const { data: recettesData } = await supabaseServer
     .from("recettes_plastique")

@@ -7,7 +7,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { fetchCoutsReelsMpDepotB } from "@/lib/prix-revient";
 import { COMPTE_PERTES_STOCK, COMPTE_STOCK_MP, creerEcriture, supprimerEcriturePourSource } from "@/lib/comptabilite";
 import {
-  CATEGORIES_PLASTIQUE,
+  CATEGORIE_PLASTIQUE,
   computeCoutPlastiqueParPiece,
   type RecettePlastiqueLigne,
 } from "@/app/production-plastique/shared";
@@ -179,9 +179,7 @@ export async function createEntreeMpBatchAction(formData: FormData) {
   // reel) au lieu de laisser le lot sans prix (ce qui faussait le cout de
   // revient des articles finis qui en consomment).
   const prixAutoByArticleId = new Map<number, number>();
-  const articlesPlastiqueIds = articleInfos
-    .filter((row) => (CATEGORIES_PLASTIQUE as readonly string[]).includes(row.categorie || ""))
-    .map((row) => row.id);
+  const articlesPlastiqueIds = articleInfos.filter((row) => row.categorie === CATEGORIE_PLASTIQUE).map((row) => row.id);
 
   if (articlesPlastiqueIds.length > 0) {
     const { data: recettesData } = await supabaseServer

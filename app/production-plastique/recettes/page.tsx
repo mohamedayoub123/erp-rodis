@@ -4,8 +4,6 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { fetchArticlesPlastique, normalizeCategoriePlastique } from "../shared";
 
-const CATEGORIES_AFFICHEES = ["FLACON", "CAPSULE", "POTS", "TOPETTE"] as const;
-
 type SearchParams = Promise<{ q?: string; categorie?: string }>;
 
 export default async function RecettesPlastiqueListePage({
@@ -19,6 +17,11 @@ export default async function RecettesPlastiqueListePage({
   const categorieFilter = (params.categorie || "").trim();
 
   const allArticles = await fetchArticlesPlastique();
+  // Sous-types reellement presents au catalogue (au lieu d'une liste figee -
+  // meme correctif que production-plastique/articles/page.tsx).
+  const categoriesAffichees = [...new Set(allArticles.map((a) => normalizeCategoriePlastique(a.categorie)))]
+    .filter((c) => c !== "-")
+    .sort((a, b) => a.localeCompare(b, "fr"));
   const qWords = q.split(/\s+/).filter(Boolean);
   const articles = allArticles.filter((article) => {
     // Recherche sur le nom ET la categorie (normalisee) - un article "PET 150
@@ -68,7 +71,7 @@ export default async function RecettesPlastiqueListePage({
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             >
               <option value="">Toutes categories</option>
-              {CATEGORIES_AFFICHEES.map((categorie) => (
+              {categoriesAffichees.map((categorie) => (
                 <option key={categorie} value={categorie}>
                   {categorie}
                 </option>

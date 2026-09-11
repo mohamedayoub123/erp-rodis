@@ -7,7 +7,7 @@ import { SubmitButton } from "@/app/_components/submit-button";
 import { SaveCommandeButton } from "@/app/_components/save-commande-plastique-button";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { familyRank } from "@/lib/gamme-families";
-import { CATEGORIES_PLASTIQUE } from "@/app/production-plastique/shared";
+import { CATEGORIE_PLASTIQUE } from "@/app/production-plastique/shared";
 import { updateAvisFabricationAction, saveCommandeArticlePlastiqueAction } from "@/app/_components/statistique-article-plastique-actions";
 
 // Module partage - meme rendu utilise depuis Rapport MP
@@ -20,6 +20,7 @@ type StockActuelMpRpcRow = {
   article_id: number;
   nom_article: string;
   categorie: string | null;
+  sous_famille: string | null;
   unite: string | null;
   stock_actuel: number;
 };
@@ -48,21 +49,21 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-// Regroupe CAPSULES/CAPSULES-IMP sous "CAPSULE" (variantes de la meme
-// famille physique) mais garde FLACON et FLACONS PET DISTINCTS - contraire
-// a normalizeCategoriePlastique (production-plastique/shared.ts) qui les
-// fusionne tous les 2 sous "FLACON" - demande explicite ici : l'ordre de
-// tri doit justement pouvoir les distinguer (Flacon avant Flacon PET).
+// Sous-type precis (sous_famille) deja normalise au catalogue (CAPSULE,
+// FLACON, FLACON PET, POT, POT PET...) - FLACON et FLACON PET restent
+// distincts ici (demande explicite : l'ordre de tri doit pouvoir les
+// distinguer), contrairement a normalizeCategoriePlastique
+// (production-plastique/shared.ts) qui n'a plus besoin de les fusionner
+// non plus depuis que le catalogue est normalise.
 function displayCategorie(categorie: string | null): string {
-  if (categorie === "CAPSULES" || categorie === "CAPSULES-IMP") return "CAPSULE";
   return categorie || "-";
 }
 
 // Ordre d'affichage demande explicitement : Flacon, Pot, Capsule, Flacon
 // PET - tout le reste (Topette...) vient apres, triees entre elles par nom.
-// POTS PET place juste apres FLACONS PET (meme logique : variante PET
+// POT PET place juste apres FLACON PET (meme logique : variante PET
 // distincte de sa famille de base, voir displayCategorie).
-const CATEGORIE_SORT_ORDER = ["FLACON", "POTS", "CAPSULE", "FLACONS PET", "POTS PET"];
+const CATEGORIE_SORT_ORDER = ["FLACON", "POT", "CAPSULE", "FLACON PET", "POT PET"];
 function categorieSortIndex(categorie: string | null): number {
   const index = CATEGORIE_SORT_ORDER.indexOf(displayCategorie(categorie));
   return index === -1 ? CATEGORIE_SORT_ORDER.length : index;
@@ -97,7 +98,7 @@ export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; erro
     supabaseServer
       .from("articles_matiere_premiere")
       .select("id, min_stock, max_stock, gamme, avis_fabrication")
-      .in("categorie", CATEGORIES_PLASTIQUE),
+      .eq("categorie", CATEGORIE_PLASTIQUE),
   ]);
 
   if (stockResult.error) return { rows: [], error: stockResult.error };
@@ -106,13 +107,13 @@ export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; erro
   const detailById = new Map((detailResult.data as ArticleDetailRow[]).map((row) => [row.id, row]));
 
   const rows = stockResult.rows
-    .filter((row) => (CATEGORIES_PLASTIQUE as readonly string[]).includes(row.categorie || ""))
+    .filter((row) => row.categorie === CATEGORIE_PLASTIQUE)
     .map((row) => {
       const detail = detailById.get(row.article_id);
       return {
         article_id: row.article_id,
         nom_article: row.nom_article,
-        categorie: row.categorie,
+        categorie: row.sous_famille,
         unite: row.unite,
         gamme: detail?.gamme ?? null,
         stock_actuel: Number(row.stock_actuel ?? 0),

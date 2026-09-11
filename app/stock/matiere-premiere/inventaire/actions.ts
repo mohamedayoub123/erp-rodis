@@ -75,10 +75,12 @@ async function fetchMovementCounts(): Promise<Map<number, number>> {
 // encore ete distribue dans CETTE session, priorise l'article le plus
 // actif (mp_movement_counts) d'abord. categoriesFiltre/gammesFiltre limite
 // l'univers de cette session a certaines categories et/ou gammes (null/vide
-// = pas de filtre sur cette dimension ; un article passe des qu'il
-// correspond a l'UNE des deux, ex: "toute la gamme X" OU "toute la
-// categorie Y") - demande explicite : pouvoir lancer plusieurs inventaires
-// en parallele, chacun sur son propre perimetre choisi a la main.
+// = pas de filtre sur cette dimension). Un seul des 2 remplis = ce filtre
+// seul ; les 2 remplis ENSEMBLE = intersection (ex: categorie "BASE" +
+// gamme "ELIXIR" => seulement les BASE de la gamme ELIXIR, jamais tout BASE
+// ni toute la gamme ELIXIR) - demande explicite de l'utilisateur. Permet
+// aussi de lancer plusieurs inventaires en parallele, chacun sur son propre
+// perimetre choisi a la main.
 // Retourne le nombre de lignes creees - 0 = plus rien a distribuer dans le
 // perimetre de cette session, elle peut etre cloturee.
 async function distribuerProchainLot(
@@ -120,7 +122,12 @@ async function distribuerProchainLot(
     if (!categorieSet && !gammeSet) return true;
     const matchesCategorie = categorieSet ? categorieSet.has(categorieByArticleId?.get(row.article_id) ?? "") : false;
     const matchesGamme = gammeSet ? gammeSet.has(gammeByArticleId?.get(row.article_id) ?? "") : false;
-    return matchesCategorie || matchesGamme;
+    // Les 2 filtres ENSEMBLE = intersection (ex: categorie "BASE" + gamme
+    // "ELIXIR" => seulement les BASE de la gamme ELIXIR, pas tout BASE ni
+    // toute la gamme ELIXIR) - demande explicite de l'utilisateur, contraire
+    // au comportement precedent (l'UNE des deux suffisait). Un seul des 2
+    // filtres rempli reste inchange (ce filtre seul).
+    return hasCategorieFiltre && hasGammeFiltre ? matchesCategorie && matchesGamme : matchesCategorie || matchesGamme;
   });
 
   restants.sort((a, b) => {

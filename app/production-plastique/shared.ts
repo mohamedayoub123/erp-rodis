@@ -1,38 +1,30 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { fetchCoutsReelsMpDepotB } from "@/lib/prix-revient";
 
-// Categories articles_matiere_premiere considerees "plastique" (fabriquees
-// en interne, jamais achetees) - demande explicite : flacon/capsule/pot.
-// Plusieurs variantes de nom existent en base pour la meme famille physique
-// (ex: CAPSULE/CAPSULES/CAPSULES-IMP sont toutes des capsules/capots,
-// FLACON/FLACONS PET sont tous des flacons) - toutes reprises ici, puis
-// regroupees a l'affichage par normalizeCategoriePlastique. TOPETTE est sa
-// propre famille (petit flacon a bille/roulette), distincte des flacons.
-export const CATEGORIES_PLASTIQUE = [
-  "FLACON",
-  "FLACONS PET",
-  "CAPSULE",
-  "CAPSULES",
-  "CAPSULES-IMP",
-  "POTS",
-  "POTS PET",
-  "TOPETTE",
-] as const;
+// Categorie large regroupant tout article plastique fabrique en interne
+// (flacon/capsule/pot...), jamais achete - demande explicite : au lieu
+// d'une liste figee de sous-types (fragile, cassee des qu'un sous-type est
+// renomme/ajoute cote catalogue - voir l'ancien CATEGORIES_PLASTIQUE),
+// s'appuie sur cette etiquette large stable. articles_matiere_premiere.
+// categorie porte cette etiquette large ; sous_famille porte le sous-type
+// precis (CAPSULE, FLACON, FLACON PET, POT, POT PET...) affiche a l'ecran.
+export const CATEGORIE_PLASTIQUE = "ARTICLE DE CONDITIONNEMENT PLASTIQUE";
 
-// Etiquette d'affichage regroupee - les variantes CAPSULES/CAPSULES-IMP,
-// FLACONS PET et POTS PET s'affichent sous le meme nom que leur famille
-// principale.
+// Les sous-types (sous_famille) sont deja normalises au catalogue depuis le
+// nettoyage categorie/sous_famille (plus de variantes CAPSULES/CAPSULES-IMP/
+// FLACONS PET/POTS/POTS PET a regrouper) - ne fait plus que le repli "-".
 export function normalizeCategoriePlastique(categorie: string | null): string {
-  if (categorie === "CAPSULES" || categorie === "CAPSULES-IMP") return "CAPSULE";
-  if (categorie === "FLACONS PET") return "FLACON";
-  if (categorie === "POTS PET") return "POTS";
   return categorie || "-";
 }
 
 // Categories des matieres qui composent une recette plastique (resine +
 // colorant) - demande explicite : seules ces 2 categories doivent
 // apparaitre dans le picker "Ajouter une matiere", pas tout le catalogue MP.
-export const CATEGORIES_INGREDIENT_PLASTIQUE = ["mp plastique", "COLORANT PLAS."] as const;
+// "COLORANT PLAS." (abrege) ne correspondait a aucune valeur reelle du
+// catalogue (toujours "COLORANT PLASTIQUE" en entier) - aucun colorant
+// n'apparaissait jamais dans le picker, bug decouvert en verifiant les
+// valeurs reelles suite a l'echange categorie/sous_famille.
+export const CATEGORIES_INGREDIENT_PLASTIQUE = ["mp plastique", "COLORANT PLASTIQUE"] as const;
 
 // Depots par defaut du programme plastique - la production entre toujours
 // dans le depot "fabrication" (F) puis part immediatement vers le depot
@@ -57,12 +49,20 @@ export async function fetchArticlesPlastique(): Promise<ArticlePlastiqueRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, poids_net, depot_id")
-      .in("categorie", CATEGORIES_PLASTIQUE)
+      .select("id, nom_article, sous_famille, poids_net, depot_id")
+      .eq("categorie", CATEGORIE_PLASTIQUE)
       .range(from, from + pageSize - 1);
 
     if (error) break;
-    const chunk = (data ?? []) as ArticlePlastiqueRow[];
+    const chunk = (
+      (data ?? []) as { id: number; nom_article: string; sous_famille: string | null; poids_net: number | null; depot_id: number | null }[]
+    ).map((row) => ({
+      id: row.id,
+      nom_article: row.nom_article,
+      categorie: row.sous_famille,
+      poids_net: row.poids_net,
+      depot_id: row.depot_id,
+    }));
     rows.push(...chunk);
     if (chunk.length < pageSize) break;
     from += pageSize;
