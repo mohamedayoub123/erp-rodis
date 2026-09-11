@@ -48,6 +48,62 @@ type AncienEtat = {
   date_realisation: string | null;
 };
 
+// Des qu'un vrai numero (AI-audit-annee-NC-sequence) est tape/corrige a la
+// main sur une ligne, le compteur (qualite_numero_compteurs) avance tout
+// seul pour "voir" cette sequence et continuer a partir de la - demande
+// explicite : "il va voir je ajouter quoi et il va continuer a ajouter".
+// Prend toujours le MAX entre la valeur deja enregistree et
+// sequence+1 - ne fait jamais reculer le compteur (un numero tape par
+// erreur plus petit qu'une sequence deja avancee ne doit pas ecraser le
+// repere existant).
+async function synchroniserCompteursDepuisNumeros(rows: Record<string, string | number | null>[]): Promise<void> {
+  const parsed = new Map<string, { audit: string; annee: number; sequence: number }>();
+
+  for (const row of rows) {
+    const m = String(row.numero || "")
+      .trim()
+      .match(/^AI-(\d+)-(\d{4})-NC-(\d+)$/);
+    if (!m) continue;
+
+    const audit = m[1];
+    const annee = Number(m[2]);
+    const sequence = Number(m[3]);
+    const key = `${audit}::${annee}`;
+    const current = parsed.get(key);
+    if (!current || sequence > current.sequence) {
+      parsed.set(key, { audit, annee, sequence });
+    }
+  }
+
+  if (parsed.size === 0) return;
+
+  const { data: existingCompteurs } = await supabaseServer
+    .from("qualite_numero_compteurs")
+    .select("audit, annee, prochain_numero")
+    .in(
+      "audit",
+      [...parsed.values()].map((v) => v.audit)
+    );
+  const existingByKey = new Map(
+    ((existingCompteurs ?? []) as { audit: string; annee: number; prochain_numero: number }[]).map((c) => [
+      `${c.audit}::${c.annee}`,
+      c.prochain_numero,
+    ])
+  );
+
+  const payload = [...parsed.entries()].map(([key, v]) => {
+    const ancien = existingByKey.get(key) ?? 0;
+    return {
+      audit: v.audit,
+      annee: v.annee,
+      prochain_numero: Math.max(ancien, v.sequence + 1),
+      updated_at: new Date().toISOString(),
+    };
+  });
+
+  await supabaseServer.from("qualite_numero_compteurs").upsert(payload, { onConflict: "audit,annee" });
+}
+
 export async function saveNcConfidentielBatchAction(
   rows: AuditRow[]
 ): Promise<{ ok: boolean; message?: string; insertedIds?: number[] }> {
@@ -123,6 +179,8 @@ export async function saveNcConfidentielBatchAction(
     }
     insertedIds = (data ?? []).map((row) => (row as { id: number }).id);
   }
+
+  await synchroniserCompteursDepuisNumeros(rows);
 
   revalidatePath("/qualite/nc-confidentiel");
   return { ok: true, insertedIds };
