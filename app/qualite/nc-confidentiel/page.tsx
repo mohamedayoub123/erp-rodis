@@ -203,6 +203,12 @@ export default async function NcConfidentielPage({ searchParams }: { searchParam
             </div>
 
             <div className="flex items-center gap-3">
+              <Link
+                href="/qualite/nc-confidentiel/compteurs"
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+              >
+                Compteurs de numero
+              </Link>
               <BackButton href="/qualite" label="Retour qualite" />
               <RefreshButton />
             </div>

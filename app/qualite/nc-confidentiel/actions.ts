@@ -166,6 +166,64 @@ export async function createNcConfidentielAction(formData: FormData): Promise<vo
   redirect("/qualite/nc-confidentiel");
 }
 
+const COMPTEURS_TABLE = "qualite_numero_compteurs";
+
+// Reglage manuel du "prochain numero" par (Audit, Annee) - demande
+// explicite : le numero (AI-{audit}-{annee}-NC-{sequence}) reste toujours
+// tape/corrige a la main sur le tableau (felicite), ce compteur ne fait
+// qu'enregistrer ou en est la sequence pour que ce soit facile a retrouver/
+// corriger apres un redemarrage ou une saisie manquee - jamais utilise pour
+// remplir automatiquement quoi que ce soit ailleurs. Un formulaire natif par
+// ligne (upsert cle sur audit+annee), plus simple qu'un tableau batch pour
+// seulement 3 champs.
+export async function upsertNumeroCompteurAction(formData: FormData): Promise<void> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier les compteurs.");
+  }
+
+  const audit = String(formData.get("audit") || "").trim();
+  const annee = Number(formData.get("annee") || "0");
+  const prochainNumero = Number(formData.get("prochain_numero") || "0");
+
+  if (!audit || !Number.isFinite(annee) || annee <= 0 || !Number.isFinite(prochainNumero)) {
+    throw new Error("Audit, annee et prochain numero sont obligatoires.");
+  }
+
+  const { error } = await supabaseServer
+    .from(COMPTEURS_TABLE)
+    .upsert(
+      { audit, annee, prochain_numero: prochainNumero, updated_at: new Date().toISOString() },
+      { onConflict: "audit,annee" }
+    );
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/qualite/nc-confidentiel/compteurs");
+}
+
+export async function deleteNumeroCompteurAction(formData: FormData): Promise<void> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canDeletePageUser(currentUser, "qualiteNcConfidentiel"))) {
+    throw new Error("Cet utilisateur ne peut pas supprimer ce compteur.");
+  }
+
+  const audit = String(formData.get("audit") || "").trim();
+  const annee = Number(formData.get("annee") || "0");
+  if (!audit || !Number.isFinite(annee)) {
+    throw new Error("Compteur invalide.");
+  }
+
+  const { error } = await supabaseServer.from(COMPTEURS_TABLE).delete().eq("audit", audit).eq("annee", annee);
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/qualite/nc-confidentiel/compteurs");
+}
+
 export async function deleteNcConfidentielRowAction(id: number): Promise<void> {
   const currentUser = await getCurrentStockUser();
   if (!(await canDeletePageUser(currentUser, "qualiteNcConfidentiel"))) {
