@@ -23,10 +23,10 @@ const STATUT_OPTIONS = ["REALISEE", "EN COURS", "NON REALISEE", "NOUVELLE NC OUV
 const STATUT_CLOTURE_OPTIONS = ["CLOTUREE", "EN COURS"];
 
 // Ces colonnes restent en lecture seule pour tout le monde, meme l'admin -
-// seule felicite peut les modifier. "created_at"/"date_realisation" ne sont
-// de toute facon jamais ecrites depuis ce qui est affiche (voir actions.ts,
-// toujours recalculees cote serveur) - restreintes ici seulement pour ne
-// pas laisser croire qu'on peut les corriger a la main.
+// seule felicite peut les modifier. "created_at"/"date_realisation*" ne
+// sont de toute facon jamais ecrites depuis ce qui est affiche (voir
+// actions.ts, toujours recalculees cote serveur) - restreintes ici
+// seulement pour ne pas laisser croire qu'on peut les corriger a la main.
 const RESTRICTED_COLUMN_KEYS = [
   "audit",
   "numero",
@@ -34,15 +34,21 @@ const RESTRICTED_COLUMN_KEYS = [
   "processus_concerne",
   "service_concerne",
   "created_at",
+  "date_realisation_correction",
+  "date_realisation_ac",
   "date_realisation",
 ];
 
+const DATE_COLUMN_KEYS = ["created_at", "date_realisation_correction", "date_realisation_ac", "date_realisation"];
+
 // Memes titres, dans le meme ordre, que la feuille "NC Confidentiel" du
-// classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne), plus "Date" et
-// "Date de realisation" ajoutees a la fin (jamais dans le classeur
-// d'origine) - demande explicite : la date de creation d'une nouvelle
-// ligne, et la date a laquelle elle passe reellement CLOTUREE.
+// classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne), plus 4 colonnes
+// jamais dans le classeur d'origine - demande explicite : "Date" (creation)
+// en 1ere colonne, puis chaque date de realisation juste a cote de son
+// statut (Correction, AC, puis Cloture globale) plutot que toutes
+// regroupees a la fin.
 const COLUMNS: AuditColumn[] = [
+  { key: "created_at", label: "Date" },
   { key: "audit", label: "Audit" },
   { key: "numero", label: "N°" },
   { key: "constat", label: "Constat", long: true },
@@ -58,19 +64,20 @@ const COLUMNS: AuditColumn[] = [
   { key: "delais_correction", label: "Délais Correction" },
   { key: "commentaire", label: "Commentaire", long: true },
   { key: "statut_correction", label: "Statut correction", select: STATUT_OPTIONS },
+  { key: "date_realisation_correction", label: "Date correction réalisée" },
   { key: "analyse_causes", label: "Analyse des causes", long: true },
   { key: "action_corrective_ac", label: "Action Corrective (AC)", long: true },
   { key: "responsable_ac", label: "Responsable AC" },
   { key: "delais_ac", label: "Délais AC" },
   { key: "commentaire2", label: "commentaire2", long: true },
   { key: "statut_ac", label: "Statut AC", select: STATUT_OPTIONS },
+  { key: "date_realisation_ac", label: "Date AC réalisée" },
   { key: "methode_mesure_efficacite_ac", label: "Methode de Mesure efficacité AC", long: true },
   { key: "mesure_efficacite_ac", label: "Mesure efficacité AC", long: true },
   { key: "realise_par", label: "Réalisé par" },
   { key: "commentaire3", label: "commentaire3", long: true },
   { key: "statut_cloture", label: "Statut cloture", select: STATUT_CLOTURE_OPTIONS },
-  { key: "created_at", label: "Date" },
-  { key: "date_realisation", label: "Date de realisation" },
+  { key: "date_realisation", label: "Date de clôture" },
 ];
 
 async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<number, AttachmentFile[]> }> {
@@ -93,7 +100,7 @@ async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<n
       const id = Number(raw.id);
       const row: AuditRow = { id };
       for (const col of COLUMNS) {
-        if (col.key === "created_at" || col.key === "date_realisation") {
+        if (DATE_COLUMN_KEYS.includes(col.key)) {
           row[col.key] = raw[col.key] ? formatDate(String(raw[col.key])) : "";
           continue;
         }

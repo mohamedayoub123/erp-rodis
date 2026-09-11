@@ -36,11 +36,13 @@ const RESTRICTED_COLUMN_KEYS = [
 ];
 
 // Memes titres, dans le meme ordre, que la feuille "TAF Confidentiel" du
-// classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne), plus "Date" et
-// "Date de realisation" ajoutees a la fin (jamais dans le classeur
-// d'origine) - demande explicite : la date de creation d'une nouvelle
-// ligne, et la date a laquelle elle passe reellement CLOTUREE.
+// classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne), plus "Date"
+// (1ere colonne) et "Date de realisation" (fin, a cote de Statut) - jamais
+// dans le classeur d'origine - demande explicite : la date de creation
+// d'une nouvelle ligne, et la date a laquelle elle passe reellement
+// CLOTUREE.
 const COLUMNS: AuditColumn[] = [
+  { key: "created_at", label: "Date" },
   { key: "audit", label: "Audit" },
   { key: "numero", label: "n°" },
   { key: "constat", label: "Constat", long: true },
@@ -59,7 +61,6 @@ const COLUMNS: AuditColumn[] = [
   { key: "t4", label: "T4" },
   { key: "tx_progression", label: "Tx de progression" },
   { key: "statut", label: "Statut", select: STATUT_OPTIONS },
-  { key: "created_at", label: "Date" },
   { key: "date_realisation", label: "Date de realisation" },
 ];
 

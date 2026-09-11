@@ -10,14 +10,42 @@ const BUCKET = "qualite-audit-fichiers";
 
 type AttachmentFile = { name: string; path: string };
 
-// "date_realisation" n'est jamais tapee a la main - le code la deduit du
-// passage (ou non) de statut_cloture a CLOTUREE, meme principe que
-// utilisateur_test_labo/date_saisie_test_labo ailleurs dans l'app. Ignore
-// toujours la valeur envoyee par le navigateur, recalcule cote serveur a
-// partir de l'etat REEL avant/apres - la seule source de verite fiable.
-function estCloturee(row: Record<string, string | number | null>): boolean {
-  return String(row.statut_cloture ?? "").trim().toUpperCase() === "CLOTUREE";
+// Aucune des 3 dates de realisation n'est jamais tapee a la main - le code
+// les deduit du passage (ou non) de chaque statut a sa valeur "fait" :
+// statut_correction -> REALISEE, statut_ac -> REALISEE, statut_cloture ->
+// CLOTUREE (les 2 precedents combines). NC a 2 etapes distinctes
+// (Correction, puis Action Corrective) avant la cloture globale, chacune
+// merite sa propre date - demande explicite. Ignore toujours la valeur
+// envoyee par le navigateur, recalcule cote serveur a partir de l'etat REEL
+// avant/apres - la seule source de verite fiable (meme principe que
+// utilisateur_test_labo/date_saisie_test_labo ailleurs dans l'app).
+function estValeur(row: Record<string, string | number | null>, key: string, valeur: string): boolean {
+  return String(row[key] ?? "").trim().toUpperCase() === valeur;
 }
+
+// Garde la date deja enregistree si le statut etait DEJA "fait" (ne
+// re-tamponne pas a chaque save), remet a aujourd'hui si il vient tout
+// juste de le devenir, efface si le statut est reparti en arriere
+// (reouverture).
+function calculerDateRealisation(
+  nouveauFait: boolean,
+  ancienFait: boolean,
+  ancienneDate: string | null,
+  todayIso: string
+): string | null {
+  if (!nouveauFait) return null;
+  return ancienFait ? (ancienneDate ?? todayIso) : todayIso;
+}
+
+type AncienEtat = {
+  id: number;
+  statut_correction: string | null;
+  statut_ac: string | null;
+  statut_cloture: string | null;
+  date_realisation_correction: string | null;
+  date_realisation_ac: string | null;
+  date_realisation: string | null;
+};
 
 export async function saveNcConfidentielBatchAction(
   rows: AuditRow[]
@@ -38,25 +66,40 @@ export async function saveNcConfidentielBatchAction(
     const ids = toUpdate.map((r) => r.id as number);
     const { data: existingRows } = await supabaseServer
       .from(TABLE)
-      .select("id, statut_cloture, date_realisation")
+      .select("id, statut_correction, statut_ac, statut_cloture, date_realisation_correction, date_realisation_ac, date_realisation")
       .in("id", ids);
-    const existingById = new Map(
-      ((existingRows ?? []) as { id: number; statut_cloture: string | null; date_realisation: string | null }[]).map(
-        (r) => [r.id, r]
-      )
-    );
+    const existingById = new Map(((existingRows ?? []) as AncienEtat[]).map((r) => [r.id, r]));
 
     const payload = toUpdate.map((r) => {
       const { created_at, ...rest } = r;
       const ancien = existingById.get(r.id as number);
-      const nouveauCloture = estCloturee(r);
-      const ancienCloture = ancien?.statut_cloture?.trim().toUpperCase() === "CLOTUREE";
-      const dateRealisation = nouveauCloture
-        ? ancienCloture
-          ? (ancien?.date_realisation ?? todayIso)
-          : todayIso
-        : null;
-      return { ...rest, date_realisation: dateRealisation, updated_at: new Date().toISOString() };
+
+      const dateCorrection = calculerDateRealisation(
+        estValeur(r, "statut_correction", "REALISEE"),
+        ancien?.statut_correction?.trim().toUpperCase() === "REALISEE",
+        ancien?.date_realisation_correction ?? null,
+        todayIso
+      );
+      const dateAc = calculerDateRealisation(
+        estValeur(r, "statut_ac", "REALISEE"),
+        ancien?.statut_ac?.trim().toUpperCase() === "REALISEE",
+        ancien?.date_realisation_ac ?? null,
+        todayIso
+      );
+      const dateCloture = calculerDateRealisation(
+        estValeur(r, "statut_cloture", "CLOTUREE"),
+        ancien?.statut_cloture?.trim().toUpperCase() === "CLOTUREE",
+        ancien?.date_realisation ?? null,
+        todayIso
+      );
+
+      return {
+        ...rest,
+        date_realisation_correction: dateCorrection,
+        date_realisation_ac: dateAc,
+        date_realisation: dateCloture,
+        updated_at: new Date().toISOString(),
+      };
     });
 
     const { error } = await supabaseServer.from(TABLE).upsert(payload, { onConflict: "id" });
@@ -69,7 +112,9 @@ export async function saveNcConfidentielBatchAction(
   if (toInsert.length > 0) {
     const payload = toInsert.map((r) => ({
       ...r,
-      date_realisation: estCloturee(r) ? todayIso : null,
+      date_realisation_correction: estValeur(r, "statut_correction", "REALISEE") ? todayIso : null,
+      date_realisation_ac: estValeur(r, "statut_ac", "REALISEE") ? todayIso : null,
+      date_realisation: estValeur(r, "statut_cloture", "CLOTUREE") ? todayIso : null,
     }));
     const { data, error } = await supabaseServer.from(TABLE).insert(payload).select("id");
     if (error) {

@@ -10,9 +10,11 @@ type NcRow = {
   audit: string | null;
   numero: string | null;
   processus_concerne: string | null;
-  statut_cloture: string | null;
+  statut_correction: string | null;
+  statut_ac: string | null;
   created_at: string | null;
-  date_realisation: string | null;
+  date_realisation_correction: string | null;
+  date_realisation_ac: string | null;
 };
 type TafRow = {
   audit: string | null;
@@ -91,10 +93,20 @@ function periodeRank(periode: string): number {
   return index >= 0 ? index : PERIODE_ORDER.length + (periode === "Reportee N+1" ? 0 : 1);
 }
 
-type Compte = { nbNc: number; ncRealisees: number; nbTaf: number; tafRealisees: number };
+// Pas de compteur "NC realisees" global (= cloture, les 2 a la fois) -
+// demande explicite : "je veux tout la realisation pas le globale" -
+// Correction et AC sont suivis separement partout dans ce rapport, jamais
+// combines en un seul chiffre.
+type Compte = {
+  nbNc: number;
+  ncCorrectionRealisees: number;
+  ncAcRealisees: number;
+  nbTaf: number;
+  tafRealisees: number;
+};
 
 function nouveauCompte(): Compte {
-  return { nbNc: 0, ncRealisees: 0, nbTaf: 0, tafRealisees: 0 };
+  return { nbNc: 0, ncCorrectionRealisees: 0, ncAcRealisees: 0, nbTaf: 0, tafRealisees: 0 };
 }
 
 // % calcule SEPAREMENT pour NC et pour TAF (jamais un % combine "NC+TAF" -
@@ -154,7 +166,7 @@ export default async function RapportNcTafPage() {
   const [ncRows, tafRows] = await Promise.all([
     fetchAllRows<NcRow>(
       "qualite_nc_confidentiel",
-      "audit, numero, processus_concerne, statut_cloture, created_at, date_realisation"
+      "audit, numero, processus_concerne, statut_correction, statut_ac, created_at, date_realisation_correction, date_realisation_ac"
     ),
     fetchAllRows<TafRow>(
       "qualite_taf_confidentiel",
@@ -189,15 +201,18 @@ export default async function RapportNcTafPage() {
     const annee = parseAnnee(row.numero);
     const periode = parsePeriode(row.audit);
     const processus = parseProcessus(row.processus_concerne);
-    const estRealisee = row.statut_cloture === "CLOTUREE";
+    const correctionRealisee = row.statut_correction === "REALISEE";
+    const acRealisee = row.statut_ac === "REALISEE";
 
     const anneeAudit = getOrCreateAnneeAudit(annee, periode);
     anneeAudit.nbNc += 1;
-    if (estRealisee) anneeAudit.ncRealisees += 1;
+    if (correctionRealisee) anneeAudit.ncCorrectionRealisees += 1;
+    if (acRealisee) anneeAudit.ncAcRealisees += 1;
 
     const proc = getOrCreateProcessus(processus);
     proc.nbNc += 1;
-    if (estRealisee) proc.ncRealisees += 1;
+    if (correctionRealisee) proc.ncCorrectionRealisees += 1;
+    if (acRealisee) proc.ncAcRealisees += 1;
   }
 
   for (const row of tafRows) {
@@ -227,7 +242,8 @@ export default async function RapportNcTafPage() {
   for (const row of croiseRows) {
     const current = totalParAnnee.get(row.annee) ?? { annee: row.annee, periode: "Total", ...nouveauCompte() };
     current.nbNc += row.nbNc;
-    current.ncRealisees += row.ncRealisees;
+    current.ncCorrectionRealisees += row.ncCorrectionRealisees;
+    current.ncAcRealisees += row.ncAcRealisees;
     current.nbTaf += row.nbTaf;
     current.tafRealisees += row.tafRealisees;
     totalParAnnee.set(row.annee, current);
@@ -251,7 +267,8 @@ export default async function RapportNcTafPage() {
   const grandTotal = croiseRows.reduce(
     (acc, r) => ({
       nbNc: acc.nbNc + r.nbNc,
-      ncRealisees: acc.ncRealisees + r.ncRealisees,
+      ncCorrectionRealisees: acc.ncCorrectionRealisees + r.ncCorrectionRealisees,
+      ncAcRealisees: acc.ncAcRealisees + r.ncAcRealisees,
       nbTaf: acc.nbTaf + r.nbTaf,
       tafRealisees: acc.tafRealisees + r.tafRealisees,
     }),
@@ -266,11 +283,13 @@ export default async function RapportNcTafPage() {
   // souvent pas encore eu le temps d'etre cloture, meme si tout se passe
   // normalement) - le cumule montre la vraie tendance de rattrapage.
   //
-  // Fiable seulement si date_realisation est rempli sur les anciennes
-  // lignes deja cloturees - voir scripts/sql/add_date_realisation_nc_taf.sql
+  // Fiable seulement si les dates de realisation sont remplies sur les
+  // anciennes lignes deja realisees - voir scripts/sql/
+  // add_date_realisation_nc_taf.sql et add_date_realisation_correction_ac_nc.sql
   // (backfill sur updated_at, la seule estimation disponible pour le passe).
   const ncCreationMonths = ncRows.map((r) => moisKeyFromDate(r.created_at));
-  const ncRealisationMonths = ncRows.map((r) => moisKeyFromDate(r.date_realisation));
+  const ncCorrectionRealisationMonths = ncRows.map((r) => moisKeyFromDate(r.date_realisation_correction));
+  const ncAcRealisationMonths = ncRows.map((r) => moisKeyFromDate(r.date_realisation_ac));
   const tafCreationMonths = tafRows.map((r) => moisKeyFromDate(r.created_at));
   const tafRealisationMonths = tafRows.map((r) => moisKeyFromDate(r.date_realisation));
 
@@ -282,20 +301,33 @@ export default async function RapportNcTafPage() {
     toutesLesMoisCreation.length > 0 ? [...toutesLesMoisCreation].sort()[0] : currentMonthKey;
   const monthKeys = moisRange(premierMois, currentMonthKey);
 
-  const pctNcParMois = monthKeys.map((mk) => {
-    const cumulNb = ncCreationMonths.filter((m) => m !== null && m <= mk).length;
-    const cumulRealise = ncRealisationMonths.filter((m) => m !== null && m <= mk).length;
-    return pct(cumulRealise, cumulNb) ?? 0;
-  });
-  const pctTafParMois = monthKeys.map((mk) => {
-    const cumulNb = tafCreationMonths.filter((m) => m !== null && m <= mk).length;
-    const cumulRealise = tafRealisationMonths.filter((m) => m !== null && m <= mk).length;
-    return pct(cumulRealise, cumulNb) ?? 0;
-  });
+  function pctCumuleParMois(creationMonths: (string | null)[], realisationMonths: (string | null)[]) {
+    return monthKeys.map((mk) => {
+      const cumulNb = creationMonths.filter((m) => m !== null && m <= mk).length;
+      const cumulRealise = realisationMonths.filter((m) => m !== null && m <= mk).length;
+      return pct(cumulRealise, cumulNb) ?? 0;
+    });
+  }
 
   const evolutionSeries = [
-    { key: "pct_nc", label: "% NC realise (cumule)", color: "#7c3aed", values: pctNcParMois },
-    { key: "pct_taf", label: "% TAF realise (cumule)", color: "#0284c7", values: pctTafParMois },
+    {
+      key: "pct_nc_correction",
+      label: "% NC Correction realisee (cumule)",
+      color: "#7c3aed",
+      values: pctCumuleParMois(ncCreationMonths, ncCorrectionRealisationMonths),
+    },
+    {
+      key: "pct_nc_ac",
+      label: "% NC AC realisee (cumule)",
+      color: "#c026d3",
+      values: pctCumuleParMois(ncCreationMonths, ncAcRealisationMonths),
+    },
+    {
+      key: "pct_taf",
+      label: "% TAF realise (cumule)",
+      color: "#0284c7",
+      values: pctCumuleParMois(tafCreationMonths, tafRealisationMonths),
+    },
   ];
   const monthLabels = monthKeys.map(moisLabel);
 
@@ -308,8 +340,8 @@ export default async function RapportNcTafPage() {
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Rapport NC &amp; TAF</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Nombre de NC et de TAF par audit (A1 a A4) et par annee, et par processus concerne, avec
-                combien sont realises (cloturees).
+                Nombre de NC et de TAF par audit (A1 a A4) et par annee, et par processus concerne -
+                Correction et AC compte separement pour les NC, jamais un seul chiffre global.
               </p>
             </div>
 
@@ -320,17 +352,27 @@ export default async function RapportNcTafPage() {
           </div>
         </section>
 
-        <section className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        <section className="grid gap-3 sm:grid-cols-4 xl:grid-cols-8">
           <div className="rounded-2xl bg-violet-50 px-4 py-3 text-sm">
             NC :<span className="ml-2 font-bold text-violet-900">{grandTotal.nbNc}</span>
           </div>
           <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm">
-            NC realisees :<span className="ml-2 font-bold text-emerald-900">{grandTotal.ncRealisees}</span>
+            NC Correction realisees :
+            <span className="ml-2 font-bold text-emerald-900">{grandTotal.ncCorrectionRealisees}</span>
           </div>
           <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm">
-            % NC realise :
+            % NC Correction :
             <span className="ml-2 font-bold text-amber-900">
-              {pctLabel(grandTotal.ncRealisees, grandTotal.nbNc)}
+              {pctLabel(grandTotal.ncCorrectionRealisees, grandTotal.nbNc)}
+            </span>
+          </div>
+          <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm">
+            NC AC realisees :<span className="ml-2 font-bold text-emerald-900">{grandTotal.ncAcRealisees}</span>
+          </div>
+          <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm">
+            % NC AC :
+            <span className="ml-2 font-bold text-amber-900">
+              {pctLabel(grandTotal.ncAcRealisees, grandTotal.nbNc)}
             </span>
           </div>
           <div className="rounded-2xl bg-sky-50 px-4 py-3 text-sm">
@@ -367,8 +409,10 @@ export default async function RapportNcTafPage() {
                   <th className="px-4 py-3 font-semibold">Annee</th>
                   <th className="px-4 py-3 font-semibold">Audit</th>
                   <th className="px-4 py-3 font-semibold">Nb NC</th>
-                  <th className="px-4 py-3 font-semibold">NC realisees</th>
-                  <th className="px-4 py-3 font-semibold">% NC</th>
+                  <th className="px-4 py-3 font-semibold">Correction realisee</th>
+                  <th className="px-4 py-3 font-semibold">% Correction</th>
+                  <th className="px-4 py-3 font-semibold">AC realisee</th>
+                  <th className="px-4 py-3 font-semibold">% AC</th>
                   <th className="px-4 py-3 font-semibold">Nb TAF</th>
                   <th className="px-4 py-3 font-semibold">TAF realisees</th>
                   <th className="px-4 py-3 font-semibold">% TAF</th>
@@ -384,8 +428,10 @@ export default async function RapportNcTafPage() {
                     <td className="px-4 py-3 text-slate-900">{row.isSubtotal ? row.annee : ""}</td>
                     <td className="px-4 py-3 text-slate-700">{row.periode}</td>
                     <td className="px-4 py-3 text-slate-700">{row.nbNc}</td>
-                    <td className="px-4 py-3 text-emerald-700">{row.ncRealisees}</td>
-                    <td className="px-4 py-3 text-slate-700">{pctLabel(row.ncRealisees, row.nbNc)}</td>
+                    <td className="px-4 py-3 text-emerald-700">{row.ncCorrectionRealisees}</td>
+                    <td className="px-4 py-3 text-slate-700">{pctLabel(row.ncCorrectionRealisees, row.nbNc)}</td>
+                    <td className="px-4 py-3 text-emerald-700">{row.ncAcRealisees}</td>
+                    <td className="px-4 py-3 text-slate-700">{pctLabel(row.ncAcRealisees, row.nbNc)}</td>
                     <td className="px-4 py-3 text-slate-700">{row.nbTaf}</td>
                     <td className="px-4 py-3 text-emerald-700">{row.tafRealisees}</td>
                     <td className="px-4 py-3 text-slate-700">{pctLabel(row.tafRealisees, row.nbTaf)}</td>
@@ -407,8 +453,10 @@ export default async function RapportNcTafPage() {
                 <tr>
                   <th className="px-4 py-3 font-semibold">Processus concerne</th>
                   <th className="px-4 py-3 font-semibold">Nb NC</th>
-                  <th className="px-4 py-3 font-semibold">NC realisees</th>
-                  <th className="px-4 py-3 font-semibold">% NC</th>
+                  <th className="px-4 py-3 font-semibold">Correction realisee</th>
+                  <th className="px-4 py-3 font-semibold">% Correction</th>
+                  <th className="px-4 py-3 font-semibold">AC realisee</th>
+                  <th className="px-4 py-3 font-semibold">% AC</th>
                   <th className="px-4 py-3 font-semibold">Nb TAF</th>
                   <th className="px-4 py-3 font-semibold">TAF realisees</th>
                   <th className="px-4 py-3 font-semibold">% TAF</th>
@@ -420,8 +468,10 @@ export default async function RapportNcTafPage() {
                   <tr key={row.processus} className="border-t border-slate-100">
                     <td className="px-4 py-3 font-medium text-slate-900">{row.processus}</td>
                     <td className="px-4 py-3 text-slate-700">{row.nbNc}</td>
-                    <td className="px-4 py-3 text-emerald-700">{row.ncRealisees}</td>
-                    <td className="px-4 py-3 text-slate-700">{pctLabel(row.ncRealisees, row.nbNc)}</td>
+                    <td className="px-4 py-3 text-emerald-700">{row.ncCorrectionRealisees}</td>
+                    <td className="px-4 py-3 text-slate-700">{pctLabel(row.ncCorrectionRealisees, row.nbNc)}</td>
+                    <td className="px-4 py-3 text-emerald-700">{row.ncAcRealisees}</td>
+                    <td className="px-4 py-3 text-slate-700">{pctLabel(row.ncAcRealisees, row.nbNc)}</td>
                     <td className="px-4 py-3 text-slate-700">{row.nbTaf}</td>
                     <td className="px-4 py-3 text-emerald-700">{row.tafRealisees}</td>
                     <td className="px-4 py-3 text-slate-700">{pctLabel(row.tafRealisees, row.nbTaf)}</td>
