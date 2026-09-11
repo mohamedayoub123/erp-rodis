@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import type { AuditRow } from "../audit-table";
@@ -9,6 +10,11 @@ const TABLE = "qualite_taf_confidentiel";
 const BUCKET = "qualite-audit-fichiers";
 
 type AttachmentFile = { name: string; path: string };
+
+function parseOptionalText(formData: FormData, key: string): string | null {
+  const value = String(formData.get(key) || "").trim();
+  return value || null;
+}
 
 // "date_realisation" n'est jamais tapee a la main - le code la deduit du
 // passage (ou non) de statut a CLOTUREE, meme principe que
@@ -81,6 +87,44 @@ export async function saveTafConfidentielBatchAction(
 
   revalidatePath("/qualite/taf-confidentiel");
   return { ok: true, insertedIds };
+}
+
+// Champs de suivi (Qui, Delais, Commentaire, T1-T4) modifies depuis la page
+// dediee /qualite/taf-confidentiel/[id] - saisie plus confortable en
+// formulaire vertical plein ecran que dans les cellules etroites du tableau
+// (demande explicite), en plus de l'edition en ligne qui reste disponible.
+// Ne touche jamais a statut/date_realisation (geres par
+// saveTafConfidentielBatchAction ci-dessus), seulement ces 7 champs.
+const DETAIL_FIELD_KEYS = ["qui", "delais", "commentaire", "t1", "t2", "t3", "t4"] as const;
+
+export async function updateTafConfidentielDetailAction(formData: FormData): Promise<void> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteTafConfidentiel"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier ce TAF.");
+  }
+
+  const id = Number(formData.get("id"));
+  if (!id) {
+    throw new Error("TAF invalide.");
+  }
+
+  const payload: Record<string, string | null> = {};
+  for (const key of DETAIL_FIELD_KEYS) {
+    payload[key] = parseOptionalText(formData, key);
+  }
+
+  const { error } = await supabaseServer
+    .from(TABLE)
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/qualite/taf-confidentiel");
+  revalidatePath(`/qualite/taf-confidentiel/${id}`);
+  redirect("/qualite/taf-confidentiel");
 }
 
 export async function deleteTafConfidentielRowAction(id: number): Promise<void> {

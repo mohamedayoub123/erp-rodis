@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 
-export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[] };
+// readOnly : jamais modifiable par PERSONNE, meme felicite/l'admin - a la
+// difference de restrictedColumnKeys (plus bas sur AuditTable) qui reste
+// modifiable par un utilisateur precis. Sert aux colonnes calculees cote
+// serveur (ex: Date, Date de realisation - voir nc-confidentiel/page.tsx)
+// qu'il ne faut meme pas laisser croire editables.
+export type AuditColumn = { key: string; label: string; long?: boolean; select?: string[]; readOnly?: boolean };
 
 export type AuditRow = { id: number | null; [columnKey: string]: string | number | null };
 
@@ -413,6 +418,7 @@ export function AuditTable({
   restrictedColumnKeys,
   canEditRestrictedColumns,
   addRowHref,
+  detailHrefPrefix,
 }: {
   columns: AuditColumn[];
   initialRows: AuditRow[];
@@ -460,6 +466,14 @@ export function AuditTable({
   // nouvelle NC directement dans le tableau, une page en formulaire vertical
   // (juste le constat initial) est plus lisible.
   addRowHref?: string;
+  // Lien "Detail" par ligne deja enregistree (ex: "/qualite/nc-confidentiel")
+  // vers une page dediee plein ecran pour ses champs de suivi (Correction,
+  // Action Corrective...) - meme raison que addRowHref, mais pour EDITER une
+  // ligne existante plutot qu'en creer une. L'edition en ligne du tableau
+  // reste disponible en plus. Visible meme sans canWrite (lecture seule sur
+  // la page dediee) - une ligne pas encore enregistree (row.id === null) ne
+  // l'affiche jamais, rien a ouvrir avant le 1er Enregistrer.
+  detailHrefPrefix?: string;
 }) {
   const [rowKeys, setRowKeys] = useState<string[]>(() => initialRows.map((r) => `row-${r.id}`));
   const rowsRef = useRef<Record<string, AuditRow>>(
@@ -591,10 +605,16 @@ export function AuditTable({
     "w-48 rounded-xl border px-3 py-2 text-sm font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60";
 
   function isColumnEditable(col: AuditColumn): boolean {
+    if (col.readOnly) return false;
     if (!canWrite) return false;
     if (restrictedColumnKeys?.includes(col.key)) return Boolean(canEditRestrictedColumns);
     return true;
   }
+
+  // La colonne Actions porte le Supprimer (canWrite) ET/OU le lien Detail
+  // (detailHrefPrefix, visible meme en lecture seule) - presente des que
+  // l'un des deux existe.
+  const showActionsColumn = canWrite || Boolean(detailHrefPrefix);
 
   return (
     <div className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
@@ -650,7 +670,7 @@ export function AuditTable({
                   {col.label}
                 </th>
               ))}
-              {canWrite ? (
+              {showActionsColumn ? (
                 <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-base font-bold">
                   Actions
                 </th>
@@ -660,7 +680,7 @@ export function AuditTable({
           <tbody>
             {rowKeys.length === 0 ? (
               <tr>
-                <td colSpan={columns.length + 1} className="px-4 py-6 text-center text-sm text-slate-500">
+                <td colSpan={columns.length + (showActionsColumn ? 1 : 0)} className="px-4 py-6 text-center text-sm text-slate-500">
                   Aucune ligne pour le moment.
                 </td>
               </tr>
@@ -774,17 +794,30 @@ export function AuditTable({
                         </td>
                       )
                     )}
-                    {canWrite ? (
+                    {showActionsColumn ? (
                       <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => removeRow(key)}
-                          disabled={isDeleting === key}
-                          title="Supprimer cette ligne"
-                          className="h-9 w-9 rounded-xl border border-red-200 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-60"
-                        >
-                          x
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {detailHrefPrefix && row.id ? (
+                            <Link
+                              href={`${detailHrefPrefix}/${row.id}`}
+                              title="Ouvrir le detail"
+                              className="flex h-9 w-9 items-center justify-center rounded-xl border border-violet-200 text-sm font-bold text-violet-700 transition hover:bg-violet-50"
+                            >
+                              📝
+                            </Link>
+                          ) : null}
+                          {canWrite ? (
+                            <button
+                              type="button"
+                              onClick={() => removeRow(key)}
+                              disabled={isDeleting === key}
+                              title="Supprimer cette ligne"
+                              className="h-9 w-9 rounded-xl border border-red-200 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+                            >
+                              x
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     ) : null}
                   </tr>
