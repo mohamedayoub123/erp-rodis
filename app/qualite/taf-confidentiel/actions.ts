@@ -10,6 +10,15 @@ const BUCKET = "qualite-audit-fichiers";
 
 type AttachmentFile = { name: string; path: string };
 
+// "date_realisation" n'est jamais tapee a la main - le code la deduit du
+// passage (ou non) de statut a CLOTUREE, meme principe que
+// utilisateur_test_labo/date_saisie_test_labo ailleurs dans l'app. Ignore
+// toujours la valeur envoyee par le navigateur, recalcule cote serveur a
+// partir de l'etat REEL avant/apres - la seule source de verite fiable.
+function estCloturee(row: Record<string, string | number | null>): boolean {
+  return String(row.statut ?? "").trim().toUpperCase() === "CLOTUREE";
+}
+
 export async function saveTafConfidentielBatchAction(
   rows: AuditRow[]
 ): Promise<{ ok: boolean; message?: string; insertedIds?: number[] }> {
@@ -18,16 +27,40 @@ export async function saveTafConfidentielBatchAction(
     return { ok: false, message: "Cet utilisateur ne peut pas modifier ce tableau." };
   }
 
+  const todayIso = new Date().toISOString().slice(0, 10);
   const toUpdate = rows.filter((r) => r.id !== null);
-  const toInsert = rows.filter((r) => r.id === null).map(({ id, ...rest }) => rest);
+  // created_at reste gere par la base (colonne existante, jamais ecrasee
+  // par une valeur re-soumise depuis l'affichage) - retire de tous les
+  // objets avant ecriture, insertion comme mise a jour.
+  const toInsert = rows.filter((r) => r.id === null).map(({ id, created_at, ...rest }) => rest);
 
   if (toUpdate.length > 0) {
-    const { error } = await supabaseServer
+    const ids = toUpdate.map((r) => r.id as number);
+    const { data: existingRows } = await supabaseServer
       .from(TABLE)
-      .upsert(
-        toUpdate.map((r) => ({ ...r, updated_at: new Date().toISOString() })),
-        { onConflict: "id" }
-      );
+      .select("id, statut, date_realisation")
+      .in("id", ids);
+    const existingById = new Map(
+      ((existingRows ?? []) as { id: number; statut: string | null; date_realisation: string | null }[]).map((r) => [
+        r.id,
+        r,
+      ])
+    );
+
+    const payload = toUpdate.map((r) => {
+      const { created_at, ...rest } = r;
+      const ancien = existingById.get(r.id as number);
+      const nouveauCloture = estCloturee(r);
+      const ancienCloture = ancien?.statut?.trim().toUpperCase() === "CLOTUREE";
+      const dateRealisation = nouveauCloture
+        ? ancienCloture
+          ? (ancien?.date_realisation ?? todayIso)
+          : todayIso
+        : null;
+      return { ...rest, date_realisation: dateRealisation, updated_at: new Date().toISOString() };
+    });
+
+    const { error } = await supabaseServer.from(TABLE).upsert(payload, { onConflict: "id" });
     if (error) {
       return { ok: false, message: error.message };
     }
@@ -35,7 +68,11 @@ export async function saveTafConfidentielBatchAction(
 
   let insertedIds: number[] = [];
   if (toInsert.length > 0) {
-    const { data, error } = await supabaseServer.from(TABLE).insert(toInsert).select("id");
+    const payload = toInsert.map((r) => ({
+      ...r,
+      date_realisation: estCloturee(r) ? todayIso : null,
+    }));
+    const { data, error } = await supabaseServer.from(TABLE).insert(payload).select("id");
     if (error) {
       return { ok: false, message: error.message };
     }

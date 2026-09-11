@@ -4,18 +4,23 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { canViewPageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { TestLaboLineChart } from "../rapport/test-labo-line-chart";
 
 type NcRow = {
   audit: string | null;
   numero: string | null;
   processus_concerne: string | null;
   statut_cloture: string | null;
+  created_at: string | null;
+  date_realisation: string | null;
 };
 type TafRow = {
   audit: string | null;
   numero: string | null;
   processus_concerne: string | null;
   statut: string | null;
+  created_at: string | null;
+  date_realisation: string | null;
 };
 
 async function fetchAllRows<T>(table: string, select: string): Promise<T[]> {
@@ -104,6 +109,41 @@ function pctLabel(realise: number, total: number): string {
   return value === null ? "-" : `${value}%`;
 }
 
+const MOIS_NOMS = [
+  "Janvier", "Fevrier", "Mars", "Avril", "Mai", "Juin",
+  "Juillet", "Aout", "Septembre", "Octobre", "Novembre", "Decembre",
+];
+function moisLabel(moisKey: string) {
+  const [year, month] = moisKey.split("-");
+  const index = Number(month) - 1;
+  return `${MOIS_NOMS[index] ?? month} ${year}`;
+}
+
+// "created_at" est un timestamp ISO, "date_realisation" une simple date
+// "YYYY-MM-DD" (voir actions.ts) - les 2 commencent par "YYYY-MM", donc
+// meme extraction pour les 2.
+function moisKeyFromDate(value: string | null): string | null {
+  const m = String(value || "").match(/^(\d{4})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}` : null;
+}
+
+function moisRange(debut: string, fin: string): string[] {
+  const mois: string[] = [];
+  const [debutY, debutM] = debut.split("-").map(Number);
+  const [finY, finM] = fin.split("-").map(Number);
+  let y = debutY;
+  let m = debutM;
+  while (y < finY || (y === finY && m <= finM)) {
+    mois.push(`${y}-${String(m).padStart(2, "0")}`);
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return mois;
+}
+
 export default async function RapportNcTafPage() {
   noStore();
   const currentUser = await getCurrentStockUser();
@@ -112,8 +152,14 @@ export default async function RapportNcTafPage() {
   }
 
   const [ncRows, tafRows] = await Promise.all([
-    fetchAllRows<NcRow>("qualite_nc_confidentiel", "audit, numero, processus_concerne, statut_cloture"),
-    fetchAllRows<TafRow>("qualite_taf_confidentiel", "audit, numero, processus_concerne, statut"),
+    fetchAllRows<NcRow>(
+      "qualite_nc_confidentiel",
+      "audit, numero, processus_concerne, statut_cloture, created_at, date_realisation"
+    ),
+    fetchAllRows<TafRow>(
+      "qualite_taf_confidentiel",
+      "audit, numero, processus_concerne, statut, created_at, date_realisation"
+    ),
   ]);
 
   // --- Croise Annee x Audit ---
@@ -212,6 +258,47 @@ export default async function RapportNcTafPage() {
     nouveauCompte()
   );
 
+  // Evolution dans le temps du % realise - CUMULE (pas juste le % des
+  // items crees ce mois-la) : "a fin de ce mois, quelle part de TOUT ce qui
+  // a ete ouvert depuis le debut a deja ete cloturee" - demande explicite
+  // ("comment on evalue le % de realisation" dans le temps). Un % par
+  // cohorte du mois de creation serait trompeur ici (un NC recent n'a
+  // souvent pas encore eu le temps d'etre cloture, meme si tout se passe
+  // normalement) - le cumule montre la vraie tendance de rattrapage.
+  //
+  // Fiable seulement si date_realisation est rempli sur les anciennes
+  // lignes deja cloturees - voir scripts/sql/add_date_realisation_nc_taf.sql
+  // (backfill sur updated_at, la seule estimation disponible pour le passe).
+  const ncCreationMonths = ncRows.map((r) => moisKeyFromDate(r.created_at));
+  const ncRealisationMonths = ncRows.map((r) => moisKeyFromDate(r.date_realisation));
+  const tafCreationMonths = tafRows.map((r) => moisKeyFromDate(r.created_at));
+  const tafRealisationMonths = tafRows.map((r) => moisKeyFromDate(r.date_realisation));
+
+  const currentMonthKey = new Date().toISOString().slice(0, 7);
+  const toutesLesMoisCreation = [...ncCreationMonths, ...tafCreationMonths].filter(
+    (m): m is string => m !== null
+  );
+  const premierMois =
+    toutesLesMoisCreation.length > 0 ? [...toutesLesMoisCreation].sort()[0] : currentMonthKey;
+  const monthKeys = moisRange(premierMois, currentMonthKey);
+
+  const pctNcParMois = monthKeys.map((mk) => {
+    const cumulNb = ncCreationMonths.filter((m) => m !== null && m <= mk).length;
+    const cumulRealise = ncRealisationMonths.filter((m) => m !== null && m <= mk).length;
+    return pct(cumulRealise, cumulNb) ?? 0;
+  });
+  const pctTafParMois = monthKeys.map((mk) => {
+    const cumulNb = tafCreationMonths.filter((m) => m !== null && m <= mk).length;
+    const cumulRealise = tafRealisationMonths.filter((m) => m !== null && m <= mk).length;
+    return pct(cumulRealise, cumulNb) ?? 0;
+  });
+
+  const evolutionSeries = [
+    { key: "pct_nc", label: "% NC realise (cumule)", color: "#7c3aed", values: pctNcParMois },
+    { key: "pct_taf", label: "% TAF realise (cumule)", color: "#0284c7", values: pctTafParMois },
+  ];
+  const monthLabels = monthKeys.map(moisLabel);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f0ff_0%,#faf8ff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -258,6 +345,15 @@ export default async function RapportNcTafPage() {
               {pctLabel(grandTotal.tafRealisees, grandTotal.nbTaf)}
             </span>
           </div>
+        </section>
+
+        <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <TestLaboLineChart
+            months={monthLabels}
+            series={evolutionSeries}
+            title="Evolution du % realise dans le temps"
+            unit="%"
+          />
         </section>
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">

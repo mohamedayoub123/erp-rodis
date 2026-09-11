@@ -5,6 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { canWritePageUser, getCurrentStockUser, getNcTafProcessusAutorisesUser } from "@/lib/stock-auth";
+import { formatDate } from "../../production/suivi/data";
 import { AuditTable, type AuditColumn, type AuditRow, type AttachmentFile } from "../audit-table";
 import {
   saveTafConfidentielBatchAction,
@@ -20,11 +21,25 @@ const STATUT_OPTIONS = ["EN COURS", "CLOTUREE", "PAS D'ACTION"];
 
 // Ces colonnes restent en lecture seule pour tout le monde, meme l'admin -
 // seule felicite peut les modifier. "Constat" a ete retire de cette liste -
-// modifiable par tout le monde comme "Commentaire".
-const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "processus_concerne", "service_concerne"];
+// modifiable par tout le monde comme "Commentaire". "created_at"/
+// "date_realisation" ne sont de toute facon jamais ecrites depuis ce qui
+// est affiche (voir actions.ts, toujours recalculees cote serveur) -
+// restreintes ici seulement pour ne pas laisser croire qu'on peut les
+// corriger a la main.
+const RESTRICTED_COLUMN_KEYS = [
+  "audit",
+  "numero",
+  "processus_concerne",
+  "service_concerne",
+  "created_at",
+  "date_realisation",
+];
 
 // Memes titres, dans le meme ordre, que la feuille "TAF Confidentiel" du
-// classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne).
+// classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne), plus "Date" et
+// "Date de realisation" ajoutees a la fin (jamais dans le classeur
+// d'origine) - demande explicite : la date de creation d'une nouvelle
+// ligne, et la date a laquelle elle passe reellement CLOTUREE.
 const COLUMNS: AuditColumn[] = [
   { key: "audit", label: "Audit" },
   { key: "numero", label: "n°" },
@@ -44,6 +59,8 @@ const COLUMNS: AuditColumn[] = [
   { key: "t4", label: "T4" },
   { key: "tx_progression", label: "Tx de progression" },
   { key: "statut", label: "Statut", select: STATUT_OPTIONS },
+  { key: "created_at", label: "Date" },
+  { key: "date_realisation", label: "Date de realisation" },
 ];
 
 async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<number, AttachmentFile[]> }> {
@@ -66,6 +83,10 @@ async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<n
       const id = Number(raw.id);
       const row: AuditRow = { id };
       for (const col of COLUMNS) {
+        if (col.key === "created_at" || col.key === "date_realisation") {
+          row[col.key] = raw[col.key] ? formatDate(String(raw[col.key])) : "";
+          continue;
+        }
         row[col.key] = raw[col.key] != null ? String(raw[col.key]) : "";
       }
       rows.push(row);
