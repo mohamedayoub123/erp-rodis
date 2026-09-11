@@ -5,8 +5,18 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { canViewPageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
-type NcRow = { audit: string | null; numero: string | null; statut_cloture: string | null };
-type TafRow = { audit: string | null; numero: string | null; statut: string | null };
+type NcRow = {
+  audit: string | null;
+  numero: string | null;
+  processus_concerne: string | null;
+  statut_cloture: string | null;
+};
+type TafRow = {
+  audit: string | null;
+  numero: string | null;
+  processus_concerne: string | null;
+  statut: string | null;
+};
 
 async function fetchAllRows<T>(table: string, select: string): Promise<T[]> {
   const rows: T[] = [];
@@ -35,18 +45,36 @@ function parseAnnee(numero: string | null): string {
   return m ? m[1] : "Annee inconnue";
 }
 
+// Marqueur d'un NC/TAF reporte sur l'annee suivante (jamais rattache a un
+// audit ou un processus precis) - retrouve tel quel dans "audit" ("NOUVELLE
+// NC OUVERTE ANNEE N+1") ET dans "processus_concerne" ("Report 2026") selon
+// le tableau - meme libelle affiche dans les 2 cas plutot que de le traiter
+// comme un vrai audit/processus.
+function estReporte(value: string | null): boolean {
+  const upper = String(value || "").toUpperCase();
+  return upper.includes("NOUVELLE NC OUVERTE") || upper.includes("REPORT ");
+}
+
 // "audit" contient parfois des annotations libres collees au chiffre
 // ("1\nANNULEE", "3\nTransfere en 2026 dans la AI-1-2026-TAF-038") - seul
 // le chiffre en tete designe le A1/A2/A3/A4 reel, le reste est une note.
-// "NOUVELLE NC OUVERTE ANNEE N+1" est un cas special explicite (NC reportee
-// sur l'annee suivante, jamais rattachee a un audit precis) - garde son
-// propre libelle plutot que de tomber dans "Non classe".
 function parsePeriode(audit: string | null): string {
   const raw = String(audit || "").trim();
+  if (estReporte(raw)) return "Reportee N+1";
   if (!raw) return "Non classe";
-  if (raw.toUpperCase().includes("NOUVELLE NC OUVERTE")) return "Reportee N+1";
   const m = raw.match(/^(\d+)/);
   return m ? `A${m[1]}` : "Non classe";
+}
+
+// Groupe par la valeur EXACTE de processus_concerne (meme convention que le
+// filtre "Processus" deja present sur NC/TAF Confidentiel) - jamais fusionne
+// 2 libelles qui se ressemblent (ex: 2 formulations differentes de PR4) :
+// une fusion automatique serait une decision editoriale sur la taxonomie
+// qualite, pas a Claude de la prendre sans qu'on le demande explicitement.
+function parseProcessus(value: string | null): string {
+  const raw = String(value || "").trim();
+  if (estReporte(raw)) return "Reportee N+1";
+  return raw || "Non renseigne";
 }
 
 // Ordre d'affichage naturel des periodes (A1..A4 d'abord, cas particuliers
@@ -58,14 +86,23 @@ function periodeRank(periode: string): number {
   return index >= 0 ? index : PERIODE_ORDER.length + (periode === "Reportee N+1" ? 0 : 1);
 }
 
-type CroiseRow = {
-  annee: string;
-  periode: string;
-  nbNc: number;
-  ncRealisees: number;
-  nbTaf: number;
-  tafRealisees: number;
-};
+type Compte = { nbNc: number; ncRealisees: number; nbTaf: number; tafRealisees: number };
+
+function nouveauCompte(): Compte {
+  return { nbNc: 0, ncRealisees: 0, nbTaf: 0, tafRealisees: 0 };
+}
+
+// % calcule SEPAREMENT pour NC et pour TAF (jamais un % combine "NC+TAF" -
+// demande explicite : "le % il faut qu'il reste juste pour le NC seul et
+// pour le TAF seul").
+function pct(realise: number, total: number): number | null {
+  return total > 0 ? Math.round((realise / total) * 1000) / 10 : null;
+}
+
+function pctLabel(realise: number, total: number): string {
+  const value = pct(realise, total);
+  return value === null ? "-" : `${value}%`;
+}
 
 export default async function RapportNcTafPage() {
   noStore();
@@ -75,37 +112,64 @@ export default async function RapportNcTafPage() {
   }
 
   const [ncRows, tafRows] = await Promise.all([
-    fetchAllRows<NcRow>("qualite_nc_confidentiel", "audit, numero, statut_cloture"),
-    fetchAllRows<TafRow>("qualite_taf_confidentiel", "audit, numero, statut"),
+    fetchAllRows<NcRow>("qualite_nc_confidentiel", "audit, numero, processus_concerne, statut_cloture"),
+    fetchAllRows<TafRow>("qualite_taf_confidentiel", "audit, numero, processus_concerne, statut"),
   ]);
 
-  const parMap = new Map<string, CroiseRow>();
-  function getOrCreate(annee: string, periode: string): CroiseRow {
+  // --- Croise Annee x Audit ---
+  type AnneeAuditRow = Compte & { annee: string; periode: string };
+  const parAnneeAudit = new Map<string, AnneeAuditRow>();
+  function getOrCreateAnneeAudit(annee: string, periode: string): AnneeAuditRow {
     const key = `${annee}::${periode}`;
-    const current = parMap.get(key);
+    const current = parAnneeAudit.get(key);
     if (current) return current;
-    const created: CroiseRow = { annee, periode, nbNc: 0, ncRealisees: 0, nbTaf: 0, tafRealisees: 0 };
-    parMap.set(key, created);
+    const created: AnneeAuditRow = { annee, periode, ...nouveauCompte() };
+    parAnneeAudit.set(key, created);
+    return created;
+  }
+
+  // --- Par processus concerne ---
+  type ProcessusRow = Compte & { processus: string };
+  const parProcessus = new Map<string, ProcessusRow>();
+  function getOrCreateProcessus(processus: string): ProcessusRow {
+    const current = parProcessus.get(processus);
+    if (current) return current;
+    const created: ProcessusRow = { processus, ...nouveauCompte() };
+    parProcessus.set(processus, created);
     return created;
   }
 
   for (const row of ncRows) {
     const annee = parseAnnee(row.numero);
     const periode = parsePeriode(row.audit);
-    const current = getOrCreate(annee, periode);
-    current.nbNc += 1;
-    if (row.statut_cloture === "CLOTUREE") current.ncRealisees += 1;
+    const processus = parseProcessus(row.processus_concerne);
+    const estRealisee = row.statut_cloture === "CLOTUREE";
+
+    const anneeAudit = getOrCreateAnneeAudit(annee, periode);
+    anneeAudit.nbNc += 1;
+    if (estRealisee) anneeAudit.ncRealisees += 1;
+
+    const proc = getOrCreateProcessus(processus);
+    proc.nbNc += 1;
+    if (estRealisee) proc.ncRealisees += 1;
   }
 
   for (const row of tafRows) {
     const annee = parseAnnee(row.numero);
     const periode = parsePeriode(row.audit);
-    const current = getOrCreate(annee, periode);
-    current.nbTaf += 1;
-    if (row.statut === "CLOTUREE") current.tafRealisees += 1;
+    const processus = parseProcessus(row.processus_concerne);
+    const estRealisee = row.statut === "CLOTUREE";
+
+    const anneeAudit = getOrCreateAnneeAudit(annee, periode);
+    anneeAudit.nbTaf += 1;
+    if (estRealisee) anneeAudit.tafRealisees += 1;
+
+    const proc = getOrCreateProcessus(processus);
+    proc.nbTaf += 1;
+    if (estRealisee) proc.tafRealisees += 1;
   }
 
-  const croiseRows = [...parMap.values()].sort((a, b) => {
+  const croiseRows = [...parAnneeAudit.values()].sort((a, b) => {
     if (a.annee !== b.annee) return b.annee.localeCompare(a.annee);
     return periodeRank(a.periode) - periodeRank(b.periode);
   });
@@ -113,16 +177,9 @@ export default async function RapportNcTafPage() {
   // Sous-totaux par annee, dans l'ordre d'affichage (juste apres les lignes
   // de cette annee).
   const anneesOrder = [...new Set(croiseRows.map((r) => r.annee))];
-  const totalParAnnee = new Map<string, CroiseRow>();
+  const totalParAnnee = new Map<string, AnneeAuditRow>();
   for (const row of croiseRows) {
-    const current = totalParAnnee.get(row.annee) ?? {
-      annee: row.annee,
-      periode: "Total",
-      nbNc: 0,
-      ncRealisees: 0,
-      nbTaf: 0,
-      tafRealisees: 0,
-    };
+    const current = totalParAnnee.get(row.annee) ?? { annee: row.annee, periode: "Total", ...nouveauCompte() };
     current.nbNc += row.nbNc;
     current.ncRealisees += row.ncRealisees;
     current.nbTaf += row.nbTaf;
@@ -130,7 +187,7 @@ export default async function RapportNcTafPage() {
     totalParAnnee.set(row.annee, current);
   }
 
-  const displayRows: (CroiseRow & { isSubtotal?: boolean })[] = [];
+  const displayRows: (AnneeAuditRow & { isSubtotal?: boolean })[] = [];
   for (const annee of anneesOrder) {
     for (const row of croiseRows.filter((r) => r.annee === annee)) {
       displayRows.push(row);
@@ -139,6 +196,12 @@ export default async function RapportNcTafPage() {
     if (subtotal) displayRows.push({ ...subtotal, isSubtotal: true });
   }
 
+  // Les processus les plus concernes (NC+TAF) en tete - pas alphabetique,
+  // pour faire remonter directement ce qui merite le plus d'attention.
+  const processusRows = [...parProcessus.values()].sort(
+    (a, b) => b.nbNc + b.nbTaf - (a.nbNc + a.nbTaf)
+  );
+
   const grandTotal = croiseRows.reduce(
     (acc, r) => ({
       nbNc: acc.nbNc + r.nbNc,
@@ -146,15 +209,8 @@ export default async function RapportNcTafPage() {
       nbTaf: acc.nbTaf + r.nbTaf,
       tafRealisees: acc.tafRealisees + r.tafRealisees,
     }),
-    { nbNc: 0, ncRealisees: 0, nbTaf: 0, tafRealisees: 0 }
+    nouveauCompte()
   );
-  const totalGlobal = grandTotal.nbNc + grandTotal.nbTaf;
-  const realiseGlobal = grandTotal.ncRealisees + grandTotal.tafRealisees;
-  const pctGlobal = totalGlobal > 0 ? Math.round((realiseGlobal / totalGlobal) * 1000) / 10 : 0;
-
-  function pct(realise: number, total: number) {
-    return total > 0 ? Math.round((realise / total) * 1000) / 10 : null;
-  }
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f0ff_0%,#faf8ff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -165,8 +221,8 @@ export default async function RapportNcTafPage() {
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Rapport NC &amp; TAF</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Nombre de NC et de TAF par audit (A1 a A4) et par annee, avec combien sont realisees
-                (cloturees).
+                Nombre de NC et de TAF par audit (A1 a A4) et par annee, et par processus concerne, avec
+                combien sont realises (cloturees).
               </p>
             </div>
 
@@ -177,12 +233,18 @@ export default async function RapportNcTafPage() {
           </div>
         </section>
 
-        <section className="grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        <section className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
           <div className="rounded-2xl bg-violet-50 px-4 py-3 text-sm">
             NC :<span className="ml-2 font-bold text-violet-900">{grandTotal.nbNc}</span>
           </div>
           <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm">
             NC realisees :<span className="ml-2 font-bold text-emerald-900">{grandTotal.ncRealisees}</span>
+          </div>
+          <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm">
+            % NC realise :
+            <span className="ml-2 font-bold text-amber-900">
+              {pctLabel(grandTotal.ncRealisees, grandTotal.nbNc)}
+            </span>
           </div>
           <div className="rounded-2xl bg-sky-50 px-4 py-3 text-sm">
             TAF :<span className="ml-2 font-bold text-sky-900">{grandTotal.nbTaf}</span>
@@ -191,11 +253,17 @@ export default async function RapportNcTafPage() {
             TAF realisees :<span className="ml-2 font-bold text-emerald-900">{grandTotal.tafRealisees}</span>
           </div>
           <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm">
-            % realise (NC+TAF) :<span className="ml-2 font-bold text-amber-900">{pctGlobal}%</span>
+            % TAF realise :
+            <span className="ml-2 font-bold text-amber-900">
+              {pctLabel(grandTotal.tafRealisees, grandTotal.nbTaf)}
+            </span>
           </div>
         </section>
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <div className="border-b border-slate-100 px-6 py-4">
+            <h2 className="text-lg font-bold text-slate-900">Par annee et par audit</h2>
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-500">
@@ -204,32 +272,66 @@ export default async function RapportNcTafPage() {
                   <th className="px-4 py-3 font-semibold">Audit</th>
                   <th className="px-4 py-3 font-semibold">Nb NC</th>
                   <th className="px-4 py-3 font-semibold">NC realisees</th>
+                  <th className="px-4 py-3 font-semibold">% NC</th>
                   <th className="px-4 py-3 font-semibold">Nb TAF</th>
                   <th className="px-4 py-3 font-semibold">TAF realisees</th>
+                  <th className="px-4 py-3 font-semibold">% TAF</th>
                   <th className="px-4 py-3 font-semibold">Total (NC+TAF)</th>
-                  <th className="px-4 py-3 font-semibold">% realise</th>
                 </tr>
               </thead>
               <tbody>
-                {displayRows.map((row) => {
-                  const total = row.nbNc + row.nbTaf;
-                  const realise = row.ncRealisees + row.tafRealisees;
-                  return (
-                    <tr
-                      key={`${row.annee}-${row.periode}`}
-                      className={`border-t border-slate-100 ${row.isSubtotal ? "bg-slate-50 font-semibold" : ""}`}
-                    >
-                      <td className="px-4 py-3 text-slate-900">{row.isSubtotal ? row.annee : ""}</td>
-                      <td className="px-4 py-3 text-slate-700">{row.periode}</td>
-                      <td className="px-4 py-3 text-slate-700">{row.nbNc}</td>
-                      <td className="px-4 py-3 text-emerald-700">{row.ncRealisees}</td>
-                      <td className="px-4 py-3 text-slate-700">{row.nbTaf}</td>
-                      <td className="px-4 py-3 text-emerald-700">{row.tafRealisees}</td>
-                      <td className="px-4 py-3 font-medium text-slate-900">{total}</td>
-                      <td className="px-4 py-3 text-slate-700">{pct(realise, total) ?? "-"}%</td>
-                    </tr>
-                  );
-                })}
+                {displayRows.map((row) => (
+                  <tr
+                    key={`${row.annee}-${row.periode}`}
+                    className={`border-t border-slate-100 ${row.isSubtotal ? "bg-slate-50 font-semibold" : ""}`}
+                  >
+                    <td className="px-4 py-3 text-slate-900">{row.isSubtotal ? row.annee : ""}</td>
+                    <td className="px-4 py-3 text-slate-700">{row.periode}</td>
+                    <td className="px-4 py-3 text-slate-700">{row.nbNc}</td>
+                    <td className="px-4 py-3 text-emerald-700">{row.ncRealisees}</td>
+                    <td className="px-4 py-3 text-slate-700">{pctLabel(row.ncRealisees, row.nbNc)}</td>
+                    <td className="px-4 py-3 text-slate-700">{row.nbTaf}</td>
+                    <td className="px-4 py-3 text-emerald-700">{row.tafRealisees}</td>
+                    <td className="px-4 py-3 text-slate-700">{pctLabel(row.tafRealisees, row.nbTaf)}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{row.nbNc + row.nbTaf}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <div className="border-b border-slate-100 px-6 py-4">
+            <h2 className="text-lg font-bold text-slate-900">Par processus concerne</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Processus concerne</th>
+                  <th className="px-4 py-3 font-semibold">Nb NC</th>
+                  <th className="px-4 py-3 font-semibold">NC realisees</th>
+                  <th className="px-4 py-3 font-semibold">% NC</th>
+                  <th className="px-4 py-3 font-semibold">Nb TAF</th>
+                  <th className="px-4 py-3 font-semibold">TAF realisees</th>
+                  <th className="px-4 py-3 font-semibold">% TAF</th>
+                  <th className="px-4 py-3 font-semibold">Total (NC+TAF)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {processusRows.map((row) => (
+                  <tr key={row.processus} className="border-t border-slate-100">
+                    <td className="px-4 py-3 font-medium text-slate-900">{row.processus}</td>
+                    <td className="px-4 py-3 text-slate-700">{row.nbNc}</td>
+                    <td className="px-4 py-3 text-emerald-700">{row.ncRealisees}</td>
+                    <td className="px-4 py-3 text-slate-700">{pctLabel(row.ncRealisees, row.nbNc)}</td>
+                    <td className="px-4 py-3 text-slate-700">{row.nbTaf}</td>
+                    <td className="px-4 py-3 text-emerald-700">{row.tafRealisees}</td>
+                    <td className="px-4 py-3 text-slate-700">{pctLabel(row.tafRealisees, row.nbTaf)}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{row.nbNc + row.nbTaf}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
