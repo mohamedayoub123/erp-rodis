@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { randomUUID } from "node:crypto";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import type { AuditRow } from "../audit-table";
@@ -10,6 +11,25 @@ const TABLE = "qualite_nc_confidentiel";
 const BUCKET = "qualite-audit-fichiers";
 
 type AttachmentFile = { name: string; path: string };
+
+// Correction/Action Corrective (AC) sont chacune une liste d'entrees datees
+// (colonnes JSONB correction_entries/action_corrective_ac_entries) plutot
+// qu'un seul champ texte - demande explicite : pouvoir en ajouter une 2eme,
+// 3eme..., chacune avec ses propres fichiers joints (bouton visible
+// directement sur la ligne, le texte multi-lignes une fois la ligne
+// ouverte). Voir scripts/sql/add_correction_ac_entries_nc.sql.
+export type CorrectionEntry = { id: string; texte: string; date: string; fichiers: AttachmentFile[] };
+export type EntryField = "correction" | "action_corrective_ac";
+
+function entriesColumn(field: EntryField): "correction_entries" | "action_corrective_ac_entries" {
+  return field === "correction" ? "correction_entries" : "action_corrective_ac_entries";
+}
+
+async function fetchEntries(ncId: number, field: EntryField): Promise<CorrectionEntry[]> {
+  const column = entriesColumn(field);
+  const { data } = await supabaseServer.from(TABLE).select(column).eq("id", ncId).maybeSingle();
+  return ((data as Record<string, CorrectionEntry[]> | null)?.[column] ?? []) as CorrectionEntry[];
+}
 
 // Aucune des 3 dates de realisation n'est jamais tapee a la main - le code
 // les deduit du passage (ou non) de chaque statut a sa valeur "fait" :
@@ -226,21 +246,21 @@ export async function createNcConfidentielAction(formData: FormData): Promise<vo
   redirect("/qualite/nc-confidentiel");
 }
 
-// Champs de suivi (Correction, Action Corrective) modifies depuis la page
-// dediee /qualite/nc-confidentiel/[id] - saisie plus confortable en
-// formulaire vertical plein ecran que dans les cellules etroites du tableau
-// (demande explicite). Statut correction/Statut AC sont maintenant
-// modifiables UNIQUEMENT ici (plus dans le tableau, voir page.tsx) - la
+// Champs de suivi modifies depuis la page dediee /qualite/nc-confidentiel/[id]
+// - saisie plus confortable en formulaire vertical plein ecran que dans les
+// cellules etroites du tableau (demande explicite). Correction et Action
+// Corrective ne sont PAS dans cette liste - ce sont desormais des listes
+// d'entrees (voir addNcEntryAction plus bas), pas de simples champs texte.
+// Statut correction/Statut AC sont maintenant modifiables UNIQUEMENT ici
+// (plus dans le tableau, voir page.tsx) - la
 // cascade Statut cloture + les 3 dates de realisation (auparavant geree par
 // saveNcConfidentielBatchAction) est donc reproduite ci-dessous pour ne pas
 // perdre ce comportement.
 const DETAIL_FIELD_KEYS = [
-  "correction",
   "responsable_correction",
   "delais_correction",
   "commentaire",
   "analyse_causes",
-  "action_corrective_ac",
   "responsable_ac",
   "delais_ac",
   "commentaire2",
@@ -518,5 +538,140 @@ export async function deleteNcConfidentielFileAction(
   }
 
   revalidatePath("/qualite/nc-confidentiel");
+  return { ok: true };
+}
+
+// Ajoute une nouvelle entree datee (Correction ou Action Corrective) - voir
+// CorrectionEntry plus haut. Chaque appel AJOUTE, ne remplace jamais les
+// entrees existantes.
+export async function addNcEntryAction(
+  ncId: number,
+  field: EntryField,
+  texte: string
+): Promise<{ ok: boolean; message?: string; entry?: CorrectionEntry }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas modifier cette NC." };
+  }
+
+  const trimmed = texte.trim();
+  if (!ncId || !trimmed) {
+    return { ok: false, message: "Texte vide." };
+  }
+
+  const entry: CorrectionEntry = {
+    id: randomUUID(),
+    texte: trimmed,
+    date: new Date().toISOString().slice(0, 10),
+    fichiers: [],
+  };
+  const nextEntries = [...(await fetchEntries(ncId, field)), entry];
+
+  const { error } = await supabaseServer
+    .from(TABLE)
+    .update({ [entriesColumn(field)]: nextEntries, updated_at: new Date().toISOString() })
+    .eq("id", ncId);
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+
+  revalidatePath("/qualite/nc-confidentiel");
+  revalidatePath(`/qualite/nc-confidentiel/${ncId}`);
+  return { ok: true, entry };
+}
+
+// Meme principe que createNcConfidentielUploadSlotAction/confirmNcConfidentielUploadAction
+// (upload direct au Storage via lien signe), mais range le fichier dans les
+// fichiers de CETTE entree precise plutot que dans pieces_jointes au niveau
+// de la ligne entiere.
+export async function createNcEntryUploadSlotAction(
+  ncId: number,
+  field: EntryField,
+  entryId: string,
+  fileName: string
+): Promise<{ ok: boolean; message?: string; path?: string; signedUrl?: string }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas ajouter de fichier." };
+  }
+  if (!ncId || !entryId) {
+    return { ok: false, message: "Entree invalide." };
+  }
+
+  const path = `nc-confidentiel/${ncId}/${field}/${entryId}/${Date.now()}-${sanitizeFileName(fileName)}`;
+  const { data, error } = await supabaseServer.storage.from(BUCKET).createSignedUploadUrl(path);
+  if (error || !data) {
+    return { ok: false, message: error?.message || "Impossible de preparer l'envoi." };
+  }
+
+  return { ok: true, path, signedUrl: data.signedUrl };
+}
+
+export async function confirmNcEntryUploadAction(
+  ncId: number,
+  field: EntryField,
+  entryId: string,
+  files: AttachmentFile[]
+): Promise<{ ok: boolean; message?: string; files?: AttachmentFile[] }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas ajouter de fichier." };
+  }
+  if (!ncId || !entryId || files.length === 0) {
+    return { ok: false, message: "Rien a enregistrer." };
+  }
+
+  const currentEntries = await fetchEntries(ncId, field);
+  const nextEntries = currentEntries.map((entry) =>
+    entry.id === entryId ? { ...entry, fichiers: [...entry.fichiers, ...files] } : entry
+  );
+
+  const { error } = await supabaseServer
+    .from(TABLE)
+    .update({ [entriesColumn(field)]: nextEntries, updated_at: new Date().toISOString() })
+    .eq("id", ncId);
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+
+  revalidatePath("/qualite/nc-confidentiel");
+  revalidatePath(`/qualite/nc-confidentiel/${ncId}`);
+  return { ok: true, files };
+}
+
+// Reutilise getNcConfidentielFileUrlAction (plus haut) pour VOIR un fichier
+// d'entree - generique sur un chemin Storage, sans notion de ligne/entree.
+
+export async function deleteNcEntryFileAction(
+  ncId: number,
+  field: EntryField,
+  entryId: string,
+  path: string
+): Promise<{ ok: boolean; message?: string }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas supprimer ce fichier." };
+  }
+
+  const { error: removeError } = await supabaseServer.storage.from(BUCKET).remove([path]);
+  if (removeError) {
+    return { ok: false, message: removeError.message };
+  }
+
+  const currentEntries = await fetchEntries(ncId, field);
+  const nextEntries = currentEntries.map((entry) =>
+    entry.id === entryId ? { ...entry, fichiers: entry.fichiers.filter((f) => f.path !== path) } : entry
+  );
+
+  const { error: updateError } = await supabaseServer
+    .from(TABLE)
+    .update({ [entriesColumn(field)]: nextEntries, updated_at: new Date().toISOString() })
+    .eq("id", ncId);
+  if (updateError) {
+    return { ok: false, message: updateError.message };
+  }
+
+  revalidatePath("/qualite/nc-confidentiel");
+  revalidatePath(`/qualite/nc-confidentiel/${ncId}`);
   return { ok: true };
 }

@@ -5,7 +5,16 @@ import { BackButton } from "@/app/_components/back-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { canViewPageUser, canWritePageUser, getCurrentStockUser, getNcTafProcessusAutorisesUser } from "@/lib/stock-auth";
 import { formatDate } from "../../../production/suivi/data";
-import { updateNcConfidentielDetailAction } from "../actions";
+import {
+  updateNcConfidentielDetailAction,
+  addNcEntryAction,
+  createNcEntryUploadSlotAction,
+  confirmNcEntryUploadAction,
+  getNcConfidentielFileUrlAction,
+  deleteNcEntryFileAction,
+  type CorrectionEntry,
+} from "../actions";
+import { CorrectionEntries } from "../correction-entries";
 
 // Meme 4 valeurs que page.tsx (Statut correction/Statut AC) - dupliquee
 // plutot qu'importee : un page.tsx ne peut exporter que des noms speciaux
@@ -28,12 +37,12 @@ type NcRow = {
   date_realisation_correction: string | null;
   date_realisation_ac: string | null;
   date_realisation: string | null;
-  correction: string | null;
+  correction_entries: CorrectionEntry[] | null;
   responsable_correction: string | null;
   delais_correction: string | null;
   commentaire: string | null;
   analyse_causes: string | null;
-  action_corrective_ac: string | null;
+  action_corrective_ac_entries: CorrectionEntry[] | null;
   responsable_ac: string | null;
   delais_ac: string | null;
   commentaire2: string | null;
@@ -107,10 +116,18 @@ export default async function NcConfidentielDetailPage({ params }: { params: Par
           <form action={updateNcConfidentielDetailAction} className="grid gap-5 sm:grid-cols-2">
             <input type="hidden" name="id" value={row.id} />
 
-            <label className="grid gap-1 text-xs font-semibold text-slate-500 sm:col-span-2">
-              Correction
-              <textarea name="correction" defaultValue={row.correction || ""} rows={4} disabled={!canWrite} className={inputClass} />
-            </label>
+            <CorrectionEntries
+              ncId={row.id}
+              field="correction"
+              label="Correction"
+              initialEntries={row.correction_entries || []}
+              canWrite={canWrite}
+              addEntryAction={addNcEntryAction}
+              createUploadSlotAction={createNcEntryUploadSlotAction}
+              confirmUploadAction={confirmNcEntryUploadAction}
+              getFileUrlAction={getNcConfidentielFileUrlAction}
+              deleteFileAction={deleteNcEntryFileAction}
+            />
 
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Responsable de la correction
@@ -144,10 +161,18 @@ export default async function NcConfidentielDetailPage({ params }: { params: Par
               <textarea name="analyse_causes" defaultValue={row.analyse_causes || ""} rows={4} disabled={!canWrite} className={inputClass} />
             </label>
 
-            <label className="grid gap-1 text-xs font-semibold text-slate-500 sm:col-span-2">
-              Action Corrective (AC)
-              <textarea name="action_corrective_ac" defaultValue={row.action_corrective_ac || ""} rows={4} disabled={!canWrite} className={inputClass} />
-            </label>
+            <CorrectionEntries
+              ncId={row.id}
+              field="action_corrective_ac"
+              label="Action Corrective (AC)"
+              initialEntries={row.action_corrective_ac_entries || []}
+              canWrite={canWrite}
+              addEntryAction={addNcEntryAction}
+              createUploadSlotAction={createNcEntryUploadSlotAction}
+              confirmUploadAction={confirmNcEntryUploadAction}
+              getFileUrlAction={getNcConfidentielFileUrlAction}
+              deleteFileAction={deleteNcEntryFileAction}
+            />
 
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Responsable AC
