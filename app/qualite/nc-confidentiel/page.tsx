@@ -66,7 +66,10 @@ const ENTRY_COLUMN_SOURCE: Record<string, string> = {
 const COLUMNS: AuditColumn[] = [
   { key: "created_at", label: "Date", readOnly: true },
   { key: "audit", label: "Audit" },
-  { key: "numero", label: "N°" },
+  // readOnly (numero) : genere automatiquement a la creation (voir
+  // genererProchainNumero dans actions.ts) - demande explicite, plus
+  // modifiable a la main du tout, meme felicite.
+  { key: "numero", label: "N°", readOnly: true },
   { key: "constat", label: "Constat", long: true },
   // readOnly (Classe -> Sous sous chapitre) : deja saisies a la creation
   // (voir /qualite/nc-confidentiel/nouvelle), plus rien a corriger ici -
