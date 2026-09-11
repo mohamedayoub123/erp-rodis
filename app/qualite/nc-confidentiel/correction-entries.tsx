@@ -14,12 +14,18 @@ type AttachmentFile = { name: string; path: string };
 // faut que je peux modifier si je rentre sur le ligne"), pour CHAQUE
 // entree independamment (la 1ere, la 2eme...). Le texte accepte plusieurs
 // lignes (textarea, pas un simple champ d'une ligne).
+// Modifier/Ajouter (allowEdit) restent reserves a la page dediee
+// /qualite/nc-confidentiel/[id] - demande explicite ("pour le modification
+// et l'ajout je veux pas ca ici") : la cellule du tableau reste consultation
+// + pieces jointes uniquement (toujours visible/joignable ici, voir
+// canWrite), le texte lui-meme ne se corrige que depuis la page detail.
 export function CorrectionEntries({
   ncId,
   field,
   label = "",
   initialEntries,
   canWrite,
+  allowEdit = true,
   addEntryAction,
   updateEntryTextAction,
   createUploadSlotAction,
@@ -34,6 +40,10 @@ export function CorrectionEntries({
   label?: string;
   initialEntries: CorrectionEntry[];
   canWrite: boolean;
+  // false dans le tableau (voir page.tsx) : masque "+ Ajouter une entree"
+  // et la textarea d'edition d'une entree existante, garde uniquement la
+  // consultation et les pieces jointes.
+  allowEdit?: boolean;
   addEntryAction: (ncId: number, field: EntryField, texte: string) => Promise<{ ok: boolean; message?: string; entry?: CorrectionEntry }>;
   updateEntryTextAction: (ncId: number, field: EntryField, entryId: string, texte: string) => Promise<{ ok: boolean; message?: string }>;
   createUploadSlotAction: (
@@ -86,6 +96,7 @@ export function CorrectionEntries({
               field={field}
               entry={entry}
               canWrite={canWrite}
+              allowEdit={allowEdit}
               isOpen={openEntryId === entry.id}
               onToggle={() => setOpenEntryId((current) => (current === entry.id ? null : entry.id))}
               onFilesChanged={(nextFiles) =>
@@ -104,7 +115,7 @@ export function CorrectionEntries({
         )}
       </div>
 
-      {canWrite ? (
+      {canWrite && allowEdit ? (
         <div className="grid gap-2 rounded-2xl border border-dashed border-slate-200 p-3">
           <textarea
             value={nouveauTexte}
@@ -135,6 +146,7 @@ function EntryRow({
   field,
   entry,
   canWrite,
+  allowEdit,
   isOpen,
   onToggle,
   onFilesChanged,
@@ -149,6 +161,7 @@ function EntryRow({
   field: EntryField;
   entry: CorrectionEntry;
   canWrite: boolean;
+  allowEdit: boolean;
   isOpen: boolean;
   onToggle: () => void;
   onFilesChanged: (files: AttachmentFile[]) => void;
@@ -294,7 +307,7 @@ function EntryRow({
             >
               {entry.date} - reduire
             </button>
-            {canWrite ? (
+            {canWrite && allowEdit ? (
               <>
                 <textarea
                   value={editTexte}

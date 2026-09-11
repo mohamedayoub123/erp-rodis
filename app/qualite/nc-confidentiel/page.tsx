@@ -235,7 +235,9 @@ export default async function NcConfidentielPage({ searchParams }: { searchParam
   // composant CorrectionEntries est donc pre-rendu ici et pousse comme
   // "customCells" (voir audit-table.tsx : une fonction ne peut pas
   // traverser la frontiere Server->Client Component, un noeud deja rendu
-  // le peut).
+  // le peut). allowEdit=false : modifier le texte d'une entree ou en
+  // ajouter une nouvelle reste reserve a la page dediee - demande
+  // explicite ("pour le modification et l'ajout je veux pas ca ici").
   const ENTRY_FIELDS: { key: EntryField; entriesById: Record<number, CorrectionEntry[]> }[] = [
     { key: "correction", entriesById: correctionEntriesById },
     { key: "action_corrective_ac", entriesById: acEntriesById },
@@ -251,6 +253,7 @@ export default async function NcConfidentielPage({ searchParams }: { searchParam
           field={key}
           initialEntries={entriesById[row.id] ?? []}
           canWrite={canWrite}
+          allowEdit={false}
           addEntryAction={addNcEntryAction}
           updateEntryTextAction={updateNcEntryTextAction}
           createUploadSlotAction={createNcEntryUploadSlotAction}
