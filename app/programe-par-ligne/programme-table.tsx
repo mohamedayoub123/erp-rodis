@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveProgrammeLigneBatchAction } from "./actions";
+import { HEURES_PAR_JOUR, findCapaciteFabrication, type MachineCapacite } from "@/lib/machine-capacite";
 
 const MOIS_OPTIONS = [
   { value: "01", label: "Janvier" },
@@ -67,25 +68,10 @@ export type ArticleOption = {
   vracArticleId: number | null;
 };
 
-// Capacite d'une machine pour un article precis (app/production/machines,
-// "Ajouter un produit") - Conditionnement/Emballage : capacite = pieces/
-// minute. Fabrication : capaciteMin/capaciteMax = kg/heure. Une machine sans
-// ligne machine_produits pour cet article n'a simplement aucune entree ici
-// (pas de limite connue, jamais traite comme "0").
-export type MachineCapacite = {
-  machineId: number;
-  articleId: number;
-  capacite: number | null;
-  capaciteMin: number | null;
-  capaciteMax: number | null;
-};
-
-// Duree de reference pour convertir une cadence (piece/min, kg/h) en
-// quantite max sur "une journee" - demande explicite de l'utilisateur (pas
-// de duree saisie par ligne, une journee standard suffit). Coherent avec la
-// journee normale deja utilisee par Heures Sup (lib/heures-supplementaires.ts,
-// NORMAL_MINUTES_PAR_FOURNEE = 8h).
-const HEURES_PAR_JOUR = 8;
+// MachineCapacite/HEURES_PAR_JOUR/findCapaciteFabrication : voir
+// lib/machine-capacite.ts (partage avec le Dispatch, app/programe-par-ligne/actions.ts,
+// pour que les 2 utilisent exactement le meme calcul).
+export type { MachineCapacite } from "@/lib/machine-capacite";
 
 // "Max possible" sur cette ligne = le plus limitant des 2 machines (jamais
 // juste Conditionnement) - demande explicite : "toujours on prend le
@@ -104,14 +90,7 @@ function computeMaxPossible(
 
   const capaCondi =
     machineConditionnementId != null ? capacites.get(`${machineConditionnementId}::${article.id}`) : undefined;
-  // La capacite Fabrication est normalement saisie sur le vrac_article_id de
-  // l'article fini, mais certaines fiches machine (voir "Ajouter un produit")
-  // ont ete saisies directement sur l'article fini faute de distinction dans
-  // le formulaire - on tente le vrac d'abord, puis l'article fini en repli.
-  const capaFab =
-    (machineFabricationId != null && article.vracArticleId != null
-      ? capacites.get(`${machineFabricationId}::${article.vracArticleId}`)
-      : undefined) ?? (machineFabricationId != null ? capacites.get(`${machineFabricationId}::${article.id}`) : undefined);
+  const capaFab = findCapaciteFabrication(capacites, machineFabricationId, article.vracArticleId, article.id);
 
   let maxKgCondi: number | null = null;
   if (capaCondi?.capacite && article.contenance && article.contenance > 0) {
@@ -747,6 +726,11 @@ export function ProgrammeLigneTable({
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  // Articles non dispatches faute de capacite Fabrication configuree sur
+  // leur machine (voir actions.ts, assignDispatcherCodesAndInsert) - le
+  // Dispatch des autres lignes reussit quand meme, seuls ceux-la sont
+  // signales plutot que de tout bloquer.
+  const [dispatchWarnings, setDispatchWarnings] = useState<string[]>([]);
   // Pas de valeur par defaut (surtout pas la date du jour) - l'utilisateur
   // doit toujours choisir explicitement pour quel jour est ce programme.
   // Jour/Mois/Annee saisis separement (mois nomme dans une liste) pour
@@ -866,6 +850,7 @@ export function ProgrammeLigneTable({
   function handleSave(withDispatch: boolean) {
     setMessage("");
     setErrorMessage("");
+    setDispatchWarnings([]);
 
     if (!dateJour) {
       setErrorMessage("Choisis la date du programme avant d'enregistrer.");
@@ -902,13 +887,19 @@ export function ProgrammeLigneTable({
         }
 
         setMessage(`Enregistre sous le code ${result.code}.`);
+        setDispatchWarnings(result.warnings);
         rowsRef.current = {};
         setSubRowCounts({});
         setResetKey((current) => current + 1);
         // Save reste sur cette page (grille reinitialisee, prete pour un
         // nouveau programme) - seul Dispatch redirige vers Ravitailleur, la
-        // ou le programme vient d'etre reparti en lots.
+        // ou le programme vient d'etre reparti en lots. La redirection
+        // quitte la page avant que le bandeau d'avertissement soit visible -
+        // une alerte le montre donc en plus, juste avant de partir.
         if (withDispatch) {
+          if (result.warnings.length > 0) {
+            window.alert(result.warnings.join("\n"));
+          }
           router.push("/ravitailleur-par-ligne");
         }
       } catch (error) {
@@ -997,6 +988,13 @@ export function ProgrammeLigneTable({
         </button>
         {errorMessage ? <p className="w-full text-sm font-semibold text-red-700">{errorMessage}</p> : null}
         {message ? <p className="w-full text-sm font-semibold text-emerald-700">{message}</p> : null}
+        {dispatchWarnings.length > 0 ? (
+          <ul className="w-full space-y-1 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+            {dispatchWarnings.map((warning, index) => (
+              <li key={index}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       <table className="min-w-full text-left text-sm">
@@ -1073,6 +1071,13 @@ export function ProgrammeLigneTable({
         <div>
           {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
           {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}
+          {dispatchWarnings.length > 0 ? (
+            <ul className="mt-1 space-y-1 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+              {dispatchWarnings.map((warning, index) => (
+                <li key={index}>{warning}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
           <button
