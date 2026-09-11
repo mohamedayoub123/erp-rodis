@@ -19,6 +19,13 @@ async function fetchCompteurs(): Promise<CompteurDb[]> {
   return (data ?? []) as CompteurDb[];
 }
 
+// Meme motif tolerant que synchroniserCompteursDepuisNumeros (actions.ts) -
+// accepte "AI-1-2026-NC-033" (format historique) ET "AI.1.2026.1" (demande
+// explicite, plus court, sans "NC"), separateurs "-" ou "." indifferemment.
+// Duplique ici (pas importe) car actions.ts est un fichier "use server" qui
+// ne peut exporter que des fonctions async.
+const NUMERO_PATTERN = /^AI[-.](\d+)[-.](\d{4})[-.](?:NC[-.])?(\d+)$/i;
+
 // Dernier numero de sequence REELLEMENT trouve dans qualite_nc_confidentiel
 // pour chaque (audit, annee) - juste une reference affichee a cote du
 // compteur regle a la main, pour aider a savoir quelle valeur donner (jamais
@@ -40,13 +47,20 @@ async function fetchDerniersNumerosUtilises(): Promise<Map<string, number>> {
 
   const maxByKey = new Map<string, number>();
   for (const row of rows) {
-    const m = String(row.numero || "").match(/^AI-(\d+)-(\d{4})-NC-(\d+)$/);
+    const m = String(row.numero || "").match(NUMERO_PATTERN);
     if (!m) continue;
     const key = `${m[1]}::${m[2]}`;
     const seq = Number(m[3]);
     maxByKey.set(key, Math.max(maxByKey.get(key) ?? 0, seq));
   }
   return maxByKey;
+}
+
+// Numero complet, pret a copier-coller dans le champ "numero" du tableau -
+// format historique (AI-audit-annee-NC-sequence sur 3 chiffres), quel que
+// soit le format qui a servi a faire avancer le compteur.
+function numeroSuggere(audit: string, annee: number, prochainNumero: number): string {
+  return `AI-${audit}-${annee}-NC-${String(prochainNumero).padStart(3, "0")}`;
 }
 
 export default async function NumeroCompteursPage() {
@@ -92,6 +106,7 @@ export default async function NumeroCompteursPage() {
                   <th className="px-4 py-3 font-semibold">Annee</th>
                   <th className="px-4 py-3 font-semibold">Dernier numero utilise</th>
                   <th className="px-4 py-3 font-semibold">Prochain numero</th>
+                  <th className="px-4 py-3 font-semibold">Numero complet suggere</th>
                   <th className="px-4 py-3 font-semibold">Action</th>
                 </tr>
               </thead>
@@ -121,6 +136,9 @@ export default async function NumeroCompteursPage() {
                           </SubmitButton>
                         </form>
                       </td>
+                      <td className="px-4 py-3 font-mono text-sm text-violet-800">
+                        {numeroSuggere(c.audit, c.annee, c.prochain_numero)}
+                      </td>
                       <td className="px-4 py-3">
                         <form action={deleteNumeroCompteurAction}>
                           <input type="hidden" name="audit" value={c.audit} />
@@ -132,7 +150,7 @@ export default async function NumeroCompteursPage() {
                   );
                 })}
                 <tr className="border-t border-slate-100 bg-violet-50/40">
-                  <td colSpan={5} className="px-4 py-4">
+                  <td colSpan={6} className="px-4 py-4">
                     <form
                       action={upsertNumeroCompteurAction}
                       className="flex flex-wrap items-end gap-3"

@@ -48,21 +48,23 @@ type AncienEtat = {
   date_realisation: string | null;
 };
 
-// Des qu'un vrai numero (AI-audit-annee-NC-sequence) est tape/corrige a la
-// main sur une ligne, le compteur (qualite_numero_compteurs) avance tout
-// seul pour "voir" cette sequence et continuer a partir de la - demande
-// explicite : "il va voir je ajouter quoi et il va continuer a ajouter".
-// Prend toujours le MAX entre la valeur deja enregistree et
-// sequence+1 - ne fait jamais reculer le compteur (un numero tape par
-// erreur plus petit qu'une sequence deja avancee ne doit pas ecraser le
-// repere existant).
+// Des qu'un vrai numero est tape/corrige a la main sur une ligne, le
+// compteur (qualite_numero_compteurs) avance tout seul pour "voir" cette
+// sequence et continuer a partir de la - demande explicite : "il va voir je
+// ajouter quoi et il va continuer a ajouter". Accepte le format historique
+// complet ("AI-1-2026-NC-033") ET une forme plus courte sans "NC"
+// ("AI.1.2026.1" - demande explicite), separateurs "-" ou "." indifferemment
+// - jamais fige sur un seul format de ponctuation. Prend toujours le MAX
+// entre la valeur deja enregistree et sequence+1 - ne fait jamais reculer le
+// compteur (un numero tape par erreur plus petit qu'une sequence deja
+// avancee ne doit pas ecraser le repere existant).
+const NUMERO_PATTERN = /^AI[-.](\d+)[-.](\d{4})[-.](?:NC[-.])?(\d+)$/i;
+
 async function synchroniserCompteursDepuisNumeros(rows: Record<string, string | number | null>[]): Promise<void> {
   const parsed = new Map<string, { audit: string; annee: number; sequence: number }>();
 
   for (const row of rows) {
-    const m = String(row.numero || "")
-      .trim()
-      .match(/^AI-(\d+)-(\d{4})-NC-(\d+)$/);
+    const m = String(row.numero || "").trim().match(NUMERO_PATTERN);
     if (!m) continue;
 
     const audit = m[1];
