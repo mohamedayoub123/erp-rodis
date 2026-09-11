@@ -68,6 +68,94 @@ type AncienEtat = {
   date_realisation: string | null;
 };
 
+// Statut correction/Statut AC ne sont plus tapes a la main (ni dans le
+// tableau, ni sur la page detail) - demande explicite : "si je ecrit il
+// faut que le statut arrive en cours, si y'a rien en attente, si y'a
+// fichier joint sur tout il faut qu'il vienne realisee". Deduits de l'etat
+// REEL des entrees (voir CorrectionEntry) a chaque ajout/modification/
+// fichier joint ou retire : aucune entree -> pas de statut (vide, "en
+// attente") ; au moins une entree mais pas toutes avec un fichier -> "EN
+// COURS" ; toutes les entrees ont au moins un fichier -> "REALISEE".
+function computeStatutDepuisEntries(entries: CorrectionEntry[]): string | null {
+  if (entries.length === 0) return null;
+  return entries.every((entry) => entry.fichiers.length > 0) ? "REALISEE" : "EN COURS";
+}
+
+// Point d'entree UNIQUE pour toute mutation de correction_entries/
+// action_corrective_ac_entries (ajout d'entree, modification de texte,
+// fichier joint/retire) - recalcule Statut correction/Statut AC depuis
+// l'etat des entrees, puis la cascade Statut cloture + les 3 dates de
+// realisation (meme logique que saveNcConfidentielBatchAction), en une
+// seule ecriture.
+async function saveEntriesAndRecomputeStatuses(
+  ncId: number,
+  field: EntryField,
+  nextEntries: CorrectionEntry[]
+): Promise<{ ok: boolean; message?: string }> {
+  const { data: existing } = await supabaseServer
+    .from(TABLE)
+    .select(
+      "statut_correction, statut_ac, statut_cloture, date_realisation_correction, date_realisation_ac, date_realisation, correction_entries, action_corrective_ac_entries"
+    )
+    .eq("id", ncId)
+    .maybeSingle();
+  const ancien = existing as
+    | (Omit<AncienEtat, "id"> & {
+        correction_entries: CorrectionEntry[] | null;
+        action_corrective_ac_entries: CorrectionEntry[] | null;
+      })
+    | null;
+
+  const correctionEntries = field === "correction" ? nextEntries : ancien?.correction_entries ?? [];
+  const acEntries = field === "action_corrective_ac" ? nextEntries : ancien?.action_corrective_ac_entries ?? [];
+
+  const statutCorrection = computeStatutDepuisEntries(correctionEntries);
+  const statutAc = computeStatutDepuisEntries(acEntries);
+  const statutCloture = statutCorrection === "REALISEE" && statutAc === "REALISEE" ? "CLOTUREE" : "EN COURS";
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const dateCorrection = calculerDateRealisation(
+    statutCorrection === "REALISEE",
+    ancien?.statut_correction?.trim().toUpperCase() === "REALISEE",
+    ancien?.date_realisation_correction ?? null,
+    todayIso
+  );
+  const dateAc = calculerDateRealisation(
+    statutAc === "REALISEE",
+    ancien?.statut_ac?.trim().toUpperCase() === "REALISEE",
+    ancien?.date_realisation_ac ?? null,
+    todayIso
+  );
+  const dateCloture = calculerDateRealisation(
+    statutCloture === "CLOTUREE",
+    ancien?.statut_cloture?.trim().toUpperCase() === "CLOTUREE",
+    ancien?.date_realisation ?? null,
+    todayIso
+  );
+
+  const { error } = await supabaseServer
+    .from(TABLE)
+    .update({
+      [entriesColumn(field)]: nextEntries,
+      statut_correction: statutCorrection,
+      statut_ac: statutAc,
+      statut_cloture: statutCloture,
+      date_realisation_correction: dateCorrection,
+      date_realisation_ac: dateAc,
+      date_realisation: dateCloture,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", ncId);
+
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+
+  revalidatePath("/qualite/nc-confidentiel");
+  revalidatePath(`/qualite/nc-confidentiel/${ncId}`);
+  return { ok: true };
+}
+
 // Des qu'un vrai numero est tape/corrige a la main sur une ligne, le
 // compteur (qualite_numero_compteurs) avance tout seul pour "voir" cette
 // sequence et continuer a partir de la - demande explicite : "il va voir je
@@ -284,11 +372,12 @@ export async function createNcConfidentielAction(formData: FormData): Promise<vo
 // cellules etroites du tableau (demande explicite). Correction et Action
 // Corrective ne sont PAS dans cette liste - ce sont desormais des listes
 // d'entrees (voir addNcEntryAction plus bas), pas de simples champs texte.
-// Statut correction/Statut AC sont maintenant modifiables UNIQUEMENT ici
-// (plus dans le tableau, voir page.tsx) - la
-// cascade Statut cloture + les 3 dates de realisation (auparavant geree par
-// saveNcConfidentielBatchAction) est donc reproduite ci-dessous pour ne pas
-// perdre ce comportement.
+// Statut correction/Statut AC/Statut cloture ne sont PAS non plus dans ce
+// formulaire - demande explicite ("si je ecrit il faut que le statut
+// arrive en cours... si y'a fichier joint sur tout il faut qu'il vienne
+// realisee") : deduits automatiquement de l'etat des entrees (voir
+// computeStatutDepuisEntries/saveEntriesAndRecomputeStatuses), plus jamais
+// choisis a la main nulle part.
 const DETAIL_FIELD_KEYS = [
   "responsable_correction",
   "delais_correction",
@@ -319,51 +408,9 @@ export async function updateNcConfidentielDetailAction(formData: FormData): Prom
     payload[key] = parseOptionalText(formData, key);
   }
 
-  const { data: existing } = await supabaseServer
-    .from(TABLE)
-    .select("statut_correction, statut_ac, statut_cloture, date_realisation_correction, date_realisation_ac, date_realisation")
-    .eq("id", id)
-    .maybeSingle();
-  const ancien = existing as Omit<AncienEtat, "id"> | null;
-
-  const statutCorrection = parseOptionalText(formData, "statut_correction");
-  const statutAc = parseOptionalText(formData, "statut_ac");
-  const nouveauFaitCorrection = String(statutCorrection ?? "").trim().toUpperCase() === "REALISEE";
-  const nouveauFaitAc = String(statutAc ?? "").trim().toUpperCase() === "REALISEE";
-  const statutCloture = nouveauFaitCorrection && nouveauFaitAc ? "CLOTUREE" : "EN COURS";
-
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const dateCorrection = calculerDateRealisation(
-    nouveauFaitCorrection,
-    ancien?.statut_correction?.trim().toUpperCase() === "REALISEE",
-    ancien?.date_realisation_correction ?? null,
-    todayIso
-  );
-  const dateAc = calculerDateRealisation(
-    nouveauFaitAc,
-    ancien?.statut_ac?.trim().toUpperCase() === "REALISEE",
-    ancien?.date_realisation_ac ?? null,
-    todayIso
-  );
-  const dateCloture = calculerDateRealisation(
-    statutCloture === "CLOTUREE",
-    ancien?.statut_cloture?.trim().toUpperCase() === "CLOTUREE",
-    ancien?.date_realisation ?? null,
-    todayIso
-  );
-
   const { error } = await supabaseServer
     .from(TABLE)
-    .update({
-      ...payload,
-      statut_correction: statutCorrection,
-      statut_ac: statutAc,
-      statut_cloture: statutCloture,
-      date_realisation_correction: dateCorrection,
-      date_realisation_ac: dateAc,
-      date_realisation: dateCloture,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ ...payload, updated_at: new Date().toISOString() })
     .eq("id", id);
 
   if (error) {
@@ -624,16 +671,11 @@ export async function addNcEntryAction(
   };
   const nextEntries = [...(await fetchEntries(ncId, field)), entry];
 
-  const { error } = await supabaseServer
-    .from(TABLE)
-    .update({ [entriesColumn(field)]: nextEntries, updated_at: new Date().toISOString() })
-    .eq("id", ncId);
-  if (error) {
-    return { ok: false, message: error.message };
+  const result = await saveEntriesAndRecomputeStatuses(ncId, field, nextEntries);
+  if (!result.ok) {
+    return result;
   }
 
-  revalidatePath("/qualite/nc-confidentiel");
-  revalidatePath(`/qualite/nc-confidentiel/${ncId}`);
   return { ok: true, entry };
 }
 
@@ -660,17 +702,7 @@ export async function updateNcEntryTextAction(
   const currentEntries = await fetchEntries(ncId, field);
   const nextEntries = currentEntries.map((entry) => (entry.id === entryId ? { ...entry, texte: trimmed } : entry));
 
-  const { error } = await supabaseServer
-    .from(TABLE)
-    .update({ [entriesColumn(field)]: nextEntries, updated_at: new Date().toISOString() })
-    .eq("id", ncId);
-  if (error) {
-    return { ok: false, message: error.message };
-  }
-
-  revalidatePath("/qualite/nc-confidentiel");
-  revalidatePath(`/qualite/nc-confidentiel/${ncId}`);
-  return { ok: true };
+  return saveEntriesAndRecomputeStatuses(ncId, field, nextEntries);
 }
 
 // Meme principe que createNcConfidentielUploadSlotAction/confirmNcConfidentielUploadAction
@@ -719,16 +751,11 @@ export async function confirmNcEntryUploadAction(
     entry.id === entryId ? { ...entry, fichiers: [...entry.fichiers, ...files] } : entry
   );
 
-  const { error } = await supabaseServer
-    .from(TABLE)
-    .update({ [entriesColumn(field)]: nextEntries, updated_at: new Date().toISOString() })
-    .eq("id", ncId);
-  if (error) {
-    return { ok: false, message: error.message };
+  const result = await saveEntriesAndRecomputeStatuses(ncId, field, nextEntries);
+  if (!result.ok) {
+    return result;
   }
 
-  revalidatePath("/qualite/nc-confidentiel");
-  revalidatePath(`/qualite/nc-confidentiel/${ncId}`);
   return { ok: true, files };
 }
 
@@ -756,15 +783,5 @@ export async function deleteNcEntryFileAction(
     entry.id === entryId ? { ...entry, fichiers: entry.fichiers.filter((f) => f.path !== path) } : entry
   );
 
-  const { error: updateError } = await supabaseServer
-    .from(TABLE)
-    .update({ [entriesColumn(field)]: nextEntries, updated_at: new Date().toISOString() })
-    .eq("id", ncId);
-  if (updateError) {
-    return { ok: false, message: updateError.message };
-  }
-
-  revalidatePath("/qualite/nc-confidentiel");
-  revalidatePath(`/qualite/nc-confidentiel/${ncId}`);
-  return { ok: true };
+  return saveEntriesAndRecomputeStatuses(ncId, field, nextEntries);
 }
