@@ -28,6 +28,17 @@ const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "constat", "processus_concern
 
 const DATE_COLUMN_KEYS = ["created_at", "date_realisation_correction", "date_realisation_ac", "date_realisation"];
 
+// Correction/Action Corrective sont desormais des listes d'entrees datees
+// (colonnes JSONB correction_entries/action_corrective_ac_entries, voir
+// correction-entries.tsx) - l'ancienne colonne texte du meme nom n'est plus
+// jamais ecrite. La colonne du tableau affiche donc un resume de ces
+// entrees plutot que l'ancien champ, sinon elle restait vide en
+// permanence des qu'une NC n'utilisait plus que la nouvelle page detail.
+const ENTRY_COLUMN_SOURCE: Record<string, string> = {
+  correction: "correction_entries",
+  action_corrective_ac: "action_corrective_ac_entries",
+};
+
 // Memes titres, dans le meme ordre, que la feuille "NC Confidentiel" du
 // classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne), plus 4 colonnes
 // jamais dans le classeur d'origine - demande explicite : "Date" (creation)
@@ -102,6 +113,12 @@ async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<n
       for (const col of COLUMNS) {
         if (DATE_COLUMN_KEYS.includes(col.key)) {
           row[col.key] = raw[col.key] ? formatDate(String(raw[col.key])) : "";
+          continue;
+        }
+        const entriesSource = ENTRY_COLUMN_SOURCE[col.key];
+        if (entriesSource) {
+          const entries = (raw[entriesSource] as { date: string; texte: string }[] | null) ?? [];
+          row[col.key] = entries.map((entry) => `${entry.date} : ${entry.texte}`).join("\n\n");
           continue;
         }
         row[col.key] = raw[col.key] != null ? String(raw[col.key]) : "";
