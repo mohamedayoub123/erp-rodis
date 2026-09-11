@@ -234,6 +234,7 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
           progressDoneStatus="CLOTUREE"
           restrictedColumnKeys={RESTRICTED_COLUMN_KEYS}
           canEditRestrictedColumns={currentUser === "felicite"}
+          detailHrefPrefix="/qualite/taf-confidentiel"
         />
       </div>
     </main>

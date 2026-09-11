@@ -166,6 +166,58 @@ export async function createNcConfidentielAction(formData: FormData): Promise<vo
   redirect("/qualite/nc-confidentiel");
 }
 
+// Champs de suivi (Correction, Action Corrective) modifies depuis la page
+// dediee /qualite/nc-confidentiel/[id] - saisie plus confortable en
+// formulaire vertical plein ecran que dans les cellules etroites du tableau
+// (demande explicite), en plus de l'edition en ligne qui reste disponible.
+// Ne touche jamais aux statuts/dates de realisation (geres par
+// saveNcConfidentielBatchAction ci-dessus), seulement ces 13 champs.
+const DETAIL_FIELD_KEYS = [
+  "correction",
+  "responsable_correction",
+  "delais_correction",
+  "commentaire",
+  "analyse_causes",
+  "action_corrective_ac",
+  "responsable_ac",
+  "delais_ac",
+  "commentaire2",
+  "methode_mesure_efficacite_ac",
+  "mesure_efficacite_ac",
+  "realise_par",
+  "commentaire3",
+] as const;
+
+export async function updateNcConfidentielDetailAction(formData: FormData): Promise<void> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier cette NC.");
+  }
+
+  const id = Number(formData.get("id"));
+  if (!id) {
+    throw new Error("NC invalide.");
+  }
+
+  const payload: Record<string, string | null> = {};
+  for (const key of DETAIL_FIELD_KEYS) {
+    payload[key] = parseOptionalText(formData, key);
+  }
+
+  const { error } = await supabaseServer
+    .from(TABLE)
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/qualite/nc-confidentiel");
+  revalidatePath(`/qualite/nc-confidentiel/${id}`);
+  redirect("/qualite/nc-confidentiel");
+}
+
 export async function deleteNcConfidentielRowAction(id: number): Promise<void> {
   const currentUser = await getCurrentStockUser();
   if (!(await canDeletePageUser(currentUser, "qualiteNcConfidentiel"))) {
