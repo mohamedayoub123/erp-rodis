@@ -23,8 +23,12 @@ const STATUT_OPTIONS = ["REALISEE", "EN COURS", "NON REALISEE", "NOUVELLE NC OUV
 const STATUT_CLOTURE_OPTIONS = ["CLOTUREE", "EN COURS"];
 
 // Ces colonnes restent en lecture seule pour tout le monde, meme l'admin -
-// seule felicite peut les modifier.
-const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "constat", "processus_concerne", "service_concerne"];
+// seule felicite peut les modifier. "numero" en est retire (demande
+// explicite : "la personne qui peut ajouter il faut que ca vienne
+// automatique avec lui, pas restreint a felicite") - modifiable par
+// n'importe quel compte ayant acces en ecriture a ce tableau, comme les
+// champs normaux.
+const RESTRICTED_COLUMN_KEYS = ["audit", "constat", "processus_concerne", "service_concerne"];
 
 const DATE_COLUMN_KEYS = ["created_at", "date_realisation_correction", "date_realisation_ac", "date_realisation"];
 
