@@ -34,7 +34,7 @@ async function fetchDistinctValues(column: string): Promise<string[]> {
   return [...values].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
 
-const inputClass = "rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none";
+const inputClass = "w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none";
 
 export default async function NouvelleNcConfidentiellePage() {
   noStore();
@@ -52,7 +52,7 @@ export default async function NouvelleNcConfidentiellePage() {
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f0ff_0%,#faf8ff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
-      <div className="mx-auto w-full max-w-3xl space-y-6">
+      <div className="mx-auto w-full space-y-6">
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -68,7 +68,7 @@ export default async function NouvelleNcConfidentiellePage() {
         </section>
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form action={createNcConfidentielAction} className="grid gap-4">
+          <form action={createNcConfidentielAction} className="grid gap-5 sm:grid-cols-2">
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Audit
               <SelectWithAddOption
@@ -81,11 +81,6 @@ export default async function NouvelleNcConfidentiellePage() {
             </label>
 
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
-              Constat
-              <textarea name="constat" rows={4} className={inputClass} />
-            </label>
-
-            <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Classe
               <select name="classe" defaultValue="" className={inputClass}>
                 <option value="">-</option>
@@ -95,6 +90,11 @@ export default async function NouvelleNcConfidentiellePage() {
                   </option>
                 ))}
               </select>
+            </label>
+
+            <label className="grid gap-1 text-xs font-semibold text-slate-500 sm:col-span-2">
+              Constat
+              <textarea name="constat" rows={5} className={inputClass} />
             </label>
 
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
@@ -139,7 +139,7 @@ export default async function NouvelleNcConfidentiellePage() {
               <input type="text" name="sous_sous_chapitre" className={inputClass} />
             </label>
 
-            <div className="mt-2 flex justify-end">
+            <div className="mt-2 flex justify-end sm:col-span-2">
               <SubmitButton
                 pendingLabel="Enregistrement..."
                 className="rounded-full bg-violet-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-violet-600 disabled:opacity-60"
