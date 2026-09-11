@@ -220,14 +220,47 @@ function parseOptionalText(formData: FormData, key: string): string | null {
 // Constat, Classe, Processus/Service concerne, Norme/Chapitre) - jamais les
 // champs de suivi (Correction, AC, statuts, dates...), remplis plus tard
 // via le tableau normal une fois l'instruction/investigation en cours.
+// Genere et RESERVE (avance le compteur tout de suite, pas seulement au
+// prochain save du tableau) le prochain numero pour cet audit, sur l'annee
+// en cours - demande explicite : "pour le N il faut qu'il vienne
+// automatique, pas que je l'ecrive moi-meme... par rapport au compteur de
+// numero". Format historique (AI-audit-annee-NC-sequence sur 3 chiffres),
+// coherent avec numeroSuggere() affiche sur /compteurs.
+async function genererProchainNumero(audit: string): Promise<string | null> {
+  if (!audit) return null;
+  const annee = new Date().getFullYear();
+
+  const { data: existing } = await supabaseServer
+    .from("qualite_numero_compteurs")
+    .select("prochain_numero")
+    .eq("audit", audit)
+    .eq("annee", annee)
+    .maybeSingle();
+  const prochainNumero = (existing as { prochain_numero: number } | null)?.prochain_numero ?? 1;
+
+  const { error } = await supabaseServer
+    .from("qualite_numero_compteurs")
+    .upsert(
+      { audit, annee, prochain_numero: prochainNumero + 1, updated_at: new Date().toISOString() },
+      { onConflict: "audit,annee" }
+    );
+  if (error) return null;
+
+  return `AI-${audit}-${annee}-NC-${String(prochainNumero).padStart(3, "0")}`;
+}
+
 export async function createNcConfidentielAction(formData: FormData): Promise<void> {
   const currentUser = await getCurrentStockUser();
   if (!(await canWritePageUser(currentUser, "qualiteNcConfidentiel"))) {
     throw new Error("Cet utilisateur ne peut pas ajouter de NC.");
   }
 
+  const audit = parseOptionalText(formData, "audit");
+  const numero = await genererProchainNumero(audit ?? "");
+
   const { error } = await supabaseServer.from(TABLE).insert({
-    audit: parseOptionalText(formData, "audit"),
+    audit,
+    numero,
     constat: parseOptionalText(formData, "constat"),
     classe: parseOptionalText(formData, "classe"),
     processus_concerne: parseOptionalText(formData, "processus_concerne"),
