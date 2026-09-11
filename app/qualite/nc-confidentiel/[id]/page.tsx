@@ -8,6 +8,7 @@ import { formatDate } from "../../../production/suivi/data";
 import {
   updateNcConfidentielDetailAction,
   addNcEntryAction,
+  updateNcEntryTextAction,
   createNcEntryUploadSlotAction,
   confirmNcEntryUploadAction,
   getNcConfidentielFileUrlAction,
@@ -123,6 +124,7 @@ export default async function NcConfidentielDetailPage({ params }: { params: Par
               initialEntries={row.correction_entries || []}
               canWrite={canWrite}
               addEntryAction={addNcEntryAction}
+              updateEntryTextAction={updateNcEntryTextAction}
               createUploadSlotAction={createNcEntryUploadSlotAction}
               confirmUploadAction={confirmNcEntryUploadAction}
               getFileUrlAction={getNcConfidentielFileUrlAction}
@@ -168,6 +170,7 @@ export default async function NcConfidentielDetailPage({ params }: { params: Par
               initialEntries={row.action_corrective_ac_entries || []}
               canWrite={canWrite}
               addEntryAction={addNcEntryAction}
+              updateEntryTextAction={updateNcEntryTextAction}
               createUploadSlotAction={createNcEntryUploadSlotAction}
               confirmUploadAction={confirmNcEntryUploadAction}
               getFileUrlAction={getNcConfidentielFileUrlAction}
