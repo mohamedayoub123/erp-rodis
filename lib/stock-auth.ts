@@ -42,6 +42,15 @@ export type StockPermissions = {
   inventairePfDemarrer: boolean;
   inventairePfCompter: boolean;
   inventairePfRegulariser: boolean;
+  // NC/TAF Confidentiel (audit interne) : en plus de la permission de page
+  // (qualiteNcConfidentiel/qualiteTafConfidentiel), limite les lignes
+  // visibles/modifiables a celles dont "Processus concerne" figure dans
+  // cette liste - demande explicite (donnees confidentielles d'audit,
+  // chaque utilisateur ne doit voir que son perimetre). Vide = aucune ligne
+  // visible (coherent avec defaultView:false sur ces 2 pages). Admin
+  // continue de tout voir sans avoir besoin d'etre liste ici (verifie a
+  // part via isAdminUser, comme pour les autres droits transverses).
+  ncTafProcessus: string[];
 };
 
 // Forme stockee cote base : peut etre l'ancien format (module) ou le
@@ -147,6 +156,7 @@ function getDefaultPermissions(username: string): StockPermissions {
     inventairePfDemarrer: isAdmin,
     inventairePfCompter: isAdmin,
     inventairePfRegulariser: isAdmin,
+    ncTafProcessus: [],
   };
 }
 
@@ -288,6 +298,9 @@ function normalizeUserRecord(
       : typeof source.inventairePfRegulariser === "boolean"
         ? source.inventairePfRegulariser
         : defaults.inventairePfRegulariser,
+    ncTafProcessus: Array.isArray(source.ncTafProcessus)
+      ? source.ncTafProcessus.filter((v): v is string => typeof v === "string")
+      : defaults.ncTafProcessus,
   };
 
   return {
@@ -628,6 +641,17 @@ export async function canInventairePfRegulariserUser(username: string | null | u
   return permissions.inventairePfRegulariser;
 }
 
+// "all" pour un admin (voit tout sans etre liste explicitement, comme les
+// autres droits transverses) - sinon la liste exacte des "Processus
+// concerne" autorises pour ce compte (vide = aucune ligne NC/TAF visible).
+export async function getNcTafProcessusAutorisesUser(
+  username: string | null | undefined
+): Promise<string[] | "all"> {
+  if (isAdminUser(username)) return "all";
+  const permissions = await getUserPermissions(username);
+  return permissions.ncTafProcessus;
+}
+
 export async function canViewPathForUser(username: string | null | undefined, pathname: string): Promise<boolean> {
   if (pathname === "/" || pathname.startsWith("/test-supabase")) {
     return true;
@@ -764,6 +788,7 @@ export async function updateUserPermissions(
     inventairePfDemarrer: boolean;
     inventairePfCompter: boolean;
     inventairePfRegulariser: boolean;
+    ncTafProcessus: string[];
   }
 ) {
   const normalized = username.trim().toLowerCase();
@@ -796,6 +821,7 @@ export async function updateUserPermissions(
     inventairePfDemarrer: !!nextPermissions.inventairePfDemarrer,
     inventairePfCompter: !!nextPermissions.inventairePfCompter,
     inventairePfRegulariser: !!nextPermissions.inventairePfRegulariser,
+    ncTafProcessus: Array.isArray(nextPermissions.ncTafProcessus) ? nextPermissions.ncTafProcessus : [],
   };
 
   await writeUsers(users);

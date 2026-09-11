@@ -4,7 +4,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canWritePageUser, getCurrentStockUser, getNcTafProcessusAutorisesUser } from "@/lib/stock-auth";
 import { AuditTable, type AuditColumn, type AuditRow, type AttachmentFile } from "../audit-table";
 import {
   saveTafConfidentielBatchAction,
@@ -97,7 +97,22 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
   const params = await searchParams;
   const currentUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentUser, "qualiteTafConfidentiel");
-  const { rows: allRows, attachments } = await fetchAllRows();
+  const { rows: rowsFetched, attachments: attachmentsFetched } = await fetchAllRows();
+
+  // Donnees confidentielles d'audit - en plus de la permission de page,
+  // chaque compte ne voit que les lignes de son perimetre "Processus
+  // concerne" (admin = tout, voir getNcTafProcessusAutorisesUser). Filtre
+  // ici, avant toute autre etape (options de filtre, tableau), pour ne
+  // jamais exposer meme le NOM d'un processus hors perimetre. Meme
+  // correctif que app/qualite/nc-confidentiel/page.tsx.
+  const processusAutorises = await getNcTafProcessusAutorisesUser(currentUser);
+  const allRows =
+    processusAutorises === "all"
+      ? rowsFetched
+      : rowsFetched.filter((row) => processusAutorises.includes(String(row.processus_concerne ?? "").trim()));
+  const attachments = Object.fromEntries(
+    Object.entries(attachmentsFetched).filter(([id]) => allRows.some((row) => row.id === Number(id)))
+  );
 
   const auditFilter = (params.audit || "").trim().toLowerCase();
   const numeroFilter = (params.numero || "").trim().toLowerCase();

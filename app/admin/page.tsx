@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { supabaseServer } from "@/lib/supabase-server";
 import { readImportStatus } from "@/lib/import-status";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -34,6 +35,23 @@ import {
   uploadEntrerWorkbookAction,
   uploadWorkbookAction,
 } from "./actions";
+
+// Liste vivante (pas figee) des "Processus concerne" reellement presents
+// dans NC Confidentiel + TAF Confidentiel - demande explicite (autoriser
+// par processus) : reflete toujours le catalogue reel plutot qu'une liste
+// codee en dur qui se perimerait des qu'un nouveau processus apparait.
+async function fetchDistinctProcessus(): Promise<string[]> {
+  const [{ data: ncRows }, { data: tafRows }] = await Promise.all([
+    supabaseServer.from("qualite_nc_confidentiel").select("processus_concerne"),
+    supabaseServer.from("qualite_taf_confidentiel").select("processus_concerne"),
+  ]);
+  const set = new Set<string>();
+  for (const row of [...(ncRows ?? []), ...(tafRows ?? [])] as { processus_concerne: string | null }[]) {
+    const value = (row.processus_concerne ?? "").trim();
+    if (value) set.add(value);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+}
 
 function formatConnectedSince(value: string | null) {
   if (!value) return "";
@@ -92,7 +110,7 @@ export default async function AdminPage({
     );
   }
 
-  const stockUsers = await listStockUsers();
+  const [stockUsers, distinctProcessus] = await Promise.all([listStockUsers(), fetchDistinctProcessus()]);
 
   // Groupe d'affichage Admin : adminGroup si defini (sous-decoupe plus fine
   // qu'un ModuleKey, ex: "Rapport (Matiere Premiere)"), sinon le ModuleKey
@@ -823,6 +841,37 @@ export default async function AdminPage({
                             className="h-4 w-4 rounded border-slate-300"
                           />
                         </div>
+
+                        {distinctProcessus.length > 0 ? (
+                          <details className="group rounded-2xl border border-amber-200 bg-amber-50/40">
+                            <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800">
+                              <span className="flex-1">
+                                NC/TAF Confidentiel - Processus autorises (en plus de la permission de page)
+                              </span>
+                              <span
+                                aria-hidden="true"
+                                className="text-slate-400 transition-transform group-open:rotate-90"
+                              >
+                                &#9656;
+                              </span>
+                            </summary>
+                            <div className="grid gap-2 border-t border-amber-200 p-3 sm:grid-cols-2">
+                              {distinctProcessus.map((processus) => (
+                                <label key={processus} className="flex items-center gap-2 text-xs text-slate-700">
+                                  <input
+                                    type="checkbox"
+                                    name="nc_taf_processus"
+                                    value={processus}
+                                    defaultChecked={user.permissions.ncTafProcessus.includes(processus)}
+                                    disabled={user.isAdmin}
+                                    className="h-4 w-4 rounded border-slate-300"
+                                  />
+                                  {processus}
+                                </label>
+                              ))}
+                            </div>
+                          </details>
+                        ) : null}
 
                       </div>
 
