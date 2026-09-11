@@ -44,35 +44,39 @@ const COLUMNS: AuditColumn[] = [
   { key: "audit", label: "Audit" },
   { key: "numero", label: "N°" },
   { key: "constat", label: "Constat", long: true },
-  { key: "classe", label: "Classe" },
+  // readOnly (Classe -> Sous sous chapitre) : deja saisies a la creation
+  // (voir /qualite/nc-confidentiel/nouvelle), plus rien a corriger ici -
+  // demande explicite.
+  { key: "classe", label: "Classe", readOnly: true },
   { key: "processus_concerne", label: "Processus concerné" },
   { key: "service_concerne", label: "Service concerné" },
-  { key: "norme_concernee", label: "Norme Concernée" },
-  { key: "chapitre", label: "Chapitre" },
-  { key: "sous_chapitre", label: "Sous chapitre" },
-  { key: "sous_sous_chapitre", label: "Sous sous chapitre" },
-  // readOnly (Correction -> commentaire3) : editables UNIQUEMENT depuis la
-  // page dediee /qualite/nc-confidentiel/[id] (bouton "📝") - demande
-  // explicite, le tableau ne doit plus permettre de taper directement dans
-  // ces colonnes (trop etroites, saisie en double avec la page dediee).
+  { key: "norme_concernee", label: "Norme Concernée", readOnly: true },
+  { key: "chapitre", label: "Chapitre", readOnly: true },
+  { key: "sous_chapitre", label: "Sous chapitre", readOnly: true },
+  { key: "sous_sous_chapitre", label: "Sous sous chapitre", readOnly: true },
+  // readOnly (Correction -> commentaire3, Statut correction, Statut AC) :
+  // editables UNIQUEMENT depuis la page dediee /qualite/nc-confidentiel/[id]
+  // (bouton "📝") - demande explicite, le tableau ne doit plus permettre de
+  // taper directement dans ces colonnes (trop etroites, saisie en double
+  // avec la page dediee).
   { key: "correction", label: "Correction", long: true, readOnly: true },
   { key: "responsable_correction", label: "Responsable de la correction", readOnly: true },
   { key: "delais_correction", label: "Délais Correction", readOnly: true },
   { key: "commentaire", label: "Commentaire", long: true, readOnly: true },
-  { key: "statut_correction", label: "Statut correction", select: STATUT_OPTIONS },
+  { key: "statut_correction", label: "Statut correction", select: STATUT_OPTIONS, readOnly: true },
   { key: "date_realisation_correction", label: "Date correction réalisée", readOnly: true },
   { key: "analyse_causes", label: "Analyse des causes", long: true, readOnly: true },
   { key: "action_corrective_ac", label: "Action Corrective (AC)", long: true, readOnly: true },
   { key: "responsable_ac", label: "Responsable AC", readOnly: true },
   { key: "delais_ac", label: "Délais AC", readOnly: true },
   { key: "commentaire2", label: "commentaire2", long: true, readOnly: true },
-  { key: "statut_ac", label: "Statut AC", select: STATUT_OPTIONS },
+  { key: "statut_ac", label: "Statut AC", select: STATUT_OPTIONS, readOnly: true },
   { key: "date_realisation_ac", label: "Date AC réalisée", readOnly: true },
   { key: "methode_mesure_efficacite_ac", label: "Methode de Mesure efficacité AC", long: true, readOnly: true },
   { key: "mesure_efficacite_ac", label: "Mesure efficacité AC", long: true, readOnly: true },
   { key: "realise_par", label: "Réalisé par", readOnly: true },
   { key: "commentaire3", label: "commentaire3", long: true, readOnly: true },
-  { key: "statut_cloture", label: "Statut cloture", select: STATUT_CLOTURE_OPTIONS },
+  { key: "statut_cloture", label: "Statut cloture", select: STATUT_CLOTURE_OPTIONS, readOnly: true },
   { key: "date_realisation", label: "Date de clôture", readOnly: true },
 ];
 

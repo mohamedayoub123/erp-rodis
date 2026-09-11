@@ -227,9 +227,11 @@ export async function createNcConfidentielAction(formData: FormData): Promise<vo
 // Champs de suivi (Correction, Action Corrective) modifies depuis la page
 // dediee /qualite/nc-confidentiel/[id] - saisie plus confortable en
 // formulaire vertical plein ecran que dans les cellules etroites du tableau
-// (demande explicite), en plus de l'edition en ligne qui reste disponible.
-// Ne touche jamais aux statuts/dates de realisation (geres par
-// saveNcConfidentielBatchAction ci-dessus), seulement ces 13 champs.
+// (demande explicite). Statut correction/Statut AC sont maintenant
+// modifiables UNIQUEMENT ici (plus dans le tableau, voir page.tsx) - la
+// cascade Statut cloture + les 3 dates de realisation (auparavant geree par
+// saveNcConfidentielBatchAction) est donc reproduite ci-dessous pour ne pas
+// perdre ce comportement.
 const DETAIL_FIELD_KEYS = [
   "correction",
   "responsable_correction",
@@ -262,9 +264,51 @@ export async function updateNcConfidentielDetailAction(formData: FormData): Prom
     payload[key] = parseOptionalText(formData, key);
   }
 
+  const { data: existing } = await supabaseServer
+    .from(TABLE)
+    .select("statut_correction, statut_ac, statut_cloture, date_realisation_correction, date_realisation_ac, date_realisation")
+    .eq("id", id)
+    .maybeSingle();
+  const ancien = existing as Omit<AncienEtat, "id"> | null;
+
+  const statutCorrection = parseOptionalText(formData, "statut_correction");
+  const statutAc = parseOptionalText(formData, "statut_ac");
+  const nouveauFaitCorrection = String(statutCorrection ?? "").trim().toUpperCase() === "REALISEE";
+  const nouveauFaitAc = String(statutAc ?? "").trim().toUpperCase() === "REALISEE";
+  const statutCloture = nouveauFaitCorrection && nouveauFaitAc ? "CLOTUREE" : "EN COURS";
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const dateCorrection = calculerDateRealisation(
+    nouveauFaitCorrection,
+    ancien?.statut_correction?.trim().toUpperCase() === "REALISEE",
+    ancien?.date_realisation_correction ?? null,
+    todayIso
+  );
+  const dateAc = calculerDateRealisation(
+    nouveauFaitAc,
+    ancien?.statut_ac?.trim().toUpperCase() === "REALISEE",
+    ancien?.date_realisation_ac ?? null,
+    todayIso
+  );
+  const dateCloture = calculerDateRealisation(
+    statutCloture === "CLOTUREE",
+    ancien?.statut_cloture?.trim().toUpperCase() === "CLOTUREE",
+    ancien?.date_realisation ?? null,
+    todayIso
+  );
+
   const { error } = await supabaseServer
     .from(TABLE)
-    .update({ ...payload, updated_at: new Date().toISOString() })
+    .update({
+      ...payload,
+      statut_correction: statutCorrection,
+      statut_ac: statutAc,
+      statut_cloture: statutCloture,
+      date_realisation_correction: dateCorrection,
+      date_realisation_ac: dateAc,
+      date_realisation: dateCloture,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", id);
 
   if (error) {

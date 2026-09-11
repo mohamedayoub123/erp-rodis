@@ -618,6 +618,11 @@ export function AuditTable({
   // pas besoin de canWrite).
   const showDetailColumn = Boolean(detailHrefPrefix);
   const showActionsColumn = canWrite;
+  // Quand toutes les colonnes sont readOnly/restreintes pour cet
+  // utilisateur (ex: NC Confidentiel - tout se remplit desormais depuis
+  // "Nouvelle"/la page detail), "Enregistrer" n'a plus rien a faire - le
+  // masquer plutot que de laisser un bouton qui ne sert plus a rien.
+  const anyColumnEditable = columns.some((col) => isColumnEditable(col));
 
   return (
     <div className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
@@ -649,14 +654,16 @@ export function AuditTable({
           <div className="flex items-center gap-3">
             {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
             {errorMessage ? <p className="text-sm font-semibold text-red-700">{errorMessage}</p> : null}
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isPending}
-              className="rounded-full bg-violet-700 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-600 disabled:opacity-60"
-            >
-              {isPending ? "Enregistrement..." : "Enregistrer"}
-            </button>
+            {anyColumnEditable ? (
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isPending}
+                className="rounded-full bg-violet-700 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-600 disabled:opacity-60"
+              >
+                {isPending ? "Enregistrement..." : "Enregistrer"}
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -837,7 +844,7 @@ export function AuditTable({
         </table>
     </div>
 
-      {canWrite ? (
+      {canWrite && anyColumnEditable ? (
         <div className="flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             {message ? <p className="text-sm font-semibold text-emerald-700">{message}</p> : null}
