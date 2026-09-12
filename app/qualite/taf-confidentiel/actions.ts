@@ -54,6 +54,54 @@ function calculerDateRealisation(
   return ancienCloture ? (ancienneDate ?? todayIso) : todayIso;
 }
 
+// Tx de progression n'est plus tape a la main non plus - meme raison que
+// Statut : deduit directement de T1-T4 (leur somme), jamais une valeur
+// separee qui pourrait se desynchroniser de l'etat reel.
+function computeTxProgression(row: Record<string, string | number | null>): string {
+  const total = T1_T4_KEYS.reduce((sum, key) => {
+    const n = parseFloat(String(row[key] ?? "").replace(",", "."));
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+  const pct = Math.round(Math.min(1, Math.max(0, total)) * 100);
+  return `${pct}%`;
+}
+
+// Champs de creation initiale (Audit, Constat, Processus/Service concerne,
+// Norme/Chapitre) sur une page dediee plutot qu'une ligne vide ajoutee
+// directement dans le tableau - demande explicite, meme principe que
+// /qualite/nc-confidentiel/nouvelle. Qui/Delais/Commentaire/T1-T4 restent
+// remplis ensuite depuis la page detail (voir updateTafConfidentielDetailAction).
+export async function createTafConfidentielAction(formData: FormData): Promise<void> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteTafConfidentiel"))) {
+    throw new Error("Cet utilisateur ne peut pas ajouter de TAF.");
+  }
+
+  const { error } = await supabaseServer.from(TABLE).insert({
+    audit: parseOptionalText(formData, "audit"),
+    constat: parseOptionalText(formData, "constat"),
+    processus_concerne: parseOptionalText(formData, "processus_concerne"),
+    service_concerne: parseOptionalText(formData, "service_concerne"),
+    norme_concernee: parseOptionalText(formData, "norme_concernee"),
+    chapitre: parseOptionalText(formData, "chapitre"),
+    sous_chapitre: parseOptionalText(formData, "sous_chapitre"),
+    sous_sous_chapitre: parseOptionalText(formData, "sous_sous_chapitre"),
+    // Sans T1-T4, computeStatutDepuisT1T4/computeTxProgression valent
+    // "PAS D'ACTION"/"0%" - pose directement ces valeurs a la creation
+    // plutot que de laisser statut/tx_progression a null jusqu'a la
+    // premiere sauvegarde depuis la page detail.
+    statut: "PAS D'ACTION",
+    tx_progression: "0%",
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/qualite/taf-confidentiel");
+  redirect("/qualite/taf-confidentiel");
+}
+
 export async function saveTafConfidentielBatchAction(
   rows: AuditRow[]
 ): Promise<{ ok: boolean; message?: string; insertedIds?: number[] }> {
@@ -94,7 +142,13 @@ export async function saveTafConfidentielBatchAction(
         ancien?.date_realisation ?? null,
         todayIso
       );
-      return { ...rest, statut, date_realisation: dateRealisation, updated_at: new Date().toISOString() };
+      return {
+        ...rest,
+        statut,
+        tx_progression: computeTxProgression(r),
+        date_realisation: dateRealisation,
+        updated_at: new Date().toISOString(),
+      };
     });
 
     const { error } = await supabaseServer.from(TABLE).upsert(payload, { onConflict: "id" });
@@ -107,7 +161,12 @@ export async function saveTafConfidentielBatchAction(
   if (toInsert.length > 0) {
     const payload = toInsert.map((r) => {
       const statut = computeStatutDepuisT1T4(r);
-      return { ...r, statut, date_realisation: statut === "CLOTUREE" ? todayIso : null };
+      return {
+        ...r,
+        statut,
+        tx_progression: computeTxProgression(r),
+        date_realisation: statut === "CLOTUREE" ? todayIso : null,
+      };
     });
     const { data, error } = await supabaseServer.from(TABLE).insert(payload).select("id");
     if (error) {
@@ -166,6 +225,7 @@ export async function updateTafConfidentielDetailAction(formData: FormData): Pro
   const updatePayload: Record<string, string | null> = {
     ...payload,
     statut,
+    tx_progression: computeTxProgression(payload),
     date_realisation: dateRealisation,
     updated_at: new Date().toISOString(),
   };

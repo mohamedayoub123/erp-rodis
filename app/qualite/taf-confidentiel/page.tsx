@@ -17,8 +17,7 @@ import {
 } from "./actions";
 
 // Ces colonnes restent en lecture seule pour tout le monde, meme l'admin -
-// seule felicite peut les modifier. "Constat" a ete retire de cette liste -
-// modifiable par tout le monde comme "Commentaire".
+// seule felicite peut les modifier.
 const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "processus_concerne", "service_concerne"];
 
 // Memes titres, dans le meme ordre, que la feuille "TAF Confidentiel" du
@@ -32,11 +31,16 @@ const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "processus_concerne", "servic
 // les corriger, contrairement aux colonnes de RESTRICTED_COLUMN_KEYS
 // ci-dessus. Demande explicite : uniquement de l'information vue, jamais un
 // champ ecrivable.
+// Constat/Norme/Chapitre/Sous chapitre/Sous sous chapitre readOnly aussi -
+// meme principe que NC Confidentiel : rempli une seule fois a la creation
+// (page /qualite/taf-confidentiel/nouvelle), plus jamais modifie en ligne
+// dans le tableau. Tx de progression readOnly - deduit de T1-T4, jamais
+// tape a la main (voir computeTxProgression, actions.ts).
 const COLUMNS: AuditColumn[] = [
   { key: "created_at", label: "Date", readOnly: true },
   { key: "audit", label: "Audit" },
   { key: "numero", label: "n°" },
-  { key: "constat", label: "Constat", long: true },
+  { key: "constat", label: "Constat", long: true, readOnly: true },
   { key: "processus_concerne", label: "Processus concerné" },
   { key: "service_concerne", label: "Service concerné" },
   // readOnly (Qui -> T4) : editables UNIQUEMENT depuis la page dediee
@@ -44,16 +48,16 @@ const COLUMNS: AuditColumn[] = [
   // tableau ne doit plus permettre de taper directement dans ces colonnes.
   { key: "qui", label: "Qui", readOnly: true },
   { key: "delais", label: "Délais", readOnly: true },
-  { key: "norme_concernee", label: "Norme concernée" },
-  { key: "chapitre", label: "Chapitre" },
-  { key: "sous_chapitre", label: "Sous chapitre" },
-  { key: "sous_sous_chapitre", label: "Sous sous chapitre" },
+  { key: "norme_concernee", label: "Norme concernée", readOnly: true },
+  { key: "chapitre", label: "Chapitre", readOnly: true },
+  { key: "sous_chapitre", label: "Sous chapitre", readOnly: true },
+  { key: "sous_sous_chapitre", label: "Sous sous chapitre", readOnly: true },
   { key: "commentaire", label: "Commentaire", long: true, readOnly: true },
   { key: "t1", label: "T1", readOnly: true },
   { key: "t2", label: "T2", readOnly: true },
   { key: "t3", label: "T3", readOnly: true },
   { key: "t4", label: "T4", readOnly: true },
-  { key: "tx_progression", label: "Tx de progression" },
+  { key: "tx_progression", label: "Tx de progression", readOnly: true },
   // Statut n'est plus choisi a la main nulle part - meme demande/logique
   // que NC Confidentiel (Statut correction/Statut AC) : deduit de T1-T4 a
   // chaque sauvegarde (voir computeStatutDepuisT1T4, taf-confidentiel/actions.ts).
@@ -235,6 +239,7 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
           restrictedColumnKeys={RESTRICTED_COLUMN_KEYS}
           canEditRestrictedColumns={currentUser === "felicite"}
           detailHrefPrefix="/qualite/taf-confidentiel"
+          addRowHref="/qualite/taf-confidentiel/nouvelle"
         />
       </div>
     </main>
