@@ -26,7 +26,7 @@ import {
 import { CorrectionEntries } from "./correction-entries";
 
 // Memes 4 valeurs pour Statut correction et Statut AC.
-const STATUT_OPTIONS = ["REALISEE", "EN COURS", "NON REALISEE", "NOUVELLE NC OUVERTE ANNEE N+1"];
+const STATUT_OPTIONS = ["REALISEE", "EN COURS", "EN ATTENTE", "NON REALISEE", "NOUVELLE NC OUVERTE ANNEE N+1"];
 // Statut cloture : calcule automatiquement a partir de Statut correction et
 // Statut AC - CLOTUREE seulement si les 2 valent REALISEE, sinon EN COURS.
 const STATUT_CLOTURE_OPTIONS = ["CLOTUREE", "EN COURS"];

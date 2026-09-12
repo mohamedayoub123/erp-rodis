@@ -73,11 +73,12 @@ type AncienEtat = {
 // faut que le statut arrive en cours, si y'a rien en attente, si y'a
 // fichier joint sur tout il faut qu'il vienne realisee". Deduits de l'etat
 // REEL des entrees (voir CorrectionEntry) a chaque ajout/modification/
-// fichier joint ou retire : aucune entree -> pas de statut (vide, "en
-// attente") ; au moins une entree mais pas toutes avec un fichier -> "EN
-// COURS" ; toutes les entrees ont au moins un fichier -> "REALISEE".
-function computeStatutDepuisEntries(entries: CorrectionEntry[]): string | null {
-  if (entries.length === 0) return null;
+// fichier joint ou retire : aucune entree -> "EN ATTENTE" (jamais vide -
+// demande explicite : "il faut pas que ca vide, il faut EN ATTENTE") ; au
+// moins une entree mais pas toutes avec un fichier -> "EN COURS" ; toutes
+// les entrees ont au moins un fichier -> "REALISEE".
+function computeStatutDepuisEntries(entries: CorrectionEntry[]): string {
+  if (entries.length === 0) return "EN ATTENTE";
   return entries.every((entry) => entry.fichiers.length > 0) ? "REALISEE" : "EN COURS";
 }
 

@@ -77,8 +77,13 @@ export function CorrectionEntries({
         setError(result.message || "Erreur pendant l'ajout.");
         return;
       }
-      setEntries((prev) => [...prev, result.entry as CorrectionEntry]);
-      setNouveauTexte("");
+      // Statut correction/Statut AC (colonne separee de AuditTable, deduite
+      // de l'etat des entrees - voir saveEntriesAndRecomputeStatuses) vit
+      // dans un ref jamais resynchronise par un simple revalidatePath -
+      // rechargement complet pour que la colonne Statut se mette a jour
+      // sans attendre un futur changement de page. Demande explicite : "le
+      // statut c'est pas changer".
+      window.location.reload();
     });
   }
 
@@ -218,12 +223,20 @@ function EntryRow({
     });
   }
 
+  // Statut correction/Statut AC (voir handleAdd plus haut pour le detail) -
+  // meme raison de rechargement complet apres toute mutation qui peut faire
+  // bouger le statut calcule (fichier joint/retire).
+  function reloadForStatutUpdate() {
+    window.location.reload();
+  }
+
   function handleUpload(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
     setError("");
     const allFiles = Array.from(fileList);
 
     startTransition(async () => {
+      let auMoinsUnEnvoye = false;
       for (const file of allFiles) {
         const slot = await createUploadSlotAction(ncId, field, entry.id, file.name);
         if (!slot.ok || !slot.path || !slot.signedUrl) {
@@ -245,17 +258,17 @@ function EntryRow({
           if (!result.ok) {
             setError(result.message || `Erreur pendant l'enregistrement de "${file.name}".`);
           } else {
-            setFiles((prev) => {
-              const next = [...prev, uploadedFile];
-              onFilesChanged(next);
-              return next;
-            });
+            auMoinsUnEnvoye = true;
           }
         } catch {
           setError(`Erreur pendant l'envoi de "${file.name}".`);
         }
       }
       if (fileInputRef.current) fileInputRef.current.value = "";
+      // Statut correction/Statut AC peut passer a REALISEE des que TOUTES
+      // les entrees ont un fichier - rechargement complet necessaire pour
+      // que la colonne Statut du tableau le reflete (voir handleAdd).
+      if (auMoinsUnEnvoye) reloadForStatutUpdate();
     });
   }
 
@@ -292,6 +305,10 @@ function EntryRow({
         onFilesChanged(next);
         return next;
       });
+      // Retirer le dernier fichier d'une entree peut faire redescendre le
+      // Statut de REALISEE a EN COURS (voir handleAdd) - rechargement
+      // complet pour que la colonne Statut du tableau le reflete.
+      reloadForStatutUpdate();
     });
   }
 
