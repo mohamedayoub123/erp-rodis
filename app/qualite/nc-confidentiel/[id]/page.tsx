@@ -17,12 +17,6 @@ import {
 } from "../actions";
 import { CorrectionEntries } from "../correction-entries";
 
-// Meme 4 valeurs que page.tsx (Statut correction/Statut AC) - dupliquee
-// plutot qu'importee : un page.tsx ne peut exporter que des noms speciaux
-// reconnus par Next (default, generateStaticParams...), pas une constante
-// libre comme celle-ci.
-const STATUT_OPTIONS = ["REALISEE", "EN COURS", "NON REALISEE", "NOUVELLE NC OUVERTE ANNEE N+1"];
-
 type NcRow = {
   id: number;
   audit: string | null;
@@ -58,9 +52,11 @@ const inputClass = "w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm
 type Params = Promise<{ id: string }>;
 
 // Page dediee plein ecran pour remplir Correction/Action Corrective d'une NC
-// existante - demande explicite. Ces colonnes (et les 2 Statuts, voir la
-// cascade Statut cloture/dates dans updateNcConfidentielDetailAction) ne
-// sont plus modifiables depuis le tableau NC Confidentiel, seulement ici.
+// existante - demande explicite. Statut correction/Statut AC/Statut cloture
+// ne sont PLUS des champs saisis ici (ni nulle part) - deduits
+// automatiquement de l'etat des entrees Correction/Action Corrective (voir
+// computeStatutDepuisEntries, actions.ts), affiches en lecture seule dans
+// l'entete ci-dessous.
 export default async function NcConfidentielDetailPage({ params }: { params: Params }) {
   noStore();
   const { id: idParam } = await params;
@@ -105,6 +101,8 @@ export default async function NcConfidentielDetailPage({ params }: { params: Par
             <p>Classe : <span className="font-semibold text-slate-700">{row.classe || "-"}</span></p>
             <p>Processus : <span className="font-semibold text-slate-700">{row.processus_concerne || "-"}</span></p>
             <p>Service : <span className="font-semibold text-slate-700">{row.service_concerne || "-"}</span></p>
+            <p>Statut correction : <span className="font-semibold text-slate-700">{row.statut_correction || "-"}</span></p>
+            <p>Statut AC : <span className="font-semibold text-slate-700">{row.statut_ac || "-"}</span></p>
             <p>Statut cloture : <span className="font-semibold text-slate-700">{row.statut_cloture || "-"}</span></p>
             <p>Date : <span className="font-semibold text-slate-700">{row.created_at ? formatDate(row.created_at) : "-"}</span></p>
             <p>Date correction réalisée : <span className="font-semibold text-slate-700">{row.date_realisation_correction ? formatDate(row.date_realisation_correction) : "-"}</span></p>
@@ -141,18 +139,6 @@ export default async function NcConfidentielDetailPage({ params }: { params: Par
               <input type="text" name="delais_correction" defaultValue={row.delais_correction || ""} disabled={!canWrite} className={inputClass} />
             </label>
 
-            <label className="grid gap-1 text-xs font-semibold text-slate-500">
-              Statut correction
-              <select name="statut_correction" defaultValue={row.statut_correction || ""} disabled={!canWrite} className={inputClass}>
-                <option value="">-</option>
-                {STATUT_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-
             <label className="grid gap-1 text-xs font-semibold text-slate-500 sm:col-span-2">
               Commentaire
               <textarea name="commentaire" defaultValue={row.commentaire || ""} rows={4} disabled={!canWrite} className={inputClass} />
@@ -185,18 +171,6 @@ export default async function NcConfidentielDetailPage({ params }: { params: Par
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Délais AC
               <input type="text" name="delais_ac" defaultValue={row.delais_ac || ""} disabled={!canWrite} className={inputClass} />
-            </label>
-
-            <label className="grid gap-1 text-xs font-semibold text-slate-500">
-              Statut AC
-              <select name="statut_ac" defaultValue={row.statut_ac || ""} disabled={!canWrite} className={inputClass}>
-                <option value="">-</option>
-                {STATUT_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
             </label>
 
             <label className="grid gap-1 text-xs font-semibold text-slate-500 sm:col-span-2">
