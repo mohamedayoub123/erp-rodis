@@ -658,6 +658,23 @@ export async function updateAllLigneLotsAction(formData: FormData) {
   }
   const depotSourceId = (transferOrderData as { depot_source_id: number }).depot_source_id;
 
+  // Meme regle que partout ailleurs dans cette session (formulaire natif
+  // <form action>, jamais de catch cote client possible) : un throw depuis
+  // une Server Action voit son message efface en production par Next.js.
+  // Capture ici et redirige avec le vrai message en avertissement (deja
+  // affiche sur cette page, voir app/depots/transfer-order/[id]/page.tsx)
+  // plutot que de laisser planter - important desormais que "Stock
+  // insuffisant" doit reellement etre LU par l'utilisateur, pas juste
+  // bloquer silencieusement.
+  try {
+    await updateAllLigneLotsCore(formData, transferOrderId, depotSourceId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur pendant l'enregistrement.";
+    redirect(`/depots/transfer-order/${transferOrderId}?avertissement=${encodeURIComponent(message)}`);
+  }
+}
+
+async function updateAllLigneLotsCore(formData: FormData, transferOrderId: number, depotSourceId: number) {
   const deletedLigneIds = await deleteFlaggedLignes(formData);
   await applyArticleChanges(formData, deletedLigneIds);
 
@@ -737,6 +754,19 @@ export async function updateAllLigneLotsAction(formData: FormData) {
         remainingByCacheKeyAndLot.set(remainingKey, disponible);
       }
       const remainingInLot = remainingByCacheKeyAndLot.get(remainingKey) ?? 0;
+
+      // Stock insuffisant sur ce lot precis : rejette tout l'enregistrement
+      // avec un message clair - demande explicite ("il faut pas accepter,
+      // msg que le stock est insuffisant, il faut pas que je puisse faire
+      // stock negatif"). Avant ce correctif, la quantite etait simplement
+      // reduite en silence au stock reellement disponible (Math.min), sans
+      // aucun message - l'utilisateur ne savait jamais que sa saisie avait
+      // ete tronquee.
+      if (row.quantite > remainingInLot + 1e-6) {
+        throw new Error(
+          `Stock insuffisant pour le lot "${row.numeroLot || "-"}" - disponible : ${remainingInLot.toLocaleString("fr-FR")}.`
+        );
+      }
 
       const dejaAlloue = allocatedByLigneId.get(row.ligneId) ?? 0;
       const restantSurDemande = Math.max(0, ligne.quantite_demandee - dejaAlloue);
