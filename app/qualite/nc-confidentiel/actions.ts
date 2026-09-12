@@ -358,6 +358,14 @@ export async function createNcConfidentielAction(formData: FormData): Promise<vo
     chapitre: parseOptionalText(formData, "chapitre"),
     sous_chapitre: parseOptionalText(formData, "sous_chapitre"),
     sous_sous_chapitre: parseOptionalText(formData, "sous_sous_chapitre"),
+    // Sans entree, computeStatutDepuisEntries([]) vaut "EN ATTENTE" - pose
+    // directement cette valeur a la creation (pas d'entree possible avant
+    // que la ligne existe) plutot que de laisser statut_correction/statut_ac
+    // a null jusqu'au premier ajout d'entree (rendu vide/"-" dans le
+    // tableau, contraire a la regle "jamais vide, EN ATTENTE si rien").
+    statut_correction: "EN ATTENTE",
+    statut_ac: "EN ATTENTE",
+    statut_cloture: "EN COURS",
   });
 
   if (error) {
