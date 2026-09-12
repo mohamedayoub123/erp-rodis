@@ -16,13 +16,90 @@ function parseOptionalText(formData: FormData, key: string): string | null {
   return value || null;
 }
 
+const T1_T4_KEYS = ["t1", "t2", "t3", "t4"] as const;
+
+// Statut n'est plus tape a la main nulle part (tableau ni page detail) -
+// meme demande/logique que NC Confidentiel (Statut correction/Statut AC,
+// voir nc-confidentiel/actions.ts) : deduit de l'etat REEL de T1-T4 a
+// chaque sauvegarde. Aucun progres -> "PAS D'ACTION" (jamais vide) ; au
+// moins un T rempli mais total < 100% -> "EN COURS" ; total >= 100% ->
+// "CLOTUREE".
+function computeStatutDepuisT1T4(row: Record<string, string | number | null>): string {
+  const total = T1_T4_KEYS.reduce((sum, key) => {
+    const n = parseFloat(String(row[key] ?? "").replace(",", "."));
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+  if (total >= 0.999) return "CLOTUREE";
+  if (total > 0) return "EN COURS";
+  return "PAS D'ACTION";
+}
+
 // "date_realisation" n'est jamais tapee a la main - le code la deduit du
 // passage (ou non) de statut a CLOTUREE, meme principe que
 // utilisateur_test_labo/date_saisie_test_labo ailleurs dans l'app. Ignore
 // toujours la valeur envoyee par le navigateur, recalcule cote serveur a
 // partir de l'etat REEL avant/apres - la seule source de verite fiable.
-function estCloturee(row: Record<string, string | number | null>): boolean {
-  return String(row.statut ?? "").trim().toUpperCase() === "CLOTUREE";
+// Garde la date deja enregistree si le statut etait DEJA "cloturee" (ne
+// re-tamponne pas a chaque save), remet a aujourd'hui si il vient tout
+// juste de le devenir, efface si le statut est reparti en arriere
+// (reouverture) - meme principe que calculerDateRealisation dans
+// nc-confidentiel/actions.ts.
+function calculerDateRealisation(
+  nouveauCloture: boolean,
+  ancienCloture: boolean,
+  ancienneDate: string | null,
+  todayIso: string
+): string | null {
+  if (!nouveauCloture) return null;
+  return ancienCloture ? (ancienneDate ?? todayIso) : todayIso;
+}
+
+// Tx de progression n'est plus tape a la main non plus - meme raison que
+// Statut : deduit directement de T1-T4 (leur somme), jamais une valeur
+// separee qui pourrait se desynchroniser de l'etat reel.
+function computeTxProgression(row: Record<string, string | number | null>): string {
+  const total = T1_T4_KEYS.reduce((sum, key) => {
+    const n = parseFloat(String(row[key] ?? "").replace(",", "."));
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+  const pct = Math.round(Math.min(1, Math.max(0, total)) * 100);
+  return `${pct}%`;
+}
+
+// Champs de creation initiale (Audit, Constat, Processus/Service concerne,
+// Norme/Chapitre) sur une page dediee plutot qu'une ligne vide ajoutee
+// directement dans le tableau - demande explicite, meme principe que
+// /qualite/nc-confidentiel/nouvelle. Qui/Delais/Commentaire/T1-T4 restent
+// remplis ensuite depuis la page detail (voir updateTafConfidentielDetailAction).
+export async function createTafConfidentielAction(formData: FormData): Promise<void> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteTafConfidentiel"))) {
+    throw new Error("Cet utilisateur ne peut pas ajouter de TAF.");
+  }
+
+  const { error } = await supabaseServer.from(TABLE).insert({
+    audit: parseOptionalText(formData, "audit"),
+    constat: parseOptionalText(formData, "constat"),
+    processus_concerne: parseOptionalText(formData, "processus_concerne"),
+    service_concerne: parseOptionalText(formData, "service_concerne"),
+    norme_concernee: parseOptionalText(formData, "norme_concernee"),
+    chapitre: parseOptionalText(formData, "chapitre"),
+    sous_chapitre: parseOptionalText(formData, "sous_chapitre"),
+    sous_sous_chapitre: parseOptionalText(formData, "sous_sous_chapitre"),
+    // Sans T1-T4, computeStatutDepuisT1T4/computeTxProgression valent
+    // "PAS D'ACTION"/"0%" - pose directement ces valeurs a la creation
+    // plutot que de laisser statut/tx_progression a null jusqu'a la
+    // premiere sauvegarde depuis la page detail.
+    statut: "PAS D'ACTION",
+    tx_progression: "0%",
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/qualite/taf-confidentiel");
+  redirect("/qualite/taf-confidentiel");
 }
 
 export async function saveTafConfidentielBatchAction(
@@ -56,14 +133,22 @@ export async function saveTafConfidentielBatchAction(
     const payload = toUpdate.map((r) => {
       const { created_at, ...rest } = r;
       const ancien = existingById.get(r.id as number);
-      const nouveauCloture = estCloturee(r);
+      const statut = computeStatutDepuisT1T4(r);
+      const nouveauCloture = statut === "CLOTUREE";
       const ancienCloture = ancien?.statut?.trim().toUpperCase() === "CLOTUREE";
-      const dateRealisation = nouveauCloture
-        ? ancienCloture
-          ? (ancien?.date_realisation ?? todayIso)
-          : todayIso
-        : null;
-      return { ...rest, date_realisation: dateRealisation, updated_at: new Date().toISOString() };
+      const dateRealisation = calculerDateRealisation(
+        nouveauCloture,
+        ancienCloture,
+        ancien?.date_realisation ?? null,
+        todayIso
+      );
+      return {
+        ...rest,
+        statut,
+        tx_progression: computeTxProgression(r),
+        date_realisation: dateRealisation,
+        updated_at: new Date().toISOString(),
+      };
     });
 
     const { error } = await supabaseServer.from(TABLE).upsert(payload, { onConflict: "id" });
@@ -74,10 +159,15 @@ export async function saveTafConfidentielBatchAction(
 
   let insertedIds: number[] = [];
   if (toInsert.length > 0) {
-    const payload = toInsert.map((r) => ({
-      ...r,
-      date_realisation: estCloturee(r) ? todayIso : null,
-    }));
+    const payload = toInsert.map((r) => {
+      const statut = computeStatutDepuisT1T4(r);
+      return {
+        ...r,
+        statut,
+        tx_progression: computeTxProgression(r),
+        date_realisation: statut === "CLOTUREE" ? todayIso : null,
+      };
+    });
     const { data, error } = await supabaseServer.from(TABLE).insert(payload).select("id");
     if (error) {
       return { ok: false, message: error.message };
@@ -93,11 +183,11 @@ export async function saveTafConfidentielBatchAction(
 // dediee /qualite/taf-confidentiel/[id] - saisie plus confortable en
 // formulaire vertical plein ecran que dans les cellules etroites du tableau
 // (demande explicite), en plus de l'edition en ligne qui reste disponible.
-// Ne touche jamais a statut/date_realisation (geres par
-// saveTafConfidentielBatchAction ci-dessus), seulement ces 7 champs.
+// Statut/date_realisation sont recalcules ici a chaque sauvegarde depuis
+// T1-T4 (voir computeStatutDepuisT1T4/calculerDateRealisation plus haut) -
+// seul point d'entree possible pour modifier T1-T4, donc seul endroit ou
+// Statut peut changer.
 const DETAIL_FIELD_KEYS = ["qui", "delais", "commentaire", "t1", "t2", "t3", "t4"] as const;
-
-const T1_T4_KEYS = ["t1", "t2", "t3", "t4"] as const;
 
 export async function updateTafConfidentielDetailAction(formData: FormData): Promise<void> {
   const currentUser = await getCurrentStockUser();
@@ -115,31 +205,30 @@ export async function updateTafConfidentielDetailAction(formData: FormData): Pro
     payload[key] = parseOptionalText(formData, key);
   }
 
-  const updatePayload: Record<string, string | null> = { ...payload, updated_at: new Date().toISOString() };
+  const { data: existing } = await supabaseServer
+    .from(TABLE)
+    .select("statut, date_realisation")
+    .eq("id", id)
+    .maybeSingle();
+  const ancien = existing as { statut: string | null; date_realisation: string | null } | null;
 
-  // T1-T4 ne sont plus modifiables QUE depuis cette page (voir readOnly sur
-  // ces colonnes, taf-confidentiel/page.tsx) - la cloture automatique a 100%
-  // (auparavant maybeAutoCloseProgress sur le tableau, audit-table.tsx) est
-  // donc reproduite ici plutot que perdue. Ne rouvre jamais un TAF deja
-  // cloture (meme logique qu'avant : seul le franchissement du seuil ferme,
-  // rien ne rouvre automatiquement).
-  const total = T1_T4_KEYS.reduce((sum, key) => {
-    const n = parseFloat(String(payload[key] ?? "").replace(",", "."));
-    return sum + (Number.isFinite(n) ? n : 0);
-  }, 0);
+  const statut = computeStatutDepuisT1T4(payload);
+  const ancienCloture = String(ancien?.statut ?? "").trim().toUpperCase() === "CLOTUREE";
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const dateRealisation = calculerDateRealisation(
+    statut === "CLOTUREE",
+    ancienCloture,
+    ancien?.date_realisation ?? null,
+    todayIso
+  );
 
-  if (total >= 0.999) {
-    const { data: existing } = await supabaseServer
-      .from(TABLE)
-      .select("statut, date_realisation")
-      .eq("id", id)
-      .maybeSingle();
-    const ancien = existing as { statut: string | null; date_realisation: string | null } | null;
-    const ancienCloture = String(ancien?.statut ?? "").trim().toUpperCase() === "CLOTUREE";
-    const todayIso = new Date().toISOString().slice(0, 10);
-    updatePayload.statut = "CLOTUREE";
-    updatePayload.date_realisation = ancienCloture ? (ancien?.date_realisation ?? todayIso) : todayIso;
-  }
+  const updatePayload: Record<string, string | null> = {
+    ...payload,
+    statut,
+    tx_progression: computeTxProgression(payload),
+    date_realisation: dateRealisation,
+    updated_at: new Date().toISOString(),
+  };
 
   const { error } = await supabaseServer.from(TABLE).update(updatePayload).eq("id", id);
 
