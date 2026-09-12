@@ -16,9 +16,6 @@ import {
   deleteTafConfidentielFileAction,
 } from "./actions";
 
-// Memes valeurs que celles deja utilisees dans les donnees TAF importees.
-const STATUT_OPTIONS = ["EN COURS", "CLOTUREE", "PAS D'ACTION"];
-
 // Ces colonnes restent en lecture seule pour tout le monde, meme l'admin -
 // seule felicite peut les modifier. "Constat" a ete retire de cette liste -
 // modifiable par tout le monde comme "Commentaire".
@@ -57,7 +54,10 @@ const COLUMNS: AuditColumn[] = [
   { key: "t3", label: "T3", readOnly: true },
   { key: "t4", label: "T4", readOnly: true },
   { key: "tx_progression", label: "Tx de progression" },
-  { key: "statut", label: "Statut", select: STATUT_OPTIONS },
+  // Statut n'est plus choisi a la main nulle part - meme demande/logique
+  // que NC Confidentiel (Statut correction/Statut AC) : deduit de T1-T4 a
+  // chaque sauvegarde (voir computeStatutDepuisT1T4, taf-confidentiel/actions.ts).
+  { key: "statut", label: "Statut", readOnly: true },
   { key: "date_realisation", label: "Date de realisation", readOnly: true },
 ];
 
@@ -232,9 +232,6 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
           confirmUploadAction={confirmTafConfidentielUploadAction}
           getFileUrlAction={getTafConfidentielFileUrlAction}
           deleteFileAction={deleteTafConfidentielFileAction}
-          progressColumnKeys={["t1", "t2", "t3", "t4"]}
-          progressStatusColumnKey="statut"
-          progressDoneStatus="CLOTUREE"
           restrictedColumnKeys={RESTRICTED_COLUMN_KEYS}
           canEditRestrictedColumns={currentUser === "felicite"}
           detailHrefPrefix="/qualite/taf-confidentiel"
