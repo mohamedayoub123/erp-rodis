@@ -1405,6 +1405,27 @@ async function createManualEntryLigne(
     throw new Error("Zone, chaine, N de lot et date sont obligatoires.");
   }
 
+  // Si ce code existe DEJA quelque part dans le suivi (une autre fiche "+"
+  // deja saisie pour ce meme code, ou un programme dispatche), reutilise
+  // CETTE ligne au lieu d'en creer une nouvelle - demande explicite : "si le
+  // code se trouve deja dans le suivi il faut ajouter sur le meme code qui
+  // existe, pas creer une nouvelle ligne separee". Un code qui se
+  // retrouverait sur 2 programme_lignes differentes casse les rapports qui
+  // comptent "par code" (meme probleme deja rencontre sur Test Labo/PD27
+  // cette session) - jamais souhaitable, y compris pour une fiche manuelle.
+  // Prend la plus recente si plusieurs existent deja (rare, redispatch).
+  const { data: existingLigne } = await supabaseServer
+    .from("programme_lignes")
+    .select("id")
+    .eq("numero_lot", numeroLot)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingLigne) {
+    return { id: existingLigne.id, numeroLot };
+  }
+
   const { data, error } = await supabaseServer
     .from("programme_lignes")
     .insert([
