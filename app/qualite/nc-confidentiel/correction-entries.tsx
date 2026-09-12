@@ -191,6 +191,13 @@ function EntryRow({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
   const [pendingViewUrl, setPendingViewUrl] = useState<{ url: string; name: string } | null>(null);
+  // Feedback explicite pendant l'envoi d'un fichier - demande explicite
+  // ("il faut me faire quelque chose pour savoir si il uploade ou non") : le
+  // bouton "Joindre" se transformait en simple disabled sans texte, aucun
+  // moyen de savoir si l'envoi etait en cours ou bloque. current/total pour
+  // montrer une progression quand plusieurs fichiers sont selectionnes a la
+  // fois (upload sequentiel, voir handleUpload).
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Texte editable - demande explicite ("il faut que je peux modifier si je
@@ -234,13 +241,17 @@ function EntryRow({
     if (!fileList || fileList.length === 0) return;
     setError("");
     const allFiles = Array.from(fileList);
+    setUploadProgress({ current: 0, total: allFiles.length });
 
     startTransition(async () => {
       let auMoinsUnEnvoye = false;
+      let index = 0;
       for (const file of allFiles) {
         const slot = await createUploadSlotAction(ncId, field, entry.id, file.name);
         if (!slot.ok || !slot.path || !slot.signedUrl) {
           setError(slot.message || `Erreur pendant l'envoi de "${file.name}".`);
+          index++;
+          setUploadProgress({ current: index, total: allFiles.length });
           continue;
         }
         try {
@@ -251,6 +262,8 @@ function EntryRow({
           });
           if (!response.ok) {
             setError(`Erreur pendant l'envoi de "${file.name}".`);
+            index++;
+            setUploadProgress({ current: index, total: allFiles.length });
             continue;
           }
           const uploadedFile: AttachmentFile = { name: file.name, path: slot.path };
@@ -263,12 +276,21 @@ function EntryRow({
         } catch {
           setError(`Erreur pendant l'envoi de "${file.name}".`);
         }
+        index++;
+        setUploadProgress({ current: index, total: allFiles.length });
       }
       if (fileInputRef.current) fileInputRef.current.value = "";
       // Statut correction/Statut AC peut passer a REALISEE des que TOUTES
       // les entrees ont un fichier - rechargement complet necessaire pour
-      // que la colonne Statut du tableau le reflete (voir handleAdd).
-      if (auMoinsUnEnvoye) reloadForStatutUpdate();
+      // que la colonne Statut du tableau le reflete (voir handleAdd). Le
+      // rechargement remplace de toute facon l'affichage "Envoi termine" -
+      // seul le cas "tout a echoue" (pas de reload) doit remettre le bouton
+      // a son etat normal pour que l'erreur reste lisible.
+      if (auMoinsUnEnvoye) {
+        reloadForStatutUpdate();
+      } else {
+        setUploadProgress(null);
+      }
     });
   }
 
@@ -313,54 +335,57 @@ function EntryRow({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 px-4 py-3">
-      <div className="flex flex-wrap items-start gap-3">
-        {isOpen ? (
-          <div className="min-w-0 flex-1">
+    <div>
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1 rounded-2xl border border-slate-200 px-4 py-3">
+          {isOpen ? (
+            <div className="min-w-0">
+              <button
+                type="button"
+                onClick={handleToggle}
+                className="text-xs font-semibold text-slate-400 hover:underline"
+              >
+                {entry.date} - reduire
+              </button>
+              {canWrite && allowEdit ? (
+                <>
+                  <textarea
+                    value={editTexte}
+                    onChange={(e) => setEditTexte(e.target.value)}
+                    rows={4}
+                    className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-700 outline-none"
+                  />
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleSaveTexte}
+                      disabled={isPending || !editTexte.trim()}
+                      className="rounded-full bg-violet-700 px-5 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-600 disabled:opacity-60"
+                    >
+                      {isPending ? "Enregistrement..." : "Enregistrer"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <span className="mt-1 block whitespace-pre-wrap text-sm font-normal text-slate-700">{entry.texte}</span>
+              )}
+            </div>
+          ) : (
             <button
               type="button"
               onClick={handleToggle}
-              className="text-xs font-semibold text-slate-400 hover:underline"
+              className="block w-full min-w-0 text-left text-sm font-normal text-slate-700"
             >
-              {entry.date} - reduire
+              <span className="mr-2 text-xs font-semibold text-slate-400">{entry.date}</span>
+              <span className="line-clamp-1">{entry.texte}</span>
             </button>
-            {canWrite && allowEdit ? (
-              <>
-                <textarea
-                  value={editTexte}
-                  onChange={(e) => setEditTexte(e.target.value)}
-                  rows={4}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-700 outline-none"
-                />
-                <div className="mt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={handleSaveTexte}
-                    disabled={isPending || !editTexte.trim()}
-                    className="rounded-full bg-violet-700 px-5 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-600 disabled:opacity-60"
-                  >
-                    {isPending ? "Enregistrement..." : "Enregistrer"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <span className="mt-1 block whitespace-pre-wrap text-sm font-normal text-slate-700">{entry.texte}</span>
-            )}
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={handleToggle}
-            className="min-w-0 flex-1 text-left text-sm font-normal text-slate-700"
-          >
-            <span className="mr-2 text-xs font-semibold text-slate-400">{entry.date}</span>
-            <span className="line-clamp-1">{entry.texte}</span>
-          </button>
-        )}
+          )}
+        </div>
 
-        {/* Fichiers directement visibles a cote, jamais caches dans une
-            fenetre a ouvrir - demande explicite. */}
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        {/* Fichiers dans leur propre colonne, empiles un au-dessus de
+            l'autre - demande explicite : pas dans le meme cadre que le
+            texte, une colonne a cote pour le fichier joindre. */}
+        <div className="flex w-40 shrink-0 flex-col items-stretch gap-1.5">
           {files.map((file) => (
             <span
               key={file.path}
@@ -370,7 +395,7 @@ function EntryRow({
                 type="button"
                 onClick={() => handleView(file.path, file.name)}
                 disabled={isPending}
-                className="max-w-[10rem] truncate text-sky-700 hover:underline disabled:opacity-60"
+                className="min-w-0 flex-1 truncate text-sky-700 hover:underline disabled:opacity-60"
                 title={file.name}
               >
                 📄 {file.name}
@@ -380,7 +405,7 @@ function EntryRow({
                   type="button"
                   onClick={() => handleDelete(file.path)}
                   disabled={isPending}
-                  className="flex h-5 w-5 items-center justify-center rounded-full text-red-600 hover:bg-red-50 disabled:opacity-60"
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-red-600 hover:bg-red-50 disabled:opacity-60"
                   title="Supprimer ce fichier"
                 >
                   ✕
@@ -389,8 +414,14 @@ function EntryRow({
             </span>
           ))}
           {canWrite ? (
-            <label className="flex cursor-pointer items-center gap-1 rounded-full border border-violet-200 px-2.5 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50">
-              📎 Joindre
+            <label
+              className={`flex items-center justify-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                uploadProgress
+                  ? "cursor-not-allowed border-slate-200 text-slate-400"
+                  : "cursor-pointer border-violet-200 text-violet-700 hover:bg-violet-50"
+              }`}
+            >
+              {uploadProgress ? `⏳ Envoi ${uploadProgress.current}/${uploadProgress.total}...` : "📎 Joindre"}
               <input
                 ref={fileInputRef}
                 type="file"
