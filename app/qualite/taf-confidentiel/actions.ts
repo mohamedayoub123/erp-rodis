@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -11,6 +12,8 @@ const BUCKET = "qualite-audit-fichiers";
 
 type AttachmentFile = { name: string; path: string };
 
+export type CorrectionEntry = { id: string; texte: string; date: string; fichiers: AttachmentFile[] };
+
 function parseOptionalText(formData: FormData, key: string): string | null {
   const value = String(formData.get(key) || "").trim();
   return value || null;
@@ -18,19 +21,34 @@ function parseOptionalText(formData: FormData, key: string): string | null {
 
 const T1_T4_KEYS = ["t1", "t2", "t3", "t4"] as const;
 
-// Statut n'est plus tape a la main nulle part (tableau ni page detail) -
-// meme demande/logique que NC Confidentiel (Statut correction/Statut AC,
-// voir nc-confidentiel/actions.ts) : deduit de l'etat REEL de T1-T4 a
-// chaque sauvegarde. Aucun progres -> "PAS D'ACTION" (jamais vide) ; au
-// moins un T rempli mais total < 100% -> "EN COURS" ; total >= 100% ->
-// "CLOTUREE".
-function computeStatutDepuisT1T4(row: Record<string, string | number | null>): string {
-  const total = T1_T4_KEYS.reduce((sum, key) => {
+function t1t4Total(row: Record<string, string | number | null>): number {
+  return T1_T4_KEYS.reduce((sum, key) => {
     const n = parseFloat(String(row[key] ?? "").replace(",", "."));
     return sum + (Number.isFinite(n) ? n : 0);
   }, 0);
-  if (total >= 0.999) return "CLOTUREE";
-  if (total > 0) return "EN COURS";
+}
+
+// Statut n'est plus tape a la main nulle part (tableau ni page detail) -
+// meme demande/logique que NC Confidentiel (Statut correction/Statut AC,
+// voir nc-confidentiel/actions.ts), deduit de l'etat REEL de T1-T4 ET de la
+// colonne Correction (liste d'entrees + fichiers, meme principe que NC) -
+// demande explicite : "le statut ca va agir avec lui [Correction]". Les DEUX
+// doivent etre complets pour CLOTUREE (T1-T4 a 100% ET Correction avec au
+// moins une entree, toutes avec un fichier joint) - meme logique que
+// statut_cloture sur NC (REALISEE sur Correction ET sur Action Corrective).
+// Un progres sur l'un des deux (mais pas les deux completes) -> "EN COURS".
+// Aucun progres nulle part -> "PAS D'ACTION" (jamais vide).
+function computeStatutTaf(
+  row: Record<string, string | number | null>,
+  correctionEntries: CorrectionEntry[]
+): string {
+  const total = t1t4Total(row);
+  const t1t4Complete = total >= 0.999;
+  const correctionComplete =
+    correctionEntries.length > 0 && correctionEntries.every((entry) => entry.fichiers.length > 0);
+
+  if (t1t4Complete && correctionComplete) return "CLOTUREE";
+  if (total > 0 || correctionEntries.length > 0) return "EN COURS";
   return "PAS D'ACTION";
 }
 
@@ -56,13 +74,10 @@ function calculerDateRealisation(
 
 // Tx de progression n'est plus tape a la main non plus - meme raison que
 // Statut : deduit directement de T1-T4 (leur somme), jamais une valeur
-// separee qui pourrait se desynchroniser de l'etat reel.
+// separee qui pourrait se desynchroniser de l'etat reel. Reste base sur
+// T1-T4 seul (pas Correction) - c'est Statut qui combine les deux.
 function computeTxProgression(row: Record<string, string | number | null>): string {
-  const total = T1_T4_KEYS.reduce((sum, key) => {
-    const n = parseFloat(String(row[key] ?? "").replace(",", "."));
-    return sum + (Number.isFinite(n) ? n : 0);
-  }, 0);
-  const pct = Math.round(Math.min(1, Math.max(0, total)) * 100);
+  const pct = Math.round(Math.min(1, Math.max(0, t1t4Total(row))) * 100);
   return `${pct}%`;
 }
 
@@ -121,19 +136,24 @@ export async function saveTafConfidentielBatchAction(
     const ids = toUpdate.map((r) => r.id as number);
     const { data: existingRows } = await supabaseServer
       .from(TABLE)
-      .select("id, statut, date_realisation")
+      .select("id, statut, date_realisation, correction_entries")
       .in("id", ids);
     const existingById = new Map(
-      ((existingRows ?? []) as { id: number; statut: string | null; date_realisation: string | null }[]).map((r) => [
-        r.id,
-        r,
-      ])
+      (
+        (existingRows ?? []) as {
+          id: number;
+          statut: string | null;
+          date_realisation: string | null;
+          correction_entries: CorrectionEntry[] | null;
+        }[]
+      ).map((r) => [r.id, r])
     );
 
     const payload = toUpdate.map((r) => {
       const { created_at, ...rest } = r;
       const ancien = existingById.get(r.id as number);
-      const statut = computeStatutDepuisT1T4(r);
+      const correctionEntries = ancien?.correction_entries ?? [];
+      const statut = computeStatutTaf(r, correctionEntries);
       const nouveauCloture = statut === "CLOTUREE";
       const ancienCloture = ancien?.statut?.trim().toUpperCase() === "CLOTUREE";
       const dateRealisation = calculerDateRealisation(
@@ -160,7 +180,7 @@ export async function saveTafConfidentielBatchAction(
   let insertedIds: number[] = [];
   if (toInsert.length > 0) {
     const payload = toInsert.map((r) => {
-      const statut = computeStatutDepuisT1T4(r);
+      const statut = computeStatutTaf(r, []);
       return {
         ...r,
         statut,
@@ -184,9 +204,11 @@ export async function saveTafConfidentielBatchAction(
 // formulaire vertical plein ecran que dans les cellules etroites du tableau
 // (demande explicite), en plus de l'edition en ligne qui reste disponible.
 // Statut/date_realisation sont recalcules ici a chaque sauvegarde depuis
-// T1-T4 (voir computeStatutDepuisT1T4/calculerDateRealisation plus haut) -
+// T1-T4 ET l'etat actuel de Correction (voir computeStatutTaf plus haut) -
 // seul point d'entree possible pour modifier T1-T4, donc seul endroit ou
-// Statut peut changer.
+// Statut peut changer pour cette moitie du calcul (l'autre moitie, les
+// entrees Correction, passe par saveTafCorrectionEntriesAndRecomputeStatut
+// plus bas).
 const DETAIL_FIELD_KEYS = ["qui", "delais", "commentaire", "t1", "t2", "t3", "t4"] as const;
 
 export async function updateTafConfidentielDetailAction(formData: FormData): Promise<void> {
@@ -207,12 +229,16 @@ export async function updateTafConfidentielDetailAction(formData: FormData): Pro
 
   const { data: existing } = await supabaseServer
     .from(TABLE)
-    .select("statut, date_realisation")
+    .select("statut, date_realisation, correction_entries")
     .eq("id", id)
     .maybeSingle();
-  const ancien = existing as { statut: string | null; date_realisation: string | null } | null;
+  const ancien = existing as {
+    statut: string | null;
+    date_realisation: string | null;
+    correction_entries: CorrectionEntry[] | null;
+  } | null;
 
-  const statut = computeStatutDepuisT1T4(payload);
+  const statut = computeStatutTaf(payload, ancien?.correction_entries ?? []);
   const ancienCloture = String(ancien?.statut ?? "").trim().toUpperCase() === "CLOTUREE";
   const todayIso = new Date().toISOString().slice(0, 10);
   const dateRealisation = calculerDateRealisation(
@@ -374,4 +400,195 @@ export async function deleteTafConfidentielFileAction(
 
   revalidatePath("/qualite/taf-confidentiel");
   return { ok: true };
+}
+
+// Colonne Correction - meme principe que Correction/Action Corrective sur NC
+// Confidentiel (liste d'entrees datees + fichiers joints, voir
+// nc-confidentiel/actions.ts) mais un seul champ ici (pas d'Action
+// Corrective distincte sur TAF). Point d'entree UNIQUE pour toute mutation
+// de correction_entries (ajout, modification de texte, fichier joint/
+// retire) - recalcule Statut/date_realisation depuis T1-T4 (deja en base) +
+// l'etat des entrees, en une seule ecriture (demande explicite : "le statut
+// ca va agir avec lui").
+async function saveTafCorrectionEntriesAndRecomputeStatut(
+  tafId: number,
+  nextEntries: CorrectionEntry[]
+): Promise<{ ok: boolean; message?: string }> {
+  const { data: existing } = await supabaseServer
+    .from(TABLE)
+    .select("t1, t2, t3, t4, statut, date_realisation")
+    .eq("id", tafId)
+    .maybeSingle();
+  const ancien = existing as {
+    t1: string | null;
+    t2: string | null;
+    t3: string | null;
+    t4: string | null;
+    statut: string | null;
+    date_realisation: string | null;
+  } | null;
+
+  const statut = computeStatutTaf(ancien ?? {}, nextEntries);
+  const ancienCloture = String(ancien?.statut ?? "").trim().toUpperCase() === "CLOTUREE";
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const dateRealisation = calculerDateRealisation(
+    statut === "CLOTUREE",
+    ancienCloture,
+    ancien?.date_realisation ?? null,
+    todayIso
+  );
+
+  const { error } = await supabaseServer
+    .from(TABLE)
+    .update({
+      correction_entries: nextEntries,
+      statut,
+      date_realisation: dateRealisation,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tafId);
+
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+
+  revalidatePath("/qualite/taf-confidentiel");
+  revalidatePath(`/qualite/taf-confidentiel/${tafId}`);
+  return { ok: true };
+}
+
+export async function addTafCorrectionEntryAction(
+  tafId: number,
+  texte: string
+): Promise<{ ok: boolean; message?: string; entry?: CorrectionEntry }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteTafConfidentiel"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas ajouter d'entree." };
+  }
+
+  const { data: existing } = await supabaseServer
+    .from(TABLE)
+    .select("correction_entries")
+    .eq("id", tafId)
+    .maybeSingle();
+  const currentEntries = ((existing as { correction_entries: CorrectionEntry[] | null } | null)
+    ?.correction_entries ?? []) as CorrectionEntry[];
+
+  const entry: CorrectionEntry = {
+    id: randomUUID(),
+    texte,
+    date: new Date().toISOString().slice(0, 10),
+    fichiers: [],
+  };
+  const nextEntries = [...currentEntries, entry];
+
+  const result = await saveTafCorrectionEntriesAndRecomputeStatut(tafId, nextEntries);
+  if (!result.ok) {
+    return result;
+  }
+  return { ok: true, entry };
+}
+
+export async function updateTafCorrectionEntryTextAction(
+  tafId: number,
+  entryId: string,
+  texte: string
+): Promise<{ ok: boolean; message?: string }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteTafConfidentiel"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas modifier cette entree." };
+  }
+
+  const { data: existing } = await supabaseServer
+    .from(TABLE)
+    .select("correction_entries")
+    .eq("id", tafId)
+    .maybeSingle();
+  const currentEntries = ((existing as { correction_entries: CorrectionEntry[] | null } | null)
+    ?.correction_entries ?? []) as CorrectionEntry[];
+  const nextEntries = currentEntries.map((e) => (e.id === entryId ? { ...e, texte } : e));
+
+  return saveTafCorrectionEntriesAndRecomputeStatut(tafId, nextEntries);
+}
+
+export async function createTafCorrectionEntryUploadSlotAction(
+  tafId: number,
+  entryId: string,
+  fileName: string
+): Promise<{ ok: boolean; message?: string; path?: string; signedUrl?: string }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteTafConfidentiel"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas ajouter de fichier." };
+  }
+  if (!tafId) {
+    return { ok: false, message: "Ligne invalide." };
+  }
+
+  const path = `taf-confidentiel/${tafId}/correction/${entryId}/${Date.now()}-${sanitizeFileName(fileName)}`;
+  const { data, error } = await supabaseServer.storage.from(BUCKET).createSignedUploadUrl(path);
+  if (error || !data) {
+    return { ok: false, message: error?.message || "Impossible de preparer l'envoi." };
+  }
+
+  return { ok: true, path, signedUrl: data.signedUrl };
+}
+
+export async function confirmTafCorrectionEntryUploadAction(
+  tafId: number,
+  entryId: string,
+  files: AttachmentFile[]
+): Promise<{ ok: boolean; message?: string; files?: AttachmentFile[] }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteTafConfidentiel"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas ajouter de fichier." };
+  }
+  if (!tafId || files.length === 0) {
+    return { ok: false, message: "Rien a enregistrer." };
+  }
+
+  const { data: existing } = await supabaseServer
+    .from(TABLE)
+    .select("correction_entries")
+    .eq("id", tafId)
+    .maybeSingle();
+  const currentEntries = ((existing as { correction_entries: CorrectionEntry[] | null } | null)
+    ?.correction_entries ?? []) as CorrectionEntry[];
+  const nextEntries = currentEntries.map((e) =>
+    e.id === entryId ? { ...e, fichiers: [...e.fichiers, ...files] } : e
+  );
+
+  const result = await saveTafCorrectionEntriesAndRecomputeStatut(tafId, nextEntries);
+  if (!result.ok) {
+    return result;
+  }
+  return { ok: true, files };
+}
+
+export async function deleteTafCorrectionEntryFileAction(
+  tafId: number,
+  entryId: string,
+  path: string
+): Promise<{ ok: boolean; message?: string }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await canWritePageUser(currentUser, "qualiteTafConfidentiel"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas supprimer ce fichier." };
+  }
+
+  const { error: removeError } = await supabaseServer.storage.from(BUCKET).remove([path]);
+  if (removeError) {
+    return { ok: false, message: removeError.message };
+  }
+
+  const { data: existing } = await supabaseServer
+    .from(TABLE)
+    .select("correction_entries")
+    .eq("id", tafId)
+    .maybeSingle();
+  const currentEntries = ((existing as { correction_entries: CorrectionEntry[] | null } | null)
+    ?.correction_entries ?? []) as CorrectionEntry[];
+  const nextEntries = currentEntries.map((e) =>
+    e.id === entryId ? { ...e, fichiers: e.fichiers.filter((f) => f.path !== path) } : e
+  );
+
+  return saveTafCorrectionEntriesAndRecomputeStatut(tafId, nextEntries);
 }

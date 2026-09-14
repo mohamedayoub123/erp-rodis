@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -7,18 +8,33 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { canWritePageUser, getCurrentStockUser, getNcTafProcessusAutorisesUser } from "@/lib/stock-auth";
 import { formatDate } from "../../production/suivi/data";
 import { AuditTable, type AuditColumn, type AuditRow, type AttachmentFile } from "../audit-table";
+import { TafCorrectionEntries } from "./correction-entries";
 import {
+  type CorrectionEntry,
   saveTafConfidentielBatchAction,
   deleteTafConfidentielRowAction,
   createTafConfidentielUploadSlotAction,
   confirmTafConfidentielUploadAction,
   getTafConfidentielFileUrlAction,
   deleteTafConfidentielFileAction,
+  addTafCorrectionEntryAction,
+  updateTafCorrectionEntryTextAction,
+  createTafCorrectionEntryUploadSlotAction,
+  confirmTafCorrectionEntryUploadAction,
+  deleteTafCorrectionEntryFileAction,
 } from "./actions";
 
 // Ces colonnes restent en lecture seule pour tout le monde, meme l'admin -
 // seule felicite peut les modifier.
 const RESTRICTED_COLUMN_KEYS = ["audit", "numero", "processus_concerne", "service_concerne"];
+
+// Correction est une liste d'entrees datees + fichiers joints (colonne JSONB
+// correction_entries, voir correction-entries.tsx) - meme principe que
+// Correction/Action Corrective sur NC Confidentiel. La colonne du tableau
+// affiche un resume de ces entrees (customCells prend le dessus visuellement,
+// voir plus bas, mais row.correction reste utile si jamais lu ailleurs, ex.
+// export).
+const ENTRY_COLUMN_SOURCE: Record<string, string> = { correction: "correction_entries" };
 
 // Memes titres, dans le meme ordre, que la feuille "TAF Confidentiel" du
 // classeur CCSIQP-ENR-053 (Suivi NC & TAF audit Interne), plus "Date"
@@ -53,21 +69,33 @@ const COLUMNS: AuditColumn[] = [
   { key: "sous_chapitre", label: "Sous chapitre", readOnly: true },
   { key: "sous_sous_chapitre", label: "Sous sous chapitre", readOnly: true },
   { key: "commentaire", label: "Commentaire", long: true, readOnly: true },
+  // readOnly - editable UNIQUEMENT depuis la page dediee (bouton "detail")
+  // ou directement dans le tableau pour consultation/pieces jointes (voir
+  // customCells plus bas) - meme principe que Correction sur NC
+  // Confidentiel. Demande explicite : "ajoute une colonne correction et le
+  // statut ca va agir avec lui" (voir computeStatutTaf, actions.ts).
+  { key: "correction", label: "Correction", long: true, readOnly: true },
   { key: "t1", label: "T1", readOnly: true },
   { key: "t2", label: "T2", readOnly: true },
   { key: "t3", label: "T3", readOnly: true },
   { key: "t4", label: "T4", readOnly: true },
   { key: "tx_progression", label: "Tx de progression", readOnly: true },
   // Statut n'est plus choisi a la main nulle part - meme demande/logique
-  // que NC Confidentiel (Statut correction/Statut AC) : deduit de T1-T4 a
-  // chaque sauvegarde (voir computeStatutDepuisT1T4, taf-confidentiel/actions.ts).
+  // que NC Confidentiel (Statut correction/Statut AC) : deduit de T1-T4 ET
+  // de la colonne Correction a chaque sauvegarde (voir computeStatutTaf,
+  // taf-confidentiel/actions.ts).
   { key: "statut", label: "Statut", readOnly: true },
   { key: "date_realisation", label: "Date de realisation", readOnly: true },
 ];
 
-async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<number, AttachmentFile[]> }> {
+async function fetchAllRows(): Promise<{
+  rows: AuditRow[];
+  attachments: Record<number, AttachmentFile[]>;
+  correctionEntriesById: Record<number, CorrectionEntry[]>;
+}> {
   const rows: AuditRow[] = [];
   const attachments: Record<number, AttachmentFile[]> = {};
+  const correctionEntriesById: Record<number, CorrectionEntry[]> = {};
   let from = 0;
   const pageSize = 1000;
 
@@ -89,17 +117,24 @@ async function fetchAllRows(): Promise<{ rows: AuditRow[]; attachments: Record<n
           row[col.key] = raw[col.key] ? formatDate(String(raw[col.key])) : "";
           continue;
         }
+        const entriesSource = ENTRY_COLUMN_SOURCE[col.key];
+        if (entriesSource) {
+          const entries = (raw[entriesSource] as { date: string; texte: string }[] | null) ?? [];
+          row[col.key] = entries.map((entry) => `${entry.date} : ${entry.texte}`).join("\n\n");
+          continue;
+        }
         row[col.key] = raw[col.key] != null ? String(raw[col.key]) : "";
       }
       rows.push(row);
       attachments[id] = Array.isArray(raw.pieces_jointes) ? (raw.pieces_jointes as AttachmentFile[]) : [];
+      correctionEntriesById[id] = (raw.correction_entries as CorrectionEntry[] | null) ?? [];
     }
 
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
 
-  return { rows, attachments };
+  return { rows, attachments, correctionEntriesById };
 }
 
 type SearchParams = Promise<{
@@ -120,7 +155,11 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
   const params = await searchParams;
   const currentUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentUser, "qualiteTafConfidentiel");
-  const { rows: rowsFetched, attachments: attachmentsFetched } = await fetchAllRows();
+  const {
+    rows: rowsFetched,
+    attachments: attachmentsFetched,
+    correctionEntriesById,
+  } = await fetchAllRows();
 
   // Donnees confidentielles d'audit - en plus de la permission de page,
   // chaque compte ne voit que les lignes de son perimetre "Processus
@@ -154,6 +193,32 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
     if (statutFilter && !String(row.statut ?? "").toLowerCase().includes(statutFilter)) return false;
     return true;
   });
+
+  // Correction : demande explicite - le bouton "Joindre" et les fichiers
+  // doivent etre visibles directement dans le tableau, pas seulement sur la
+  // page dediee /qualite/taf-confidentiel/[id] - meme composant pre-rendu et
+  // pousse comme "customCells" que sur NC Confidentiel (voir audit-table.tsx).
+  // allowEdit=false : modifier le texte ou ajouter une entree reste reserve
+  // a la page dediee, meme raison que sur NC.
+  const customCells: Record<string, ReactNode> = {};
+  for (const row of rows) {
+    if (row.id == null) continue;
+    customCells[`${row.id}::correction`] = (
+      <TafCorrectionEntries
+        key={`correction-${row.id}`}
+        tafId={row.id}
+        initialEntries={correctionEntriesById[row.id] ?? []}
+        canWrite={canWrite}
+        allowEdit={false}
+        addEntryAction={addTafCorrectionEntryAction}
+        updateEntryTextAction={updateTafCorrectionEntryTextAction}
+        createUploadSlotAction={createTafCorrectionEntryUploadSlotAction}
+        confirmUploadAction={confirmTafCorrectionEntryUploadAction}
+        getFileUrlAction={getTafConfidentielFileUrlAction}
+        deleteFileAction={deleteTafCorrectionEntryFileAction}
+      />
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f0ff_0%,#faf8ff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -240,6 +305,7 @@ export default async function TafConfidentielPage({ searchParams }: { searchPara
           canEditRestrictedColumns={currentUser === "felicite"}
           detailHrefPrefix="/qualite/taf-confidentiel"
           addRowHref="/qualite/taf-confidentiel/nouvelle"
+          customCells={customCells}
         />
       </div>
     </main>

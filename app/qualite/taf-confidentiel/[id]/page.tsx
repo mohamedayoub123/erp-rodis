@@ -5,7 +5,17 @@ import { BackButton } from "@/app/_components/back-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { canViewPageUser, canWritePageUser, getCurrentStockUser, getNcTafProcessusAutorisesUser } from "@/lib/stock-auth";
 import { formatDate } from "../../../production/suivi/data";
-import { updateTafConfidentielDetailAction } from "../actions";
+import {
+  updateTafConfidentielDetailAction,
+  addTafCorrectionEntryAction,
+  updateTafCorrectionEntryTextAction,
+  createTafCorrectionEntryUploadSlotAction,
+  confirmTafCorrectionEntryUploadAction,
+  getTafConfidentielFileUrlAction,
+  deleteTafCorrectionEntryFileAction,
+  type CorrectionEntry,
+} from "../actions";
+import { TafCorrectionEntries } from "../correction-entries";
 
 type TafRow = {
   id: number;
@@ -20,6 +30,7 @@ type TafRow = {
   qui: string | null;
   delais: string | null;
   commentaire: string | null;
+  correction_entries: CorrectionEntry[] | null;
   t1: string | null;
   t2: string | null;
   t3: string | null;
@@ -101,6 +112,19 @@ export default async function TafConfidentielDetailPage({ params }: { params: Pa
               Commentaire
               <textarea name="commentaire" defaultValue={row.commentaire || ""} rows={4} disabled={!canWrite} className={inputClass} />
             </label>
+
+            <TafCorrectionEntries
+              tafId={row.id}
+              label="Correction"
+              initialEntries={row.correction_entries || []}
+              canWrite={canWrite}
+              addEntryAction={addTafCorrectionEntryAction}
+              updateEntryTextAction={updateTafCorrectionEntryTextAction}
+              createUploadSlotAction={createTafCorrectionEntryUploadSlotAction}
+              confirmUploadAction={confirmTafCorrectionEntryUploadAction}
+              getFileUrlAction={getTafConfidentielFileUrlAction}
+              deleteFileAction={deleteTafCorrectionEntryFileAction}
+            />
 
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               T1
