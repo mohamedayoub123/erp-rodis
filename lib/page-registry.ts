@@ -732,6 +732,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     adminGroup: "Rapport",
   },
   {
+    key: "productionRapportManqueArticles",
+    module: "Production",
+    label: "Manque Articles (MP/Conditionnement)",
+    pathPrefixes: ["/production/rapport/manque-articles"],
+    hasWrite: false,
+    adminGroup: "Rapport",
+  },
+  {
     key: "productionRapportMachinesCapacite",
     module: "Production",
     label: "Rapport Capacite Machines",

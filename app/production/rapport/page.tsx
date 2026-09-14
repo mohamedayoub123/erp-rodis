@@ -85,6 +85,14 @@ const TILES = [
     description:
       "Par fournee (Fabrication/Conditionnement/Emballage) : heures normales, heures sup (au-dela de 8h), jour sup (samedi).",
   },
+  {
+    label: "Manque Articles",
+    href: "/production/rapport/manque-articles",
+    pageKey: "productionRapportManqueArticles",
+    icon: "\u{1F6A8}",
+    description:
+      "Commandes en cours/BL transforme/stand : besoin des recettes (fabrication+conditionnement) vs stock Depot E, seulement ce qui manque.",
+  },
 ] as const;
 
 export default async function RapportPage() {
