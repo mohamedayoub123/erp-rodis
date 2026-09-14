@@ -1,8 +1,11 @@
+import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { supabaseServer } from "@/lib/supabase-server";
 import { fetchStockActuelMpDepotE, type StockActuelMpRow } from "../../../stock/matiere-premiere/rapport/capacite-conditionnement/capacite-lib";
+
+type SearchParams = Promise<{ sousFamille?: string | string[] }>;
 
 type CommandeRow = { id: number; statut: string | null };
 type CommandeLigneRow = { commande_id: number; article_id: number; quantite_demandee: number | null };
@@ -66,14 +69,19 @@ async function fetchAll<T>(table: string, select: string, filter?: (q: any) => a
 export type ManqueRow = {
   id: number;
   nom: string;
+  sousFamille: string;
   unite: string;
   besoin: number;
   stock: number;
   manque: number;
 };
 
-export default async function ManqueArticlesPage() {
+export default async function ManqueArticlesPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
+  const params = await searchParams;
+  const sousFamilleFilter = new Set(
+    Array.isArray(params.sousFamille) ? params.sousFamille : params.sousFamille ? [params.sousFamille] : []
+  );
 
   // "En cours" au sens large - toute commande client pas encore livree
   // consomme encore du stock (En cours, Stand, BL transforme, et les
@@ -168,11 +176,19 @@ export default async function ManqueArticlesPage() {
   }
 
   const mpIds = [...besoinParMp.keys()];
-  const stockRows = mpIds.length > 0 ? await fetchStockActuelMpDepotE() : ([] as StockActuelMpRow[]);
+  const [stockRows, { rows: sousFamilleRows, error: sousFamilleError }] = await Promise.all([
+    mpIds.length > 0 ? fetchStockActuelMpDepotE() : Promise.resolve([] as StockActuelMpRow[]),
+    mpIds.length > 0
+      ? fetchAll<{ id: number; sous_famille: string | null }>("articles_matiere_premiere", "id, sous_famille", (q) =>
+          q.in("id", mpIds)
+        )
+      : Promise.resolve({ rows: [] as { id: number; sous_famille: string | null }[], error: null }),
+  ]);
   const stockById = new Map(stockRows.map((s) => [s.article_id, s]));
+  const sousFamilleById = new Map(sousFamilleRows.map((s) => [s.id, s.sous_famille]));
 
-  const manqueMp: ManqueRow[] = [];
-  const manqueConditionnement: ManqueRow[] = [];
+  const manqueMpToutes: ManqueRow[] = [];
+  const manqueConditionnementToutes: ManqueRow[] = [];
   for (const mpId of mpIds) {
     const stockInfo = stockById.get(mpId);
     const besoin = besoinParMp.get(mpId) ?? 0;
@@ -186,16 +202,31 @@ export default async function ManqueArticlesPage() {
     const row: ManqueRow = {
       id: mpId,
       nom: stockInfo?.nom_article ?? `Article #${mpId}`,
+      sousFamille: sousFamilleById.get(mpId)?.trim() || "-",
       unite: stockInfo?.unite ?? "-",
       besoin: round(besoin),
       stock: round(stock),
       manque: estChimique ? round(manqueBrut) : Math.ceil(manqueBrut),
     };
-    (estChimique ? manqueMp : manqueConditionnement).push(row);
+    (estChimique ? manqueMpToutes : manqueConditionnementToutes).push(row);
   }
 
-  manqueMp.sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
-  manqueConditionnement.sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
+  manqueMpToutes.sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
+  manqueConditionnementToutes.sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
+
+  // Options du filtre "Sous famille" - uniquement les valeurs qui
+  // apparaissent reellement parmi les manques trouves (pas tout le
+  // catalogue), meme principe que buildOptions() ailleurs dans l'app.
+  const sousFamilleOptions = [
+    ...new Set([...manqueMpToutes, ...manqueConditionnementToutes].map((r) => r.sousFamille)),
+  ].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+
+  const manqueMp =
+    sousFamilleFilter.size > 0 ? manqueMpToutes.filter((r) => sousFamilleFilter.has(r.sousFamille)) : manqueMpToutes;
+  const manqueConditionnement =
+    sousFamilleFilter.size > 0
+      ? manqueConditionnementToutes.filter((r) => sousFamilleFilter.has(r.sousFamille))
+      : manqueConditionnementToutes;
 
   const errorMessage =
     commandesError?.message ||
@@ -203,9 +234,12 @@ export default async function ManqueArticlesPage() {
     articlesFinisError?.message ||
     articlesVracError?.message ||
     recettesError?.message ||
+    sousFamilleError?.message ||
     null;
 
-  const aucunManque = !errorMessage && manqueMp.length === 0 && manqueConditionnement.length === 0;
+  const aucunManqueDuTout = !errorMessage && manqueMpToutes.length === 0 && manqueConditionnementToutes.length === 0;
+  const aucunManqueApresFiltre =
+    !errorMessage && !aucunManqueDuTout && manqueMp.length === 0 && manqueConditionnement.length === 0;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -229,13 +263,57 @@ export default async function ManqueArticlesPage() {
           </div>
         </section>
 
+        {sousFamilleOptions.length > 0 ? (
+          <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <form className="grid gap-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sous famille</p>
+              <div className="flex flex-wrap gap-3">
+                {sousFamilleOptions.map((option) => (
+                  <label
+                    key={option}
+                    className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-700"
+                  >
+                    <input
+                      type="checkbox"
+                      name="sousFamille"
+                      value={option}
+                      defaultChecked={sousFamilleFilter.has(option)}
+                    />
+                    {option}
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="submit"
+                  className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white"
+                >
+                  Filtrer
+                </button>
+                {sousFamilleFilter.size > 0 ? (
+                  <Link
+                    href="/production/rapport/manque-articles"
+                    className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+                  >
+                    Effacer
+                  </Link>
+                ) : null}
+              </div>
+            </form>
+          </section>
+        ) : null}
+
         {errorMessage ? (
           <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-medium text-red-700">
             {errorMessage}
           </div>
-        ) : aucunManque ? (
+        ) : aucunManqueDuTout ? (
           <div className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 px-6 py-4 text-sm font-semibold text-emerald-800">
             Aucun manque - le stock Depot E couvre tout le besoin des commandes en cours.
+          </div>
+        ) : aucunManqueApresFiltre ? (
+          <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-semibold text-amber-800">
+            Aucun manque pour les sous-familles selectionnees.
           </div>
         ) : (
           <>
@@ -259,6 +337,7 @@ function ManqueSection({ title, rows }: { title: string; rows: ManqueRow[] }) {
           <thead className="bg-slate-50 text-slate-500">
             <tr>
               <th className="px-6 py-4 font-semibold">Article</th>
+              <th className="px-6 py-4 font-semibold">Sous famille</th>
               <th className="px-6 py-4 font-semibold">Unite</th>
               <th className="px-6 py-4 font-semibold">Besoin</th>
               <th className="px-6 py-4 font-semibold">Stock Depot E</th>
@@ -269,6 +348,7 @@ function ManqueSection({ title, rows }: { title: string; rows: ManqueRow[] }) {
             {rows.map((row) => (
               <tr key={row.id} className="border-t border-slate-100">
                 <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
+                <td className="px-6 py-4 text-slate-600">{row.sousFamille}</td>
                 <td className="px-6 py-4 text-slate-600">{row.unite}</td>
                 <td className="px-6 py-4 text-slate-600">
                   {row.besoin.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
