@@ -4,6 +4,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { supabaseServer } from "@/lib/supabase-server";
 import { fetchStockActuelMpDepotE, type StockActuelMpRow } from "../../../stock/matiere-premiere/rapport/capacite-conditionnement/capacite-lib";
+import { fetchAllProgrammeLignes, fetchAllCartonEntries, groupCartonEntriesByLigne } from "../../suivi/data";
 
 type SearchParams = Promise<{ sousFamille?: string | string[] }>;
 
@@ -166,6 +167,31 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
     );
   }
 
+  // Un programme (PD) deja en cours pour un article compte aussi comme
+  // "deja pris en charge", meme si son MP n'est pas encore physiquement
+  // sorti du stock - demande explicite : "si ya PD meme si le MP c'est pas
+  // encore sorti il faut enlever ca de la quantite". Reste a produire =
+  // qt_carton de la ligne moins ce qui a deja ete saisi en Conditionnement
+  // (production_carton_entries), 0 si la ligne/le carton est marque
+  // termine - meme principe que "Reste" sur Suivi par Etape
+  // (app/production/suivi/en-cours/page.tsx), en agrege par article plutot
+  // que par code/lot (suffisant pour une estimation de manque MP, pas un
+  // suivi de production precis).
+  const { rows: lignesActives, error: lignesActivesError } = await fetchAllProgrammeLignes({ activeOnly: true });
+  const lignesActivesPourArticles = lignesActives.filter(
+    (l) => l.article_id != null && finishedArticleIds.includes(l.article_id)
+  );
+  const cartonEntries = await fetchAllCartonEntries(lignesActivesPourArticles.map((l) => l.id));
+  const entriesByLigne = groupCartonEntriesByLigne(cartonEntries);
+  const programmeResteParArticle = new Map<number, number>();
+  for (const ligne of lignesActivesPourArticles) {
+    if (ligne.article_id == null) continue;
+    if (ligne.programme_termine || ligne.carton_termine) continue;
+    const produit = (entriesByLigne.get(ligne.id) ?? []).reduce((sum, e) => sum + Number(e.quantite ?? 0), 0);
+    const reste = Math.max(0, Number(ligne.qt_carton ?? 0) - produit);
+    programmeResteParArticle.set(ligne.article_id, (programmeResteParArticle.get(ligne.article_id) ?? 0) + reste);
+  }
+
   // Besoin en MP/Conditionnement = quantite de la recette x (qt encore a
   // produire / quantite_recette_base de l'article calibre) - meme logique
   // que app/production/programme/[numero]/stock/page.tsx, mais a partir du
@@ -176,7 +202,10 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   const besoinParMp = new Map<number, number>();
   for (const [articleId, totalCartons] of quantiteParArticle.entries()) {
     const article = articleById.get(articleId);
-    const totalCartonsNet = Math.max(0, totalCartons - (stockPfByArticleId.get(articleId) ?? 0));
+    const totalCartonsNet = Math.max(
+      0,
+      totalCartons - (stockPfByArticleId.get(articleId) ?? 0) - (programmeResteParArticle.get(articleId) ?? 0)
+    );
     if (totalCartonsNet <= 0) continue;
 
     const ratioCarton = totalCartonsNet / (article?.quantite_recette_base || 1);
@@ -263,6 +292,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
     articlesVracError?.message ||
     recettesError?.message ||
     lotsPfError?.message ||
+    lignesActivesError ||
     sousFamilleError?.message ||
     null;
 
@@ -280,8 +310,9 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Manque Articles</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Toutes les commandes en cours, BL transforme ou stand : quantite encore a produire (demande
-                moins stock produit fini deja disponible) passee dans les recettes de fabrication et de
-                conditionnement, comparee au stock actuel Depot E. Seuls les articles en manque sont affiches.
+                moins stock produit fini deja disponible moins ce que les programmes deja en cours vont
+                encore produire) passee dans les recettes de fabrication et de conditionnement, comparee au
+                stock actuel Depot E. Seuls les articles en manque sont affiches.
               </p>
             </div>
 
