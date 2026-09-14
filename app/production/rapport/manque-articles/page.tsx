@@ -141,9 +141,34 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
         )
       : { rows: [] as RecetteLigneRow[], error: null };
 
-  // Besoin en MP/Conditionnement = quantite de la recette x (qt demandee /
-  // quantite_recette_base de l'article calibre) - meme logique que
-  // app/production/programme/[numero]/stock/page.tsx, mais a partir du
+  // Le stock de produit fini deja disponible couvre une partie de la
+  // demande AVANT meme de fabriquer/conditionner quoi que ce soit -
+  // demande explicite : "commande besoin 3000 carton, dans le stock ya 2000
+  // carton, il faut voir le manque pour 1000 carton [pas 3000]". Meme calcul
+  // que stock_actuel_pf_rows()/Stock Actuel PF (lots_stock, tous depots
+  // confondus - pas de restriction depot pour le stock livrable a un
+  // client, contrairement au Depot E pour la MP/conditionnement qui sert a
+  // la faisabilite physique de production).
+  const { rows: lotsPfRaw, error: lotsPfError } =
+    finishedArticleIds.length > 0
+      ? await fetchAll<{ article_id: number | null; qte_entree: number | null; qte_sortie: number | null }>(
+          "lots_stock",
+          "article_id, qte_entree, qte_sortie",
+          (q) => q.in("article_id", finishedArticleIds)
+        )
+      : { rows: [] as { article_id: number | null; qte_entree: number | null; qte_sortie: number | null }[], error: null };
+  const stockPfByArticleId = new Map<number, number>();
+  for (const lot of lotsPfRaw) {
+    if (lot.article_id == null) continue;
+    stockPfByArticleId.set(
+      lot.article_id,
+      (stockPfByArticleId.get(lot.article_id) ?? 0) + Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0)
+    );
+  }
+
+  // Besoin en MP/Conditionnement = quantite de la recette x (qt encore a
+  // produire / quantite_recette_base de l'article calibre) - meme logique
+  // que app/production/programme/[numero]/stock/page.tsx, mais a partir du
   // cumul des commandes en cours plutot que d'un programme deja lance.
   // quantite_recette_base absente -> recette consideree calibree pour 1
   // carton (meme repli que sur les pages Recette Conditionnement/
@@ -151,7 +176,10 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   const besoinParMp = new Map<number, number>();
   for (const [articleId, totalCartons] of quantiteParArticle.entries()) {
     const article = articleById.get(articleId);
-    const ratioCarton = totalCartons / (article?.quantite_recette_base || 1);
+    const totalCartonsNet = Math.max(0, totalCartons - (stockPfByArticleId.get(articleId) ?? 0));
+    if (totalCartonsNet <= 0) continue;
+
+    const ratioCarton = totalCartonsNet / (article?.quantite_recette_base || 1);
     for (const r of recettes.filter((r) => r.article_pf_id === articleId)) {
       besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioCarton);
     }
@@ -167,7 +195,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
           : null;
       const qtVracParBase = article.vrac_quantite_recette ?? qtVracAuto ?? 0;
       const vracParCarton = qtVracParBase / (article.quantite_recette_base || 1);
-      const vracNecessaireTotal = vracParCarton * totalCartons;
+      const vracNecessaireTotal = vracParCarton * totalCartonsNet;
       const ratioVrac = vracNecessaireTotal / (vracArticle?.quantite_recette_base || 1);
       for (const r of recettes.filter((r) => r.article_pf_id === article.vrac_article_id)) {
         besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioVrac);
@@ -234,6 +262,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
     articlesFinisError?.message ||
     articlesVracError?.message ||
     recettesError?.message ||
+    lotsPfError?.message ||
     sousFamilleError?.message ||
     null;
 
@@ -250,9 +279,9 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Manque Articles</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Toutes les commandes en cours, BL transforme ou stand : besoin calcule depuis leurs recettes
-                de fabrication et de conditionnement, compare au stock actuel Depot E. Seuls les articles en
-                manque sont affiches.
+                Toutes les commandes en cours, BL transforme ou stand : quantite encore a produire (demande
+                moins stock produit fini deja disponible) passee dans les recettes de fabrication et de
+                conditionnement, comparee au stock actuel Depot E. Seuls les articles en manque sont affiches.
               </p>
             </div>
 
