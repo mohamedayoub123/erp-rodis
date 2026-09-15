@@ -190,6 +190,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     adminGroup: "Rapport (Matiere Premiere)",
   },
   {
+    key: "stockNegatifMp",
+    module: "Stock",
+    label: "Stock Negatif MP",
+    pathPrefixes: ["/stock/matiere-premiere/rapport/stock-negatif"],
+    hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
+  },
+  {
     key: "stockMinProposeMp",
     module: "Stock",
     label: "Stock Min Propose MP",

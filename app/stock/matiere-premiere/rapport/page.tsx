@@ -88,6 +88,13 @@ const TILES = [
     icon: "\u{1F9F4}",
     description: "Flacon, flacon PET, pot, capsule, topette - stock actuel, stock min et stock max.",
   },
+  {
+    label: "Stock Negatif",
+    href: "/stock/matiere-premiere/rapport/stock-negatif",
+    pageKey: "stockNegatifMp",
+    icon: "\u{1F6A9}",
+    description: "Tous les articles/codes dont le stock calcule est negatif (anomalie de saisie a corriger).",
+  },
 ] as const;
 
 export default async function RapportMpPage() {
