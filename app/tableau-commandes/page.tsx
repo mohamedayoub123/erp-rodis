@@ -27,18 +27,6 @@ type SearchParams = Promise<{
   vue?: string;
 }>;
 
-type PlanningRow = {
-  famille: string | null;
-  articleId: number | null;
-  client: string | null;
-  nombre_camion: number | null;
-  mode_chargement: string | null;
-  type_tc: string | null;
-  numero_proforma: string | null;
-  article: string;
-  quantite_prevue: number | null;
-};
-
 type CommandColumn = {
   key: string;
   client: string;
@@ -371,23 +359,6 @@ function formatTruckCount(value: number | null) {
   if (value === null || Number.isNaN(Number(value))) return "";
   const num = Number(value);
   return Number.isInteger(num) ? String(num) : String(num).replace(".", ",");
-}
-
-function buildPlanningCommandKey(row: {
-  client: string | null;
-  nombre_camion: number | null;
-  mode_chargement: string | null;
-  numero_proforma: string | null;
-}) {
-  const numero = String(row.numero_proforma || "").trim();
-  if (numero) return `proforma::${numero}`;
-
-  return [
-    String(row.client || "").trim(),
-    String(row.nombre_camion ?? ""),
-    String(row.mode_chargement || "").trim(),
-    numero,
-  ].join("||");
 }
 
 // Une commande sur plusieurs camions cree une ligne "commandes" separee par
@@ -1314,7 +1285,6 @@ export default async function TableauCommandesPage({
   const hideStand = String(params.hideStand || "").trim() === "1";
   const viewQuery = String(params.vue || "").trim().toLowerCase();
   const showMissingView = viewQuery === "manquant";
-  const qtEnCoursConditionnementByArticle = await fetchQtEnCoursConditionnementByArticle();
 
   if (showMissingView) {
     const selectedFamille = familleQuery || "";
@@ -1341,17 +1311,22 @@ export default async function TableauCommandesPage({
     }
 
     // Self-contained: does not need famille_besoins / planning data at all,
-    // so this view skips the queries the per-gamme tabs below need.
-    const [missingArticlesRaw, { data: missingCommandesRaw }] = await Promise.all([
-      fetchAllArticlesForMissingReport(),
-      supabaseServer
-        .from("commandes")
-        .select(
-          "id, client, statut, mode_chargement, type_tc, numero_proforma, created_at, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
-        )
-        .neq("statut", "LIVREE")
-        .order("created_at", { ascending: true }),
-    ]);
+    // so this view skips the queries the per-gamme tabs below need. Fetched
+    // together with "Qt en cours" (independent of one another, previously
+    // awaited sequentially before this block) - saves one full network
+    // round trip on this view.
+    const [missingArticlesRaw, { data: missingCommandesRaw }, qtEnCoursConditionnementByArticle] =
+      await Promise.all([
+        fetchAllArticlesForMissingReport(),
+        supabaseServer
+          .from("commandes")
+          .select(
+            "id, client, statut, mode_chargement, type_tc, numero_proforma, created_at, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
+          )
+          .neq("statut", "LIVREE")
+          .order("created_at", { ascending: true }),
+        fetchQtEnCoursConditionnementByArticle(),
+      ]);
 
     const missingArticlesData =
       (missingArticlesRaw as
@@ -1534,565 +1509,17 @@ export default async function TableauCommandesPage({
     );
   }
 
-  // famille_besoins and the active-commandes list don't depend on each
-  // other, so fetch them together instead of one after the other.
-  const [{ data: familleBesoinsData }, { data: allActiveCommandesDataRaw }] = await Promise.all([
-    supabaseServer
-      .from("famille_besoins")
-      .select(
-        "famille_id, article_id, client, nombre_camion, mode_chargement, numero_proforma, quantite_prevue"
-      )
-      .order("id", { ascending: true }),
-    supabaseServer
-      .from("commandes")
-      .select("id, client, statut, mode_chargement, type_tc, numero_proforma, created_at")
-      .neq("statut", "LIVREE")
-      .order("created_at", { ascending: true }),
-  ]);
-
-  const familleRows =
-    (familleBesoinsData as
-      | {
-          famille_id: number | null;
-          article_id: number | null;
-          client: string | null;
-          nombre_camion: number | null;
-          mode_chargement: string | null;
-          numero_proforma: string | null;
-          quantite_prevue: number | null;
-        }[]
-      | null) ?? [];
-
-  const familleIds = [
-    ...new Set(familleRows.map((row) => Number(row.famille_id ?? 0)).filter((value) => value > 0)),
-  ];
-  const articleIds = [
-    ...new Set(familleRows.map((row) => Number(row.article_id ?? 0)).filter((value) => value > 0)),
-  ];
-
-  const [{ data: famillesData }, { data: articlesData }] = await Promise.all([
-    familleIds.length
-      ? supabaseServer.from("familles").select("id, nom_famille").in("id", familleIds)
-      : Promise.resolve({ data: [] as { id: number; nom_famille: string | null }[] }),
-    articleIds.length
-      ? supabaseServer
-          .from("articles")
-          .select("id, nom_article, article_normalise")
-          .in("id", articleIds)
-      : Promise.resolve({
-          data: [] as { id: number; nom_article: string | null; article_normalise: string | null }[],
-        }),
-  ]);
-
-  const familleMap = new Map(
-    (((famillesData as { id: number; nom_famille: string | null }[] | null) ?? []).map((row) => [
-      row.id,
-      String(row.nom_famille || "").trim(),
-    ]))
-  );
-
-  const articleDataMap = new Map(
-    (((articlesData as
-      | { id: number; nom_article: string | null; article_normalise: string | null }[]
-      | null) ?? []).map((row) => [
-      row.id,
-      {
-        nom_article: String(row.nom_article || "").trim(),
-        article_normalise: String(row.article_normalise || "").trim(),
-      },
-    ]))
-  );
-
-  const planningRows = familleRows
-    .map((row): PlanningRow | null => {
-      const articleInfo = articleDataMap.get(Number(row.article_id ?? 0));
-      if (!articleInfo?.nom_article) return null;
-
-      return {
-        famille: familleMap.get(Number(row.famille_id ?? 0)) || null,
-        articleId: Number(row.article_id ?? 0) || null,
-        client: row.client,
-        nombre_camion:
-          row.nombre_camion === null || row.nombre_camion === undefined
-            ? null
-            : Number(row.nombre_camion),
-        mode_chargement: row.mode_chargement,
-        type_tc: null,
-        numero_proforma: row.numero_proforma,
-        article: articleInfo.nom_article,
-        quantite_prevue: Number(row.quantite_prevue ?? 0),
-      };
-    })
-    .filter((row): row is PlanningRow => row !== null);
-
-  const selectedFamille = familleQuery || "";
-  const shouldStayEmpty = EMPTY_TABLE_FAMILIES.has(selectedFamille);
-
+  // famille_besoins (l'ancien mecanisme de planning par famille) est vide en
+  // base et n'alimente plus rien d'affiche - la famille/l'article y etaient
+  // resolus via 2 requetes supplementaires (familles, articles) pour ne
+  // finalement jamais nourrir que ce chemin mort. Retire, ca economise une
+  // requete reseau complete sur CHAQUE chargement de page famille.
   const families = [...FAMILY_ORDER, ...(await fetchDynamicFamilies())];
-  const selectedRows = planningRows.filter(
-    (row) => String(row.famille || "").trim() === selectedFamille
-  );
-  const planningMetaByCommandKey = new Map<
-    string,
-    { nombre_camion: number | null; type_tc: string; mode_chargement: string }
-  >();
+  const selectedFamille = familleQuery || "";
 
-  for (const row of planningRows) {
-    const key = buildPlanningCommandKey(row);
-    if (!planningMetaByCommandKey.has(key)) {
-      planningMetaByCommandKey.set(key, {
-        nombre_camion:
-          row.nombre_camion === null || row.nombre_camion === undefined
-            ? null
-            : Number(row.nombre_camion),
-        type_tc: String(row.type_tc || "").trim(),
-        mode_chargement: String(row.mode_chargement || "").trim(),
-      });
-    }
-  }
-
-  const allActiveCommandesData =
-    (allActiveCommandesDataRaw as
-      | {
-          id: number;
-          client: string | null;
-          statut: string | null;
-          mode_chargement: string | null;
-          type_tc: string | null;
-          numero_proforma: string | null;
-          created_at: string | null;
-        }[]
-      | null) ?? [];
-
-  const allActiveCommandColumns: CommandColumn[] = [];
-  const allActiveCommandKeySet = new Set<string>();
-
-  for (const commande of allActiveCommandesData) {
-    const key = buildCommandeKey(commande);
-    if (allActiveCommandKeySet.has(key)) continue;
-    allActiveCommandKeySet.add(key);
-
-    const planningMeta = planningMetaByCommandKey.get(key);
-
-    allActiveCommandColumns.push({
-      key,
-      client: String(commande.client || "").trim(),
-      nombre_camion: (planningMeta?.nombre_camion ?? Number(commande.type_tc)) || 1,
-      mode_chargement:
-        planningMeta?.mode_chargement || String(commande.mode_chargement || "").trim(),
-      type_tc: planningMeta?.type_tc || String(commande.type_tc || "").trim(),
-      numero_proforma: String(commande.numero_proforma || "").trim(),
-      statut: String(commande.statut || "EN_COURS").trim(),
-      date_ecriture: commande.created_at,
-    });
-  }
-
-  const whiteSecretCommandesData =
-    selectedFamille === "White Secret"
-      ? (
-          (
-            await supabaseServer
-              .from("commandes")
-              .select(
-                "id, client, statut, mode_chargement, type_tc, numero_proforma, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
-              )
-              .neq("statut", "LIVREE")
-              .order("created_at", { ascending: true })
-          ).data as
-            | {
-                id: number;
-                client: string | null;
-                statut: string | null;
-                mode_chargement: string | null;
-                type_tc: string | null;
-                numero_proforma: string | null;
-                commande_lignes:
-                  | {
-                      quantite_demandee: number | null;
-                      articles:
-                        | { nom_article: string | null; gamme: string | null }
-                        | { nom_article: string | null; gamme: string | null }[]
-                        | null;
-                    }[]
-                  | null;
-              }[]
-            | null
-        ) ?? []
-      : [];
-
-  const whiteSecretArticles =
-    selectedFamille === "White Secret"
-      ? (
-          (
-            (
-              await supabaseServer
-                .from("articles")
-                .select("id, nom_article, gamme, nature")
-                .ilike("gamme", "%White Secret%")
-                .order("nom_article", { ascending: true })
-            ).data as (WhiteSecretArticleRow & { nature: string | null })[] | null
-          ) ?? []
-        )
-          // Le vrac (matiere non conditionnee) ne se commande jamais - meme
-          // regle que le tableau de dispatch camion des autres gammes.
-          .filter((row) => row.nature !== "vrac")
-      : [];
-
-  const whiteSecretCommandColumns: CommandColumn[] = [];
-  const whiteSecretQuantitiesByArticle = new Map<string, Map<string, number>>();
-  const whiteSecretStockByArticle = new Map<string, number>();
-
-  if (selectedFamille === "White Secret") {
-    // Le nombre de camion compte TOUTES les lignes "commandes" du meme
-    // proforma de base (chaque camion est sa propre ligne), pas seulement
-    // celles qui contiennent un article White Secret.
-    const whiteSecretCountByKey = new Map<string, number>();
-    for (const commande of whiteSecretCommandesData) {
-      const countKey = buildCommandeKey(commande);
-      whiteSecretCountByKey.set(countKey, (whiteSecretCountByKey.get(countKey) ?? 0) + 1);
-    }
-
-    const whiteSecretSeenKeys = new Set<string>();
-
-    for (const commande of whiteSecretCommandesData) {
-      const lignes = (commande.commande_lignes ?? []).filter((ligne) => {
-        const relation = ligne.articles;
-        const article = Array.isArray(relation) ? relation[0] : relation;
-        return String(article?.gamme || "")
-          .toLowerCase()
-          .includes("white secret");
-      });
-
-      if (lignes.length === 0) continue;
-
-      const key = buildCommandeKey(commande);
-
-      if (!whiteSecretSeenKeys.has(key)) {
-        whiteSecretSeenKeys.add(key);
-
-        const groupSize = whiteSecretCountByKey.get(key) ?? 1;
-        whiteSecretCommandColumns.push({
-          key,
-          client: String(commande.client || "").trim(),
-          nombre_camion: groupSize > 1 ? groupSize : Number(commande.type_tc) || 1,
-          mode_chargement: String(commande.mode_chargement || "").trim(),
-          type_tc: String(commande.type_tc || "").trim(),
-          numero_proforma: String(commande.numero_proforma || "").trim(),
-          statut: String(commande.statut || "EN_COURS").trim(),
-          date_ecriture: null,
-        });
-      }
-
-      // Chaque camion du meme proforma est une ligne "commandes" separee -
-      // il faut additionner la quantite de TOUS les camions, pas seulement
-      // du premier rencontre (celui qui a cree la colonne).
-      for (const ligne of lignes) {
-        const relation = ligne.articles;
-        const article = Array.isArray(relation) ? relation[0] : relation;
-        const articleName = String(article?.nom_article || "").trim();
-        const articleKey = normalizeArticle(articleName);
-        if (!articleName || !articleKey) continue;
-
-        const rowMap =
-          whiteSecretQuantitiesByArticle.get(articleKey) ?? new Map<string, number>();
-        rowMap.set(
-          key,
-          Number(rowMap.get(key) ?? 0) + Number(ligne.quantite_demandee ?? 0)
-        );
-        whiteSecretQuantitiesByArticle.set(articleKey, rowMap);
-      }
-    }
-
-  }
-
-  const whiteSecretBodyRows =
-    selectedFamille === "White Secret"
-      ? [
-          ...[
-            ...new Set(
-              whiteSecretArticles
-                .map((row) =>
-                  String(row.nom_article || "")
-                    .replace(/\u00a0/g, "")
-                    .trim()
-                )
-                .filter((value) => value.length > 0 && /[A-Za-z0-9]/.test(value))
-            ),
-          ].sort((a, b) => {
-            const rankDiff =
-              getWhiteSecretArticleRank(a) - getWhiteSecretArticleRank(b);
-            if (rankDiff !== 0) return rankDiff;
-
-            const contenanceDiff =
-              getWhiteSecretContenance(b) - getWhiteSecretContenance(a);
-            if (contenanceDiff !== 0) return contenanceDiff;
-
-            return a.localeCompare(b, "fr", { sensitivity: "base" });
-          }),
-          "BL TRANSFORME",
-          "PRODUCTION EN COURS",
-          "STAND(faire les articles commun)",
-        ]
-      : [];
-
-  const genericFamilyArticles =
-    selectedFamille &&
-    selectedFamille !== "White Secret" &&
-    !shouldStayEmpty
-      ? (
-          (
-            (
-              await supabaseServer
-                .from("articles")
-                .select("id, nom_article, gamme, nature")
-                .ilike("gamme", ilikePatternForFamily(selectedFamille))
-                .order("nom_article", { ascending: true })
-            ).data as
-              | { id: number; nom_article: string | null; gamme: string | null; nature: string | null }[]
-              | null
-          ) ?? []
-        )
-          .filter((row) =>
-            matchesFamilyGamme(String(row.gamme || ""), String(row.nom_article || ""), selectedFamille)
-          )
-          // Le vrac (matiere non conditionnee) n'a pas sa place dans le
-          // tableau de dispatch camion - seuls les articles finis/emballes
-          // s'y commandent et s'y chargent.
-          .filter((row) => row.nature !== "vrac")
-      : [];
-
-  const genericFamilyCommandesData =
-    selectedFamille &&
-    selectedFamille !== "White Secret" &&
-    !shouldStayEmpty
-      ? (
-          (
-            await supabaseServer
-              .from("commandes")
-              .select(
-                "id, client, statut, mode_chargement, type_tc, numero_proforma, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
-              )
-              .neq("statut", "LIVREE")
-              .order("created_at", { ascending: true })
-          ).data as
-            | {
-                id: number;
-                client: string | null;
-                statut: string | null;
-                mode_chargement: string | null;
-                type_tc: string | null;
-                numero_proforma: string | null;
-                commande_lignes:
-                  | {
-                      quantite_demandee: number | null;
-                      articles:
-                        | { nom_article: string | null; gamme: string | null }
-                        | { nom_article: string | null; gamme: string | null }[]
-                        | null;
-                    }[]
-                  | null;
-              }[]
-            | null
-        ) ?? []
-      : [];
-
-  const genericFamilyCommandColumns: CommandColumn[] = [];
-  const genericFamilyQuantitiesByArticle = new Map<string, Map<string, number>>();
-  const genericFamilyStockByArticle = new Map<string, number>();
-  const genericFamilyArticleNameById = new Map<number, string>(
-    genericFamilyArticles.map((row) => [Number(row.id ?? 0), String(row.nom_article || "").trim()])
-  );
-
-  if (selectedFamille && selectedFamille !== "White Secret" && !shouldStayEmpty) {
-    genericFamilyCommandColumns.push(...allActiveCommandColumns);
-
-    for (const commande of genericFamilyCommandesData) {
-      const key = buildCommandeKey(commande);
-      const lignes = (commande.commande_lignes ?? []).filter((ligne) => {
-        const relation = ligne.articles;
-        const article = Array.isArray(relation) ? relation[0] : relation;
-
-        return matchesFamilyGamme(
-          String(article?.gamme || ""),
-          String(article?.nom_article || ""),
-          selectedFamille
-        );
-      });
-
-      if (lignes.length === 0) continue;
-
-      for (const ligne of lignes) {
-        const relation = ligne.articles;
-        const article = Array.isArray(relation) ? relation[0] : relation;
-        const articleName = String(article?.nom_article || "").trim();
-        const articleKey = normalizeArticle(articleName);
-        if (!articleKey) continue;
-
-        const rowMap =
-          genericFamilyQuantitiesByArticle.get(articleKey) ?? new Map<string, number>();
-        rowMap.set(
-          key,
-          Number(rowMap.get(key) ?? 0) + Number(ligne.quantite_demandee ?? 0)
-        );
-        genericFamilyQuantitiesByArticle.set(articleKey, rowMap);
-      }
-    }
-  }
-
-  // For parent-family buttons that cover several real gammes (see
-  // FAMILY_SUBGAMMES), remember which sub-gamme each article belongs to so
-  // the table can show a colored banner between groups.
-  const genericFamilySubGammeByArticleKey = new Map<
-    string,
-    { label: string; bannerClass: string }
-  >();
-
-  if (selectedFamille && TYPE_GROUPED_FAMILIES.has(selectedFamille)) {
-    for (const row of genericFamilyArticles) {
-      const articleName = String(row.nom_article || "").replace(/\u00a0/g, "").trim();
-      const typeLabel = getArticleTypeLabel(articleName);
-      if (!typeLabel) continue;
-
-      const articleKey = normalizeArticle(articleName);
-      if (articleKey) {
-        genericFamilySubGammeByArticleKey.set(articleKey, {
-          label: typeLabel,
-          bannerClass: TYPE_GROUP_BANNER_CLASS,
-        });
-      }
-    }
-  } else if (selectedFamille && FAMILY_SUBGAMMES[selectedFamille]) {
-    for (const row of genericFamilyArticles) {
-      const subGamme = getFamilySubGamme(selectedFamille, String(row.gamme || ""));
-      if (!subGamme) continue;
-
-      const articleKey = normalizeArticle(
-        String(row.nom_article || "").replace(/\u00a0/g, "").trim()
-      );
-      if (articleKey) {
-        genericFamilySubGammeByArticleKey.set(articleKey, subGamme);
-      }
-    }
-  }
-
-  const genericFamilyArticleRows =
-    selectedFamille &&
-    selectedFamille !== "White Secret" &&
-    !shouldStayEmpty
-      ? [
-          ...new Set(
-            genericFamilyArticles
-              .map((row) => String(row.nom_article || "").replace(/\u00a0/g, "").trim())
-              .filter((value) => value.length > 0 && /[A-Za-z0-9]/.test(value))
-          ),
-        ].sort((a, b) => {
-          const subGammeOrder = FAMILY_SUBGAMMES[selectedFamille];
-          if (subGammeOrder) {
-            const labelA = genericFamilySubGammeByArticleKey.get(normalizeArticle(a))?.label;
-            const labelB = genericFamilySubGammeByArticleKey.get(normalizeArticle(b))?.label;
-            const indexA = labelA ? subGammeOrder.findIndex((entry) => entry.label === labelA) : 99;
-            const indexB = labelB ? subGammeOrder.findIndex((entry) => entry.label === labelB) : 99;
-            if (indexA !== indexB) return indexA - indexB;
-          }
-
-          const rankDiff =
-            getWhiteSecretArticleRank(a) - getWhiteSecretArticleRank(b);
-          if (rankDiff !== 0) return rankDiff;
-
-          const contenanceDiff =
-            getWhiteSecretContenance(b) - getWhiteSecretContenance(a);
-          if (contenanceDiff !== 0) return contenanceDiff;
-
-          return a.localeCompare(b, "fr", { sensitivity: "base" });
-        })
-      : [];
-
-  if (selectedFamille && selectedFamille !== "White Secret" && !shouldStayEmpty) {
-    const latestStocks = await fetchArticleStocksFromStockPage(genericFamilyArticles);
-    latestStocks.forEach((value, key) => {
-      genericFamilyStockByArticle.set(key, value);
-    });
-  }
-
-  if (selectedFamille === "White Secret") {
-    const latestStocks = await fetchArticleStocksFromStockPage(whiteSecretArticles);
-    latestStocks.forEach((value, key) => {
-      whiteSecretStockByArticle.set(key, value);
-    });
-  }
-
-  const commandColumns: CommandColumn[] = [];
-  const commandSet = new Set<string>();
-
-  for (const row of selectedRows) {
-    const key = buildPlanningCommandKey(row);
-
-    if (!commandSet.has(key)) {
-      commandSet.add(key);
-      commandColumns.push({
-        key,
-        client: String(row.client || "").trim(),
-        nombre_camion:
-          row.nombre_camion === null || row.nombre_camion === undefined
-            ? null
-            : Number(row.nombre_camion),
-        mode_chargement: String(row.mode_chargement || "").trim(),
-        type_tc: String(row.type_tc || "").trim(),
-        numero_proforma: String(row.numero_proforma || "").trim(),
-        statut: "EN_COURS",
-        date_ecriture: null,
-      });
-    }
-  }
-
-  const articleNames = [
-    ...new Set(
-      selectedRows
-        .map((row) =>
-          String(row.article || "")
-            .replace(/\u00a0/g, "")
-            .trim()
-        )
-        .filter((value) => value.length > 0 && /[A-Za-z0-9]/.test(value))
-    ),
-  ];
-  const stockByArticleName =
-    selectedFamille === "White Secret"
-      ? whiteSecretStockByArticle
-      : genericFamilyStockByArticle;
-  const displayCommandColumns =
-    selectedFamille && selectedFamille !== "White Secret"
-      ? allActiveCommandColumns
-      : commandColumns;
-
-  const matrixRows = articleNames.map((articleName) => {
-    const articleNormal = normalizeArticle(articleName);
-    const quantitiesByCommand = new Map<string, number>();
-
-    for (const row of selectedRows.filter(
-      (item) => normalizeArticle(String(item.article || "")) === articleNormal
-    )) {
-      const key = buildPlanningCommandKey(row);
-
-      quantitiesByCommand.set(
-        key,
-        Number(quantitiesByCommand.get(key) ?? 0) + Number(row.quantite_prevue ?? 0)
-      );
-    }
-
-    const totalCommande = [...quantitiesByCommand.values()].reduce((sum, value) => sum + value, 0);
-    const stock = Number(stockByArticleName.get(articleNormal) ?? 0);
-    const reste = stock - totalCommande;
-
-    return {
-      article: articleName,
-      quantitiesByCommand,
-      totalCommande,
-      stock,
-      reste,
-    };
-  }).filter((row) => String(row.article || "").trim().length > 0);
-
+  // Page d'accueil (aucune famille choisie) : n'a besoin que de la liste des
+  // familles - on sort avant de lancer les requetes lourdes ci-dessous, qui
+  // ne servent a rien pour cet ecran.
   if (!selectedFamille) {
     return (
       <main className="min-h-screen bg-[#f4f6f8] px-4 py-6 text-slate-900 lg:px-6">
@@ -2165,44 +1592,184 @@ export default async function TableauCommandesPage({
     );
   }
 
-  if (selectedRows.length === 0 || shouldStayEmpty) {
-    if (selectedFamille === "White Secret") {
-      // Meme rendu que les autres familles (renderGenericFamilyTemplate) -
-      // demande explicite ("fait la page White Secret bouger comme
-      // Absolute") : l'ancien template dedie a White Secret empilait ses
-      // lignes d'en-tete via des offsets sticky top-[Xpx] fixes (voir
-      // git blame de cette section), fragile des qu'un nom de client
-      // depassait la hauteur prevue (le contenu des lignes suivantes se
-      // faisait alors recouvrir au scroll - bug reel signale). Le template
-      // generique ne fixe rien en hauteur (seule la colonne article colle
-      // a gauche au scroll horizontal), jamais ce probleme.
-      return renderGenericFamilyTemplate(
-        families,
-        selectedFamille,
-        whiteSecretBodyRows,
-        allActiveCommandColumns,
-        whiteSecretQuantitiesByArticle,
-        whiteSecretStockByArticle,
-        qtEnCoursConditionnementByArticle,
-        undefined,
-        hideStand
-      );
+  const shouldStayEmpty = EMPTY_TABLE_FAMILIES.has(selectedFamille);
+
+  // Toutes les requetes dependent uniquement de selectedFamille (deja connu
+  // a ce stade), donc tout ce qui suit part en parallele au lieu d'etre
+  // attendu sequentiellement comme avant (jusqu'a 3 aller-retours reseau
+  // reduits a 1 seul).
+  if (selectedFamille === "White Secret") {
+    const [
+      { data: whiteSecretCommandesDataRaw },
+      { data: whiteSecretArticlesRaw },
+      { data: allActiveCommandesDataRaw },
+      qtEnCoursConditionnementByArticle,
+    ] = await Promise.all([
+      supabaseServer
+        .from("commandes")
+        .select(
+          "id, client, statut, mode_chargement, type_tc, numero_proforma, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
+        )
+        .neq("statut", "LIVREE")
+        .order("created_at", { ascending: true }),
+      supabaseServer
+        .from("articles")
+        .select("id, nom_article, gamme, nature")
+        .ilike("gamme", "%White Secret%")
+        .order("nom_article", { ascending: true }),
+      supabaseServer
+        .from("commandes")
+        .select("id, client, statut, mode_chargement, type_tc, numero_proforma, created_at")
+        .neq("statut", "LIVREE")
+        .order("created_at", { ascending: true }),
+      fetchQtEnCoursConditionnementByArticle(),
+    ]);
+
+    const whiteSecretCommandesData =
+      (whiteSecretCommandesDataRaw as
+        | {
+            id: number;
+            client: string | null;
+            statut: string | null;
+            mode_chargement: string | null;
+            type_tc: string | null;
+            numero_proforma: string | null;
+            commande_lignes:
+              | {
+                  quantite_demandee: number | null;
+                  articles:
+                    | { nom_article: string | null; gamme: string | null }
+                    | { nom_article: string | null; gamme: string | null }[]
+                    | null;
+                }[]
+              | null;
+          }[]
+        | null) ?? [];
+
+    const whiteSecretArticles = (
+      ((whiteSecretArticlesRaw as (WhiteSecretArticleRow & { nature: string | null })[] | null) ?? [])
+        // Le vrac (matiere non conditionnee) ne se commande jamais - meme
+        // regle que le tableau de dispatch camion des autres gammes.
+        .filter((row) => row.nature !== "vrac")
+    );
+
+    const allActiveCommandesData =
+      (allActiveCommandesDataRaw as
+        | {
+            id: number;
+            client: string | null;
+            statut: string | null;
+            mode_chargement: string | null;
+            type_tc: string | null;
+            numero_proforma: string | null;
+            created_at: string | null;
+          }[]
+        | null) ?? [];
+
+    const allActiveCommandColumns: CommandColumn[] = [];
+    const allActiveCommandKeySet = new Set<string>();
+
+    for (const commande of allActiveCommandesData) {
+      const key = buildCommandeKey(commande);
+      if (allActiveCommandKeySet.has(key)) continue;
+      allActiveCommandKeySet.add(key);
+
+      allActiveCommandColumns.push({
+        key,
+        client: String(commande.client || "").trim(),
+        nombre_camion: Number(commande.type_tc) || 1,
+        mode_chargement: String(commande.mode_chargement || "").trim(),
+        type_tc: String(commande.type_tc || "").trim(),
+        numero_proforma: String(commande.numero_proforma || "").trim(),
+        statut: String(commande.statut || "EN_COURS").trim(),
+        date_ecriture: commande.created_at,
+      });
     }
 
-    if (selectedFamille && !shouldStayEmpty) {
-      return renderGenericFamilyTemplate(
-        families,
-        selectedFamille,
-        genericFamilyArticleRows,
-        allActiveCommandColumns,
-        genericFamilyQuantitiesByArticle,
-        genericFamilyStockByArticle,
-        qtEnCoursConditionnementByArticle,
-        genericFamilySubGammeByArticleKey,
-        hideStand
-      );
+    const whiteSecretQuantitiesByArticle = new Map<string, Map<string, number>>();
+
+    for (const commande of whiteSecretCommandesData) {
+      const lignes = (commande.commande_lignes ?? []).filter((ligne) => {
+        const relation = ligne.articles;
+        const article = Array.isArray(relation) ? relation[0] : relation;
+        return String(article?.gamme || "")
+          .toLowerCase()
+          .includes("white secret");
+      });
+
+      if (lignes.length === 0) continue;
+
+      const key = buildCommandeKey(commande);
+
+      // Chaque camion du meme proforma est une ligne "commandes" separee -
+      // il faut additionner la quantite de TOUS les camions, pas seulement
+      // du premier rencontre.
+      for (const ligne of lignes) {
+        const relation = ligne.articles;
+        const article = Array.isArray(relation) ? relation[0] : relation;
+        const articleName = String(article?.nom_article || "").trim();
+        const articleKey = normalizeArticle(articleName);
+        if (!articleName || !articleKey) continue;
+
+        const rowMap =
+          whiteSecretQuantitiesByArticle.get(articleKey) ?? new Map<string, number>();
+        rowMap.set(
+          key,
+          Number(rowMap.get(key) ?? 0) + Number(ligne.quantite_demandee ?? 0)
+        );
+        whiteSecretQuantitiesByArticle.set(articleKey, rowMap);
+      }
     }
 
+    const whiteSecretBodyRows = [
+      ...[
+        ...new Set(
+          whiteSecretArticles
+            .map((row) =>
+              String(row.nom_article || "")
+                .replace(/ /g, "")
+                .trim()
+            )
+            .filter((value) => value.length > 0 && /[A-Za-z0-9]/.test(value))
+        ),
+      ].sort((a, b) => {
+        const rankDiff = getWhiteSecretArticleRank(a) - getWhiteSecretArticleRank(b);
+        if (rankDiff !== 0) return rankDiff;
+
+        const contenanceDiff = getWhiteSecretContenance(b) - getWhiteSecretContenance(a);
+        if (contenanceDiff !== 0) return contenanceDiff;
+
+        return a.localeCompare(b, "fr", { sensitivity: "base" });
+      }),
+      "BL TRANSFORME",
+      "PRODUCTION EN COURS",
+      "STAND(faire les articles commun)",
+    ];
+
+    // Demarre pendant que le stock se calcule cote serveur, sans bloquer -
+    // le await n'arrive qu'une fois le rendu pret a en avoir besoin.
+    const whiteSecretStockPromise = fetchArticleStocksFromStockPage(whiteSecretArticles);
+    const whiteSecretStockByArticle = await whiteSecretStockPromise;
+
+    // Meme rendu que les autres familles (renderGenericFamilyTemplate) -
+    // demande explicite ("fait la page White Secret bouger comme
+    // Absolute") : l'ancien template dedie a White Secret empilait ses
+    // lignes d'en-tete via des offsets sticky top-[Xpx] fixes, fragile des
+    // qu'un nom de client depassait la hauteur prevue (bug reel signale).
+    return renderGenericFamilyTemplate(
+      families,
+      selectedFamille,
+      whiteSecretBodyRows,
+      allActiveCommandColumns,
+      whiteSecretQuantitiesByArticle,
+      whiteSecretStockByArticle,
+      qtEnCoursConditionnementByArticle,
+      undefined,
+      hideStand
+    );
+  }
+
+  if (shouldStayEmpty) {
     return (
       <main className="min-h-screen bg-[#f4f6f8] px-4 py-6 text-slate-900 lg:px-6">
         <div className="mx-auto w-full space-y-5">
@@ -2254,230 +1821,213 @@ export default async function TableauCommandesPage({
     );
   }
 
-  if (selectedFamille === "White Secret") {
-    // Meme motif que ci-dessus (rendu vide) - toujours le template
-    // generique pour White Secret desormais.
-    return renderGenericFamilyTemplate(
-      families,
-      selectedFamille,
-      whiteSecretBodyRows,
-      allActiveCommandColumns,
-      whiteSecretQuantitiesByArticle,
-      whiteSecretStockByArticle,
-      qtEnCoursConditionnementByArticle,
-      undefined,
-      hideStand
-    );
+  // Famille generique (ni White Secret, ni vide) - meme principe : toutes
+  // les requetes independantes partent en parallele.
+  const [
+    { data: genericFamilyArticlesRaw },
+    { data: genericFamilyCommandesDataRaw },
+    { data: allActiveCommandesDataRaw },
+    qtEnCoursConditionnementByArticle,
+  ] = await Promise.all([
+    supabaseServer
+      .from("articles")
+      .select("id, nom_article, gamme, nature")
+      .ilike("gamme", ilikePatternForFamily(selectedFamille))
+      .order("nom_article", { ascending: true }),
+    supabaseServer
+      .from("commandes")
+      .select(
+        "id, client, statut, mode_chargement, type_tc, numero_proforma, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
+      )
+      .neq("statut", "LIVREE")
+      .order("created_at", { ascending: true }),
+    supabaseServer
+      .from("commandes")
+      .select("id, client, statut, mode_chargement, type_tc, numero_proforma, created_at")
+      .neq("statut", "LIVREE")
+      .order("created_at", { ascending: true }),
+    fetchQtEnCoursConditionnementByArticle(),
+  ]);
+
+  const genericFamilyArticles = (
+    (genericFamilyArticlesRaw as
+      | { id: number; nom_article: string | null; gamme: string | null; nature: string | null }[]
+      | null) ?? []
+  )
+    .filter((row) =>
+      matchesFamilyGamme(String(row.gamme || ""), String(row.nom_article || ""), selectedFamille)
+    )
+    // Le vrac (matiere non conditionnee) n'a pas sa place dans le tableau
+    // de dispatch camion - seuls les articles finis/emballes s'y
+    // commandent et s'y chargent.
+    .filter((row) => row.nature !== "vrac");
+
+  const genericFamilyCommandesData =
+    (genericFamilyCommandesDataRaw as
+      | {
+          id: number;
+          client: string | null;
+          statut: string | null;
+          mode_chargement: string | null;
+          type_tc: string | null;
+          numero_proforma: string | null;
+          commande_lignes:
+            | {
+                quantite_demandee: number | null;
+                articles:
+                  | { nom_article: string | null; gamme: string | null }
+                  | { nom_article: string | null; gamme: string | null }[]
+                  | null;
+              }[]
+            | null;
+        }[]
+      | null) ?? [];
+
+  const allActiveCommandesData =
+    (allActiveCommandesDataRaw as
+      | {
+          id: number;
+          client: string | null;
+          statut: string | null;
+          mode_chargement: string | null;
+          type_tc: string | null;
+          numero_proforma: string | null;
+          created_at: string | null;
+        }[]
+      | null) ?? [];
+
+  const allActiveCommandColumns: CommandColumn[] = [];
+  const allActiveCommandKeySet = new Set<string>();
+
+  for (const commande of allActiveCommandesData) {
+    const key = buildCommandeKey(commande);
+    if (allActiveCommandKeySet.has(key)) continue;
+    allActiveCommandKeySet.add(key);
+
+    allActiveCommandColumns.push({
+      key,
+      client: String(commande.client || "").trim(),
+      nombre_camion: Number(commande.type_tc) || 1,
+      mode_chargement: String(commande.mode_chargement || "").trim(),
+      type_tc: String(commande.type_tc || "").trim(),
+      numero_proforma: String(commande.numero_proforma || "").trim(),
+      statut: String(commande.statut || "EN_COURS").trim(),
+      date_ecriture: commande.created_at,
+    });
   }
 
-  if (selectedFamille && selectedFamille !== "White Secret") {
-    return renderGenericFamilyTemplate(
-      families,
-      selectedFamille,
-      genericFamilyArticleRows,
-      allActiveCommandColumns,
-      genericFamilyQuantitiesByArticle,
-      genericFamilyStockByArticle,
-      qtEnCoursConditionnementByArticle,
-      genericFamilySubGammeByArticleKey
-    );
+  const genericFamilyQuantitiesByArticle = new Map<string, Map<string, number>>();
+
+  for (const commande of genericFamilyCommandesData) {
+    const key = buildCommandeKey(commande);
+    const lignes = (commande.commande_lignes ?? []).filter((ligne) => {
+      const relation = ligne.articles;
+      const article = Array.isArray(relation) ? relation[0] : relation;
+
+      return matchesFamilyGamme(
+        String(article?.gamme || ""),
+        String(article?.nom_article || ""),
+        selectedFamille
+      );
+    });
+
+    if (lignes.length === 0) continue;
+
+    for (const ligne of lignes) {
+      const relation = ligne.articles;
+      const article = Array.isArray(relation) ? relation[0] : relation;
+      const articleName = String(article?.nom_article || "").trim();
+      const articleKey = normalizeArticle(articleName);
+      if (!articleKey) continue;
+
+      const rowMap =
+        genericFamilyQuantitiesByArticle.get(articleKey) ?? new Map<string, number>();
+      rowMap.set(
+        key,
+        Number(rowMap.get(key) ?? 0) + Number(ligne.quantite_demandee ?? 0)
+      );
+      genericFamilyQuantitiesByArticle.set(articleKey, rowMap);
+    }
   }
 
-  return (
-    <main className="min-h-screen bg-[#f4f6f8] px-4 py-6 text-slate-900 lg:px-6">
-      <div className="mx-auto w-full space-y-4">
-        <section className="rounded-[1.5rem] border border-slate-200 bg-white px-5 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#b95b16]">
-                ERP Rodis
-              </p>
-              <h1 className="mt-1 text-3xl font-medium tracking-tight">Tableau de commande</h1>
-            </div>
+  // For parent-family buttons that cover several real gammes (see
+  // FAMILY_SUBGAMMES), remember which sub-gamme each article belongs to so
+  // the table can show a colored banner between groups.
+  const genericFamilySubGammeByArticleKey = new Map<
+    string,
+    { label: string; bannerClass: string }
+  >();
 
-            <div className="flex flex-wrap items-center gap-2">
-              <BackButton href="/" />
-              <RefreshButton />
-              <Link
-                href="/tableau-commandes"
-                className="rounded-full border border-slate-200 px-4 py-2 text-[16px] font-medium text-slate-700"
-              >
-                Familles
-              </Link>
-              <Link
-                href={`/tableau-commandes?vue=manquant${selectedFamille ? `&famille=${encodeURIComponent(selectedFamille)}` : ""}`}
-                className="rounded-full bg-red-700 px-4 py-2 text-[16px] font-medium text-white"
-              >
-                Article manquant
-              </Link>
-              <Link
-                href="/commandes"
-                className="rounded-full bg-slate-950 px-4 py-2 text-[16px] font-medium text-white"
-              >
-                Commandes
-              </Link>
-            </div>
-          </div>
-        </section>
+  if (TYPE_GROUPED_FAMILIES.has(selectedFamille)) {
+    for (const row of genericFamilyArticles) {
+      const articleName = String(row.nom_article || "").replace(/ /g, "").trim();
+      const typeLabel = getArticleTypeLabel(articleName);
+      if (!typeLabel) continue;
 
-        <section className="rounded-[1.5rem] border border-slate-200 bg-white px-4 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-          <div className="flex flex-wrap gap-2">
-            {families.map((family) => {
-              const isActive = family === selectedFamille;
-              const buttonStyle =
-                FAMILY_BUTTON_STYLES[family] || "bg-slate-200 text-slate-950";
+      const articleKey = normalizeArticle(articleName);
+      if (articleKey) {
+        genericFamilySubGammeByArticleKey.set(articleKey, {
+          label: typeLabel,
+          bannerClass: TYPE_GROUP_BANNER_CLASS,
+        });
+      }
+    }
+  } else if (FAMILY_SUBGAMMES[selectedFamille]) {
+    for (const row of genericFamilyArticles) {
+      const subGamme = getFamilySubGamme(selectedFamille, String(row.gamme || ""));
+      if (!subGamme) continue;
 
-              return (
-                <Link
-                  key={family}
-                  href={`/tableau-commandes?famille=${encodeURIComponent(family)}`}
-                  className={`rounded-md px-3 py-1.5 text-sm font-bold leading-none shadow-sm transition hover:opacity-90 ${buttonStyle} ${
-                    isActive ? "ring-2 ring-slate-950/30" : ""
-                  }`}
-                >
-                  {family}
-                </Link>
-              );
-            })}
-          </div>
-        </section>
+      const articleKey = normalizeArticle(
+        String(row.nom_article || "").replace(/ /g, "").trim()
+      );
+      if (articleKey) {
+        genericFamilySubGammeByArticleKey.set(articleKey, subGamme);
+      }
+    }
+  }
 
-        <section className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-          <div className="max-h-[75vh] overflow-auto">
-            <table className="min-w-[2200px] w-full border-separate border-spacing-0 text-center text-[16px]">
-              <thead>
-                <tr>
-                  <th className="border border-slate-700 bg-white px-3 py-2 text-left font-medium text-slate-900">
-                    {formatDateCell(new Date())}
-                  </th>
-                  <th
-                    colSpan={displayCommandColumns.length + 3}
-                    className="border border-slate-700 bg-[#14989d] px-3 py-2 text-center text-lg font-medium text-slate-950"
-                  >
-                    {selectedFamille}
-                  </th>
-                </tr>
-                <tr>
-                  <th className="border border-slate-700 bg-[#62ff1b] px-3 py-3 text-left text-[16px] font-medium uppercase leading-4 text-[#0d6b0d]">
-                    Tableau commandes
-                  </th>
-                  {displayCommandColumns.map((column) => (
-                    <th key={`status-${column.key}`} className="border border-slate-700 bg-[#14989d] px-2 py-2">
-                      <span className="text-[16px] font-medium uppercase text-slate-950">
-                        {column.mode_chargement.toLowerCase().includes("stand") ? "STAND" : ""}
-                      </span>
-                    </th>
-                  ))}
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
-                    TOTAL
-                  </th>
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
-                    STOCK
-                  </th>
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-xs font-medium text-slate-950">
-                    RESTE
-                  </th>
-                </tr>
-                <tr>
-                  <th className="border border-slate-700 bg-[#14989d] px-3 py-3 font-medium text-slate-950">
-                    Client
-                  </th>
-                  {displayCommandColumns.map((column) => (
-                    <th
-                      key={`client-${column.key}`}
-                      className="border border-slate-700 bg-[#14989d] px-2 py-3 text-[16px] font-medium uppercase text-slate-950"
-                    >
-                      {column.client || "-"}
-                    </th>
-                  ))}
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-3" />
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-3" />
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-3" />
-                </tr>
-                <tr>
-                  <th className="border border-slate-700 bg-[#14989d] px-3 py-2 font-medium uppercase text-slate-950">
-                    Nombre de camion / tc
-                  </th>
-                  {displayCommandColumns.map((column) => (
-                    <th
-                      key={`truck-${column.key}`}
-                      className="border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium uppercase text-slate-950"
-                    >
-                      <div>{formatTruckCount(column.nombre_camion)}</div>
-                      <div>{column.mode_chargement || ""}</div>
-                    </th>
-                  ))}
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2" />
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2" />
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2" />
-                </tr>
-                <tr>
-                  <th className="border border-slate-700 bg-[#14989d] px-3 py-2 font-medium text-slate-950">
-                    Proforma #
-                  </th>
-                  {displayCommandColumns.map((column) => (
-                    <th
-                      key={`proforma-${column.key}`}
-                      className="border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950"
-                    >
-                      {column.numero_proforma || "-"}
-                    </th>
-                  ))}
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
-                    TOTAL
-                  </th>
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
-                    STOCK
-                  </th>
-                  <th className="border border-slate-700 bg-[#14989d] px-2 py-2 text-[16px] font-medium text-slate-950">
-                    RESTE
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {matrixRows.map((row) => (
-                  <tr key={row.article}>
-                    <td className="border border-slate-300 bg-[#ffe91d] px-3 py-1 text-left text-[16px] font-medium text-slate-950">
-                      {row.article}
-                    </td>
-                    {displayCommandColumns.map((column) => {
-                      const qty = Number(row.quantitiesByCommand.get(column.key) ?? 0);
-                      return (
-                        <td
-                          key={`${row.article}-${column.key}`}
-                          className="border border-slate-300 bg-white px-2 py-1 font-medium text-slate-900"
-                        >
-                          {qty > 0 ? formatQuantity(qty) : ""}
-                        </td>
-                      );
-                    })}
-                    <td className="border border-slate-700 bg-[#0097a7] px-2 py-1 font-medium text-slate-950">
-                      {formatQuantity(row.totalCommande)}
-                    </td>
-                    <td className="border border-slate-700 bg-[#0097a7] px-2 py-1 font-medium text-slate-950">
-                      {formatQuantity(row.stock)}
-                    </td>
-                    <td
-                      className={`border border-slate-700 px-2 py-1 font-medium ${
-                        row.reste < 0
-                          ? "bg-[#ffe01b] text-red-700"
-                          : row.reste === 0
-                            ? "bg-[#00a8b5] text-slate-950"
-                            : "bg-[#00a8b5] text-slate-950"
-                      }`}
-                    >
-                      {formatQuantity(row.reste)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-    </main>
+  const genericFamilyArticleRows = [
+    ...new Set(
+      genericFamilyArticles
+        .map((row) => String(row.nom_article || "").replace(/ /g, "").trim())
+        .filter((value) => value.length > 0 && /[A-Za-z0-9]/.test(value))
+    ),
+  ].sort((a, b) => {
+    const subGammeOrder = FAMILY_SUBGAMMES[selectedFamille];
+    if (subGammeOrder) {
+      const labelA = genericFamilySubGammeByArticleKey.get(normalizeArticle(a))?.label;
+      const labelB = genericFamilySubGammeByArticleKey.get(normalizeArticle(b))?.label;
+      const indexA = labelA ? subGammeOrder.findIndex((entry) => entry.label === labelA) : 99;
+      const indexB = labelB ? subGammeOrder.findIndex((entry) => entry.label === labelB) : 99;
+      if (indexA !== indexB) return indexA - indexB;
+    }
+
+    const rankDiff = getWhiteSecretArticleRank(a) - getWhiteSecretArticleRank(b);
+    if (rankDiff !== 0) return rankDiff;
+
+    const contenanceDiff = getWhiteSecretContenance(b) - getWhiteSecretContenance(a);
+    if (contenanceDiff !== 0) return contenanceDiff;
+
+    return a.localeCompare(b, "fr", { sensitivity: "base" });
+  });
+
+  // Demarre pendant que les quantites ci-dessus se calculent en memoire,
+  // sans bloquer - le await n'arrive qu'une fois le rendu pret a en avoir
+  // besoin.
+  const genericFamilyStockPromise = fetchArticleStocksFromStockPage(genericFamilyArticles);
+  const genericFamilyStockByArticle = await genericFamilyStockPromise;
+
+  return renderGenericFamilyTemplate(
+    families,
+    selectedFamille,
+    genericFamilyArticleRows,
+    allActiveCommandColumns,
+    genericFamilyQuantitiesByArticle,
+    genericFamilyStockByArticle,
+    qtEnCoursConditionnementByArticle,
+    genericFamilySubGammeByArticleKey,
+    hideStand
   );
 }
-
 
 
