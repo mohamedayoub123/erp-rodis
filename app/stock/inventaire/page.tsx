@@ -6,6 +6,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDateTime } from "@/lib/format-date";
 import { AnnulerInventaireButton } from "@/app/_components/annuler-inventaire-button";
+import { ConfirmSubmitButton } from "@/app/_components/confirm-submit-button";
 import {
   getCurrentStockUser,
   canInventairePfDemarrerUser,
@@ -16,6 +17,7 @@ import {
   demarrerInventairePfAction,
   soumettreComptagePfAction,
   regulariserLignePfAction,
+  ignorerEcartLignePfAction,
   annulerInventairePfAction,
   supprimerSessionInventairePfAction,
 } from "./actions";
@@ -39,8 +41,9 @@ type LigneRow = {
   compte_2: number | null;
   compte_3: number | null;
   nombre_comptages: number;
-  statut: "a_compter" | "bon" | "ecart_confirme" | "regularise";
+  statut: "a_compter" | "bon" | "ecart_confirme" | "regularise" | "ecart_ignore";
   regularise_par: string | null;
+  ignore_par: string | null;
 };
 
 function formatNumber(value: number) {
@@ -59,6 +62,7 @@ function StatutBadge({ statut }: { statut: LigneRow["statut"] }) {
     bon: { label: "Bon", className: "bg-emerald-100 text-emerald-800" },
     ecart_confirme: { label: "Ecart confirme", className: "bg-red-100 text-red-800" },
     regularise: { label: "Regularise", className: "bg-sky-100 text-sky-800" },
+    ecart_ignore: { label: "Laisse tel quel", className: "bg-amber-100 text-amber-800" },
   };
   const { label, className } = config[statut];
   return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${className}`}>{label}</span>;
@@ -223,7 +227,7 @@ export default async function InventairePfPage() {
   const { data: lignesData } = await supabaseServer
     .from("inventaire_pf_lignes")
     .select(
-      "id, article_id, numero_lot, lot_numero, stock_systeme, compte_1, compte_2, compte_3, nombre_comptages, statut, regularise_par"
+      "id, article_id, numero_lot, lot_numero, stock_systeme, compte_1, compte_2, compte_3, nombre_comptages, statut, regularise_par, ignore_par"
     )
     .eq("session_id", activeSession.id)
     .order("lot_numero", { ascending: true })
@@ -390,15 +394,28 @@ export default async function InventairePfPage() {
                       </p>
                     </div>
                     {peutRegulariser ? (
-                      <form action={regulariserLignePfAction}>
-                        <input type="hidden" name="ligne_id" value={ligne.id} />
-                        <button
-                          type="submit"
-                          className="rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90"
-                        >
-                          Regulariser le stock
-                        </button>
-                      </form>
+                      <div className="flex items-center gap-2">
+                        <form action={regulariserLignePfAction}>
+                          <input type="hidden" name="ligne_id" value={ligne.id} />
+                          <ConfirmSubmitButton
+                            pendingLabel="Regularisation..."
+                            confirmMessage={`Regulariser le stock de "${nomArticle || `Article #${ligne.article_id}`}" (lot ${ligne.numero_lot}) ? Ecart de ${ecart > 0 ? "+" : ""}${formatNumber(ecart)} applique au stock systeme. Continuer ?`}
+                            className="rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Regulariser le stock
+                          </ConfirmSubmitButton>
+                        </form>
+                        <form action={ignorerEcartLignePfAction}>
+                          <input type="hidden" name="ligne_id" value={ligne.id} />
+                          <ConfirmSubmitButton
+                            pendingLabel="..."
+                            confirmMessage={`Laisser le stock de "${nomArticle || `Article #${ligne.article_id}`}" (lot ${ligne.numero_lot}) comme il est, sans corriger l'ecart ? Continuer ?`}
+                            className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Laisser le stock comme il est
+                          </ConfirmSubmitButton>
+                        </form>
+                      </div>
                     ) : (
                       <span className="text-xs font-semibold text-slate-400">
                         Autorisation regularisation requise

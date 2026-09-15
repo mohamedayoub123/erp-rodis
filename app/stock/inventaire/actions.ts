@@ -474,3 +474,62 @@ export async function regulariserLignePfAction(formData: FormData) {
 
   revalidatePath("/stock/inventaire");
 }
+
+// Decision explicite du responsable de NE PAS corriger le stock pour cet
+// ecart (le laisser "comme il est") - meme principe que
+// ignorerEcartLigneAction cote MP : un ecart confirme ne doit jamais
+// disparaitre tout seul (fermeture automatique de la session) sans que
+// quelqu'un ait choisi entre regulariser et laisser tel quel. Aucune
+// ecriture sur lots_stock ici, uniquement une trace de la decision.
+export async function ignorerEcartLignePfAction(formData: FormData) {
+  const currentUser = await requireInventaireRegulariser();
+
+  const ligneId = Number(formData.get("ligne_id"));
+  if (!ligneId) throw new Error("Ligne invalide.");
+
+  const { data: ligneData, error: ligneError } = await supabaseServer
+    .from("inventaire_pf_lignes")
+    .select("id, session_id, article_id, numero_lot, stock_systeme, compte_1, compte_2, compte_3, statut")
+    .eq("id", ligneId)
+    .maybeSingle();
+  if (ligneError || !ligneData) throw new Error("Ligne introuvable.");
+  const ligne = ligneData as {
+    id: number;
+    session_id: number;
+    article_id: number;
+    numero_lot: string;
+    stock_systeme: number;
+    compte_1: number | null;
+    compte_2: number | null;
+    compte_3: number | null;
+    statut: string;
+  };
+
+  if (ligne.statut !== "ecart_confirme") {
+    throw new Error("Cette ligne n'est pas en ecart confirme.");
+  }
+
+  const valeurRetenue = ligne.compte_3 ?? ligne.compte_2 ?? ligne.compte_1;
+
+  const { error: updateError } = await supabaseServer
+    .from("inventaire_pf_lignes")
+    .update({
+      statut: "ecart_ignore",
+      ignore_par: currentUser,
+      ignore_at: new Date().toISOString(),
+    })
+    .eq("id", ligneId);
+  if (updateError) throw new Error(updateError.message);
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "InventairePf",
+    action: "modification",
+    cible: `${ligne.numero_lot} (article #${ligne.article_id})`,
+    resume: "Ecart d'inventaire laisse tel quel (stock non modifie)",
+    avant: { stock_systeme: ligne.stock_systeme },
+    apres: { stock_compte: valeurRetenue },
+  });
+
+  revalidatePath("/stock/inventaire");
+}

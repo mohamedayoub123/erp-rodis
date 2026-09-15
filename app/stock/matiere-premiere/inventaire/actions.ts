@@ -493,3 +493,65 @@ export async function regulariserLigneAction(formData: FormData) {
 
   revalidatePath("/stock/matiere-premiere/inventaire");
 }
+
+// Decision explicite du responsable de NE PAS corriger le stock pour cet
+// ecart (le laisser "comme il est") - demande explicite : un ecart confirme
+// ne doit jamais disparaitre tout seul (ex: a la fermeture automatique de la
+// session des qu'il n'y a plus de lot a distribuer, voir demarrerInventaireMpAction/
+// soumettreComptageAction) sans que quelqu'un ait choisi, entre regulariser
+// et laisser tel quel. Aucune ecriture sur lots_stock_matiere_premiere ici -
+// uniquement une trace de la decision (ignore_par/ignore_at), distincte de
+// regularise_par/regularise_at pour ne jamais laisser croire que le stock a
+// ete corrige.
+export async function ignorerEcartLigneAction(formData: FormData) {
+  const currentUser = await requireInventaireRegulariser();
+
+  const ligneId = Number(formData.get("ligne_id"));
+  if (!ligneId) throw new Error("Ligne invalide.");
+
+  const { data: ligneData, error: ligneError } = await supabaseServer
+    .from("inventaire_mp_lignes")
+    .select("id, session_id, article_id, numero_lot, stock_systeme, compte_1, compte_2, compte_3, statut")
+    .eq("id", ligneId)
+    .maybeSingle();
+  if (ligneError || !ligneData) throw new Error("Ligne introuvable.");
+  const ligne = ligneData as {
+    id: number;
+    session_id: number;
+    article_id: number;
+    numero_lot: string;
+    stock_systeme: number;
+    compte_1: number | null;
+    compte_2: number | null;
+    compte_3: number | null;
+    statut: string;
+  };
+
+  if (ligne.statut !== "ecart_confirme") {
+    throw new Error("Cette ligne n'est pas en ecart confirme.");
+  }
+
+  const valeurRetenue = ligne.compte_3 ?? ligne.compte_2 ?? ligne.compte_1;
+
+  const { error: updateError } = await supabaseServer
+    .from("inventaire_mp_lignes")
+    .update({
+      statut: "ecart_ignore",
+      ignore_par: currentUser,
+      ignore_at: new Date().toISOString(),
+    })
+    .eq("id", ligneId);
+  if (updateError) throw new Error(updateError.message);
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "InventaireMp",
+    action: "modification",
+    cible: `${ligne.numero_lot} (article #${ligne.article_id})`,
+    resume: "Ecart d'inventaire laisse tel quel (stock non modifie)",
+    avant: { stock_systeme: ligne.stock_systeme },
+    apres: { stock_compte: valeurRetenue },
+  });
+
+  revalidatePath("/stock/matiere-premiere/inventaire");
+}

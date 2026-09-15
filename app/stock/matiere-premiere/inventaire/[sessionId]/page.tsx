@@ -4,13 +4,19 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDateTime } from "@/lib/format-date";
 import { AnnulerInventaireButton } from "@/app/_components/annuler-inventaire-button";
+import { ConfirmSubmitButton } from "@/app/_components/confirm-submit-button";
 import {
   getCurrentStockUser,
   canInventaireMpDemarrerUser,
   canInventaireMpCompterUser,
   canInventaireMpRegulariserUser,
 } from "@/lib/stock-auth";
-import { soumettreComptageAction, regulariserLigneAction, annulerInventaireMpAction } from "../actions";
+import {
+  soumettreComptageAction,
+  regulariserLigneAction,
+  ignorerEcartLigneAction,
+  annulerInventaireMpAction,
+} from "../actions";
 import { fetchCategorieCounts, fetchGammeCounts } from "../lib";
 
 type SessionRow = {
@@ -34,9 +40,10 @@ type LigneRow = {
   compte_2: number | null;
   compte_3: number | null;
   nombre_comptages: number;
-  statut: "a_compter" | "bon" | "ecart_confirme" | "regularise";
+  statut: "a_compter" | "bon" | "ecart_confirme" | "regularise" | "ecart_ignore";
   compte_par: string | null;
   regularise_par: string | null;
+  ignore_par: string | null;
 };
 
 type ArticleInfo = { nom_article: string; unite: string | null };
@@ -65,9 +72,87 @@ function StatutBadge({ statut }: { statut: LigneRow["statut"] }) {
     bon: { label: "Bon", className: "bg-emerald-100 text-emerald-800" },
     ecart_confirme: { label: "Ecart confirme", className: "bg-red-100 text-red-800" },
     regularise: { label: "Regularise", className: "bg-sky-100 text-sky-800" },
+    ecart_ignore: { label: "Laisse tel quel", className: "bg-amber-100 text-amber-800" },
   };
   const { label, className } = config[statut];
   return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${className}`}>{label}</span>;
+}
+
+// Rendu que la session soit "en_cours" ou deja fermee - demande explicite :
+// un ecart confirme ne doit jamais devenir inaccessible juste parce que la
+// session s'est fermee toute seule (plus de lot a distribuer). Le
+// responsable garde le choix entre regulariser (corrige le stock) et
+// laisser tel quel (ignorerEcartLigneAction, ne touche pas le stock, trace
+// juste la decision) tant qu'aucun des deux n'a ete fait.
+function EcartsSection({
+  ecarts,
+  articleById,
+  peutRegulariser,
+}: {
+  ecarts: LigneRow[];
+  articleById: Map<number, ArticleInfo>;
+  peutRegulariser: boolean;
+}) {
+  if (ecarts.length === 0) return null;
+
+  return (
+    <section className="rounded-[1.75rem] border border-red-200 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+      <h2 className="text-lg font-bold text-red-800">Ecarts confirmes a regulariser ({ecarts.length})</h2>
+      <p className="mt-1 text-sm text-slate-600">
+        3 comptages discordants - le dernier comptage est retenu. Regulariser cree un mouvement de correction sur
+        ce lot ; laisser tel quel garde le stock systeme actuel sans le modifier.
+      </p>
+      <ul className="mt-3 divide-y divide-slate-100">
+        {ecarts.map((ligne) => {
+          const article = articleById.get(ligne.article_id);
+          const dernierComptage = ligne.compte_3 ?? ligne.compte_2 ?? ligne.compte_1 ?? 0;
+          const ecart = dernierComptage - ligne.stock_systeme;
+          return (
+            <li key={ligne.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+              <div>
+                <p className="font-semibold text-slate-900">{article?.nom_article || `Article #${ligne.article_id}`}</p>
+                <p className="text-xs text-slate-500">
+                  Lot {ligne.numero_lot} - Systeme: {formatNumber(ligne.stock_systeme)} - Compte:{" "}
+                  {formatNumber(dernierComptage)} -{" "}
+                  <span className={ecart < 0 ? "font-semibold text-red-700" : "font-semibold text-emerald-700"}>
+                    Ecart {ecart > 0 ? "+" : ""}
+                    {formatNumber(ecart)}
+                    {formatEcartPct(ecart, ligne.stock_systeme) ? ` (${formatEcartPct(ecart, ligne.stock_systeme)})` : ""}
+                  </span>
+                </p>
+              </div>
+              {peutRegulariser ? (
+                <div className="flex items-center gap-2">
+                  <form action={regulariserLigneAction}>
+                    <input type="hidden" name="ligne_id" value={ligne.id} />
+                    <ConfirmSubmitButton
+                      pendingLabel="Regularisation..."
+                      confirmMessage={`Regulariser le stock de "${article?.nom_article || `Article #${ligne.article_id}`}" (lot ${ligne.numero_lot}) ? Ecart de ${ecart > 0 ? "+" : ""}${formatNumber(ecart)} applique au stock systeme. Continuer ?`}
+                      className="rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Regulariser le stock
+                    </ConfirmSubmitButton>
+                  </form>
+                  <form action={ignorerEcartLigneAction}>
+                    <input type="hidden" name="ligne_id" value={ligne.id} />
+                    <ConfirmSubmitButton
+                      pendingLabel="..."
+                      confirmMessage={`Laisser le stock de "${article?.nom_article || `Article #${ligne.article_id}`}" (lot ${ligne.numero_lot}) comme il est, sans corriger l'ecart ? Continuer ?`}
+                      className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Laisser le stock comme il est
+                    </ConfirmSubmitButton>
+                  </form>
+                </div>
+              ) : (
+                <span className="text-xs font-semibold text-slate-400">Autorisation regularisation requise</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
 }
 
 type PageParams = Promise<{ sessionId: string }>;
@@ -118,7 +203,7 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
   const { data: lignesData } = await supabaseServer
     .from("inventaire_mp_lignes")
     .select(
-      "id, article_id, numero_lot, lot_numero, stock_systeme, compte_1, compte_2, compte_3, nombre_comptages, statut, compte_par, regularise_par"
+      "id, article_id, numero_lot, lot_numero, stock_systeme, compte_1, compte_2, compte_3, nombre_comptages, statut, compte_par, regularise_par, ignore_par"
     )
     .eq("session_id", sessionId)
     .order("lot_numero", { ascending: true })
@@ -260,7 +345,7 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
                           <StatutBadge statut={ligne.statut} />
                         </td>
                         <td className="px-4 py-3 text-slate-600">
-                          {ligne.regularise_par || ligne.compte_par || "-"}
+                          {ligne.regularise_par || ligne.ignore_par || ligne.compte_par || "-"}
                         </td>
                       </tr>
                     );
@@ -276,6 +361,12 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
               </table>
             </div>
           </section>
+
+          <EcartsSection
+            ecarts={lignes.filter((l) => l.statut === "ecart_confirme")}
+            articleById={articleById}
+            peutRegulariser={peutRegulariser}
+          />
         </div>
       </main>
     );
@@ -412,55 +503,7 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
           </section>
         ) : null}
 
-        {ecartsAConfirmer.length > 0 ? (
-          <section className="rounded-[1.75rem] border border-red-200 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <h2 className="text-lg font-bold text-red-800">
-              Ecarts confirmes a regulariser ({ecartsAConfirmer.length})
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              3 comptages discordants - le dernier comptage est retenu. Regulariser cree un mouvement de correction
-              sur ce lot.
-            </p>
-            <ul className="mt-3 divide-y divide-slate-100">
-              {ecartsAConfirmer.map((ligne) => {
-                const article = articleById.get(ligne.article_id);
-                const dernierComptage = ligne.compte_3 ?? ligne.compte_2 ?? ligne.compte_1 ?? 0;
-                const ecart = dernierComptage - ligne.stock_systeme;
-                return (
-                  <li key={ligne.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
-                    <div>
-                      <p className="font-semibold text-slate-900">{article?.nom_article || `Article #${ligne.article_id}`}</p>
-                      <p className="text-xs text-slate-500">
-                        Lot {ligne.numero_lot} - Systeme: {formatNumber(ligne.stock_systeme)} - Compte:{" "}
-                        {formatNumber(dernierComptage)} -{" "}
-                        <span className={ecart < 0 ? "font-semibold text-red-700" : "font-semibold text-emerald-700"}>
-                          Ecart {ecart > 0 ? "+" : ""}
-                          {formatNumber(ecart)}
-                          {formatEcartPct(ecart, ligne.stock_systeme) ? ` (${formatEcartPct(ecart, ligne.stock_systeme)})` : ""}
-                        </span>
-                      </p>
-                    </div>
-                    {peutRegulariser ? (
-                      <form action={regulariserLigneAction}>
-                        <input type="hidden" name="ligne_id" value={ligne.id} />
-                        <button
-                          type="submit"
-                          className="rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-90"
-                        >
-                          Regulariser le stock
-                        </button>
-                      </form>
-                    ) : (
-                      <span className="text-xs font-semibold text-slate-400">
-                        Autorisation regularisation requise
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ) : null}
+        <EcartsSection ecarts={ecartsAConfirmer} articleById={articleById} peutRegulariser={peutRegulariser} />
       </div>
     </main>
   );
