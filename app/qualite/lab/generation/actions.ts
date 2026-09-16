@@ -6,6 +6,11 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canQualiteLabOverwriteLotUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { generateSequentialLabCodes } from "@/lib/lab-code-increment";
 
+// Une seule soumission peut creer plusieurs entrees d'un coup (demande
+// explicite : "je peux ecrit plusieurs article dans le meme demande") - les
+// lignes arrivent en JSON (meme convention que "extra_lignes" ailleurs dans
+// ce code, ex: entree-production/actions.ts) plutot qu'en champs nommes
+// individuellement, pour un nombre de lignes variable.
 export async function createLabCodeGenerationAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
@@ -13,28 +18,49 @@ export async function createLabCodeGenerationAction(formData: FormData) {
     throw new Error("Cet utilisateur ne peut pas creer d'entree Lab.");
   }
 
-  const articleId = Number(String(formData.get("article_id") || "0"));
-  const qtVrac = Number(String(formData.get("qt_vrac") || "0").replace(",", "."));
-  const nbCode = Number(String(formData.get("nb_code") || "0"));
-  const type = String(formData.get("type") || "").trim();
-
-  if (!articleId) {
-    throw new Error("Article invalide.");
-  }
-  if (!nbCode || nbCode <= 0) {
-    throw new Error("Nombre de code invalide.");
-  }
-  if (type !== "auto" && type !== "manuel") {
-    throw new Error("Type invalide.");
+  const lignesRaw = String(formData.get("lignes") || "").trim();
+  if (!lignesRaw) {
+    throw new Error("Aucune ligne a enregistrer.");
   }
 
-  const { error } = await supabaseServer.from("qualite_lab_code_generations").insert({
-    article_id: articleId,
-    qt_vrac: qtVrac || null,
-    nb_code: nbCode,
-    type,
-    utilisateur: currentUser,
+  type RawLigne = { article_id: number | string; qt_vrac: number | string; nb_code: number | string; type: string };
+  let lignes: RawLigne[];
+  try {
+    lignes = JSON.parse(lignesRaw) as RawLigne[];
+  } catch {
+    throw new Error("Contenu des lignes invalide.");
+  }
+
+  if (!Array.isArray(lignes) || lignes.length === 0) {
+    throw new Error("Aucune ligne a enregistrer.");
+  }
+
+  const payload = lignes.map((ligne) => {
+    const articleId = Number(ligne.article_id || 0);
+    const qtVrac = Number(String(ligne.qt_vrac ?? "0").replace(",", "."));
+    const nbCode = Number(ligne.nb_code || 0);
+    const type = String(ligne.type || "").trim();
+
+    if (!articleId) {
+      throw new Error("Un article est invalide parmi les lignes.");
+    }
+    if (!nbCode || nbCode <= 0) {
+      throw new Error("Un nombre de code est invalide parmi les lignes.");
+    }
+    if (type !== "auto" && type !== "manuel") {
+      throw new Error("Un type est invalide parmi les lignes.");
+    }
+
+    return {
+      article_id: articleId,
+      qt_vrac: qtVrac || null,
+      nb_code: nbCode,
+      type,
+      utilisateur: currentUser,
+    };
   });
+
+  const { error } = await supabaseServer.from("qualite_lab_code_generations").insert(payload);
 
   if (error) {
     throw new Error(error.message);
