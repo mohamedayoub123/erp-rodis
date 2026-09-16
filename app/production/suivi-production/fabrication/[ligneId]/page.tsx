@@ -41,6 +41,7 @@ type RapportInfo = {
   temps_fin_test: string | null;
   temps_vidange: string | null;
   vrac_fabrique: number | null;
+  qt_a_recuperer: number | null;
   qt_vrac_recupere: number | null;
   code_vrac_recupere: string | null;
   fabrication_arret_absence_air: number | null;
@@ -85,7 +86,7 @@ export default async function RapportFabricationPage({
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionFabrication");
 
   const RAPPORT_FIELDS =
-    "machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, nb_journaliers_fabrication, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, vrac_fabrique, qt_vrac_recupere, code_vrac_recupere, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, date_fabrication_conditionnement, utilisateur_fabrication, date_saisie_fabrication";
+    "machine, type_fabrication, preparateur, cuve_1_numero, cuve_1_poids, cuve_2_numero, cuve_2_poids, cuve_3_numero, cuve_3_poids, cuve_4_numero, cuve_4_poids, nb_journaliers_fabrication, temps_debut_preparation, temps_envoi_echantillon_labo, temps_fin_test, temps_vidange, vrac_fabrique, qt_a_recuperer, qt_vrac_recupere, code_vrac_recupere, fabrication_arret_absence_air, fabrication_arret_absence_vapeur, fabrication_arret_attente_aspiration_aqueuse, fabrication_arret_attente_cuves_mobiles, fabrication_arret_attente_eau_osmosee, fabrication_arret_coupure_electrique, fabrication_arret_maintenance_plateforme, fabrication_arret_manque_cuves_mobiles, fabrication_arret_probleme_pompe, fabrication_arret_probleme_ph, fabrication_arret_probleme_technique, date_fabrication_conditionnement, utilisateur_fabrication, date_saisie_fabrication";
 
   const [{ data: ligneData }, { data: rapportData }] = await Promise.all([
     supabaseServer

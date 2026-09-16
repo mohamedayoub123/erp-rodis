@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { resolveVracArticleId } from "@/lib/vrac-article";
+import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-article";
 import { fetchCoutReelDepuisReservation, fetchCoutVracParKg } from "@/lib/prix-revient";
 import {
   COMPTE_EN_COURS_PRODUCTION,
@@ -407,6 +407,15 @@ export async function deleteSuiviProductionRowAction(targets: {
     // l'utilisateur : "si j'efface il faut que le montant parte aussi").
     // Meme sourceId que celui qui la cree (voir plus haut, ligne ~725).
     deletions.push(supprimerEcriturePourSource("fabrication_vrac", `${ligneId}-${code}`));
+    // Meme principe : le stock vrac mis de cote/recupere en Depot B par
+    // cette fabrication (voir saveFabricationRapportAction) ne doit pas
+    // rester une trace orpheline apres suppression de sa source.
+    deletions.push(
+      supabaseServer
+        .from("lots_stock")
+        .delete()
+        .in("note", [noteVracMisDeCote(ligneId, code), noteVracRecuperation(ligneId, code)])
+    );
   }
   if (conditionnementId) {
     deletions.push(supabaseServer.from("production_carton_entries").delete().eq("id", conditionnementId));
@@ -563,6 +572,12 @@ export async function supprimerToutesTracesProductionPourLigne(
   for (const row of vrac) {
     deletions.push(supabaseServer.from("production_vrac_entries").delete().eq("id", row.id));
     deletions.push(supprimerEcriturePourSource("fabrication_vrac", `${ligneId}-${row.code}`));
+    deletions.push(
+      supabaseServer
+        .from("lots_stock")
+        .delete()
+        .in("note", [noteVracMisDeCote(ligneId, row.code), noteVracRecuperation(ligneId, row.code)])
+    );
   }
   for (const row of carton) {
     deletions.push(supabaseServer.from("production_carton_entries").delete().eq("id", row.id));
@@ -886,13 +901,18 @@ export async function recalculerEcritureFabricationVrac(
   await enregistrerLotsUtilisesPourEcriture(ecritureId, lotsAEnregistrer);
 }
 
+// Mots-cles fixes utilises pour identifier/remplacer les mouvements Depot B
+// crees par CETTE ligne+code (mis de cote et recuperation) sur une
+// re-saisie - lots_stock n'a pas de FK vers production_rapports, ce marqueur
+// texte joue ce role, meme principe que le "source_import" utilise ailleurs.
+function noteVracMisDeCote(ligneId: number, code: string) {
+  return `Fabrication vrac mis de cote - ligne ${ligneId} code ${code}`;
+}
+function noteVracRecuperation(ligneId: number, code: string) {
+  return `Recuperation vrac - ligne ${ligneId} code ${code}`;
+}
+
 export async function saveFabricationRapportAction(formData: FormData) {
-  const currentUser = await getCurrentStockUser();
-
-  if (!(await canWritePageUser(currentUser, "productionSuiviProductionFabrication"))) {
-    throw new Error("Cet utilisateur ne peut pas enregistrer de rapport production.");
-  }
-
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   // Comme Conditionnement/Emballage, la Fabrication se saisit desormais par
   // code precis (ex: "AA4141V" parmi les 3 codes d'une ligne decoupee en
@@ -900,122 +920,257 @@ export async function saveFabricationRapportAction(formData: FormData) {
   // depuis l'ajout du suivi par code.
   const code = String(formData.get("code") || "").trim();
 
-  if (!ligneId) {
-    throw new Error("Ligne invalide.");
-  }
+  // Meme raison que saveConditionnementRapportAction : Next.js remplace tout
+  // throw non attrape par la page d'erreur generique - la validation "Qt a
+  // recuperer"/"stock insuffisant pour recuperer" ci-dessous doit pouvoir
+  // remonter un vrai message a l'utilisateur.
+  try {
+    const currentUser = await getCurrentStockUser();
 
-  const erreurTestLabo = await messageSiTestLaboInvalide(ligneId, code);
-  if (erreurTestLabo) {
+    if (!(await canWritePageUser(currentUser, "productionSuiviProductionFabrication"))) {
+      throw new Error("Cet utilisateur ne peut pas enregistrer de rapport production.");
+    }
+
+    if (!ligneId) {
+      throw new Error("Ligne invalide.");
+    }
+
+    const erreurTestLabo = await messageSiTestLaboInvalide(ligneId, code);
+    if (erreurTestLabo) {
+      redirect(
+        `/production/suivi-production/fabrication/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurTestLabo)}`
+      );
+    }
+
+    const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
+    const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
+    const qtARecuperer = parseOptionalNumber(formData, "qt_a_recuperer") ?? 0;
+    const qtVracRecupere = parseOptionalNumber(formData, "qt_vrac_recupere") ?? 0;
+    const codeVracRecupere = parseOptionalText(formData, "code_vrac_recupere");
+
+    if (qtARecuperer < 0) {
+      throw new Error("Qt a recuperer invalide.");
+    }
+    if (qtARecuperer > (vracFabrique ?? 0)) {
+      throw new Error("Qt a recuperer ne peut pas depasser le vrac fabrique.");
+    }
+
+    // Article vrac de cette ligne + Depot B - necessaires des que du vrac
+    // est mis de cote (qt_a_recuperer) ou recupere (qt_vrac_recupere), pour
+    // vraiment crediter/debiter du stock (voir plus bas) plutot que de
+    // laisser cette quantite invisible nulle part (c'etait le cas avant :
+    // ces 2 champs ne faisaient que deplacer un cout comptable, jamais de
+    // vrai mouvement de stock).
+    let vracArticleId: number | null = null;
+    let depotBId: number | null = null;
+    if (qtARecuperer > 0 || (qtVracRecupere > 0 && codeVracRecupere)) {
+      [vracArticleId, depotBId] = await Promise.all([resolveVracArticleIdForLigne(ligneId), fetchDepotBId()]);
+      if (!vracArticleId || !depotBId) {
+        throw new Error(
+          "Impossible de mettre de cote/recuperer du vrac : article vrac ou Depot B introuvable pour cette ligne."
+        );
+      }
+
+      // Remplace (jamais n'accumule) les mouvements Depot B de la
+      // precedente saisie de CE ligne+code AVANT de valider le solde
+      // disponible ci-dessous - sinon une correction (meme quantite
+      // recuperee re-enregistree) se heurterait a tort a son propre
+      // mouvement precedent.
+      const { error: cleanupError } = await supabaseServer
+        .from("lots_stock")
+        .delete()
+        .in("note", [noteVracMisDeCote(ligneId, code), noteVracRecuperation(ligneId, code)]);
+      if (cleanupError) {
+        throw new Error(cleanupError.message);
+      }
+    }
+
+    const dateJourDepotB = dateFabricationConditionnement || new Date().toISOString().slice(0, 10);
+    // lots_stock.date_fabrication est NOT NULL (confirme en base) - une
+    // sortie de recuperation doit donc en porter une elle aussi, meme si
+    // elle ne "fabrique" rien : reprend celle du lot source (la vraie date
+    // de fabrication du vrac qu'on preleve), avec repli sur la date de
+    // cette fabrication si jamais introuvable.
+    let dateFabricationSourceRecuperee: string | null = dateJourDepotB;
+    if (qtVracRecupere > 0 && codeVracRecupere && vracArticleId && depotBId) {
+      const { data: soldeRows, error: soldeError } = await supabaseServer
+        .from("lots_stock")
+        .select("qte_entree, qte_sortie, date_fabrication")
+        .eq("article_id", vracArticleId)
+        .eq("depot_id", depotBId)
+        .eq("numero_lot", codeVracRecupere);
+      if (soldeError) {
+        throw new Error(soldeError.message);
+      }
+      const solde = (soldeRows ?? []).reduce(
+        (sum, row) => sum + Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0),
+        0
+      );
+      if (qtVracRecupere > solde) {
+        throw new Error(
+          `Stock insuffisant pour recuperer ${qtVracRecupere} du lot ${codeVracRecupere} (disponible : ${solde}).`
+        );
+      }
+      const sourceDate = (soldeRows ?? []).find(
+        (row) => Number(row.qte_entree ?? 0) > 0 && row.date_fabrication
+      )?.date_fabrication as string | undefined;
+      dateFabricationSourceRecuperee = sourceDate || dateJourDepotB;
+    }
+
+    const depotBInserts: Record<string, unknown>[] = [];
+    if (qtARecuperer > 0 && vracArticleId && depotBId) {
+      depotBInserts.push({
+        article_id: vracArticleId,
+        depot_id: depotBId,
+        date_jour: dateJourDepotB,
+        numero_lot: code,
+        code_normalise: code.toUpperCase(),
+        date_fabrication: dateJourDepotB,
+        qte_entree: qtARecuperer,
+        qte_sortie: 0,
+        source_import: "web:fabrication-recuperation",
+        note: noteVracMisDeCote(ligneId, code),
+        utilisateur: currentUser,
+      });
+    }
+    if (qtVracRecupere > 0 && codeVracRecupere && vracArticleId && depotBId) {
+      depotBInserts.push({
+        article_id: vracArticleId,
+        depot_id: depotBId,
+        date_jour: dateJourDepotB,
+        numero_lot: codeVracRecupere,
+        code_normalise: codeVracRecupere.toUpperCase(),
+        date_fabrication: dateFabricationSourceRecuperee,
+        qte_entree: 0,
+        qte_sortie: qtVracRecupere,
+        source_import: "web:fabrication-recuperation",
+        note: noteVracRecuperation(ligneId, code),
+        utilisateur: currentUser,
+      });
+    }
+    if (depotBInserts.length > 0) {
+      const { error: depotBInsertError } = await supabaseServer.from("lots_stock").insert(depotBInserts);
+      if (depotBInsertError) {
+        throw new Error(depotBInsertError.message);
+      }
+    }
+
+    // Ce qui part reellement au Conditionnement pour CE code : le vrac
+    // fabrique moins ce qui est mis de cote (reste en Depot B), plus ce qui
+    // est recupere d'un autre code - jamais le vrac_fabrique brut. Le champ
+    // "Vrac fabrique (auto)" du formulaire, lui, continue de refleter tout
+    // ce qui a ete physiquement fabrique (utilise tel quel par l'ecriture
+    // comptable plus bas : la MP a ete consommee pour TOUT le vrac,
+    // mis de cote ou non).
+    const vracEnvoyeConditionnement = Math.max(0, (vracFabrique ?? 0) - qtARecuperer) + qtVracRecupere;
+
+    // upsertRapport (production_rapports) et la suppression de l'ancienne
+    // entree vrac ne dependent pas l'une de l'autre - lancees en parallele.
+    const [, vracDelete] = await Promise.all([
+      upsertRapport(ligneId, code, {
+        machine: parseOptionalText(formData, "machine"),
+        type_fabrication: parseOptionalText(formData, "type_fabrication"),
+        preparateur: parseOptionalText(formData, "preparateur"),
+        cuve_1_numero: parseOptionalText(formData, "cuve_1_numero"),
+        cuve_1_poids: parseOptionalNumber(formData, "cuve_1_poids"),
+        cuve_2_numero: parseOptionalText(formData, "cuve_2_numero"),
+        cuve_2_poids: parseOptionalNumber(formData, "cuve_2_poids"),
+        cuve_3_numero: parseOptionalText(formData, "cuve_3_numero"),
+        cuve_3_poids: parseOptionalNumber(formData, "cuve_3_poids"),
+        cuve_4_numero: parseOptionalText(formData, "cuve_4_numero"),
+        cuve_4_poids: parseOptionalNumber(formData, "cuve_4_poids"),
+        nb_journaliers_fabrication: parseOptionalNumber(formData, "nb_journaliers_fabrication"),
+        temps_debut_preparation: parseOptionalText(formData, "temps_debut_preparation"),
+        temps_envoi_echantillon_labo: parseOptionalText(formData, "temps_envoi_echantillon_labo"),
+        temps_fin_test: parseOptionalText(formData, "temps_fin_test"),
+        temps_vidange: parseOptionalText(formData, "temps_vidange"),
+        vrac_fabrique: vracFabrique,
+        qt_a_recuperer: qtARecuperer || null,
+        qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
+        code_vrac_recupere: codeVracRecupere,
+        fabrication_arret_absence_air: parseOptionalNumber(formData, "fabrication_arret_absence_air"),
+        fabrication_arret_absence_vapeur: parseOptionalNumber(formData, "fabrication_arret_absence_vapeur"),
+        fabrication_arret_attente_aspiration_aqueuse: parseOptionalNumber(
+          formData,
+          "fabrication_arret_attente_aspiration_aqueuse"
+        ),
+        fabrication_arret_attente_cuves_mobiles: parseOptionalNumber(
+          formData,
+          "fabrication_arret_attente_cuves_mobiles"
+        ),
+        fabrication_arret_attente_eau_osmosee: parseOptionalNumber(formData, "fabrication_arret_attente_eau_osmosee"),
+        fabrication_arret_coupure_electrique: parseOptionalNumber(formData, "fabrication_arret_coupure_electrique"),
+        fabrication_arret_maintenance_plateforme: parseOptionalNumber(
+          formData,
+          "fabrication_arret_maintenance_plateforme"
+        ),
+        fabrication_arret_manque_cuves_mobiles: parseOptionalNumber(formData, "fabrication_arret_manque_cuves_mobiles"),
+        fabrication_arret_probleme_pompe: parseOptionalNumber(formData, "fabrication_arret_probleme_pompe"),
+        fabrication_arret_probleme_ph: parseOptionalNumber(formData, "fabrication_arret_probleme_ph"),
+        fabrication_arret_probleme_technique: parseOptionalNumber(formData, "fabrication_arret_probleme_technique"),
+        date_fabrication_conditionnement: dateFabricationConditionnement,
+        utilisateur_fabrication: currentUser,
+        date_saisie_fabrication: new Date().toISOString(),
+      }),
+      // La Fabrication d'un code est un seul evenement (une seule "cuvee"),
+      // pas une accumulation au fil des saisies comme Conditionnement/
+      // Emballage - retire toujours l'ancienne entree avant d'inserer la
+      // nouvelle (voir plus bas) pour qu'une correction (ex: cuve 2 remplie
+      // apres coup, ou qt_a_recuperer ajuste) REMPLACE l'ancien total au
+      // lieu de s'y ajouter.
+      supabaseServer.from("production_vrac_entries").delete().eq("programme_ligne_id", ligneId).eq("code", code),
+    ]);
+
+    if (vracDelete.error) {
+      throw new Error(vracDelete.error.message);
+    }
+
+    // Alimente le journal vrac (meme principe que le Dashboard) pour que le
+    // "reste" par rapport a la quantite prevue se recalcule tout seul.
+    // date_jour vient de la date saisie sur le rapport (Date fabrication) au
+    // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
+    // qui alimente la colonne "Date fabrication" de Suivi Production.
+    const vracInsert =
+      vracEnvoyeConditionnement > 0
+        ? await supabaseServer.from("production_vrac_entries").insert([
+            {
+              programme_ligne_id: ligneId,
+              code,
+              quantite: vracEnvoyeConditionnement,
+              ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
+            },
+          ])
+        : { error: null };
+
+    if (vracInsert.error) {
+      throw new Error(vracInsert.error.message);
+    }
+
+    // Ecriture comptable automatique (En-cours de production/Stock MP) -
+    // basee sur vrac_fabrique (tout ce qui a ete physiquement fabrique, mis
+    // de cote ou non - la MP a ete consommee pour l'ensemble). Meme
+    // remplacement que production_vrac_entries (une Fabrication = un seul
+    // evenement, jamais un ajout). Try/catch qui n'interrompt pas
+    // l'enregistrement du rapport si la comptabilite echoue.
+    if (vracFabrique && vracFabrique > 0) {
+      try {
+        await recalculerEcritureFabricationVrac(ligneId, code, currentUser);
+      } catch (comptaError) {
+        console.error("Ecriture comptable fabrication echouee:", comptaError);
+      }
+    }
+
+    revalidateRapportPages();
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : "Erreur inconnue pendant l'enregistrement.";
     redirect(
-      `/production/suivi-production/fabrication/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(erreurTestLabo)}`
+      `/production/suivi-production/fabrication/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(message)}`
     );
   }
 
-  const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
-  const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
-
-  // upsertRapport (production_rapports) et la suppression de l'ancienne
-  // entree vrac ne dependent pas l'une de l'autre - lancees en parallele ;
-  // l'insertion de la nouvelle entree n'a besoin d'attendre que cette
-  // suppression (le resultat d'upsertRapport ne l'affecte pas).
-  const [, vracDelete] = await Promise.all([
-    upsertRapport(ligneId, code, {
-      machine: parseOptionalText(formData, "machine"),
-      type_fabrication: parseOptionalText(formData, "type_fabrication"),
-      preparateur: parseOptionalText(formData, "preparateur"),
-      cuve_1_numero: parseOptionalText(formData, "cuve_1_numero"),
-      cuve_1_poids: parseOptionalNumber(formData, "cuve_1_poids"),
-      cuve_2_numero: parseOptionalText(formData, "cuve_2_numero"),
-      cuve_2_poids: parseOptionalNumber(formData, "cuve_2_poids"),
-      cuve_3_numero: parseOptionalText(formData, "cuve_3_numero"),
-      cuve_3_poids: parseOptionalNumber(formData, "cuve_3_poids"),
-      cuve_4_numero: parseOptionalText(formData, "cuve_4_numero"),
-      cuve_4_poids: parseOptionalNumber(formData, "cuve_4_poids"),
-      nb_journaliers_fabrication: parseOptionalNumber(formData, "nb_journaliers_fabrication"),
-      temps_debut_preparation: parseOptionalText(formData, "temps_debut_preparation"),
-      temps_envoi_echantillon_labo: parseOptionalText(formData, "temps_envoi_echantillon_labo"),
-      temps_fin_test: parseOptionalText(formData, "temps_fin_test"),
-      temps_vidange: parseOptionalText(formData, "temps_vidange"),
-      vrac_fabrique: vracFabrique,
-      qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
-      code_vrac_recupere: parseOptionalText(formData, "code_vrac_recupere"),
-      fabrication_arret_absence_air: parseOptionalNumber(formData, "fabrication_arret_absence_air"),
-      fabrication_arret_absence_vapeur: parseOptionalNumber(formData, "fabrication_arret_absence_vapeur"),
-      fabrication_arret_attente_aspiration_aqueuse: parseOptionalNumber(
-        formData,
-        "fabrication_arret_attente_aspiration_aqueuse"
-      ),
-      fabrication_arret_attente_cuves_mobiles: parseOptionalNumber(
-        formData,
-        "fabrication_arret_attente_cuves_mobiles"
-      ),
-      fabrication_arret_attente_eau_osmosee: parseOptionalNumber(formData, "fabrication_arret_attente_eau_osmosee"),
-      fabrication_arret_coupure_electrique: parseOptionalNumber(formData, "fabrication_arret_coupure_electrique"),
-      fabrication_arret_maintenance_plateforme: parseOptionalNumber(
-        formData,
-        "fabrication_arret_maintenance_plateforme"
-      ),
-      fabrication_arret_manque_cuves_mobiles: parseOptionalNumber(formData, "fabrication_arret_manque_cuves_mobiles"),
-      fabrication_arret_probleme_pompe: parseOptionalNumber(formData, "fabrication_arret_probleme_pompe"),
-      fabrication_arret_probleme_ph: parseOptionalNumber(formData, "fabrication_arret_probleme_ph"),
-      fabrication_arret_probleme_technique: parseOptionalNumber(formData, "fabrication_arret_probleme_technique"),
-      date_fabrication_conditionnement: dateFabricationConditionnement,
-      utilisateur_fabrication: currentUser,
-      date_saisie_fabrication: new Date().toISOString(),
-    }),
-    // La Fabrication d'un code est un seul evenement (une seule "cuvee"),
-    // pas une accumulation au fil des saisies comme Conditionnement/
-    // Emballage - vrac_fabrique est deja LA SOMME des 4 cuves a chaque
-    // Save (voir fabrication-form.tsx). Retirer l'ancienne entree avant
-    // d'inserer la nouvelle evite qu'une correction (ex: cuve 2 remplie
-    // apres coup) ne s'AJOUTE a l'ancien total au lieu de le remplacer -
-    // sans ca, un code fabrique en plusieurs saisies progressives (cuve 1
-    // puis cuve 2...) finissait avec autant de lignes "Fabrication" que de
-    // saisies, chacune montrant les memes cuves (upsertRapport n'a qu'une
-    // valeur courante) mais un total vrac different.
-    vracFabrique && vracFabrique > 0
-      ? supabaseServer.from("production_vrac_entries").delete().eq("programme_ligne_id", ligneId).eq("code", code)
-      : Promise.resolve({ error: null }),
-  ]);
-
-  if (vracDelete.error) {
-    throw new Error(vracDelete.error.message);
-  }
-
-  // Alimente le journal vrac (meme principe que le Dashboard) pour que le
-  // "reste" par rapport a la quantite prevue se recalcule tout seul.
-  // date_jour vient de la date saisie sur le rapport (Date fabrication) au
-  // lieu de la date automatique (aujourd'hui, valeur par defaut) - c'est ce
-  // qui alimente la colonne "Date fabrication" de Suivi Production.
-  const vracInsert =
-    vracFabrique && vracFabrique > 0
-      ? await supabaseServer.from("production_vrac_entries").insert([
-          {
-            programme_ligne_id: ligneId,
-            code,
-            quantite: vracFabrique,
-            ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
-          },
-        ])
-      : { error: null };
-
-  if (vracInsert.error) {
-    throw new Error(vracInsert.error.message);
-  }
-
-  // Ecriture comptable automatique (En-cours de production/Stock MP) - meme
-  // remplacement que production_vrac_entries (une Fabrication = un seul
-  // evenement, jamais un ajout). Try/catch qui n'interrompt pas
-  // l'enregistrement du rapport si la comptabilite echoue.
-  if (vracFabrique && vracFabrique > 0) {
-    try {
-      await recalculerEcritureFabricationVrac(ligneId, code, currentUser);
-    } catch (comptaError) {
-      console.error("Ecriture comptable fabrication echouee:", comptaError);
-    }
-  }
-
-  revalidateRapportPages();
   redirect("/production/suivi/dashboard");
 }
 

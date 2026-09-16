@@ -52,6 +52,7 @@ type RapportInfo = {
   temps_vidange: string | null;
   nb_journaliers_fabrication: number | null;
   vrac_fabrique: number | null;
+  qt_a_recuperer: number | null;
   qt_vrac_recupere: number | null;
   code_vrac_recupere: string | null;
   fabrication_arret_absence_air: number | null;
@@ -414,9 +415,13 @@ export function FabricationForm({
         <h2 className="mb-1 text-lg font-bold text-slate-900">Production</h2>
         <p className="mb-3 text-xs text-slate-500">
           Vrac fabrique = somme automatique des poids des 4 cuves. Ce qui est enregistre ici est
-          retire de ce qu&apos;il reste a faire (visible dans le Dashboard).
+          retire de ce qu&apos;il reste a faire (visible dans le Dashboard). &quot;Qt a
+          recuperer&quot; est une partie de ce vrac mise de cote au lieu d&apos;etre envoyee au
+          Conditionnement - elle reste en stock vrac dans Depot B, recuperable plus tard via
+          &quot;Qt vrac recupere&quot;/&quot;Code vrac recupere&quot; sur une prochaine
+          fabrication.
         </p>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-4">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Vrac fabrique (auto)
             <input
@@ -426,6 +431,19 @@ export function FabricationForm({
               value={vracTotal}
               readOnly
               className={`${inputClass} bg-slate-50 text-slate-600`}
+            />
+          </label>
+          <label className="grid gap-1 text-xs font-semibold text-slate-500">
+            Qt a recuperer
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max={vracTotal}
+              name="qt_a_recuperer"
+              defaultValue={rapport?.qt_a_recuperer ?? "0"}
+              required
+              className={inputClass}
             />
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
