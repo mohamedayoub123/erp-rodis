@@ -34,7 +34,20 @@ import {
   type ProgrammeLigneRow,
 } from "../data";
 
-function RestantBadge({ restant }: { restant: number }) {
+function RestantBadge({ restant, prevuIsNull }: { restant: number; prevuIsNull?: boolean }) {
+  // Une ligne confirmee dont la quantite prevue n'a jamais ete saisie
+  // (vrac_a_fabriquer/qt_carton null, pas juste 0) affichait "Complet" -
+  // trompeur, puisque rien n'a en realite ete prevu ni fait (bug reel
+  // signale : la ligne disparaissait meme entierement du Dashboard, voir
+  // le filtre plus bas ; une fois rendue visible, le badge doit dire
+  // clairement qu'il manque la quantite, pas qu'il n'y a rien a faire).
+  if (prevuIsNull) {
+    return (
+      <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-800">
+        Quantite non definie
+      </span>
+    );
+  }
   if (restant > 0) {
     return (
       <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
@@ -85,9 +98,11 @@ type CodeRow = {
   code: string;
   codeCount: number;
   vracPrevu: number;
+  vracPrevuIsNull: boolean;
   vracProduit: number;
   vracRestant: number;
   cartonPrevu: number;
+  cartonPrevuIsNull: boolean;
   cartonProduit: number;
   cartonRestant: number;
   emballagePrevu: number;
@@ -379,15 +394,28 @@ export default async function PlanningDashboardPage({
 
     const vracPrevuByCode = new Map<string, number>();
     const cartonPrevuByCode = new Map<string, number>();
+    // Une quantite jamais saisie (null) est differente d'une quantite
+    // reellement a zero - les 2 sont sinon confondues par "?? 0" plus bas,
+    // ce qui faisait disparaitre du Dashboard une ligne confirmee mais pas
+    // encore quantifiee (bug reel signale, code "JBM0443": vrac_a_fabriquer
+    // et qt_carton null, confirme_production=true, jamais visible nulle
+    // part alors que /production/suivi/calendrier montre "-" pour la meme
+    // situation sans jamais cacher la ligne).
+    const vracPrevuIsNullByCode = new Map<string, boolean>();
+    const cartonPrevuIsNullByCode = new Map<string, boolean>();
     if (hasDetail) {
       for (const entry of detail) {
         vracPrevuByCode.set(entry.code, Number(entry.qt_vrac ?? 0));
         cartonPrevuByCode.set(entry.code, Number(entry.qt_carton ?? 0));
+        vracPrevuIsNullByCode.set(entry.code, entry.qt_vrac === null || entry.qt_vrac === undefined);
+        cartonPrevuIsNullByCode.set(entry.code, entry.qt_carton === null || entry.qt_carton === undefined);
       }
     } else {
       for (const code of codes) {
         vracPrevuByCode.set(code, ligne.vrac_a_fabriquer ?? 0);
         cartonPrevuByCode.set(code, ligne.qt_carton ?? 0);
+        vracPrevuIsNullByCode.set(code, ligne.vrac_a_fabriquer === null || ligne.vrac_a_fabriquer === undefined);
+        cartonPrevuIsNullByCode.set(code, ligne.qt_carton === null || ligne.qt_carton === undefined);
       }
     }
 
@@ -427,9 +455,11 @@ export default async function PlanningDashboardPage({
         code,
         codeCount: codes.length,
         vracPrevu,
+        vracPrevuIsNull: vracPrevuIsNullByCode.get(code) ?? false,
         vracProduit,
         vracRestant: vracPrevu - vracProduit,
         cartonPrevu,
+        cartonPrevuIsNull: cartonPrevuIsNullByCode.get(code) ?? false,
         cartonProduit,
         cartonRestant: cartonPrevu - cartonProduit,
         emballagePrevu,
@@ -450,14 +480,18 @@ export default async function PlanningDashboardPage({
     .filter(
       (row) =>
         !isCodeTerminated(row.ligne.id, row.code, "vrac", row.codeCount, row.ligne.vrac_termine) &&
-        (row.vracRestant >= 1 || lignesAvecReserveEnAttente.has(`${row.ligne.id}::${row.code}::vrac`))
+        (row.vracRestant >= 1 ||
+          row.vracPrevuIsNull ||
+          lignesAvecReserveEnAttente.has(`${row.ligne.id}::${row.code}::vrac`))
     )
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
   const cartonRows = codeRows
     .filter(
       (row) =>
         !isCodeTerminated(row.ligne.id, row.code, "carton", row.codeCount, row.ligne.carton_termine) &&
-        (row.cartonRestant >= 1 || lignesAvecReserveEnAttente.has(`${row.ligne.id}::${row.code}::carton`))
+        (row.cartonRestant >= 1 ||
+          row.cartonPrevuIsNull ||
+          lignesAvecReserveEnAttente.has(`${row.ligne.id}::${row.code}::carton`))
     )
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
   const emballageRows = codeRows
@@ -483,7 +517,8 @@ export default async function PlanningDashboardPage({
   const pesageRows = codeRows
     .filter(
       (row) =>
-        row.vracPrevu > 0 && !isCodeTerminated(row.ligne.id, row.code, "pesage", row.codeCount, false)
+        (row.vracPrevu > 0 || row.vracPrevuIsNull) &&
+        !isCodeTerminated(row.ligne.id, row.code, "pesage", row.codeCount, false)
     )
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter))
     .map((row) => {
@@ -497,6 +532,7 @@ export default async function PlanningDashboardPage({
         code: row.code,
         label: vracArticle?.nom_article || vracLabelFromName(row.ligne.produit) || "-",
         qt: row.vracPrevu,
+        qtIsNull: row.vracPrevuIsNull,
         href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=vrac&qt=${row.vracPrevu}`,
       };
     });
@@ -504,7 +540,7 @@ export default async function PlanningDashboardPage({
   const conditionnementRows = codeRows
     .filter(
       (row) =>
-        row.cartonPrevu > 0 &&
+        (row.cartonPrevu > 0 || row.cartonPrevuIsNull) &&
         !isCodeTerminated(row.ligne.id, row.code, "salle_conditionnement", row.codeCount, false)
     )
     .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter))
@@ -515,6 +551,7 @@ export default async function PlanningDashboardPage({
       code: row.code,
       label: row.ligne.produit || "-",
       qt: row.cartonPrevu,
+      qtIsNull: row.cartonPrevuIsNull,
       href: `/production/suivi/dashboard/besoin/${row.ligne.id}?code=${encodeURIComponent(row.code)}&stage=carton&qt=${row.cartonPrevu}`,
     }));
 
@@ -674,7 +711,9 @@ export default async function PlanningDashboardPage({
                         <td className="px-4 py-3 font-medium text-slate-900">
                           {row.ligne.zone} / {row.ligne.chaine}
                         </td>
-                        <td className="px-4 py-3 text-slate-900">{Math.round(row.vracPrevu)}</td>
+                        <td className="px-4 py-3 text-slate-900">
+                          {row.vracPrevuIsNull ? "-" : Math.round(row.vracPrevu)}
+                        </td>
                         <td className="px-4 py-3 text-slate-600">
                           {vracLabelFromName(row.ligne.produit) || "-"}
                         </td>
@@ -688,7 +727,7 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                         <td className="px-4 py-3">
-                          <RestantBadge restant={row.vracRestant} />
+                          <RestantBadge restant={row.vracRestant} prevuIsNull={row.vracPrevuIsNull} />
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
@@ -798,9 +837,11 @@ export default async function PlanningDashboardPage({
                           />
                         </td>
                         <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
-                        <td className="px-4 py-3 text-slate-900">{Math.round(row.cartonPrevu)}</td>
+                        <td className="px-4 py-3 text-slate-900">
+                          {row.cartonPrevuIsNull ? "-" : Math.round(row.cartonPrevu)}
+                        </td>
                         <td className="px-4 py-3">
-                          <RestantBadge restant={row.cartonRestant} />
+                          <RestantBadge restant={row.cartonRestant} prevuIsNull={row.cartonPrevuIsNull} />
                         </td>
                         <td className="px-4 py-3">
                           <Link
@@ -971,7 +1012,9 @@ export default async function PlanningDashboardPage({
                               action={renameLotCodeAction}
                             />
                           </td>
-                          <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
+                          <td className="px-4 py-3 text-slate-900">
+                            {row.qtIsNull ? "-" : Math.round(row.qt)}
+                          </td>
                         </tr>
                       ))
                     )}
@@ -1027,7 +1070,9 @@ export default async function PlanningDashboardPage({
                               action={renameLotCodeAction}
                             />
                           </td>
-                          <td className="px-4 py-3 text-slate-900">{Math.round(row.qt)}</td>
+                          <td className="px-4 py-3 text-slate-900">
+                            {row.qtIsNull ? "-" : Math.round(row.qt)}
+                          </td>
                         </tr>
                       ))
                     )}
