@@ -584,7 +584,16 @@ async function assertLotBalanceStaysNonNegative(
   const newRowNet = nextQteEntree - nextQteSortie;
   const nextBalance = currentBalance - oldRowNet + newRowNet;
 
-  if (nextBalance < 0) {
+  // Bug reel signale : un lot deja negatif au depart (vieille donnee, sans
+  // rapport avec CETTE modification) bloquait ensuite TOUTE modification -
+  // meme renommer le numero de lot ou corriger une note, sans toucher a la
+  // quantite (newRowNet === oldRowNet, donc nextBalance === currentBalance,
+  // deja negatif avant meme cette saisie) - page d'erreur generique des le
+  // moindre "Enregistrer" sur un lot deja en souffrance, plus aucun moyen de
+  // le corriger. Ne bloque desormais que si CETTE modification aggrave
+  // reellement le solde (newRowNet < oldRowNet) et le fait passer/rester
+  // negatif - un lot deja negatif reste editable tant qu'on ne l'aggrave pas.
+  if (newRowNet < oldRowNet && nextBalance < 0) {
     throw new Error(
       `Cette modification rendrait le stock du lot negatif (solde actuel disponible ailleurs sur ce lot : ${currentBalance - oldRowNet}).`
     );

@@ -11,8 +11,6 @@ import { formatDate, formatDateTime } from "@/lib/format-date";
 import {
   deleteLotFromEntreeMpDetailAction,
   deleteLotFromSortieMpDetailAction,
-  updateLotFromEntreeMpDetailAction,
-  updateLotFromSortieMpDetailAction,
 } from "@/app/mouvements/matiere-premiere/actions";
 import {
   buildEntreeMpRows,
@@ -24,6 +22,8 @@ import { updateLotPrixAction } from "../commande/actions";
 import { DEVISE_OPTIONS } from "@/lib/devise-options";
 import { convertirEnFcfa } from "@/lib/prix-devise";
 import { StockMpExportButton } from "./export-button";
+import { EditStockMpEntreeForm } from "./edit-entree-form";
+import { EditStockMpSortieForm } from "./edit-sortie-form";
 
 const PAGE_SIZE = 200;
 
@@ -548,75 +548,15 @@ export default async function StockMatierePremiereStockPage({
                               <summary className="cursor-pointer text-xs font-semibold text-slate-800">
                                 Modifier
                               </summary>
-                              <form
-                                action={updateLotFromEntreeMpDetailAction}
-                                className="mt-2 grid w-64 gap-2"
-                              >
-                                <input type="hidden" name="lot_id" value={row.id} />
-                                <label className="grid gap-1 text-xs text-slate-500">
-                                  Quantite
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    name="quantite"
-                                    defaultValue={row.qte_entree}
-                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                    required
-                                  />
-                                </label>
-                                <label className="grid gap-1 text-xs text-slate-500">
-                                  Lot
-                                  <input
-                                    type="text"
-                                    name="numero_lot"
-                                    defaultValue={row.numero_lot || ""}
-                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                  />
-                                </label>
-                                <label className="grid gap-1 text-xs text-slate-500">
-                                  Fabrication
-                                  <input
-                                    type="date"
-                                    name="date_fabrication"
-                                    defaultValue={row.date_fabrication || ""}
-                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                  />
-                                </label>
-                                <label className="grid gap-1 text-xs text-slate-500">
-                                  Expiration
-                                  <input
-                                    type="date"
-                                    name="date_expiration"
-                                    defaultValue={row.date_expiration || ""}
-                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                  />
-                                </label>
-                                <label className="grid gap-1 text-xs text-slate-500">
-                                  Fournisseur
-                                  <input
-                                    type="text"
-                                    name="fournisseur"
-                                    defaultValue={row.fournisseur || ""}
-                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                  />
-                                </label>
-                                <label className="grid gap-1 text-xs text-slate-500">
-                                  Note
-                                  <input
-                                    type="text"
-                                    name="note"
-                                    defaultValue={row.note || ""}
-                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                  />
-                                </label>
-                                <SubmitButton
-                                  pendingLabel="Enregistrement..."
-                                  className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
-                                >
-                                  Enregistrer
-                                </SubmitButton>
-                              </form>
+                              <EditStockMpEntreeForm
+                                lotId={row.id}
+                                quantite={row.qte_entree}
+                                numeroLot={row.numero_lot || ""}
+                                dateFabrication={row.date_fabrication || ""}
+                                dateExpiration={row.date_expiration || ""}
+                                fournisseur={row.fournisseur || ""}
+                                note={row.note || ""}
+                              />
                             </details>
                             ) : null}
                             {canDeleteEntree ? (
@@ -633,48 +573,13 @@ export default async function StockMatierePremiereStockPage({
                               <summary className="cursor-pointer text-xs font-semibold text-slate-800">
                                 Modifier
                               </summary>
-                              <form
-                                action={updateLotFromSortieMpDetailAction}
-                                className="mt-2 grid w-56 gap-2"
-                              >
-                                <input type="hidden" name="lot_id" value={row.id} />
-                                <label className="grid gap-1 text-xs text-slate-500">
-                                  Quantite
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    name="quantite"
-                                    defaultValue={row.qte_sortie}
-                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                    required
-                                  />
-                                </label>
-                                <label className="grid gap-1 text-xs text-slate-500">
-                                  Client
-                                  <input
-                                    type="text"
-                                    name="client"
-                                    defaultValue={row.client || ""}
-                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                  />
-                                </label>
-                                <label className="grid gap-1 text-xs text-slate-500">
-                                  Note
-                                  <input
-                                    type="text"
-                                    name="note"
-                                    defaultValue={row.note || ""}
-                                    className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                  />
-                                </label>
-                                <SubmitButton
-                                  pendingLabel="Enregistrement..."
-                                  className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
-                                >
-                                  Enregistrer
-                                </SubmitButton>
-                              </form>
+                              <EditStockMpSortieForm
+                                lotId={row.id}
+                                quantite={row.qte_sortie}
+                                dateSortie={row.date_jour || ""}
+                                client={row.client || ""}
+                                note={row.note || ""}
+                              />
                             </details>
                             ) : null}
                             {canDeleteSortie ? (
