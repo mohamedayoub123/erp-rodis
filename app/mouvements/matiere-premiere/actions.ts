@@ -610,10 +610,45 @@ export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
 
   const { data: avantData } = await supabaseServer
     .from("lots_stock_matiere_premiere")
-    .select("qte_entree, numero_lot")
+    .select("article_id, qte_entree, numero_lot, code_normalise")
     .eq("id", lotId)
     .maybeSingle();
-  const avant = avantData as { qte_entree: number; numero_lot: string | null } | null;
+  const avant = avantData as
+    | { article_id: number | null; qte_entree: number; numero_lot: string | null; code_normalise: string | null }
+    | null;
+
+  // Un numero de lot peut etre partage par PLUSIEURS lignes (une par
+  // mouvement entree/sortie du meme lot physique) - renommer seulement
+  // cette ligne cassait le regroupement par code (bug reel signale : editer
+  // le numero de lot plantait des qu'il y avait d'autres mouvements dessus).
+  // Le renommage doit donc s'appliquer a TOUTES les lignes du meme article
+  // qui partagent l'ancien numero/code, avant de modifier cette ligne en
+  // particulier.
+  const ancienCodeKey = (avant?.code_normalise || avant?.numero_lot || "").trim().toUpperCase();
+  if (avant?.article_id && ancienCodeKey && numeroLot && numeroLot.toUpperCase() !== ancienCodeKey) {
+    const { data: siblingRows, error: siblingError } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .select("id, numero_lot, code_normalise")
+      .eq("article_id", avant.article_id);
+    if (siblingError) {
+      throw new Error(siblingError.message);
+    }
+    const siblingIds = (
+      (siblingRows ?? []) as { id: number; numero_lot: string | null; code_normalise: string | null }[]
+    )
+      .filter((row) => (row.code_normalise || row.numero_lot || "").trim().toUpperCase() === ancienCodeKey)
+      .map((row) => row.id);
+
+    if (siblingIds.length > 0) {
+      const { error: renameError } = await supabaseServer
+        .from("lots_stock_matiere_premiere")
+        .update({ numero_lot: numeroLot, code_normalise: numeroLot.toUpperCase() })
+        .in("id", siblingIds);
+      if (renameError) {
+        throw new Error(renameError.message);
+      }
+    }
+  }
 
   const { error } = await supabaseServer
     .from("lots_stock_matiere_premiere")
@@ -621,11 +656,7 @@ export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
       qte_entree: quantite,
       numero_lot: numeroLot,
       // code_normalise doit suivre numero_lot (meme convention qu'a la
-      // creation, voir createEntreeMpBatchAction) - sans ca, corriger une
-      // faute de frappe sur le numero de lot desynchronise cette ligne du
-      // reste du meme lot physique pour le regroupement par code (Stock MP)
-      // et le calcul de solde disponible en Sortie, qui restent sur
-      // l'ancien code_normalise.
+      // creation, voir createEntreeMpBatchAction).
       code_normalise: numeroLot ? numeroLot.toUpperCase() : null,
       date_reception: parseOptionalText(formData, "date_reception"),
       date_fabrication: parseOptionalText(formData, "date_fabrication"),

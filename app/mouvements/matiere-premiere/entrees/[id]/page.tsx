@@ -1,9 +1,6 @@
 import { notFound } from "next/navigation";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import {
-  deleteLotFromEntreeMpDetailAction,
-  updateLotFromEntreeMpDetailAction,
-} from "@/app/mouvements/matiere-premiere/actions";
+import { deleteLotFromEntreeMpDetailAction } from "@/app/mouvements/matiere-premiere/actions";
 import {
   buildEntreeMpRows,
   fetchWebMouvementMpSourceRows,
@@ -14,7 +11,7 @@ import {
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
-import { SubmitButton } from "@/app/_components/submit-button";
+import { EditEntreeMpLotForm } from "./edit-lot-form";
 
 export default async function EntreeMpDetailPage({
   params,
@@ -106,111 +103,19 @@ export default async function EntreeMpDetailPage({
                             <summary className="cursor-pointer text-xs font-semibold text-slate-800">
                               Modifier
                             </summary>
-                            <form
-                              action={updateLotFromEntreeMpDetailAction}
-                              className="mt-2 grid w-64 gap-2"
-                            >
-                              <input type="hidden" name="lot_id" value={ligne.id} />
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Quantite
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  name="quantite"
-                                  defaultValue={ligne.quantite}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                  required
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Lot
-                                <input
-                                  type="text"
-                                  name="numero_lot"
-                                  defaultValue={ligne.numero_lot || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Reception
-                                <input
-                                  type="date"
-                                  name="date_reception"
-                                  defaultValue={ligne.date_reception || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Fabrication
-                                <input
-                                  type="date"
-                                  name="date_fabrication"
-                                  defaultValue={ligne.date_fabrication || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Expiration
-                                <input
-                                  type="date"
-                                  name="date_expiration"
-                                  defaultValue={ligne.date_expiration || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Fournisseur
-                                <input
-                                  type="text"
-                                  name="fournisseur"
-                                  defaultValue={ligne.fournisseur || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Emplacement
-                                <input
-                                  type="text"
-                                  name="emplacement"
-                                  defaultValue={ligne.emplacement || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Doss. ERP
-                                <input
-                                  type="text"
-                                  name="n_doss_erp"
-                                  defaultValue={ligne.n_doss_erp || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Doss. 4D
-                                <input
-                                  type="text"
-                                  name="n_doss_4d"
-                                  defaultValue={ligne.n_doss_4d || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <label className="grid gap-1 text-xs text-slate-500">
-                                Note
-                                <input
-                                  type="text"
-                                  name="note"
-                                  defaultValue={ligne.note || ""}
-                                  className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                />
-                              </label>
-                              <SubmitButton
-                                pendingLabel="Enregistrement..."
-                                className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
-                              >
-                                Enregistrer
-                              </SubmitButton>
-                            </form>
+                            <EditEntreeMpLotForm
+                              lotId={ligne.id}
+                              quantite={ligne.quantite}
+                              numeroLot={ligne.numero_lot || ""}
+                              dateReception={ligne.date_reception || ""}
+                              dateFabrication={ligne.date_fabrication || ""}
+                              dateExpiration={ligne.date_expiration || ""}
+                              fournisseur={ligne.fournisseur || ""}
+                              emplacement={ligne.emplacement || ""}
+                              nDossErp={ligne.n_doss_erp || ""}
+                              nDoss4d={ligne.n_doss_4d || ""}
+                              note={ligne.note || ""}
+                            />
                           </details>
                           ) : null}
 

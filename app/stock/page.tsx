@@ -1,15 +1,14 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { deleteLotStockAction, updateLotStockAction } from "./actions";
+import { deleteLotStockAction } from "./actions";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
-import { SubmitButton } from "@/app/_components/submit-button";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate, formatDateTime } from "@/lib/format-date";
-import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { EditLotForm } from "./edit-lot-form";
 
 const PAGE_SIZE = 200;
 
@@ -476,70 +475,16 @@ export default async function StockPage({
                               Modifier
                             </summary>
                             {canEditStock ? (
-                            <form action={updateLotStockAction} className="mt-4 grid gap-3">
-                              <input type="hidden" name="lot_id" value={row.id} />
-                              <input
-                                type="text"
-                                name="numero_lot"
-                                defaultValue={row.numero_lot ?? ""}
-                                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                                required
-                              />
-                              <DateJmaFormField
-                                name="date_fabrication"
-                                defaultValue={row.date_fabrication}
-                                required
-                              />
-                              <div className="grid gap-3 md:grid-cols-2">
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  name="qte_entree"
-                                  defaultValue={row.qte_entree ?? 0}
-                                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                                  required
-                                />
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  name="qte_sortie"
-                                  defaultValue={row.qte_sortie ?? 0}
-                                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                                  required
-                                />
-                              </div>
-                              <div className="grid gap-3 md:grid-cols-2">
-                                <input
-                                  type="text"
-                                  name="chambre"
-                                  defaultValue={row.chambre || ""}
-                                  placeholder="Chambre"
-                                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                                />
-                                <input
-                                  type="text"
-                                  name="code_pays"
-                                  defaultValue={row.code_pays || ""}
-                                  placeholder="Code pays"
-                                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                                />
-                              </div>
-                              <textarea
-                                name="note"
-                                defaultValue={row.note || ""}
-                                rows={3}
-                                placeholder="Note"
-                                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
-                              />
-                              <SubmitButton
-                                pendingLabel="Enregistrement..."
-                                className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
-                              >
-                                Enregistrer
-                              </SubmitButton>
-                            </form>
+                            <EditLotForm
+                              lotId={row.id}
+                              numeroLot={row.numero_lot ?? ""}
+                              dateFabrication={row.date_fabrication}
+                              qteEntree={row.qte_entree}
+                              qteSortie={row.qte_sortie}
+                              chambre={row.chambre || ""}
+                              codePays={row.code_pays || ""}
+                              note={row.note || ""}
+                            />
                             ) : null}
                             {canDeleteStock ? (
                             <form action={deleteLotStockAction} className="mt-3">
