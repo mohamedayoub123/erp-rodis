@@ -63,6 +63,14 @@ const TILES: Tile[] = [
     icon: "\u{1F512}",
     description: "Suivi des TAF d'audit interne.",
   },
+  {
+    label: "Lab",
+    href: "/qualite/lab",
+    pageKey: "qualiteLab",
+    icon: "\u{1F9EC}",
+    description:
+      "Code par article dedie a Qualite - independant de Code par article (Production) et de Ravitailleur.",
+  },
 ];
 
 export default async function QualitePage() {

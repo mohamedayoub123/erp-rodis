@@ -875,6 +875,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     defaultView: false,
     defaultWrite: false,
   },
+  {
+    key: "qualiteLab",
+    module: "Qualite",
+    label: "Lab (code par article, independant de Code par article/Ravitailleur)",
+    pathPrefixes: ["/qualite/lab"],
+    adminGroup: "Qualite Lab",
+  },
 
   // Statistique
   {

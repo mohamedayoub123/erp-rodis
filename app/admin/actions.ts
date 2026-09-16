@@ -236,6 +236,7 @@ export async function updateUserPermissionsAction(formData: FormData) {
     inventairePfCompter: readPermissionFlag(formData, "inventairePfCompter"),
     inventairePfRegulariser: readPermissionFlag(formData, "inventairePfRegulariser"),
     ncTafProcessus: formData.getAll("nc_taf_processus").map((v) => String(v).trim()).filter(Boolean),
+    qualiteLabOverwriteLot: readPermissionFlag(formData, "qualiteLabOverwriteLot"),
   };
 
   const updated = await updateUserPermissions(username, nextPermissions);

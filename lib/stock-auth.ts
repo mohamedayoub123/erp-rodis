@@ -51,6 +51,11 @@ export type StockPermissions = {
   // continue de tout voir sans avoir besoin d'etre liste ici (verifie a
   // part via isAdminUser, comme pour les autres droits transverses).
   ncTafProcessus: string[];
+  // Qualite > Lab : le code (auto ou manuel) d'un article se remplit
+  // librement tant qu'il est vide, mais une fois deja rempli, seuls les
+  // utilisateurs coches ici peuvent le changer - demande explicite (empeche
+  // n'importe qui d'ecraser un code deja valide par erreur).
+  qualiteLabOverwriteLot: boolean;
 };
 
 // Forme stockee cote base : peut etre l'ancien format (module) ou le
@@ -157,6 +162,7 @@ function getDefaultPermissions(username: string): StockPermissions {
     inventairePfCompter: isAdmin,
     inventairePfRegulariser: isAdmin,
     ncTafProcessus: [],
+    qualiteLabOverwriteLot: isAdmin,
   };
 }
 
@@ -301,6 +307,11 @@ function normalizeUserRecord(
     ncTafProcessus: Array.isArray(source.ncTafProcessus)
       ? source.ncTafProcessus.filter((v): v is string => typeof v === "string")
       : defaults.ncTafProcessus,
+    qualiteLabOverwriteLot: isAdmin
+      ? true
+      : typeof source.qualiteLabOverwriteLot === "boolean"
+        ? source.qualiteLabOverwriteLot
+        : defaults.qualiteLabOverwriteLot,
   };
 
   return {
@@ -641,6 +652,11 @@ export async function canInventairePfRegulariserUser(username: string | null | u
   return permissions.inventairePfRegulariser;
 }
 
+export async function canQualiteLabOverwriteLotUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.qualiteLabOverwriteLot;
+}
+
 // "all" pour un admin (voit tout sans etre liste explicitement, comme les
 // autres droits transverses) - sinon la liste exacte des "Processus
 // concerne" autorises pour ce compte (vide = aucune ligne NC/TAF visible).
@@ -789,6 +805,7 @@ export async function updateUserPermissions(
     inventairePfCompter: boolean;
     inventairePfRegulariser: boolean;
     ncTafProcessus: string[];
+    qualiteLabOverwriteLot: boolean;
   }
 ) {
   const normalized = username.trim().toLowerCase();
@@ -822,6 +839,7 @@ export async function updateUserPermissions(
     inventairePfCompter: !!nextPermissions.inventairePfCompter,
     inventairePfRegulariser: !!nextPermissions.inventairePfRegulariser,
     ncTafProcessus: Array.isArray(nextPermissions.ncTafProcessus) ? nextPermissions.ncTafProcessus : [],
+    qualiteLabOverwriteLot: !!nextPermissions.qualiteLabOverwriteLot,
   };
 
   await writeUsers(users);

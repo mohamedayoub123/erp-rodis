@@ -759,6 +759,23 @@ export default async function AdminPage({
                                         </div>
                                       ) : null}
 
+                                      {groupKey === "Qualite Lab" ? (
+                                        <div className="space-y-2 border-t border-slate-200 p-3">
+                                          <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+                                            <p className="text-sm font-semibold text-slate-800">
+                                              Modifier un code deja rempli
+                                            </p>
+                                            <input
+                                              type="checkbox"
+                                              name="qualiteLabOverwriteLot"
+                                              defaultChecked={user.permissions.qualiteLabOverwriteLot}
+                                              disabled={user.isAdmin}
+                                              className="h-4 w-4 rounded border-slate-300"
+                                            />
+                                          </div>
+                                        </div>
+                                      ) : null}
+
                                       {groupKey === "Inventaire (Produit Fini)" ? (
                                         <div className="space-y-2 border-t border-slate-200 p-3">
                                           <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/40 px-4 py-3">

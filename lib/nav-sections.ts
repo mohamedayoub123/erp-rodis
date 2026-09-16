@@ -185,6 +185,7 @@ export const navItems: NavItem[] = [
       { href: "/qualite/revue-processus", label: "Revue Processus", pageKey: "qualiteRevueProcessus" },
       { href: "/qualite/nc-confidentiel", label: "NC Confidentiel", pageKey: "qualiteNcConfidentiel" },
       { href: "/qualite/taf-confidentiel", label: "TAF Confidentiel", pageKey: "qualiteTafConfidentiel" },
+      { href: "/qualite/lab", label: "Lab", pageKey: "qualiteLab" },
     ],
   },
   {
