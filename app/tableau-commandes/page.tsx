@@ -305,31 +305,48 @@ async function fetchArticleStocksFromStockPage(
     return new Map<string, number>(normalizedTargets.map((key) => [key, 0]));
   }
 
-  const allLots: StockPageRawRow[] = [];
-  let from = 0;
+  // Pour un rapport toutes-familles, unionIds couvre quasiment tous les
+  // articles PF - le nombre de lignes lots_stock correspondantes peut
+  // depasser 15 000-20 000 (confirme en pratique), soit 15-20 pages. Les
+  // recuperer une par une (boucle while sequentielle) faisait un
+  // aller-retour reseau apres l'autre - mesure : ~5s a lui seul, l'essentiel
+  // du temps de chargement de la page "Article manquant". Les pages sont
+  // independantes (chaque article est re-trie individuellement plus bas par
+  // computeCurrentStockLikeStockPage, donc l'ordre d'arrivee entre pages
+  // n'a aucune importance) : on demande d'abord le nombre total de lignes
+  // (requete "count" tres legere, sans transfert de donnees), puis on tire
+  // toutes les pages en parallele.
   const pageSize = 1000;
+  const { count: totalLotsCount, error: countError } = await supabaseServer
+    .from("lots_stock")
+    .select("id", { count: "exact", head: true })
+    .in("article_id", unionIds);
 
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock")
-      .select("id, article_id, numero_lot, date_jour, qte_entree, qte_sortie")
-      .in("article_id", unionIds)
-      .order("date_jour", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, from + pageSize - 1);
+  if (countError) {
+    throw new Error(countError.message);
+  }
 
+  const pageCount = Math.max(1, Math.ceil((totalLotsCount ?? 0) / pageSize));
+
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, pageIndex) => {
+      const from = pageIndex * pageSize;
+      return supabaseServer
+        .from("lots_stock")
+        .select("id, article_id, numero_lot, date_jour, qte_entree, qte_sortie")
+        .in("article_id", unionIds)
+        .order("date_jour", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1);
+    })
+  );
+
+  const allLots: StockPageRawRow[] = [];
+  for (const { data, error } of pages) {
     if (error) {
       throw new Error(error.message);
     }
-
-    const chunk = (data as StockPageRawRow[] | null) ?? [];
-    allLots.push(...chunk);
-
-    if (chunk.length < pageSize) {
-      break;
-    }
-
-    from += pageSize;
+    allLots.push(...((data as StockPageRawRow[] | null) ?? []));
   }
 
   // Group once by article_id instead of re-scanning the whole lots list per
