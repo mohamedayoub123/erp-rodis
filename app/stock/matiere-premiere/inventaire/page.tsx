@@ -13,6 +13,7 @@ import {
   supprimerSessionInventaireMpAction,
 } from "./actions";
 import { fetchCategorieCounts, fetchGammeCounts } from "./lib";
+import { LotSizePlanner } from "./lot-size-planner";
 
 type SessionRow = {
   id: number;
@@ -137,18 +138,7 @@ export default async function InventaireMpPage() {
               travail entierement compte, le suivant arrive automatiquement.
             </p>
             <form action={demarrerInventaireMpAction} className="mt-4 space-y-4">
-              <label className="flex flex-col gap-1 text-sm text-slate-600">
-                Nombre de lots a la fois
-                <input
-                  type="number"
-                  name="taille_lot"
-                  min={1}
-                  max={200}
-                  defaultValue={20}
-                  required
-                  className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
+              <LotSizePlanner totalLots={totalLotsCount ?? 0} />
               <div>
                 <p className="mb-2 text-sm font-semibold text-slate-700">
                   Categories (optionnel) - le nombre entre parentheses est le nombre de lots a compter

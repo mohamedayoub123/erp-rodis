@@ -17,7 +17,7 @@ import {
   ignorerEcartLignePfAction,
   annulerInventairePfAction,
 } from "../actions";
-import { fetchCategorieCounts, fetchGammeCounts } from "../lib";
+import { fetchCategorieCounts, fetchGammeCounts, fetchTotalDistribuableLotCount } from "../lib";
 
 type SessionRow = {
   id: number;
@@ -246,8 +246,7 @@ export default async function InventairePfSessionDetailPage({ params }: { params
     const fromGamme = gamSet ? gammeCounts.filter((g) => gamSet.has(g.gamme)).reduce((sum, g) => sum + g.count, 0) : 0;
     totalLotsScope = catSet && gamSet ? Math.max(fromCat, fromGamme) : fromCat || fromGamme;
   } else {
-    const { count } = await supabaseServer.rpc("stock_pf_lot_balances", {}, { count: "exact", head: true });
-    totalLotsScope = count ?? 0;
+    totalLotsScope = await fetchTotalDistribuableLotCount();
   }
 
   // Sessions terminees/annulees : vue lecture seule (tableau complet), pas

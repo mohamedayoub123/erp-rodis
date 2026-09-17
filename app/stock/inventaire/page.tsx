@@ -8,8 +8,8 @@ import { AnnulerInventaireButton } from "@/app/_components/annuler-inventaire-bu
 import { formatDateTime } from "@/lib/format-date";
 import { getCurrentStockUser, canInventairePfDemarrerUser } from "@/lib/stock-auth";
 import { demarrerInventairePfAction, annulerInventairePfAction, supprimerSessionInventairePfAction } from "./actions";
-import { fetchCategorieCounts, fetchGammeCounts } from "./lib";
-import { DureeCalculator } from "./duree-calculator";
+import { fetchCategorieCounts, fetchGammeCounts, fetchTotalDistribuableLotCount } from "./lib";
+import { LotSizePlanner } from "./lot-size-planner";
 
 type SessionRow = {
   id: number;
@@ -61,7 +61,7 @@ export default async function InventairePfPage() {
   const currentUser = await getCurrentStockUser();
   const peutDemarrer = await canInventairePfDemarrerUser(currentUser);
 
-  const [{ data: sessionsData }, { data: allSessionsData }, { count: totalLotsCount }, categorieCounts, gammeCounts] =
+  const [{ data: sessionsData }, { data: allSessionsData }, totalLotsCount, categorieCounts, gammeCounts] =
     await Promise.all([
       supabaseServer
         .from("inventaire_pf_sessions")
@@ -69,7 +69,7 @@ export default async function InventairePfPage() {
         .order("created_at", { ascending: false })
         .limit(50),
       supabaseServer.from("inventaire_pf_sessions").select("id, created_at").order("created_at", { ascending: true }),
-      supabaseServer.rpc("stock_pf_lot_balances", {}, { count: "exact", head: true }),
+      fetchTotalDistribuableLotCount(),
       fetchCategorieCounts(),
       fetchGammeCounts(),
     ]);
@@ -122,30 +122,18 @@ export default async function InventairePfPage() {
           </div>
         </section>
 
-        <DureeCalculator totalLots={totalLotsCount ?? 0} />
-
         {peutDemarrer ? (
           <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <h2 className="text-lg font-bold text-slate-900">Nouvel inventaire</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Choisis combien de lots te donner a la fois, et coche des categories et/ou des gammes pour limiter cet
-              inventaire (rien de coche = tout le PF - un article compte des qu&apos;il correspond a l&apos;une des
-              cases cochees). Les articles qui bougent le plus seront distribues en premier. Une fois un lot de
-              travail entierement compte, le suivant arrive automatiquement.
+              Choisis combien de lots te donner a la fois (ou en combien de jours tu veux tout finir), et coche des
+              categories et/ou des gammes pour limiter cet inventaire (rien de coche = tout le PF - un article
+              compte des qu&apos;il correspond a l&apos;une des cases cochees). Les articles qui bougent le plus
+              seront distribues en premier. Une fois un lot de travail entierement compte, le suivant arrive
+              automatiquement.
             </p>
             <form action={demarrerInventairePfAction} className="mt-4 space-y-4">
-              <label className="flex flex-col gap-1 text-sm text-slate-600">
-                Nombre de lots a la fois
-                <input
-                  type="number"
-                  name="taille_lot"
-                  min={1}
-                  max={200}
-                  defaultValue={20}
-                  required
-                  className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
+              <LotSizePlanner totalLots={totalLotsCount} />
               <div>
                 <p className="mb-2 text-sm font-semibold text-slate-700">
                   Categories (optionnel) - le nombre entre parentheses est le nombre de lots a compter

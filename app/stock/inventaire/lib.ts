@@ -65,13 +65,17 @@ export async function fetchArticleGammeById(): Promise<Map<number, string | null
 // exister au catalogue sans avoir de stock actuel (donc 0 lot a compter),
 // compter les articles donnait un chiffre trompeur a cote de chaque case a
 // cocher (meme correctif que cote MP). Le vrac (nature "vrac") n'est jamais
-// inventoriable en PF - exclu des comptes comme du reste du flux.
+// inventoriable en PF - exclu des comptes comme du reste du flux. Un lot a
+// stock systeme exactement 0 n'a non plus rien a compter physiquement
+// (demande explicite, PF seulement) - exclu ici pour que le chiffre entre
+// parentheses corresponde exactement a ce qui sera reellement distribue.
 export async function fetchCategorieCounts(): Promise<CategorieCount[]> {
   const [balances, articleRows] = await Promise.all([fetchAllLotBalances(), fetchArticleScopeRows()]);
   const scopeByArticleId = new Map(articleRows.map((row) => [row.id, row]));
 
   const counts = new Map<string, number>();
   for (const row of balances) {
+    if (row.stock === 0) continue;
     const article = scopeByArticleId.get(row.article_id);
     if (!article || article.nature !== "fini") continue;
     const cat = (article.type_article || "").trim();
@@ -90,6 +94,7 @@ export async function fetchGammeCounts(): Promise<GammeCount[]> {
 
   const counts = new Map<string, number>();
   for (const row of balances) {
+    if (row.stock === 0) continue;
     const article = scopeByArticleId.get(row.article_id);
     if (!article || article.nature !== "fini") continue;
     const gamme = (article.gamme || "").trim();
@@ -100,4 +105,21 @@ export async function fetchGammeCounts(): Promise<GammeCount[]> {
   return [...counts.entries()]
     .map(([gamme, count]) => ({ gamme, count }))
     .sort((a, b) => a.gamme.localeCompare(b.gamme, "fr"));
+}
+
+// Total de lots reellement distribuables (stock non nul, article fini) -
+// remplace le compte brut RPC (stock_pf_lot_balances) sur les affichages
+// "X lot(s) au total", pour rester coherent avec ce que
+// distribuerProchainLot (actions.ts) va effectivement donner a compter.
+export async function fetchTotalDistribuableLotCount(): Promise<number> {
+  const [balances, articleRows] = await Promise.all([fetchAllLotBalances(), fetchArticleScopeRows()]);
+  const scopeByArticleId = new Map(articleRows.map((row) => [row.id, row]));
+  let count = 0;
+  for (const row of balances) {
+    if (row.stock === 0) continue;
+    const article = scopeByArticleId.get(row.article_id);
+    if (!article || article.nature !== "fini") continue;
+    count += 1;
+  }
+  return count;
 }

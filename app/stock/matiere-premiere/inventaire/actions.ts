@@ -92,13 +92,13 @@ async function distribuerProchainLot(
   const hasCategorieFiltre = !!categoriesFiltre && categoriesFiltre.length > 0;
   const hasGammeFiltre = !!gammesFiltre && gammesFiltre.length > 0;
 
-  const [balances, movementCounts, categorieByArticleId, gammeByArticleId, assignedResult, maxLotResult] =
+  const [balances, movementCounts, categorieByArticleId, gammeByArticleId, activeSessionsResult, maxLotResult] =
     await Promise.all([
       fetchAllLotBalances(),
       fetchMovementCounts(),
       hasCategorieFiltre ? fetchArticleCategorieById() : Promise.resolve(null),
       hasGammeFiltre ? fetchArticleGammeById() : Promise.resolve(null),
-      supabaseServer.from("inventaire_mp_lignes").select("article_id, numero_lot").eq("session_id", sessionId),
+      supabaseServer.from("inventaire_mp_sessions").select("id").eq("statut", "en_cours"),
       supabaseServer
         .from("inventaire_mp_lignes")
         .select("lot_numero")
@@ -108,8 +108,20 @@ async function distribuerProchainLot(
         .maybeSingle(),
     ]);
 
+  // Exclut aussi les lots deja distribues aux AUTRES sessions actives (pas
+  // seulement celle-ci) - sinon 2 inventaires lances en parallele sur un
+  // perimetre qui se recoupe (ou tous les 2 "tout le MP") se retrouvaient a
+  // demander le MEME comptage a 2 personnes differentes (bug reel signale,
+  // meme correctif applique cote PF : "l'autre va faire le meme travail").
+  // Plusieurs sessions en parallele restent possibles, mais chaque lot
+  // n'est jamais distribue qu'a une seule d'entre elles a la fois.
+  const activeSessionIds = ((activeSessionsResult.data ?? []) as { id: number }[]).map((s) => s.id);
+  const { data: assignedData } = activeSessionIds.length
+    ? await supabaseServer.from("inventaire_mp_lignes").select("article_id, numero_lot").in("session_id", activeSessionIds)
+    : { data: [] };
+
   const assignedKeys = new Set(
-    ((assignedResult.data ?? []) as { article_id: number; numero_lot: string }[]).map(
+    ((assignedData ?? []) as { article_id: number; numero_lot: string }[]).map(
       (row) => `${row.article_id}::${row.numero_lot}`
     )
   );
