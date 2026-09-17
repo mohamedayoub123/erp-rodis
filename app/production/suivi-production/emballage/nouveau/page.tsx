@@ -46,8 +46,15 @@ async function fetchAllArticles(): Promise<ArticleOption[]> {
   return rows;
 }
 
-export default async function NouvelleFicheEmballagePage() {
+type SearchParams = Promise<{ erreur?: string }>;
+
+export default async function NouvelleFicheEmballagePage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
   noStore();
+  const { erreur } = await searchParams;
 
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionEmballage");
@@ -79,6 +86,12 @@ export default async function NouvelleFicheEmballagePage() {
             </div>
           </div>
         </section>
+
+        {erreur ? (
+          <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
+            {erreur}
+          </div>
+        ) : null}
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           {!canWrite ? (

@@ -1569,15 +1569,39 @@ async function createManualEntryLigne(
   // comptent "par code" (meme probleme deja rencontre sur Test Labo/PD27
   // cette session) - jamais souhaitable, y compris pour une fiche manuelle.
   // Prend la plus recente si plusieurs existent deja (rare, redispatch).
-  const { data: existingLigne } = await supabaseServer
+  const { data: existingLigneRaw } = await supabaseServer
     .from("programme_lignes")
-    .select("id")
+    .select("id, article_id, produit")
     .eq("numero_lot", numeroLot)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  const existingLigne = existingLigneRaw as { id: number; article_id: number | null; produit: string | null } | null;
 
   if (existingLigne) {
+    // La ligne existante appartient a un AUTRE article que celui choisi ici
+    // (bug reel signale : saisie "Gel Douche LUXURY COCOA", le suivi
+    // affichait "Gel Douche LUXURY AVOCADO" - le code tape correspondait en
+    // realite deja a une ligne AVOCADO, et l'ancienne version reutilisait
+    // cette ligne en silence sans jamais le signaler, gardant l'ancien
+    // produit affiche malgre la nouvelle saisie). Un vrai changement de
+    // produit sur un code deja utilise n'arrive normalement jamais - c'est
+    // presque toujours un numero de lot mal tape. Bloque et demande de
+    // verifier plutot que de continuer sur une ligne qui ne correspond pas.
+    const articleMismatch =
+      (articleId !== null && existingLigne.article_id !== null && articleId !== existingLigne.article_id) ||
+      (articleId === null &&
+        existingLigne.article_id === null &&
+        produit &&
+        existingLigne.produit &&
+        produit.trim().toLowerCase() !== existingLigne.produit.trim().toLowerCase());
+
+    if (articleMismatch) {
+      throw new Error(
+        `Le code "${numeroLot}" est deja utilise pour "${existingLigne.produit || "un autre article"}" - verifie le numero de lot avant de continuer.`
+      );
+    }
+
     return { id: existingLigne.id, numeroLot };
   }
 
@@ -1605,35 +1629,67 @@ async function createManualEntryLigne(
   return { id: data.id, numeroLot };
 }
 
+// Meme regle que partout ailleurs dans ce fichier : <form action={...}>
+// natif, jamais de catch cote client possible - un throw non protege ici
+// (ex: code deja utilise pour un autre article, voir createManualEntryLigne)
+// plantait sur la page d'erreur generique de Next.js au lieu du message
+// clair ecrit pour l'utilisateur (bug reel confirme : "Nouvelle fiche
+// Emballage/Conditionnement" n'avait jamais ce filet contrairement au Save
+// normal de "Entrer"). Redirige vers la MEME page "nouveau" avec &erreur=,
+// lue et affichee par cette page.
 export async function createManualConditionnementEntryAction(formData: FormData) {
-  const { id, numeroLot } = await createManualEntryLigne(
-    formData,
-    "productionSuiviProductionConditionnement",
-    "date_fabrication_conditionnement"
-  );
-  formData.set("ligne_id", String(id));
-  formData.set("code", numeroLot);
-  return saveConditionnementRapportAction(formData);
+  try {
+    const { id, numeroLot } = await createManualEntryLigne(
+      formData,
+      "productionSuiviProductionConditionnement",
+      "date_fabrication_conditionnement"
+    );
+    formData.set("ligne_id", String(id));
+    formData.set("code", numeroLot);
+    return await saveConditionnementRapportAction(formData);
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : "Erreur inconnue pendant la creation.";
+    redirect(`/production/suivi-production/conditionnement/nouveau?erreur=${encodeURIComponent(message)}`);
+  }
 }
 
 export async function createManualEmballageEntryAction(formData: FormData) {
-  const { id, numeroLot } = await createManualEntryLigne(
-    formData,
-    "productionSuiviProductionEmballage",
-    "date_emballage"
-  );
-  formData.set("ligne_id", String(id));
-  formData.set("code", numeroLot);
-  return saveEmballageRapportAction(formData);
+  try {
+    const { id, numeroLot } = await createManualEntryLigne(
+      formData,
+      "productionSuiviProductionEmballage",
+      "date_emballage"
+    );
+    formData.set("ligne_id", String(id));
+    formData.set("code", numeroLot);
+    return await saveEmballageRapportAction(formData);
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : "Erreur inconnue pendant la creation.";
+    redirect(`/production/suivi-production/emballage/nouveau?erreur=${encodeURIComponent(message)}`);
+  }
 }
 
 export async function createManualFabricationEntryAction(formData: FormData) {
-  const { id, numeroLot } = await createManualEntryLigne(
-    formData,
-    "productionSuiviProductionFabrication",
-    "date_fabrication_conditionnement"
-  );
-  formData.set("ligne_id", String(id));
-  formData.set("code", numeroLot);
-  return saveFabricationRapportAction(formData);
+  try {
+    const { id, numeroLot } = await createManualEntryLigne(
+      formData,
+      "productionSuiviProductionFabrication",
+      "date_fabrication_conditionnement"
+    );
+    formData.set("ligne_id", String(id));
+    formData.set("code", numeroLot);
+    return await saveFabricationRapportAction(formData);
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : "Erreur inconnue pendant la creation.";
+    redirect(`/production/suivi-production/fabrication/nouveau?erreur=${encodeURIComponent(message)}`);
+  }
 }
