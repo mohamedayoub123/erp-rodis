@@ -1584,10 +1584,11 @@ async function createManualEntryLigne(
     // affichait "Gel Douche LUXURY AVOCADO" - le code tape correspondait en
     // realite deja a une ligne AVOCADO, et l'ancienne version reutilisait
     // cette ligne en silence sans jamais le signaler, gardant l'ancien
-    // produit affiche malgre la nouvelle saisie). Un vrai changement de
-    // produit sur un code deja utilise n'arrive normalement jamais - c'est
-    // presque toujours un numero de lot mal tape. Bloque et demande de
-    // verifier plutot que de continuer sur une ligne qui ne correspond pas.
+    // produit affiche malgre la nouvelle saisie). Un premier correctif
+    // bloquait ce cas - demande explicite ensuite : ne plus bloquer, mais
+    // creer une ligne SEPAREE pour ce nouvel article plutot que d'ecraser en
+    // silence celle qui existe deja (les 2 produits gardent chacun leur
+    // propre ligne, meme code). Meme article -> reutilise normalement.
     const articleMismatch =
       (articleId !== null && existingLigne.article_id !== null && articleId !== existingLigne.article_id) ||
       (articleId === null &&
@@ -1596,13 +1597,9 @@ async function createManualEntryLigne(
         existingLigne.produit &&
         produit.trim().toLowerCase() !== existingLigne.produit.trim().toLowerCase());
 
-    if (articleMismatch) {
-      throw new Error(
-        `Le code "${numeroLot}" est deja utilise pour "${existingLigne.produit || "un autre article"}" - verifie le numero de lot avant de continuer.`
-      );
+    if (!articleMismatch) {
+      return { id: existingLigne.id, numeroLot };
     }
-
-    return { id: existingLigne.id, numeroLot };
   }
 
   const { data, error } = await supabaseServer
