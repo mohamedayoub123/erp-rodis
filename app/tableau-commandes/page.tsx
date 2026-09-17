@@ -25,6 +25,7 @@ type SearchParams = Promise<{
   famille?: string;
   hideStand?: string;
   vue?: string;
+  negatif?: string;
 }>;
 
 type CommandColumn = {
@@ -435,7 +436,8 @@ function renderArticleManquantInsideTableau(
   commandColumns: CommandColumn[],
   sections: ManquantFamilySection[],
   qtEnCoursConditionnementByArticleKey: Map<string, number>,
-  hideStand: boolean = false
+  hideStand: boolean = false,
+  onlyNegatif: boolean = false
 ) {
   const visibleCommandColumns = commandColumns.filter(
     (column) => !hideStand || String(column.statut || "").toUpperCase() !== "STAND"
@@ -443,7 +445,10 @@ function renderArticleManquantInsideTableau(
 
   // Total/reste recalcule en excluant les commandes Stand quand le bouton
   // "Supprimer stand" est actif - une ligne qui n'est en manque qu'a cause
-  // du Stand ne doit plus apparaitre du tout dans la liste.
+  // du Stand ne doit plus apparaitre du tout dans la liste. "Voir seulement
+  // les manques" affine encore : ne garde que les articles dont le manque
+  // reste reel meme apres avoir ajoute ce qui est deja en cours de
+  // Conditionnement (demande explicite).
   const visibleSections = sections
     .map(({ family, rows }) => ({
       family,
@@ -453,9 +458,11 @@ function renderArticleManquantInsideTableau(
             (sum, column) => sum + Number(row.quantitiesByCommand.get(column.key) ?? 0),
             0
           );
-          return { ...row, totalCommande, reste: row.stock - totalCommande };
+          const reste = row.stock - totalCommande;
+          const qtEnCours = Number(qtEnCoursConditionnementByArticleKey.get(normalizeArticle(row.article)) ?? 0);
+          return { ...row, totalCommande, reste, resteApresConditionnement: reste + qtEnCours };
         })
-        .filter((row) => row.reste < 0),
+        .filter((row) => row.reste < 0 && (!onlyNegatif || row.resteApresConditionnement < 0)),
     }))
     .filter((section) => section.rows.length > 0);
 
@@ -549,11 +556,24 @@ function renderArticleManquantInsideTableau(
                 <input type="hidden" name="vue" value="manquant" />
                 {selectedFamille ? <input type="hidden" name="famille" value={selectedFamille} /> : null}
                 {hideStand ? null : <input type="hidden" name="hideStand" value="1" />}
+                {onlyNegatif ? <input type="hidden" name="negatif" value="1" /> : null}
                 <button
                   type="submit"
                   className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-[16px] font-medium text-amber-800"
                 >
                   {hideStand ? "Afficher stand" : "Supprimer stand"}
+                </button>
+              </form>
+              <form action="/tableau-commandes">
+                <input type="hidden" name="vue" value="manquant" />
+                {selectedFamille ? <input type="hidden" name="famille" value={selectedFamille} /> : null}
+                {hideStand ? <input type="hidden" name="hideStand" value="1" /> : null}
+                {onlyNegatif ? null : <input type="hidden" name="negatif" value="1" />}
+                <button
+                  type="submit"
+                  className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-[16px] font-medium text-red-800"
+                >
+                  {onlyNegatif ? "Voir tout" : "Voir seulement les manques"}
                 </button>
               </form>
             </div>
@@ -626,6 +646,7 @@ function renderArticleManquantInsideTableau(
                     <col style={{ width: "64px" }} />
                     <col style={{ width: "64px" }} />
                     <col style={{ width: "84px" }} />
+                    <col style={{ width: "84px" }} />
                   </colgroup>
                   {/* Toute la thead colle en UN seul bloc (au lieu d'une
                   sticky top-[Npx] par ligne) - les offsets en pixels fixes
@@ -658,6 +679,9 @@ function renderArticleManquantInsideTableau(
                       </th>
                       <th rowSpan={5} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
                         Qt en cours de Conditionnement
+                      </th>
+                      <th rowSpan={5} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
+                        Reste apres Conditionnement
                       </th>
                     </tr>
                     <tr>
@@ -717,17 +741,21 @@ function renderArticleManquantInsideTableau(
                     {visibleSections.flatMap(({ family, rows }) => [
                       <tr key={`banner-${family}`}>
                         <td
-                          colSpan={1 + visibleCommandColumns.length + 4}
+                          colSpan={1 + visibleCommandColumns.length + 5}
                           className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-4 py-2 text-left text-lg font-medium text-slate-950`}
                         >
                           {family}
                         </td>
                       </tr>,
                       ...rows.map((row) => {
-                        const { totalCommande, reste } = row;
+                        const { totalCommande, reste, resteApresConditionnement } = row;
                         const qtEnCoursConditionnement = Number(
                           qtEnCoursConditionnementByArticleKey.get(normalizeArticle(row.article)) ?? 0
                         );
+                        const resteApresConditionnementClass =
+                          resteApresConditionnement < 0
+                            ? "bg-red-600 text-white"
+                            : "bg-emerald-600 text-white";
                         const isGreenRow = row.article.toLowerCase().includes("bl transforme");
                         const articleCellClass =
                           reste < 0
@@ -771,6 +799,9 @@ function renderArticleManquantInsideTableau(
                             </td>
                             <td className={`border border-slate-700 px-2 py-1 text-center font-medium ${summaryFillClass}`}>
                               {qtEnCoursConditionnement > 0 ? formatQuantity(qtEnCoursConditionnement) : ""}
+                            </td>
+                            <td className={`border border-slate-700 px-2 py-1 text-center font-medium ${resteApresConditionnementClass}`}>
+                              {formatQuantity(resteApresConditionnement)}
                             </td>
                           </HighlightableRow>
                         );
@@ -835,15 +866,43 @@ function renderGenericFamilyTemplate(
   stockByArticle: Map<string, number>,
   qtEnCoursConditionnementByArticleKey: Map<string, number>,
   subGammeByArticleKey?: Map<string, { label: string; bannerClass: string }>,
-  hideStand: boolean = false
+  hideStand: boolean = false,
+  onlyNegatif: boolean = false
 ) {
   const visibleCommandColumns = commandColumns.filter(
     (column) => !hideStand || String(column.statut || "").toUpperCase() !== "STAND"
   );
-  const rowsWithSubGamme = articleRows.map((article, index) => {
+
+  // RESTE une fois la quantite deja en cours de Conditionnement ajoutee -
+  // demande explicite : le manque "brut" (stock - commande) peut deja etre
+  // couvert par ce qui est en train d'etre conditionne, donc le vrai manque
+  // restant est reste + qtEnCours. Negatif = toujours manquant malgre ce qui
+  // arrive, positif = couvert.
+  function resteApresConditionnementFor(article: string) {
+    const articleKey = normalizeArticle(article);
+    const articleQuantities = quantitiesByArticle.get(articleKey);
+    const total = visibleCommandColumns.reduce(
+      (sum, column) => sum + Number(articleQuantities?.get(column.key) ?? 0),
+      0
+    );
+    const stock = Number(stockByArticle.get(articleKey) ?? 0);
+    const reste = stock - total;
+    const qtEnCours = Number(qtEnCoursConditionnementByArticleKey.get(articleKey) ?? 0);
+    return reste + qtEnCours;
+  }
+
+  // Bouton "Voir seulement les manques" filtre AVANT de calculer les
+  // bandeaux de sous-gamme, pour que "different du precedent" se base sur la
+  // sequence reellement affichee (sinon un bandeau pouvait se repeter ou
+  // manquer une fois des articles retires par le filtre).
+  const filteredArticleRows = onlyNegatif
+    ? articleRows.filter((article) => resteApresConditionnementFor(article) < 0)
+    : articleRows;
+
+  const rowsWithSubGamme = filteredArticleRows.map((article, index) => {
     const articleKey = normalizeArticle(article);
     const subGamme = subGammeByArticleKey?.get(articleKey) ?? null;
-    const previousArticleKey = index > 0 ? normalizeArticle(articleRows[index - 1]) : null;
+    const previousArticleKey = index > 0 ? normalizeArticle(filteredArticleRows[index - 1]) : null;
     const previousSubGamme =
       previousArticleKey !== null ? subGammeByArticleKey?.get(previousArticleKey) ?? null : null;
     const showSubGammeBanner = subGamme !== null && subGamme.label !== previousSubGamme?.label;
@@ -914,11 +973,23 @@ function renderGenericFamilyTemplate(
               <form action="/tableau-commandes">
                 <input type="hidden" name="famille" value={selectedFamille} />
                 {hideStand ? null : <input type="hidden" name="hideStand" value="1" />}
+                {onlyNegatif ? <input type="hidden" name="negatif" value="1" /> : null}
                 <button
                   type="submit"
                   className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-[16px] font-medium text-amber-800"
                 >
                   {hideStand ? "Afficher stand" : "Supprimer stand"}
+                </button>
+              </form>
+              <form action="/tableau-commandes">
+                <input type="hidden" name="famille" value={selectedFamille} />
+                {hideStand ? <input type="hidden" name="hideStand" value="1" /> : null}
+                {onlyNegatif ? null : <input type="hidden" name="negatif" value="1" />}
+                <button
+                  type="submit"
+                  className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-[16px] font-medium text-red-800"
+                >
+                  {onlyNegatif ? "Voir tout" : "Voir seulement les manques"}
                 </button>
               </form>
             </div>
@@ -962,6 +1033,7 @@ function renderGenericFamilyTemplate(
                 <col style={{ width: "64px" }} />
                 <col style={{ width: "64px" }} />
                 <col style={{ width: "84px" }} />
+                <col style={{ width: "84px" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -969,7 +1041,7 @@ function renderGenericFamilyTemplate(
                     {formatDateCell(new Date())}
                   </th>
                   <th
-                    colSpan={Math.max(commandColumns.length, 1) + 4}
+                    colSpan={Math.max(commandColumns.length, 1) + 5}
                     className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-center text-lg font-medium text-slate-950`}
                   >
                     {selectedFamille}
@@ -997,6 +1069,7 @@ function renderGenericFamilyTemplate(
                   ) : (
                     <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
@@ -1030,6 +1103,9 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
                     Qt en cours de Conditionnement
                   </th>
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
+                    Reste apres Conditionnement
+                  </th>
                 </tr>
                 <tr>
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
@@ -1047,6 +1123,7 @@ function renderGenericFamilyTemplate(
                   ) : (
                     <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
@@ -1072,6 +1149,7 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                 </tr>
                 <tr>
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
@@ -1089,6 +1167,7 @@ function renderGenericFamilyTemplate(
                   ) : (
                     <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   )}
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
@@ -1114,6 +1193,7 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                 </tr>
               </thead>
               <tbody>
@@ -1129,6 +1209,11 @@ function renderGenericFamilyTemplate(
                   const qtEnCoursConditionnement = Number(
                     qtEnCoursConditionnementByArticleKey.get(articleKey) ?? 0
                   );
+                  const resteApresConditionnement = reste + qtEnCoursConditionnement;
+                  const resteApresConditionnementClass =
+                    resteApresConditionnement < 0
+                      ? "bg-red-600 text-white"
+                      : "bg-emerald-600 text-white";
                   const isGreenRow = article.toLowerCase().includes("bl transforme");
                   const articleCellClass =
                     reste < 0
@@ -1148,7 +1233,7 @@ function renderGenericFamilyTemplate(
                     rows.push(
                       <tr key={`subgamme-${subGamme.label}`}>
                         <td
-                          colSpan={1 + visibleCommandColumns.length + 4}
+                          colSpan={1 + visibleCommandColumns.length + 5}
                           className={`border border-slate-700 px-4 py-2 text-center text-base font-bold uppercase italic ${subGamme.bannerClass}`}
                         >
                           {subGamme.label}
@@ -1193,6 +1278,9 @@ function renderGenericFamilyTemplate(
                       </td>
                       <td className={`border border-slate-700 px-2 py-1 font-medium ${summaryFillClass}`}>
                         {qtEnCoursConditionnement > 0 ? formatQuantity(qtEnCoursConditionnement) : ""}
+                      </td>
+                      <td className={`border border-slate-700 px-2 py-1 font-medium ${resteApresConditionnementClass}`}>
+                        {formatQuantity(resteApresConditionnement)}
                       </td>
                     </HighlightableRow>
                   );
@@ -1300,6 +1388,11 @@ export default async function TableauCommandesPage({
   const params = await searchParams;
   const familleQuery = String(params.famille || "").trim();
   const hideStand = String(params.hideStand || "").trim() === "1";
+  // Bouton "Voir seulement les manques" - ne garde que les articles dont le
+  // RESTE, une fois la quantite deja en cours de Conditionnement ajoutee,
+  // reste negatif (demande explicite : le manque "brut" peut deja etre
+  // couvert par ce qui est en train d'etre conditionne).
+  const onlyNegatif = String(params.negatif || "").trim() === "1";
   const viewQuery = String(params.vue || "").trim().toLowerCase();
   const showMissingView = viewQuery === "manquant";
 
@@ -1522,7 +1615,8 @@ export default async function TableauCommandesPage({
       sharedCommandColumns,
       sections,
       qtEnCoursConditionnementByArticle,
-      hideStand
+      hideStand,
+      onlyNegatif
     );
   }
 
@@ -1782,7 +1876,8 @@ export default async function TableauCommandesPage({
       whiteSecretStockByArticle,
       qtEnCoursConditionnementByArticle,
       undefined,
-      hideStand
+      hideStand,
+      onlyNegatif
     );
   }
 
@@ -2043,7 +2138,8 @@ export default async function TableauCommandesPage({
     genericFamilyStockByArticle,
     qtEnCoursConditionnementByArticle,
     genericFamilySubGammeByArticleKey,
-    hideStand
+    hideStand,
+    onlyNegatif
   );
 }
 
