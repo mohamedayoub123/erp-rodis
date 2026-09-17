@@ -86,6 +86,7 @@ type SearchParams = Promise<{
   page?: string;
   q?: string;
   categorie?: string;
+  gamme?: string;
 }>;
 
 export default async function ArticlesMatierePremierePage({
@@ -102,6 +103,7 @@ export default async function ArticlesMatierePremierePage({
   const currentPage = Math.max(1, Number(params.page || "1") || 1);
   const q = (params.q || "").trim();
   const categorie = (params.categorie || "").trim();
+  const gamme = (params.gamme || "").trim();
   const from = (currentPage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
@@ -117,6 +119,7 @@ export default async function ArticlesMatierePremierePage({
 
   const qLower = q.toLowerCase();
   const categorieLower = categorie.toLowerCase();
+  const gammeLower = gamme.toLowerCase();
 
   const filteredArticles = allArticles.filter((article) => {
     if (qLower && !matchesArticleSearch(article.nom_article, qLower)) return false;
@@ -125,6 +128,7 @@ export default async function ArticlesMatierePremierePage({
       !String(article.categorie ?? "").toLowerCase().includes(categorieLower)
     )
       return false;
+    if (gammeLower && !String(article.gamme ?? "").toLowerCase().includes(gammeLower)) return false;
     return true;
   });
 
@@ -133,6 +137,9 @@ export default async function ArticlesMatierePremierePage({
   const articles = filteredArticles.slice(from, to + 1);
   const categorieOptions = (
     [...new Set(allArticles.map((article) => article.categorie).filter(Boolean))] as string[]
+  ).map((label, index) => ({ id: index, label }));
+  const gammeOptions = (
+    [...new Set(allArticles.map((article) => article.gamme).filter(Boolean))] as string[]
   ).map((label, index) => ({ id: index, label }));
   const articleOptions = [...new Set(allArticles.map((article) => article.nom_article))].map(
     (label, index) => ({ id: index, label })
@@ -175,7 +182,7 @@ export default async function ArticlesMatierePremierePage({
         </div>
 
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <form className="grid gap-3 border-b border-slate-100 p-6 md:grid-cols-3">
+          <form className="grid gap-3 border-b border-slate-100 p-6 md:grid-cols-4">
             <SearchableFilterInput
               name="q"
               defaultValue={q}
@@ -187,6 +194,12 @@ export default async function ArticlesMatierePremierePage({
               defaultValue={categorie}
               options={categorieOptions}
               placeholder="Categorie..."
+            />
+            <SearchableFilterInput
+              name="gamme"
+              defaultValue={gamme}
+              options={gammeOptions}
+              placeholder="Gamme..."
             />
             <button
               type="submit"
@@ -365,7 +378,7 @@ export default async function ArticlesMatierePremierePage({
 
                 <div className="flex gap-3">
                   <Link
-                    href={`/articles/matiere-premiere?page=1&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}`}
+                    href={`/articles/matiere-premiere?page=1&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}&gamme=${encodeURIComponent(gamme)}`}
                     className={`rounded-full px-4 py-2 font-semibold ${
                       currentPage === 1
                         ? "pointer-events-none bg-slate-100 text-slate-400"
@@ -375,7 +388,7 @@ export default async function ArticlesMatierePremierePage({
                     Premiere
                   </Link>
                   <Link
-                    href={`/articles/matiere-premiere?page=${Math.max(1, currentPage - 1)}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}`}
+                    href={`/articles/matiere-premiere?page=${Math.max(1, currentPage - 1)}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}&gamme=${encodeURIComponent(gamme)}`}
                     className={`rounded-full px-4 py-2 font-semibold ${
                       currentPage === 1
                         ? "pointer-events-none bg-slate-100 text-slate-400"
@@ -385,7 +398,7 @@ export default async function ArticlesMatierePremierePage({
                     Precedent
                   </Link>
                   <Link
-                    href={`/articles/matiere-premiere?page=${Math.min(totalPages, currentPage + 1)}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}`}
+                    href={`/articles/matiere-premiere?page=${Math.min(totalPages, currentPage + 1)}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}&gamme=${encodeURIComponent(gamme)}`}
                     className={`rounded-full px-4 py-2 font-semibold ${
                       currentPage >= totalPages
                         ? "pointer-events-none bg-slate-100 text-slate-400"
@@ -395,7 +408,7 @@ export default async function ArticlesMatierePremierePage({
                     Suivant
                   </Link>
                   <Link
-                    href={`/articles/matiere-premiere?page=${totalPages}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}`}
+                    href={`/articles/matiere-premiere?page=${totalPages}&q=${encodeURIComponent(q)}&categorie=${encodeURIComponent(categorie)}&gamme=${encodeURIComponent(gamme)}`}
                     className={`rounded-full px-4 py-2 font-semibold ${
                       currentPage >= totalPages
                         ? "pointer-events-none bg-slate-100 text-slate-400"
