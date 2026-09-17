@@ -997,6 +997,12 @@ function renderGenericFamilyTemplate(
             <div className="flex flex-wrap items-center gap-2">
               <BackButton href="/tableau-commandes" label="Retour aux familles" />
               <RefreshButton />
+              <Link
+                href="/tableau-commandes?vue=manquant"
+                className="rounded-full bg-red-700 px-4 py-2 text-[16px] font-medium text-white"
+              >
+                Article manquant
+              </Link>
               <TableauExportButton
                 title={selectedFamille}
                 commandColumns={exportCommandColumns}
