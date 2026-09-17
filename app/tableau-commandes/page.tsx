@@ -1037,6 +1037,12 @@ function renderGenericFamilyTemplate(
 
         <section className="rounded-[1.5rem] border border-slate-200 bg-white px-4 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
           <div className="flex flex-wrap gap-2">
+            <Link
+              href="/tableau-commandes?vue=manquant"
+              className="rounded-md bg-red-700 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm transition hover:opacity-90"
+            >
+              Article manquant
+            </Link>
             {families.map((family) => {
               const isActive = family === selectedFamille;
               const buttonStyle = FAMILY_BUTTON_STYLES[family] || "bg-slate-200 text-slate-950";
@@ -1743,6 +1749,12 @@ export default async function TableauCommandesPage({
 
         <section className="rounded-[1.75rem] border border-slate-200 bg-white px-5 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
           <div className="flex flex-wrap gap-3">
+            <Link
+              href="/tableau-commandes?vue=manquant"
+              className="rounded-xl bg-red-700 px-4 py-2 text-[16px] font-medium leading-none text-white shadow-sm transition hover:scale-[1.02] hover:opacity-90"
+            >
+              Article manquant
+            </Link>
             {families.map((family) => {
               const buttonStyle =
                 FAMILY_BUTTON_STYLES[family] || "bg-slate-200 text-slate-950";
@@ -1757,12 +1769,6 @@ export default async function TableauCommandesPage({
                 </Link>
               );
             })}
-            <Link
-              href="/tableau-commandes?vue=manquant"
-              className="rounded-xl bg-red-700 px-4 py-2 text-[16px] font-medium leading-none text-white shadow-sm transition hover:scale-[1.02] hover:opacity-90"
-            >
-              Article manquant
-            </Link>
           </div>
         </section>
         </div>
@@ -1978,6 +1984,12 @@ export default async function TableauCommandesPage({
 
           <section className="rounded-[1.75rem] border border-slate-200 bg-white px-5 py-6 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
             <div className="mb-5 flex flex-wrap gap-2">
+              <Link
+                href="/tableau-commandes?vue=manquant"
+                className="rounded-md bg-red-700 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm transition hover:opacity-90"
+              >
+                Article manquant
+              </Link>
               {families.map((family) => {
                 const isActive = family === selectedFamille;
                 const buttonStyle =
