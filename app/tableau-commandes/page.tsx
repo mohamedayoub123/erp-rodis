@@ -3,8 +3,10 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchRestantConditionnementEmballageByArticle } from "../production/suivi/data";
 import { HighlightableRow } from "./highlightable-row";
+import { CommandeNoteCell } from "./note-cell";
 import {
   TableauExportButton,
   type ExportCommandColumn,
@@ -30,6 +32,11 @@ type SearchParams = Promise<{
 
 type CommandColumn = {
   key: string;
+  // Id de la 1ere commande du groupe (une colonne peut regrouper plusieurs
+  // lignes "commandes" - meme camion/proforma partage) - sert d'ancrage pour
+  // la note libre, exactement comme client/statut/numero_proforma qui sont
+  // deja lus depuis cette 1ere commande du groupe.
+  id: number;
   client: string;
   nombre_camion: number | null;
   mode_chargement: string;
@@ -37,6 +44,7 @@ type CommandColumn = {
   numero_proforma: string;
   statut: string;
   date_ecriture: string | null;
+  note: string;
 };
 
 type WhiteSecretArticleRow = {
@@ -437,7 +445,8 @@ function renderArticleManquantInsideTableau(
   sections: ManquantFamilySection[],
   qtEnCoursConditionnementByArticleKey: Map<string, number>,
   hideStand: boolean = false,
-  onlyNegatif: boolean = false
+  onlyNegatif: boolean = false,
+  canEditNote: boolean = false
 ) {
   const visibleCommandColumns = commandColumns.filter(
     (column) => !hideStand || String(column.statut || "").toUpperCase() !== "STAND"
@@ -658,6 +667,34 @@ function renderArticleManquantInsideTableau(
                   <thead className="sticky top-0 z-40">
                     <tr>
                       <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
+                        Note
+                      </th>
+                      {visibleCommandColumns.map((column) => (
+                        <th
+                          key={`note-${column.key}`}
+                          className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-1 text-center text-[16px] font-medium normal-case text-slate-950`}
+                        >
+                          <CommandeNoteCell commandeId={column.id} initialValue={column.note} canEdit={canEditNote} />
+                        </th>
+                      ))}
+                      <th rowSpan={6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                        TOTAL
+                      </th>
+                      <th rowSpan={6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                        STOCK
+                      </th>
+                      <th rowSpan={6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
+                        RESTE
+                      </th>
+                      <th rowSpan={6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
+                        Qt en cours de Conditionnement
+                      </th>
+                      <th rowSpan={6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
+                        Reste apres Conditionnement
+                      </th>
+                    </tr>
+                    <tr>
+                      <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
                         Statut
                       </th>
                       {visibleCommandColumns.map((column) => (
@@ -668,21 +705,6 @@ function renderArticleManquantInsideTableau(
                           {getStatusLabel(column.statut)}
                         </th>
                       ))}
-                      <th rowSpan={5} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
-                        TOTAL
-                      </th>
-                      <th rowSpan={5} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
-                        STOCK
-                      </th>
-                      <th rowSpan={5} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase text-slate-950`}>
-                        RESTE
-                      </th>
-                      <th rowSpan={5} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
-                        Qt en cours de Conditionnement
-                      </th>
-                      <th rowSpan={5} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
-                        Reste apres Conditionnement
-                      </th>
                     </tr>
                     <tr>
                       <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
@@ -867,7 +889,8 @@ function renderGenericFamilyTemplate(
   qtEnCoursConditionnementByArticleKey: Map<string, number>,
   subGammeByArticleKey?: Map<string, { label: string; bannerClass: string }>,
   hideStand: boolean = false,
-  onlyNegatif: boolean = false
+  onlyNegatif: boolean = false,
+  canEditNote: boolean = false
 ) {
   const visibleCommandColumns = commandColumns.filter(
     (column) => !hideStand || String(column.statut || "").toUpperCase() !== "STAND"
@@ -1036,6 +1059,28 @@ function renderGenericFamilyTemplate(
                 <col style={{ width: "84px" }} />
               </colgroup>
               <thead>
+                <tr>
+                  <th className="border border-slate-700 bg-white px-3 py-2 text-left text-[16px] font-medium uppercase text-slate-950">
+                    Note
+                  </th>
+                  {commandColumns.length > 0 ? (
+                    visibleCommandColumns.map((column) => (
+                      <th
+                        key={`note-${column.key}`}
+                        className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-1 text-center text-[16px] font-medium normal-case text-slate-950`}
+                      >
+                        <CommandeNoteCell commandeId={column.id} initialValue={column.note} canEdit={canEditNote} />
+                      </th>
+                    ))
+                  ) : (
+                    <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  )}
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                  <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                </tr>
                 <tr>
                   <th className="border border-slate-700 bg-white px-3 py-2 text-left text-xl font-medium text-slate-900">
                     {formatDateCell(new Date())}
@@ -1385,6 +1430,8 @@ export default async function TableauCommandesPage({
   searchParams: SearchParams;
 }) {
   noStore();
+  const currentUser = await getCurrentStockUser();
+  const canEditNote = await canWritePageUser(currentUser, "commandesDetail");
   const params = await searchParams;
   const familleQuery = String(params.famille || "").trim();
   const hideStand = String(params.hideStand || "").trim() === "1";
@@ -1431,7 +1478,7 @@ export default async function TableauCommandesPage({
         supabaseServer
           .from("commandes")
           .select(
-            "id, client, statut, mode_chargement, type_tc, numero_proforma, created_at, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
+            "id, client, statut, mode_chargement, type_tc, numero_proforma, note_tableau_commande, created_at, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
           )
           .neq("statut", "LIVREE")
           .order("created_at", { ascending: true }),
@@ -1451,6 +1498,7 @@ export default async function TableauCommandesPage({
             mode_chargement: string | null;
             type_tc: string | null;
             numero_proforma: string | null;
+            note_tableau_commande: string | null;
             created_at: string | null;
             commande_lignes:
               | {
@@ -1482,6 +1530,7 @@ export default async function TableauCommandesPage({
       const groupSize = commandeCountByKey.get(key) ?? 1;
       sharedCommandColumnsMap.set(key, {
         key,
+        id: commande.id,
         client: String(commande.client || "").trim(),
         nombre_camion: groupSize > 1 ? groupSize : Number(commande.type_tc) || 1,
         mode_chargement: String(commande.mode_chargement || "").trim(),
@@ -1489,6 +1538,7 @@ export default async function TableauCommandesPage({
         numero_proforma: String(commande.numero_proforma || "").trim(),
         statut: String(commande.statut || "EN_COURS").trim(),
         date_ecriture: commande.created_at,
+        note: String(commande.note_tableau_commande || ""),
       });
     }
     const sharedCommandColumns = [...sharedCommandColumnsMap.values()];
@@ -1616,7 +1666,8 @@ export default async function TableauCommandesPage({
       sections,
       qtEnCoursConditionnementByArticle,
       hideStand,
-      onlyNegatif
+      onlyNegatif,
+      canEditNote
     );
   }
 
@@ -1730,7 +1781,7 @@ export default async function TableauCommandesPage({
         .order("nom_article", { ascending: true }),
       supabaseServer
         .from("commandes")
-        .select("id, client, statut, mode_chargement, type_tc, numero_proforma, created_at")
+        .select("id, client, statut, mode_chargement, type_tc, numero_proforma, note_tableau_commande, created_at")
         .neq("statut", "LIVREE")
         .order("created_at", { ascending: true }),
       fetchQtEnCoursConditionnementByArticle(),
@@ -1773,6 +1824,7 @@ export default async function TableauCommandesPage({
             mode_chargement: string | null;
             type_tc: string | null;
             numero_proforma: string | null;
+            note_tableau_commande: string | null;
             created_at: string | null;
           }[]
         | null) ?? [];
@@ -1787,6 +1839,7 @@ export default async function TableauCommandesPage({
 
       allActiveCommandColumns.push({
         key,
+        id: commande.id,
         client: String(commande.client || "").trim(),
         nombre_camion: Number(commande.type_tc) || 1,
         mode_chargement: String(commande.mode_chargement || "").trim(),
@@ -1794,6 +1847,7 @@ export default async function TableauCommandesPage({
         numero_proforma: String(commande.numero_proforma || "").trim(),
         statut: String(commande.statut || "EN_COURS").trim(),
         date_ecriture: commande.created_at,
+        note: String(commande.note_tableau_commande || ""),
       });
     }
 
@@ -1877,7 +1931,8 @@ export default async function TableauCommandesPage({
       qtEnCoursConditionnementByArticle,
       undefined,
       hideStand,
-      onlyNegatif
+      onlyNegatif,
+      canEditNote
     );
   }
 
@@ -1955,7 +2010,7 @@ export default async function TableauCommandesPage({
       .order("created_at", { ascending: true }),
     supabaseServer
       .from("commandes")
-      .select("id, client, statut, mode_chargement, type_tc, numero_proforma, created_at")
+      .select("id, client, statut, mode_chargement, type_tc, numero_proforma, note_tableau_commande, created_at")
       .neq("statut", "LIVREE")
       .order("created_at", { ascending: true }),
     fetchQtEnCoursConditionnementByArticle(),
@@ -2004,6 +2059,7 @@ export default async function TableauCommandesPage({
           mode_chargement: string | null;
           type_tc: string | null;
           numero_proforma: string | null;
+          note_tableau_commande: string | null;
           created_at: string | null;
         }[]
       | null) ?? [];
@@ -2018,6 +2074,7 @@ export default async function TableauCommandesPage({
 
     allActiveCommandColumns.push({
       key,
+      id: commande.id,
       client: String(commande.client || "").trim(),
       nombre_camion: Number(commande.type_tc) || 1,
       mode_chargement: String(commande.mode_chargement || "").trim(),
@@ -2025,6 +2082,7 @@ export default async function TableauCommandesPage({
       numero_proforma: String(commande.numero_proforma || "").trim(),
       statut: String(commande.statut || "EN_COURS").trim(),
       date_ecriture: commande.created_at,
+      note: String(commande.note_tableau_commande || ""),
     });
   }
 
@@ -2139,7 +2197,8 @@ export default async function TableauCommandesPage({
     qtEnCoursConditionnementByArticle,
     genericFamilySubGammeByArticleKey,
     hideStand,
-    onlyNegatif
+    onlyNegatif,
+    canEditNote
   );
 }
 
