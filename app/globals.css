@@ -24,6 +24,23 @@ body {
   font-family: var(--font-geist-sans), sans-serif;
 }
 
+/* Effet visuel au clic sur TOUS les boutons de l'ERP (demande explicite) -
+   regle globale car les boutons sont stylees au cas par cas dans chaque
+   page, sans composant bouton partage. */
+button:not(:disabled):active,
+input[type="submit"]:not(:disabled):active,
+input[type="button"]:not(:disabled):active,
+[role="button"]:active {
+  transform: scale(0.96);
+}
+
+button:not(:disabled),
+input[type="submit"]:not(:disabled),
+input[type="button"]:not(:disabled),
+[role="button"] {
+  transition: transform 0.05s ease-out;
+}
+
 /* Inverse de .no-print : cache a l'ecran, visible seulement a l'impression
    (ex: la valeur texte d'un champ normalement editable, dont le champ de
    saisie lui-meme est marque .no-print). */
