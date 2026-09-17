@@ -2,6 +2,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { AnnulerInventaireButton } from "@/app/_components/annuler-inventaire-button";
 import { ConfirmSubmitButton } from "@/app/_components/confirm-submit-button";
 import { formatDateTime } from "@/lib/format-date";
@@ -273,7 +274,10 @@ export default async function InventairePfSessionDetailPage({ params }: { params
                   {pendingCount > 0 ? `, ${pendingCount} jamais compte(s)` : ""}
                 </p>
               </div>
-              <BackButton href="/stock/inventaire" label="Retour" />
+              <div className="flex items-center gap-3">
+                <BackButton href="/stock/inventaire" label="Retour" />
+                <SimplePrintButton />
+              </div>
             </div>
           </section>
 
@@ -402,6 +406,7 @@ export default async function InventairePfSessionDetailPage({ params }: { params
             <div className="flex items-center gap-3">
               <BackButton href="/stock/inventaire" label="Retour" />
               <RefreshButton />
+              <SimplePrintButton />
               {peutDemarrer ? (
                 <form action={annulerInventairePfAction}>
                   <input type="hidden" name="session_id" value={session.id} />

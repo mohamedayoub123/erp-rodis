@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { AnnulerInventaireButton } from "@/app/_components/annuler-inventaire-button";
 import { formatDateTime } from "@/lib/format-date";
@@ -124,6 +125,7 @@ export default async function InventaireMpPage() {
             <div className="flex items-center gap-3">
               <BackButton href="/stock/matiere-premiere" label="Retour" />
               <RefreshButton />
+              <SimplePrintButton />
             </div>
           </div>
         </section>
