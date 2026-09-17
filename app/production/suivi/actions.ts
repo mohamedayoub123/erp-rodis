@@ -637,14 +637,98 @@ export async function deleteCartonEntryAction(formData: FormData) {
   revalidateSuiviPages();
 }
 
+// Renomme un code en cascade PARTOUT ou il est deja rattache - sur TOUTES
+// les programme_lignes qui le portent (pas seulement une, voir plus bas),
+// et sur les saisies deja enregistrees (vrac/carton/emballage, Fin
+// programme, rapports/tests labo, historique Dispatcher). Reutilisee par
+// renameLotCodeAction (Dashboard) et par createEntreeProductionBatchAction
+// (Entree Production - quand le code est corrige juste avant de valider le
+// mouvement de stock, demande explicite : "si le code change dans Entree
+// Production il faut que ca change automatique dans Suivi Production").
+//
+// Un meme code peut legitimement exister sur PLUSIEURS programme_lignes en
+// meme temps (ex: vrac combine de 2 chaines pour le meme article reparti en
+// un 3e lot partage - voir fix_programme_dispatcher_code_unique_allow_shared.sql,
+// cas reel confirme sur JBM0443 : le meme code sur 2-3 chaines differentes).
+// Ne renommer QUE la ligne d'origine laissait les autres avec l'ancien code
+// - bug reel trouve en creusant ce signalement. Renomme donc TOUTES les
+// lignes qui portent ce code, jamais une seule.
+export async function cascadeRenameProductionCode(
+  oldCode: string,
+  newCode: string
+): Promise<{ renamed: boolean }> {
+  if (!oldCode || !newCode || oldCode === newCode) return { renamed: false };
+
+  const { data: lignesData, error: lignesError } = await supabaseServer
+    .from("programme_lignes")
+    .select("id, numero_lot, numero_lot_detail, groupe_id")
+    .ilike("numero_lot", `%${oldCode}%`);
+
+  if (lignesError) {
+    throw new Error(lignesError.message);
+  }
+
+  type LigneForRename = {
+    id: number;
+    numero_lot: string | null;
+    numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
+    groupe_id: number | null;
+  };
+
+  // Le filtre SQL ci-dessus n'est qu'un prefiltre texte (LIKE) - verifie ici
+  // que oldCode correspond bien a UN des codes exacts de la liste separee
+  // par virgules, pas juste une sous-chaine d'un autre code (ex: "AA10"
+  // dans "AA100").
+  const matchingLignes = ((lignesData ?? []) as LigneForRename[]).filter((ligne) => {
+    const codes = (ligne.numero_lot || "").split(",").map((c) => c.trim());
+    return codes.includes(oldCode);
+  });
+
+  if (matchingLignes.length === 0) return { renamed: false };
+
+  for (const ligne of matchingLignes) {
+    const codes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    const newNumeroLot = codes.map((c) => (c === oldCode ? newCode : c)).join(", ");
+    const newDetail = Array.isArray(ligne.numero_lot_detail)
+      ? ligne.numero_lot_detail.map((entry) => (entry.code === oldCode ? { ...entry, code: newCode } : entry))
+      : ligne.numero_lot_detail;
+
+    const { error: updateLigneError } = await supabaseServer
+      .from("programme_lignes")
+      .update({ numero_lot: newNumeroLot, numero_lot_detail: newDetail })
+      .eq("id", ligne.id);
+    if (updateLigneError) {
+      throw new Error(updateLigneError.message);
+    }
+  }
+
+  const ligneIds = matchingLignes.map((ligne) => ligne.id);
+  const groupeIds = [...new Set(matchingLignes.map((ligne) => ligne.groupe_id).filter((id): id is number => id !== null))];
+
+  await Promise.all([
+    supabaseServer.from("production_carton_entries").update({ code: newCode }).in("programme_ligne_id", ligneIds).eq("code", oldCode),
+    supabaseServer.from("production_vrac_entries").update({ code: newCode }).in("programme_ligne_id", ligneIds).eq("code", oldCode),
+    supabaseServer.from("production_emballage_entries").update({ code: newCode }).in("programme_ligne_id", ligneIds).eq("code", oldCode),
+    supabaseServer.from("production_code_termine").update({ code: newCode }).in("programme_ligne_id", ligneIds).eq("code", oldCode),
+    supabaseServer.from("production_rapports").update({ code: newCode }).in("programme_ligne_id", ligneIds).eq("code", oldCode),
+    // Sans ca, le PD (PD1, PD2...) associe a ce code disparaissait apres un
+    // renommage - buildPdLabelByCode (suivi/data.ts) retrouve le PD via
+    // programme_dispatcher_history.code, jamais mise a jour ici avant (bug
+    // remonte par l'utilisateur : "si je change le code il faut pas que tu
+    // enleve le PD").
+    groupeIds.length > 0
+      ? supabaseServer.from("programme_dispatcher_history").update({ code: newCode }).in("groupe_id", groupeIds).eq("code", oldCode)
+      : Promise.resolve({ error: null }),
+  ]);
+
+  revalidateSuiviPages();
+  return { renamed: true };
+}
+
 // Correction manuelle du numero de lot d'un code deja dispatche (ex: typo
 // venu du Dispatcher) - reservee aux comptes admin (isAdminUser), pas au
 // simple droit d'ecriture du Dashboard deja accorde a plusieurs employes
-// pour la saisie de production. Renomme en cascade tout ce qui est deja
-// rattache a l'ancien code SUR CETTE MEME LIGNE (programme_ligne_id) :
-// sinon les saisies deja enregistrees (vrac/carton/emballage, Fin
-// programme, rapports/tests labo) resteraient invisibles sous le nouveau
-// code affiche.
+// pour la saisie de production.
 export async function renameLotCodeAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
   if (!isAdminUser(currentUser)) {
@@ -659,7 +743,7 @@ export async function renameLotCodeAction(formData: FormData) {
 
   const { data: ligneData, error: ligneError } = await supabaseServer
     .from("programme_lignes")
-    .select("id, numero_lot, numero_lot_detail, groupe_id")
+    .select("id, numero_lot")
     .eq("id", ligneId)
     .maybeSingle();
 
@@ -667,13 +751,7 @@ export async function renameLotCodeAction(formData: FormData) {
     throw new Error(ligneError?.message || "Ligne introuvable.");
   }
 
-  const ligne = ligneData as {
-    id: number;
-    numero_lot: string | null;
-    numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
-    groupe_id: number | null;
-  };
-
+  const ligne = ligneData as { id: number; numero_lot: string | null };
   const codes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
   if (!codes.includes(oldCode)) {
     throw new Error("Ce code n'existe plus sur cette ligne (page pas a jour, recharge-la).");
@@ -682,58 +760,5 @@ export async function renameLotCodeAction(formData: FormData) {
     throw new Error("Ce numero de lot est deja utilise sur cette meme ligne.");
   }
 
-  const newNumeroLot = codes.map((c) => (c === oldCode ? newCode : c)).join(", ");
-  const newDetail = Array.isArray(ligne.numero_lot_detail)
-    ? ligne.numero_lot_detail.map((entry) => (entry.code === oldCode ? { ...entry, code: newCode } : entry))
-    : ligne.numero_lot_detail;
-
-  const { error: updateLigneError } = await supabaseServer
-    .from("programme_lignes")
-    .update({ numero_lot: newNumeroLot, numero_lot_detail: newDetail })
-    .eq("id", ligneId);
-  if (updateLigneError) {
-    throw new Error(updateLigneError.message);
-  }
-
-  await Promise.all([
-    supabaseServer
-      .from("production_carton_entries")
-      .update({ code: newCode })
-      .eq("programme_ligne_id", ligneId)
-      .eq("code", oldCode),
-    supabaseServer
-      .from("production_vrac_entries")
-      .update({ code: newCode })
-      .eq("programme_ligne_id", ligneId)
-      .eq("code", oldCode),
-    supabaseServer
-      .from("production_emballage_entries")
-      .update({ code: newCode })
-      .eq("programme_ligne_id", ligneId)
-      .eq("code", oldCode),
-    supabaseServer
-      .from("production_code_termine")
-      .update({ code: newCode })
-      .eq("programme_ligne_id", ligneId)
-      .eq("code", oldCode),
-    supabaseServer
-      .from("production_rapports")
-      .update({ code: newCode })
-      .eq("programme_ligne_id", ligneId)
-      .eq("code", oldCode),
-    // Sans ca, le PD (PD1, PD2...) associe a ce code disparaissait apres un
-    // renommage - buildPdLabelByCode (suivi/data.ts) retrouve le PD via
-    // programme_dispatcher_history.code, jamais mise a jour ici avant (bug
-    // remonte par l'utilisateur : "si je change le code il faut pas que tu
-    // enleve le PD").
-    ligne.groupe_id
-      ? supabaseServer
-          .from("programme_dispatcher_history")
-          .update({ code: newCode })
-          .eq("groupe_id", ligne.groupe_id)
-          .eq("code", oldCode)
-      : Promise.resolve({ error: null }),
-  ]);
-
-  revalidateSuiviPages();
+  await cascadeRenameProductionCode(oldCode, newCode);
 }

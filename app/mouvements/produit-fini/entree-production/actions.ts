@@ -12,6 +12,7 @@ import {
   enregistrerLotsUtilisesPourEcriture,
   supprimerEcriturePourSource,
 } from "@/lib/comptabilite";
+import { cascadeRenameProductionCode } from "@/app/production/suivi/actions";
 
 // Ecriture separee pour la consommation REELLE des articles de
 // conditionnement (sleeve/capsule/carton/flacon...) d'un code precis - bug
@@ -212,7 +213,7 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
 
   const { data: entries, error: entriesError } = await supabaseServer
     .from("production_emballage_entries")
-    .select("id, programme_ligne_id, quantite, date_jour, transfere_stock")
+    .select("id, programme_ligne_id, code, quantite, date_jour, transfere_stock")
     .in("id", entryIds);
 
   if (entriesError) {
@@ -220,7 +221,14 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
   }
 
   const entryRows = (entries as
-    | { id: number; programme_ligne_id: number; quantite: number; date_jour: string; transfere_stock: boolean }[]
+    | {
+        id: number;
+        programme_ligne_id: number;
+        code: string | null;
+        quantite: number;
+        date_jour: string;
+        transfere_stock: boolean;
+      }[]
     | null) ?? [];
 
   const pendingRows = entryRows.filter((row) => !row.transfere_stock);
@@ -298,7 +306,25 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
     throw new Error("Ligne introuvable ou deja transferee.");
   }
 
-  const payload = filteredGroups.map(({ representativeId, memberIds }) => {
+  type LotStockPayload = {
+    article_id: number;
+    date_jour: string;
+    numero_lot: string;
+    code_normalise: string;
+    date_fabrication: string;
+    date_peremption: string | null;
+    qte_entree: number;
+    qte_sortie: number;
+    chambre: string | null;
+    code_pays: string | null;
+    source_import: string;
+    note: null;
+    utilisateur: string | null;
+  };
+
+  const payload: LotStockPayload[] = [];
+
+  for (const { representativeId, memberIds } of filteredGroups) {
     const members = memberIds.map((id) => pendingById.get(id)!).filter(Boolean);
     const first = members[0];
     const ligne = ligneById.get(first.programme_ligne_id);
@@ -311,6 +337,18 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
 
     if (!articleId || !numeroLot) {
       throw new Error("Une ligne de production n'a pas d'article ou de code associe.");
+    }
+
+    // Code corrige a l'ecran juste avant de valider (typo, code manquant
+    // rempli a la main...) - demande explicite : "si le code change dans
+    // Entree Production il faut que ca change automatique dans Suivi
+    // Production", pas seulement sur ce mouvement de stock. Compare au code
+    // d'origine (celui affiche par defaut, voir page.tsx resolvedCode) et
+    // propage le renommage en cascade des qu'il differe.
+    const ligneCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    const originalCode = first.code || (ligneCodes.length <= 1 ? ligne?.numero_lot || "" : "");
+    if (originalCode && originalCode !== numeroLot) {
+      await cascadeRenameProductionCode(originalCode, numeroLot);
     }
 
     const totalQuantiteEntrees = members.reduce((sum, member) => sum + Number(member.quantite), 0);
@@ -326,7 +364,7 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
       throw new Error("Quantite ou date de fabrication invalide sur une ligne.");
     }
 
-    return {
+    payload.push({
       article_id: articleId,
       date_jour: new Date().toISOString().slice(0, 10),
       numero_lot: numeroLot,
@@ -340,8 +378,8 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
       source_import: "web:entree-production",
       note: null,
       utilisateur: currentUser,
-    };
-  });
+    });
+  }
 
   // Lignes ajoutees a la main sur ce groupe (article jamais passe par
   // l'Emballage/Suivi Production - arrivage exceptionnel, correction...) -
