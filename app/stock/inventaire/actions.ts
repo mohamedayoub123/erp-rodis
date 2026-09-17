@@ -9,6 +9,7 @@ import {
   canInventairePfRegulariserUser,
 } from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
+import { fetchAllLotBalances, fetchArticleCategorieById, fetchArticleGammeById } from "./lib";
 
 // Tolerance flottante pour comparer un comptage physique au stock systeme -
 // jamais une egalite stricte (quantites avec decimales).
@@ -16,7 +17,6 @@ const EPSILON = 0.01;
 const TAILLE_LOT_MIN = 1;
 const TAILLE_LOT_MAX = 200;
 
-type LotBalanceRow = { article_id: number; numero_lot: string; stock: number };
 type MovementCountRow = { article_id: number; mouvement_count: number };
 type LigneRow = {
   id: number;
@@ -53,30 +53,6 @@ async function requireInventaireRegulariser() {
     throw new Error("Cet utilisateur ne peut pas regulariser le stock PF.");
   }
   return currentUser;
-}
-
-async function fetchAllLotBalances(): Promise<LotBalanceRow[]> {
-  // Deduplique par (article_id, numero_lot) - filet de securite en plus de
-  // l'ORDER BY cote SQL (stock_pf_lot_balances) : sans ordre stable, une
-  // pagination en plusieurs appels peut renvoyer la meme ligne deux fois
-  // (bug reel confirme : 457 doublons sur 1861 lignes recuperees avant ce
-  // correctif), ce qui provoquait une violation de contrainte unique lors
-  // de la distribution d'un lot de travail. Voir
-  // scripts/sql/fix_lot_balances_pagination_order.sql.
-  const byKey = new Map<string, LotBalanceRow>();
-  let from = 0;
-  const pageSize = 1000;
-  for (;;) {
-    const { data, error } = await supabaseServer.rpc("stock_pf_lot_balances").range(from, from + pageSize - 1);
-    if (error) throw new Error(error.message);
-    const chunk = (data ?? []) as LotBalanceRow[];
-    for (const row of chunk) {
-      byKey.set(`${row.article_id}::${row.numero_lot}`, row);
-    }
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-  return [...byKey.values()];
 }
 
 async function fetchMovementCounts(): Promise<Map<number, number>> {
@@ -120,22 +96,39 @@ async function fetchArticlesFiniIds(): Promise<Set<number>> {
 // physique) : parmi tout ce qui a un stock systeme positif (articles finis
 // seulement, jamais le vrac) et n'a pas encore ete distribue dans CETTE
 // session, priorise l'article le plus actif (pf_movement_counts) d'abord.
-// Retourne le nombre de lignes creees - 0 = plus rien a distribuer, la
-// session peut etre cloturee.
-async function distribuerProchainLot(sessionId: number, tailleLot: number): Promise<number> {
-  const [balances, movementCounts, articlesFiniIds, assignedResult, maxLotResult] = await Promise.all([
-    fetchAllLotBalances(),
-    fetchMovementCounts(),
-    fetchArticlesFiniIds(),
-    supabaseServer.from("inventaire_pf_lignes").select("article_id, numero_lot").eq("session_id", sessionId),
-    supabaseServer
-      .from("inventaire_pf_lignes")
-      .select("lot_numero")
-      .eq("session_id", sessionId)
-      .order("lot_numero", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
+// categoriesFiltre/gammesFiltre limite l'univers de cette session a
+// certaines categories (type_article) et/ou gammes (null/vide = pas de
+// filtre sur cette dimension) - meme regle que cote MP : un seul des 2
+// remplis = ce filtre seul, les 2 remplis ENSEMBLE = intersection. Permet
+// aussi de lancer plusieurs inventaires en parallele, chacun sur son propre
+// perimetre.
+// Retourne le nombre de lignes creees - 0 = plus rien a distribuer dans le
+// perimetre de cette session, elle peut etre cloturee.
+async function distribuerProchainLot(
+  sessionId: number,
+  tailleLot: number,
+  categoriesFiltre: string[] | null,
+  gammesFiltre: string[] | null
+): Promise<number> {
+  const hasCategorieFiltre = !!categoriesFiltre && categoriesFiltre.length > 0;
+  const hasGammeFiltre = !!gammesFiltre && gammesFiltre.length > 0;
+
+  const [balances, movementCounts, articlesFiniIds, categorieByArticleId, gammeByArticleId, assignedResult, maxLotResult] =
+    await Promise.all([
+      fetchAllLotBalances(),
+      fetchMovementCounts(),
+      fetchArticlesFiniIds(),
+      hasCategorieFiltre ? fetchArticleCategorieById() : Promise.resolve(null),
+      hasGammeFiltre ? fetchArticleGammeById() : Promise.resolve(null),
+      supabaseServer.from("inventaire_pf_lignes").select("article_id, numero_lot").eq("session_id", sessionId),
+      supabaseServer
+        .from("inventaire_pf_lignes")
+        .select("lot_numero")
+        .eq("session_id", sessionId)
+        .order("lot_numero", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
   const assignedKeys = new Set(
     ((assignedResult.data ?? []) as { article_id: number; numero_lot: string }[]).map(
@@ -143,9 +136,17 @@ async function distribuerProchainLot(sessionId: number, tailleLot: number): Prom
     )
   );
 
-  const restants = balances.filter(
-    (row) => articlesFiniIds.has(row.article_id) && !assignedKeys.has(`${row.article_id}::${row.numero_lot}`)
-  );
+  const categorieSet = hasCategorieFiltre ? new Set(categoriesFiltre) : null;
+  const gammeSet = hasGammeFiltre ? new Set(gammesFiltre) : null;
+
+  const restants = balances.filter((row) => {
+    if (!articlesFiniIds.has(row.article_id)) return false;
+    if (assignedKeys.has(`${row.article_id}::${row.numero_lot}`)) return false;
+    if (!categorieSet && !gammeSet) return true;
+    const matchesCategorie = categorieSet ? categorieSet.has(categorieByArticleId?.get(row.article_id) ?? "") : false;
+    const matchesGamme = gammeSet ? gammeSet.has(gammeByArticleId?.get(row.article_id) ?? "") : false;
+    return hasCategorieFiltre && hasGammeFiltre ? matchesCategorie && matchesGamme : matchesCategorie || matchesGamme;
+  });
 
   restants.sort((a, b) => {
     const moveDiff = (movementCounts.get(b.article_id) ?? 0) - (movementCounts.get(a.article_id) ?? 0);
@@ -176,30 +177,37 @@ async function distribuerProchainLot(sessionId: number, tailleLot: number): Prom
 export async function demarrerInventairePfAction(formData: FormData) {
   const currentUser = await requireInventaireDemarrer();
 
-  const { data: activeSession } = await supabaseServer
-    .from("inventaire_pf_sessions")
-    .select("id")
-    .eq("statut", "en_cours")
-    .maybeSingle();
-  if (activeSession) {
-    throw new Error("Un inventaire est deja en cours.");
-  }
-
   const tailleLotRaw = Number(formData.get("taille_lot"));
   const tailleLot = Number.isFinite(tailleLotRaw) ? Math.trunc(tailleLotRaw) : 0;
   if (tailleLot < TAILLE_LOT_MIN || tailleLot > TAILLE_LOT_MAX) {
     throw new Error(`Choisis un nombre d'articles entre ${TAILLE_LOT_MIN} et ${TAILLE_LOT_MAX}.`);
   }
 
+  // Plusieurs sessions peuvent tourner en meme temps (demande explicite,
+  // meme fonctionnement que cote MP), chacune sur ses propres categories
+  // et/ou gammes - vide/rien coche = tout le PF, comme avant.
+  const categories = formData.getAll("categorie").map((value) => String(value).trim()).filter(Boolean);
+  const gammes = formData.getAll("gamme").map((value) => String(value).trim()).filter(Boolean);
+
   const { data: session, error } = await supabaseServer
     .from("inventaire_pf_sessions")
-    .insert({ taille_lot: tailleLot, cree_par: currentUser })
+    .insert({
+      taille_lot: tailleLot,
+      cree_par: currentUser,
+      categories_filtre: categories.length > 0 ? categories : null,
+      gammes_filtre: gammes.length > 0 ? gammes : null,
+    })
     .select("id")
     .single();
   if (error) throw new Error(error.message);
 
   const sessionId = (session as { id: number }).id;
-  const distribues = await distribuerProchainLot(sessionId, tailleLot);
+  const distribues = await distribuerProchainLot(
+    sessionId,
+    tailleLot,
+    categories.length > 0 ? categories : null,
+    gammes.length > 0 ? gammes : null
+  );
 
   if (distribues === 0) {
     await supabaseServer
@@ -208,12 +216,17 @@ export async function demarrerInventairePfAction(formData: FormData) {
       .eq("id", sessionId);
   }
 
+  const scopeParts = [
+    categories.length > 0 ? `categories: ${categories.join(", ")}` : null,
+    gammes.length > 0 ? `gammes: ${gammes.join(", ")}` : null,
+  ].filter(Boolean);
+
   await logAudit({
     utilisateur: currentUser,
     module: "InventairePf",
     action: "creation",
     cible: `Session #${sessionId}`,
-    resume: `Inventaire PF demarre (lots de ${tailleLot})`,
+    resume: `Inventaire PF demarre (lots de ${tailleLot}${scopeParts.length > 0 ? `, ${scopeParts.join(", ")}` : ""})`,
   });
 
   revalidatePath("/stock/inventaire");
@@ -304,11 +317,17 @@ export async function soumettreComptagePfAction(formData: FormData) {
 
   const { data: sessionData, error: sessionError } = await supabaseServer
     .from("inventaire_pf_sessions")
-    .select("id, statut, taille_lot")
+    .select("id, statut, taille_lot, categories_filtre, gammes_filtre")
     .eq("id", sessionId)
     .maybeSingle();
   if (sessionError || !sessionData) throw new Error("Session introuvable.");
-  const session = sessionData as { id: number; statut: string; taille_lot: number };
+  const session = sessionData as {
+    id: number;
+    statut: string;
+    taille_lot: number;
+    categories_filtre: string[] | null;
+    gammes_filtre: string[] | null;
+  };
   if (session.statut !== "en_cours") throw new Error("Cet inventaire est deja termine.");
 
   const ligneIds = formData
@@ -373,7 +392,12 @@ export async function soumettreComptagePfAction(formData: FormData) {
       .eq("statut", "a_compter");
 
     if ((pendingCount ?? 0) === 0) {
-      const distribues = await distribuerProchainLot(sessionId, session.taille_lot);
+      const distribues = await distribuerProchainLot(
+        sessionId,
+        session.taille_lot,
+        session.categories_filtre,
+        session.gammes_filtre
+      );
       if (distribues === 0) {
         await supabaseServer
           .from("inventaire_pf_sessions")
