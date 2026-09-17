@@ -27,6 +27,7 @@ export type ExportDataRow =
       stock: number;
       reste: number;
       qtEnCours: number;
+      resteApresConditionnement: number;
     };
 
 const THIN_BORDER: Partial<ExcelJS.Border> = { style: "thin", color: { argb: "FFCBD5E1" } };
@@ -74,6 +75,7 @@ export function TableauExportButton({
       "Stock",
       "Reste",
       "Qt en cours de Conditionnement",
+      "Reste apres Conditionnement",
     ];
     const totalCols = headerLabels.length;
 
@@ -89,11 +91,12 @@ export function TableauExportButton({
 
     bannerRow(title);
 
-    const statutRow = sheet.addRow(["Statut", ...commandColumns.map((col) => col.statut), "", "", "", ""]);
-    const clientRow = sheet.addRow(["Client", ...commandColumns.map((col) => col.client || "-"), "", "", "", ""]);
+    const statutRow = sheet.addRow(["Statut", ...commandColumns.map((col) => col.statut), "", "", "", "", ""]);
+    const clientRow = sheet.addRow(["Client", ...commandColumns.map((col) => col.client || "-"), "", "", "", "", ""]);
     const camionRow = sheet.addRow([
       "Nombre de camion",
       ...commandColumns.map((col) => (col.nombreCamion === null ? "-" : col.nombreCamion)),
+      "",
       "",
       "",
       "",
@@ -106,10 +109,12 @@ export function TableauExportButton({
       "STOCK",
       "RESTE",
       "Qt en cours",
+      "Reste apres",
     ]);
     const dateRow = sheet.addRow([
       "Date commande",
       ...commandColumns.map((col) => formatDateFr(col.dateEcriture)),
+      "",
       "",
       "",
       "",
@@ -160,20 +165,27 @@ export function TableauExportButton({
         row.stock,
         row.reste,
         row.qtEnCours || "",
+        row.resteApresConditionnement,
       ];
 
       const excelRow = sheet.addRow(values);
       excelRow.eachCell((cell, colIndex) => {
         cell.border = ALL_BORDERS;
         cell.alignment = { vertical: "middle", wrapText: true };
-        const fill =
-          colIndex === 1
+        const isResteApresCol = colIndex === totalCols;
+        const fill = isResteApresCol
+          ? row.resteApresConditionnement < 0
+            ? "FFDC2626"
+            : "FF059669"
+          : colIndex === 1
             ? articleFill
-            : colIndex > totalCols - 4
+            : colIndex > totalCols - 5
               ? summaryFill
               : lineFill;
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
-        if (isManque && colIndex > totalCols - 4) {
+        if (isResteApresCol) {
+          cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+        } else if (isManque && colIndex > totalCols - 5) {
           cell.font = { color: { argb: "FFB91C1C" }, bold: true };
         }
         trackWidth(colIndex, String(cell.value ?? ""));
