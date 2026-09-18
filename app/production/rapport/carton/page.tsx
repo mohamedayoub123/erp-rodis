@@ -201,7 +201,7 @@ export default async function RapportCartonPage({ searchParams }: { searchParams
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Rapport Carton</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Rapport de Conditionnement</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Par code : carton commande (prevu) vs carton reellement fabrique.
               </p>

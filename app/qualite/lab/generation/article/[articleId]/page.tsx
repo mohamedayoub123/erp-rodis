@@ -1,0 +1,167 @@
+import { notFound } from "next/navigation";
+import { unstable_noStore as noStore } from "next/cache";
+import { supabaseServer } from "@/lib/supabase-server";
+import { canQualiteLabOverwriteLotUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { BackButton } from "@/app/_components/back-button";
+import { RefreshButton } from "@/app/_components/refresh-button";
+import { SubmitButton } from "@/app/_components/submit-button";
+import { ConfirmSubmitButton } from "@/app/_components/confirm-submit-button";
+import { formatDateTime } from "@/lib/format-date";
+import { regenerateLabCodesAction, deleteLabCodeGenerationAction } from "../../actions";
+
+type GenerationRow = {
+  id: number;
+  qt_vrac: number | null;
+  nb_code: number;
+  type: "auto" | "manuel";
+  generated_codes: string[] | null;
+  utilisateur: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type SearchParams = Promise<{ erreur?: string }>;
+
+export default async function QualiteLabGenerationArticlePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ articleId: string }>;
+  searchParams: SearchParams;
+}) {
+  noStore();
+  const { articleId } = await params;
+  const articleIdNum = Number(articleId);
+  const { erreur } = await searchParams;
+
+  if (!articleIdNum) {
+    notFound();
+  }
+
+  const currentUser = await getCurrentStockUser();
+  const canWrite = await canWritePageUser(currentUser, "qualiteLab");
+  const canOverwriteWhenFilled = await canQualiteLabOverwriteLotUser(currentUser);
+
+  const { data: articleData } = await supabaseServer
+    .from("articles")
+    .select("nom_article, lab_code_auto, lab_code_manu")
+    .eq("id", articleIdNum)
+    .maybeSingle();
+  const article = articleData as { nom_article: string; lab_code_auto: string | null; lab_code_manu: string | null } | null;
+
+  if (!article) {
+    notFound();
+  }
+
+  const { data: generationsData } = await supabaseServer
+    .from("qualite_lab_code_generations")
+    .select("id, qt_vrac, nb_code, type, generated_codes, utilisateur, created_at, updated_at")
+    .eq("article_id", articleIdNum)
+    .order("created_at", { ascending: true });
+  const generations = (generationsData ?? []) as GenerationRow[];
+
+  if (generations.length === 0) {
+    notFound();
+  }
+
+  return (
+    <main className="min-h-screen bg-[linear-gradient(180deg,#f5f0ff_0%,#faf8ff_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
+      <div className="mx-auto w-full max-w-4xl space-y-6">
+        <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
+                ERP Rodis
+              </p>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
+                {article.nom_article}
+              </h1>
+              <p className="mt-2 text-sm text-slate-600">
+                Code auto : {article.lab_code_auto || "-"} - Code manuel : {article.lab_code_manu || "-"}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <BackButton href="/qualite/lab/generation" label="Retour" />
+              <RefreshButton />
+            </div>
+          </div>
+        </section>
+
+        {erreur ? (
+          <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
+            {erreur}
+          </div>
+        ) : null}
+
+        <section className="space-y-4">
+          {generations.map((generation, index) => (
+            <div
+              key={generation.id}
+              className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)] space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="rounded-full bg-violet-100 px-4 py-1 text-sm font-bold text-violet-800">
+                  CLAB{index + 1}
+                </span>
+                <span className="text-xs font-medium text-slate-500">{formatDateTime(generation.created_at)}</span>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Qt vrac</p>
+                  <p className="text-lg font-bold text-slate-900">{generation.qt_vrac ?? "-"}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Nombre de code</p>
+                  <p className="text-lg font-bold text-slate-900">{generation.nb_code}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Type</p>
+                  <p className="text-lg font-bold text-slate-900">{generation.type === "auto" ? "Auto" : "Manuel"}</p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Derniers codes generes
+                </p>
+                <p className="text-lg font-bold text-slate-900">
+                  {generation.generated_codes && generation.generated_codes.length > 0
+                    ? generation.generated_codes.join(", ")
+                    : "Aucun pour le moment"}
+                </p>
+              </div>
+
+              {canWrite ? (
+                <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+                  <form action={regenerateLabCodesAction}>
+                    <input type="hidden" name="generation_id" value={generation.id} />
+                    <SubmitButton
+                      pendingLabel="Generation..."
+                      className="rounded-full bg-violet-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-600 disabled:opacity-60"
+                    >
+                      Regenerer les codes
+                    </SubmitButton>
+                  </form>
+                  {!canOverwriteWhenFilled ? (
+                    <p className="text-xs text-slate-500">Reserve aux utilisateurs autorises.</p>
+                  ) : null}
+                  <form action={deleteLabCodeGenerationAction} className="ml-auto">
+                    <input type="hidden" name="generation_id" value={generation.id} />
+                    <ConfirmSubmitButton
+                      confirmMessage={`Supprimer CLAB${index + 1} ?`}
+                      pendingLabel="Suppression..."
+                      className="rounded-full border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-700"
+                    >
+                      Supprimer
+                    </ConfirmSubmitButton>
+                  </form>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </section>
+      </div>
+    </main>
+  );
+}

@@ -27,7 +27,7 @@ const TILES = [
     description: "Par code : vrac fabrique vs carton fabrique converti en kg, et l'ecart matiere entre les deux.",
   },
   {
-    label: "Rapport Carton",
+    label: "Rapport de Conditionnement",
     href: "/production/rapport/carton",
     pageKey: "productionRapportCarton",
     icon: "\u{1F4E6}",

@@ -78,6 +78,7 @@ export async function createLabCodeGenerationAction(formData: FormData) {
 // nouveau code EST modifier un code deja ecrit.
 export async function regenerateLabCodesAction(formData: FormData) {
   const generationId = Number(String(formData.get("generation_id") || "0"));
+  let articleId: number | null = null;
 
   // Meme raison que saveFabricationRapportAction : Next.js remplace tout
   // throw non attrape par la page d'erreur generique - les validations
@@ -107,6 +108,7 @@ export async function regenerateLabCodesAction(formData: FormData) {
     if (!generation) {
       throw new Error("Entree introuvable.");
     }
+    articleId = generation.article_id;
 
     const field = generation.type === "auto" ? "lab_code_auto" : "lab_code_manu";
 
@@ -157,14 +159,18 @@ export async function regenerateLabCodesAction(formData: FormData) {
     }
 
     revalidatePath("/qualite/lab/generation");
-    revalidatePath(`/qualite/lab/generation/${generationId}`);
+    revalidatePath(`/qualite/lab/generation/article/${articleId}`);
     revalidatePath("/qualite/lab");
   } catch (error) {
     if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) {
       throw error;
     }
     const message = error instanceof Error ? error.message : "Erreur inconnue pendant la generation.";
-    redirect(`/qualite/lab/generation/${generationId}?erreur=${encodeURIComponent(message)}`);
+    redirect(
+      articleId
+        ? `/qualite/lab/generation/article/${articleId}?erreur=${encodeURIComponent(message)}`
+        : `/qualite/lab/generation?erreur=${encodeURIComponent(message)}`
+    );
   }
 }
 
@@ -180,11 +186,32 @@ export async function deleteLabCodeGenerationAction(formData: FormData) {
     throw new Error("Entree invalide.");
   }
 
+  const { data: generationData } = await supabaseServer
+    .from("qualite_lab_code_generations")
+    .select("article_id")
+    .eq("id", generationId)
+    .maybeSingle();
+  const articleId = (generationData as { article_id: number } | null)?.article_id ?? null;
+
   const { error } = await supabaseServer.from("qualite_lab_code_generations").delete().eq("id", generationId);
   if (error) {
     throw new Error(error.message);
   }
 
   revalidatePath("/qualite/lab/generation");
+  if (articleId) revalidatePath(`/qualite/lab/generation/article/${articleId}`);
+
+  // Reste sur la page article s'il reste d'autres entrees CLAB pour cet
+  // article, sinon retourne a la liste (la page article ferait 404 sur un
+  // article sans plus aucune entree).
+  if (articleId) {
+    const { count } = await supabaseServer
+      .from("qualite_lab_code_generations")
+      .select("id", { count: "exact", head: true })
+      .eq("article_id", articleId);
+    if (count && count > 0) {
+      redirect(`/qualite/lab/generation/article/${articleId}`);
+    }
+  }
   redirect("/qualite/lab/generation");
 }
