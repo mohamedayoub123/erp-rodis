@@ -6,10 +6,15 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDateTime } from "@/lib/format-date";
 
-type GenerationRow = {
+type BatchRow = {
   id: number;
+  utilisateur: string | null;
+  created_at: string;
+};
+
+type GenerationRow = {
+  batch_id: number;
   article_id: number;
-  updated_at: string;
 };
 
 export default async function QualiteLabGenerationListPage() {
@@ -17,10 +22,15 @@ export default async function QualiteLabGenerationListPage() {
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "qualiteLab");
 
+  const { data: batchesData } = await supabaseServer
+    .from("qualite_lab_code_batches")
+    .select("id, utilisateur, created_at")
+    .order("created_at", { ascending: true });
+  const batches = (batchesData ?? []) as BatchRow[];
+
   const { data: generationsData } = await supabaseServer
     .from("qualite_lab_code_generations")
-    .select("id, article_id, updated_at")
-    .order("updated_at", { ascending: false });
+    .select("batch_id, article_id");
   const generations = (generationsData ?? []) as GenerationRow[];
 
   const articleIds = [...new Set(generations.map((row) => row.article_id))];
@@ -32,22 +42,22 @@ export default async function QualiteLabGenerationListPage() {
     ((articlesData ?? []) as { id: number; nom_article: string }[]).map((row) => [row.id, row.nom_article])
   );
 
-  // Une seule ligne par article (regroupe les entrees CLAB1/CLAB2/... qui
-  // creaient avant une ligne separee par soumission - demande explicite : le
-  // detail par article liste maintenant tout l'historique).
-  const byArticle = new Map<number, { count: number; lastUpdatedAt: string }>();
+  const articleIdsByBatch = new Map<number, number[]>();
   for (const row of generations) {
-    const existing = byArticle.get(row.article_id);
-    if (existing) {
-      existing.count += 1;
-      if (row.updated_at > existing.lastUpdatedAt) existing.lastUpdatedAt = row.updated_at;
-    } else {
-      byArticle.set(row.article_id, { count: 1, lastUpdatedAt: row.updated_at });
-    }
+    const list = articleIdsByBatch.get(row.batch_id) ?? [];
+    list.push(row.article_id);
+    articleIdsByBatch.set(row.batch_id, list);
   }
-  const articleRows = [...byArticle.entries()]
-    .map(([articleId, info]) => ({ articleId, ...info }))
-    .sort((a, b) => (a.lastUpdatedAt < b.lastUpdatedAt ? 1 : -1));
+
+  // CLAB numerote par ordre de creation (le plus ancien = CLAB1) - affiche
+  // ensuite du plus recent au plus ancien.
+  const batchRows = batches
+    .map((batch, index) => ({
+      batch,
+      label: `CLAB${index + 1}`,
+      articleIds: articleIdsByBatch.get(batch.id) ?? [],
+    }))
+    .reverse();
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f0ff_0%,#faf8ff_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -62,7 +72,8 @@ export default async function QualiteLabGenerationListPage() {
                 Lab - Generation de codes
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Une ligne par article - ouvre l&apos;article pour voir tout son historique (CLAB1, CLAB2, ...).
+                Chaque Save (un ou plusieurs articles a la fois) devient un CLAB - ouvre-le pour voir les articles
+                et leurs codes, et l&apos;imprimer.
               </p>
             </div>
 
@@ -82,31 +93,34 @@ export default async function QualiteLabGenerationListPage() {
         </section>
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          {articleRows.length === 0 ? (
+          {batchRows.length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-500">Aucune entree pour le moment.</div>
           ) : (
             <div className="max-h-[75vh] overflow-auto">
               <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="bg-slate-50 text-slate-950">
                   <tr>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Article</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Nb d&apos;entrees</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Derniere mise a jour</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">CLAB</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Articles</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Utilisateur</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {articleRows.map((row) => (
-                    <tr key={row.articleId} className="border-t border-slate-100">
-                      <td className="px-4 py-3 font-medium text-slate-900">
-                        <Link
-                          href={`/qualite/lab/generation/article/${row.articleId}`}
-                          className="text-violet-700 hover:underline"
-                        >
-                          {articleNameById.get(row.articleId) || `#${row.articleId}`}
+                  {batchRows.map(({ batch, label, articleIds: ids }) => (
+                    <tr key={batch.id} className="border-t border-slate-100">
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        <Link href={`/qualite/lab/generation/${batch.id}`} className="text-violet-700 hover:underline">
+                          {label}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{row.count}</td>
-                      <td className="px-4 py-3 text-slate-500">{formatDateTime(row.lastUpdatedAt)}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {ids.length === 0
+                          ? "-"
+                          : ids.map((id) => articleNameById.get(id) || `#${id}`).join(", ")}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">{formatDateTime(batch.created_at)}</td>
+                      <td className="px-4 py-3 text-slate-500">{batch.utilisateur || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
