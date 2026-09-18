@@ -21,7 +21,119 @@ type CodeRow = {
   code: string;
   quantite: number;
   dateFabrication: string | null;
+  pdLabel: string;
+  dateDispatch: string | null;
+  programme: string;
 };
+
+type PdInfo = { pdLabel: string; date: string };
+type DispatcherHistoryRow = { groupe_id: number | null; code: string | null; created_at: string };
+
+// "Programme" (colonne du meme nom sur Programme par ligne) - champ libre
+// tape a la main sur une ligne (programme_lignes.programe), independant du
+// code auto-genere - demande explicite : le retrouver aussi ici, associe
+// au code. Un meme code peut porter plusieurs "Programme" differents s'il
+// est partage entre plusieurs lignes (rare) - jamais ecrase, tous gardes.
+async function fetchProgrammeByCode(): Promise<Map<string, string>> {
+  type LigneProgrammeRow = { numero_lot: string | null; programe: string | null };
+  const rows: LigneProgrammeRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("programme_lignes")
+      .select("numero_lot, programe")
+      .not("programe", "is", null)
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as LigneProgrammeRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const programmesByCode = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const programme = (row.programe || "").trim();
+    if (!programme) continue;
+    const codes = (row.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    for (const code of codes) {
+      const set = programmesByCode.get(code) ?? new Set<string>();
+      set.add(programme);
+      programmesByCode.set(code, set);
+    }
+  }
+
+  const result = new Map<string, string>();
+  for (const [code, set] of programmesByCode.entries()) {
+    result.set(code, [...set].join(", "));
+  }
+  return result;
+}
+
+// PD + date de dispatch par code (programme_dispatcher_history) - meme
+// numerotation "PDn" que buildPdLabelByCode (app/production/suivi/data.ts),
+// recalculee ici directement pour ne pas dupliquer un aller-retour reseau
+// en plus (cette page n'a pas besoin des autres donnees Suivi Production).
+// Garde la date de dispatch la plus ANCIENNE quand un meme code apparait
+// plusieurs fois dans l'historique.
+async function fetchPdInfoByCode(): Promise<Map<string, PdInfo>> {
+  const rows: DispatcherHistoryRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("programme_dispatcher_history")
+      .select("groupe_id, code, created_at")
+      .range(from, from + pageSize - 1);
+
+    if (error) break;
+
+    const chunk = (data ?? []) as DispatcherHistoryRow[];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const earliestByGroup = new Map<number, string>();
+  for (const row of rows) {
+    if (row.groupe_id === null) continue;
+    const current = earliestByGroup.get(row.groupe_id);
+    if (!current || new Date(row.created_at).getTime() < new Date(current).getTime()) {
+      earliestByGroup.set(row.groupe_id, row.created_at);
+    }
+  }
+
+  const orderedGroupIds = [...earliestByGroup.entries()]
+    .sort((a, b) => new Date(a[1]).getTime() - new Date(b[1]).getTime())
+    .map(([groupeId]) => groupeId);
+
+  const pdLabelByGroup = new Map<number, string>();
+  orderedGroupIds.forEach((groupeId, index) => {
+    pdLabelByGroup.set(groupeId, `PD${index + 1}`);
+  });
+
+  const infoByCode = new Map<string, PdInfo>();
+  for (const row of rows) {
+    const code = (row.code || "").trim();
+    if (!code || row.groupe_id === null) continue;
+    const pdLabel = pdLabelByGroup.get(row.groupe_id);
+    if (!pdLabel) continue;
+
+    const existing = infoByCode.get(code);
+    if (!existing || new Date(row.created_at).getTime() < new Date(existing.date).getTime()) {
+      infoByCode.set(code, { pdLabel, date: row.created_at });
+    }
+  }
+
+  return infoByCode;
+}
 
 async function fetchAllLots() {
   const rows: LotRow[] = [];
@@ -59,7 +171,11 @@ export default async function StockParCodePfPage({ searchParams }: { searchParam
   const codeFilter = (params.code || "").trim().toLowerCase();
   const hasFilters = Boolean(articleFilter || codeFilter);
 
-  const { rows: lots, error } = await fetchAllLots();
+  const [{ rows: lots, error }, pdInfoByCode, programmeByCode] = await Promise.all([
+    fetchAllLots(),
+    fetchPdInfoByCode(),
+    fetchProgrammeByCode(),
+  ]);
 
   // Regroupe par code (numero de lot) - la quantite est le solde
   // entree-sortie de ce lot precis, et la date de fabrication vient de la
@@ -73,12 +189,16 @@ export default async function StockParCodePfPage({ searchParams }: { searchParam
     const key = `${row.article_id}::${code.toUpperCase()}`;
     let group = groups.get(key);
     if (!group) {
+      const pdInfo = pdInfoByCode.get(code);
       group = {
         key,
         article: articleName(row) || "-",
         code,
         quantite: 0,
         dateFabrication: null,
+        pdLabel: pdInfo?.pdLabel || "-",
+        dateDispatch: pdInfo?.date || null,
+        programme: programmeByCode.get(code) || "-",
       };
       groups.set(key, group);
     }
@@ -189,6 +309,9 @@ export default async function StockParCodePfPage({ searchParams }: { searchParam
                     <th className="px-6 py-4 font-semibold">Code</th>
                     <th className="px-6 py-4 font-semibold">Quantite</th>
                     <th className="px-6 py-4 font-semibold">Date fabrication</th>
+                    <th className="px-6 py-4 font-semibold">PD</th>
+                    <th className="px-6 py-4 font-semibold">Date dispatch</th>
+                    <th className="px-6 py-4 font-semibold">Programme</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -202,6 +325,9 @@ export default async function StockParCodePfPage({ searchParams }: { searchParam
                         </span>
                       </td>
                       <td className="px-6 py-4 text-slate-600">{formatDate(row.dateFabrication)}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.pdLabel}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatDate(row.dateDispatch)}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.programme}</td>
                     </tr>
                   ))}
                 </tbody>
