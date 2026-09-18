@@ -145,154 +145,36 @@ export async function createLabCodeGenerationAction(formData: FormData) {
   redirect(`/qualite/lab/generation/${batchId}`);
 }
 
-// Regenere les codes de CETTE ligne (un seul article dans un CLAB) :
-// repart du dernier code Lab connu de l'article (lab_code_auto ou
-// lab_code_manu selon le type choisi a la creation), genere "nb_code"
-// codes successifs, et remplace le code Lab de l'article par le DERNIER de
-// la serie - meme regle "deja rempli -> reserve aux utilisateurs
-// autorises" que le reste de Lab, puisque generer un nouveau code EST
-// modifier un code deja ecrit. Utile si les codes n'ont pas ete generes a
-// la creation (utilisateur sans ce droit a l'epoque) ou pour re-tirer la
-// suite apres une correction.
-export async function regenerateLabCodesAction(formData: FormData) {
-  const generationId = Number(String(formData.get("generation_id") || "0"));
-  let batchId: number | null = null;
-
-  // Meme raison que saveFabricationRapportAction : Next.js remplace tout
-  // throw non attrape par la page d'erreur generique - les validations
-  // ci-dessous (pas de code de depart, format non reconnu, pas autorise a
-  // ecraser) doivent remonter un vrai message sur la page du CLAB.
-  try {
-    const currentUser = await getCurrentStockUser();
-
-    if (!(await canWritePageUser(currentUser, "qualiteLab"))) {
-      throw new Error("Cet utilisateur ne peut pas regenerer de code Lab.");
-    }
-
-    if (!generationId) {
-      throw new Error("Entree invalide.");
-    }
-
-    const { data: generationData, error: generationError } = await supabaseServer
-      .from("qualite_lab_code_generations")
-      .select("article_id, nb_code, type, batch_id")
-      .eq("id", generationId)
-      .maybeSingle();
-
-    if (generationError) {
-      throw new Error(generationError.message);
-    }
-    const generation = generationData as
-      | { article_id: number; nb_code: number; type: "auto" | "manuel"; batch_id: number }
-      | null;
-    if (!generation) {
-      throw new Error("Entree introuvable.");
-    }
-    batchId = generation.batch_id;
-
-    const field = generation.type === "auto" ? "lab_code_auto" : "lab_code_manu";
-
-    const { data: articleData, error: articleError } = await supabaseServer
-      .from("articles")
-      .select(field)
-      .eq("id", generation.article_id)
-      .maybeSingle();
-
-    if (articleError) {
-      throw new Error(articleError.message);
-    }
-    const currentCode = (articleData as Record<string, string | null> | null)?.[field] ?? null;
-
-    if (!currentCode) {
-      throw new Error(
-        `Aucun code de depart - remplis d'abord le "${field === "lab_code_auto" ? "Code auto" : "Code manuel"}" de cet article dans Lab.`
-      );
-    }
-
-    // Regenerer un code EST modifier un code deja rempli - meme droit que le
-    // reste de Lab.
-    if (!(await canQualiteLabOverwriteLotUser(currentUser))) {
-      throw new Error("Cet utilisateur ne peut pas regenerer un code deja rempli.");
-    }
-
-    const codes = generateSequentialLabCodes(currentCode, generation.nb_code);
-    if (!codes) {
-      throw new Error(`Format de code non reconnu ("${currentCode}") - impossible de generer la suite.`);
-    }
-
-    const lastCode = codes[codes.length - 1];
-
-    const { error: updateArticleError } = await supabaseServer
-      .from("articles")
-      .update({ [field]: lastCode })
-      .eq("id", generation.article_id);
-    if (updateArticleError) {
-      throw new Error(updateArticleError.message);
-    }
-
-    const { error: updateGenerationError } = await supabaseServer
-      .from("qualite_lab_code_generations")
-      .update({ generated_codes: codes, updated_at: new Date().toISOString() })
-      .eq("id", generationId);
-    if (updateGenerationError) {
-      throw new Error(updateGenerationError.message);
-    }
-
-    revalidatePath("/qualite/lab/generation");
-    revalidatePath(`/qualite/lab/generation/${batchId}`);
-    revalidatePath("/qualite/lab");
-  } catch (error) {
-    if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) {
-      throw error;
-    }
-    const message = error instanceof Error ? error.message : "Erreur inconnue pendant la generation.";
-    redirect(
-      batchId
-        ? `/qualite/lab/generation/${batchId}?erreur=${encodeURIComponent(message)}`
-        : `/qualite/lab/generation?erreur=${encodeURIComponent(message)}`
-    );
-  }
-}
-
-export async function deleteLabCodeGenerationAction(formData: FormData) {
+// Supprime tout le CLAB (toutes ses lignes/articles) d'un coup depuis la
+// liste, sans avoir a l'ouvrir d'abord.
+export async function deleteLabCodeBatchAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
   if (!(await canWritePageUser(currentUser, "qualiteLab"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer d'entree Lab.");
   }
 
-  const generationId = Number(String(formData.get("generation_id") || "0"));
-  if (!generationId) {
-    throw new Error("Entree invalide.");
+  const batchId = Number(String(formData.get("batch_id") || "0"));
+  if (!batchId) {
+    throw new Error("CLAB invalide.");
   }
 
-  const { data: generationData } = await supabaseServer
+  const { error: deleteGenerationsError } = await supabaseServer
     .from("qualite_lab_code_generations")
-    .select("batch_id")
-    .eq("id", generationId)
-    .maybeSingle();
-  const batchId = (generationData as { batch_id: number } | null)?.batch_id ?? null;
+    .delete()
+    .eq("batch_id", batchId);
+  if (deleteGenerationsError) {
+    throw new Error(deleteGenerationsError.message);
+  }
 
-  const { error } = await supabaseServer.from("qualite_lab_code_generations").delete().eq("id", generationId);
-  if (error) {
-    throw new Error(error.message);
+  const { error: deleteBatchError } = await supabaseServer
+    .from("qualite_lab_code_batches")
+    .delete()
+    .eq("id", batchId);
+  if (deleteBatchError) {
+    throw new Error(deleteBatchError.message);
   }
 
   revalidatePath("/qualite/lab/generation");
-  if (batchId) revalidatePath(`/qualite/lab/generation/${batchId}`);
-
-  // Reste sur la page du CLAB s'il reste d'autres lignes dedans, sinon
-  // efface le CLAB devenu vide et retourne a la liste (sinon la page ferait
-  // 404 sur un CLAB sans plus aucune ligne).
-  if (batchId) {
-    const { count } = await supabaseServer
-      .from("qualite_lab_code_generations")
-      .select("id", { count: "exact", head: true })
-      .eq("batch_id", batchId);
-    if (count && count > 0) {
-      redirect(`/qualite/lab/generation/${batchId}`);
-    }
-    await supabaseServer.from("qualite_lab_code_batches").delete().eq("id", batchId);
-  }
   redirect("/qualite/lab/generation");
 }

@@ -8,13 +8,12 @@ type Row = {
   key: string;
   articleId: number | null;
   produit: string;
-  qtVrac: string;
   nbCode: string;
   type: "auto" | "manuel";
 };
 
 function emptyRow(key: string): Row {
-  return { key, articleId: null, produit: "", qtVrac: "0", nbCode: "1", type: "auto" };
+  return { key, articleId: null, produit: "", nbCode: "1", type: "auto" };
 }
 
 const inputClass = "rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none";
@@ -59,7 +58,6 @@ export function MultiArticleGenerationForm({
       JSON.stringify(
         rows.map((row) => ({
           article_id: row.articleId,
-          qt_vrac: row.qtVrac,
           nb_code: row.nbCode,
           type: row.type,
         }))
@@ -81,7 +79,7 @@ export function MultiArticleGenerationForm({
         {rows.map((row, index) => (
           <div
             key={row.key}
-            className="grid gap-3 rounded-2xl border border-slate-200 p-4 md:grid-cols-[2fr_1fr_1fr_1fr_auto] md:items-end"
+            className="grid gap-3 rounded-2xl border border-slate-200 p-4 md:grid-cols-[2fr_1fr_1fr_auto] md:items-end"
           >
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               Article
@@ -92,16 +90,6 @@ export function MultiArticleGenerationForm({
                 hiddenName={`_article_id_${index}`}
                 textName={`_produit_${index}`}
                 onSelect={(articleId, label) => updateRow(row.key, { articleId, produit: label || "" })}
-              />
-            </label>
-            <label className="grid gap-1 text-xs font-semibold text-slate-500">
-              Qt vrac
-              <input
-                type="number"
-                step="0.01"
-                value={row.qtVrac}
-                onChange={(event) => updateRow(row.key, { qtVrac: event.target.value })}
-                className={inputClass}
               />
             </label>
             <label className="grid gap-1 text-xs font-semibold text-slate-500">

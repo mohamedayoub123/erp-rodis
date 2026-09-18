@@ -4,7 +4,9 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { ConfirmSubmitButton } from "@/app/_components/confirm-submit-button";
 import { formatDateTime } from "@/lib/format-date";
+import { deleteLabCodeBatchAction } from "./actions";
 
 type BatchRow = {
   id: number;
@@ -104,6 +106,9 @@ export default async function QualiteLabGenerationListPage() {
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Articles</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Date</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Utilisateur</th>
+                    {canEdit ? (
+                      <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Actions</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -121,6 +126,20 @@ export default async function QualiteLabGenerationListPage() {
                       </td>
                       <td className="px-4 py-3 text-slate-500">{formatDateTime(batch.created_at)}</td>
                       <td className="px-4 py-3 text-slate-500">{batch.utilisateur || "-"}</td>
+                      {canEdit ? (
+                        <td className="px-4 py-3">
+                          <form action={deleteLabCodeBatchAction}>
+                            <input type="hidden" name="batch_id" value={batch.id} />
+                            <ConfirmSubmitButton
+                              confirmMessage={`Supprimer ${label} et toutes ses lignes ?`}
+                              pendingLabel="..."
+                              className="rounded-full border border-red-200 px-4 py-2 text-xs font-semibold text-red-700"
+                            >
+                              Supprimer
+                            </ConfirmSubmitButton>
+                          </form>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
