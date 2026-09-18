@@ -4,7 +4,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { ConfirmSubmitButton } from "@/app/_components/confirm-submit-button";
+import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDateTime } from "@/lib/format-date";
 import { deleteLabCodeBatchAction } from "./actions";
 
@@ -130,13 +130,7 @@ export default async function QualiteLabGenerationListPage() {
                         <td className="px-4 py-3">
                           <form action={deleteLabCodeBatchAction}>
                             <input type="hidden" name="batch_id" value={batch.id} />
-                            <ConfirmSubmitButton
-                              confirmMessage={`Supprimer ${label} et toutes ses lignes ?`}
-                              pendingLabel="..."
-                              className="rounded-full border border-red-200 px-4 py-2 text-xs font-semibold text-red-700"
-                            >
-                              Supprimer
-                            </ConfirmSubmitButton>
+                            <DeleteIconButton confirmMessage={`Supprimer ${label} et toutes ses lignes ?`} />
                           </form>
                         </td>
                       ) : null}
