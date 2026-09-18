@@ -204,7 +204,7 @@ export function ExtraLignesField({ articleOptions }: { articleOptions: ArticleOp
             type="text"
             value={codePays}
             onChange={(event) => setCodePays(event.target.value)}
-            placeholder="Code pays"
+            placeholder="Code Ouganda"
             className={fieldClass}
           />
           {error ? <p className="text-xs font-semibold text-red-700 sm:col-span-2">{error}</p> : null}

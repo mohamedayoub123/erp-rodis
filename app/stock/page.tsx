@@ -294,7 +294,7 @@ export default async function StockPage({
               type="text"
               name="pays"
               defaultValue={pays}
-              placeholder="Code pays..."
+              placeholder="Code Ouganda..."
               className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
             />
             <input
@@ -431,7 +431,7 @@ export default async function StockPage({
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock code</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock article</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Chambre</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Code pays</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Code Ouganda</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Code sortie</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Client</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Proforma</th>

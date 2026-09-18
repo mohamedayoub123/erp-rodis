@@ -165,7 +165,7 @@ export function EntreeProductionBoard({
                           <th className="px-4 py-3 font-semibold">Date fabrication</th>
                           <th className="px-4 py-3 font-semibold">Date peremption</th>
                           <th className="px-4 py-3 font-semibold">Chambre</th>
-                          <th className="px-4 py-3 font-semibold">Code pays</th>
+                          <th className="px-4 py-3 font-semibold">Code Ouganda</th>
                           <th className="px-4 py-3 font-semibold">Action</th>
                         </tr>
                       </thead>
@@ -227,7 +227,7 @@ export function EntreeProductionBoard({
                                 <input
                                   type="text"
                                   name={`codepays_${representativeId}`}
-                                  placeholder="Code pays"
+                                  placeholder="Code Ouganda"
                                   className="w-28 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none"
                                 />
                               </td>

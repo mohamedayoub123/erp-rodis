@@ -268,7 +268,7 @@ export function EntreePanel({
             type="text"
             value={codePays}
             onChange={(event) => setCodePays(event.target.value)}
-            placeholder="Code pays"
+            placeholder="Code Ouganda"
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
           />
         </div>
