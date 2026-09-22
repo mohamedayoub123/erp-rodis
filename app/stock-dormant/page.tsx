@@ -3,9 +3,11 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { DormantTable } from "./dormant-table";
 import { DormantFilterForm } from "./filter-form";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { formatDate } from "@/lib/format-date";
 
 // Assez grand pour afficher tout le dormant sur une seule page (quelques
 // centaines de lignes typiquement) - la pagination servait a cacher des
@@ -290,6 +292,29 @@ export default async function StockDormantPage({
     8
   );
 
+  const exportColumns = [
+    { label: "Statut", key: "statut" },
+    { label: "Article", key: "article" },
+    { label: "Type", key: "type" },
+    { label: "Gamme", key: "gamme" },
+    { label: "Marque", key: "marque" },
+    { label: "N de lot", key: "numeroLot" },
+    { label: "Stock restant", key: "stock" },
+    { label: "Date fabrication", key: "dateFabrication" },
+    { label: "Age (jours)", key: "ageJours" },
+  ];
+  const exportRows = filteredRows.map((row) => ({
+    statut: row.couleur,
+    article: row.nom_article,
+    type: row.type_article || "-",
+    gamme: row.gamme || "-",
+    marque: row.marque || "-",
+    numeroLot: row.numero_lot,
+    stock: row.stock_restant,
+    dateFabrication: formatDate(row.date_fabrication),
+    ageJours: row.age_jours,
+  }));
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7eb_0%,#fffaf2_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <PersistPageFilters />
@@ -309,6 +334,11 @@ export default async function StockDormantPage({
 
           <div className="flex flex-wrap items-center gap-3">
             <BackButton href="/" label="Retour accueil" />
+            <ExportExcelButton
+              rows={exportRows}
+              columns={exportColumns}
+              filename={`stock-dormant-pf-${new Date().toISOString().slice(0, 10)}.xlsx`}
+            />
             <RefreshButton />
             <Link
               href="/stock"
