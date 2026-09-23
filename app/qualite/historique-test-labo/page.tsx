@@ -7,7 +7,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { formatDate } from "../../production/suivi/data";
 import { formatDateTime } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { updateDatePriseEchantillonAction } from "./actions";
 import { DatePriseEchantillonCell } from "./date-prise-echantillon-cell";
 
@@ -156,7 +156,7 @@ export default async function QualiteHistoriqueTestLaboPage({
 }) {
   noStore();
   const currentUser = await getCurrentStockUser();
-  const canEditDate = await canWritePageUser(currentUser, "qualiteHistoriqueTestLabo");
+  const canEditDate = isAdminUser(currentUser);
   const params = await searchParams;
   const codeFilter = (params.code || "").trim().toLowerCase();
   const produitFilter = (params.produit || "").trim().toLowerCase();

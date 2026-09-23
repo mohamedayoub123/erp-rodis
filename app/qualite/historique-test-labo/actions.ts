@@ -2,17 +2,22 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 
 // Corrige la date de prise d'echantillon d'un Test labo deja enregistre -
 // ce champ pilote l'attribution au mois dans Rapport Test Labo ET les
 // indicateurs PR4 (voir fetchTestLaboMonthly), une erreur ici fausse les 2 a
 // la fois. Demande explicite de l'utilisateur pour pouvoir corriger une
 // date saisie de travers sans repasser par la fiche Test labo complete.
+// Reserve aux comptes admin, meme regle que l'historique Fin programme
+// (Fabrication/Conditionnement) voisin - jamais utilise avant, donc aucun
+// compte n'avait de permission "ecriture" specifique configuree pour cette
+// page (le systeme de permissions granulaire par page suppose un droit deja
+// accorde explicitement, pas un acces admin implicite).
 export async function updateDatePriseEchantillonAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "qualiteHistoriqueTestLabo"))) {
+  if (!isAdminUser(currentUser)) {
     throw new Error("Cet utilisateur ne peut pas modifier l'historique Test labo.");
   }
 
