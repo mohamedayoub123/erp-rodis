@@ -4,7 +4,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { hhmmDiffMinutes } from "@/lib/suivi-tirage-time";
-import { fetchBlocsHeuresSup } from "@/lib/heures-supplementaires";
+import { fetchBlocsHeuresSup, regrouperParChaineJour } from "@/lib/heures-supplementaires";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   computeProduitParCode,
@@ -863,17 +863,25 @@ async function fetchFormationMonthly(): Promise<Map<string, { aFaire: number; re
 // restent coherents - sup+jour sup rapporte au total d'heures (normales +
 // sup + jour sup) de TOUTES les fournees (Fabrication/Conditionnement/
 // Emballage) + Heures Sup Manuel du mois, sur tout l'historique.
+//
+// Doit passer par regrouperParChaineJour (dedup meme equipe/meme jour sur
+// plusieurs codes) ET ponderer par nbPersonnes (vraies heures-personnes),
+// exactement comme Rapport Heures Sup calcule ses propres totaux - sans ces
+// 2 etapes le % sortait 2x plus bas que le rapport de reference (bug reel
+// signale par l'utilisateur : 3.1% affiche ici vs 6.7% sur Rapport Heures
+// Sup pour le meme mois).
 async function fetchHeuresSupMonthly(): Promise<Map<string, number>> {
   const todayIso = new Date().toISOString().slice(0, 10);
   const blocs = await fetchBlocsHeuresSup({ dateFrom: "2000-01-01", dateTo: todayIso });
+  const joursAgg = regrouperParChaineJour(blocs);
 
   const parMois = new Map<string, { normales: number; sup: number; joursSup: number }>();
-  for (const b of blocs) {
-    const mois = b.dateJour.slice(0, 7);
+  for (const j of joursAgg) {
+    const mois = j.dateJour.slice(0, 7);
     const current = parMois.get(mois) ?? { normales: 0, sup: 0, joursSup: 0 };
-    current.normales += b.normalesMinutes;
-    current.sup += b.supMinutes;
-    current.joursSup += b.joursSupMinutes;
+    current.normales += j.nbPersonnes * j.normalesMinutes;
+    current.sup += j.nbPersonnes * j.supMinutes;
+    current.joursSup += j.nbPersonnes * j.joursSupMinutes;
     parMois.set(mois, current);
   }
 
