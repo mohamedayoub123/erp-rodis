@@ -7,6 +7,9 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { formatDate } from "../../production/suivi/data";
 import { formatDateTime } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { updateDatePriseEchantillonAction } from "./actions";
+import { DatePriseEchantillonCell } from "./date-prise-echantillon-cell";
 
 type RapportRow = {
   id: number;
@@ -152,6 +155,8 @@ export default async function QualiteHistoriqueTestLaboPage({
   searchParams: SearchParams;
 }) {
   noStore();
+  const currentUser = await getCurrentStockUser();
+  const canEditDate = await canWritePageUser(currentUser, "qualiteHistoriqueTestLabo");
   const params = await searchParams;
   const codeFilter = (params.code || "").trim().toLowerCase();
   const produitFilter = (params.produit || "").trim().toLowerCase();
@@ -318,7 +323,15 @@ export default async function QualiteHistoriqueTestLaboPage({
                 <tbody>
                   {pagedRows.map((row) => (
                     <tr key={row.id} className="border-t border-slate-100 align-top">
-                      <td className="px-4 py-3 text-slate-600">{row.date ? formatDate(row.date) : "-"}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        <DatePriseEchantillonCell
+                          rapportId={row.id}
+                          date={row.date}
+                          dateLabel={row.date ? formatDate(row.date) : "-"}
+                          canEdit={canEditDate}
+                          action={updateDatePriseEchantillonAction}
+                        />
+                      </td>
                       <td className="px-4 py-3 text-slate-600">{row.produit}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{row.code || "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{row.typeLabel}</td>
