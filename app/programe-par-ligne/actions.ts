@@ -976,17 +976,49 @@ async function assignDispatcherCodesAndInsert(
 
     codesBySourceIndex = new Map<number, string[]>();
     detailBySourceIndex = new Map<number, { code: string; qt_vrac: number | null; qt_carton: number | null }[]>();
+    const rawDetailBySourceIndex = new Map<
+      number,
+      { code: string; qt_vrac: number | null; qt_carton: number | null }[]
+    >();
     draftRows.forEach((row, index) => {
       const code = codesByRowIndex.get(index);
       if (!code) return;
-      const list = codesBySourceIndex.get(row.sourceIndex) ?? [];
-      list.push(code);
-      codesBySourceIndex.set(row.sourceIndex, list);
-
-      const detailList = detailBySourceIndex.get(row.sourceIndex) ?? [];
-      detailList.push({ code, qt_vrac: row.qtVrac, qt_carton: row.qtCarton });
-      detailBySourceIndex.set(row.sourceIndex, detailList);
+      const list = rawDetailBySourceIndex.get(row.sourceIndex) ?? [];
+      list.push({ code, qt_vrac: row.qtVrac, qt_carton: row.qtCarton });
+      rawDetailBySourceIndex.set(row.sourceIndex, list);
     });
+
+    // generateAutoCodes assigne normalement un code UNIQUE par batchKey, mais
+    // un meme code peut rarement se retrouver assigne a 2 batchKeys distincts
+    // de la meme ligne source (cas de repartition non prevu, meme famille de
+    // bug que la fusion zone+chaine+article_id sur dispatcherPayload plus
+    // haut). dispatcherPayload fusionne deja ce cas silencieusement, mais
+    // numero_lot_detail/numero_lot (ecrits sur programme_lignes juste apres)
+    // gardaient jusqu'ici le doublon brut - le Dashboard/les rapports
+    // affichaient alors 2 fois le meme code avec chacun sa propre quantite,
+    // ET la Fabrication/Conditionnement saisissait la production 2 fois (une
+    // fois par ligne visible), doublant le total reel (bug reel confirme :
+    // PD56 AZAAO001V, PD58 ADG5557). Fusionne ici de la meme facon
+    // (vrac/carton additionnes) avant l'ecriture, jamais de doublon par code
+    // dans le detail d'une meme ligne.
+    for (const [sourceIndex, rawList] of rawDetailBySourceIndex.entries()) {
+      const mergedByCode = new Map<string, { code: string; qt_vrac: number | null; qt_carton: number | null }>();
+      for (const entry of rawList) {
+        const existing = mergedByCode.get(entry.code);
+        if (!existing) {
+          mergedByCode.set(entry.code, { ...entry });
+          continue;
+        }
+        existing.qt_vrac = (existing.qt_vrac ?? 0) + (entry.qt_vrac ?? 0);
+        existing.qt_carton = (existing.qt_carton ?? 0) + (entry.qt_carton ?? 0);
+      }
+      const mergedList = [...mergedByCode.values()];
+      detailBySourceIndex.set(sourceIndex, mergedList);
+      codesBySourceIndex.set(
+        sourceIndex,
+        mergedList.map((entry) => entry.code)
+      );
+    }
 
     // Le code genere n'est PAS ecrit sur articles.code_manu/code_auto ici -
     // "Code par article" ne doit refleter que des codes CONFIRMES (voir
