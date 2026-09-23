@@ -9,7 +9,6 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   computeProduitParCode,
   fetchAllCartonEntries,
-  fetchAllCodeTermineRows,
   fetchAllEmballageEntries,
   fetchAllProgrammeLignes,
   fetchAllVracEntries,
@@ -61,18 +60,19 @@ function fmtPct(value: number | null, decimals = 1) {
 
 // ---------------------------------------------------------------------
 // Indicateurs 1 & 2 : carton fabrique / carton commande par mois - meme
-// agregation que Rapport Carton Mensuel.
+// agregation (non filtree par statut Termine) que Rapport Carton Mensuel,
+// pour que le mois en cours refete la production REELLE deja sortie, pas
+// seulement les codes deja cloture. Demande explicite de l'utilisateur :
+// l'ancien filtre "codes Termines uniquement" faisait paraitre le mois en
+// cours tres en dessous de la realite (ex. 26439 affiche vs 50958 reels en
+// septembre, la difference etant tout le carton deja fabrique sur des codes
+// pas encore marques Termine).
 // ---------------------------------------------------------------------
 async function fetchCartonMonthly(): Promise<Map<string, { commande: number; fabrique: number }>> {
   const [{ rows: lignes }, cartonEntries] = await Promise.all([
     fetchAllProgrammeLignes(),
     fetchAllCartonEntries(),
   ]);
-
-  const codeTermineRows = await fetchAllCodeTermineRows(lignes.map((ligne) => ligne.id));
-  const terminatedCodes = new Set(
-    codeTermineRows.map((row) => `${row.programme_ligne_id}::${row.code}::${row.stage}`)
-  );
 
   const cartonByLigne = groupCartonEntriesByLigne(cartonEntries);
   const lignesWithLot = lignes.filter((ligne) => ligne.numero_lot);
@@ -99,18 +99,6 @@ async function fetchCartonMonthly(): Promise<Map<string, { commande: number; fab
       const demande = cartonDemandeByCode.get(code) ?? 0;
       const fabrique = cartonFabriqueByCode.get(code) ?? 0;
       if (demande <= 0 && fabrique <= 0) continue;
-
-      // Meme filtre que Rapport Carton : ne compter que les codes
-      // effectivement TERMINES (carton), pas ceux encore en cours/pas
-      // commences - sinon le total ne correspond pas au meme rapport sur
-      // la meme periode. Bug reel signale par l'utilisateur (chiffres
-      // differents entre cet indicateur et Rapport Carton pour le meme
-      // mois).
-      const cartonManuel = Boolean(
-        ligne.programme_termine || ligne.carton_termine || terminatedCodes.has(`${ligne.id}::${code}::carton`)
-      );
-      const cartonNaturel = demande <= 0 || fabrique >= demande;
-      if (!cartonManuel && !cartonNaturel) continue;
 
       current.commande += demande;
       current.fabrique += fabrique;
@@ -280,9 +268,11 @@ async function fetchTestLaboMonthly(): Promise<Map<string, { total: number; aDet
 // ---------------------------------------------------------------------
 // Indicateur 7 : balance matiere - vrac commande vs carton fabrique
 // converti en kg ("vrac tire"), par mois - meme logique (union-find +
-// cascade famille + statut Termine des codes) que les KPI globaux du
-// Rapport Balance Matiere, dupliquee volontairement (meme convention que ce
-// rapport lui-meme vis-a-vis de Rapport Ecarts).
+// cascade famille) que les KPI globaux du Rapport Balance Matiere,
+// dupliquee volontairement (meme convention que ce rapport lui-meme vis-a-vis
+// de Rapport Ecarts), SAUF le filtre par statut Termine des codes retire ici
+// (meme raison que fetchCartonMonthly ci-dessus - le mois en cours doit
+// refleter le vrac/carton reellement sorti).
 // ---------------------------------------------------------------------
 type PoidsReelRow = { programme_ligne_id: number; code: string; poids_reel: number | null };
 
@@ -397,10 +387,6 @@ async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracCommande:
 
   const articleFactors = await fetchArticleKgFactorsByIds(lignes.map((ligne) => ligne.article_id));
   const poidsReelByKey = await fetchPoidsReelByLigneCode(lignes.map((ligne) => ligne.id));
-  const codeTermineRows = await fetchAllCodeTermineRows(lignes.map((ligne) => ligne.id));
-  const terminatedCodes = new Set(
-    codeTermineRows.map((row) => `${row.programme_ligne_id}::${row.code}::${row.stage}`)
-  );
 
   function sumEntries(entries: { quantite: number }[]) {
     return entries.reduce((sum, entry) => sum + Number(entry.quantite), 0);
@@ -557,32 +543,9 @@ async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracCommande:
     const mois = (base.ligne.date_jour || "").slice(0, 7);
     if (mois.length !== 7) continue;
 
-    // Meme statut que Rapport Balance Matiere : seuls les codes dont le
-    // vrac, le carton ET l'emballage sont finis (naturellement ou "Fin
-    // programme") entrent dans le calcul - un code encore en cours
-    // fausserait l'ecart.
-    const vracManuel = Boolean(
-      base.ligne.programme_termine ||
-        base.ligne.vrac_termine ||
-        terminatedCodes.has(`${base.ligne.id}::${base.code}::vrac`)
-    );
-    const vracOk = vracManuel || base.vracDemande <= 0 || base.vracFabrique >= base.vracDemande;
-    const cartonManuel = Boolean(
-      base.ligne.programme_termine ||
-        base.ligne.carton_termine ||
-        terminatedCodes.has(`${base.ligne.id}::${base.code}::carton`)
-    );
-    const cartonOk = cartonManuel || base.cartonDemande <= 0 || base.cartonFabrique >= base.cartonDemande;
-    const emballageManuel = Boolean(
-      base.ligne.programme_termine ||
-        base.ligne.emballage_termine ||
-        terminatedCodes.has(`${base.ligne.id}::${base.code}::emballage`)
-    );
-    const emballageOk =
-      emballageManuel ||
-      base.cartonDemande <= 0 ||
-      (base.cartonFabrique > 0 && base.cartonEmballe >= base.cartonFabrique);
-    if (!vracOk || !cartonOk || !emballageOk) continue;
+    // Compte le vrac/carton REELLEMENT sorti, meme si le code n'est pas
+    // encore marque Termine - demande explicite (meme raison que
+    // fetchCartonMonthly ci-dessus).
     if (base.vracDemande <= 0 && base.vracFabrique <= 0 && base.cartonFabrique <= 0) continue;
 
     const factor = base.ligne.article_id ? articleFactors.get(base.ligne.article_id) : undefined;
@@ -666,7 +629,8 @@ async function fetchTempsArretMonthly(): Promise<Map<string, { arret: number; tr
 }
 
 // ---------------------------------------------------------------------
-// Indicateur 10 : dechets globale - meme logique que Rapport Dechets.
+// Indicateur 10 : dechets globale - carton reellement fabrique (pas
+// filtre par statut Termine, meme raison que fetchCartonMonthly ci-dessus).
 // ---------------------------------------------------------------------
 const DECHET_FIELDS = [
   "dechet_sleeve",
@@ -714,8 +678,6 @@ async function fetchDechetsByLigneCode(ligneIds: number[]): Promise<Map<string, 
 
 async function fetchDechetsMonthly(): Promise<Map<string, { pieces: number; dechet: number }>> {
   const [{ rows: lignes }, cartonEntries] = await Promise.all([fetchAllProgrammeLignes(), fetchAllCartonEntries()]);
-  const codeTermineRows = await fetchAllCodeTermineRows(lignes.map((ligne) => ligne.id));
-  const terminatedCodes = new Set(codeTermineRows.map((row) => `${row.programme_ligne_id}::${row.code}::${row.stage}`));
   const articleFactors = await fetchArticleKgFactorsByIds(lignes.map((ligne) => ligne.article_id));
   const dechetByKey = await fetchDechetsByLigneCode(lignes.map((ligne) => ligne.id));
   const cartonByLigne = groupCartonEntriesByLigne(cartonEntries);
@@ -741,14 +703,7 @@ async function fetchDechetsMonthly(): Promise<Map<string, { pieces: number; dech
     const pieceParCarton = factor?.pieceParCarton ?? null;
 
     for (const code of codes) {
-      const cartonDemande = cartonDemandeByCode.get(code) ?? 0;
       const cartonFabrique = cartonFabriqueByCode.get(code) ?? 0;
-      const cartonManuel = Boolean(
-        ligne.programme_termine || ligne.carton_termine || terminatedCodes.has(`${ligne.id}::${code}::carton`)
-      );
-      const cartonNaturel = cartonDemande <= 0 || cartonFabrique >= cartonDemande;
-      // Seuls les codes termines comptent, meme filtre que Rapport Dechets.
-      if (!(cartonManuel || cartonNaturel)) continue;
 
       const pieces = pieceParCarton !== null && pieceParCarton > 0 ? cartonFabrique * pieceParCarton : 0;
       const dechet = dechetByKey.get(`${ligne.id}::${code}`) ?? 0;
