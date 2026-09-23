@@ -675,9 +675,19 @@ export default async function PlanningDashboardPage({
                   +
                 </Link>
               </div>
-              <p className="text-xs text-slate-500">
-                {Math.round(totalVracProduit)} / {Math.round(totalVracPrevu)} produit
-              </p>
+              <div className="flex items-center gap-3">
+                <p className="text-xs text-slate-500">
+                  {Math.round(totalVracProduit)} / {Math.round(totalVracPrevu)} produit
+                </p>
+                {isAdmin ? (
+                  <Link
+                    href="/production/suivi/dashboard/historique-fin-programme-fabrication"
+                    className="text-xs font-semibold text-sky-700 underline"
+                  >
+                    Historique Fin programme
+                  </Link>
+                ) : null}
+              </div>
             </div>
             <div className="max-h-[70vh] overflow-y-auto">
               <table className="w-full text-left text-sm">
