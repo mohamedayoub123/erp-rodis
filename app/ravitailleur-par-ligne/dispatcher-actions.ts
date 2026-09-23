@@ -622,11 +622,16 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
     throw new Error(error.message);
   }
 
-  // Snapshot AVANT le futur update programme_termine (etat reel a cet
-  // instant, jamais suppose "false") - necessaire pour qu'une restauration
-  // remette exactement l'etat d'avant, meme si une de ces lignes etait deja
-  // terminee pour une autre raison.
-  let lignesTermineesAvant: { id: number; programme_termine: boolean | null; programme_termine_date: string | null }[] = [];
+  // Snapshot AVANT le futur update programme_termine/exclu_rapports (etat
+  // reel a cet instant, jamais suppose "false") - necessaire pour qu'une
+  // restauration remette exactement l'etat d'avant, meme si une de ces
+  // lignes etait deja terminee/exclue pour une autre raison.
+  let lignesTermineesAvant: {
+    id: number;
+    programme_termine: boolean | null;
+    programme_termine_date: string | null;
+    exclu_rapports: boolean | null;
+  }[] = [];
 
   // Pas de lien direct (FK) entre l'historique PD et les lignes de
   // programme - 2 facons complementaires de retrouver les lignes source a
@@ -673,23 +678,78 @@ export async function deleteProgrammeDispatcherHistoryGroupAction(formData: Form
     }
 
     if (matchingIds.size > 0) {
+      const matchingIdsArray = [...matchingIds];
       const { data: avantData, error: avantError } = await supabaseServer
         .from("programme_lignes")
-        .select("id, programme_termine, programme_termine_date")
-        .in("id", [...matchingIds]);
+        .select("id, programme_termine, programme_termine_date, exclu_rapports")
+        .in("id", matchingIdsArray);
 
       if (avantError) {
         throw new Error(avantError.message);
       }
       lignesTermineesAvant = avantData ?? [];
 
-      const { error: updateError } = await supabaseServer
-        .from("programme_lignes")
-        .update({ programme_termine: true, programme_termine_date: new Date().toISOString() })
-        .in("id", [...matchingIds]);
+      // Rien de reellement fabrique sur cette ligne (aucune entree vrac/
+      // carton/emballage) - la marquer "programme_termine" laisserait une
+      // fausse trace de production dans les rapports/indicateurs (statut
+      // "Termine Manuel" alors que tout est a 0). Demande explicite de
+      // l'utilisateur : "si je supprime il faut pas qu'il laisse trace
+      // comme je pas fabrique, il faut qu'il efface partout" - on l'exclut
+      // plutot des rapports/Dashboard (exclu_rapports), sans jamais
+      // pretendre qu'elle est terminee. Une ligne avec au moins un debut de
+      // production garde l'ancien comportement (programme_termine).
+      const idsWithProduction = new Set<number>();
+      for (const table of [
+        "production_vrac_entries",
+        "production_carton_entries",
+        "production_emballage_entries",
+      ] as const) {
+        let from = 0;
+        const pageSize = 1000;
+        while (true) {
+          const { data: entryRows, error: entryError } = await supabaseServer
+            .from(table)
+            .select("programme_ligne_id")
+            .in("programme_ligne_id", matchingIdsArray)
+            .range(from, from + pageSize - 1);
 
-      if (updateError) {
-        throw new Error(updateError.message);
+          if (entryError) {
+            throw new Error(entryError.message);
+          }
+
+          const chunk = (entryRows as { programme_ligne_id: number }[] | null) ?? [];
+          for (const row of chunk) {
+            idsWithProduction.add(row.programme_ligne_id);
+          }
+
+          if (chunk.length < pageSize) break;
+          from += pageSize;
+        }
+      }
+
+      const idsSansProduction = matchingIdsArray.filter((id) => !idsWithProduction.has(id));
+      const idsAvecProduction = matchingIdsArray.filter((id) => idsWithProduction.has(id));
+
+      if (idsAvecProduction.length > 0) {
+        const { error: updateError } = await supabaseServer
+          .from("programme_lignes")
+          .update({ programme_termine: true, programme_termine_date: new Date().toISOString() })
+          .in("id", idsAvecProduction);
+
+        if (updateError) {
+          throw new Error(updateError.message);
+        }
+      }
+
+      if (idsSansProduction.length > 0) {
+        const { error: updateError } = await supabaseServer
+          .from("programme_lignes")
+          .update({ exclu_rapports: true })
+          .in("id", idsSansProduction);
+
+        if (updateError) {
+          throw new Error(updateError.message);
+        }
       }
     }
   }

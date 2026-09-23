@@ -191,7 +191,12 @@ async function restaurerAuditLog(formData: FormData) {
   } else if (entry.module === "ProgrammeDispatcherHistory") {
     const donnees = entry.donnees_avant as {
       historyLignes?: Record<string, unknown>[];
-      lignesTermineesAvant?: { id: number; programme_termine: boolean | null; programme_termine_date: string | null }[];
+      lignesTermineesAvant?: {
+        id: number;
+        programme_termine: boolean | null;
+        programme_termine_date: string | null;
+        exclu_rapports?: boolean | null;
+      }[];
     };
     const historyLignes = donnees.historyLignes ?? [];
 
@@ -226,16 +231,23 @@ async function restaurerAuditLog(formData: FormData) {
       }
     }
 
-    // Remet exactement l'etat programme_termine d'avant sur chaque ligne
-    // source touchee (pas juste "false" - une ligne deja terminee pour une
-    // autre raison avant cette suppression le redevient, pas l'inverse).
+    // Remet exactement l'etat programme_termine/exclu_rapports d'avant sur
+    // chaque ligne source touchee (pas juste "false" - une ligne deja
+    // terminee/exclue pour une autre raison avant cette suppression le
+    // redevient, pas l'inverse). exclu_rapports absent du snapshot (anciennes
+    // entrees d'audit avant ce champ) = on ne touche pas a ce champ.
     for (const ligne of donnees.lignesTermineesAvant ?? []) {
+      const payload: Record<string, unknown> = {
+        programme_termine: ligne.programme_termine,
+        programme_termine_date: ligne.programme_termine_date,
+      };
+      if (ligne.exclu_rapports !== undefined) {
+        payload.exclu_rapports = ligne.exclu_rapports;
+      }
+
       const { error: resetError } = await supabaseServer
         .from("programme_lignes")
-        .update({
-          programme_termine: ligne.programme_termine,
-          programme_termine_date: ligne.programme_termine_date,
-        })
+        .update(payload)
         .eq("id", ligne.id);
 
       if (resetError) {
