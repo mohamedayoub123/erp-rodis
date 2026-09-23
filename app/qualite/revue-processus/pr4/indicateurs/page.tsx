@@ -204,6 +204,7 @@ type TestLaboRow = {
   disposition_qualite: string | null;
   sous_derogation: boolean | null;
   date_saisie_test_labo: string | null;
+  date_prise_echantillon: string | null;
 };
 
 async function fetchTestLaboMonthly(): Promise<Map<string, { total: number; aDetruire: number; sousDerogation: number }>> {
@@ -213,7 +214,9 @@ async function fetchTestLaboMonthly(): Promise<Map<string, { total: number; aDet
   while (true) {
     const { data, error } = await supabaseServer
       .from("production_rapports")
-      .select("programme_ligne_id, code, disposition_qualite, sous_derogation, date_saisie_test_labo")
+      .select(
+        "programme_ligne_id, code, disposition_qualite, sous_derogation, date_saisie_test_labo, date_prise_echantillon"
+      )
       .not("utilisateur_test_labo", "is", null)
       .range(from, from + pageSize - 1);
     if (error) break;
@@ -249,7 +252,16 @@ async function fetchTestLaboMonthly(): Promise<Map<string, { total: number; aDet
 
   const byMonth = new Map<string, { total: number; aDetruire: number; sousDerogation: number }>();
   for (const row of rows) {
-    const date = dateByLigne.get(row.programme_ligne_id) || "";
+    // Priorite a la date de prise d'echantillon (saisie reelle du labo) sur
+    // la date programmee, meme ordre que Rapport Test Labo - sans ca,
+    // les codes dont l'echantillon a ete pris un autre mois que la date de
+    // programme atterrissaient dans le mauvais mois ici (bug reel signale
+    // par l'utilisateur : 468/117 affiches ici vs 499/131 sur Rapport Test
+    // Labo pour le meme mois).
+    const date =
+      row.date_prise_echantillon ||
+      dateByLigne.get(row.programme_ligne_id) ||
+      (row.date_saisie_test_labo ? row.date_saisie_test_labo.slice(0, 10) : "");
     const mois = date.slice(0, 7);
     if (mois.length !== 7) continue;
 
