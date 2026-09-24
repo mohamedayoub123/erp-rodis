@@ -1002,15 +1002,11 @@ export async function saveFabricationRapportAction(formData: FormData) {
       if (soldeError) {
         throw new Error(soldeError.message);
       }
-      const solde = (soldeRows ?? []).reduce(
-        (sum, row) => sum + Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0),
-        0
-      );
-      if (qtVracRecupere > solde) {
-        throw new Error(
-          `Stock insuffisant pour recuperer ${qtVracRecupere} du lot ${codeVracRecupere} (disponible : ${solde}).`
-        );
-      }
+      // Pas de blocage si le stock du lot source est insuffisant/pas encore
+      // saisi - demande explicite de l'utilisateur : la recuperation physique
+      // peut avoir eu lieu avant que l'entree stock correspondante soit
+      // enregistree, il faut pouvoir saisir qt_vrac_recupere quand meme
+      // (le solde du lot source peut alors apparaitre negatif, assume).
       const sourceDate = (soldeRows ?? []).find(
         (row) => Number(row.qte_entree ?? 0) > 0 && row.date_fabrication
       )?.date_fabrication as string | undefined;
