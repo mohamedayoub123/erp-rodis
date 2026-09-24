@@ -80,8 +80,12 @@ function StageEntries({
               {e.machine ? ` - ${e.machine}` : ""}
               {e.operateur ? ` - ${e.operateur}` : ""}
               {e.dateJour ? ` - ${dateFormatter(e.dateJour)}` : ""}
+              {e.preparateur ? ` - preparateur ${e.preparateur}` : ""}
               {e.chefLigne ? ` - chef ligne ${e.chefLigne}` : ""}
               {e.chefZone ? ` - chef zone ${e.chefZone}` : ""}
+              {e.ravitailleur ? ` - ravitailleur ${e.ravitailleur}` : ""}
+              {e.tireur ? ` - tireur ${e.tireur}` : ""}
+              {e.scotcheuse ? ` - scotcheuse ${e.scotcheuse}` : ""}
             </li>
           ))}
         </ul>
@@ -101,6 +105,11 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-base font-bold text-slate-900">{flux.code}</span>
         {flux.produit ? <span className="text-sm text-slate-600">- {flux.produit}</span> : null}
+        {flux.datePeremption ? (
+          <span className="text-sm font-semibold text-amber-700">
+            - expire le {formatDate(flux.datePeremption)}
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">

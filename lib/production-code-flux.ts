@@ -58,6 +58,13 @@ export type CodeFluxStageEntry = {
   operateur: string | null;
   chefLigne: string | null;
   chefZone: string | null;
+  // Roles specifiques a certaines etapes seulement (jamais tous remplis en
+  // meme temps) - preparateur (Fabrication), ravitailleur/tireur
+  // (Conditionnement), scotcheuse (Emballage).
+  preparateur: string | null;
+  ravitailleur: string | null;
+  tireur: string | null;
+  scotcheuse: string | null;
 };
 
 export type CodeFluxProduction = {
@@ -71,6 +78,9 @@ export type CodeFlux = {
   pl: CodeFluxRef | null;
   pds: CodeFluxRef[];
   produit: string | null;
+  // Une seule valeur par code (saisie sur le rapport Fabrication), pas une
+  // par fournee - vient de production_rapports.date_peremption.
+  datePeremption: string | null;
   mpSources: CodeFluxMpSource[];
   production: CodeFluxProduction;
   entreeProduction: TraceEntreeProduction;
@@ -231,35 +241,39 @@ async function fetchTosPourArticleLotDepot(
 // fetchDechetsByLigneCode) ; Conditionnement/Emballage viennent de
 // production_carton_entries/production_emballage_entries qui gardent UNE
 // ligne PAR FOURNEE avec leur propre machine/operateur, jamais ecrasees.
-async function fetchProductionParCode(code: string): Promise<CodeFluxProduction> {
+async function fetchProductionParCode(
+  code: string
+): Promise<{ production: CodeFluxProduction; datePeremption: string | null }> {
   const [{ data: rapportRows }, { data: cartonRows }, { data: embRows }] = await Promise.all([
     supabaseServer
       .from("production_rapports")
       .select(
-        "vrac_fabrique, date_saisie_fabrication, date_fabrication_conditionnement, machine, utilisateur_fabrication, chef_ligne, chef_zone"
+        "vrac_fabrique, date_saisie_fabrication, date_fabrication_conditionnement, date_peremption, machine, utilisateur_fabrication, preparateur, chef_ligne, chef_zone"
       )
       .eq("code", code),
     supabaseServer
       .from("production_carton_entries")
-      .select("quantite, date_jour, chaine, utilisateur_conditionnement, chef_ligne, chef_zone")
+      .select("quantite, date_jour, chaine, utilisateur_conditionnement, chef_ligne, chef_zone, ravitailleur, tireur")
       .eq("code", code),
     supabaseServer
       .from("production_emballage_entries")
-      .select("quantite, date_jour, emballage_machine, utilisateur_emballage, emballage_chef_zone")
+      .select("quantite, date_jour, emballage_machine, emballage_operateur, emballage_chef_zone, emballage_scotcheuse")
       .eq("code", code),
   ]);
 
-  const fabrication = (
-    (rapportRows ?? []) as {
-      vrac_fabrique: number | null;
-      date_saisie_fabrication: string | null;
-      date_fabrication_conditionnement: string | null;
-      machine: string | null;
-      utilisateur_fabrication: string | null;
-      chef_ligne: string | null;
-      chef_zone: string | null;
-    }[]
-  )
+  const rapportsData = (rapportRows ?? []) as {
+    vrac_fabrique: number | null;
+    date_saisie_fabrication: string | null;
+    date_fabrication_conditionnement: string | null;
+    date_peremption: string | null;
+    machine: string | null;
+    utilisateur_fabrication: string | null;
+    preparateur: string | null;
+    chef_ligne: string | null;
+    chef_zone: string | null;
+  }[];
+
+  const fabrication = rapportsData
     .filter((r) => r.vrac_fabrique !== null)
     .map((r) => ({
       quantite: Number(r.vrac_fabrique),
@@ -272,6 +286,10 @@ async function fetchProductionParCode(code: string): Promise<CodeFluxProduction>
       operateur: r.utilisateur_fabrication,
       chefLigne: r.chef_ligne,
       chefZone: r.chef_zone,
+      preparateur: r.preparateur,
+      ravitailleur: null,
+      tireur: null,
+      scotcheuse: null,
     }));
 
   const conditionnement = (
@@ -282,6 +300,8 @@ async function fetchProductionParCode(code: string): Promise<CodeFluxProduction>
       utilisateur_conditionnement: string | null;
       chef_ligne: string | null;
       chef_zone: string | null;
+      ravitailleur: string | null;
+      tireur: string | null;
     }[]
   ).map((r) => ({
     quantite: Number(r.quantite),
@@ -290,6 +310,10 @@ async function fetchProductionParCode(code: string): Promise<CodeFluxProduction>
     operateur: r.utilisateur_conditionnement,
     chefLigne: r.chef_ligne,
     chefZone: r.chef_zone,
+    preparateur: null,
+    ravitailleur: r.ravitailleur,
+    tireur: r.tireur,
+    scotcheuse: null,
   }));
 
   const emballage = (
@@ -297,21 +321,31 @@ async function fetchProductionParCode(code: string): Promise<CodeFluxProduction>
       quantite: number;
       date_jour: string | null;
       emballage_machine: string | null;
-      utilisateur_emballage: string | null;
+      emballage_operateur: string | null;
       emballage_chef_zone: string | null;
+      emballage_scotcheuse: string | null;
     }[]
   ).map((r) => ({
     quantite: Number(r.quantite),
     dateJour: r.date_jour,
     machine: r.emballage_machine,
-    operateur: r.utilisateur_emballage,
+    // Le vrai operateur physique de cette fournee (emballage_operateur),
+    // pas le compte qui a saisi le rapport (utilisateur_emballage) - meme
+    // distinction que preparateur/ravitailleur/tireur ci-dessus.
+    operateur: r.emballage_operateur,
     // Emballage n'a pas de "chef de ligne" distinct en base, uniquement un
     // chef de zone.
     chefLigne: null,
     chefZone: r.emballage_chef_zone,
+    preparateur: null,
+    ravitailleur: null,
+    tireur: null,
+    scotcheuse: r.emballage_scotcheuse,
   }));
 
-  return { fabrication, conditionnement, emballage };
+  const datePeremption = rapportsData.find((r) => r.date_peremption)?.date_peremption ?? null;
+
+  return { production: { fabrication, conditionnement, emballage }, datePeremption };
 }
 
 // Trace complete d'un code de dispatch precis - demande explicite : "je
@@ -428,13 +462,14 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
   }
 
   const { entreeProduction, sorties } = traceProduitFiniPourCode(ctx.webRows, ctx.mouvementInfoByRowId, pl?.article_id, code);
-  const production = await fetchProductionParCode(code);
+  const { production, datePeremption } = await fetchProductionParCode(code);
 
   return {
     code,
     pl: plRef,
     pds,
     produit: pl?.produit ?? null,
+    datePeremption,
     mpSources,
     production,
     entreeProduction,
