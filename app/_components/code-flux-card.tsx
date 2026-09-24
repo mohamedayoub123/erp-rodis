@@ -74,8 +74,6 @@ const STAGE_FIELDS: Record<"fabrication" | "conditionnement" | "emballage", { ke
     { key: "machine", label: "Machine" },
     { key: "operateur", label: "Operateur" },
     { key: "preparateur", label: "Preparateur" },
-    { key: "chefLigne", label: "Chef de ligne" },
-    { key: "chefZone", label: "Chef de zone" },
   ],
   conditionnement: [
     { key: "machine", label: "Machine" },

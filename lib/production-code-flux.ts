@@ -248,12 +248,12 @@ async function fetchProductionParCode(
     supabaseServer
       .from("production_rapports")
       .select(
-        "vrac_fabrique, date_saisie_fabrication, date_fabrication_conditionnement, date_peremption, machine, utilisateur_fabrication, preparateur, chef_ligne, chef_zone"
+        "vrac_fabrique, date_saisie_fabrication, date_fabrication_conditionnement, date_peremption, machine, utilisateur_fabrication, preparateur"
       )
       .eq("code", code),
     supabaseServer
       .from("production_carton_entries")
-      .select("quantite, date_jour, chaine, utilisateur_conditionnement, chef_ligne, chef_zone, ravitailleur, tireur")
+      .select("quantite, date_jour, chaine, zone, utilisateur_conditionnement, chef_ligne, chef_zone, ravitailleur, tireur")
       .eq("code", code),
     supabaseServer
       .from("production_emballage_entries")
@@ -269,8 +269,6 @@ async function fetchProductionParCode(
     machine: string | null;
     utilisateur_fabrication: string | null;
     preparateur: string | null;
-    chef_ligne: string | null;
-    chef_zone: string | null;
   }[];
 
   const fabrication = rapportsData
@@ -284,8 +282,14 @@ async function fetchProductionParCode(
       dateJour: r.date_fabrication_conditionnement || r.date_saisie_fabrication,
       machine: r.machine,
       operateur: r.utilisateur_fabrication,
-      chefLigne: r.chef_ligne,
-      chefZone: r.chef_zone,
+      // Pas de chef de ligne/zone ici : ces colonnes existent sur
+      // production_rapports mais AUCUN code du formulaire Fabrication ne les
+      // ecrit (verifie - seul Conditionnement les alimente, sur sa propre
+      // table production_carton_entries) - les afficher ici aurait montre
+      // une donnee non fiable/perimee, jamais rattachee a la vraie
+      // Fabrication.
+      chefLigne: null,
+      chefZone: null,
       preparateur: r.preparateur,
       ravitailleur: null,
       tireur: null,
@@ -297,6 +301,7 @@ async function fetchProductionParCode(
       quantite: number;
       date_jour: string | null;
       chaine: string | null;
+      zone: string | null;
       utilisateur_conditionnement: string | null;
       chef_ligne: string | null;
       chef_zone: string | null;
@@ -306,7 +311,10 @@ async function fetchProductionParCode(
   ).map((r) => ({
     quantite: Number(r.quantite),
     dateJour: r.date_jour,
-    machine: r.chaine,
+    // Zone + chaine (ex: "B1Z1 chaine 3") - la chaine seule ne suffit pas a
+    // identifier la machine (le meme nom de chaine existe sur plusieurs
+    // zones), demande explicite de l'utilisateur.
+    machine: [r.zone, r.chaine].filter(Boolean).join(" ") || null,
     operateur: r.utilisateur_conditionnement,
     chefLigne: r.chef_ligne,
     chefZone: r.chef_zone,
