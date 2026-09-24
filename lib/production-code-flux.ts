@@ -73,6 +73,15 @@ export type CodeFluxProduction = {
   emballage: CodeFluxStageEntry[];
 };
 
+export type CodeFluxTestLabo = {
+  utilisateur: string | null;
+  datePriseEchantillon: string | null;
+  dateSaisie: string | null;
+  nomLabo: string | null;
+  dispositionQualite: string | null;
+  sousDerogation: boolean | null;
+};
+
 export type CodeFlux = {
   code: string;
   pl: CodeFluxRef | null;
@@ -81,6 +90,7 @@ export type CodeFlux = {
   // Une seule valeur par code (saisie sur le rapport Fabrication), pas une
   // par fournee - vient de production_rapports.date_peremption.
   datePeremption: string | null;
+  testLabo: CodeFluxTestLabo | null;
   mpSources: CodeFluxMpSource[];
   production: CodeFluxProduction;
   entreeProduction: TraceEntreeProduction;
@@ -243,12 +253,12 @@ async function fetchTosPourArticleLotDepot(
 // ligne PAR FOURNEE avec leur propre machine/operateur, jamais ecrasees.
 async function fetchProductionParCode(
   code: string
-): Promise<{ production: CodeFluxProduction; datePeremption: string | null }> {
+): Promise<{ production: CodeFluxProduction; datePeremption: string | null; testLabo: CodeFluxTestLabo | null }> {
   const [{ data: rapportRows }, { data: cartonRows }, { data: embRows }] = await Promise.all([
     supabaseServer
       .from("production_rapports")
       .select(
-        "vrac_fabrique, date_saisie_fabrication, date_fabrication_conditionnement, date_peremption, machine, utilisateur_fabrication, preparateur"
+        "vrac_fabrique, date_saisie_fabrication, date_fabrication_conditionnement, date_peremption, machine, utilisateur_fabrication, preparateur, utilisateur_test_labo, date_prise_echantillon, date_saisie_test_labo, nom_labo, disposition_qualite, sous_derogation"
       )
       .eq("code", code),
     supabaseServer
@@ -269,6 +279,12 @@ async function fetchProductionParCode(
     machine: string | null;
     utilisateur_fabrication: string | null;
     preparateur: string | null;
+    utilisateur_test_labo: string | null;
+    date_prise_echantillon: string | null;
+    date_saisie_test_labo: string | null;
+    nom_labo: string | null;
+    disposition_qualite: string | null;
+    sous_derogation: boolean | null;
   }[];
 
   const fabrication = rapportsData
@@ -353,7 +369,19 @@ async function fetchProductionParCode(
 
   const datePeremption = rapportsData.find((r) => r.date_peremption)?.date_peremption ?? null;
 
-  return { production: { fabrication, conditionnement, emballage }, datePeremption };
+  const testLaboRow = rapportsData.find((r) => r.utilisateur_test_labo);
+  const testLabo: CodeFluxTestLabo | null = testLaboRow
+    ? {
+        utilisateur: testLaboRow.utilisateur_test_labo,
+        datePriseEchantillon: testLaboRow.date_prise_echantillon,
+        dateSaisie: testLaboRow.date_saisie_test_labo,
+        nomLabo: testLaboRow.nom_labo,
+        dispositionQualite: testLaboRow.disposition_qualite,
+        sousDerogation: testLaboRow.sous_derogation,
+      }
+    : null;
+
+  return { production: { fabrication, conditionnement, emballage }, datePeremption, testLabo };
 }
 
 // Trace complete d'un code de dispatch precis - demande explicite : "je
@@ -470,7 +498,7 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
   }
 
   const { entreeProduction, sorties } = traceProduitFiniPourCode(ctx.webRows, ctx.mouvementInfoByRowId, pl?.article_id, code);
-  const { production, datePeremption } = await fetchProductionParCode(code);
+  const { production, datePeremption, testLabo } = await fetchProductionParCode(code);
 
   return {
     code,
@@ -478,6 +506,7 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
     pds,
     produit: pl?.produit ?? null,
     datePeremption,
+    testLabo,
     mpSources,
     production,
     entreeProduction,

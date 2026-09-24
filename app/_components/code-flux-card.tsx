@@ -1,6 +1,39 @@
 import Link from "next/link";
-import type { CodeFlux, CodeFluxMpSource, CodeFluxStageEntry } from "@/lib/production-code-flux";
+import type { CodeFlux, CodeFluxMpSource, CodeFluxStageEntry, CodeFluxTestLabo } from "@/lib/production-code-flux";
 import { formatDate } from "@/lib/format-date";
+
+// Meme libelle que Historique Test Labo/Rapport Test Labo (app/qualite/...)
+// - jamais partage en dur, duplique ici volontairement (meme convention que
+// les autres rapports de cette app).
+function dispositionQualiteLabel(value: string | null) {
+  if (value === "a_recuperer") return "A recuperer";
+  if (value === "a_detruire") return "A detruire";
+  if (value === "non_conforme") return "Non conforme";
+  return "Conforme";
+}
+
+function TestLaboSection({ testLabo }: { testLabo: CodeFluxTestLabo | null }) {
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Test labo</p>
+      {testLabo ? (
+        <p className="mt-1 rounded-xl bg-white px-3 py-2 text-sm text-slate-700">
+          {dispositionQualiteLabel(testLabo.dispositionQualite)}
+          {testLabo.sousDerogation ? " (sous derogation)" : ""}
+          {testLabo.nomLabo ? ` - ${testLabo.nomLabo}` : ""}
+          {testLabo.utilisateur ? ` - ${testLabo.utilisateur}` : ""}
+          {testLabo.datePriseEchantillon
+            ? ` - echantillon pris le ${formatDate(testLabo.datePriseEchantillon)}`
+            : testLabo.dateSaisie
+              ? ` - saisi le ${formatDate(testLabo.dateSaisie)}`
+              : ""}
+        </p>
+      ) : (
+        <p className="mt-1 text-sm text-slate-500">Pas encore de Test labo saisi pour ce code.</p>
+      )}
+    </div>
+  );
+}
 
 function MpSourceItem({ mp }: { mp: CodeFluxMpSource }) {
   return (
@@ -235,6 +268,8 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
           />
         </div>
       </div>
+
+      <TestLaboSection testLabo={flux.testLabo} />
 
       <div className="mt-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Produit fini</p>
