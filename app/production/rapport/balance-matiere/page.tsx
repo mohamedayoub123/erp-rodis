@@ -570,6 +570,8 @@ export default async function RapportBalanceMatierePage({
   const totalVracFabrique = rows.reduce((sum, row) => sum + row.vracFabrique, 0);
   const totalCartonVracTire = rows.reduce((sum, row) => sum + (row.cartonFabriqueKg ?? 0), 0);
   const ecartCommandeTire = totalVracCommande - totalCartonVracTire;
+  const ecartCommandeTirePct =
+    totalVracCommande > 0 ? (ecartCommandeTire / totalVracCommande) * 100 : null;
 
   const totalRows = rows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
@@ -698,6 +700,11 @@ export default async function RapportBalanceMatierePage({
               }`}
             >
               {formatQty(ecartCommandeTire)} kg
+              {ecartCommandeTirePct !== null ? (
+                <span className="ml-1 text-base font-semibold text-slate-400">
+                  ({formatQty(ecartCommandeTirePct)}%)
+                </span>
+              ) : null}
             </p>
           </div>
         </section>
