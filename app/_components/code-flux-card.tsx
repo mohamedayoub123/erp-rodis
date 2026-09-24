@@ -55,16 +55,57 @@ function MpSourceItem({ mp }: { mp: CodeFluxMpSource }) {
   );
 }
 
+const NON_RENSEIGNE = "non renseigne";
+
+function fieldValue(value: string | null) {
+  return value || NON_RENSEIGNE;
+}
+
+// Champs pertinents PAR ETAPE (jamais tous en meme temps - voir
+// production-code-flux.ts) - toujours affiches, meme vides ("non
+// renseigne"), pour que l'absence d'info soit visible plutot que
+// silencieusement masquee (demande explicite de l'utilisateur).
+type StageFieldKey = keyof Pick<
+  CodeFluxStageEntry,
+  "machine" | "operateur" | "preparateur" | "chefLigne" | "chefZone" | "ravitailleur" | "tireur" | "scotcheuse"
+>;
+const STAGE_FIELDS: Record<"fabrication" | "conditionnement" | "emballage", { key: StageFieldKey; label: string }[]> = {
+  fabrication: [
+    { key: "machine", label: "Machine" },
+    { key: "operateur", label: "Operateur" },
+    { key: "preparateur", label: "Preparateur" },
+    { key: "chefLigne", label: "Chef de ligne" },
+    { key: "chefZone", label: "Chef de zone" },
+  ],
+  conditionnement: [
+    { key: "machine", label: "Machine" },
+    { key: "operateur", label: "Operateur" },
+    { key: "chefLigne", label: "Chef de ligne" },
+    { key: "chefZone", label: "Chef de zone" },
+    { key: "ravitailleur", label: "Ravitailleur" },
+    { key: "tireur", label: "Tireur" },
+  ],
+  emballage: [
+    { key: "machine", label: "Machine" },
+    { key: "operateur", label: "Operateur" },
+    { key: "chefZone", label: "Chef de zone" },
+    { key: "scotcheuse", label: "Scotcheuse" },
+  ],
+};
+
 function StageEntries({
   title,
+  stage,
   entries,
   dateFormatter,
 }: {
   title: string;
+  stage: keyof typeof STAGE_FIELDS;
   entries: CodeFluxStageEntry[];
   dateFormatter: (value: string | null) => string;
 }) {
   const total = entries.reduce((sum, e) => sum + e.quantite, 0);
+  const fields = STAGE_FIELDS[stage];
   return (
     <div className="rounded-xl bg-white px-3 py-2 text-sm">
       <p className="font-semibold text-slate-900">
@@ -73,19 +114,21 @@ function StageEntries({
       {entries.length === 0 ? (
         <p className="mt-1 text-xs text-slate-500">Rien de saisi.</p>
       ) : (
-        <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
+        <ul className="mt-1 space-y-2 text-xs text-slate-600">
           {entries.map((e, i) => (
-            <li key={i}>
-              {e.quantite.toLocaleString("fr-FR")}
-              {e.machine ? ` - ${e.machine}` : ""}
-              {e.operateur ? ` - ${e.operateur}` : ""}
-              {e.dateJour ? ` - ${dateFormatter(e.dateJour)}` : ""}
-              {e.preparateur ? ` - preparateur ${e.preparateur}` : ""}
-              {e.chefLigne ? ` - chef ligne ${e.chefLigne}` : ""}
-              {e.chefZone ? ` - chef zone ${e.chefZone}` : ""}
-              {e.ravitailleur ? ` - ravitailleur ${e.ravitailleur}` : ""}
-              {e.tireur ? ` - tireur ${e.tireur}` : ""}
-              {e.scotcheuse ? ` - scotcheuse ${e.scotcheuse}` : ""}
+            <li key={i} className="border-t border-slate-100 pt-1.5 first:border-0 first:pt-0">
+              <p className="font-semibold text-slate-800">
+                {e.quantite.toLocaleString("fr-FR")}
+                {e.dateJour ? ` - ${dateFormatter(e.dateJour)}` : ` - ${NON_RENSEIGNE}`}
+              </p>
+              <p className="mt-0.5">
+                {fields.map(({ key, label }, idx) => (
+                  <span key={key}>
+                    {idx > 0 ? " - " : ""}
+                    {label} : {fieldValue(e[key])}
+                  </span>
+                ))}
+              </p>
             </li>
           ))}
         </ul>
@@ -174,9 +217,24 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
       <div className="mt-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Production</p>
         <div className="mt-1 grid gap-2 sm:grid-cols-3">
-          <StageEntries title="Fabrication" entries={flux.production.fabrication} dateFormatter={formatDate} />
-          <StageEntries title="Conditionnement" entries={flux.production.conditionnement} dateFormatter={formatDate} />
-          <StageEntries title="Emballage" entries={flux.production.emballage} dateFormatter={formatDate} />
+          <StageEntries
+            title="Fabrication"
+            stage="fabrication"
+            entries={flux.production.fabrication}
+            dateFormatter={formatDate}
+          />
+          <StageEntries
+            title="Conditionnement"
+            stage="conditionnement"
+            entries={flux.production.conditionnement}
+            dateFormatter={formatDate}
+          />
+          <StageEntries
+            title="Emballage"
+            stage="emballage"
+            entries={flux.production.emballage}
+            dateFormatter={formatDate}
+          />
         </div>
       </div>
 
