@@ -212,7 +212,13 @@ export function SuiviProductionTableBody({
             // Le vrac recupere (d'un autre code, voir "Code vrac
             // recupere") s'ajoute au vrac fabrique de ce code - sinon la
             // colonne ne montrait que ce qui sortait de la cuve, pas ce
-            // qui a reellement ete disponible.
+            // qui a reellement ete disponible. Mais row.fabrication.quantite
+            // (production_vrac_entries) l'inclut DEJA (voir
+            // vracEnvoyeConditionnement dans l'action de sauvegarde) - ne
+            // l'ajouter qu'en repli sur r.vrac_fabrique (brut, sans
+            // recupere), jamais par-dessus row.fabrication (double comptage
+            // reel confirme : 870 deja recupere + 20 de plus affiche = 890).
+            if (row.fabrication) return base;
             const recupere = Number(r?.qt_vrac_recupere ?? 0);
             return recupere > 0 ? Number(base) + recupere : base;
           })()}
