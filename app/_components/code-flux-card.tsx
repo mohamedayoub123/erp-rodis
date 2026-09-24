@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { CodeFlux, CodeFluxMpSource, CodeFluxStageEntry } from "@/lib/production-code-flux";
-import { formatDate, formatDateTime } from "@/lib/format-date";
+import { formatDate } from "@/lib/format-date";
 
 function MpSourceItem({ mp }: { mp: CodeFluxMpSource }) {
   return (
@@ -80,6 +80,8 @@ function StageEntries({
               {e.machine ? ` - ${e.machine}` : ""}
               {e.operateur ? ` - ${e.operateur}` : ""}
               {e.dateJour ? ` - ${dateFormatter(e.dateJour)}` : ""}
+              {e.chefLigne ? ` - chef ligne ${e.chefLigne}` : ""}
+              {e.chefZone ? ` - chef zone ${e.chefZone}` : ""}
             </li>
           ))}
         </ul>
@@ -163,7 +165,7 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
       <div className="mt-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Production</p>
         <div className="mt-1 grid gap-2 sm:grid-cols-3">
-          <StageEntries title="Fabrication" entries={flux.production.fabrication} dateFormatter={formatDateTime} />
+          <StageEntries title="Fabrication" entries={flux.production.fabrication} dateFormatter={formatDate} />
           <StageEntries title="Conditionnement" entries={flux.production.conditionnement} dateFormatter={formatDate} />
           <StageEntries title="Emballage" entries={flux.production.emballage} dateFormatter={formatDate} />
         </div>

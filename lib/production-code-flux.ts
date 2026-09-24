@@ -56,6 +56,8 @@ export type CodeFluxStageEntry = {
   dateJour: string | null;
   machine: string | null;
   operateur: string | null;
+  chefLigne: string | null;
+  chefZone: string | null;
 };
 
 export type CodeFluxProduction = {
@@ -233,15 +235,17 @@ async function fetchProductionParCode(code: string): Promise<CodeFluxProduction>
   const [{ data: rapportRows }, { data: cartonRows }, { data: embRows }] = await Promise.all([
     supabaseServer
       .from("production_rapports")
-      .select("vrac_fabrique, date_saisie_fabrication, machine, utilisateur_fabrication")
+      .select(
+        "vrac_fabrique, date_saisie_fabrication, date_fabrication_conditionnement, machine, utilisateur_fabrication, chef_ligne, chef_zone"
+      )
       .eq("code", code),
     supabaseServer
       .from("production_carton_entries")
-      .select("quantite, date_jour, chaine, utilisateur_conditionnement")
+      .select("quantite, date_jour, chaine, utilisateur_conditionnement, chef_ligne, chef_zone")
       .eq("code", code),
     supabaseServer
       .from("production_emballage_entries")
-      .select("quantite, date_jour, emballage_machine, utilisateur_emballage")
+      .select("quantite, date_jour, emballage_machine, utilisateur_emballage, emballage_chef_zone")
       .eq("code", code),
   ]);
 
@@ -249,16 +253,25 @@ async function fetchProductionParCode(code: string): Promise<CodeFluxProduction>
     (rapportRows ?? []) as {
       vrac_fabrique: number | null;
       date_saisie_fabrication: string | null;
+      date_fabrication_conditionnement: string | null;
       machine: string | null;
       utilisateur_fabrication: string | null;
+      chef_ligne: string | null;
+      chef_zone: string | null;
     }[]
   )
     .filter((r) => r.vrac_fabrique !== null)
     .map((r) => ({
       quantite: Number(r.vrac_fabrique),
-      dateJour: r.date_saisie_fabrication,
+      // Date de fabrication saisie (remplace la date automatique dans Suivi
+      // Production) prime sur l'horodatage de sauvegarde - demande
+      // explicite, sinon la seule date visible ici etait celle du clic
+      // "Enregistrer", pas la vraie date de fabrication.
+      dateJour: r.date_fabrication_conditionnement || r.date_saisie_fabrication,
       machine: r.machine,
       operateur: r.utilisateur_fabrication,
+      chefLigne: r.chef_ligne,
+      chefZone: r.chef_zone,
     }));
 
   const conditionnement = (
@@ -267,12 +280,16 @@ async function fetchProductionParCode(code: string): Promise<CodeFluxProduction>
       date_jour: string | null;
       chaine: string | null;
       utilisateur_conditionnement: string | null;
+      chef_ligne: string | null;
+      chef_zone: string | null;
     }[]
   ).map((r) => ({
     quantite: Number(r.quantite),
     dateJour: r.date_jour,
     machine: r.chaine,
     operateur: r.utilisateur_conditionnement,
+    chefLigne: r.chef_ligne,
+    chefZone: r.chef_zone,
   }));
 
   const emballage = (
@@ -281,12 +298,17 @@ async function fetchProductionParCode(code: string): Promise<CodeFluxProduction>
       date_jour: string | null;
       emballage_machine: string | null;
       utilisateur_emballage: string | null;
+      emballage_chef_zone: string | null;
     }[]
   ).map((r) => ({
     quantite: Number(r.quantite),
     dateJour: r.date_jour,
     machine: r.emballage_machine,
     operateur: r.utilisateur_emballage,
+    // Emballage n'a pas de "chef de ligne" distinct en base, uniquement un
+    // chef de zone.
+    chefLigne: null,
+    chefZone: r.emballage_chef_zone,
   }));
 
   return { fabrication, conditionnement, emballage };
