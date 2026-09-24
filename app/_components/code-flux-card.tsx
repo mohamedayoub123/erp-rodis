@@ -12,22 +12,61 @@ function dispositionQualiteLabel(value: string | null) {
   return "Conforme";
 }
 
+function fieldOrDash(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") return "-";
+  return String(value);
+}
+
+function DetailField({ label, value }: { label: string; value: string | number | null | undefined }) {
+  return (
+    <div>
+      <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="text-slate-700">{fieldOrDash(value)}</p>
+    </div>
+  );
+}
+
 function TestLaboSection({ testLabo }: { testLabo: CodeFluxTestLabo | null }) {
   return (
     <div className="mt-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Test labo</p>
       {testLabo ? (
-        <p className="mt-1 rounded-xl bg-white px-3 py-2 text-sm text-slate-700">
-          {dispositionQualiteLabel(testLabo.dispositionQualite)}
-          {testLabo.sousDerogation ? " (sous derogation)" : ""}
-          {testLabo.nomLabo ? ` - ${testLabo.nomLabo}` : ""}
-          {testLabo.utilisateur ? ` - ${testLabo.utilisateur}` : ""}
-          {testLabo.datePriseEchantillon
-            ? ` - echantillon pris le ${formatDate(testLabo.datePriseEchantillon)}`
-            : testLabo.dateSaisie
-              ? ` - saisi le ${formatDate(testLabo.dateSaisie)}`
-              : ""}
-        </p>
+        <div className="mt-1 rounded-xl bg-white px-3 py-2 text-sm text-slate-700">
+          <p className="font-semibold text-slate-900">
+            {dispositionQualiteLabel(testLabo.dispositionQualite)}
+            {testLabo.sousDerogation ? " (sous derogation)" : ""}
+            {testLabo.nomLabo ? ` - ${testLabo.nomLabo}` : ""}
+            {testLabo.utilisateur ? ` - saisi par ${testLabo.utilisateur}` : ""}
+            {testLabo.datePriseEchantillon
+              ? ` - echantillon pris le ${formatDate(testLabo.datePriseEchantillon)}`
+              : testLabo.dateSaisie
+                ? ` - saisi le ${formatDate(testLabo.dateSaisie)}`
+                : ""}
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs sm:grid-cols-4">
+            <DetailField label="pH" value={testLabo.ph} />
+            <DetailField label="Densite" value={testLabo.densite} />
+            <DetailField label="Viscosite" value={testLabo.viscosite} />
+            <DetailField label="Degre alcool" value={testLabo.degreAlcool} />
+            <DetailField label="Stabilite" value={testLabo.stabilite} />
+            <DetailField label="Couleur" value={testLabo.couleur} />
+            <DetailField label="Odeur" value={testLabo.odeur} />
+            <DetailField label="Texture" value={testLabo.texture} />
+            <DetailField label="Taux humidite" value={testLabo.tauxHumidite} />
+            <DetailField label="Pression atm." value={testLabo.pressionAtmospherique} />
+            <DetailField label="Temperature" value={testLabo.temperatureTest} />
+            {testLabo.motifDerogation ? (
+              <div className="col-span-2 sm:col-span-4">
+                <DetailField label="Motif derogation" value={testLabo.motifDerogation} />
+              </div>
+            ) : null}
+            {testLabo.remarque ? (
+              <div className="col-span-2 sm:col-span-4">
+                <DetailField label="Remarque" value={testLabo.remarque} />
+              </div>
+            ) : null}
+          </div>
+        </div>
       ) : (
         <p className="mt-1 text-sm text-slate-500">Pas encore de Test labo saisi pour ce code.</p>
       )}

@@ -80,6 +80,19 @@ export type CodeFluxTestLabo = {
   nomLabo: string | null;
   dispositionQualite: string | null;
   sousDerogation: boolean | null;
+  ph: number | null;
+  densite: number | null;
+  viscosite: number | null;
+  degreAlcool: number | null;
+  stabilite: string | null;
+  couleur: string | null;
+  odeur: string | null;
+  texture: string | null;
+  tauxHumidite: number | null;
+  pressionAtmospherique: number | null;
+  temperatureTest: number | null;
+  motifDerogation: string | null;
+  remarque: string | null;
 };
 
 export type CodeFlux = {
@@ -258,7 +271,7 @@ async function fetchProductionParCode(
     supabaseServer
       .from("production_rapports")
       .select(
-        "vrac_fabrique, date_saisie_fabrication, date_fabrication_conditionnement, date_peremption, machine, utilisateur_fabrication, preparateur, utilisateur_test_labo, date_prise_echantillon, date_saisie_test_labo, nom_labo, disposition_qualite, sous_derogation"
+        "vrac_fabrique, date_saisie_fabrication, date_fabrication_conditionnement, date_peremption, machine, utilisateur_fabrication, preparateur, utilisateur_test_labo, date_prise_echantillon, date_saisie_test_labo, nom_labo, disposition_qualite, sous_derogation, ph, densite, viscosite, degre_alcool, stabilite, couleur, odeur, texture, taux_humidite, pression_atmospherique, temperature_test, motif_derogation, remarque"
       )
       .eq("code", code),
     supabaseServer
@@ -285,6 +298,19 @@ async function fetchProductionParCode(
     nom_labo: string | null;
     disposition_qualite: string | null;
     sous_derogation: boolean | null;
+    ph: number | null;
+    densite: number | null;
+    viscosite: number | null;
+    degre_alcool: number | null;
+    stabilite: string | null;
+    couleur: string | null;
+    odeur: string | null;
+    texture: string | null;
+    taux_humidite: number | null;
+    pression_atmospherique: number | null;
+    temperature_test: number | null;
+    motif_derogation: string | null;
+    remarque: string | null;
   }[];
 
   const fabrication = rapportsData
@@ -378,6 +404,19 @@ async function fetchProductionParCode(
         nomLabo: testLaboRow.nom_labo,
         dispositionQualite: testLaboRow.disposition_qualite,
         sousDerogation: testLaboRow.sous_derogation,
+        ph: testLaboRow.ph,
+        densite: testLaboRow.densite,
+        viscosite: testLaboRow.viscosite,
+        degreAlcool: testLaboRow.degre_alcool,
+        stabilite: testLaboRow.stabilite,
+        couleur: testLaboRow.couleur,
+        odeur: testLaboRow.odeur,
+        texture: testLaboRow.texture,
+        tauxHumidite: testLaboRow.taux_humidite,
+        pressionAtmospherique: testLaboRow.pression_atmospherique,
+        temperatureTest: testLaboRow.temperature_test,
+        motifDerogation: testLaboRow.motif_derogation,
+        remarque: testLaboRow.remarque,
       }
     : null;
 
