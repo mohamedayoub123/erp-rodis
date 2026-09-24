@@ -216,10 +216,11 @@ async function fetchLignesAvecReserveEnAttente(ligneIds: number[]): Promise<Set<
 
 // Cles "ligneId::code" pour lesquelles un Test labo a deja ete enregistre
 // au moins une fois (utilisateur_test_labo rempli par saveTestLaboAction) -
-// utilise pour allumer le bouton Test labo en vert sur ce Dashboard.
-async function fetchTestLaboDoneKeys(ligneIds: number[]): Promise<Set<string>> {
-  const keys = new Set<string>();
-  if (ligneIds.length === 0) return keys;
+// utilise pour allumer le bouton Test labo en vert sur ce Dashboard, avec le
+// nom de qui l'a saisi/valide affiche a cote (demande explicite).
+async function fetchTestLaboDoneKeys(ligneIds: number[]): Promise<Map<string, string>> {
+  const parUtilisateur = new Map<string, string>();
+  if (ligneIds.length === 0) return parUtilisateur;
 
   let from = 0;
   const pageSize = 1000;
@@ -235,16 +236,18 @@ async function fetchTestLaboDoneKeys(ligneIds: number[]): Promise<Set<string>> {
     if (error) break;
 
     const chunk =
-      (data as { programme_ligne_id: number; code: string | null }[] | null) ?? [];
+      (data as { programme_ligne_id: number; code: string | null; utilisateur_test_labo: string | null }[] | null) ?? [];
     for (const row of chunk) {
-      keys.add(`${row.programme_ligne_id}::${row.code ?? ""}`);
+      if (row.utilisateur_test_labo) {
+        parUtilisateur.set(`${row.programme_ligne_id}::${row.code ?? ""}`, row.utilisateur_test_labo);
+      }
     }
 
     if (chunk.length < pageSize) break;
     from += pageSize;
   }
 
-  return keys;
+  return parUtilisateur;
 }
 
 type SearchParams = Promise<{
@@ -747,16 +750,23 @@ export default async function PlanningDashboardPage({
                             >
                               Entrer
                             </Link>
-                            <Link
-                              href={`/production/suivi-production/fabrication/${row.ligne.id}/test-labo?code=${encodeURIComponent(row.code)}`}
-                              className={`rounded-full px-3 py-1.5 text-xs font-semibold text-white ${
-                                testLaboDoneKeys.has(`${row.ligne.id}::${row.code}`)
-                                  ? "bg-emerald-600"
-                                  : "bg-violet-700"
-                              }`}
-                            >
-                              Test labo
-                            </Link>
+                            <div className="flex flex-col items-start gap-0.5">
+                              <Link
+                                href={`/production/suivi-production/fabrication/${row.ligne.id}/test-labo?code=${encodeURIComponent(row.code)}`}
+                                className={`rounded-full px-3 py-1.5 text-xs font-semibold text-white ${
+                                  testLaboDoneKeys.has(`${row.ligne.id}::${row.code}`)
+                                    ? "bg-emerald-600"
+                                    : "bg-violet-700"
+                                }`}
+                              >
+                                Test labo
+                              </Link>
+                              {testLaboDoneKeys.get(`${row.ligne.id}::${row.code}`) ? (
+                                <span className="text-[0.65rem] text-slate-500">
+                                  {testLaboDoneKeys.get(`${row.ligne.id}::${row.code}`)}
+                                </span>
+                              ) : null}
+                            </div>
                           </div>
                         </td>
                         <td className="px-4 py-3">

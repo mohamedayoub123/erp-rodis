@@ -317,11 +317,14 @@ async function fetchProductionParCode(
     .filter((r) => r.vrac_fabrique !== null)
     .map((r) => ({
       quantite: Number(r.vrac_fabrique),
-      // Date de fabrication saisie (remplace la date automatique dans Suivi
-      // Production) prime sur l'horodatage de sauvegarde - demande
-      // explicite, sinon la seule date visible ici etait celle du clic
-      // "Enregistrer", pas la vraie date de fabrication.
-      dateJour: r.date_fabrication_conditionnement || r.date_saisie_fabrication,
+      // date_fabrication_conditionnement s'est revele pas fiable comme date
+      // de fabrication (case parfois remplie avec la date du Conditionnement
+      // qui suit, pas celle de la vraie fabrication - bug reel confirme :
+      // AA4242V fabrique le 20/08 selon temps_debut_preparation/temps_
+      // vidange/date_prise_echantillon test labo, ce champ affichait le
+      // 21/08). date_saisie_fabrication (horodatage automatique, jamais
+      // saisi a la main) est plus fiable ici.
+      dateJour: r.date_saisie_fabrication,
       machine: r.machine,
       operateur: r.utilisateur_fabrication,
       // Pas de chef de ligne/zone ici : ces colonnes existent sur
