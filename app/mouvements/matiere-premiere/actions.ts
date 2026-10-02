@@ -481,10 +481,27 @@ export async function deleteMouvementMpGroupAction(formData: FormData) {
   revalidateMouvementsMpPages();
 }
 
+// La page Stock Matiere Premiere a sa propre case Modifier/Supprimer dans
+// Admin (stockMatierePremiere) : elle ouvre aussi ces actions, en plus des
+// droits de detail deja existants (aucun acces retire).
+async function peutModifierMouvementMp(currentUser: string | null, detailKey: string) {
+  return (
+    (await canWritePageUser(currentUser, detailKey)) ||
+    (await canWritePageUser(currentUser, "stockMatierePremiere"))
+  );
+}
+
+async function peutSupprimerMouvementMp(currentUser: string | null, detailKey: string) {
+  return (
+    (await canDeletePageUser(currentUser, detailKey)) ||
+    (await canDeletePageUser(currentUser, "stockMatierePremiere"))
+  );
+}
+
 export async function deleteLotFromEntreeMpDetailAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canDeletePageUser(currentUser, "mouvementsMatierePremiereEntreeDetail"))) {
+  if (!(await peutSupprimerMouvementMp(currentUser, "mouvementsMatierePremiereEntreeDetail"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer une ligne.");
   }
 
@@ -500,7 +517,7 @@ export async function deleteLotFromEntreeMpDetailAction(formData: FormData) {
 export async function deleteLotFromSortieMpDetailAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canDeletePageUser(currentUser, "mouvementsMatierePremiereSortieDetail"))) {
+  if (!(await peutSupprimerMouvementMp(currentUser, "mouvementsMatierePremiereSortieDetail"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer une ligne.");
   }
 
@@ -603,7 +620,7 @@ async function assertLotBalanceStaysNonNegative(
 export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "mouvementsMatierePremiereEntreeDetail"))) {
+  if (!(await peutModifierMouvementMp(currentUser, "mouvementsMatierePremiereEntreeDetail"))) {
     throw new Error("Cet utilisateur ne peut pas modifier une ligne.");
   }
 
@@ -698,7 +715,7 @@ export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
 export async function updateLotFromSortieMpDetailAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "mouvementsMatierePremiereSortieDetail"))) {
+  if (!(await peutModifierMouvementMp(currentUser, "mouvementsMatierePremiereSortieDetail"))) {
     throw new Error("Cet utilisateur ne peut pas modifier une ligne.");
   }
 

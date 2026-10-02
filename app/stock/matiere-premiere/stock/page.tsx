@@ -124,12 +124,28 @@ export default async function StockMatierePremiereStockPage({
   noStore();
   const params = await searchParams;
   const currentStockUser = await getCurrentStockUser();
-  const [canEditEntree, canEditSortie, canDeleteEntree, canDeleteSortie] = await Promise.all([
+  // Cases Modifier/Supprimer propres a cette page (Admin > Stock Matiere
+  // Premiere), en plus des droits de detail des mouvements deja existants -
+  // l'un OU l'autre suffit, aucun acces precedent n'est retire.
+  const [
+    stockWrite,
+    stockDelete,
+    entreeDetailWrite,
+    sortieDetailWrite,
+    entreeDetailDelete,
+    sortieDetailDelete,
+  ] = await Promise.all([
+    canWritePageUser(currentStockUser, "stockMatierePremiere"),
+    canDeletePageUser(currentStockUser, "stockMatierePremiere"),
     canWritePageUser(currentStockUser, "mouvementsMatierePremiereEntreeDetail"),
     canWritePageUser(currentStockUser, "mouvementsMatierePremiereSortieDetail"),
     canDeletePageUser(currentStockUser, "mouvementsMatierePremiereEntreeDetail"),
     canDeletePageUser(currentStockUser, "mouvementsMatierePremiereSortieDetail"),
   ]);
+  const canEditEntree = stockWrite || entreeDetailWrite;
+  const canEditSortie = stockWrite || sortieDetailWrite;
+  const canDeleteEntree = stockDelete || entreeDetailDelete;
+  const canDeleteSortie = stockDelete || sortieDetailDelete;
   const q = (params.q || "").trim().toLowerCase();
   const codeQ = (params.code_q || "").trim().toLowerCase();
   const dateFrom = (params.date_from || "").trim();
@@ -458,7 +474,8 @@ export default async function StockMatierePremiereStockPage({
                                 ? `${convertirEnFcfa(row.prix_unitaire, row.devise, row.taux_change)?.toLocaleString("fr-FR")} FCFA`
                                 : "-"}
                             </span>
-                            {canEditEntree ? (
+                            {/* Le prix passe par updateLotPrixAction (droit Import), pas par la case Stock MP */}
+                            {entreeDetailWrite ? (
                               <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
                                 <summary className="cursor-pointer text-xs font-semibold text-slate-800">
                                   Prix

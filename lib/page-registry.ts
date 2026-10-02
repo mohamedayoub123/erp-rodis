@@ -168,9 +168,11 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "stockMatierePremiere",
     module: "Stock",
-    label: "Stock Matiere Premiere",
+    label: "Stock Matiere Premiere (liste, modifier, supprimer)",
     pathPrefixes: ["/stock/matiere-premiere"],
-    hasWrite: false,
+    // Meme heritage que Stock PF ("stock") : ceux qui pouvaient deja modifier le
+    // stock gardent ce droit ici.
+    legacyWrite: "editStock",
     adminGroup: "Stock (Matiere Premiere)",
   },
   {
