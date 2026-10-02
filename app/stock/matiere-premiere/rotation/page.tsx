@@ -107,10 +107,18 @@ async function fetchAllArticlesMp() {
 // telechargeait les ~62 000 mouvements de matiere premiere, 1000 a la fois,
 // pour les additionner ici (~20 s).
 async function fetchAgregatsMouvements(debut12MoisIso: string, debut1MoisIso: string) {
-  const { data, error } = await supabaseServer.rpc("rotation_stock_mp_agregats", {
-    p_debut_12_mois: debut12MoisIso,
-    p_debut_1_mois: debut1MoisIso,
-  });
+  const appel = () =>
+    supabaseServer.rpc("rotation_stock_mp_agregats", {
+      p_debut_12_mois: debut12MoisIso,
+      p_debut_1_mois: debut1MoisIso,
+    });
+  // 2e essai apres une courte pause si la base, tres sollicitee, depasse son
+  // delai maximum (la requete suivante passe en general sans probleme).
+  let { data, error } = await appel();
+  if (error) {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    ({ data, error } = await appel());
+  }
 
   return { rows: ((data as AgregatMp[] | null) ?? []), error };
 }

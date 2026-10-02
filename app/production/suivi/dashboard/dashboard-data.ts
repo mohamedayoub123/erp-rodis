@@ -54,10 +54,24 @@ function groupByLigne(entries: EntryTotal[]): Map<number, EntryTotal[]> {
 // la page. Les entrees (carton/vrac/emballage) arrivent deja sommees par
 // (ligne, code) : c'est tout ce que le Dashboard utilise.
 export async function fetchDashboardData(): Promise<{ data: DashboardData | null; error: string | null }> {
-  const { data, error } = await supabaseServer.rpc("dashboard_production_data");
+  // Un 2e essai apres une courte pause : quand la base est tres sollicitee
+  // (beaucoup d'utilisateurs en meme temps), une requete peut depasser le
+  // delai maximum ("statement timeout") alors que la suivante passe sans
+  // probleme - bug reel constate, le Dashboard affichait directement l'erreur.
+  let { data, error } = await supabaseServer.rpc("dashboard_production_data");
+  if (error || !data) {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    ({ data, error } = await supabaseServer.rpc("dashboard_production_data"));
+  }
 
   if (error || !data) {
-    return { data: null, error: error?.message || "Aucune donnee recue." };
+    const timeout = /timeout|canceling statement/i.test(error?.message || "");
+    return {
+      data: null,
+      error: timeout
+        ? "la base de donnees a mis trop de temps a repondre (elle est tres sollicitee en ce moment). Reessaie dans quelques secondes."
+        : error?.message || "Aucune donnee recue.",
+    };
   }
 
   const payload = data as RpcPayload;

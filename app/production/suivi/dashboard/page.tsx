@@ -171,7 +171,10 @@ export default async function PlanningDashboardPage({
     return (
       <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
         <div className="mx-auto w-full max-w-3xl space-y-4">
-          <BackButton href="/production/suivi" label="Retour planning production" />
+          <div className="flex items-center gap-3">
+            <BackButton href="/production/suivi" label="Retour planning production" />
+            <RefreshButton />
+          </div>
           <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
             Le Dashboard n&apos;a pas pu charger ses donnees : {dashboardError}
           </div>
