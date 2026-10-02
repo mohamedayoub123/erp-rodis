@@ -13,11 +13,12 @@ type ArticleMpRow = {
   unite: string | null;
 };
 
-type MouvementRow = {
-  article_id: number | null;
-  qte_entree: number;
-  qte_sortie: number;
-  date_jour: string | null;
+type AgregatMp = {
+  article_id: number;
+  stock: number;
+  stock_avant_12_mois: number;
+  consommation_12_mois: number;
+  consommation_1_mois: number;
 };
 
 type NiveauRotation = "FORTE" | "MOYENNE" | "FAIBLE" | "DORMANT";
@@ -100,34 +101,30 @@ async function fetchAllArticlesMp() {
   return { rows, error: null };
 }
 
-async function fetchAllMouvements() {
-  const rows: MouvementRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
+// Les 4 sommes par article (stock, stock d'il y a 12 mois, sorties 12 mois,
+// sorties 1 mois) sont calculees directement par la base (voir
+// scripts/sql/create_rotation_stock_mp_agregats.sql) : avant, la page
+// telechargeait les ~62 000 mouvements de matiere premiere, 1000 a la fois,
+// pour les additionner ici (~20 s).
+async function fetchAgregatsMouvements(debut12MoisIso: string, debut1MoisIso: string) {
+  const { data, error } = await supabaseServer.rpc("rotation_stock_mp_agregats", {
+    p_debut_12_mois: debut12MoisIso,
+    p_debut_1_mois: debut1MoisIso,
+  });
 
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select("article_id, qte_entree, qte_sortie, date_jour")
-      .range(from, from + pageSize - 1);
-
-    if (error) return { rows, error };
-
-    const chunk = (data ?? []) as MouvementRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
+  return { rows: ((data as AgregatMp[] | null) ?? []), error };
 }
 
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ article?: string; categorie?: string; niveau?: string }>;
+type SearchParams = Promise<{ article?: string; categorie?: string; niveau?: string; tout?: string }>;
+
+// Les ~1800 articles rendaient ~7,6 Mo de HTML a chaque ouverture : le tableau
+// montre les plus forts de la liste triee, "Voir tout" affiche le reste (le
+// filtre et l'export Excel portent toujours sur tout).
+const LIMITE_LIGNES = 150;
 
 export default async function RotationStockMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
@@ -137,21 +134,15 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   const niveauFilter = (params.niveau || "").trim().toUpperCase() as NiveauRotation | "";
   const hasFilters = Boolean(articleFilter || categorieFilter || niveauFilter);
 
-  const [{ rows: articles, error: articlesError }, { rows: mouvements, error: mouvementsError }] =
-    await Promise.all([fetchAllArticlesMp(), fetchAllMouvements()]);
-
-  const error = articlesError || mouvementsError;
-
   // Stock actuel = somme entree-sortie de tous les mouvements de l'article
   // (meme calcul que Stock Actuel MP / Stock Alert MP). Consommation 12 mois
   // = sortie des 12 derniers mois seulement (date_jour, meme convention
-  // "AAAA-MM-JJ" que le reste de l'appli - comparaison de chaines directe).
-  // Consommation dernier mois = sortie reelle du dernier mois (pas le total
-  // 12 mois divise par 12 - une vraie fenetre glissante d'un mois, meme
-  // logique que "Consommation dernier mois" sur Stock Alert MP).
-  // Stock avant 12 mois = solde des mouvements anterieurs au debut de la
-  // periode (ou sans date, traites comme anterieurs) - sert a calculer un
-  // stock moyen sur la periode plutot que le seul stock du jour.
+  // "AAAA-MM-JJ" que le reste de l'appli). Consommation dernier mois =
+  // sortie reelle du dernier mois (pas le total 12 mois divise par 12 - une
+  // vraie fenetre glissante d'un mois, meme logique que "Consommation
+  // dernier mois" sur Stock Alert MP). Stock avant 12 mois = solde des
+  // mouvements anterieurs au debut de la periode - sert a calculer un stock
+  // moyen sur la periode plutot que le seul stock du jour.
   const twelveMonthsAgo = new Date();
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
   const twelveMonthsAgoIso = twelveMonthsAgo.toISOString().slice(0, 10);
@@ -160,35 +151,20 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
   const oneMonthAgoIso = oneMonthAgo.toISOString().slice(0, 10);
 
+  const [{ rows: articles, error: articlesError }, { rows: agregats, error: agregatsError }] =
+    await Promise.all([fetchAllArticlesMp(), fetchAgregatsMouvements(twelveMonthsAgoIso, oneMonthAgoIso)]);
+
+  const error = articlesError || agregatsError;
+
   const stockByArticle = new Map<number, number>();
   const stockAvant12MoisByArticle = new Map<number, number>();
   const consommation12MoisByArticle = new Map<number, number>();
   const consommation1MoisByArticle = new Map<number, number>();
-  for (const row of mouvements) {
-    if (!row.article_id) continue;
-    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-    stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
-
-    if (!row.date_jour || row.date_jour < twelveMonthsAgoIso) {
-      stockAvant12MoisByArticle.set(
-        row.article_id,
-        (stockAvant12MoisByArticle.get(row.article_id) ?? 0) + mouvement
-      );
-    }
-
-    if (row.date_jour && row.date_jour >= twelveMonthsAgoIso) {
-      consommation12MoisByArticle.set(
-        row.article_id,
-        (consommation12MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_sortie ?? 0)
-      );
-    }
-
-    if (row.date_jour && row.date_jour >= oneMonthAgoIso) {
-      consommation1MoisByArticle.set(
-        row.article_id,
-        (consommation1MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_sortie ?? 0)
-      );
-    }
+  for (const row of agregats) {
+    stockByArticle.set(row.article_id, Number(row.stock ?? 0));
+    stockAvant12MoisByArticle.set(row.article_id, Number(row.stock_avant_12_mois ?? 0));
+    consommation12MoisByArticle.set(row.article_id, Number(row.consommation_12_mois ?? 0));
+    consommation1MoisByArticle.set(row.article_id, Number(row.consommation_1_mois ?? 0));
   }
 
   // Rotation = consommation des 12 derniers mois / stock MOYEN sur la
@@ -233,6 +209,15 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   const categorieOptions = (
     [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]
   ).map((label, index) => ({ id: index, label }));
+
+  const toutAffiche = params.tout === "1";
+  const rotationRowsAffichees = toutAffiche ? rotationRows : rotationRows.slice(0, LIMITE_LIGNES);
+  const hrefVoirTout = `/stock/matiere-premiere/rotation?${new URLSearchParams({
+    ...(articleFilter ? { article: articleFilter } : {}),
+    ...(categorieFilter ? { categorie: categorieFilter } : {}),
+    ...(niveauFilter ? { niveau: niveauFilter } : {}),
+    tout: "1",
+  }).toString()}`;
 
   const exportColumns = [
     { label: "Article", key: "article" },
@@ -376,7 +361,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                   </tr>
                 </thead>
                 <tbody>
-                  {rotationRows.map((row) => (
+                  {rotationRowsAffichees.map((row) => (
                     <tr key={row.article_id} className="border-t border-slate-100 align-top">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
@@ -419,6 +404,16 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                   ))}
                 </tbody>
               </table>
+              {rotationRowsAffichees.length < rotationRows.length ? (
+                <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4 text-sm text-slate-600">
+                  <span>
+                    {rotationRowsAffichees.length} premiers affiches sur {rotationRows.length}.
+                  </span>
+                  <a href={hrefVoirTout} className="font-semibold text-sky-700 underline">
+                    Voir tout ({rotationRows.length})
+                  </a>
+                </div>
+              ) : null}
             </div>
           )}
         </section>
