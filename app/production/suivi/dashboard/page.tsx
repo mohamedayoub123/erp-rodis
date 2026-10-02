@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
-import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { AutoRefresh } from "@/app/_components/auto-refresh";
@@ -15,24 +14,13 @@ import {
   markCartonTermineAction,
   markEmballageTermineAction,
   markVracTermineAction,
-  renameLotCodeAction,
 } from "../actions";
 import { canDeletePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { LotCodeCell } from "./lot-code-cell";
 import { SingleDayFilter } from "./single-day-filter";
 import { DeleteProgrammeLigneButton } from "./delete-programme-ligne-button";
-import {
-  buildPdLabelByCode,
-  computeProduitParCode,
-  fetchAllCartonEntries,
-  fetchAllEmballageEntries,
-  fetchAllProgrammeLignes,
-  fetchAllVracEntries,
-  formatDate,
-  groupCartonEntriesByLigne,
-  pdLabelsForNumeroLot,
-  type ProgrammeLigneRow,
-} from "../data";
+import { computeProduitParCode, formatDate, pdLabelsForNumeroLot, type ProgrammeLigneRow } from "../data";
+import { fetchDashboardData, type CodeTermineStage } from "./dashboard-data";
 
 function RestantBadge({ restant, prevuIsNull }: { restant: number; prevuIsNull?: boolean }) {
   // Une ligne confirmee dont la quantite prevue n'a jamais ete saisie
@@ -110,146 +98,6 @@ type CodeRow = {
   emballageRestant: number;
 };
 
-type ArticleOption = { id: number; nom_article: string; gamme: string | null; vrac_article_id: number | null };
-
-// Utilise pour le menu du filtre Produit (liste complete, pas les
-// suggestions "deja saisies" du navigateur), pour resoudre la gamme d'une
-// ligne (via son article_id) pour le filtre Gamme, et pour retrouver
-// l'article Vrac (nature "Vrac") d'un article conditionne pour la colonne
-// "Salle de pesage".
-async function fetchAllArticlesForFilters(): Promise<ArticleOption[]> {
-  const rows: ArticleOption[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("articles")
-      .select("id, nom_article, gamme, vrac_article_id")
-      .order("nom_article", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (error) break;
-
-    const chunk = (data ?? []) as ArticleOption[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
-}
-
-type CodeTermineStage = "vrac" | "carton" | "emballage" | "pesage" | "salle_conditionnement";
-type CodeTermineRow = { programme_ligne_id: number; code: string; stage: CodeTermineStage };
-
-async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeTermineRow[]> {
-  if (ligneIds.length === 0) return [];
-
-  const rows: CodeTermineRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("production_code_termine")
-      .select("programme_ligne_id, code, stage")
-      .in("programme_ligne_id", ligneIds)
-      .range(from, from + pageSize - 1);
-
-    if (error) break;
-
-    const chunk = (data ?? []) as CodeTermineRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
-}
-
-// Cles "ligneId::code" (vrac/carton) pour lesquelles une reservation MP
-// (pesage/salle_conditionnement) reste encore a consommer (quantite > 0) -
-// un code entierement produit (restant < 1) disparaissait jusqu'ici du
-// Dashboard AVEC son bouton "Fin programme", rendant la reservation
-// impossible a resoudre : plus aucune ligne pour cliquer dessus (bug reel
-// confirme : LANETTE SX reste "reserve" pour toujours, sans plus aucun
-// moyen de le consommer). Force ces codes a rester visibles tant qu'il
-// reste une reservation, meme deja 100% produits.
-async function fetchLignesAvecReserveEnAttente(ligneIds: number[]): Promise<Set<string>> {
-  const keys = new Set<string>();
-  if (ligneIds.length === 0) return keys;
-
-  const { data: codeTermineData } = await supabaseServer
-    .from("production_code_termine")
-    .select("id, programme_ligne_id, code, stage")
-    .in("programme_ligne_id", ligneIds)
-    .in("stage", ["pesage", "salle_conditionnement"]);
-
-  const codeTermineRows =
-    (codeTermineData as { id: number; programme_ligne_id: number; code: string; stage: string }[] | null) ?? [];
-  if (codeTermineRows.length === 0) return keys;
-
-  const { data: reserveData } = await supabaseServer
-    .from("production_mp_reserve")
-    .select("production_code_termine_id")
-    .in(
-      "production_code_termine_id",
-      codeTermineRows.map((row) => row.id)
-    )
-    .gt("quantite", 0);
-
-  const idsAvecReserve = new Set(
-    ((reserveData as { production_code_termine_id: number }[] | null) ?? []).map((row) => row.production_code_termine_id)
-  );
-
-  for (const row of codeTermineRows) {
-    if (!idsAvecReserve.has(row.id)) continue;
-    const displayStage = row.stage === "pesage" ? "vrac" : "carton";
-    keys.add(`${row.programme_ligne_id}::${row.code}::${displayStage}`);
-  }
-
-  return keys;
-}
-
-// Cles "ligneId::code" pour lesquelles un Test labo a deja ete enregistre
-// au moins une fois (utilisateur_test_labo rempli par saveTestLaboAction) -
-// utilise pour allumer le bouton Test labo en vert sur ce Dashboard, avec le
-// nom de qui l'a saisi/valide affiche a cote (demande explicite).
-async function fetchTestLaboDoneKeys(ligneIds: number[]): Promise<Map<string, string>> {
-  const parUtilisateur = new Map<string, string>();
-  if (ligneIds.length === 0) return parUtilisateur;
-
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("production_rapports")
-      .select("programme_ligne_id, code, utilisateur_test_labo")
-      .in("programme_ligne_id", ligneIds)
-      .not("utilisateur_test_labo", "is", null)
-      .range(from, from + pageSize - 1);
-
-    if (error) break;
-
-    const chunk =
-      (data as { programme_ligne_id: number; code: string | null; utilisateur_test_labo: string | null }[] | null) ?? [];
-    for (const row of chunk) {
-      if (row.utilisateur_test_labo) {
-        parUtilisateur.set(`${row.programme_ligne_id}::${row.code ?? ""}`, row.utilisateur_test_labo);
-      }
-    }
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return parUtilisateur;
-}
-
 type SearchParams = Promise<{
   code?: string;
   produit?: string;
@@ -258,7 +106,47 @@ type SearchParams = Promise<{
   date_debut?: string;
   date_fin?: string;
   avertissement?: string;
+  tout?: string;
 }>;
+
+// Affichage limite aux lignes les plus RECENTES de chaque tableau (les
+// requetes sont deja triees par date de programme decroissante) - le
+// Dashboard rendait avant TOUT (jusqu'a ~930 lignes + ~4000 pour Salle de
+// pesage/conditionnement chez l'admin, soit plusieurs Mo de HTML a generer,
+// envoyer et hydrater a chaque recherche ou enregistrement : ~15 s). Les
+// totaux en tete de tableau et les filtres portent toujours sur TOUT ; le
+// lien "Voir tout" (parametre "tout") rend le tableau complet a la demande.
+// Hors du composant : la regle de lint "rendu pur" refuse Date.now() en direct
+// dans le rendu, mais cette page est de toute facon dynamique (noStore) et
+// l'heure de generation est exactement ce qu'on veut transmettre.
+function instantDeRendu() {
+  return Date.now();
+}
+
+const LIMITE_TABLEAU = 60;
+const LIMITE_SALLE = 30;
+
+function TronquePar({
+  affiche,
+  total,
+  href,
+}: {
+  affiche: number;
+  total: number;
+  href: string;
+}) {
+  if (affiche >= total) return null;
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+      <span>
+        {affiche} plus recents affiches sur {total}.
+      </span>
+      <Link href={href} className="font-semibold text-sky-700 underline">
+        Voir tout ({total})
+      </Link>
+    </div>
+  );
+}
 
 export default async function PlanningDashboardPage({
   searchParams,
@@ -274,13 +162,40 @@ export default async function PlanningDashboardPage({
   const dateDebutFilter = (params.date_debut || "").trim();
   const dateFinFilter = (params.date_fin || "").trim();
 
-  const [currentUser, { rows: allLignes }, pdLabelByCode, articles] = await Promise.all([
+  const [currentUser, { data: dashboardData, error: dashboardError }] = await Promise.all([
     getCurrentStockUser(),
-    fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true }),
-    buildPdLabelByCode(),
-    fetchAllArticlesForFilters(),
+    fetchDashboardData(),
   ]);
+
+  if (!dashboardData) {
+    return (
+      <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
+        <div className="mx-auto w-full max-w-3xl space-y-4">
+          <BackButton href="/production/suivi" label="Retour planning production" />
+          <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">
+            Le Dashboard n&apos;a pas pu charger ses donnees : {dashboardError}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const {
+    lignes: allLignes,
+    cartonByLigne,
+    vracByLigne,
+    emballageByLigne,
+    terminatedCodes,
+    lignesAvecReserveEnAttente,
+    testLaboDoneKeys,
+    pdLabelByCode,
+    articles,
+  } = dashboardData;
   const canEditLotCode = isAdminUser(currentUser);
+  // Un utilisateur non admin voit juste le code en texte : pas besoin d'un
+  // composant client par ligne (~1000 lignes) juste pour afficher du texte.
+  const renderLotCode = (ligneId: number, code: string) =>
+    canEditLotCode ? <LotCodeCell ligneId={ligneId} code={code} /> : code;
   // Salle de pesage/Salle de conditionnement : reservees aux comptes admin
   // pour le moment (meme verification que canEditLotCode) - tous les autres
   // utilisateurs voient le Dashboard exactement comme avant, ces 2 sections
@@ -316,26 +231,11 @@ export default async function PlanningDashboardPage({
   ].sort((a, b) => a.localeCompare(b));
   const pdOptions = distinctPdLabels.map((label, index) => ({ id: index, label }));
 
-  const activeLigneIds = allLignes.map((ligne) => ligne.id);
-
-  const [cartonEntries, vracEntries, emballageEntries, codeTermineRows, testLaboDoneKeys, lignesAvecReserveEnAttente] =
-    await Promise.all([
-      fetchAllCartonEntries(activeLigneIds),
-      fetchAllVracEntries(activeLigneIds),
-      fetchAllEmballageEntries(activeLigneIds),
-      fetchAllCodeTermineRows(activeLigneIds),
-      fetchTestLaboDoneKeys(activeLigneIds),
-      fetchLignesAvecReserveEnAttente(activeLigneIds),
-    ]);
-
   // Terminer UN code (Fabrication/Conditionnement/Emballage) ne doit jamais
   // cacher les autres codes de la MEME ligne (bug corrige : c'etait avant un
   // seul flag partage sur toute la ligne) - le repli sur l'ancien flag
   // ligne.xxx_termine ne reste valide que pour une ligne qui n'a jamais eu
   // qu'un seul code (aucune ambiguite possible dans ce cas).
-  const terminatedCodes = new Set(
-    codeTermineRows.map((row) => `${row.programme_ligne_id}::${row.code}::${row.stage}`)
-  );
   function isCodeTerminated(
     ligneId: number,
     code: string,
@@ -346,16 +246,6 @@ export default async function PlanningDashboardPage({
     if (terminatedCodes.has(`${ligneId}::${code}::${stage}`)) return true;
     return codeCount <= 1 && legacyLigneFlag;
   }
-
-  const cartonByLigne = groupCartonEntriesByLigne(cartonEntries) as Map<
-    number,
-    { code: string; quantite: number }[]
-  >;
-  const vracByLigne = groupCartonEntriesByLigne(vracEntries) as Map<number, { code: string; quantite: number }[]>;
-  const emballageByLigne = groupCartonEntriesByLigne(emballageEntries) as Map<
-    number,
-    { code: string; quantite: number }[]
-  >;
 
   const hasFilters = Boolean(
     codeFilter || produitFilter || pdFilter || gammeFilter || dateDebutFilter || dateFinFilter
@@ -561,9 +451,36 @@ export default async function PlanningDashboardPage({
   const totalEmballagePrevu = emballageRows.reduce((sum, row) => sum + row.emballagePrevu, 0);
   const totalEmballageProduit = emballageRows.reduce((sum, row) => sum + row.emballageProduit, 0);
 
+  const toutAffiche = new Set(
+    (params.tout || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  );
+  function limiter<T>(rows: T[], cle: string, max: number): T[] {
+    return toutAffiche.has(cle) ? rows : rows.slice(0, max);
+  }
+  // Garde les filtres actifs en ajoutant le tableau demande a "tout".
+  function hrefVoirTout(cle: string) {
+    const search = new URLSearchParams();
+    if (params.pd) search.set("pd", params.pd);
+    if (params.code) search.set("code", params.code);
+    if (params.produit) search.set("produit", params.produit);
+    if (params.gamme) search.set("gamme", params.gamme);
+    if (params.date_debut) search.set("date_debut", params.date_debut);
+    if (params.date_fin) search.set("date_fin", params.date_fin);
+    search.set("tout", [...new Set([...toutAffiche, cle])].join(","));
+    return `/production/suivi/dashboard?${search.toString()}`;
+  }
+  const vracRowsAffichees = limiter(vracRows, "vrac", LIMITE_TABLEAU);
+  const cartonRowsAffichees = limiter(cartonRows, "carton", LIMITE_TABLEAU);
+  const emballageRowsAffichees = limiter(emballageRows, "emballage", LIMITE_TABLEAU);
+  const pesageRowsAffichees = limiter(pesageRows, "pesage", LIMITE_SALLE);
+  const conditionnementRowsAffichees = limiter(conditionnementRows, "salle_cond", LIMITE_SALLE);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
-      <AutoRefresh />
+      <AutoRefresh renderedAt={instantDeRendu()} />
       <div className="mx-auto w-full space-y-6">
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -718,7 +635,7 @@ export default async function PlanningDashboardPage({
                       </td>
                     </tr>
                   ) : (
-                    vracRows.map((row) => (
+                    vracRowsAffichees.map((row) => (
                       <tr key={`${row.ligne.id}-${row.code}`} className="border-t border-slate-100">
                         <td className="px-4 py-3 text-slate-600">{formatDate(row.ligne.date_jour)}</td>
                         <td className="px-4 py-3 font-medium text-slate-900">
@@ -731,12 +648,7 @@ export default async function PlanningDashboardPage({
                           {vracLabelFromName(row.ligne.produit) || "-"}
                         </td>
                         <td className="px-4 py-3 text-slate-700">
-                          <LotCodeCell
-                            ligneId={row.ligne.id}
-                            code={row.code}
-                            canEdit={canEditLotCode}
-                            action={renameLotCodeAction}
-                          />
+                          {renderLotCode(row.ligne.id, row.code)}
                         </td>
                         <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                         <td className="px-4 py-3">
@@ -787,6 +699,7 @@ export default async function PlanningDashboardPage({
                 </tbody>
               </table>
             </div>
+            <TronquePar affiche={vracRowsAffichees.length} total={vracRows.length} href={hrefVoirTout("vrac")} />
           </div>
 
           <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -841,7 +754,7 @@ export default async function PlanningDashboardPage({
                       </td>
                     </tr>
                   ) : (
-                    cartonRows.map((row) => (
+                    cartonRowsAffichees.map((row) => (
                       <tr key={`${row.ligne.id}-${row.code}`} className="border-t border-slate-100">
                         <td className="px-4 py-3 text-slate-600">{formatDate(row.ligne.date_jour)}</td>
                         <td className="px-4 py-3 font-medium text-slate-900">
@@ -849,12 +762,7 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
                         <td className="px-4 py-3 text-slate-700">
-                          <LotCodeCell
-                            ligneId={row.ligne.id}
-                            code={row.code}
-                            canEdit={canEditLotCode}
-                            action={renameLotCodeAction}
-                          />
+                          {renderLotCode(row.ligne.id, row.code)}
                         </td>
                         <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                         <td className="px-4 py-3 text-slate-900">
@@ -889,6 +797,7 @@ export default async function PlanningDashboardPage({
                 </tbody>
               </table>
             </div>
+            <TronquePar affiche={cartonRowsAffichees.length} total={cartonRows.length} href={hrefVoirTout("carton")} />
           </div>
 
           <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -930,17 +839,12 @@ export default async function PlanningDashboardPage({
                       </td>
                     </tr>
                   ) : (
-                    emballageRows.map((row) => (
+                    emballageRowsAffichees.map((row) => (
                       <tr key={`${row.ligne.id}-${row.code}`} className="border-t border-slate-100">
                         <td className="px-4 py-3 text-slate-600">{formatDate(row.ligne.date_jour)}</td>
                         <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
                         <td className="px-4 py-3 text-slate-700">
-                          <LotCodeCell
-                            ligneId={row.ligne.id}
-                            code={row.code}
-                            canEdit={canEditLotCode}
-                            action={renameLotCodeAction}
-                          />
+                          {renderLotCode(row.ligne.id, row.code)}
                         </td>
                         <td className="px-4 py-3">
                           <RestantBadge restant={row.emballageRestant} />
@@ -980,6 +884,7 @@ export default async function PlanningDashboardPage({
                 </tbody>
               </table>
             </div>
+            <TronquePar affiche={emballageRowsAffichees.length} total={emballageRows.length} href={hrefVoirTout("emballage")} />
           </div>
         </section>
 
@@ -1016,7 +921,7 @@ export default async function PlanningDashboardPage({
                         </td>
                       </tr>
                     ) : (
-                      pesageRows.map((row) => (
+                      pesageRowsAffichees.map((row) => (
                         <tr key={row.key} className="border-t border-slate-100">
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
                           <td className="px-4 py-3">
@@ -1025,12 +930,7 @@ export default async function PlanningDashboardPage({
                             </Link>
                           </td>
                           <td className="px-4 py-3 text-slate-700">
-                            <LotCodeCell
-                              ligneId={row.ligneId}
-                              code={row.code}
-                              canEdit={canEditLotCode}
-                              action={renameLotCodeAction}
-                            />
+                            {renderLotCode(row.ligneId, row.code)}
                           </td>
                           <td className="px-4 py-3 text-slate-900">
                             {row.qtIsNull ? "-" : Math.round(row.qt)}
@@ -1041,6 +941,7 @@ export default async function PlanningDashboardPage({
                   </tbody>
                 </table>
               </div>
+              <TronquePar affiche={pesageRowsAffichees.length} total={pesageRows.length} href={hrefVoirTout("pesage")} />
             </div>
 
             <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -1074,7 +975,7 @@ export default async function PlanningDashboardPage({
                         </td>
                       </tr>
                     ) : (
-                      conditionnementRows.map((row) => (
+                      conditionnementRowsAffichees.map((row) => (
                         <tr key={row.key} className="border-t border-slate-100">
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date)}</td>
                           <td className="px-4 py-3">
@@ -1083,12 +984,7 @@ export default async function PlanningDashboardPage({
                             </Link>
                           </td>
                           <td className="px-4 py-3 text-slate-700">
-                            <LotCodeCell
-                              ligneId={row.ligneId}
-                              code={row.code}
-                              canEdit={canEditLotCode}
-                              action={renameLotCodeAction}
-                            />
+                            {renderLotCode(row.ligneId, row.code)}
                           </td>
                           <td className="px-4 py-3 text-slate-900">
                             {row.qtIsNull ? "-" : Math.round(row.qt)}
@@ -1099,6 +995,7 @@ export default async function PlanningDashboardPage({
                   </tbody>
                 </table>
               </div>
+              <TronquePar affiche={conditionnementRowsAffichees.length} total={conditionnementRows.length} href={hrefVoirTout("salle_cond")} />
             </div>
           </section>
         ) : null}

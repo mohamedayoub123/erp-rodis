@@ -1,25 +1,16 @@
 "use client";
 
 import { SubmitButton } from "@/app/_components/submit-button";
+import { renameLotCodeAction } from "../actions";
 
-// Visible uniquement pour canEdit=true (reserve aux comptes admin, voir
-// renameLotCodeAction) - tous les autres utilisateurs voient le code en
-// texte simple, comme avant.
-export function LotCodeCell({
-  ligneId,
-  code,
-  canEdit,
-  action,
-}: {
-  ligneId: number;
-  code: string;
-  canEdit: boolean;
-  action: (formData: FormData) => void | Promise<void>;
-}) {
-  if (!canEdit) return <>{code}</>;
-
+// Rendu uniquement pour un admin (voir renameLotCodeAction) - les autres
+// utilisateurs voient le code en texte simple directement dans la page.
+// L'action est importee ici (et non passee en prop a chaque ligne) : une
+// reference d'action serveur recopiee dans ~1000 lignes alourdissait
+// fortement la page.
+export function LotCodeCell({ ligneId, code }: { ligneId: number; code: string }) {
   return (
-    <form action={action} className="flex items-center gap-1">
+    <form action={renameLotCodeAction} className="flex items-center gap-1">
       <input type="hidden" name="ligne_id" value={ligneId} />
       <input type="hidden" name="old_code" value={code} />
       <input
