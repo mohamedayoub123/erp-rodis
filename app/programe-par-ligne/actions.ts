@@ -615,18 +615,15 @@ async function fetchAllArticleCodeRows(): Promise<AllArticleCodeRow[]> {
 }
 
 // Tous les codes deja utilises quelque part dans le systeme (numero_lot_detail
-// de toute ligne non exclue des rapports) - filet de securite complementaire
-// au seed base sur articles.code_manu/code_auto (voir generateAutoCodes) :
-// le seed peut rester en retard tant qu'un Dispatch n'est pas confirme par
-// Ravitailleur (design assume, voir commentaire plus bas), donc 2 Saves
-// proches dans le temps sur la meme famille peuvent regenerer une sequence
-// qui recoupe une premiere jamais confirmee - meme code attribue a 2 lots
-// physiquement differents (bug reel confirme et nettoye a la main : PD46
-// DB0017V, PD53 AXDHJ0301-0303, et 80+ autres cas trouves lors d'un audit
-// complet). Ce filet ne CHANGE jamais le seed (qui reste le comportement
-// deja corrige pour l'incident "Lait WHITE SECRET"), il fait juste sauter
-// un code deja pris par-dessus, jamais l'inverse.
-async function fetchAllUsedCodes(): Promise<Set<string>> {
+// de toute ligne non exclue des rapports) - sert UNIQUEMENT a prevenir
+// l'utilisateur quand un code genere existe deja ailleurs (voir
+// generateAutoCodes), jamais a changer la numerotation : "Code par article"
+// fait toujours foi (demande explicite : un vieux programme jamais confirme
+// et jamais produit - ex DA0554V/DA0555V d'un programme d'aout - ne doit pas
+// faire sauter des numeros au prochain programme). Les lignes du programme
+// en cours de dispatch (excludeLigneIds) ne comptent pas : sinon redispatcher
+// un programme deja enregistre se signalerait lui-meme.
+async function fetchAllUsedCodes(excludeLigneIds: number[]): Promise<Set<string>> {
   const used = new Set<string>();
   let from = 0;
   const pageSize = 1000;
@@ -634,14 +631,18 @@ async function fetchAllUsedCodes(): Promise<Set<string>> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("programme_lignes")
-      .select("numero_lot_detail, exclu_rapports")
+      .select("id, numero_lot_detail, exclu_rapports")
+      .order("id")
       .range(from, from + pageSize - 1);
 
     if (error) break;
 
-    const chunk = (data as { numero_lot_detail: { code: string }[] | null; exclu_rapports: boolean | null }[] | null) ?? [];
+    const chunk =
+      (data as { id: number; numero_lot_detail: { code: string }[] | null; exclu_rapports: boolean | null }[] | null) ??
+      [];
     for (const row of chunk) {
       if (row.exclu_rapports) continue;
+      if (excludeLigneIds.includes(row.id)) continue;
       for (const entry of row.numero_lot_detail ?? []) {
         if (entry.code) used.add(entry.code);
       }
@@ -667,19 +668,26 @@ async function fetchAllUsedCodes(): Promise<Set<string>> {
 // generait quand meme a partir d'un vieux AA4264V jamais nettoye). Le
 // risque de doublon entre 2 Dispatchs simultanes pas encore confirmes
 // restait auparavant attrape uniquement si les 2 zones/chaines se
-// recoupaient (retry sur conflit d'insertion plus bas) - usedCodesGlobal
-// (voir fetchAllUsedCodes) comble ce trou : un code deja pris ailleurs dans
-// le systeme (meme sur une zone/chaine/article totalement differents) est
-// saute au increment, sans jamais changer le point de DEPART (toujours
-// articles.code_manu/code_auto, jamais un ancien code en attente) - donc le
-// fix "Lait WHITE SECRET" reste intact.
+// recoupaient (retry sur conflit d'insertion plus bas). Un filet "saute les
+// codes deja pris ailleurs" avait ete ajoute puis retire (demande explicite
+// : "il faut referer toujours sur Code par article") - un vieux programme
+// jamais confirme et jamais produit (DA0554V/DA0555V d'aout) faisait sauter
+// 2 numeros au programme suivant. Les codes sont donc TOUJOURS
+// seed + 1, + 2, ... sans trou ; usedCodesGlobal ne sert plus qu'a signaler
+// (codesDejaPrisAilleurs) un code genere qui existe deja dans un autre
+// programme, pour que l'utilisateur le voie sans que la numerotation change.
 async function generateAutoCodes(
   draftRows: DispatcherDraftRow[],
   articleInfoById: Map<number, ArticleFullInfo>,
   allArticles: AllArticleCodeRow[],
   usedCodesGlobal: Set<string>
-): Promise<{ codesByRowIndex: Map<number, string>; codeUpdatesByArticleId: Map<number, { code_manu?: string; code_auto?: string }> }> {
+): Promise<{
+  codesByRowIndex: Map<number, string>;
+  codeUpdatesByArticleId: Map<number, { code_manu?: string; code_auto?: string }>;
+  codesDejaPrisAilleurs: string[];
+}> {
   const codesByRowIndex = new Map<number, string>();
+  const codesDejaPrisAilleurs = new Set<string>();
   const codeUpdatesByArticleId = new Map<number, { code_manu?: string; code_auto?: string }>();
 
   // allArticles est fourni par l'appelant (pre-fetch en parallele du reste
@@ -778,17 +786,14 @@ async function generateAutoCodes(
           const bucket = bucketsByArticle.get(articleId)!;
           if (bucket.length === 0) continue;
 
-          let nextCode = incrementCode(currentCode);
-          while (nextCode && usedCodesGlobal.has(nextCode)) {
-            nextCode = incrementCode(nextCode);
-          }
+          const nextCode = incrementCode(currentCode);
           if (!nextCode) {
             remaining = 0;
             break;
           }
 
           currentCode = nextCode;
-          usedCodesGlobal.add(currentCode);
+          if (usedCodesGlobal.has(currentCode)) codesDejaPrisAilleurs.add(currentCode);
           const entry = bucket.shift()!;
           codeByBatchKey.set(entry.batchKey, currentCode);
           remaining -= 1;
@@ -818,7 +823,7 @@ async function generateAutoCodes(
     }
   }
 
-  return { codesByRowIndex, codeUpdatesByArticleId };
+  return { codesByRowIndex, codeUpdatesByArticleId, codesDejaPrisAilleurs: [...codesDejaPrisAilleurs] };
 }
 
 // Le code genere au Dispatch ne doit alimenter "Code par article"
@@ -910,7 +915,7 @@ async function assignDispatcherCodesAndInsert(
         : Promise.resolve({ data: [] as { id: number; numero_lot_detail: unknown }[] }),
       fetchMachineCapaciteMap(),
       fetchMachineNameMap(fabricationMachineIds),
-      fetchAllUsedCodes(),
+      fetchAllUsedCodes(rowIds),
     ]);
   const existingDetailById = new Map<number, { code: string }[]>(
     ((existingLignesData ?? []) as { id: number; numero_lot_detail: { code: string }[] | null }[]).map((row) => [
@@ -936,17 +941,19 @@ async function assignDispatcherCodesAndInsert(
   // Meme resultat a chaque tentative (ne depend que de filledRows/capacites,
   // jamais des codes generes) - ecrase sans souci a chaque iteration.
   let dispatchWarnings: string[] = [];
+  let codesPrisAilleursDernierEssai: string[] = [];
 
   for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
     const { draftRows, warnings } = buildDispatcherDraftRows(filledRows, articleInfoById, machineCapacites, machineNameById);
     dispatchWarnings = warnings;
     const articleCodeRowsForAttempt = attempt === 1 ? allArticleCodeRows : await fetchAllArticleCodeRows();
-    const { codesByRowIndex, codeUpdatesByArticleId } = await generateAutoCodes(
+    const { codesByRowIndex, codeUpdatesByArticleId, codesDejaPrisAilleurs } = await generateAutoCodes(
       draftRows,
       articleInfoById,
       articleCodeRowsForAttempt,
       usedCodesGlobal
     );
+    codesPrisAilleursDernierEssai = codesDejaPrisAilleurs;
 
     const rawDispatcherPayload = draftRows.map((row, index) => ({
       zone: row.zone,
@@ -1245,6 +1252,13 @@ async function assignDispatcherCodesAndInsert(
         throw new Error(unconfirmError.message);
       }
     }
+  }
+
+  if (codesPrisAilleursDernierEssai.length > 0) {
+    dispatchWarnings = [
+      ...dispatchWarnings,
+      `Code(s) deja present(s) dans un autre programme (gardes quand meme, Code par article fait foi) : ${codesPrisAilleursDernierEssai.join(", ")}.`,
+    ];
   }
 
   return { warnings: dispatchWarnings };
