@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { buildAllFamiliesSheets, type FamilySheet } from "./family-data";
 
 // "tableauCommandes" est une page en lecture seule (hasWrite: false dans
 // page-registry.ts) - la note est une edition de la commande elle-meme,
@@ -33,4 +34,28 @@ export async function updateCommandeNoteAction(formData: FormData) {
   }
 
   revalidatePath("/tableau-commandes");
+}
+
+// Export Excel de toutes les familles en un seul fichier (une feuille par
+// famille). Les donnees sont calculees ici (serveur), le fichier est construit
+// dans le navigateur (voir export-toutes-familles-button.tsx). Renvoie un
+// message d'erreur lisible au lieu de lever une exception : en production
+// Next.js masque le texte des exceptions des Server Actions.
+export async function exportAllFamiliesAction(): Promise<
+  { ok: true; sheets: FamilySheet[] } | { ok: false; message: string }
+> {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canViewPageUser(currentUser, "tableauCommandes"))) {
+    return { ok: false, message: "Tu n'as pas acces au Tableau de commande." };
+  }
+
+  try {
+    return { ok: true, sheets: await buildAllFamiliesSheets() };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Export impossible, reessaie dans un instant.",
+    };
+  }
 }

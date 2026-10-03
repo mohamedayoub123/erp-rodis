@@ -51,6 +51,163 @@ function formatDateFr(value: string | null): string {
   return `${day}-${month}-${date.getFullYear()}`;
 }
 
+// Ajoute une feuille (un tableau de famille) a un classeur Excel. Utilise par
+// l'export d'une famille ET par l'export de toutes les familles dans un seul
+// fichier (une feuille par famille) - sheetName = nom d'onglet (31 caracteres
+// max), title = titre ecrit en haut de la feuille.
+export function addTableauSheet(
+  workbook: ExcelJS.Workbook,
+  title: string,
+  commandColumns: ExportCommandColumn[],
+  rows: ExportDataRow[],
+  sheetName?: string
+) {
+  const sheet = workbook.addWorksheet(sheetName || title.slice(0, 31) || "Export", {
+    views: [{ state: "frozen", ySplit: 6 }],
+  });
+
+  const headerLabels = [
+    "Article",
+    ...commandColumns.map((col) => col.numeroProforma || col.client || col.key),
+    "Total",
+    "Stock",
+    "Reste",
+    "Qt en cours de Conditionnement",
+    "Reste apres Conditionnement",
+  ];
+  const totalCols = headerLabels.length;
+
+  function bannerRow(label: string) {
+    const row = sheet.addRow([label]);
+    sheet.mergeCells(row.number, 1, row.number, totalCols);
+    const cell = row.getCell(1);
+    cell.font = { bold: true, color: { argb: "FF0F172A" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TURQUOISE } };
+    cell.alignment = { horizontal: "left", vertical: "middle" };
+    row.height = 20;
+  }
+
+  bannerRow(title);
+
+  const statutRow = sheet.addRow(["Statut", ...commandColumns.map((col) => col.statut), "", "", "", "", ""]);
+  const clientRow = sheet.addRow(["Client", ...commandColumns.map((col) => col.client || "-"), "", "", "", "", ""]);
+  const camionRow = sheet.addRow([
+    "Nombre de camion",
+    ...commandColumns.map((col) => (col.nombreCamion === null ? "-" : col.nombreCamion)),
+    "",
+    "",
+    "",
+    "",
+    "",
+  ]);
+  const proformaRow = sheet.addRow([
+    "Proforma #",
+    ...commandColumns.map((col) => col.numeroProforma || "-"),
+    "TOTAL",
+    "STOCK",
+    "RESTE",
+    "Qt en cours",
+    "Reste apres",
+  ]);
+  const dateRow = sheet.addRow([
+    "Date commande",
+    ...commandColumns.map((col) => formatDateFr(col.dateEcriture)),
+    "",
+    "",
+    "",
+    "",
+    "",
+  ]);
+
+  for (const row of [statutRow, clientRow, camionRow, proformaRow, dateRow]) {
+    row.eachCell((cell) => {
+      cell.font = { bold: true };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TURQUOISE } };
+      cell.border = ALL_BORDERS;
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    });
+  }
+
+  const colWidths = headerLabels.map((label) => Math.max(String(label).length + 2, 10));
+  colWidths[0] = Math.max(colWidths[0], 32);
+
+  function trackWidth(colIndex: number, text: string) {
+    colWidths[colIndex - 1] = Math.min(Math.max(colWidths[colIndex - 1], text.length + 2), 40);
+  }
+
+  for (const row of rows) {
+    if (row.kind === "banner") {
+      bannerRow(row.label);
+      continue;
+    }
+
+    const isManque = row.reste < 0;
+    const isBlTransforme = row.article.toLowerCase().includes("bl transforme");
+    const isStand =
+      row.article.toLowerCase().includes("stand") || row.article.toLowerCase().includes("production");
+
+    const articleFill = isManque
+      ? MANQUE_YELLOW
+      : isStand
+        ? STAND_YELLOW
+        : isBlTransforme
+          ? BL_TRANSFORME_GREEN
+          : TURQUOISE;
+    const lineFill = isManque ? MANQUE_YELLOW : "FFFFFFFF";
+    const summaryFill = isManque ? MANQUE_YELLOW : TURQUOISE;
+
+    const values = [
+      row.article,
+      ...commandColumns.map((col) => row.quantitiesByColumn[col.key] || ""),
+      row.total,
+      row.stock,
+      row.reste,
+      row.qtEnCours || "",
+      row.resteApresConditionnement,
+    ];
+
+    const excelRow = sheet.addRow(values);
+    excelRow.eachCell((cell, colIndex) => {
+      cell.border = ALL_BORDERS;
+      cell.alignment = { vertical: "middle", wrapText: true };
+      const isResteApresCol = colIndex === totalCols;
+      const fill = isResteApresCol
+        ? row.resteApresConditionnement < 0
+          ? "FFDC2626"
+          : "FF059669"
+        : colIndex === 1
+          ? articleFill
+          : colIndex > totalCols - 5
+            ? summaryFill
+            : lineFill;
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
+      if (isResteApresCol) {
+        cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
+      } else if (isManque && colIndex > totalCols - 5) {
+        cell.font = { color: { argb: "FFB91C1C" }, bold: true };
+      }
+      trackWidth(colIndex, String(cell.value ?? ""));
+    });
+  }
+
+  sheet.columns.forEach((col, index) => {
+    col.width = colWidths[index] || 12;
+  });
+}
+
+export async function downloadWorkbook(workbook: ExcelJS.Workbook, fileName: string) {
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export function TableauExportButton({
   title,
   commandColumns,
@@ -64,148 +221,8 @@ export function TableauExportButton({
 }) {
   async function handleExport() {
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet(title.slice(0, 31) || "Export", {
-      views: [{ state: "frozen", ySplit: 6 }],
-    });
-
-    const headerLabels = [
-      "Article",
-      ...commandColumns.map((col) => col.numeroProforma || col.client || col.key),
-      "Total",
-      "Stock",
-      "Reste",
-      "Qt en cours de Conditionnement",
-      "Reste apres Conditionnement",
-    ];
-    const totalCols = headerLabels.length;
-
-    function bannerRow(label: string) {
-      const row = sheet.addRow([label]);
-      sheet.mergeCells(row.number, 1, row.number, totalCols);
-      const cell = row.getCell(1);
-      cell.font = { bold: true, color: { argb: "FF0F172A" } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TURQUOISE } };
-      cell.alignment = { horizontal: "left", vertical: "middle" };
-      row.height = 20;
-    }
-
-    bannerRow(title);
-
-    const statutRow = sheet.addRow(["Statut", ...commandColumns.map((col) => col.statut), "", "", "", "", ""]);
-    const clientRow = sheet.addRow(["Client", ...commandColumns.map((col) => col.client || "-"), "", "", "", "", ""]);
-    const camionRow = sheet.addRow([
-      "Nombre de camion",
-      ...commandColumns.map((col) => (col.nombreCamion === null ? "-" : col.nombreCamion)),
-      "",
-      "",
-      "",
-      "",
-      "",
-    ]);
-    const proformaRow = sheet.addRow([
-      "Proforma #",
-      ...commandColumns.map((col) => col.numeroProforma || "-"),
-      "TOTAL",
-      "STOCK",
-      "RESTE",
-      "Qt en cours",
-      "Reste apres",
-    ]);
-    const dateRow = sheet.addRow([
-      "Date commande",
-      ...commandColumns.map((col) => formatDateFr(col.dateEcriture)),
-      "",
-      "",
-      "",
-      "",
-      "",
-    ]);
-
-    for (const row of [statutRow, clientRow, camionRow, proformaRow, dateRow]) {
-      row.eachCell((cell) => {
-        cell.font = { bold: true };
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TURQUOISE } };
-        cell.border = ALL_BORDERS;
-        cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-      });
-    }
-
-    const colWidths = headerLabels.map((label) => Math.max(String(label).length + 2, 10));
-    colWidths[0] = Math.max(colWidths[0], 32);
-
-    function trackWidth(colIndex: number, text: string) {
-      colWidths[colIndex - 1] = Math.min(Math.max(colWidths[colIndex - 1], text.length + 2), 40);
-    }
-
-    for (const row of rows) {
-      if (row.kind === "banner") {
-        bannerRow(row.label);
-        continue;
-      }
-
-      const isManque = row.reste < 0;
-      const isBlTransforme = row.article.toLowerCase().includes("bl transforme");
-      const isStand =
-        row.article.toLowerCase().includes("stand") || row.article.toLowerCase().includes("production");
-
-      const articleFill = isManque
-        ? MANQUE_YELLOW
-        : isStand
-          ? STAND_YELLOW
-          : isBlTransforme
-            ? BL_TRANSFORME_GREEN
-            : TURQUOISE;
-      const lineFill = isManque ? MANQUE_YELLOW : "FFFFFFFF";
-      const summaryFill = isManque ? MANQUE_YELLOW : TURQUOISE;
-
-      const values = [
-        row.article,
-        ...commandColumns.map((col) => row.quantitiesByColumn[col.key] || ""),
-        row.total,
-        row.stock,
-        row.reste,
-        row.qtEnCours || "",
-        row.resteApresConditionnement,
-      ];
-
-      const excelRow = sheet.addRow(values);
-      excelRow.eachCell((cell, colIndex) => {
-        cell.border = ALL_BORDERS;
-        cell.alignment = { vertical: "middle", wrapText: true };
-        const isResteApresCol = colIndex === totalCols;
-        const fill = isResteApresCol
-          ? row.resteApresConditionnement < 0
-            ? "FFDC2626"
-            : "FF059669"
-          : colIndex === 1
-            ? articleFill
-            : colIndex > totalCols - 5
-              ? summaryFill
-              : lineFill;
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
-        if (isResteApresCol) {
-          cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
-        } else if (isManque && colIndex > totalCols - 5) {
-          cell.font = { color: { argb: "FFB91C1C" }, bold: true };
-        }
-        trackWidth(colIndex, String(cell.value ?? ""));
-      });
-    }
-
-    sheet.columns.forEach((col, index) => {
-      col.width = colWidths[index] || 12;
-    });
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    addTableauSheet(workbook, title, commandColumns, rows);
+    await downloadWorkbook(workbook, fileName);
   }
 
   return (

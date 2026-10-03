@@ -236,9 +236,24 @@ export function ilikePatternForFamily(family: string) {
 // qui permet de re-affecter ces articles vers une famille curee (ou de
 // renommer la gamme) au lieu de les laisser dans leur bucket automatique.
 export async function fetchDynamicFamilies(): Promise<string[]> {
-  const { data } = await supabaseServer.from("articles").select("gamme, nom_article, nature");
+  // Lecture paginee et ordonnee : PostgREST plafonne une reponse a 1000 lignes
+  // (sans cela, au-dela de 1000 articles, des gammes disparaissaient du tableau).
+  type ArticleGammeRow = { gamme: string | null; nom_article: string | null; nature: string | null };
+  const rows: ArticleGammeRow[] = [];
+  const pageSize = 1000;
 
-  const rows = (data as { gamme: string | null; nom_article: string | null; nature: string | null }[] | null) ?? [];
+  for (let from = 0; ; from += pageSize) {
+    const { data } = await supabaseServer
+      .from("articles")
+      .select("gamme, nom_article, nature")
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    const chunk = (data as ArticleGammeRow[] | null) ?? [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) break;
+  }
   const extra = new Set<string>();
 
   for (const row of rows) {

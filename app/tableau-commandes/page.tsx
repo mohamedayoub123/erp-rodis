@@ -4,8 +4,8 @@ import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { fetchRestantConditionnementEmballageByArticle } from "../production/suivi/data";
 import { HighlightableRow } from "./highlightable-row";
+import { ToutesFamillesExportButton } from "./export-toutes-familles-button";
 import { CommandeNoteCell } from "./note-cell";
 import {
   TableauExportButton,
@@ -15,13 +15,22 @@ import {
 import {
   FAMILY_ORDER,
   FAMILY_BUTTON_STYLES,
-  FAMILY_SUBGAMMES,
-  getFamilySubGamme,
-  matchesFamilyGamme,
   resolveFamilyForGamme,
-  ilikePatternForFamily,
   fetchDynamicFamilies,
 } from "./family-lib";
+import {
+  EMPTY_TABLE_FAMILIES,
+  buildCommandeKey,
+  buildFamilyView,
+  fetchArticleStocksFromStockPage,
+  fetchQtEnCoursConditionnementByArticle,
+  getStatusLabel,
+  getWhiteSecretArticleRank,
+  getWhiteSecretContenance,
+  loadFamilyTableData,
+  normalizeArticle,
+  type CommandColumn,
+} from "./family-data";
 
 type SearchParams = Promise<{
   famille?: string;
@@ -30,64 +39,7 @@ type SearchParams = Promise<{
   negatif?: string;
 }>;
 
-type CommandColumn = {
-  key: string;
-  // Id de la 1ere commande du groupe (une colonne peut regrouper plusieurs
-  // lignes "commandes" - meme camion/proforma partage) - sert d'ancrage pour
-  // la note libre, exactement comme client/statut/numero_proforma qui sont
-  // deja lus depuis cette 1ere commande du groupe.
-  id: number;
-  client: string;
-  nombre_camion: number | null;
-  mode_chargement: string;
-  type_tc: string;
-  numero_proforma: string;
-  statut: string;
-  date_ecriture: string | null;
-  note: string;
-};
-
-type WhiteSecretArticleRow = {
-  id: number;
-  nom_article: string | null;
-  gamme: string | null;
-};
-
-const EMPTY_TABLE_FAMILIES = new Set<string>([]);
-
 const WHITE_SECRET_TURQUOISE = "bg-[#1f9da5]";
-
-// Some families group their table by article TYPE (Lait, Gel, Pommade,
-// EDC...) instead of by a brand/scent sub-gamme.
-const TYPE_GROUPED_FAMILIES = new Set(["SOOPURE"]);
-const TYPE_GROUP_BANNER_CLASS = "bg-[#a6a6a6] text-white";
-
-function getArticleTypeLabel(article: string) {
-  switch (getWhiteSecretArticleRank(article)) {
-    case 1:
-      return "LAIT";
-    case 2:
-      return "CREME";
-    case 3:
-      return "DSR";
-    case 4:
-      return "HUILE";
-    case 5:
-      return "SERUM";
-    case 6:
-      return "SAVON";
-    case 7:
-      return "GEL";
-    case 8:
-      return "EDC";
-    case 9:
-      return "POMMADE";
-    case 10:
-      return "TALC";
-    default:
-      return null;
-  }
-}
 
 const WHITE_SECRET_CLIENT_COLUMNS = [
   { client: "RODIS MALI", color: "bg-[#14989d] text-slate-950", stand: false },
@@ -112,10 +64,6 @@ const WHITE_SECRET_CLIENT_COLUMNS = [
 
 const WHITE_SECRET_EXTRA_EMPTY_COLUMNS = 12;
 
-function normalizeArticle(value: string) {
-  return (value || "").replace(/\u00a0/g, "").trim().toUpperCase();
-}
-
 function formatDateCell(date: Date) {
   const day = String(date.getDate()).padStart(2, "0");
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -139,15 +87,6 @@ type StockArticleSourceRow = {
     | { nom_article: string | null; gamme?: string | null }
     | { nom_article: string | null; gamme?: string | null }[]
     | null;
-};
-
-type StockPageRawRow = {
-  id: number;
-  article_id: number | null;
-  numero_lot: string | null;
-  date_jour: string | null;
-  qte_entree: number | null;
-  qte_sortie: number | null;
 };
 
 function buildCurrentStockByArticle(
@@ -222,201 +161,10 @@ async function fetchAllLotsStockForArticleIds(articleIds: number[]) {
   return rows;
 }
 
-function computeCurrentStockLikeStockPage(rows: StockPageRawRow[]) {
-  const displaySourceRows = rows.flatMap((row) => {
-    const splitRows: StockPageRawRow[] = [];
-
-    if (Number(row.qte_entree ?? 0) > 0) {
-      splitRows.push({
-        ...row,
-        qte_sortie: 0,
-      });
-    }
-
-    if (Number(row.qte_sortie ?? 0) > 0) {
-      splitRows.push({
-        ...row,
-        qte_entree: 0,
-      });
-    }
-
-    if (splitRows.length === 0) {
-      splitRows.push(row);
-    }
-
-    return splitRows;
-  });
-
-  const sortedAscending = [...displaySourceRows].sort((a, b) => {
-    const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
-    const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;
-
-    if (dateA !== dateB) {
-      return dateA - dateB;
-    }
-
-    return a.id - b.id;
-  });
-
-  // Single ascending pass with a running per-article total: the cumulative
-  // value after processing the last (most recent) row is the current stock,
-  // equivalent to sorting descending and reading the top row but in O(n).
-  const runningByArticle = new Map<number, number>();
-  let latestStock = 0;
-
-  for (const row of sortedAscending) {
-    const previousArticle = row.article_id ? runningByArticle.get(row.article_id) ?? 0 : 0;
-    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-    const stockArticle = previousArticle + mouvement;
-
-    if (row.article_id) {
-      runningByArticle.set(row.article_id, stockArticle);
-    }
-
-    latestStock = stockArticle;
-  }
-
-  return Number(latestStock ?? 0);
-}
-
-async function fetchArticleStocksFromStockPage(
-  articleRows: { id: number | null; nom_article: string | null }[]
-) {
-  const normalizedTargets = [
-    ...new Set(
-      articleRows
-        .map((row) => normalizeArticle(String(row.nom_article || "")))
-        .filter((value) => value.length > 0)
-    ),
-  ];
-
-  if (normalizedTargets.length === 0) {
-    return new Map<string, number>();
-  }
-
-  const idsByArticleKey = new Map<string, number[]>();
-  for (const row of articleRows) {
-    const articleKey = normalizeArticle(String(row.nom_article || ""));
-    const articleId = Number(row.id ?? 0);
-
-    if (!articleKey || articleId <= 0) continue;
-
-    const currentIds = idsByArticleKey.get(articleKey) ?? [];
-    currentIds.push(articleId);
-    idsByArticleKey.set(articleKey, currentIds);
-  }
-
-  const unionIds = [...new Set(
-    [...idsByArticleKey.values()].flat().filter((value) => value > 0)
-  )];
-
-  if (unionIds.length === 0) {
-    return new Map<string, number>(normalizedTargets.map((key) => [key, 0]));
-  }
-
-  // Pour un rapport toutes-familles, unionIds couvre quasiment tous les
-  // articles PF - le nombre de lignes lots_stock correspondantes peut
-  // depasser 15 000-20 000 (confirme en pratique), soit 15-20 pages. Les
-  // recuperer une par une (boucle while sequentielle) faisait un
-  // aller-retour reseau apres l'autre - mesure : ~5s a lui seul, l'essentiel
-  // du temps de chargement de la page "Article manquant". Les pages sont
-  // independantes (chaque article est re-trie individuellement plus bas par
-  // computeCurrentStockLikeStockPage, donc l'ordre d'arrivee entre pages
-  // n'a aucune importance) : on demande d'abord le nombre total de lignes
-  // (requete "count" tres legere, sans transfert de donnees), puis on tire
-  // toutes les pages en parallele.
-  const pageSize = 1000;
-  const { count: totalLotsCount, error: countError } = await supabaseServer
-    .from("lots_stock")
-    .select("id", { count: "exact", head: true })
-    .in("article_id", unionIds);
-
-  if (countError) {
-    throw new Error(countError.message);
-  }
-
-  const pageCount = Math.max(1, Math.ceil((totalLotsCount ?? 0) / pageSize));
-
-  const pages = await Promise.all(
-    Array.from({ length: pageCount }, (_, pageIndex) => {
-      const from = pageIndex * pageSize;
-      return supabaseServer
-        .from("lots_stock")
-        .select("id, article_id, numero_lot, date_jour, qte_entree, qte_sortie")
-        .in("article_id", unionIds)
-        .order("date_jour", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, from + pageSize - 1);
-    })
-  );
-
-  const allLots: StockPageRawRow[] = [];
-  for (const { data, error } of pages) {
-    if (error) {
-      throw new Error(error.message);
-    }
-    allLots.push(...((data as StockPageRawRow[] | null) ?? []));
-  }
-
-  // Group once by article_id instead of re-scanning the whole lots list per
-  // article (that was O(articles x lots), very slow once there are a few
-  // hundred distinct articles across all families).
-  const lotsByArticleId = new Map<number, StockPageRawRow[]>();
-  for (const row of allLots) {
-    const articleId = Number(row.article_id ?? 0);
-    if (!articleId) continue;
-    const list = lotsByArticleId.get(articleId) ?? [];
-    list.push(row);
-    lotsByArticleId.set(articleId, list);
-  }
-
-  const stockByArticle = new Map<string, number>();
-
-  for (const articleKey of normalizedTargets) {
-    const ids = idsByArticleKey.get(articleKey) ?? [];
-    const relevantRows = ids.flatMap((id) => lotsByArticleId.get(id) ?? []);
-    stockByArticle.set(articleKey, computeCurrentStockLikeStockPage(relevantRows));
-  }
-
-  return stockByArticle;
-}
-
 function formatTruckCount(value: number | null) {
   if (value === null || Number.isNaN(Number(value))) return "";
   const num = Number(value);
   return Number.isInteger(num) ? String(num) : String(num).replace(".", ",");
-}
-
-// Une commande sur plusieurs camions cree une ligne "commandes" separee par
-// camion (proforma suffixe "-2", "-3", ...) mais reste UNE seule commande
-// pour l'affichage : on regroupe donc par proforma de base pour ne pas
-// l'ecrire plusieurs fois dans le tableau (les quantites de chaque camion
-// s'additionnent naturellement puisqu'elles partagent la meme cle).
-function getBaseProforma(numeroProforma: string) {
-  return numeroProforma.replace(/-\d+$/, "");
-}
-
-function buildCommandeKey(row: {
-  client: string | null;
-  mode_chargement: string | null;
-  numero_proforma: string | null;
-}) {
-  const numero = getBaseProforma(String(row.numero_proforma || "").trim());
-  if (numero) return `proforma::${numero}`;
-
-  return [
-    String(row.client || "").trim(),
-    "",
-    String(row.mode_chargement || "").trim(),
-    numero,
-  ].join("||");
-}
-
-function getStatusLabel(statusValue: string | null | undefined) {
-  const status = String(statusValue || "").toUpperCase();
-  if (status === "STAND") return "STAND";
-  if (status === "BL_TRANSFORME") return "BL TRANSFORME";
-  return "EN COURS";
 }
 
 function getStatusCellClass(statusValue: string | null | undefined) {
@@ -841,45 +589,6 @@ function renderArticleManquantInsideTableau(
   );
 }
 
-function getWhiteSecretArticleRank(article: string) {
-  // Strip accents first ("Crème".toUpperCase() is "CRÈME", not "CREME") so
-  // accented article names still match their type group instead of falling
-  // through to the generic bucket at the end.
-  const value = article
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase();
-
-  if (value.endsWith("S-H")) return 99;
-  if (value.startsWith("LAIT ")) return 1;
-  if (value.startsWith("CREME ")) return 2;
-  if (value.startsWith("DSR ")) return 3;
-  if (value.startsWith("HUILE ")) return 4;
-  if (value.startsWith("SERUM ")) return 5;
-  if (value.startsWith("SAVON ")) return 6;
-  if (value.startsWith("GEL DOUCHE ")) return 7;
-  if (value.startsWith("EDC ")) return 8;
-  if (value.startsWith("POMMADE ")) return 9;
-  if (value.startsWith("TALC ")) return 10;
-
-  return 50;
-}
-
-function getWhiteSecretContenance(article: string) {
-  const value = article.toUpperCase();
-  const match = value.match(/(\d+(?:[.,]\d+)?)\s*(KG|GRS|G|ML|L)\b/);
-
-  if (!match) return 0;
-
-  const amount = Number(String(match[1]).replace(",", ".")) || 0;
-  const unit = match[2];
-
-  if (unit === "L") return amount * 1000;
-  if (unit === "KG") return amount * 1000;
-  if (unit === "G" || unit === "GRS") return amount;
-  return amount;
-}
-
 function renderGenericFamilyTemplate(
   families: string[],
   selectedFamille: string,
@@ -893,91 +602,18 @@ function renderGenericFamilyTemplate(
   onlyNegatif: boolean = false,
   canEditNote: boolean = false
 ) {
-  const visibleCommandColumns = commandColumns.filter(
-    (column) => !hideStand || String(column.statut || "").toUpperCase() !== "STAND"
+  // Lignes du tableau + lignes d'export Excel : meme calcul que l'export de
+  // toutes les familles (voir buildFamilyView dans family-data.ts).
+  const { visibleCommandColumns, rowsWithSubGamme, exportCommandColumns, exportRows } = buildFamilyView(
+    articleRows,
+    commandColumns,
+    quantitiesByArticle,
+    stockByArticle,
+    qtEnCoursConditionnementByArticleKey,
+    subGammeByArticleKey,
+    hideStand,
+    onlyNegatif
   );
-
-  // RESTE une fois la quantite deja en cours de Conditionnement ajoutee -
-  // demande explicite : le manque "brut" (stock - commande) peut deja etre
-  // couvert par ce qui est en train d'etre conditionne, donc le vrai manque
-  // restant est reste + qtEnCours. Negatif = toujours manquant malgre ce qui
-  // arrive, positif = couvert.
-  function resteApresConditionnementFor(article: string) {
-    const articleKey = normalizeArticle(article);
-    const articleQuantities = quantitiesByArticle.get(articleKey);
-    const total = visibleCommandColumns.reduce(
-      (sum, column) => sum + Number(articleQuantities?.get(column.key) ?? 0),
-      0
-    );
-    const stock = Number(stockByArticle.get(articleKey) ?? 0);
-    const reste = stock - total;
-    const qtEnCours = Number(qtEnCoursConditionnementByArticleKey.get(articleKey) ?? 0);
-    return reste + qtEnCours;
-  }
-
-  // Bouton "Voir seulement les manques" filtre AVANT de calculer les
-  // bandeaux de sous-gamme, pour que "different du precedent" se base sur la
-  // sequence reellement affichee (sinon un bandeau pouvait se repeter ou
-  // manquer une fois des articles retires par le filtre).
-  const filteredArticleRows = onlyNegatif
-    ? articleRows.filter((article) => resteApresConditionnementFor(article) < 0)
-    : articleRows;
-
-  const rowsWithSubGamme = filteredArticleRows.map((article, index) => {
-    const articleKey = normalizeArticle(article);
-    const subGamme = subGammeByArticleKey?.get(articleKey) ?? null;
-    const previousArticleKey = index > 0 ? normalizeArticle(filteredArticleRows[index - 1]) : null;
-    const previousSubGamme =
-      previousArticleKey !== null ? subGammeByArticleKey?.get(previousArticleKey) ?? null : null;
-    const showSubGammeBanner = subGamme !== null && subGamme.label !== previousSubGamme?.label;
-
-    return { article, subGamme, showSubGammeBanner };
-  });
-
-  // Meme donnees, meme formules que le rendu ecran juste en dessous - juste
-  // aplaties en objets simples pour l'export Excel (bouton place dans
-  // l'en-tete de la page).
-  const exportCommandColumns: ExportCommandColumn[] = visibleCommandColumns.map((column) => ({
-    key: column.key,
-    client: column.client,
-    nombreCamion: column.nombre_camion,
-    numeroProforma: column.numero_proforma,
-    dateEcriture: column.date_ecriture,
-    statut: getStatusLabel(column.statut),
-  }));
-
-  const exportRows: ExportDataRow[] = rowsWithSubGamme.flatMap(({ article, subGamme, showSubGammeBanner }) => {
-    const articleKey = normalizeArticle(article);
-    const articleQuantities = quantitiesByArticle.get(articleKey);
-    const total = visibleCommandColumns.reduce(
-      (sum, column) => sum + Number(articleQuantities?.get(column.key) ?? 0),
-      0
-    );
-    const stock = Number(stockByArticle.get(articleKey) ?? 0);
-    const reste = stock - total;
-    const qtEnCours = Number(qtEnCoursConditionnementByArticleKey.get(articleKey) ?? 0);
-
-    const quantitiesByColumn: Record<string, number> = {};
-    for (const column of visibleCommandColumns) {
-      quantitiesByColumn[column.key] = Number(articleQuantities?.get(column.key) ?? 0);
-    }
-
-    const rows: ExportDataRow[] = [];
-    if (showSubGammeBanner && subGamme) {
-      rows.push({ kind: "banner", label: subGamme.label });
-    }
-    rows.push({
-      kind: "article",
-      article,
-      quantitiesByColumn,
-      total,
-      stock,
-      reste,
-      qtEnCours,
-      resteApresConditionnement: reste + qtEnCours,
-    });
-    return rows;
-  });
 
   return (
     <main className="min-h-screen bg-[#f4f6f8] px-4 py-6 text-slate-900 lg:px-6">
@@ -1009,6 +645,7 @@ function renderGenericFamilyTemplate(
                 rows={exportRows}
                 fileName={`tableau-commande-${selectedFamille}-${formatDateCell(new Date())}.xlsx`}
               />
+              <ToutesFamillesExportButton />
               <form action="/tableau-commandes">
                 <input type="hidden" name="famille" value={selectedFamille} />
                 {hideStand ? null : <input type="hidden" name="hideStand" value="1" />}
@@ -1395,57 +1032,6 @@ async function fetchAllArticlesForMissingReport() {
   return rows.filter((row) => row.nature !== "vrac");
 }
 
-// "Qt en cours de Conditionnement" par article, cle par nom d'article
-// normalise pour matcher les autres maps de cette page (stockByArticle,
-// quantitiesByArticle...) - deux morceaux additionnes :
-// 1. Deja emballe (Suivi Production) mais pas encore valide dans le stock
-//    (meme liste que "Entree Production" - transfere_stock=false).
-// 2. Encore a produire au Conditionnement/Emballage (meme calcul que les
-//    colonnes "Restant" du Dashboard Production), donc pas encore compte
-//    dans la liste "Entree Production" ci-dessus.
-async function fetchQtEnCoursConditionnementByArticle() {
-  const map = new Map<string, number>();
-
-  const { data: pendingData, error: pendingError } = await supabaseServer
-    .from("production_emballage_entries")
-    .select("programme_ligne_id, quantite")
-    .eq("transfere_stock", false)
-    .limit(10000);
-
-  const pendingRows =
-    !pendingError && pendingData
-      ? (pendingData as { programme_ligne_id: number | null; quantite: number | null }[])
-      : [];
-
-  const ligneIds = [
-    ...new Set(pendingRows.map((row) => Number(row.programme_ligne_id ?? 0)).filter((id) => id > 0)),
-  ];
-
-  if (ligneIds.length > 0) {
-    const { data: lignesData } = await supabaseServer
-      .from("programme_lignes")
-      .select("id, produit")
-      .in("id", ligneIds);
-
-    const lignes = (lignesData as { id: number; produit: string | null }[] | null) ?? [];
-    const produitByLigneId = new Map(lignes.map((ligne) => [ligne.id, ligne.produit || ""]));
-
-    for (const row of pendingRows) {
-      const articleKey = normalizeArticle(produitByLigneId.get(Number(row.programme_ligne_id ?? 0)) || "");
-      if (!articleKey) continue;
-
-      map.set(articleKey, Number(map.get(articleKey) ?? 0) + Number(row.quantite ?? 0));
-    }
-  }
-
-  const restantConditionnementEmballage = await fetchRestantConditionnementEmballageByArticle();
-  for (const [articleKey, restant] of restantConditionnementEmballage) {
-    map.set(articleKey, Number(map.get(articleKey) ?? 0) + restant);
-  }
-
-  return map;
-}
-
 export default async function TableauCommandesPage({
   searchParams,
 }: {
@@ -1737,6 +1323,7 @@ export default async function TableauCommandesPage({
                 >
                   Gerer les gammes
                 </Link>
+                <ToutesFamillesExportButton />
                 <Link
                   href="/commandes"
                   className="rounded-full bg-slate-950 px-4 py-2 text-[16px] font-medium text-white"
@@ -1777,186 +1364,6 @@ export default async function TableauCommandesPage({
   }
 
   const shouldStayEmpty = EMPTY_TABLE_FAMILIES.has(selectedFamille);
-
-  // Toutes les requetes dependent uniquement de selectedFamille (deja connu
-  // a ce stade), donc tout ce qui suit part en parallele au lieu d'etre
-  // attendu sequentiellement comme avant (jusqu'a 3 aller-retours reseau
-  // reduits a 1 seul).
-  if (selectedFamille === "White Secret") {
-    const [
-      { data: whiteSecretCommandesDataRaw },
-      { data: whiteSecretArticlesRaw },
-      { data: allActiveCommandesDataRaw },
-      qtEnCoursConditionnementByArticle,
-    ] = await Promise.all([
-      supabaseServer
-        .from("commandes")
-        .select(
-          "id, client, statut, mode_chargement, type_tc, numero_proforma, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
-        )
-        .neq("statut", "LIVREE")
-        .order("created_at", { ascending: true }),
-      supabaseServer
-        .from("articles")
-        .select("id, nom_article, gamme, nature")
-        .ilike("gamme", "%White Secret%")
-        .order("nom_article", { ascending: true }),
-      supabaseServer
-        .from("commandes")
-        .select("id, client, statut, mode_chargement, type_tc, numero_proforma, note_tableau_commande, created_at")
-        .neq("statut", "LIVREE")
-        .order("created_at", { ascending: true }),
-      fetchQtEnCoursConditionnementByArticle(),
-    ]);
-
-    const whiteSecretCommandesData =
-      (whiteSecretCommandesDataRaw as
-        | {
-            id: number;
-            client: string | null;
-            statut: string | null;
-            mode_chargement: string | null;
-            type_tc: string | null;
-            numero_proforma: string | null;
-            commande_lignes:
-              | {
-                  quantite_demandee: number | null;
-                  articles:
-                    | { nom_article: string | null; gamme: string | null }
-                    | { nom_article: string | null; gamme: string | null }[]
-                    | null;
-                }[]
-              | null;
-          }[]
-        | null) ?? [];
-
-    const whiteSecretArticles = (
-      ((whiteSecretArticlesRaw as (WhiteSecretArticleRow & { nature: string | null })[] | null) ?? [])
-        // Le vrac (matiere non conditionnee) ne se commande jamais - meme
-        // regle que le tableau de dispatch camion des autres gammes.
-        .filter((row) => row.nature !== "vrac")
-    );
-
-    const allActiveCommandesData =
-      (allActiveCommandesDataRaw as
-        | {
-            id: number;
-            client: string | null;
-            statut: string | null;
-            mode_chargement: string | null;
-            type_tc: string | null;
-            numero_proforma: string | null;
-            note_tableau_commande: string | null;
-            created_at: string | null;
-          }[]
-        | null) ?? [];
-
-    const allActiveCommandColumns: CommandColumn[] = [];
-    const allActiveCommandKeySet = new Set<string>();
-
-    for (const commande of allActiveCommandesData) {
-      const key = buildCommandeKey(commande);
-      if (allActiveCommandKeySet.has(key)) continue;
-      allActiveCommandKeySet.add(key);
-
-      allActiveCommandColumns.push({
-        key,
-        id: commande.id,
-        client: String(commande.client || "").trim(),
-        nombre_camion: Number(commande.type_tc) || 1,
-        mode_chargement: String(commande.mode_chargement || "").trim(),
-        type_tc: String(commande.type_tc || "").trim(),
-        numero_proforma: String(commande.numero_proforma || "").trim(),
-        statut: String(commande.statut || "EN_COURS").trim(),
-        date_ecriture: commande.created_at,
-        note: String(commande.note_tableau_commande || ""),
-      });
-    }
-
-    const whiteSecretQuantitiesByArticle = new Map<string, Map<string, number>>();
-
-    for (const commande of whiteSecretCommandesData) {
-      const lignes = (commande.commande_lignes ?? []).filter((ligne) => {
-        const relation = ligne.articles;
-        const article = Array.isArray(relation) ? relation[0] : relation;
-        return String(article?.gamme || "")
-          .toLowerCase()
-          .includes("white secret");
-      });
-
-      if (lignes.length === 0) continue;
-
-      const key = buildCommandeKey(commande);
-
-      // Chaque camion du meme proforma est une ligne "commandes" separee -
-      // il faut additionner la quantite de TOUS les camions, pas seulement
-      // du premier rencontre.
-      for (const ligne of lignes) {
-        const relation = ligne.articles;
-        const article = Array.isArray(relation) ? relation[0] : relation;
-        const articleName = String(article?.nom_article || "").trim();
-        const articleKey = normalizeArticle(articleName);
-        if (!articleName || !articleKey) continue;
-
-        const rowMap =
-          whiteSecretQuantitiesByArticle.get(articleKey) ?? new Map<string, number>();
-        rowMap.set(
-          key,
-          Number(rowMap.get(key) ?? 0) + Number(ligne.quantite_demandee ?? 0)
-        );
-        whiteSecretQuantitiesByArticle.set(articleKey, rowMap);
-      }
-    }
-
-    const whiteSecretBodyRows = [
-      ...[
-        ...new Set(
-          whiteSecretArticles
-            .map((row) =>
-              String(row.nom_article || "")
-                .replace(/ /g, "")
-                .trim()
-            )
-            .filter((value) => value.length > 0 && /[A-Za-z0-9]/.test(value))
-        ),
-      ].sort((a, b) => {
-        const rankDiff = getWhiteSecretArticleRank(a) - getWhiteSecretArticleRank(b);
-        if (rankDiff !== 0) return rankDiff;
-
-        const contenanceDiff = getWhiteSecretContenance(b) - getWhiteSecretContenance(a);
-        if (contenanceDiff !== 0) return contenanceDiff;
-
-        return a.localeCompare(b, "fr", { sensitivity: "base" });
-      }),
-      "BL TRANSFORME",
-      "PRODUCTION EN COURS",
-      "STAND(faire les articles commun)",
-    ];
-
-    // Demarre pendant que le stock se calcule cote serveur, sans bloquer -
-    // le await n'arrive qu'une fois le rendu pret a en avoir besoin.
-    const whiteSecretStockPromise = fetchArticleStocksFromStockPage(whiteSecretArticles);
-    const whiteSecretStockByArticle = await whiteSecretStockPromise;
-
-    // Meme rendu que les autres familles (renderGenericFamilyTemplate) -
-    // demande explicite ("fait la page White Secret bouger comme
-    // Absolute") : l'ancien template dedie a White Secret empilait ses
-    // lignes d'en-tete via des offsets sticky top-[Xpx] fixes, fragile des
-    // qu'un nom de client depassait la hauteur prevue (bug reel signale).
-    return renderGenericFamilyTemplate(
-      families,
-      selectedFamille,
-      whiteSecretBodyRows,
-      allActiveCommandColumns,
-      whiteSecretQuantitiesByArticle,
-      whiteSecretStockByArticle,
-      qtEnCoursConditionnementByArticle,
-      undefined,
-      hideStand,
-      onlyNegatif,
-      canEditNote
-    );
-  }
 
   if (shouldStayEmpty) {
     return (
@@ -2016,218 +1423,21 @@ export default async function TableauCommandesPage({
     );
   }
 
-  // Famille generique (ni White Secret, ni vide) - meme principe : toutes
-  // les requetes independantes partent en parallele.
-  const [
-    { data: genericFamilyArticlesRaw },
-    { data: genericFamilyCommandesDataRaw },
-    { data: allActiveCommandesDataRaw },
-    qtEnCoursConditionnementByArticle,
-  ] = await Promise.all([
-    supabaseServer
-      .from("articles")
-      .select("id, nom_article, gamme, nature")
-      .ilike("gamme", ilikePatternForFamily(selectedFamille))
-      .order("nom_article", { ascending: true }),
-    supabaseServer
-      .from("commandes")
-      .select(
-        "id, client, statut, mode_chargement, type_tc, numero_proforma, commande_lignes(quantite_demandee, articles(nom_article, gamme))"
-      )
-      .neq("statut", "LIVREE")
-      .order("created_at", { ascending: true }),
-    supabaseServer
-      .from("commandes")
-      .select("id, client, statut, mode_chargement, type_tc, numero_proforma, note_tableau_commande, created_at")
-      .neq("statut", "LIVREE")
-      .order("created_at", { ascending: true }),
-    fetchQtEnCoursConditionnementByArticle(),
-  ]);
-
-  const genericFamilyArticles = (
-    (genericFamilyArticlesRaw as
-      | { id: number; nom_article: string | null; gamme: string | null; nature: string | null }[]
-      | null) ?? []
-  )
-    .filter((row) =>
-      matchesFamilyGamme(String(row.gamme || ""), String(row.nom_article || ""), selectedFamille)
-    )
-    // Le vrac (matiere non conditionnee) n'a pas sa place dans le tableau
-    // de dispatch camion - seuls les articles finis/emballes s'y
-    // commandent et s'y chargent.
-    .filter((row) => row.nature !== "vrac");
-
-  const genericFamilyCommandesData =
-    (genericFamilyCommandesDataRaw as
-      | {
-          id: number;
-          client: string | null;
-          statut: string | null;
-          mode_chargement: string | null;
-          type_tc: string | null;
-          numero_proforma: string | null;
-          commande_lignes:
-            | {
-                quantite_demandee: number | null;
-                articles:
-                  | { nom_article: string | null; gamme: string | null }
-                  | { nom_article: string | null; gamme: string | null }[]
-                  | null;
-              }[]
-            | null;
-        }[]
-      | null) ?? [];
-
-  const allActiveCommandesData =
-    (allActiveCommandesDataRaw as
-      | {
-          id: number;
-          client: string | null;
-          statut: string | null;
-          mode_chargement: string | null;
-          type_tc: string | null;
-          numero_proforma: string | null;
-          note_tableau_commande: string | null;
-          created_at: string | null;
-        }[]
-      | null) ?? [];
-
-  const allActiveCommandColumns: CommandColumn[] = [];
-  const allActiveCommandKeySet = new Set<string>();
-
-  for (const commande of allActiveCommandesData) {
-    const key = buildCommandeKey(commande);
-    if (allActiveCommandKeySet.has(key)) continue;
-    allActiveCommandKeySet.add(key);
-
-    allActiveCommandColumns.push({
-      key,
-      id: commande.id,
-      client: String(commande.client || "").trim(),
-      nombre_camion: Number(commande.type_tc) || 1,
-      mode_chargement: String(commande.mode_chargement || "").trim(),
-      type_tc: String(commande.type_tc || "").trim(),
-      numero_proforma: String(commande.numero_proforma || "").trim(),
-      statut: String(commande.statut || "EN_COURS").trim(),
-      date_ecriture: commande.created_at,
-      note: String(commande.note_tableau_commande || ""),
-    });
-  }
-
-  const genericFamilyQuantitiesByArticle = new Map<string, Map<string, number>>();
-
-  for (const commande of genericFamilyCommandesData) {
-    const key = buildCommandeKey(commande);
-    const lignes = (commande.commande_lignes ?? []).filter((ligne) => {
-      const relation = ligne.articles;
-      const article = Array.isArray(relation) ? relation[0] : relation;
-
-      return matchesFamilyGamme(
-        String(article?.gamme || ""),
-        String(article?.nom_article || ""),
-        selectedFamille
-      );
-    });
-
-    if (lignes.length === 0) continue;
-
-    for (const ligne of lignes) {
-      const relation = ligne.articles;
-      const article = Array.isArray(relation) ? relation[0] : relation;
-      const articleName = String(article?.nom_article || "").trim();
-      const articleKey = normalizeArticle(articleName);
-      if (!articleKey) continue;
-
-      const rowMap =
-        genericFamilyQuantitiesByArticle.get(articleKey) ?? new Map<string, number>();
-      rowMap.set(
-        key,
-        Number(rowMap.get(key) ?? 0) + Number(ligne.quantite_demandee ?? 0)
-      );
-      genericFamilyQuantitiesByArticle.set(articleKey, rowMap);
-    }
-  }
-
-  // For parent-family buttons that cover several real gammes (see
-  // FAMILY_SUBGAMMES), remember which sub-gamme each article belongs to so
-  // the table can show a colored banner between groups.
-  const genericFamilySubGammeByArticleKey = new Map<
-    string,
-    { label: string; bannerClass: string }
-  >();
-
-  if (TYPE_GROUPED_FAMILIES.has(selectedFamille)) {
-    for (const row of genericFamilyArticles) {
-      const articleName = String(row.nom_article || "").replace(/ /g, "").trim();
-      const typeLabel = getArticleTypeLabel(articleName);
-      if (!typeLabel) continue;
-
-      const articleKey = normalizeArticle(articleName);
-      if (articleKey) {
-        genericFamilySubGammeByArticleKey.set(articleKey, {
-          label: typeLabel,
-          bannerClass: TYPE_GROUP_BANNER_CLASS,
-        });
-      }
-    }
-  } else if (FAMILY_SUBGAMMES[selectedFamille]) {
-    for (const row of genericFamilyArticles) {
-      const subGamme = getFamilySubGamme(selectedFamille, String(row.gamme || ""));
-      if (!subGamme) continue;
-
-      const articleKey = normalizeArticle(
-        String(row.nom_article || "").replace(/ /g, "").trim()
-      );
-      if (articleKey) {
-        genericFamilySubGammeByArticleKey.set(articleKey, subGamme);
-      }
-    }
-  }
-
-  const genericFamilyArticleRows = [
-    ...new Set(
-      genericFamilyArticles
-        .map((row) => String(row.nom_article || "").replace(/ /g, "").trim())
-        .filter((value) => value.length > 0 && /[A-Za-z0-9]/.test(value))
-    ),
-  ].sort((a, b) => {
-    const subGammeOrder = FAMILY_SUBGAMMES[selectedFamille];
-    if (subGammeOrder) {
-      const labelA = genericFamilySubGammeByArticleKey.get(normalizeArticle(a))?.label;
-      const labelB = genericFamilySubGammeByArticleKey.get(normalizeArticle(b))?.label;
-      const indexA = labelA ? subGammeOrder.findIndex((entry) => entry.label === labelA) : 99;
-      const indexB = labelB ? subGammeOrder.findIndex((entry) => entry.label === labelB) : 99;
-      if (indexA !== indexB) return indexA - indexB;
-    }
-
-    const rankDiff = getWhiteSecretArticleRank(a) - getWhiteSecretArticleRank(b);
-    if (rankDiff !== 0) return rankDiff;
-
-    const contenanceDiff = getWhiteSecretContenance(b) - getWhiteSecretContenance(a);
-    if (contenanceDiff !== 0) return contenanceDiff;
-
-    return a.localeCompare(b, "fr", { sensitivity: "base" });
-  });
-
-  // Demarre pendant que les quantites ci-dessus se calculent en memoire,
-  // sans bloquer - le await n'arrive qu'une fois le rendu pret a en avoir
-  // besoin.
-  const genericFamilyStockPromise = fetchArticleStocksFromStockPage(genericFamilyArticles);
-  const genericFamilyStockByArticle = await genericFamilyStockPromise;
+  // Donnees de la famille (White Secret ou famille generique) : meme code que
+  // l'export Excel de toutes les familles (voir family-data.ts).
+  const tableData = await loadFamilyTableData(selectedFamille);
 
   return renderGenericFamilyTemplate(
     families,
     selectedFamille,
-    genericFamilyArticleRows,
-    allActiveCommandColumns,
-    genericFamilyQuantitiesByArticle,
-    genericFamilyStockByArticle,
-    qtEnCoursConditionnementByArticle,
-    genericFamilySubGammeByArticleKey,
+    tableData.articleRows,
+    tableData.commandColumns,
+    tableData.quantitiesByArticle,
+    tableData.stockByArticle,
+    tableData.qtEnCoursByArticleKey,
+    tableData.subGammeByArticleKey,
     hideStand,
     onlyNegatif,
     canEditNote
   );
 }
-
-
