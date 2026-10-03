@@ -1,5 +1,6 @@
 "use server";
 
+import { prochainNumero } from "@/lib/document-numbers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -32,10 +33,10 @@ function parseArticleType(raw: FormDataEntryValue | undefined): ArticleType {
 }
 
 // TO1.2026, TO2.2026... est fige a la creation (colonne numero) - jamais
-// recalcule au rang comme avant, pour qu'une suppression ne decale plus les
-// numeros des autres (meme principe deja utilise pour "MB" sur
-// programmes.numero_programme) : le plus grand numero existant cette
-// annee-la + 1.
+// recalcule au rang. Le numero vient d'un compteur permanent (voir
+// lib/document-numbers.ts) : il ne redescend jamais, donc le numero d'un TO
+// supprime n'est JAMAIS reattribue a un autre (avant : plus grand numero
+// existant + 1, qui reprenait le numero du dernier TO supprime).
 async function nextTransferOrderNumero(dateJour: string): Promise<number> {
   const year = dateJour.slice(0, 4);
   const { data } = await supabaseServer
@@ -46,7 +47,7 @@ async function nextTransferOrderNumero(dateJour: string): Promise<number> {
     .order("numero", { ascending: false })
     .limit(1)
     .maybeSingle();
-  return ((data as { numero: number | null } | null)?.numero ?? 0) + 1;
+  return prochainNumero("TO", Number(year), (data as { numero: number | null } | null)?.numero ?? 0);
 }
 
 // Coeur de la creation, sans permission ni redirect - reutilise par
@@ -880,7 +881,13 @@ export async function postTransferOrderToInvoice(
     .order("numero", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const numero = ((lastInvoiceOrder as { numero: number | null } | null)?.numero ?? 0) + 1;
+  // Compteur permanent (voir lib/document-numbers.ts) : le numero d'un TI
+  // supprime n'est jamais reattribue.
+  const numero = await prochainNumero(
+    "TI",
+    Number(year),
+    (lastInvoiceOrder as { numero: number | null } | null)?.numero ?? 0
+  );
 
   const { data: inserted, error: insertError } = await supabaseServer
     .from("invoice_orders")

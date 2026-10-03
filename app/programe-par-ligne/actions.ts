@@ -1,5 +1,6 @@
 "use server";
 
+import { codesNumerotes } from "@/lib/document-numbers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -1363,25 +1364,7 @@ async function performProgrammeLigneSave(
     confirme_production: false,
   }));
 
-  // 2 requetes totalement independantes (aucune n'a besoin du resultat de
-  // l'autre) lancees en parallele plutot qu'enchainees - c'etait la
-  // principale source de lenteur du Save (chaque aller-retour reseau
-  // s'additionnait au precedent au lieu de se chevaucher). On compte les
-  // groupe_id DISTINCTS de cette annee (pas le nombre de lignes, pas toute
-  // la table) via RPC - rapatrier toute la table (6000+ lignes et ca
-  // grossit) juste pour compter rendait le Save tres lent, voire le
-  // faisait planter.
-  const [nextNumberResult, insertResult] = await Promise.all([
-    supabaseServer.rpc("programme_lignes_next_group_number_for_year", { p_year: anneeJour }),
-    supabaseServer.from("programme_lignes").insert(payload).select("id"),
-  ]);
-
-  if (nextNumberResult.error) {
-    throw new Error(nextNumberResult.error.message);
-  }
-
-  const nextNumber = Number(nextNumberResult.data) || 1;
-  const generatedCode = `PL${nextNumber}.${anneeJour}`;
+  const insertResult = await supabaseServer.from("programme_lignes").insert(payload).select("id");
 
   if (insertResult.error) {
     throw new Error(insertResult.error.message);
@@ -1399,10 +1382,19 @@ async function performProgrammeLigneSave(
     throw new Error(groupError.message);
   }
 
+  // Numero PL permanent (voir lib/document-numbers.ts) : attribue une seule
+  // fois pour l'annee de ce programme, jamais reutilise meme si ce PL est
+  // supprime plus tard. Attribue seulement une fois le Save reussi (le
+  // Dispatcher peut echouer et effacer ces lignes : le numero ne serait alors
+  // jamais utilise).
+  const attribuerCodePl = async () =>
+    (await codesNumerotes("PL", [{ refId: groupeId, annee: anneeJour }])).get(groupeId) ??
+    `PL-${groupeId}`;
+
   if (!withDispatch) {
     revalidatePath("/programe-par-ligne");
     revalidatePath("/historique-programme");
-    return { ok: true, code: generatedCode, groupe_id: groupeId, warnings: [] };
+    return { ok: true, code: await attribuerCodePl(), groupe_id: groupeId, warnings: [] };
   }
 
   // Le Dispatcher (copie vers "Programme Dispatcher <ZONE>", codes,
@@ -1429,7 +1421,7 @@ async function performProgrammeLigneSave(
   revalidatePath("/production/suivi/dashboard");
   revalidatePath("/production/suivi/calendrier");
 
-  return { ok: true, code: generatedCode, groupe_id: groupeId, warnings: dispatchWarnings };
+  return { ok: true, code: await attribuerCodePl(), groupe_id: groupeId, warnings: dispatchWarnings };
 }
 
 // Next.js remplace tout throw non attrape venant d'une Server Action par un

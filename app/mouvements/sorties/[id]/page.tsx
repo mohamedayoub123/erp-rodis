@@ -22,7 +22,7 @@ export default async function SortieDetailPage({
   const currentStockUser = await getCurrentStockUser();
   const canEditStock = await canDeletePageUser(currentStockUser, "mouvementsSortieDetail");
   const sourceRows = await fetchWebMouvementSourceRows();
-  const group = buildSortieRows(sourceRows).find((sortie) => sortie.groupe_id === groupeId);
+  const group = (await buildSortieRows(sourceRows)).find((sortie) => sortie.groupe_id === groupeId);
 
   if (!group) {
     notFound();

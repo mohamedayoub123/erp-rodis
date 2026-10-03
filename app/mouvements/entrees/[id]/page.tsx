@@ -21,7 +21,7 @@ export default async function EntreeDetailPage({
   const currentStockUser = await getCurrentStockUser();
   const canEditStock = await canDeletePageUser(currentStockUser, "mouvementsEntreeDetail");
   const sourceRows = await fetchWebMouvementSourceRows();
-  const group = buildEntreeRows(sourceRows).find((entree) => entree.groupe_id === groupeId);
+  const group = (await buildEntreeRows(sourceRows)).find((entree) => entree.groupe_id === groupeId);
 
   if (!group) {
     notFound();

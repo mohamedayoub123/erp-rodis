@@ -1,5 +1,6 @@
 "use server";
 
+import { numeroter } from "@/lib/document-numbers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -70,6 +71,10 @@ export async function createLabCodeGenerationAction(formData: FormData) {
     throw new Error(batchError.message);
   }
   const batchId = (batchData as { id: number }).id;
+
+  // Numero CLAB permanent attribue tout de suite (voir lib/document-numbers.ts) :
+  // jamais reutilise, meme si ce CLAB est supprime plus tard.
+  await numeroter("CLAB", [{ refId: batchId }]);
 
   // Suit le dernier code connu par (article, champ) PENDANT ce Save, pour
   // enchainer correctement si le meme article apparait 2 fois dans le meme

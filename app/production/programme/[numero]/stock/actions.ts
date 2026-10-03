@@ -1,5 +1,6 @@
 "use server";
 
+import { prochainNumero } from "@/lib/document-numbers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -213,7 +214,9 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
     .order("numero", { ascending: false })
     .limit(1)
     .maybeSingle();
-  let nextNumero = ((lastTransferOrder as { numero: number | null } | null)?.numero ?? 0) + 1;
+  // Compteur permanent (voir lib/document-numbers.ts) : le numero d'un TO
+  // supprime n'est jamais reattribue.
+  const maxNumeroExistant = (lastTransferOrder as { numero: number | null } | null)?.numero ?? 0;
 
   for (const [groupe, besoinMap] of besoinParGroupeMp.entries()) {
     // Colorant+Base (ensemble) toujours a part du reste, meme groupe de
@@ -274,7 +277,7 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
           cree_par: currentUser,
           famille_produit: groupe,
           type_mp: sousGroupe === "Colorant-Base" ? "MP" : "Conditionnement",
-          numero: nextNumero,
+          numero: await prochainNumero("TO", Number(year), maxNumeroExistant),
           source_numero_programme: numeroProgramme,
         })
         .select("id")
@@ -284,7 +287,6 @@ export async function autoCreateTransferOrdersAction(formData: FormData) {
         throw new Error(transferOrderError.message);
       }
 
-      nextNumero += 1;
       const transferOrderId = (transferOrder as { id: number }).id;
 
       const { error: lignesInsertError } = await supabaseServer.from("transfer_order_lignes").insert(

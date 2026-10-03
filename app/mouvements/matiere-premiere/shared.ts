@@ -1,6 +1,7 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { formatDate, formatDateTime } from "@/lib/format-date";
 import { convertirEnFcfa } from "@/lib/prix-devise";
+import { formatDocCode, numeroter, type DocKind } from "@/lib/document-numbers";
 
 export type MouvementMpSourceRow = {
   id: number;
@@ -116,6 +117,7 @@ export async function fetchWebMouvementMpSourceRows() {
         .from("lots_stock_matiere_premiere")
         .select(SOURCE_COLUMNS)
         .in("source_import", WEB_SOURCES)
+        .order("id", { ascending: true })
         .range(from, from + pageSize - 1);
     })
   );
@@ -147,12 +149,17 @@ function sortChrono(rows: MouvementMpSourceRow[]) {
   return [...rows].sort((a, b) => a.id - b.id);
 }
 
-function buildGroups(
+// NUMEROTATION PERMANENTE : le numero d'un groupe (TE12, TS8...) est attribue
+// une seule fois puis enregistre (voir lib/document-numbers.ts) - supprimer un
+// mouvement ne decale plus les suivants et son numero n'est jamais reutilise.
+// L'ordre de creation (minId) ne sert plus qu'a numeroter les groupes pas
+// encore numerotes.
+async function buildGroups(
   rows: MouvementMpSourceRow[],
   mouvementType: "entree" | "sortie",
-  codePrefix: string,
+  kind: DocKind,
   allowedSources: string[]
-): MouvementMpGroup[] {
+): Promise<MouvementMpGroup[]> {
   const filtered = rows.filter(
     (row) =>
       allowedSources.includes(row.source_import ?? "") &&
@@ -183,7 +190,12 @@ function buildGroups(
   // TS1...) suit l'ordre de creation (minId), jamais date_jour.
   groupList.sort((a, b) => a.minId - b.minId);
 
-  return groupList.map((group, index) => {
+  const numeros = await numeroter(
+    kind,
+    groupList.map((group) => ({ refId: group.groupeId }))
+  );
+
+  return groupList.map((group) => {
     const quantiteTotale = group.rows.reduce(
       (sum, row) =>
         sum + Number(mouvementType === "entree" ? row.qte_entree ?? 0 : row.qte_sortie ?? 0),
@@ -192,7 +204,7 @@ function buildGroups(
 
     return {
       groupe_id: group.groupeId,
-      code: `${codePrefix}${index + 1}`,
+      code: formatDocCode(kind, numeros.get(group.groupeId) ?? { annee: 0, numero: group.groupeId }),
       mouvement_type: mouvementType,
       date_jour: group.dateJour,
       quantite_totale: quantiteTotale,
@@ -232,17 +244,16 @@ function buildGroups(
 
 // Le numero 1 correspond toujours au mouvement le plus ancien, meme
 // convention que app/mouvements/shared.ts (PF).
-export function buildEntreeMpRows(rows: MouvementMpSourceRow[]): MouvementMpGroup[] {
-  return buildGroups(rows, "entree", "TE", ENTREE_SOURCES);
+export async function buildEntreeMpRows(rows: MouvementMpSourceRow[]): Promise<MouvementMpGroup[]> {
+  return buildGroups(rows, "entree", "MP_TE", ENTREE_SOURCES);
 }
 
 // Sortie normale (TS) et Sortie Admin (TSA) sont 2 compteurs separes, une
 // sortie admin ne doit jamais se glisser dans la numerotation TS normale.
-export function buildSortieMpRows(rows: MouvementMpSourceRow[]): MouvementMpGroup[] {
-  return [
-    ...buildGroups(rows, "sortie", "TS", [SORTIE_SOURCE]),
-    ...buildGroups(rows, "sortie", "TSA", [SORTIE_SOURCE_ADMIN]),
-  ];
+export async function buildSortieMpRows(rows: MouvementMpSourceRow[]): Promise<MouvementMpGroup[]> {
+  const normales = await buildGroups(rows, "sortie", "MP_TS", [SORTIE_SOURCE]);
+  const admin = await buildGroups(rows, "sortie", "MP_TSA", [SORTIE_SOURCE_ADMIN]);
+  return [...normales, ...admin];
 }
 
 export function formatMouvementMpDate(value: string | null) {

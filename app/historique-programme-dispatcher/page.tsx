@@ -75,7 +75,7 @@ export default async function HistoriqueProgrammeDispatcherPage({
   // Meme calcul que la page detail (voir lib/programme-numbering.ts) - avant,
   // chaque page recalculait son propre rang independamment, ce qui pouvait
   // afficher un code PD different entre la liste et le detail.
-  const pdCodeByGroupeId = computePdCodesFromRows(allRows);
+  const pdCodeByGroupeId = await computePdCodesFromRows(allRows);
   const plCodeByGroupeId = await fetchPlCodeByGroupeId();
 
   const groupsMap = new Map<number, HistoryRow[]>();

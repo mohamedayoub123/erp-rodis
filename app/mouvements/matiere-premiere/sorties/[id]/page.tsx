@@ -26,7 +26,7 @@ export default async function SortieMpDetailPage({
   const canEditStock = await canWritePageUser(currentStockUser, "mouvementsMatierePremiereSortieDetail");
   const canDeleteStock = await canDeletePageUser(currentStockUser, "mouvementsMatierePremiereSortieDetail");
   const sourceRows = await fetchWebMouvementMpSourceRows();
-  const group = buildSortieMpRows(sourceRows).find((sortie) => sortie.groupe_id === groupeId);
+  const group = (await buildSortieMpRows(sourceRows)).find((sortie) => sortie.groupe_id === groupeId);
 
   if (!group) {
     notFound();

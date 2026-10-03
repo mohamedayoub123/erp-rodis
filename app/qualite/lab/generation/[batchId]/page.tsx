@@ -1,3 +1,4 @@
+import { codesNumerotes } from "@/lib/document-numbers";
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -30,8 +31,8 @@ export default async function QualiteLabGenerationBatchPage({
     notFound();
   }
 
-  // Numerote ce CLAB par ordre de creation parmi tous les batchs (le plus
-  // ancien = CLAB1) - meme calcul que la liste.
+  // Numero CLAB permanent (voir lib/document-numbers.ts) - meme numero que
+  // dans la liste, meme apres la suppression d'un autre CLAB.
   const { data: allBatchesData } = await supabaseServer
     .from("qualite_lab_code_batches")
     .select("id, utilisateur, created_at")
@@ -43,7 +44,11 @@ export default async function QualiteLabGenerationBatchPage({
   if (!batch) {
     notFound();
   }
-  const label = `CLAB${batchIndex + 1}`;
+  const label =
+    (await codesNumerotes(
+      "CLAB",
+      allBatches.map((row) => ({ refId: row.id }))
+    )).get(batchIdNum) ?? `CLAB-${batchIdNum}`;
 
   const { data: generationsData } = await supabaseServer
     .from("qualite_lab_code_generations")

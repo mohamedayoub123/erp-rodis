@@ -128,7 +128,7 @@ export async function buildCodeFluxContext(): Promise<CodeFluxContext> {
     fetchPlCodeByGroupeId(),
     fetchPdRefsBySourceGroupeId(),
   ]);
-  return { webRows, mouvementInfoByRowId: buildMouvementInfoByRowId(webRows), plCodeByGroupeId, pdRefsBySourceGroupeId };
+  return { webRows, mouvementInfoByRowId: await buildMouvementInfoByRowId(webRows), plCodeByGroupeId, pdRefsBySourceGroupeId };
 }
 
 // Retrouve le/les Transfer Order qui ont REELLEMENT livre un (article MP,

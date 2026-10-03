@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { formatDate } from "@/lib/format-date";
+import { formatDocCode, numeroter, type DocKind } from "@/lib/document-numbers";
 
 export type MouvementSourceRow = {
   id: number;
@@ -62,6 +63,7 @@ export async function fetchMouvementSourceRows() {
     const { data, error } = await supabaseServer
       .from("lots_stock")
       .select(SOURCE_COLUMNS)
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) {
@@ -95,6 +97,7 @@ export async function fetchWebMouvementSourceRows() {
       .from("lots_stock")
       .select(SOURCE_COLUMNS)
       .in("source_import", WEB_ONLY_SOURCES)
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) {
@@ -138,12 +141,17 @@ const MANUAL_ENTREE_SOURCES = new Set(["web:entree"]);
 const PRODUCTION_ENTREE_SOURCES = new Set(["web:entree-production"]);
 const SORTIE_SOURCES = new Set(["web:sortie", "web:sortie-commande"]);
 
-function buildGroups(
+// NUMEROTATION PERMANENTE : le numero d'un groupe (TE12, TS8...) est attribue
+// une seule fois puis enregistre (voir lib/document-numbers.ts) - supprimer un
+// mouvement ne decale plus les suivants et son numero n'est jamais reutilise.
+// L'ordre de creation (minId) ne sert plus qu'a numeroter les groupes pas
+// encore numerotes.
+async function buildGroups(
   rows: MouvementSourceRow[],
   mouvementType: "entree" | "sortie",
-  codePrefix: string,
+  kind: DocKind,
   allowedSources: Set<string>
-): MouvementGroup[] {
+): Promise<MouvementGroup[]> {
   const filtered = rows.filter(
     (row) =>
       allowedSources.has(row.source_import || "") &&
@@ -174,7 +182,12 @@ function buildGroups(
   // TS1...) suit l'ordre de creation (minId), jamais date_jour.
   groupList.sort((a, b) => a.minId - b.minId);
 
-  return groupList.map((group, index) => {
+  const numeros = await numeroter(
+    kind,
+    groupList.map((group) => ({ refId: group.groupeId }))
+  );
+
+  return groupList.map((group) => {
     const quantiteTotale = group.rows.reduce(
       (sum, row) =>
         sum + Number(mouvementType === "entree" ? row.qte_entree ?? 0 : row.qte_sortie ?? 0),
@@ -183,7 +196,7 @@ function buildGroups(
 
     return {
       groupe_id: group.groupeId,
-      code: `${codePrefix}${index + 1}`,
+      code: formatDocCode(kind, numeros.get(group.groupeId) ?? { annee: 0, numero: group.groupeId }),
       mouvement_type: mouvementType,
       date_jour: group.dateJour,
       quantite_totale: quantiteTotale,
@@ -211,14 +224,13 @@ function buildGroups(
 // recent au plus ancien. Toutes les lignes creees dans le meme
 // mouvement_groupe_id (un seul clic "Approuver entree"/"Approuver sortie"
 // ou une seule livraison de commande) forment UN seul code.
-export function buildEntreeRows(rows: MouvementSourceRow[]): MouvementGroup[] {
-  return [
-    ...buildGroups(rows, "entree", "TE", MANUAL_ENTREE_SOURCES),
-    ...buildGroups(rows, "entree", "Entree Production ", PRODUCTION_ENTREE_SOURCES),
-  ];
+export async function buildEntreeRows(rows: MouvementSourceRow[]): Promise<MouvementGroup[]> {
+  const manuelles = await buildGroups(rows, "entree", "TE", MANUAL_ENTREE_SOURCES);
+  const production = await buildGroups(rows, "entree", "EP", PRODUCTION_ENTREE_SOURCES);
+  return [...manuelles, ...production];
 }
 
-export function buildSortieRows(rows: MouvementSourceRow[]): MouvementGroup[] {
+export async function buildSortieRows(rows: MouvementSourceRow[]): Promise<MouvementGroup[]> {
   return buildGroups(rows, "sortie", "TS", SORTIE_SOURCES);
 }
 
@@ -382,9 +394,11 @@ export type TraceSortie = {
 // (fetchWebMouvementSourceRows + buildEntreeRows/buildSortieRows), reutilise
 // pour tracer plusieurs codes/articles sans refaire tourner la numerotation
 // a chaque fois (voir traceProduitFiniPourCode).
-export function buildMouvementInfoByRowId(rows: MouvementSourceRow[]): Map<number, { code: string; groupeId: number }> {
+export async function buildMouvementInfoByRowId(
+  rows: MouvementSourceRow[]
+): Promise<Map<number, { code: string; groupeId: number }>> {
   const map = new Map<number, { code: string; groupeId: number }>();
-  for (const group of [...buildEntreeRows(rows), ...buildSortieRows(rows)]) {
+  for (const group of [...(await buildEntreeRows(rows)), ...(await buildSortieRows(rows))]) {
     for (const ligne of group.lignes) {
       map.set(ligne.id, { code: group.code, groupeId: group.groupe_id });
     }

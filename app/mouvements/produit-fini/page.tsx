@@ -19,8 +19,8 @@ export default async function MouvementsProduitFiniPage() {
   const canEditStock = await canDeletePageUser(currentStockUser, "mouvementsProduitFini");
   const sourceRows = await fetchWebMouvementSourceRows();
   const groups: MouvementGroup[] = [
-    ...buildEntreeRows(sourceRows),
-    ...buildSortieRows(sourceRows),
+    ...(await buildEntreeRows(sourceRows)),
+    ...(await buildSortieRows(sourceRows)),
   ].sort((a, b) => {
     const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
     const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;

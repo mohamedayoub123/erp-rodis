@@ -86,7 +86,7 @@ export default async function HistoriqueProgrammePage({
   // prenait a tort la ligne la plus RECENTE de chaque groupe comme
   // representative au lieu de la plus ANCIENNE), ce qui pouvait afficher un
   // code PL different entre la liste et le detail pour le meme groupe.
-  const plCodeByGroupeId = computePlCodesFromRows(allLignes);
+  const plCodeByGroupeId = await computePlCodesFromRows(allLignes);
   const pdRefsBySourceGroupeId = await fetchPdRefsBySourceGroupeId();
 
   // Les lignes sans groupe_id (jamais rattachees a un lot au moment de leur

@@ -1,5 +1,6 @@
 "use server";
 
+import { codesNumerotes } from "@/lib/document-numbers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -140,31 +141,6 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
   // Le code PD1/PD2/PD3... est recalcule a la lecture selon le rang du
   // groupe (meme principe que MB1/MB2 et TE1/TS1) - on compte les
   // groupe_id distincts existants pour le message de confirmation.
-  const existingGroupIds = new Set<number>();
-  let fromIndex = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data: groupRows, error: groupFetchError } = await supabaseServer
-      .from("programme_dispatcher_history")
-      .select("groupe_id")
-      .range(fromIndex, fromIndex + pageSize - 1);
-
-    if (groupFetchError) {
-      throw new Error(groupFetchError.message);
-    }
-
-    const chunk = (groupRows as { groupe_id: number }[] | null) ?? [];
-    chunk.forEach((row) => {
-      if (row.groupe_id !== null) existingGroupIds.add(row.groupe_id);
-    });
-
-    if (chunk.length < pageSize) break;
-    fromIndex += pageSize;
-  }
-
-  const generatedCode = `PD${existingGroupIds.size + 1}`;
-
   const { data: inserted, error: insertError } = await supabaseServer
     .from("programme_dispatcher_history")
     .insert(historyRows)
@@ -185,6 +161,11 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
   if (groupUpdateError) {
     throw new Error(groupUpdateError.message);
   }
+
+  // Numero PD permanent (voir lib/document-numbers.ts) : attribue une seule
+  // fois, jamais reutilise meme si ce PD est supprime plus tard.
+  const generatedCode =
+    (await codesNumerotes("PD", [{ refId: groupeId }])).get(groupeId) ?? `PD-${groupeId}`;
 
   // Ce Save confirme officiellement les programmes source pour le suivi de
   // production - ils deviennent visibles sur le Dashboard/Calendrier
@@ -249,31 +230,6 @@ export async function saveAllZonesDispatcherSnapshotAction() {
   ];
   const historyRows = rows.map(({ groupe_id, ...rest }) => ({ ...rest, source_groupe_id: groupe_id }));
 
-  const existingGroupIds = new Set<number>();
-  let fromIndex = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data: groupRows, error: groupFetchError } = await supabaseServer
-      .from("programme_dispatcher_history")
-      .select("groupe_id")
-      .range(fromIndex, fromIndex + pageSize - 1);
-
-    if (groupFetchError) {
-      throw new Error(groupFetchError.message);
-    }
-
-    const chunk = (groupRows as { groupe_id: number }[] | null) ?? [];
-    chunk.forEach((row) => {
-      if (row.groupe_id !== null) existingGroupIds.add(row.groupe_id);
-    });
-
-    if (chunk.length < pageSize) break;
-    fromIndex += pageSize;
-  }
-
-  const generatedCode = `PD${existingGroupIds.size + 1}`;
-
   const { data: inserted, error: insertError } = await supabaseServer
     .from("programme_dispatcher_history")
     .insert(historyRows)
@@ -294,6 +250,11 @@ export async function saveAllZonesDispatcherSnapshotAction() {
   if (groupUpdateError) {
     throw new Error(groupUpdateError.message);
   }
+
+  // Numero PD permanent (voir lib/document-numbers.ts) : attribue une seule
+  // fois, jamais reutilise meme si ce PD est supprime plus tard.
+  const generatedCode =
+    (await codesNumerotes("PD", [{ refId: groupeId }])).get(groupeId) ?? `PD-${groupeId}`;
 
   // Ce Save confirme officiellement les programmes source pour le suivi de
   // production - ils deviennent visibles sur le Dashboard/Calendrier

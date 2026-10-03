@@ -203,10 +203,10 @@ export default async function StockMatierePremiereStockPage({
   // mouvement_groupe_id, pour pouvoir renvoyer directement vers le
   // mouvement d'origine depuis Stock MP.
   const mouvementCodeByGroupe = new Map<number, { code: string; type: "entree" | "sortie" }>();
-  for (const group of buildEntreeMpRows(webSourceRows)) {
+  for (const group of await buildEntreeMpRows(webSourceRows)) {
     mouvementCodeByGroupe.set(group.groupe_id, { code: group.code, type: "entree" });
   }
-  for (const group of buildSortieMpRows(webSourceRows)) {
+  for (const group of await buildSortieMpRows(webSourceRows)) {
     mouvementCodeByGroupe.set(group.groupe_id, { code: group.code, type: "sortie" });
   }
 

@@ -1,5 +1,6 @@
 "use server";
 
+import { transfererNumero } from "@/lib/document-numbers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -229,6 +230,9 @@ async function restaurerAuditLog(formData: FormData) {
       if (groupUpdateError) {
         throw new Error(groupUpdateError.message);
       }
+
+      // Le PD restaure retrouve son ancien numero (voir lib/document-numbers.ts).
+      await transfererNumero("PD", Number(historyLignes[0]?.groupe_id ?? 0), nouveauGroupeId);
     }
 
     // Remet exactement l'etat programme_termine/exclu_rapports d'avant sur

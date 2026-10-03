@@ -32,8 +32,8 @@ export default async function MouvementsMatierePremierePage({
   const currentStockUser = await getCurrentStockUser();
   const canDeleteStock = await canDeletePageUser(currentStockUser, "mouvementsMatierePremiere");
   const sourceRows = await fetchWebMouvementMpSourceRows();
-  const entreeGroups = buildEntreeMpRows(sourceRows);
-  const sortieGroups = buildSortieMpRows(sourceRows);
+  const entreeGroups = await buildEntreeMpRows(sourceRows);
+  const sortieGroups = await buildSortieMpRows(sourceRows);
   const allGroups: MouvementMpGroup[] = [...entreeGroups, ...sortieGroups].sort((a, b) => {
     const dateA = a.date_jour ? new Date(a.date_jour).getTime() : 0;
     const dateB = b.date_jour ? new Date(b.date_jour).getTime() : 0;

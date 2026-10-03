@@ -199,7 +199,7 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
   // pour toute la fonction, jamais un par consommateur.
   const needsTrace = quantiteParCle.size > 0;
   const webRows = needsTrace ? await fetchWebMouvementSourceRows() : [];
-  const mouvementInfoByRowId = needsTrace ? buildMouvementInfoByRowId(webRows) : new Map();
+  const mouvementInfoByRowId = needsTrace ? await buildMouvementInfoByRowId(webRows) : new Map();
 
   const destinations: FluxDestinationLigne[] = [];
 

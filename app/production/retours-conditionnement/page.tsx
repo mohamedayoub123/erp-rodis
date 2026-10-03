@@ -61,7 +61,7 @@ async function fetchAllHistoryRows(): Promise<HistoryRow[]> {
 // retournerConditionnementAction) n'apparait jamais ici.
 async function fetchRetoursConditionnement(): Promise<PdGroupLeftover[]> {
   const allHistoryRows = await fetchAllHistoryRows();
-  const pdCodeByGroupeId = computePdCodesFromRows(allHistoryRows as PdGroupRow[]);
+  const pdCodeByGroupeId = await computePdCodesFromRows(allHistoryRows as PdGroupRow[]);
 
   const groupsMap = new Map<number, HistoryRow[]>();
   for (const row of allHistoryRows) {

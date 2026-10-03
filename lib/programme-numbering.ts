@@ -1,5 +1,12 @@
 import { supabaseServer } from "@/lib/supabase-server";
+import { codesNumerotes } from "@/lib/document-numbers";
 
+// NUMEROTATION PERMANENTE : le numero d'un PL / PD est attribue une seule
+// fois puis enregistre (voir lib/document-numbers.ts) - supprimer un PL ou un
+// PD ne decale plus les autres et son numero n'est jamais reutilise. L'ordre
+// de creation ci-dessous ne sert plus qu'a numeroter les groupes pas encore
+// numerotes.
+//
 // Calcule les codes PL1.2026, PL2.2026... et PD1, PD2... UNE SEULE FOIS ici,
 // partages par les pages liste ET detail de "Historique programme" et
 // "Historique Programme Dispatcher" - avant, chaque page recalculait le
@@ -22,9 +29,9 @@ function plGroupKey(row: { groupe_id: number | null; id: number }): number {
   return row.groupe_id ?? row.id;
 }
 
-// Calcule groupeId -> "PLn.annee" a partir de lignes DEJA chargees (evite un
+// Retourne groupeId -> "PLn.annee" a partir de lignes DEJA chargees (evite un
 // 2eme aller-retour DB quand l'appelant a deja tout programme_lignes).
-export function computePlCodesFromRows(rows: PlGroupRow[]): Map<number, string> {
+export async function computePlCodesFromRows(rows: PlGroupRow[]): Promise<Map<number, string>> {
   const earliestByGroup = new Map<number, { createdAt: string; dateJour: string }>();
   for (const row of rows) {
     const key = plGroupKey(row);
@@ -35,19 +42,16 @@ export function computePlCodesFromRows(rows: PlGroupRow[]): Map<number, string> 
   }
 
   const orderedGroups = [...earliestByGroup.entries()].sort(
-    (a, b) => new Date(a[1].createdAt).getTime() - new Date(b[1].createdAt).getTime()
+    (a, b) => new Date(a[1].createdAt).getTime() - new Date(b[1].createdAt).getTime() || a[0] - b[0]
   );
 
-  const rankByYear = new Map<number, number>();
-  const codeByGroupId = new Map<number, string>();
-  for (const [groupeId, info] of orderedGroups) {
-    const annee = new Date(info.dateJour).getFullYear();
-    const rank = (rankByYear.get(annee) ?? 0) + 1;
-    rankByYear.set(annee, rank);
-    codeByGroupId.set(groupeId, `PL${rank}.${annee}`);
-  }
-
-  return codeByGroupId;
+  return codesNumerotes(
+    "PL",
+    orderedGroups.map(([groupeId, info]) => ({
+      refId: groupeId,
+      annee: new Date(info.dateJour).getFullYear(),
+    }))
+  );
 }
 
 async function fetchAllPlGroupRows(): Promise<PlGroupRow[]> {
@@ -82,8 +86,8 @@ export async function fetchPlCodeByGroupeId(): Promise<Map<number, string>> {
 
 export type PdGroupRow = { id: number; groupe_id: number | null; created_at: string };
 
-// Calcule groupeId -> "PDn" a partir de lignes DEJA chargees.
-export function computePdCodesFromRows(rows: PdGroupRow[]): Map<number, string> {
+// Retourne groupeId -> "PDn" a partir de lignes DEJA chargees.
+export async function computePdCodesFromRows(rows: PdGroupRow[]): Promise<Map<number, string>> {
   const earliestByGroup = new Map<number, string>();
   for (const row of rows) {
     if (row.groupe_id === null) continue;
@@ -94,15 +98,13 @@ export function computePdCodesFromRows(rows: PdGroupRow[]): Map<number, string> 
   }
 
   const orderedGroupIds = [...earliestByGroup.entries()].sort(
-    (a, b) => new Date(a[1]).getTime() - new Date(b[1]).getTime()
+    (a, b) => new Date(a[1]).getTime() - new Date(b[1]).getTime() || a[0] - b[0]
   );
 
-  const codeByGroupId = new Map<number, string>();
-  orderedGroupIds.forEach(([groupeId], index) => {
-    codeByGroupId.set(groupeId, `PD${index + 1}`);
-  });
-
-  return codeByGroupId;
+  return codesNumerotes(
+    "PD",
+    orderedGroupIds.map(([groupeId]) => ({ refId: groupeId }))
+  );
 }
 
 async function fetchAllPdGroupRows(): Promise<(PdGroupRow & { source_groupe_id: number | null })[]> {
@@ -142,7 +144,7 @@ export type PdRef = { code: string; groupeId: number };
 // sur Historique programme.
 export async function fetchPdRefsBySourceGroupeId(): Promise<Map<number, PdRef[]>> {
   const rows = await fetchAllPdGroupRows();
-  const pdCodeByGroupeId = computePdCodesFromRows(rows);
+  const pdCodeByGroupeId = await computePdCodesFromRows(rows);
 
   const result = new Map<number, PdRef[]>();
   const seen = new Set<string>();

@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
+import { codesNumerotes } from "@/lib/document-numbers";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 
@@ -110,14 +111,14 @@ async function fetchPdInfoByCode(): Promise<Map<string, PdInfo>> {
     }
   }
 
-  const orderedGroupIds = [...earliestByGroup.entries()]
-    .sort((a, b) => new Date(a[1]).getTime() - new Date(b[1]).getTime())
-    .map(([groupeId]) => groupeId);
-
-  const pdLabelByGroup = new Map<number, string>();
-  orderedGroupIds.forEach((groupeId, index) => {
-    pdLabelByGroup.set(groupeId, `PD${index + 1}`);
-  });
+  // Numero PD permanent (voir lib/document-numbers.ts) - supprimer un PD ne
+  // decale plus les autres.
+  const pdLabelByGroup = await codesNumerotes(
+    "PD",
+    [...earliestByGroup.entries()]
+      .sort((a, b) => new Date(a[1]).getTime() - new Date(b[1]).getTime() || a[0] - b[0])
+      .map(([groupeId]) => ({ refId: groupeId }))
+  );
 
   const infoByCode = new Map<string, PdInfo>();
   for (const row of rows) {

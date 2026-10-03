@@ -6,6 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { formatDateTime } from "@/lib/format-date";
+import { codesNumerotes } from "@/lib/document-numbers";
 import { deleteLabCodeBatchAction } from "./actions";
 
 type BatchRow = {
@@ -51,12 +52,17 @@ export default async function QualiteLabGenerationListPage() {
     articleIdsByBatch.set(row.batch_id, list);
   }
 
-  // CLAB numerote par ordre de creation (le plus ancien = CLAB1) - affiche
-  // ensuite du plus recent au plus ancien.
+  // CLAB : numero permanent attribue a la creation (voir
+  // lib/document-numbers.ts) - supprimer un CLAB ne decale plus les autres.
+  // Affiche du plus recent au plus ancien.
+  const clabCodes = await codesNumerotes(
+    "CLAB",
+    batches.map((batch) => ({ refId: batch.id }))
+  );
   const batchRows = batches
-    .map((batch, index) => ({
+    .map((batch) => ({
       batch,
-      label: `CLAB${index + 1}`,
+      label: clabCodes.get(batch.id) ?? `CLAB-${batch.id}`,
       articleIds: articleIdsByBatch.get(batch.id) ?? [],
     }))
     .reverse();

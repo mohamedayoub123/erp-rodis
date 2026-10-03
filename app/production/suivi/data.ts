@@ -1,4 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
+import { codesNumerotes } from "@/lib/document-numbers";
 
 export type ProgrammeLigneRow = {
   id: number;
@@ -373,14 +374,14 @@ export async function buildPdLabelByCode(): Promise<Map<string, string>> {
     }
   }
 
-  const orderedGroupIds = [...earliestByGroup.entries()]
-    .sort((a, b) => new Date(a[1]).getTime() - new Date(b[1]).getTime())
-    .map(([groupeId]) => groupeId);
-
-  const pdLabelByGroup = new Map<number, string>();
-  orderedGroupIds.forEach((groupeId, index) => {
-    pdLabelByGroup.set(groupeId, `PD${index + 1}`);
-  });
+  // Numero PD permanent (voir lib/document-numbers.ts) - supprimer un PD ne
+  // decale plus les autres.
+  const pdLabelByGroup = await codesNumerotes(
+    "PD",
+    [...earliestByGroup.entries()]
+      .sort((a, b) => new Date(a[1]).getTime() - new Date(b[1]).getTime() || a[0] - b[0])
+      .map(([groupeId]) => ({ refId: groupeId }))
+  );
 
   const pdLabelByCode = new Map<string, string>();
   for (const row of rows) {

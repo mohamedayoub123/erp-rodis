@@ -1,5 +1,6 @@
 "use server";
 
+import { prochainNumero } from "@/lib/document-numbers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -239,7 +240,9 @@ export async function autoCreateTransferOrdersFromProgrammeLigneAction(formData:
     .order("numero", { ascending: false })
     .limit(1)
     .maybeSingle();
-  let nextNumero = ((lastTransferOrder as { numero: number | null } | null)?.numero ?? 0) + 1;
+  // Compteur permanent (voir lib/document-numbers.ts) : le numero d'un TO
+  // supprime n'est jamais reattribue.
+  const maxNumeroExistant = (lastTransferOrder as { numero: number | null } | null)?.numero ?? 0;
 
   for (const [groupe, besoinMap] of besoinParGroupeMp.entries()) {
     const buckets = new Map<string, { mpArticleId: number; quantite: number; depotSourceId: number }[]>();
@@ -295,7 +298,7 @@ export async function autoCreateTransferOrdersFromProgrammeLigneAction(formData:
           cree_par: currentUser,
           famille_produit: groupe,
           type_mp: sousGroupe === "Colorant-Base" ? "MP" : "Conditionnement",
-          numero: nextNumero,
+          numero: await prochainNumero("TO", Number(year), maxNumeroExistant),
           source_groupe_id_programme_ligne: groupeId,
         })
         .select("id")
@@ -305,7 +308,6 @@ export async function autoCreateTransferOrdersFromProgrammeLigneAction(formData:
         throw new Error(transferOrderError.message);
       }
 
-      nextNumero += 1;
       const transferOrderId = (transferOrder as { id: number }).id;
 
       const { error: lignesInsertError } = await supabaseServer.from("transfer_order_lignes").insert(

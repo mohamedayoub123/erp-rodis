@@ -1,5 +1,6 @@
 "use server";
 
+import { prochainNumero } from "@/lib/document-numbers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -309,7 +310,9 @@ async function nextNumeroImport(): Promise<string> {
     if (!Number.isNaN(seq) && seq > maxSeq) maxSeq = seq;
   }
 
-  return `${prefix}${maxSeq + 1}`;
+  // Compteur permanent (voir lib/document-numbers.ts) : le numero d'un
+  // import supprime n'est jamais reattribue.
+  return `${prefix}${await prochainNumero("IM", new Date().getFullYear(), maxSeq)}`;
 }
 
 // Enregistre un NOUVEL evenement d'import pour une ligne (pas d'ecrasement -

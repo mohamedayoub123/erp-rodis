@@ -7,38 +7,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { SuiviProductionTableBody } from "./suivi-production-table-body";
-
-// Meme calcul que Historique programme (PL1.2026, PL2.2026... remis a 1
-// chaque nouvelle annee de date_jour, rang par ordre de creation) - permet
-// d'afficher directement sur Suivi Production de quel programme "Programme
-// par ligne" vient chaque ligne, sans devoir aller chercher dans
-// l'historique. Les lignes d'avant l'ajout de groupe_id (NULL) ne sont pas
-// rattachables a un code PL.
-function computePlCodesByGroupeId(
-  rows: { groupe_id: number | null; created_at: string; date_jour: string }[]
-): Map<number, string> {
-  const earliestByGroup = new Map<number, { createdAt: string; dateJourForYear: string }>();
-  for (const row of rows) {
-    if (row.groupe_id === null) continue;
-    const current = earliestByGroup.get(row.groupe_id);
-    if (!current || new Date(row.created_at).getTime() < new Date(current.createdAt).getTime()) {
-      earliestByGroup.set(row.groupe_id, { createdAt: row.created_at, dateJourForYear: row.date_jour });
-    }
-  }
-
-  const orderedGroupIds = [...earliestByGroup.entries()]
-    .sort((a, b) => new Date(a[1].createdAt).getTime() - new Date(b[1].createdAt).getTime())
-    .map(([groupeId, info]) => ({ groupeId, annee: new Date(info.dateJourForYear).getFullYear() }));
-
-  const rankByYear = new Map<number, number>();
-  const codeByGroupeId = new Map<number, string>();
-  for (const entry of orderedGroupIds) {
-    const rank = (rankByYear.get(entry.annee) ?? 0) + 1;
-    rankByYear.set(entry.annee, rank);
-    codeByGroupeId.set(entry.groupeId, `PL${rank}.${entry.annee}`);
-  }
-  return codeByGroupeId;
-}
+import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
 
 // formatDateTime/dispositionQualiteLabel ont demenage dans
 // suivi-production-table-body.tsx (composant client qui rend desormais les
@@ -719,7 +688,7 @@ export default async function SuiviProductionListPage({
   // - masquees de Suivi Production sans rien supprimer.
   const lignesVisibles = lignesResult.rows.filter((ligne) => !ligne.exclu_rapports);
 
-  const plCodeByGroupeId = computePlCodesByGroupeId(lignesVisibles);
+  const plCodeByGroupeId = await computePlCodesByGroupeId(lignesVisibles);
   // Un composant client ne peut pas recevoir une Map en prop (non
   // serialisable au travers de la frontiere serveur/client) - converti en
   // objet simple juste avant de le passer a SuiviProductionTableBody.

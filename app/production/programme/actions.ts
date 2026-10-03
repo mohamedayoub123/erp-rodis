@@ -1,5 +1,6 @@
 "use server";
 
+import { prochainNumero } from "@/lib/document-numbers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -50,7 +51,13 @@ export async function createProgrammeAction(formData: FormData) {
     .order("numero_programme", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const numeroProgramme = ((dernierProgramme as { numero_programme: number | null } | null)?.numero_programme ?? 0) + 1;
+  // Compteur permanent (voir lib/document-numbers.ts) : le numero d'un
+  // programme MB supprime n'est jamais reattribue.
+  const numeroProgramme = await prochainNumero(
+    "MB",
+    0,
+    (dernierProgramme as { numero_programme: number | null } | null)?.numero_programme ?? 0
+  );
 
   const articleIds = formData.getAll("article_id");
   const vracArticleIds = formData.getAll("vrac_article_id");
@@ -140,7 +147,13 @@ export async function copyProgrammeAction(formData: FormData) {
     .order("numero_programme", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const numeroProgramme = ((dernierProgramme as { numero_programme: number | null } | null)?.numero_programme ?? 0) + 1;
+  // Compteur permanent (voir lib/document-numbers.ts) : le numero d'un
+  // programme MB supprime n'est jamais reattribue.
+  const numeroProgramme = await prochainNumero(
+    "MB",
+    0,
+    (dernierProgramme as { numero_programme: number | null } | null)?.numero_programme ?? 0
+  );
 
   const dateJour = new Date().toISOString().slice(0, 10);
 

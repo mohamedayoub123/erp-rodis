@@ -221,7 +221,7 @@ export default async function RavitailleurParLigneZonePage({
   const programmesByChaine = countProgrammesByChaine(dataRows);
   const dates = uniqueDatesFrom(dataRows);
   const programmeLignesForPl = await fetchAllProgrammeLignesForPlCode();
-  const plCodeByGroupeId = computePlCodesByGroupeId(programmeLignesForPl);
+  const plCodeByGroupeId = await computePlCodesByGroupeId(programmeLignesForPl);
   const plCodes = listDistinctPlCodes(dataRows, plCodeByGroupeId);
   const groupeIdsInView = [
     ...new Set(dataRows.map((row) => row.groupe_id).filter((id): id is number => id !== null)),
