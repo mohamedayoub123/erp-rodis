@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { cache } from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { supabaseServer } from "./supabase-server";
 import { PAGE_REGISTRY, findPageForPath, type PageDefinition } from "./page-registry";
 
@@ -514,23 +514,76 @@ function sessionIsActive(activeSessionToken: string | null, sessionStartedAt: st
 
 // Un seul login actif a la fois par compte (mayoub inclus) - evite que 2
 // personnes (ou 2 postes) utilisent le meme compte en meme temps et
-// ecrasent le travail l'une de l'autre (ex: Programme par ligne). Si mayoub
-// se retrouve bloque sur un poste, Admin > "Qui est connecte" permet de se
-// deconnecter soi-meme depuis l'autre poste encore connecte ; sinon la
-// session se libere seule au bout de 12h (SESSION_TTL_SECONDS).
-export async function checkConcurrentSession(
-  username: string
-): Promise<{ blocked: boolean; since: string | null }> {
-  const normalized = username.trim().toLowerCase();
-  const users = await readUsers();
-  const user = users[normalized];
-  if (!user) return { blocked: false, since: null };
+// ecrasent le travail l'une de l'autre (ex: Programme par ligne). Le login
+// le plus recent REMPLACE l'ancien : createStockSession ecrase le jeton
+// stocke en base, le cookie de l'ancien ordinateur ne correspond plus et sa
+// session se ferme toute seule a sa prochaine action (voir
+// getCurrentStockUser / wasSessionClosedElsewhere). Admin > "Qui est
+// connecte" montre depuis quand et sur quel poste, et permet aussi de
+// deconnecter quelqu'un a la main.
 
-  if (sessionIsActive(user.activeSessionToken, user.sessionStartedAt)) {
-    return { blocked: true, since: user.sessionStartedAt };
+// Decrit le poste a partir de l'en-tete User-Agent : systeme + navigateur
+// (un site web ne peut pas lire le nom de l'ordinateur lui-meme).
+function describeDevice(userAgent: string): string {
+  const ua = userAgent || "";
+  let os = "Systeme inconnu";
+  if (/iPhone/i.test(ua)) os = "iPhone";
+  else if (/iPad/i.test(ua)) os = "iPad";
+  else if (/Android/i.test(ua)) os = "Android";
+  else if (/Windows/i.test(ua)) os = "Windows";
+  else if (/Macintosh|Mac OS X/i.test(ua)) os = "Mac";
+  else if (/CrOS/i.test(ua)) os = "Chromebook";
+  else if (/Linux/i.test(ua)) os = "Linux";
+
+  let browser = "navigateur inconnu";
+  if (/Edg(?:e|A|iOS)?\b/i.test(ua)) browser = "Edge";
+  else if (/OPR|Opera/i.test(ua)) browser = "Opera";
+  else if (/Firefox|FxiOS/i.test(ua)) browser = "Firefox";
+  else if (/Chrome|CriOS/i.test(ua)) browser = "Chrome";
+  else if (/Safari/i.test(ua)) browser = "Safari";
+
+  return `${os} - ${browser}`;
+}
+
+// Enregistre le poste du login (adresse IP + systeme/navigateur) pour Admin >
+// "Qui est connecte". Volontairement tolerant : ces 2 colonnes
+// (session_ip, session_appareil) sont ajoutees par
+// scripts/sql/add_stock_users_session_device.sql - tant qu'elles n'existent
+// pas, l'echec est ignore et la connexion marche normalement.
+async function recordSessionDevice(normalizedUsername: string) {
+  try {
+    const requestHeaders = await headers();
+    const forwarded = requestHeaders.get("x-forwarded-for") || "";
+    const ip = forwarded.split(",")[0].trim() || requestHeaders.get("x-real-ip") || "";
+    const appareil = describeDevice(requestHeaders.get("user-agent") || "");
+
+    await supabaseServer
+      .from("stock_users")
+      .update({ session_ip: ip || null, session_appareil: appareil })
+      .eq("username", normalizedUsername);
+  } catch {
+    // ignore : colonnes pas encore creees ou en-tetes indisponibles
   }
+}
 
-  return { blocked: false, since: null };
+async function readSessionDevices(): Promise<Map<string, { ip: string | null; appareil: string | null }>> {
+  const devices = new Map<string, { ip: string | null; appareil: string | null }>();
+  try {
+    const { data, error } = await supabaseServer
+      .from("stock_users")
+      .select("username, session_ip, session_appareil");
+    if (error) return devices;
+    for (const row of (data ?? []) as {
+      username: string;
+      session_ip: string | null;
+      session_appareil: string | null;
+    }[]) {
+      devices.set(row.username, { ip: row.session_ip, appareil: row.session_appareil });
+    }
+  } catch {
+    // ignore : colonnes pas encore creees
+  }
+  return devices;
 }
 
 export async function forceLogoutStockUser(username: string) {
@@ -847,17 +900,24 @@ export async function updateUserPermissions(
 }
 
 export async function listStockUsers() {
-  const users = await readUsers();
+  const [users, devices] = await Promise.all([readUsers(), readSessionDevices()]);
 
   return Object.keys(users)
     .sort((a, b) => a.localeCompare(b))
-    .map((username) => ({
-      username,
-      isAdmin: isAdminUser(username),
-      permissions: users[username].permissions,
-      connected: sessionIsActive(users[username].activeSessionToken, users[username].sessionStartedAt),
-      connectedSince: users[username].sessionStartedAt,
-    }));
+    .map((username) => {
+      const connected = sessionIsActive(users[username].activeSessionToken, users[username].sessionStartedAt);
+      return {
+        username,
+        isAdmin: isAdminUser(username),
+        permissions: users[username].permissions,
+        connected,
+        connectedSince: users[username].sessionStartedAt,
+        // Poste du login en cours (vide si le login date d'avant l'ajout de
+        // cette information : elle apparait a la prochaine connexion).
+        appareil: connected ? (devices.get(username)?.appareil ?? null) : null,
+        ip: connected ? (devices.get(username)?.ip ?? null) : null,
+      };
+    });
 }
 
 export async function createStockSession(username: string) {
@@ -875,6 +935,8 @@ export async function createStockSession(username: string) {
   if (error) {
     throw new Error(`stock_users session write failed: ${error.message}`);
   }
+
+  await recordSessionDevice(normalized);
 
   // Le username est place EN DERNIER (pas en premier) - certains usernames
   // contiennent un point (ex: "m.mteirek"), ce qui cassait le split(".")
@@ -943,4 +1005,25 @@ export async function getCurrentStockUser() {
   }
 
   return username;
+}
+
+// Vrai si le navigateur porte encore un cookie de session valide (signature
+// correcte, pas expire) dont le jeton n'est plus celui de la base : ce compte
+// s'est reconnecte sur un autre ordinateur, ou un admin l'a deconnecte.
+// Sert uniquement a afficher "ta session a ete fermee" sur la page de
+// connexion, au lieu d'un simple formulaire vide.
+export async function wasSessionClosedElsewhere() {
+  const cookieStore = await cookies();
+  const raw = cookieStore.get(STOCK_AUTH_COOKIE)?.value || "";
+  if (!raw) return false;
+
+  const [expiresAt, token, signature, ...usernameParts] = raw.split(".");
+  const username = usernameParts.join(".");
+  if (!username || !expiresAt || !token || !signature) return false;
+  if (!safeEqual(signature, signSession(username, expiresAt, token))) return false;
+  if (Number(expiresAt) < Date.now()) return false;
+
+  const users = await readUsers();
+  const user = users[username];
+  return !!user && user.activeSessionToken !== token;
 }

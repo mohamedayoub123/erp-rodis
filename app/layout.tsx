@@ -10,6 +10,7 @@ import {
   getCurrentStockUser,
   getPageViewMap,
   getUserPermissions,
+  wasSessionClosedElsewhere,
 } from "@/lib/stock-auth";
 import { GlobalNav } from "./_components/global-nav";
 import { RouteAccessGate } from "./_components/route-access-gate";
@@ -63,6 +64,9 @@ export default async function RootLayout({
   const passwordSuccess = cookieStore.get("erp_password_success")?.value || "";
   const pageViewMap = await getPageViewMap(currentUser);
   const canManageUsers = (await getUserPermissions(currentUser)).manageUsers;
+  // Poste dont la session vient d'etre remplacee par une connexion du meme
+  // compte sur un autre ordinateur (ou fermee par un admin).
+  const sessionClosedElsewhere = !currentUser && !loginError ? await wasSessionClosedElsewhere() : false;
 
   if (!currentUser) {
     return (
@@ -89,6 +93,13 @@ export default async function RootLayout({
               {loginError ? (
                 <p className="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
                   {loginError}
+                </p>
+              ) : null}
+
+              {sessionClosedElsewhere ? (
+                <p className="mt-5 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                  Ta session a ete fermee : ce compte s&apos;est connecte sur un autre ordinateur (ou un
+                  admin t&apos;a deconnecte). Reconnecte-toi ici pour reprendre sur ce poste.
                 </p>
               ) : null}
 

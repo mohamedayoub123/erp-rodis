@@ -428,6 +428,8 @@ export default async function AdminPage({
                       {user.connected ? (
                         <span className="text-xs text-slate-500">
                           Connecte depuis {formatConnectedSince(user.connectedSince)}
+                          {user.appareil ? ` - ${user.appareil}` : ""}
+                          {user.ip ? ` - IP ${user.ip}` : ""}
                         </span>
                       ) : (
                         <span className="text-xs text-slate-500">Deconnecte</span>
