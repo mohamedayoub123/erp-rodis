@@ -11,6 +11,7 @@ type ArticleMpRow = {
   nom_article: string;
   categorie: string | null;
   unite: string | null;
+  gamme_statistique: string | null;
 };
 
 type AgregatMp = {
@@ -27,6 +28,7 @@ type RotationRow = {
   article_id: number;
   nom_article: string;
   categorie: string | null;
+  gamme_statistique: string | null;
   unite: string | null;
   stock_actuel: number;
   stock_avant_12_mois: number;
@@ -86,7 +88,8 @@ async function fetchAllArticlesMp() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite")
+      .select("id, nom_article, categorie, unite, gamme_statistique")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -127,7 +130,13 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ article?: string; categorie?: string; niveau?: string; tout?: string }>;
+type SearchParams = Promise<{
+  article?: string;
+  categorie?: string;
+  gamme_statistique?: string;
+  niveau?: string;
+  tout?: string;
+}>;
 
 // Les ~1800 articles rendaient ~7,6 Mo de HTML a chaque ouverture : le tableau
 // montre les plus forts de la liste triee, "Voir tout" affiche le reste (le
@@ -139,8 +148,9 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   const params = await searchParams;
   const articleFilter = (params.article || "").trim();
   const categorieFilter = (params.categorie || "").trim().toLowerCase();
+  const gammeStatistiqueFilter = (params.gamme_statistique || "").trim().toLowerCase();
   const niveauFilter = (params.niveau || "").trim().toUpperCase() as NiveauRotation | "";
-  const hasFilters = Boolean(articleFilter || categorieFilter || niveauFilter);
+  const hasFilters = Boolean(articleFilter || categorieFilter || gammeStatistiqueFilter || niveauFilter);
 
   // Stock actuel = somme entree-sortie de tous les mouvements de l'article
   // (meme calcul que Stock Actuel MP / Stock Alert MP). Consommation 12 mois
@@ -195,6 +205,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
         article_id: article.id,
         nom_article: article.nom_article,
         categorie: article.categorie,
+        gamme_statistique: article.gamme_statistique,
         unite: article.unite,
         stock_actuel: stockActuel,
         stock_avant_12_mois: stockAvant12Mois,
@@ -208,6 +219,9 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
     })
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
     .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
+    .filter(
+      (row) => !gammeStatistiqueFilter || (row.gamme_statistique || "").toLowerCase().includes(gammeStatistiqueFilter)
+    )
     .filter((row) => !niveauFilter || row.niveau === niveauFilter)
     .sort((a, b) => (b.rotation ?? -1) - (a.rotation ?? -1));
 
@@ -217,12 +231,18 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   const categorieOptions = (
     [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]
   ).map((label, index) => ({ id: index, label }));
+  const gammeStatistiqueOptions = (
+    [...new Set(articles.map((article) => article.gamme_statistique).filter(Boolean))] as string[]
+  )
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
 
   const toutAffiche = params.tout === "1";
   const rotationRowsAffichees = toutAffiche ? rotationRows : rotationRows.slice(0, LIMITE_LIGNES);
   const hrefVoirTout = `/stock/matiere-premiere/rotation?${new URLSearchParams({
     ...(articleFilter ? { article: articleFilter } : {}),
     ...(categorieFilter ? { categorie: categorieFilter } : {}),
+    ...(gammeStatistiqueFilter ? { gamme_statistique: gammeStatistiqueFilter } : {}),
     ...(niveauFilter ? { niveau: niveauFilter } : {}),
     tout: "1",
   }).toString()}`;
@@ -230,6 +250,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   const exportColumns = [
     { label: "Article", key: "article" },
     { label: "Categorie", key: "categorie" },
+    { label: "Gamme statistique", key: "gammeStatistique" },
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stockActuel" },
     { label: "Stock il y a 12 mois", key: "stockAvant12Mois" },
@@ -244,6 +265,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   const exportRows = rotationRows.map((row) => ({
     article: row.nom_article,
     categorie: row.categorie || "-",
+    gammeStatistique: row.gamme_statistique || "-",
     unite: row.unite || "-",
     stockActuel: row.stock_actuel,
     stockAvant12Mois: row.stock_avant_12_mois,
@@ -295,6 +317,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                 href={`/stock/matiere-premiere/rotation?${new URLSearchParams({
                   ...(articleFilter ? { article: articleFilter } : {}),
                   ...(categorieFilter ? { categorie: categorieFilter } : {}),
+                  ...(gammeStatistiqueFilter ? { gamme_statistique: gammeStatistiqueFilter } : {}),
                   niveau: niveauFilter === item ? "" : item,
                 }).toString()}`}
                 className={`rounded-full px-4 py-2 text-sm font-semibold transition hover:opacity-90 ${
@@ -306,7 +329,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
             ))}
           </div>
 
-          <form className="grid gap-3 sm:grid-cols-3">
+          <form className="grid gap-3 sm:grid-cols-4">
             <SearchableFilterInput
               name="article"
               defaultValue={articleFilter}
@@ -318,6 +341,12 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
               defaultValue={params.categorie || ""}
               options={categorieOptions}
               placeholder="Categorie..."
+            />
+            <SearchableFilterInput
+              name="gamme_statistique"
+              defaultValue={params.gamme_statistique || ""}
+              options={gammeStatistiqueOptions}
+              placeholder="Gamme statistique..."
             />
             <input type="hidden" name="niveau" value={niveauFilter} />
             <div className="flex gap-3">
@@ -357,6 +386,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                   <tr>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme statistique</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock actuel</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock il y a 12 mois</th>
@@ -373,6 +403,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                     <tr key={row.article_id} className="border-t border-slate-100 align-top">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.gamme_statistique || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_actuel)}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_avant_12_mois)}</td>
