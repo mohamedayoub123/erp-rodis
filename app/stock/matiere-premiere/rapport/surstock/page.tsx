@@ -5,19 +5,14 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
+import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
 
 type ArticleMpRow = {
   id: number;
   nom_article: string;
   categorie: string | null;
   unite: string | null;
-};
-
-type MouvementRow = {
-  article_id: number | null;
-  qte_entree: number;
-  qte_sortie: number;
-  date_jour: string | null;
 };
 
 type SurstockRow = {
@@ -56,6 +51,7 @@ async function fetchAllArticlesMp() {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
       .select("id, nom_article, categorie, unite")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -70,34 +66,16 @@ async function fetchAllArticlesMp() {
   return { rows, error: null };
 }
 
-async function fetchAllMouvements() {
-  const rows: MouvementRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select("article_id, qte_entree, qte_sortie, date_jour")
-      .range(from, from + pageSize - 1);
-
-    if (error) return { rows, error };
-
-    const chunk = (data ?? []) as MouvementRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
-}
-
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ article?: string; categorie?: string }>;
+type SearchParams = Promise<{ article?: string; categorie?: string; tout?: string }>;
+
+// Plus de 1500 articles rendaient ~2,7 Mo de HTML a chaque ouverture : le
+// tableau montre les plus gros surplus de la liste triee, "Voir tout"
+// affiche le reste (le filtre et l'export Excel portent toujours sur tout).
+const LIMITE_LIGNES = 150;
 
 export default async function SurstockMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
@@ -108,12 +86,8 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
 
   const moisIdx = new Date().getMonth();
 
-  const twelveMonthsAgo = new Date();
-  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-  const sinceDate = twelveMonthsAgo.toISOString().slice(0, 10);
-
-  const [{ rows: articles, error: articlesError }, { rows: mouvements, error: mouvementsError }] =
-    await Promise.all([fetchAllArticlesMp(), fetchAllMouvements()]);
+  const [{ rows: articles, error: articlesError }, { rows: agregats, error: mouvementsError }] =
+    await Promise.all([fetchAllArticlesMp(), fetchAgregatsMpParArticle()]);
 
   const error = articlesError || mouvementsError;
 
@@ -124,21 +98,18 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
   // livraison + 6 de cycle de commande, meme formule que Besoin Commande MP
   // / Proposition). Surstock = ce qui depasse cet objectif : stock qu'on
   // n'a pas besoin de toucher avant plus de 9 mois.
+  // Stock et consommation par mois calendaire sont calcules directement par
+  // la base (une ligne par article, voir lib/mp-agregats.ts) au lieu de
+  // telecharger tous les mouvements.
   const stockByArticle = new Map<number, number>();
   const consommationByArticleAndMois = new Map<number, number[]>();
 
-  for (const row of mouvements) {
-    if (!row.article_id) continue;
-    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-    stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
-
-    if (!row.date_jour || row.date_jour < sinceDate) continue;
-    const idx = Number(row.date_jour.slice(5, 7)) - 1;
-    if (idx < 0 || idx > 11) continue;
-    if (!consommationByArticleAndMois.has(row.article_id)) {
-      consommationByArticleAndMois.set(row.article_id, new Array(12).fill(0));
-    }
-    consommationByArticleAndMois.get(row.article_id)![idx] += Number(row.qte_sortie ?? 0);
+  for (const row of agregats) {
+    stockByArticle.set(row.article_id, Number(row.stock ?? 0));
+    consommationByArticleAndMois.set(
+      row.article_id,
+      Array.from({ length: 12 }, (_, idx) => Number(row.sortie_par_mois?.[idx] ?? 0))
+    );
   }
 
   const surstockRows: SurstockRow[] = articles
@@ -161,6 +132,14 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
     .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
     .sort((a, b) => b.surplus - a.surplus);
+
+  const toutAffiche = params.tout === "1";
+  const surstockRowsAffichees = toutAffiche ? surstockRows : surstockRows.slice(0, LIMITE_LIGNES);
+  const hrefVoirTout = `/stock/matiere-premiere/rapport/surstock?${new URLSearchParams({
+    ...(articleFilter ? { article: articleFilter } : {}),
+    ...(categorieFilter ? { categorie: categorieFilter } : {}),
+    tout: "1",
+  }).toString()}`;
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map((label, id) => ({
     id,
@@ -277,7 +256,7 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
                   </tr>
                 </thead>
                 <tbody>
-                  {surstockRows.map((row) => (
+                  {surstockRowsAffichees.map((row) => (
                     <tr key={row.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
@@ -293,6 +272,7 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
                   ))}
                 </tbody>
               </table>
+              <VoirToutBanner affiches={surstockRowsAffichees.length} total={surstockRows.length} href={hrefVoirTout} />
             </div>
           )}
         </section>

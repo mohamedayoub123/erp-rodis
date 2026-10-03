@@ -6,6 +6,8 @@ import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
+import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
 import { applyProposedMinStockAction } from "./actions";
 import { SubmitButton } from "@/app/_components/submit-button";
 
@@ -15,12 +17,6 @@ type ArticleMpRow = {
   categorie: string | null;
   unite: string | null;
   min_stock: number | null;
-};
-
-type MouvementRow = {
-  article_id: number | null;
-  qte_sortie: number;
-  date_jour: string | null;
 };
 
 type RotationRow = {
@@ -42,6 +38,7 @@ async function fetchAllArticlesMp() {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
       .select("id, nom_article, categorie, unite, min_stock")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -56,35 +53,17 @@ async function fetchAllArticlesMp() {
   return { rows, error: null };
 }
 
-async function fetchMouvementsSince(sinceDate: string) {
-  const rows: MouvementRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select("article_id, qte_sortie, date_jour")
-      .gte("date_jour", sinceDate)
-      .range(from, from + pageSize - 1);
-
-    if (error) return { rows, error };
-
-    const chunk = (data ?? []) as MouvementRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
-}
-
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ article?: string; categorie?: string; hide_min_1?: string }>;
+type SearchParams = Promise<{ article?: string; categorie?: string; hide_min_1?: string; tout?: string }>;
+
+// Plus de 1600 articles (chacun avec son bouton Appliquer) rendaient ~2,9 Mo
+// de HTML a chaque ouverture : le tableau montre les plus gros ecarts de la
+// liste triee, "Voir tout" affiche le reste (le filtre et l'export Excel
+// portent toujours sur tout).
+const LIMITE_LIGNES = 150;
 
 export default async function RapportRotationMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
@@ -97,12 +76,8 @@ export default async function RapportRotationMpPage({ searchParams }: { searchPa
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "articlesMatierePremiere");
 
-  const twelveMonthsAgo = new Date();
-  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-  const sinceDate = twelveMonthsAgo.toISOString().slice(0, 10);
-
-  const [{ rows: articles, error: articlesError }, { rows: mouvements, error: mouvementsError }] =
-    await Promise.all([fetchAllArticlesMp(), fetchMouvementsSince(sinceDate)]);
+  const [{ rows: articles, error: articlesError }, { rows: agregats, error: mouvementsError }] =
+    await Promise.all([fetchAllArticlesMp(), fetchAgregatsMpParArticle()]);
 
   const error = articlesError || mouvementsError;
 
@@ -110,13 +85,11 @@ export default async function RapportRotationMpPage({ searchParams }: { searchPa
   // Stock min d'un article est dimensionne pour couvrir 3 mois de besoin
   // (convention de l'entreprise) - on compare donc au quart de cette
   // consommation annuelle (equivalent 3 mois), pas au total 12 mois.
+  // La somme est calculee directement par la base (une ligne par article,
+  // voir lib/mp-agregats.ts) au lieu de telecharger tous les mouvements.
   const consommationByArticle = new Map<number, number>();
-  for (const row of mouvements) {
-    if (!row.article_id) continue;
-    consommationByArticle.set(
-      row.article_id,
-      (consommationByArticle.get(row.article_id) ?? 0) + Number(row.qte_sortie ?? 0)
-    );
+  for (const row of agregats) {
+    consommationByArticle.set(row.article_id, Number(row.sortie_12_mois ?? 0));
   }
 
   const rotationRows: RotationRow[] = [];
@@ -151,6 +124,15 @@ export default async function RapportRotationMpPage({ searchParams }: { searchPa
       (a, b) =>
         b.min_actuel - b.nouveau_min_propose - (a.min_actuel - a.nouveau_min_propose)
     );
+
+  const toutAffiche = params.tout === "1";
+  const filteredRowsAffichees = toutAffiche ? filteredRows : filteredRows.slice(0, LIMITE_LIGNES);
+  const hrefVoirTout = `/stock/matiere-premiere/rapport/stock-min?${new URLSearchParams({
+    ...(articleFilter ? { article: articleFilter } : {}),
+    ...(categorieFilter ? { categorie: categorieFilter } : {}),
+    ...(hideMinUnOuMoins ? { hide_min_1: "1" } : {}),
+    tout: "1",
+  }).toString()}`;
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map((label, id) => ({
     id,
@@ -278,7 +260,7 @@ export default async function RapportRotationMpPage({ searchParams }: { searchPa
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.map((row) => (
+                  {filteredRowsAffichees.map((row) => (
                     <tr key={row.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
@@ -308,6 +290,7 @@ export default async function RapportRotationMpPage({ searchParams }: { searchPa
                   ))}
                 </tbody>
               </table>
+              <VoirToutBanner affiches={filteredRowsAffichees.length} total={filteredRows.length} href={hrefVoirTout} />
             </div>
           )}
         </section>

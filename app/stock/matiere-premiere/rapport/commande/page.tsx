@@ -5,6 +5,8 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
+import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
 
 type ArticleMpRow = {
   id: number;
@@ -12,12 +14,6 @@ type ArticleMpRow = {
   categorie: string | null;
   unite: string | null;
   min_stock: number | null;
-};
-
-type MouvementRow = {
-  article_id: number | null;
-  qte_sortie: number;
-  date_jour: string | null;
 };
 
 type BcLigneRow = {
@@ -84,35 +80,12 @@ async function fetchAllArticlesMp() {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
       .select("id, nom_article, categorie, unite, min_stock")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
 
     const chunk = (data ?? []) as ArticleMpRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
-}
-
-async function fetchMouvementsSince(sinceDate: string) {
-  const rows: MouvementRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select("article_id, qte_sortie, date_jour")
-      .gte("date_jour", sinceDate)
-      .range(from, from + pageSize - 1);
-
-    if (error) return { rows, error };
-
-    const chunk = (data ?? []) as MouvementRow[];
     rows.push(...chunk);
 
     if (chunk.length < pageSize) break;
@@ -131,6 +104,7 @@ async function fetchAllBcLignes() {
     const { data, error } = await supabaseServer
       .from("bons_commande_matiere_premiere")
       .select("id, article_id, quantite")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -154,6 +128,7 @@ async function fetchAllImportEvenements() {
     const { data, error } = await supabaseServer
       .from("bons_commande_mp_imports")
       .select("bc_ligne_id, quantite_importee, lot_stock_id")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -172,7 +147,13 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ article?: string; categorie?: string; hide_low_conso?: string }>;
+type SearchParams = Promise<{ article?: string; categorie?: string; hide_low_conso?: string; tout?: string }>;
+
+// Les ~2700 articles (12 colonnes de mois chacun) rendaient ~17 Mo de HTML a
+// chaque ouverture : le tableau montre les premiers de la liste triee,
+// "Voir tout" affiche le reste (le filtre et l'export Excel portent toujours
+// sur tout).
+const LIMITE_LIGNES = 150;
 
 export default async function RapportBesoinCommandeMpPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
@@ -182,18 +163,14 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
   const hideLowConso = (params.hide_low_conso || "").trim() === "1";
   const hasFilters = Boolean(articleFilter || categorieFilter || hideLowConso);
 
-  const twelveMonthsAgo = new Date();
-  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-  const sinceDate = twelveMonthsAgo.toISOString().slice(0, 10);
-
   const [
     { rows: articles, error: articlesError },
-    { rows: mouvements, error: mouvementsError },
+    { rows: agregats, error: mouvementsError },
     { rows: bcLignes, error: bcError },
     { rows: importEvenements, error: importError },
   ] = await Promise.all([
     fetchAllArticlesMp(),
-    fetchMouvementsSince(sinceDate),
+    fetchAgregatsMpParArticle(),
     fetchAllBcLignes(),
     fetchAllImportEvenements(),
   ]);
@@ -238,19 +215,17 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
   // (3 mois de delai de livraison + 6 mois de cycle de commande, meme
   // rythme que le fonctionnement reel). Stock min (3 mois, deja sur
   // l'article) reste affiche a cote pour comparaison.
+  // Ces sommes sont calculees directement par la base (une ligne par
+  // article, voir lib/mp-agregats.ts) au lieu de telecharger tous les
+  // mouvements.
   const consommationByArticle = new Map<number, number>();
   const consommationByArticleAndMois = new Map<number, number[]>();
-  for (const row of mouvements) {
-    if (!row.article_id || !row.date_jour) continue;
-    const qteSortie = Number(row.qte_sortie ?? 0);
-    consommationByArticle.set(row.article_id, (consommationByArticle.get(row.article_id) ?? 0) + qteSortie);
-
-    const moisIdx = Number(row.date_jour.slice(5, 7)) - 1;
-    if (moisIdx < 0 || moisIdx > 11) continue;
-    if (!consommationByArticleAndMois.has(row.article_id)) {
-      consommationByArticleAndMois.set(row.article_id, new Array(12).fill(0));
-    }
-    consommationByArticleAndMois.get(row.article_id)![moisIdx] += qteSortie;
+  for (const row of agregats) {
+    consommationByArticle.set(row.article_id, Number(row.sortie_12_mois ?? 0));
+    consommationByArticleAndMois.set(
+      row.article_id,
+      Array.from({ length: 12 }, (_, idx) => Number(row.sortie_par_mois?.[idx] ?? 0))
+    );
   }
 
   const besoinRows: BesoinRow[] = articles.map((article) => {
@@ -279,6 +254,15 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
     .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
     .filter((row) => !hideLowConso || row.consommation_par_mois > 1)
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
+
+  const toutAffiche = params.tout === "1";
+  const filteredRowsAffichees = toutAffiche ? filteredRows : filteredRows.slice(0, LIMITE_LIGNES);
+  const hrefVoirTout = `/stock/matiere-premiere/rapport/commande?${new URLSearchParams({
+    ...(articleFilter ? { article: articleFilter } : {}),
+    ...(categorieFilter ? { categorie: categorieFilter } : {}),
+    ...(hideLowConso ? { hide_low_conso: "1" } : {}),
+    tout: "1",
+  }).toString()}`;
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map((label, id) => ({
     id,
@@ -422,7 +406,7 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.map((row) => (
+                  {filteredRowsAffichees.map((row) => (
                     <tr key={row.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
@@ -443,6 +427,7 @@ export default async function RapportBesoinCommandeMpPage({ searchParams }: { se
                   ))}
                 </tbody>
               </table>
+              <VoirToutBanner affiches={filteredRowsAffichees.length} total={filteredRows.length} href={hrefVoirTout} />
             </div>
           )}
         </section>

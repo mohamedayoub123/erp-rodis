@@ -7,19 +7,13 @@ import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { formatDate } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
 
 type ArticleMpRow = {
   id: number;
   nom_article: string;
   categorie: string | null;
   unite: string | null;
-};
-
-type MouvementRow = {
-  article_id: number | null;
-  qte_entree: number;
-  qte_sortie: number;
-  date_jour: string | null;
 };
 
 type Couleur = "JAUNE" | "ORANGE" | "ROUGE";
@@ -47,6 +41,7 @@ async function fetchAllArticlesMp() {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
       .select("id, nom_article, categorie, unite")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -61,37 +56,8 @@ async function fetchAllArticlesMp() {
   return { rows, error: null };
 }
 
-async function fetchAllMouvements() {
-  const rows: MouvementRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select("article_id, qte_entree, qte_sortie, date_jour")
-      .range(from, from + pageSize - 1);
-
-    if (error) return { rows, error };
-
-    const chunk = (data ?? []) as MouvementRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
-}
-
 function monthsBetween(fromDate: Date, toDate: Date) {
   return (toDate.getFullYear() - fromDate.getFullYear()) * 12 + (toDate.getMonth() - fromDate.getMonth());
-}
-
-function isoMonthsAgo(months: number) {
-  const date = new Date();
-  date.setMonth(date.getMonth() - months);
-  return date.toISOString().slice(0, 10);
 }
 
 // Seuil de sortie "significative" par unite : en dessous, l'article est
@@ -137,8 +103,8 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
   const couleurFilter = (params.couleur || "").trim().toUpperCase();
   const hasFilters = Boolean(articleFilter || categorieFilter || couleurFilter);
 
-  const [{ rows: articles, error: articlesError }, { rows: mouvements, error: mouvementsError }] =
-    await Promise.all([fetchAllArticlesMp(), fetchAllMouvements()]);
+  const [{ rows: articles, error: articlesError }, { rows: agregats, error: mouvementsError }] =
+    await Promise.all([fetchAllArticlesMp(), fetchAgregatsMpParArticle()]);
 
   const error = articlesError || mouvementsError;
 
@@ -153,6 +119,10 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
   // qui depend de l'unite (100 pcs, 10 kg, 100 g) : si le cumul reste
   // sous le seuil, l'article compte comme sans veritable mouvement sur
   // cette periode, meme s'il y a eu quelques petites sorties.
+  // Ces valeurs sont calculees directement par la base (une ligne par
+  // article, voir lib/mp-agregats.ts) au lieu de telecharger tous les
+  // mouvements. Les sorties par periode ne comptent que les mouvements de
+  // sortie > 0.
   const stockByArticle = new Map<number, number>();
   const derniereSortieByArticle = new Map<number, string>();
   const premiereEntreeByArticle = new Map<number, string>();
@@ -160,41 +130,13 @@ export default async function StockDormantMpPage({ searchParams }: { searchParam
   const sortie6MoisByArticle = new Map<number, number>();
   const sortie12MoisByArticle = new Map<number, number>();
 
-  const iso3MoisAgo = isoMonthsAgo(3);
-  const iso6MoisAgo = isoMonthsAgo(6);
-  const iso12MoisAgo = isoMonthsAgo(12);
-
-  for (const row of mouvements) {
-    if (!row.article_id) continue;
-    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-    stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
-
-    if (!row.date_jour) continue;
-
-    const qteSortie = Number(row.qte_sortie ?? 0);
-    if (qteSortie > 0) {
-      const current = derniereSortieByArticle.get(row.article_id);
-      if (!current || row.date_jour > current) {
-        derniereSortieByArticle.set(row.article_id, row.date_jour);
-      }
-
-      if (row.date_jour >= iso3MoisAgo) {
-        sortie3MoisByArticle.set(row.article_id, (sortie3MoisByArticle.get(row.article_id) ?? 0) + qteSortie);
-      }
-      if (row.date_jour >= iso6MoisAgo) {
-        sortie6MoisByArticle.set(row.article_id, (sortie6MoisByArticle.get(row.article_id) ?? 0) + qteSortie);
-      }
-      if (row.date_jour >= iso12MoisAgo) {
-        sortie12MoisByArticle.set(row.article_id, (sortie12MoisByArticle.get(row.article_id) ?? 0) + qteSortie);
-      }
-    }
-
-    if (Number(row.qte_entree ?? 0) > 0) {
-      const current = premiereEntreeByArticle.get(row.article_id);
-      if (!current || row.date_jour < current) {
-        premiereEntreeByArticle.set(row.article_id, row.date_jour);
-      }
-    }
+  for (const row of agregats) {
+    stockByArticle.set(row.article_id, Number(row.stock ?? 0));
+    if (row.derniere_sortie) derniereSortieByArticle.set(row.article_id, row.derniere_sortie);
+    if (row.premiere_entree) premiereEntreeByArticle.set(row.article_id, row.premiere_entree);
+    sortie3MoisByArticle.set(row.article_id, Number(row.sortie_pos_3_mois ?? 0));
+    sortie6MoisByArticle.set(row.article_id, Number(row.sortie_pos_6_mois ?? 0));
+    sortie12MoisByArticle.set(row.article_id, Number(row.sortie_pos_12_mois ?? 0));
   }
 
   const today = new Date();

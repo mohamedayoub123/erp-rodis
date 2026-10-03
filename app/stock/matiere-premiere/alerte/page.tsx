@@ -9,6 +9,8 @@ import { formatDate } from "@/lib/format-date";
 import { encodeDossierId } from "../commande/dossier-id";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { computeStatutBc } from "../bc/constants";
+import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
+import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
 
 type ArticleMpRow = {
   id: number;
@@ -18,13 +20,6 @@ type ArticleMpRow = {
   min_stock: number | null;
   max_stock: number | null;
   utilisation: string | null;
-};
-
-type MouvementRow = {
-  article_id: number | null;
-  qte_entree: number;
-  qte_sortie: number;
-  date_jour: string | null;
 };
 
 type AlerteRow = {
@@ -92,34 +87,12 @@ async function fetchAllArticlesMp() {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
       .select("id, nom_article, categorie, unite, min_stock, max_stock, utilisation")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
 
     const chunk = (data ?? []) as ArticleMpRow[];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
-}
-
-async function fetchAllMouvements() {
-  const rows: MouvementRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock_matiere_premiere")
-      .select("article_id, qte_entree, qte_sortie, date_jour")
-      .range(from, from + pageSize - 1);
-
-    if (error) return { rows, error };
-
-    const chunk = (data ?? []) as MouvementRow[];
     rows.push(...chunk);
 
     if (chunk.length < pageSize) break;
@@ -138,6 +111,7 @@ async function fetchAllBcLignes() {
     const { data, error } = await supabaseServer
       .from("bons_commande_matiere_premiere")
       .select("id, article_id, code, n_doss_4d, n_doss_erp, quantite, statut")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -161,6 +135,7 @@ async function fetchAllImportEvenements() {
     const { data, error } = await supabaseServer
       .from("bons_commande_mp_imports")
       .select("bc_ligne_id, n_doss_4d_import, n_doss_erp_import, quantite_importee, lot_stock_id")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error };
@@ -197,7 +172,13 @@ type SearchParams = Promise<{
   q?: string;
   categorie?: string;
   hide_low_threshold?: string;
+  tout?: string;
 }>;
+
+// Plus de 1100 articles en alerte rendaient ~4 Mo de HTML a chaque ouverture :
+// le tableau montre les premiers de la liste triee, "Voir tout" affiche le
+// reste (le filtre et l'export Excel portent toujours sur tout).
+const LIMITE_LIGNES = 150;
 
 export default async function StockAlerteMpPage({
   searchParams,
@@ -214,13 +195,13 @@ export default async function StockAlerteMpPage({
 
   const [
     { rows: articles, error: articlesError },
-    { rows: mouvements, error: mouvementsError },
+    { rows: agregats, error: mouvementsError },
     { rows: bcLignes, error: bcError },
     { rows: importEvenements, error: importError },
     { rows: dossierStatuts, error: statutError },
   ] = await Promise.all([
     fetchAllArticlesMp(),
-    fetchAllMouvements(),
+    fetchAgregatsMpParArticle(),
     fetchAllBcLignes(),
     fetchAllImportEvenements(),
     fetchAllDossierStatuts(),
@@ -235,21 +216,14 @@ export default async function StockAlerteMpPage({
   // Stock actuel = somme entree-sortie de tous les mouvements de l'article
   // (meme calcul que la page Stock MP). Alerte des que ce stock descend a
   // ou sous le seuil "Stock min" defini sur l'article.
-  const stockByArticle = new Map<number, number>();
-
+  //
   // Consommation (sortie) sur plusieurs fenetres glissantes (1/3/6/12 mois)
   // + Entree sur 12/3 mois - date_jour, meme convention "AAAA-MM-JJ" que le
-  // reste de l'appli (comparaison de chaines directe). Donne un apercu de la
-  // vitesse de consommation/reapprovisionnement d'un article en alerte, sans
-  // avoir a rouvrir Stock MP.
-  function isoMonthsAgo(months: number) {
-    const date = new Date();
-    date.setMonth(date.getMonth() - months);
-    return date.toISOString().slice(0, 10);
-  }
-
-  const isoByPeriod = { 1: isoMonthsAgo(1), 3: isoMonthsAgo(3), 6: isoMonthsAgo(6), 12: isoMonthsAgo(12) } as const;
-
+  // reste de l'appli. Donne un apercu de la vitesse de consommation/
+  // reapprovisionnement d'un article en alerte, sans avoir a rouvrir Stock MP.
+  // Ces sommes sont calculees directement par la base (une ligne par article,
+  // voir lib/mp-agregats.ts) au lieu de telecharger tous les mouvements.
+  const stockByArticle = new Map<number, number>();
   const consommationByPeriodAndArticle: Record<1 | 3 | 6 | 12, Map<number, number>> = {
     1: new Map(),
     3: new Map(),
@@ -259,32 +233,14 @@ export default async function StockAlerteMpPage({
   const entree12MoisByArticle = new Map<number, number>();
   const entree3MoisByArticle = new Map<number, number>();
 
-  for (const row of mouvements) {
-    if (!row.article_id) continue;
-    const mouvement = Number(row.qte_entree ?? 0) - Number(row.qte_sortie ?? 0);
-    stockByArticle.set(row.article_id, (stockByArticle.get(row.article_id) ?? 0) + mouvement);
-
-    if (!row.date_jour) continue;
-
-    if (row.date_jour >= isoByPeriod[12]) {
-      entree12MoisByArticle.set(
-        row.article_id,
-        (entree12MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_entree ?? 0)
-      );
-      if (row.date_jour >= isoByPeriod[3]) {
-        entree3MoisByArticle.set(
-          row.article_id,
-          (entree3MoisByArticle.get(row.article_id) ?? 0) + Number(row.qte_entree ?? 0)
-        );
-      }
-    }
-
-    for (const period of [1, 3, 6, 12] as const) {
-      if (row.date_jour >= isoByPeriod[period]) {
-        const map = consommationByPeriodAndArticle[period];
-        map.set(row.article_id, (map.get(row.article_id) ?? 0) + Number(row.qte_sortie ?? 0));
-      }
-    }
+  for (const row of agregats) {
+    stockByArticle.set(row.article_id, Number(row.stock ?? 0));
+    consommationByPeriodAndArticle[1].set(row.article_id, Number(row.sortie_1_mois ?? 0));
+    consommationByPeriodAndArticle[3].set(row.article_id, Number(row.sortie_3_mois ?? 0));
+    consommationByPeriodAndArticle[6].set(row.article_id, Number(row.sortie_6_mois ?? 0));
+    consommationByPeriodAndArticle[12].set(row.article_id, Number(row.sortie_12_mois ?? 0));
+    entree12MoisByArticle.set(row.article_id, Number(row.entree_12_mois ?? 0));
+    entree3MoisByArticle.set(row.article_id, Number(row.entree_3_mois ?? 0));
   }
 
   // "Qte importee TOTALE" (tous evenements confondus, receptionnes ou pas)
@@ -375,6 +331,15 @@ export default async function StockAlerteMpPage({
     .filter((row) => !categorieLower || (row.categorie || "").toLowerCase().includes(categorieLower))
     .filter((row) => !hideLowThreshold || row.min_stock > 1)
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
+
+  const toutAffiche = params.tout === "1";
+  const alertesAffichees = toutAffiche ? alertes : alertes.slice(0, LIMITE_LIGNES);
+  const hrefVoirTout = `/stock/matiere-premiere/alerte?${new URLSearchParams({
+    ...(q ? { q } : {}),
+    ...(categorieFilter ? { categorie: categorieFilter } : {}),
+    ...(hideLowThreshold ? { hide_low_threshold: "1" } : {}),
+    tout: "1",
+  }).toString()}`;
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map(
     (label, index) => ({ id: index, label })
@@ -527,7 +492,7 @@ export default async function StockAlerteMpPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {alertes.map((alerte) => (
+                  {alertesAffichees.map((alerte) => (
                     <tr key={alerte.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 text-slate-600">{alerte.categorie || "-"}</td>
                       <td className="px-6 py-4 font-medium text-slate-900">{alerte.nom_article}</td>
@@ -610,6 +575,7 @@ export default async function StockAlerteMpPage({
                   ))}
                 </tbody>
               </table>
+              <VoirToutBanner affiches={alertesAffichees.length} total={alertes.length} href={hrefVoirTout} />
             </div>
           )}
         </section>
