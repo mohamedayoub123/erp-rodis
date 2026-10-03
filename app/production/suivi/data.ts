@@ -99,6 +99,7 @@ export async function fetchAllProgrammeLignes(options?: {
     const { data, error } = await query
       .order("date_jour", { ascending: false })
       .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
 
     if (error) return { rows, error: error.message };
@@ -145,6 +146,7 @@ export async function fetchAllCartonEntries(
 
     const { data, error } = await query
       .order("date_jour", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) break;
@@ -177,6 +179,7 @@ export async function fetchAllVracEntries(ligneIds?: number[]): Promise<VracEntr
 
     const { data, error } = await query
       .order("date_jour", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) break;
@@ -209,6 +212,7 @@ export async function fetchAllEmballageEntries(ligneIds?: number[]): Promise<Emb
 
     const { data, error } = await query
       .order("date_jour", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) break;
@@ -348,6 +352,7 @@ export async function buildPdLabelByCode(): Promise<Map<string, string>> {
     const { data, error } = await supabaseServer
       .from("programme_dispatcher_history")
       .select("groupe_id, code, created_at")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) break;
@@ -413,6 +418,7 @@ export async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeT
       .from("production_code_termine")
       .select("programme_ligne_id, code, stage")
       .in("programme_ligne_id", ligneIds)
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) break;
