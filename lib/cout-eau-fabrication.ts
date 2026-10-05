@@ -1,6 +1,6 @@
-// Eau utilisee dans le mois, calculee AUTOMATIQUEMENT a partir des quantites des
-// PD du mois (vrac a fabriquer des programmes confirmes, en kg - les memes
-// quantites que le Dashboard, pas les quantites reellement fabriquees) :
+// Eau utilisee dans le mois, calculee AUTOMATIQUEMENT a partir des quantites du
+// Rapport Test labo du mois (quantites commandees PD des preparations passees au
+// Test labo, en kg - pas les quantites reellement fabriquees) :
 //   litres d'eau = kg AVEC eau x 60 %
 // Les produits SAVON, HUILE, SERUM et TALC n'utilisent pas d'eau : leur
 // quantite est comptee (affichee) mais elle n'entre pas dans la base du calcul.
@@ -45,7 +45,7 @@ export function familleSansEau(
 }
 
 export type EauDuMois = {
-  // Tout le vrac des PD du mois (kg)
+  // Tout le vrac du mois (kg)
   kgTotal: number;
   // Part des produits sans eau (kg), au total puis par famille
   kgSansEau: number;
@@ -54,15 +54,17 @@ export type EauDuMois = {
   kgAvecEau: number;
   pourcentage: number;
   litres: number;
-  // Nombre de lignes de programme comptees
+  // Nombre de preparations comptees
   nombreEntrees: number;
 };
 
 // Electricite du mois, calculee a partir des litres d'eau : la machine produit
 // "debit" litres par heure et consomme "puissance" kW quand elle tourne.
 //   heures de marche = litres / debit      kWh = heures x puissance
-// Le debit et les kW sont ceux SAISIS dans "Prix des consommables" (aucune valeur
-// par defaut). Exemple : debit 9000 L/h, 30 kW -> 9000 L = 30 kWh, 18000 L = 60 kWh.
+// Le debit de l'osmose est FIXE (9000 litres par heure, rien a saisir) ; les kW de
+// chaque ligne sont ceux SAISIS dans "Prix des consommables" (aucune valeur par
+// defaut). Exemple : 30 kW -> 9000 L = 30 kWh, 18000 L = 60 kWh.
+export const DEBIT_OSMOSE_LITRES_HEURE = 9000;
 
 export type ElectriciteLigneDuMois = {
   litres: number;
@@ -84,8 +86,8 @@ export function calculerElectricite(
 
 // Les litres du mois ne sont pas connus ligne par ligne : tant que la part de
 // chaque ligne n'est pas saisie, l'eau est repartie a parts egales entre la
-// Ligne 1 et la Ligne 2 (avec les memes kW et le meme debit sur les deux lignes,
-// le total est identique quelle que soit la repartition).
+// Ligne 1 et la Ligne 2 (avec les memes kW sur les deux lignes, le total est
+// identique quelle que soit la repartition).
 export const PART_EAU_PAR_LIGNE = 0.5;
 
 export type ElectriciteDuMois = {
@@ -98,12 +100,12 @@ export type ElectriciteDuMois = {
 
 export function calculerElectriciteDuMois(
   litres: number,
-  ligne1: { debitLitresHeure: number | null; puissanceKw: number | null },
-  ligne2: { debitLitresHeure: number | null; puissanceKw: number | null }
+  ligne1: { puissanceKw: number | null },
+  ligne2: { puissanceKw: number | null }
 ): ElectriciteDuMois {
   const part = litres * PART_EAU_PAR_LIGNE;
-  const l1 = calculerElectricite(part, ligne1.debitLitresHeure, ligne1.puissanceKw);
-  const l2 = calculerElectricite(part, ligne2.debitLitresHeure, ligne2.puissanceKw);
+  const l1 = calculerElectricite(part, DEBIT_OSMOSE_LITRES_HEURE, ligne1.puissanceKw);
+  const l2 = calculerElectricite(part, DEBIT_OSMOSE_LITRES_HEURE, ligne2.puissanceKw);
   return {
     ligne1: l1,
     ligne2: l2,
@@ -141,7 +143,7 @@ export function calculerEauDuMois(entrees: EntreeFabrication[]): EauDuMois {
   };
 }
 
-// Cartons des PD du mois (quantite de cartons des programmes confirmes), toutes
+// Cartons du mois (quantites commandees PD des preparations du Rapport Test labo), toutes
 // familles confondues, avec la part des produits sans eau (savon, huile, serum,
 // talc) : ils sont comptes aussi.
 export type CartonsDuMois = {

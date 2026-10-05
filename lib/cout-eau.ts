@@ -20,9 +20,6 @@ export type LigneCoutEau = {
 export type ElectriciteLigneCoutEau = {
   // Consommation electrique de la ligne quand la machine tourne, en kW
   puissanceKw: number | null;
-  // Debit de la machine, en litres par heure : sert a calculer l'electricite du
-  // mois (litres d'eau / debit = heures de marche, x kW = kWh)
-  debitLitresHeure: number | null;
   // Prix du kWh, en FCFA
   prixKwh: number | null;
 };
@@ -117,7 +114,6 @@ function electriciteLigne(brute: unknown): ElectriciteLigneCoutEau {
   const l = (brute && typeof brute === "object" ? brute : {}) as Partial<ElectriciteLigneCoutEau>;
   return {
     puissanceKw: nombreValide(l.puissanceKw),
-    debitLitresHeure: nombreValide(l.debitLitresHeure),
     prixKwh: nombreValide(l.prixKwh),
   };
 }
@@ -149,7 +145,7 @@ export function moisValide(annee: number, mois: number): boolean {
 // lignes).
 export function nombreDePrix(config: ConfigCoutEau): number {
   const nombreElec = (l: ElectriciteLigneCoutEau) =>
-    (l.puissanceKw !== null ? 1 : 0) + (l.debitLitresHeure !== null ? 1 : 0) + (l.prixKwh !== null ? 1 : 0);
+    (l.puissanceKw !== null ? 1 : 0) + (l.prixKwh !== null ? 1 : 0);
   return (
     config.lignes.filter((ligne) => ligne.prix !== null).length +
     nombreElec(config.electricite.ligne1) +

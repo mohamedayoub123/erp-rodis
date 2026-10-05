@@ -9,7 +9,7 @@ import { deleteCoutEauMoisAction, saveCoutEauAction } from "./actions";
 // Les champs gardent le texte tape (virgule ou point accepte) ; la conversion
 // en nombre se fait pour l'enregistrement.
 type LigneSaisie = { cle: string; libelle: string; prix: string; precision: string; perso: boolean };
-type ElecSaisie = { puissanceKw: string; debitLitresHeure: string; prixKwh: string };
+type ElecSaisie = { puissanceKw: string; prixKwh: string };
 type Saisie = { lignes: LigneSaisie[]; electricite: { ligne1: ElecSaisie; ligne2: ElecSaisie } };
 type NumeroLigne = "ligne1" | "ligne2";
 type ChampElec = keyof ElecSaisie;
@@ -28,7 +28,6 @@ function enNombre(texte: string): number | null {
 function elecEnTexte(l: ConfigCoutEau["electricite"]["ligne1"]): ElecSaisie {
   return {
     puissanceKw: enTexte(l.puissanceKw),
-    debitLitresHeure: enTexte(l.debitLitresHeure),
     prixKwh: enTexte(l.prixKwh),
   };
 }
@@ -36,7 +35,6 @@ function elecEnTexte(l: ConfigCoutEau["electricite"]["ligne1"]): ElecSaisie {
 function elecEnNombres(l: ElecSaisie): ConfigCoutEau["electricite"]["ligne1"] {
   return {
     puissanceKw: enNombre(l.puissanceKw),
-    debitLitresHeure: enNombre(l.debitLitresHeure),
     prixKwh: enNombre(l.prixKwh),
   };
 }
@@ -267,9 +265,10 @@ export function CoutEauForm({
       <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
         <h2 className="text-lg font-bold text-slate-900">Electricite (pour chaque ligne)</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Saisis pour la Ligne 1 et pour la Ligne 2 : la consommation de la ligne, le debit de la machine et le prix
-          du kWh. L&apos;electricite du mois est calculee automatiquement dans &laquo; Consommation par mois &raquo; :
-          litres d&apos;eau &divide; debit = heures de marche, puis x consommation de la ligne.
+          Saisis pour la Ligne 1 et pour la Ligne 2 : la consommation de la ligne et le prix du kWh. Le debit de
+          l&apos;osmose est fixe : <span className="font-semibold">9 000 litres par heure</span> (rien a saisir).
+          L&apos;electricite du mois est calculee automatiquement dans &laquo; Consommation par mois &raquo; :
+          litres d&apos;eau &divide; 9 000 = heures de marche, puis x consommation de la ligne.
         </p>
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full border-separate border-spacing-y-2 text-left text-sm">
@@ -284,7 +283,6 @@ export function CoutEauForm({
               {(
                 [
                   ["puissanceKw", "Consommation de la ligne (kW)"],
-                  ["debitLitresHeure", "Debit de la machine (litres par heure)"],
                   ["prixKwh", "Prix du kWh (FCFA)"],
                 ] as [ChampElec, string][]
               ).map(([champ, libelle]) => (

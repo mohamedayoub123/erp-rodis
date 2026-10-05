@@ -7,83 +7,48 @@ import {
   type EauDuMois,
 } from "@/lib/cout-eau-fabrication";
 import { normaliserConfig } from "@/lib/cout-eau";
+import { lireLignesTestLabo } from "@/lib/test-labo-rapports";
 import { debutMoisSuivant, premierDuMois, type SaisieConsoEau } from "@/lib/cout-eau-conso";
 
-type LigneProgrammeDuMois = {
-  id: number;
-  produit: string | null;
-  type_article: string | null;
-  vrac_a_fabriquer: number | null;
-  qt_carton: number | null;
-  numero_lot: string | null;
-  numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
-};
-
-// Quantites du PD d'une ligne de programme, comme le Dashboard : si la ligne est
-// decoupee en plusieurs codes avec le detail de chaque code, on additionne le
-// detail ; sinon on prend les quantites de la ligne (vrac en kg, cartons).
-function quantitesDuPd(ligne: LigneProgrammeDuMois): { vrac: number; carton: number } {
-  const codes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
-  const detail = ligne.numero_lot_detail ?? [];
-  if (codes.length > 1 && detail.length === codes.length) {
-    return {
-      vrac: detail.reduce((somme, d) => somme + Number(d.qt_vrac ?? 0), 0),
-      carton: detail.reduce((somme, d) => somme + Number(d.qt_carton ?? 0), 0),
-    };
-  }
-  return { vrac: Number(ligne.vrac_a_fabriquer ?? 0), carton: Number(ligne.qt_carton ?? 0) };
-}
-
-// Quantites des PD du mois choisi (celles du Dashboard : lignes de programme
-// confirmees, comptees a la date du programme - PAS les quantites fabriquees) :
-// vrac en kg -> eau utilisee = base avec eau x 60 %, et cartons. Les lignes
-// terminees comptent aussi ; les lignes exclues des rapports ne comptent pas.
-// Lecture seule.
+// Quantites du mois : EXACTEMENT celles du Rapport Test labo (memes preparations,
+// meme date - la date de prise d'echantillon -, memes quantites commandees PD
+// par code, calculees par lib/test-labo-rapports.ts). Vrac en kg -> eau utilisee =
+// base avec eau x 60 %, et cartons. Savon / huile / serum / talc sont comptes
+// mais sans eau. Lecture seule.
 export async function lireEauDuMois(
   annee: number,
   mois: number
 ): Promise<{ eau: EauDuMois | null; cartons: CartonsDuMois | null; erreur: string | null }> {
-  const debut = premierDuMois(annee, mois);
-  const fin = debutMoisSuivant(annee, mois);
+  try {
+    const prefixeMois = `${annee}-${String(mois).padStart(2, "0")}`;
+    const lignes = (await lireLignesTestLabo()).filter((ligne) => ligne.date.slice(0, 7) === prefixeMois);
 
-  const lignes: LigneProgrammeDuMois[] = [];
-  const taillePage = 1000;
-  for (let depart = 0; ; depart += taillePage) {
-    const { data, error } = await supabaseServer
-      .from("programme_lignes")
-      .select("id, produit, type_article, vrac_a_fabriquer, qt_carton, numero_lot, numero_lot_detail")
-      .eq("exclu_rapports", false)
-      .eq("confirme_production", true)
-      .gte("date_jour", debut)
-      .lt("date_jour", fin)
-      .order("id", { ascending: true })
-      .range(depart, depart + taillePage - 1);
+    const quantites = lignes.map((ligne) => ({
+      vrac: ligne.kgCommande,
+      carton: ligne.cartonCommande,
+      famille: familleSansEau(ligne.typeArticleLabel === "-" ? null : ligne.typeArticleLabel, ligne.produit),
+    }));
 
-    if (error) return { eau: null, cartons: null, erreur: error.message };
-    const page = (data ?? []) as LigneProgrammeDuMois[];
-    lignes.push(...page);
-    if (page.length < taillePage) break;
+    // Le nombre de preparations est celui du Rapport Test labo (toutes les
+    // preparations du mois, meme celles sans quantite commandee).
+    return {
+      eau: { ...calculerEauDuMois(quantites.map((q) => ({ quantite: q.vrac, famille: q.famille }))), nombreEntrees: lignes.length },
+      cartons: {
+        ...calculerCartonsDuMois(quantites.map((q) => ({ quantite: q.carton, famille: q.famille }))),
+        nombreEntrees: lignes.length,
+      },
+      erreur: null,
+    };
+  } catch (erreur) {
+    return { eau: null, cartons: null, erreur: erreur instanceof Error ? erreur.message : "lecture impossible" };
   }
-
-  const quantites = lignes.map((ligne) => ({
-    ...quantitesDuPd(ligne),
-    famille: familleSansEau(ligne.type_article, ligne.produit),
-  }));
-
-  return {
-    eau: calculerEauDuMois(quantites.map((q) => ({ quantite: q.vrac, famille: q.famille }))),
-    cartons: calculerCartonsDuMois(quantites.map((q) => ({ quantite: q.carton, famille: q.famille }))),
-    erreur: null,
-  };
 }
 
 export type ParametresLigneElectricite = {
   // null = pas encore saisi dans "Prix des consommables"
-  debitLitresHeure: number | null;
   puissanceKw: number | null;
   prixKwh: number | null;
-  // D'ou viennent les valeurs : ce mois, ou un mois precedent
-  sourceDebit: string | null;
+  // D'ou vient la consommation : ce mois, ou un mois precedent
   sourcePuissance: string | null;
 };
 
@@ -92,10 +57,10 @@ export type ParametresElectricite = {
   ligne2: ParametresLigneElectricite;
 };
 
-// Debit de la machine (L/h) et consommation (kW) de CHAQUE ligne, saisis dans
-// "Prix des consommables" : valeur du mois choisi, sinon celle du mois
-// enregistre le plus recent AVANT (comme les prix). Rien n'est suppose : sans
-// valeur saisie, l'electricite de la ligne n'est pas calculee.
+// Consommation (kW) de CHAQUE ligne, saisie dans "Prix des consommables" :
+// valeur du mois choisi, sinon celle du mois enregistre le plus recent AVANT
+// (comme les prix). Rien n'est suppose : sans valeur saisie, l'electricite de la
+// ligne n'est pas calculee. Le debit de l'osmose est fixe (9000 L/h).
 export async function lireParametresElectricite(
   annee: number,
   mois: number
@@ -113,7 +78,7 @@ export async function lireParametresElectricite(
 
   const configs = mesMois.map((m) => ({ m, electricite: normaliserConfig(m.donnees).electricite }));
 
-  const trouver = (ligne: "ligne1" | "ligne2", champ: "debitLitresHeure" | "puissanceKw" | "prixKwh") => {
+  const trouver = (ligne: "ligne1" | "ligne2", champ: "puissanceKw" | "prixKwh") => {
     for (const { m, electricite } of configs) {
       const valeur = electricite[ligne][champ];
       if (valeur !== null && (champ === "prixKwh" || valeur > 0)) {
@@ -124,13 +89,10 @@ export async function lireParametresElectricite(
   };
 
   const parLigne = (ligne: "ligne1" | "ligne2"): ParametresLigneElectricite => {
-    const debit = trouver(ligne, "debitLitresHeure");
     const puissance = trouver(ligne, "puissanceKw");
     return {
-      debitLitresHeure: debit?.valeur ?? null,
       puissanceKw: puissance?.valeur ?? null,
       prixKwh: trouver(ligne, "prixKwh")?.valeur ?? null,
-      sourceDebit: debit?.source ?? null,
       sourcePuissance: puissance?.source ?? null,
     };
   };

@@ -1,6 +1,7 @@
 import {
   FAMILLES_SANS_EAU,
   LIBELLES_SANS_EAU,
+  DEBIT_OSMOSE_LITRES_HEURE,
   PART_EAU_PAR_LIGNE,
   calculerElectriciteDuMois,
   type CartonsDuMois,
@@ -14,7 +15,7 @@ function nombre(value: number, decimales = 0) {
 }
 
 // Eau et electricite utilisees dans le mois : calculees toutes seules (rien a
-// saisir) a partir des quantites des PD. Les produits sans eau sont comptes mais ne
+// saisir) a partir des quantites du Rapport Test labo. Les produits sans eau sont comptes mais ne
 // generent ni eau ni electricite.
 export function EauAutomatique({
   annee,
@@ -39,22 +40,22 @@ export function EauAutomatique({
     <section className="rounded-[1.75rem] border border-sky-200 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold text-slate-900">
-          Quantites des PD, eau et electricite de {libelleMois(annee, mois)} (automatique)
+          Quantites, eau et electricite de {libelleMois(annee, mois)} (automatique)
         </h2>
         <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-800">Calcul automatique</span>
       </div>
 
       {erreur || !eau ? (
         <p className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-          Les quantites des PD n&apos;ont pas pu etre lues{erreur ? ` (${erreur})` : ""}. Recharge la page.
+          Les quantites du Test labo n&apos;ont pas pu etre lues{erreur ? ` (${erreur})` : ""}. Recharge la page.
         </p>
       ) : (
         <>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quantite des PD du mois</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quantite du mois (Test labo)</p>
               <p className="mt-1 text-2xl font-black text-slate-900">{nombre(eau.kgTotal, 1)} kg</p>
-              <p className="mt-1 text-xs text-slate-500">{eau.nombreEntrees} ligne(s) de programme (PD)</p>
+              <p className="mt-1 text-xs text-slate-500">{eau.nombreEntrees} preparation(s) du Test labo</p>
             </div>
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sans eau (non compte)</p>
@@ -81,10 +82,10 @@ export function EauAutomatique({
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Cartons des PD du mois
+                  Cartons du mois (Test labo)
                 </p>
                 <p className="mt-1 text-2xl font-black text-slate-900">{nombre(cartons.total, 1)} cartons</p>
-                <p className="mt-1 text-xs text-slate-500">{cartons.nombreEntrees} ligne(s) de programme (PD)</p>
+                <p className="mt-1 text-xs text-slate-500">{cartons.nombreEntrees} preparation(s) du Test labo</p>
               </div>
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -110,7 +111,7 @@ export function EauAutomatique({
                   <tr>
                     <th className="px-4 py-3 font-semibold">Electricite</th>
                     <th className="px-4 py-3 font-semibold">Eau de la ligne</th>
-                    <th className="px-4 py-3 font-semibold">Debit machine</th>
+                    <th className="px-4 py-3 font-semibold">Debit osmose</th>
                     <th className="px-4 py-3 font-semibold">Consommation</th>
                     <th className="px-4 py-3 font-semibold">Heures de marche</th>
                     <th className="px-4 py-3 text-right font-semibold">Electricite</th>
@@ -129,14 +130,8 @@ export function EauAutomatique({
                         {nombre(electricite.litres * PART_EAU_PAR_LIGNE, 1)} L
                       </td>
                       <td className="px-4 py-3 text-slate-700">
-                        {param.debitLitresHeure === null ? (
-                          <span className="font-semibold text-amber-700">A saisir</span>
-                        ) : (
-                          <>
-                            {nombre(param.debitLitresHeure)} L/h
-                            <span className="block text-xs text-slate-500">{param.sourceDebit}</span>
-                          </>
-                        )}
+                        {nombre(DEBIT_OSMOSE_LITRES_HEURE)} L/h
+                        <span className="block text-xs text-slate-500">fixe</span>
                       </td>
                       <td className="px-4 py-3 text-slate-700">
                         {param.puissanceKw === null ? (
@@ -174,13 +169,12 @@ export function EauAutomatique({
           ) : null}
           {electricite && (!electricite.ligne1 || !electricite.ligne2) ? (
             <p className="mt-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-              Saisis le debit de la machine et la consommation (kW) de chaque ligne dans &laquo; Prix des
-              consommables &raquo; (rubrique Electricite) : l&apos;electricite d&apos;une ligne n&apos;est calculee
-              qu&apos;avec les chiffres saisis.
+              Saisis la consommation (kW) de chaque ligne dans &laquo; Prix des consommables &raquo; (rubrique
+              Electricite) : l&apos;electricite d&apos;une ligne n&apos;est calculee qu&apos;avec le chiffre saisi.
             </p>
           ) : null}
           <p className="mt-2 text-xs text-slate-500">
-            Heures de marche = eau de la ligne &divide; debit de la machine ; electricite = heures x consommation de la
+            Heures de marche = eau de la ligne &divide; debit de l&apos;osmose (9 000 litres par heure, fixe) ; electricite = heures x consommation de la
             ligne. Les litres du mois sont divises par 2 : la moitie pour la Ligne 1, la moitie pour la Ligne 2.
           </p>
 
@@ -195,10 +189,10 @@ export function EauAutomatique({
             ))}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Source : quantites des PD (vrac en kg et cartons), comme dans le Dashboard : lignes de programme confirmees,
-            comptees selon la date du programme. Ce sont les quantites du PD, pas les quantites fabriquees. Les lignes
-            exclues des rapports ne sont pas comptees. Le debit de la machine, la consommation et le prix
-            du kWh de chaque ligne se reglent dans &laquo; Prix des consommables &raquo; (rubrique Electricite).
+            Source : les memes chiffres que le Rapport Test labo (preparations passees au Test labo, quantites commandees
+            PD de chaque code - vrac en kg et cartons -, comptees selon la date de prise d&apos;echantillon). Ce ne sont pas
+            les quantites fabriquees. La consommation (kW) et le prix du kWh de
+            chaque ligne se reglent dans &laquo; Prix des consommables &raquo; (rubrique Electricite).
           </p>
         </>
       )}
