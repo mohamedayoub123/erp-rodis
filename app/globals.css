@@ -332,8 +332,15 @@ input[type="button"]:not(:disabled),
     color: #0c4a6e !important;
   }
 
+  /* Lignes de total : fond jaune bien visible, texte fonce (le texte blanc du bandeau bleu
+     devenait illisible sur un fond clair a l impression) */
   .print-couleurs table tfoot td {
-    background: #f0f9ff !important;
+    background: #fde047 !important;
+    color: #1e293b !important;
+  }
+
+  .print-couleurs table tfoot td * {
+    color: #1e293b !important;
   }
 
   /* Les petites lignes de texte (ex. "par U") doivent rester plus petites que les chiffres */
@@ -344,5 +351,35 @@ input[type="button"]:not(:disabled),
   /* Une carte ou une ligne ne se coupe pas entre 2 pages */
   .print-couleurs .rounded-2xl {
     break-inside: avoid;
+  }
+}
+
+/* PDF Eau - Prix 1 litre : chiffres des tableaux bien lisibles (le mode impression simple met
+   les tableaux a 10px en gris clair : trop petit et pale sur le PDF). */
+@media print {
+  html[data-print-mode] .print-couleurs table {
+    font-size: 12px !important;
+  }
+
+  html[data-print-mode] .print-couleurs table th,
+  html[data-print-mode] .print-couleurs table td {
+    padding: 5px 7px !important;
+  }
+
+  .print-couleurs table td {
+    color: #0f172a !important;
+    font-weight: 500;
+  }
+
+  /* Colonne Total en bleu fonce et en gras */
+  .print-couleurs table td.text-sky-800 {
+    color: #075985 !important;
+    font-weight: 800;
+  }
+
+  /* Petites lignes (ex. "par U", "mouvements MP") : gris fonce, un peu plus grandes */
+  .print-couleurs table td .text-xs {
+    color: #334155 !important;
+    font-size: 10px !important;
   }
 }
