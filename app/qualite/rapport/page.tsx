@@ -26,7 +26,26 @@ type LigneInfo = {
   date_jour: string | null;
   plateforme: string | null;
   article_id: number | null;
+  // Quantites COMMANDEES (PD) de la ligne de programme, pas les quantites fabriquees
+  vrac_a_fabriquer: number | null;
+  qt_carton: number | null;
+  numero_lot: string | null;
+  numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
 };
+
+// Quantites commandees (PD) d'UN code : le detail du code quand la ligne est
+// decoupee en plusieurs codes, sinon les quantites de la ligne (partagees a
+// parts egales s'il y a plusieurs codes sans detail).
+function quantitesCommandees(ligne: LigneInfo | undefined, code: string): { kg: number; carton: number } {
+  if (!ligne) return { kg: 0, carton: 0 };
+  const entree = (ligne.numero_lot_detail ?? []).find((d) => d.code === code);
+  if (entree) return { kg: Number(entree.qt_vrac ?? 0), carton: Number(entree.qt_carton ?? 0) };
+  const nombreCodes = Math.max(1, (ligne.numero_lot || "").split(",").filter((c) => c.trim()).length);
+  return {
+    kg: Number(ligne.vrac_a_fabriquer ?? 0) / nombreCodes,
+    carton: Number(ligne.qt_carton ?? 0) / nombreCodes,
+  };
+}
 
 async function fetchAllTestLaboRapports(): Promise<RapportRow[]> {
   const rows: RapportRow[] = [];
@@ -66,17 +85,19 @@ async function fetchLignesInfo(ligneIds: number[]): Promise<Map<number, LigneInf
     const chunk = uniqueIds.slice(from, from + pageSize);
     const { data } = await supabaseServer
       .from("programme_lignes")
-      .select("id, produit, date_jour, plateforme, article_id")
+      .select("id, produit, date_jour, plateforme, article_id, vrac_a_fabriquer, qt_carton, numero_lot, numero_lot_detail")
       .in("id", chunk);
 
-    for (const row of (data as
-      | { id: number; produit: string | null; date_jour: string | null; plateforme: string | null; article_id: number | null }[]
-      | null) ?? []) {
+    for (const row of (data as (LigneInfo & { id: number })[] | null) ?? []) {
       map.set(row.id, {
         produit: row.produit,
         date_jour: row.date_jour,
         plateforme: row.plateforme,
         article_id: row.article_id,
+        vrac_a_fabriquer: row.vrac_a_fabriquer,
+        qt_carton: row.qt_carton,
+        numero_lot: row.numero_lot,
+        numero_lot_detail: row.numero_lot_detail,
       });
     }
 
@@ -288,6 +309,8 @@ export default async function QualiteRapportPage({
         ligne?.date_jour ||
         (r.date_saisie_test_labo ? r.date_saisie_test_labo.slice(0, 10) : ""),
       typeLabel: plateformeLabel(ligne?.plateforme),
+      kgCommande: quantitesCommandees(ligne, r.code).kg,
+      cartonCommande: quantitesCommandees(ligne, r.code).carton,
       typeArticleLabel: capitalize(article?.type_article),
       gammeLabel: article?.gamme?.trim() || "-",
     };
@@ -367,11 +390,13 @@ export default async function QualiteRapportPage({
   const couleurParType = new Map(
     typeArticleOptions.map((option, index) => [option.label, COULEURS_TYPES[index] ?? "#64748b"])
   );
-  const statsParType = new Map<string, { total: number; nonConforme: number }>();
+  const statsParType = new Map<string, { total: number; nonConforme: number; kg: number; carton: number }>();
   for (const row of rows) {
     const label = row.typeArticleLabel === "-" ? "Sans type" : row.typeArticleLabel;
-    const stats = statsParType.get(label) ?? { total: 0, nonConforme: 0 };
+    const stats = statsParType.get(label) ?? { total: 0, nonConforme: 0, kg: 0, carton: 0 };
     stats.total += 1;
+    stats.kg += row.kgCommande;
+    stats.carton += row.cartonCommande;
     if (decisionLabel(row) !== "-") stats.nonConforme += 1;
     statsParType.set(label, stats);
   }
@@ -381,9 +406,14 @@ export default async function QualiteRapportPage({
       total: stats.total,
       nonConforme: stats.nonConforme,
       conforme: stats.total - stats.nonConforme,
+      kg: stats.kg,
+      carton: stats.carton,
       color: couleurParType.get(label) ?? "#475569",
     }))
     .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, "fr"));
+  const totalKgCommande = typeStats.reduce((somme, t) => somme + t.kg, 0);
+  const totalCartonCommande = typeStats.reduce((somme, t) => somme + t.carton, 0);
+  const formaterQuantite = (value: number) => Math.round(value).toLocaleString("fr-FR");
   const typeSlices: PieSlice[] = typeStats.map((t) => ({ label: t.label, value: t.total, color: t.color }));
 
   // Evolution par mois (graphique multi-courbes) - meme filtre que le reste
@@ -626,7 +656,10 @@ export default async function QualiteRapportPage({
             />
           </div>
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <h2 className="mb-4 text-lg font-bold text-slate-900">On a fait combien, par type</h2>
+            <h2 className="text-lg font-bold text-slate-900">On a fait combien, par type</h2>
+            <p className="mb-4 mt-1 text-sm text-slate-600">
+              Kg et cartons = quantites commandees (PD) de ces preparations, pas les quantites fabriquees.
+            </p>
             {typeStats.length === 0 ? (
               <p className="text-sm text-slate-500">Aucune preparation pour ce filtre.</p>
             ) : (
@@ -638,6 +671,8 @@ export default async function QualiteRapportPage({
                       <th className="px-4 py-3 text-right font-semibold">Preparations</th>
                       <th className="px-4 py-3 text-right font-semibold">Conforme</th>
                       <th className="px-4 py-3 text-right font-semibold">Non conforme</th>
+                      <th className="px-4 py-3 text-right font-semibold">Kg commandes (PD)</th>
+                      <th className="px-4 py-3 text-right font-semibold">Cartons commandes (PD)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -654,6 +689,8 @@ export default async function QualiteRapportPage({
                         <td className="px-4 py-3 text-right font-semibold text-slate-900">{t.total}</td>
                         <td className="px-4 py-3 text-right text-emerald-700">{t.conforme}</td>
                         <td className="px-4 py-3 text-right text-amber-700">{t.nonConforme}</td>
+                        <td className="px-4 py-3 text-right text-slate-900">{formaterQuantite(t.kg)}</td>
+                        <td className="px-4 py-3 text-right text-slate-900">{formaterQuantite(t.carton)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -663,6 +700,8 @@ export default async function QualiteRapportPage({
                       <td className="px-4 py-3 text-right">{total}</td>
                       <td className="px-4 py-3 text-right text-emerald-700">{conforme}</td>
                       <td className="px-4 py-3 text-right text-amber-700">{nonConforme}</td>
+                      <td className="px-4 py-3 text-right">{formaterQuantite(totalKgCommande)}</td>
+                      <td className="px-4 py-3 text-right">{formaterQuantite(totalCartonCommande)}</td>
                     </tr>
                   </tfoot>
                 </table>
