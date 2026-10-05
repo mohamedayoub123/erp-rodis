@@ -10,6 +10,11 @@ import {
   totauxAvecPrix,
   totauxDuMois,
 } from "@/lib/cout-eau-conso";
+import {
+  calculerElectriciteDuMois,
+  coutDuLitre,
+  coutElectriciteDuMois,
+} from "@/lib/cout-eau-fabrication";
 import { HistoriqueMois } from "../_components/historique-mois";
 import { SelecteurMois } from "../_components/selecteur-mois";
 import {
@@ -19,6 +24,7 @@ import {
   lirePrixDuMois,
   lireSaisiesDuMois,
 } from "./data";
+import { CoutDuLitre } from "./cout-du-litre";
 import { EauAutomatique } from "./eau-automatique";
 import { NouvelleSaisie } from "./nouvelle-saisie";
 import { SaisiesDuMois } from "./saisies-du-mois";
@@ -97,6 +103,25 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
     lirePrixDuMois(choisi.annee, choisi.mois),
   ]);
 
+  // Cout d'un litre d'eau = (consommables + electricite) / litres du mois
+  const totaux = totauxAvecPrix(totauxDuMois(saisies), prix.lignes);
+  const coutConsommables = totaux.reduce((somme, t) => somme + (t.cout ?? 0), 0);
+  const consommablesSansPrix = totaux.filter((t) => t.prix === null).length;
+  const parametres = electricite.parametres;
+  const electriciteDuMois = eauDuMois.eau
+    ? calculerElectriciteDuMois(eauDuMois.eau.litres, parametres.ligne1, parametres.ligne2)
+    : null;
+  const coutElectricite = electriciteDuMois
+    ? coutElectriciteDuMois(electriciteDuMois, parametres.ligne1.prixKwh, parametres.ligne2.prixKwh)
+    : null;
+  const electriciteIncomplete =
+    !electriciteDuMois ||
+    !electriciteDuMois.ligne1 ||
+    !electriciteDuMois.ligne2 ||
+    parametres.ligne1.prixKwh === null ||
+    parametres.ligne2.prixKwh === null;
+  const litres = eauDuMois.eau?.litres ?? null;
+
   const anneeMin = Math.min(aujourd.annee - 3, ...mois.map((m) => m.annee));
   const anneeMax = Math.max(aujourd.annee + 1, ...mois.map((m) => m.annee));
   const annees = Array.from({ length: anneeMax - anneeMin + 1 }, (_, i) => anneeMax - i);
@@ -148,6 +173,17 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
           }
         />
 
+        <CoutDuLitre
+          annee={choisi.annee}
+          mois={choisi.mois}
+          litres={litres}
+          coutConsommables={coutConsommables}
+          consommablesSansPrix={consommablesSansPrix}
+          coutElectricite={coutElectricite}
+          electriciteIncomplete={electriciteIncomplete}
+          coutLitre={litres === null ? null : coutDuLitre(coutConsommables, coutElectricite, litres)}
+        />
+
         <EauAutomatique
           annee={choisi.annee}
           mois={choisi.mois}
@@ -160,7 +196,7 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
         <TotauxDuMois
           annee={choisi.annee}
           mois={choisi.mois}
-          totaux={totauxAvecPrix(totauxDuMois(saisies), prix.lignes)}
+          totaux={totaux}
           sourcePrix={prix.source}
         />
 

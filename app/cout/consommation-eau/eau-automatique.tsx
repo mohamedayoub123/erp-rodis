@@ -4,6 +4,7 @@ import {
   DEBIT_OSMOSE_LITRES_HEURE,
   PART_EAU_PAR_LIGNE,
   calculerElectriciteDuMois,
+  coutElectriciteDuMois,
   type CartonsDuMois,
   type EauDuMois,
 } from "@/lib/cout-eau-fabrication";
@@ -35,15 +36,9 @@ export function EauAutomatique({
   const electricite = eau
     ? calculerElectriciteDuMois(eau.litres, parametres.ligne1, parametres.ligne2)
     : null;
-  // Cout de l'electricite = kWh de chaque ligne x prix du kWh de cette ligne
-  // (null tant qu'aucune ligne n'a a la fois ses kWh et son prix)
-  const couts = electricite
-    ? [
-        electricite.ligne1 && parametres.ligne1.prixKwh !== null ? electricite.ligne1.kwh * parametres.ligne1.prixKwh : null,
-        electricite.ligne2 && parametres.ligne2.prixKwh !== null ? electricite.ligne2.kwh * parametres.ligne2.prixKwh : null,
-      ]
-    : [];
-  const coutElectricite = couts.some((c) => c !== null) ? couts.reduce<number>((somme, c) => somme + (c ?? 0), 0) : null;
+  const coutElectricite = electricite
+    ? coutElectriciteDuMois(electricite, parametres.ligne1.prixKwh, parametres.ligne2.prixKwh)
+    : null;
 
   return (
     <section className="rounded-[1.75rem] border border-sky-200 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">

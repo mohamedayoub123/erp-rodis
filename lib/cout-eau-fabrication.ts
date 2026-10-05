@@ -171,3 +171,24 @@ export function calculerCartonsDuMois(entrees: EntreeFabrication[]): CartonsDuMo
 
   return { total, sansEau, parFamille, nombreEntrees };
 }
+
+// Cout de l'electricite du mois = kWh de chaque ligne x prix du kWh de cette ligne
+// (null tant qu'aucune ligne n'a a la fois ses kWh et son prix).
+export function coutElectriciteDuMois(
+  electricite: ElectriciteDuMois,
+  prixKwhLigne1: number | null,
+  prixKwhLigne2: number | null
+): number | null {
+  const couts = [
+    electricite.ligne1 && prixKwhLigne1 !== null ? electricite.ligne1.kwh * prixKwhLigne1 : null,
+    electricite.ligne2 && prixKwhLigne2 !== null ? electricite.ligne2.kwh * prixKwhLigne2 : null,
+  ];
+  return couts.some((c) => c !== null) ? couts.reduce<number>((somme, c) => somme + (c ?? 0), 0) : null;
+}
+
+// Cout d'UN litre d'eau = (cout des consommables + cout de l'electricite) / litres
+// du mois (null si aucun litre).
+export function coutDuLitre(coutConsommables: number, coutElectricite: number | null, litres: number): number | null {
+  if (!(litres > 0)) return null;
+  return (coutConsommables + (coutElectricite ?? 0)) / litres;
+}
