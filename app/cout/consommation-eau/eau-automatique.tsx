@@ -1,6 +1,7 @@
 import {
   FAMILLES_SANS_EAU,
   LIBELLES_SANS_EAU,
+  PART_EAU_PAR_LIGNE,
   calculerElectriciteDuMois,
   type CartonsDuMois,
   type EauDuMois,
@@ -124,7 +125,9 @@ export function EauAutomatique({
                   ).map(([nom, calcul, param]) => (
                     <tr key={nom} className="border-t border-slate-100">
                       <td className="px-4 py-3 font-semibold text-slate-900">{nom}</td>
-                      <td className="px-4 py-3 text-slate-700">{calcul ? `${nombre(calcul.litres, 1)} L` : "-"}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {nombre(electricite.litres * PART_EAU_PAR_LIGNE, 1)} L
+                      </td>
                       <td className="px-4 py-3 text-slate-700">
                         {param.debitLitresHeure === null ? (
                           <span className="font-semibold text-amber-700">A saisir</span>
@@ -178,7 +181,7 @@ export function EauAutomatique({
           ) : null}
           <p className="mt-2 text-xs text-slate-500">
             Heures de marche = eau de la ligne &divide; debit de la machine ; electricite = heures x consommation de la
-            ligne. L&apos;eau du mois est repartie a parts egales entre la Ligne 1 et la Ligne 2.
+            ligne. Les litres du mois sont divises par 2 : la moitie pour la Ligne 1, la moitie pour la Ligne 2.
           </p>
 
           <p className="mt-4 text-sm text-slate-600">
