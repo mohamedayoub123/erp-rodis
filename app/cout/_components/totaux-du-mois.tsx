@@ -60,7 +60,7 @@ export function TotauxDuMois({
                   <td className="px-5 py-3 font-medium text-slate-900">
                     {t.libelle}
                     {t.auto ? (
-                      <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">
+                      <span className="no-print ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">
                         auto
                       </span>
                     ) : null}

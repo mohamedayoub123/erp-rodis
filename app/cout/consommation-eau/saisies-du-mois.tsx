@@ -159,7 +159,7 @@ export function SaisiesDuMois({
                     <td className="px-5 py-3 font-semibold text-slate-900">Tout le mois</td>
                     <td className="px-5 py-3 font-medium text-slate-900">
                       {a.libelle}
-                      <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">
+                      <span className="no-print ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">
                         auto
                       </span>
                     </td>

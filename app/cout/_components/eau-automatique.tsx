@@ -49,7 +49,7 @@ export function EauAutomatique({
         <h2 className="text-lg font-bold text-slate-900">
           Quantites, eau et electricite de {libelleMois(annee, mois)} (automatique)
         </h2>
-        <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-800">Calcul automatique</span>
+        <span className="no-print rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-800">Calcul automatique</span>
       </div>
 
       {erreur || !eau ? (

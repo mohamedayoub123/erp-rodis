@@ -307,3 +307,42 @@ input[type="button"]:not(:disabled),
     min-width: 220px;
   }
 }
+
+/* PDF en couleurs ("Exporter en PDF" de Eau - Prix 1 litre) : par defaut le navigateur
+   n'imprime pas les couleurs de fond (cartes bleues, bandeaux de tableau...), ce qui rend
+   le PDF terne. On force l'impression des couleurs sur la page marquee .print-couleurs. */
+@media print {
+  .print-couleurs,
+  .print-couleurs * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Titre et bandeaux de tableau en couleur */
+  .print-couleurs h1 {
+    color: #0c4a6e !important;
+  }
+
+  .print-couleurs h2 {
+    color: #0369a1 !important;
+  }
+
+  .print-couleurs table thead th {
+    background: #e0f2fe !important;
+    color: #0c4a6e !important;
+  }
+
+  .print-couleurs table tfoot td {
+    background: #f0f9ff !important;
+  }
+
+  /* Les petites lignes de texte (ex. "par U") doivent rester plus petites que les chiffres */
+  .print-couleurs table .text-xs {
+    font-size: 8px !important;
+  }
+
+  /* Une carte ou une ligne ne se coupe pas entre 2 pages */
+  .print-couleurs .rounded-2xl {
+    break-inside: avoid;
+  }
+}
