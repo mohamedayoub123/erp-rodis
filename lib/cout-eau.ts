@@ -41,8 +41,11 @@ export const LIGNES_PAR_DEFAUT: { cle: string; libelle: string }[] = [
   { cle: "filtre_10", libelle: "Filtre 10 micron" },
   { cle: "filtre_5", libelle: "Filtre 5 micron" },
   { cle: "filtre_1", libelle: "Filtre 1 micron" },
+  { cle: "test_th", libelle: "Produit test TH (durete)" },
   { cle: "test_chlore", libelle: "Produit test chlore" },
-  { cle: "chlore", libelle: "Produit chlore" },
+  { cle: "chlore_a", libelle: "Produit chlore A" },
+  { cle: "chlore_b", libelle: "Produit chlore B" },
+  { cle: "chlore_c", libelle: "Produit chlore C" },
   { cle: "bisulfite", libelle: "Produit bisulfite" },
   { cle: "uv", libelle: "UV (lampe)" },
   { cle: "membrane", libelle: "Membrane" },
@@ -52,9 +55,15 @@ export const LIGNES_PAR_DEFAUT: { cle: string; libelle: string }[] = [
 export const MAX_LIGNES = 40;
 
 // Lignes supprimees de la liste : un prix deja enregistre sous cette cle n'est plus
-// affiche. Les produits TH A / B / C sont des lignes ajoutees par l'utilisateur
-// ("+ Ajouter une ligne"), conservees telles quelles d'un mois a l'autre.
-const CLES_RETIREES = new Set(["test_th"]);
+// affiche. "Produit chlore" (une seule ligne) est remplace par Produit chlore A / B / C.
+const CLES_RETIREES = new Set(["chlore"]);
+
+// Anciennes cles reprises sous leur nouvelle cle : les 3 lignes saisies d'abord sous le
+// nom "Produit TH A / B / C" sont en fait Produit chlore A / B / C (prix conserves).
+const CLES_RENOMMEES: Record<string, string> = { th_a: "chlore_a", th_b: "chlore_b", th_c: "chlore_c" };
+function cleActuelle(cle: string): string {
+  return CLES_RENOMMEES[cle] ?? cle;
+}
 
 function nombreValide(value: unknown): number | null {
   const n = typeof value === "string" ? Number(value.replace(",", ".").trim()) : Number(value);
@@ -74,7 +83,7 @@ export function normaliserConfig(brute: unknown): ConfigCoutEau {
   const parCle = new Map<string, Partial<LigneCoutEau>>();
   for (const ligne of lignesSource) {
     if (ligne && typeof ligne === "object" && typeof (ligne as LigneCoutEau).cle === "string") {
-      parCle.set((ligne as LigneCoutEau).cle, ligne as Partial<LigneCoutEau>);
+      parCle.set(cleActuelle((ligne as LigneCoutEau).cle), ligne as Partial<LigneCoutEau>);
     }
   }
 
@@ -91,7 +100,9 @@ export function normaliserConfig(brute: unknown): ConfigCoutEau {
   const clesDefaut = new Set(LIGNES_PAR_DEFAUT.map((l) => l.cle));
   for (const ligne of lignesSource) {
     const l = ligne as Partial<LigneCoutEau> | null;
-    if (!l || typeof l.cle !== "string" || clesDefaut.has(l.cle) || CLES_RETIREES.has(l.cle) || lignes.length >= MAX_LIGNES) continue;
+    if (!l || typeof l.cle !== "string") continue;
+    const cle = cleActuelle(l.cle);
+    if (clesDefaut.has(cle) || CLES_RETIREES.has(cle) || lignes.length >= MAX_LIGNES) continue;
     lignes.push({
       cle: l.cle.slice(0, 40),
       libelle: texteNettoye(l.libelle, 80),
