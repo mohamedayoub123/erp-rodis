@@ -27,6 +27,7 @@ type StockActuelMpRpcRow = {
 
 type ArticleDetailRow = {
   id: number;
+  sous_famille: string | null;
   min_stock: number | null;
   max_stock: number | null;
   gamme: string | null;
@@ -97,7 +98,7 @@ export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; erro
     fetchAllStockActuelMpRows(),
     supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, min_stock, max_stock, gamme, avis_fabrication")
+      .select("id, sous_famille, min_stock, max_stock, gamme, avis_fabrication")
       .eq("categorie", CATEGORIE_PLASTIQUE),
   ]);
 
@@ -113,7 +114,8 @@ export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; erro
       return {
         article_id: row.article_id,
         nom_article: row.nom_article,
-        categorie: row.sous_famille,
+        // Sous famille lue sur l'article (la fonction SQL ne la renvoie pas toujours)
+        categorie: detail?.sous_famille ?? row.sous_famille ?? null,
         unite: row.unite,
         gamme: detail?.gamme ?? null,
         stock_actuel: Number(row.stock_actuel ?? 0),
@@ -178,7 +180,7 @@ export async function StatistiqueArticlePlastique({
   const exportColumns = [
     { label: "Article", key: "article" },
     { label: "Gamme", key: "gamme" },
-    { label: "Categorie", key: "categorie" },
+    { label: "Sous famille", key: "categorie" },
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stock" },
     { label: "Stock min", key: "min" },
@@ -207,7 +209,7 @@ export async function StatistiqueArticlePlastique({
             name="categorie"
             defaultValue={categorieFilter}
             options={categorieOptions}
-            placeholder="Categorie..."
+            placeholder="Sous famille..."
           />
           <SearchableFilterInput name="gamme" defaultValue={gammeFilter} options={gammeOptions} placeholder="Gamme..." />
           <div className="flex flex-wrap gap-3 sm:col-span-3">
@@ -251,7 +253,7 @@ export async function StatistiqueArticlePlastique({
                 <tr>
                   <th className="px-6 py-4 font-semibold">Article</th>
                   <th className="px-6 py-4 font-semibold">Gamme</th>
-                  <th className="px-6 py-4 font-semibold">Categorie</th>
+                  <th className="px-6 py-4 font-semibold">Sous famille</th>
                   <th className="px-6 py-4 font-semibold">Unite</th>
                   <th className="px-6 py-4 font-semibold">Stock actuel</th>
                   <th className="px-6 py-4 font-semibold">Stock min</th>
