@@ -763,7 +763,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Rapport Cout Reel (piece/gramme)",
     pathPrefixes: ["/production/rapport/cout-reel"],
     hasWrite: false,
-    adminGroup: "Rapport",
+    adminGroup: "Cout Reel (piece/gramme)",
   },
   {
     key: "productionRapportCartonMensuel",
@@ -970,6 +970,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Charges Usine",
     pathPrefixes: ["/charges"],
     defaultView: false,
+    adminGroup: "Charges mensuelles",
   },
   // Page d'accueil "Cout" (tuile accueil) - regroupe Charges Usine (deja
   // ci-dessus) et Cout Reel (Production > Rapport, deja son propre
@@ -979,10 +980,11 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "coutHub",
     module: "ChargesUsine",
-    label: "Cout (accueil - regroupe Charges Usine + Cout Reel)",
+    label: "Cout (accueil - regroupe Charges Usine + Cout Reel + Eau)",
     pathPrefixes: ["/cout"],
     hasWrite: false,
     defaultView: false,
+    adminGroup: "Cout (accueil)",
   },
   // Calculateur "Prix du litre d'eau" (filtres, produits, UV, membrane, sel,
   // electricite). Module NOUVEAU : absent de PAGES_EXISTANTES (lib/pages-existantes.ts),
@@ -993,6 +995,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     module: "ChargesUsine",
     label: "Cout - Eau : Prix des consommables",
     pathPrefixes: ["/cout/prix-litre-eau"],
+    adminGroup: "Eau",
   },
   // 2e page "Eau" : consommation saisie chaque mois (Ligne 1 / Ligne 2). Aussi
   // NOUVELLE donc fermee par defaut (voir PAGES_EXISTANTES).
@@ -1001,6 +1004,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     module: "ChargesUsine",
     label: "Cout - Eau : Consommation par mois",
     pathPrefixes: ["/cout/consommation-eau"],
+    adminGroup: "Eau",
   },
   // Cout d'un litre d'eau, mois par mois (lecture seule). NOUVELLE donc fermee par
   // defaut (voir PAGES_EXISTANTES).
@@ -1010,6 +1014,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Cout - Eau : Prix 1 litre",
     pathPrefixes: ["/cout/prix-1-litre"],
     hasWrite: false,
+    adminGroup: "Eau",
   },
   // Module vide pour l'instant (contenu pas encore defini) - cache pour
   // tout le monde par defaut, visible seulement pour l'admin tant qu'aucun
@@ -1068,7 +1073,8 @@ export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   Qualite: "Qualite",
   Entrepot: "Entrepot",
   Produit: "Produit",
-  ChargesUsine: "Charges Usine",
+  // Tout ce qui est dans le menu "Cout" : accueil, charges mensuelles, Cout Reel, Eau
+  ChargesUsine: "Cout",
   Comptabilite: "Comptabilite",
   Autre: "Autre",
 };
@@ -1119,6 +1125,10 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
 ]);
 
 export function sectionForPage(page: PageDefinition): AdminSection {
+  // Cout Reel est une page de Production (module) mais se trouve dans le menu
+  // "Cout" : l'Admin la range avec le reste du Cout (affichage seulement, les
+  // droits ne changent pas).
+  if (page.key === "productionRapportCoutReel") return "ChargesUsine";
   if (MATIERE_PREMIERE_PAGE_KEYS.has(page.key)) return "GestionStockMp";
   if (page.module === "Entrepot") return "Entrepot";
   if (page.module === "Produit") return "Produit";

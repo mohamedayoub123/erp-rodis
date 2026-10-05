@@ -32,6 +32,9 @@ export type ElectriciteCoutEau = {
 export type ConfigCoutEau = {
   lignes: LigneCoutEau[];
   electricite: ElectriciteCoutEau;
+  // Pourcentage d'eau : litres d'eau = kg fabriques AVEC eau x ce pourcentage.
+  // null = pas saisi (60 % par defaut, ou celui du mois precedent).
+  pourcentageEau: number | null;
 };
 
 export const LIGNES_PAR_DEFAUT: { cle: string; libelle: string }[] = [
@@ -111,7 +114,14 @@ export function normaliserConfig(brute: unknown): ConfigCoutEau {
       ligne1: electriciteLigne(el.ligne1 ?? ancienFormat),
       ligne2: electriciteLigne(el.ligne2 ?? ancienFormat),
     },
+    pourcentageEau: pourcentageValide(source.pourcentageEau),
   };
+}
+
+// Entre 0 et 100 % (0 exclu : 0 % ne donnerait jamais d'eau), sinon vide.
+function pourcentageValide(value: unknown): number | null {
+  const n = nombreValide(value);
+  return n !== null && n > 0 && n <= 100 ? n : null;
 }
 
 function electriciteLigne(brute: unknown): ElectriciteLigneCoutEau {

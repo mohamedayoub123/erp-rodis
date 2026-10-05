@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { formaterFcfa } from "@/lib/cout-eau-conso";
 import { libelleMois } from "@/lib/cout-eau";
 
@@ -17,6 +18,9 @@ export function CoutDuLitre({
   coutElectricite,
   electriciteIncomplete,
   coutLitre,
+  pourcentage,
+  pourcentageSource,
+  lienPourcentage,
 }: {
   annee: number;
   mois: number;
@@ -29,6 +33,11 @@ export function CoutDuLitre({
   // Vrai tant que l'electricite d'une ligne n'est pas calculable (kW ou prix du kWh a saisir)
   electriciteIncomplete: boolean;
   coutLitre: number | null;
+  // Pourcentage d'eau utilise (kg avec eau x %) et d'ou il vient
+  pourcentage: number;
+  pourcentageSource: string | null;
+  // Lien vers "Prix des consommables" pour le modifier (null si pas le droit de voir cette page)
+  lienPourcentage: string | null;
 }) {
   const coutTotal = coutConsommables + (coutElectricite ?? 0);
   const incomplet = nombreConsommables === 0 || consommablesSansPrix > 0 || electriciteIncomplete;
@@ -64,7 +73,7 @@ export function CoutDuLitre({
         <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Litres du mois</p>
           <p className="mt-1 text-xl font-black text-slate-900">{litres === null ? "-" : `${nombre(litres)} L`}</p>
-          <p className="mt-1 text-xs text-slate-500">eau calculee (60 % des kg)</p>
+          <p className="mt-1 text-xs text-slate-500">eau calculee ({formaterFcfa(pourcentage, 2)} % des kg)</p>
         </div>
         <div className="rounded-2xl bg-sky-600 p-4 text-white">
           <p className="text-xs font-semibold uppercase tracking-wide text-sky-100">Cout d&apos;1 litre</p>
@@ -87,6 +96,17 @@ export function CoutDuLitre({
           d&apos;electricite par litre.
         </p>
       ) : null}
+
+      <p className="mt-3 text-sm text-slate-600">
+        Pourcentage d&apos;eau utilise :{" "}
+        <span className="font-semibold text-slate-800">{formaterFcfa(pourcentage, 2)} %</span>
+        {pourcentageSource ? ` (${pourcentageSource})` : ""}.{" "}
+        {lienPourcentage ? (
+          <Link href={lienPourcentage} className="font-semibold text-sky-700 underline">
+            Modifier le pourcentage
+          </Link>
+        ) : null}
+      </p>
 
       {incomplet ? (
         <p className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">

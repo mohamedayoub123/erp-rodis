@@ -10,7 +10,11 @@ import { deleteCoutEauMoisAction, saveCoutEauAction } from "./actions";
 // en nombre se fait pour l'enregistrement.
 type LigneSaisie = { cle: string; libelle: string; prix: string; precision: string; perso: boolean };
 type ElecSaisie = { puissanceKw: string; prixKwh: string };
-type Saisie = { lignes: LigneSaisie[]; electricite: { ligne1: ElecSaisie; ligne2: ElecSaisie } };
+type Saisie = {
+  lignes: LigneSaisie[];
+  electricite: { ligne1: ElecSaisie; ligne2: ElecSaisie };
+  pourcentageEau: string;
+};
 type NumeroLigne = "ligne1" | "ligne2";
 type ChampElec = keyof ElecSaisie;
 
@@ -52,6 +56,7 @@ function versSaisie(config: ConfigCoutEau): Saisie {
       ligne1: elecEnTexte(config.electricite.ligne1),
       ligne2: elecEnTexte(config.electricite.ligne2),
     },
+    pourcentageEau: enTexte(config.pourcentageEau),
   };
 }
 
@@ -68,6 +73,7 @@ function versConfig(saisie: Saisie): ConfigCoutEau {
       ligne1: elecEnNombres(saisie.electricite.ligne1),
       ligne2: elecEnNombres(saisie.electricite.ligne2),
     },
+    pourcentageEau: enNombre(saisie.pourcentageEau),
   };
 }
 
@@ -260,6 +266,30 @@ export function CoutEauForm({
             + Ajouter une ligne
           </button>
         ) : null}
+      </section>
+
+      <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+        <h2 className="text-lg font-bold text-slate-900">Eau produite</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Pourcentage d&apos;eau : les litres d&apos;eau du mois = kg fabriques avec eau (hors savon, huile, serum,
+          talc) x ce pourcentage. Tu peux le changer quand tu veux, mois par mois : l&apos;eau, l&apos;electricite et le
+          cout du litre se recalculent. Laisse vide pour garder 60 % (ou le pourcentage du mois precedent).
+        </p>
+        <label className="mt-4 grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
+          Pourcentage d&apos;eau (%)
+          <input
+            type="text"
+            inputMode="decimal"
+            value={saisie.pourcentageEau}
+            placeholder="60"
+            onChange={(e) => {
+              setMessage(null);
+              setSaisie((s) => ({ ...s, pourcentageEau: e.target.value }));
+            }}
+            disabled={!canEdit}
+            className={CHAMP}
+          />
+        </label>
       </section>
 
       <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">

@@ -5,6 +5,7 @@
 // Les produits SAVON, HUILE, SERUM et TALC n'utilisent pas d'eau : leur
 // quantite est comptee (affichee) mais elle n'entre pas dans la base du calcul.
 
+// Pourcentage d'eau par defaut : modifiable mois par mois dans "Prix des consommables".
 export const POURCENTAGE_EAU = 60;
 
 // Familles de produits qui n'utilisent pas d'eau (cle = nom normalise).
@@ -117,7 +118,7 @@ export function calculerElectriciteDuMois(
 
 type EntreeFabrication = { quantite: number; famille: FamilleSansEau | null };
 
-export function calculerEauDuMois(entrees: EntreeFabrication[]): EauDuMois {
+export function calculerEauDuMois(entrees: EntreeFabrication[], pourcentage: number = POURCENTAGE_EAU): EauDuMois {
   const parFamille: Record<FamilleSansEau, number> = { savon: 0, huile: 0, serum: 0, talc: 0 };
   let kgTotal = 0;
   let kgSansEau = 0;
@@ -137,8 +138,8 @@ export function calculerEauDuMois(entrees: EntreeFabrication[]): EauDuMois {
     kgSansEau,
     parFamille,
     kgAvecEau,
-    pourcentage: POURCENTAGE_EAU,
-    litres: (kgAvecEau * POURCENTAGE_EAU) / 100,
+    pourcentage,
+    litres: (kgAvecEau * pourcentage) / 100,
     nombreEntrees: entrees.filter((e) => Number.isFinite(e.quantite) && e.quantite > 0).length,
   };
 }

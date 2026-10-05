@@ -25,6 +25,7 @@ export function EauAutomatique({
   cartons,
   erreur,
   parametres,
+  pourcentageSource,
 }: {
   annee: number;
   mois: number;
@@ -32,6 +33,8 @@ export function EauAutomatique({
   cartons: CartonsDuMois | null;
   erreur: string | null;
   parametres: ParametresElectricite;
+  // D'ou vient le pourcentage d'eau ("ce mois", "repris de ...", "valeur par defaut")
+  pourcentageSource: string | null;
 }) {
   const electricite = eau
     ? calculerElectriciteDuMois(eau.litres, parametres.ligne1, parametres.ligne2)
@@ -72,7 +75,7 @@ export function EauAutomatique({
               </p>
               <p className="mt-1 text-2xl font-black text-slate-900">{nombre(eau.kgAvecEau, 1)} kg</p>
               <p className="mt-1 text-xs text-slate-500">
-                {nombre(eau.kgAvecEau, 1)} x {eau.pourcentage} %
+                {nombre(eau.kgAvecEau, 1)} x {eau.pourcentage} %{pourcentageSource ? ` (${pourcentageSource})` : ""}
               </p>
             </div>
             <div className="rounded-2xl bg-sky-600 p-4 text-white">

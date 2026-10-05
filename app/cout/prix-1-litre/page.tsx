@@ -50,6 +50,9 @@ export default async function PrixUnLitrePage({ searchParams }: { searchParams: 
     : courant;
 
   const cout = await lireCoutDuLitre(choisi.annee, choisi.mois);
+  // Le pourcentage d'eau se change dans "Prix des consommables" (mois par mois)
+  const peutVoirPrix = await canViewPageUser(currentUser, "coutEau");
+  const lienPourcentage = peutVoirPrix ? `/cout/prix-litre-eau?annee=${choisi.annee}&mois=${choisi.mois}` : null;
 
   const anneeMin = Math.min(courant.annee - 3, choisi.annee);
   const anneeMax = Math.max(courant.annee + 1, choisi.annee);
@@ -104,6 +107,9 @@ export default async function PrixUnLitrePage({ searchParams }: { searchParams: 
           coutElectricite={cout.coutElectricite}
           electriciteIncomplete={cout.electriciteIncomplete}
           coutLitre={cout.coutLitre}
+          pourcentage={cout.pourcentage}
+          pourcentageSource={cout.pourcentageSource}
+          lienPourcentage={lienPourcentage}
         />
 
         <TotauxDuMois annee={choisi.annee} mois={choisi.mois} totaux={cout.totaux} sourcePrix={cout.sourcePrix} />
@@ -115,6 +121,7 @@ export default async function PrixUnLitrePage({ searchParams }: { searchParams: 
           cartons={cout.cartons}
           erreur={cout.erreur}
           parametres={cout.parametres}
+          pourcentageSource={cout.pourcentageSource}
         />
       </div>
     </main>

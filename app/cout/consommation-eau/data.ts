@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { supabaseServer } from "@/lib/supabase-server";
 import {
   calculerCartonsDuMois,
@@ -6,6 +7,7 @@ import {
   coutDuLitre,
   coutElectriciteDuMois,
   familleSansEau,
+  POURCENTAGE_EAU,
   type CartonsDuMois,
   type EauDuMois,
 } from "@/lib/cout-eau-fabrication";
@@ -21,6 +23,37 @@ import {
   type TotalElementAvecPrix,
 } from "@/lib/cout-eau-conso";
 
+// Mois de "Prix des consommables" (le plus recent d'abord), lus une seule fois par
+// requete : prix, electricite et pourcentage d'eau viennent tous de cette table.
+const chargerMoisPrix = cache(async () =>
+  supabaseServer
+    .from("cout_eau_mois")
+    .select("annee, mois, donnees")
+    .order("annee", { ascending: false })
+    .order("mois", { ascending: false })
+);
+
+// Pourcentage d'eau du mois choisi (saisi dans "Prix des consommables") : celui du
+// mois, sinon celui du mois enregistre le plus recent AVANT, sinon 60 %.
+export async function lirePourcentageEau(
+  annee: number,
+  mois: number
+): Promise<{ pourcentage: number; source: string }> {
+  const { data } = await chargerMoisPrix();
+  const choisi = annee * 12 + mois;
+  for (const m of (data ?? []) as { annee: number; mois: number; donnees: unknown }[]) {
+    if (m.annee * 12 + m.mois > choisi) continue;
+    const valeur = normaliserConfig(m.donnees).pourcentageEau;
+    if (valeur !== null) {
+      return {
+        pourcentage: valeur,
+        source: m.annee === annee && m.mois === mois ? "ce mois" : `repris de ${libelleMois(m.annee, m.mois)}`,
+      };
+    }
+  }
+  return { pourcentage: POURCENTAGE_EAU, source: "valeur par defaut" };
+}
+
 // Quantites du mois : EXACTEMENT celles du Rapport Test labo (memes preparations,
 // meme date - la date de prise d'echantillon -, memes quantites commandees PD
 // par code, calculees par lib/test-labo-rapports.ts). Vrac en kg -> eau utilisee =
@@ -29,8 +62,14 @@ import {
 export async function lireEauDuMois(
   annee: number,
   mois: number
-): Promise<{ eau: EauDuMois | null; cartons: CartonsDuMois | null; erreur: string | null }> {
+): Promise<{
+  eau: EauDuMois | null;
+  cartons: CartonsDuMois | null;
+  pourcentageSource: string | null;
+  erreur: string | null;
+}> {
   try {
+    const { pourcentage, source: pourcentageSource } = await lirePourcentageEau(annee, mois);
     const prefixeMois = `${annee}-${String(mois).padStart(2, "0")}`;
     const lignes = (await lireLignesTestLabo()).filter((ligne) => ligne.date.slice(0, 7) === prefixeMois);
 
@@ -43,15 +82,22 @@ export async function lireEauDuMois(
     // Le nombre de preparations est celui du Rapport Test labo (toutes les
     // preparations du mois, meme celles sans quantite commandee).
     return {
-      eau: { ...calculerEauDuMois(quantites.map((q) => ({ quantite: q.vrac, famille: q.famille }))), nombreEntrees: lignes.length },
+      eau: {
+        ...calculerEauDuMois(
+          quantites.map((q) => ({ quantite: q.vrac, famille: q.famille })),
+          pourcentage
+        ),
+        nombreEntrees: lignes.length,
+      },
       cartons: {
         ...calculerCartonsDuMois(quantites.map((q) => ({ quantite: q.carton, famille: q.famille }))),
         nombreEntrees: lignes.length,
       },
+      pourcentageSource,
       erreur: null,
     };
   } catch (erreur) {
-    return { eau: null, cartons: null, erreur: erreur instanceof Error ? erreur.message : "lecture impossible" };
+    return { eau: null, cartons: null, pourcentageSource: null, erreur: erreur instanceof Error ? erreur.message : "lecture impossible" };
   }
 }
 
@@ -61,11 +107,7 @@ export async function lirePrixDuMois(
   annee: number,
   mois: number
 ): Promise<{ lignes: LignePrixElement[]; source: string | null; erreur: string | null }> {
-  const { data, error } = await supabaseServer
-    .from("cout_eau_mois")
-    .select("annee, mois, donnees")
-    .order("annee", { ascending: false })
-    .order("mois", { ascending: false });
+  const { data, error } = await chargerMoisPrix();
 
   const choisi = annee * 12 + mois;
   const retenu = ((data ?? []) as { annee: number; mois: number; donnees: unknown }[]).find(
@@ -104,11 +146,7 @@ export async function lireParametresElectricite(
   annee: number,
   mois: number
 ): Promise<{ parametres: ParametresElectricite; erreur: string | null }> {
-  const { data, error } = await supabaseServer
-    .from("cout_eau_mois")
-    .select("annee, mois, donnees")
-    .order("annee", { ascending: false })
-    .order("mois", { ascending: false });
+  const { data, error } = await chargerMoisPrix();
 
   const choisi = annee * 12 + mois;
   const mesMois = ((data ?? []) as { annee: number; mois: number; donnees: unknown }[]).filter(
@@ -231,6 +269,9 @@ export async function lireMoisAvecSaisies(): Promise<MoisAvecSaisies[]> {
 export type CoutDuLitreDuMois = {
   eau: EauDuMois | null;
   cartons: CartonsDuMois | null;
+  // Pourcentage d'eau utilise et d'ou il vient ("ce mois", "repris de ...", "valeur par defaut")
+  pourcentage: number;
+  pourcentageSource: string | null;
   parametres: ParametresElectricite;
   litres: number | null;
   coutConsommables: number;
@@ -280,6 +321,8 @@ export async function lireCoutDuLitre(annee: number, mois: number): Promise<Cout
   return {
     eau: eauDuMois.eau,
     cartons: eauDuMois.cartons,
+    pourcentage: eauDuMois.eau?.pourcentage ?? POURCENTAGE_EAU,
+    pourcentageSource: eauDuMois.pourcentageSource,
     parametres,
     litres,
     coutConsommables,
