@@ -221,26 +221,35 @@ export async function StatistiqueArticlePlastique({
 }: {
   pageHref: string;
   canEdit: boolean;
-  searchParams: Promise<{ q?: string; categorie?: string; gamme?: string }>;
+  searchParams: Promise<{ q?: string; categorie?: string; type?: string; gamme?: string }>;
 }) {
   noStore();
   const params = await searchParams;
   const q = (params.q || "").trim();
   const categorieFilter = (params.categorie || "").trim();
+  const typeFilter = (params.type || "").trim();
   const gammeFilter = (params.gamme || "").trim();
-  const hasFilters = Boolean(q || categorieFilter || gammeFilter);
+  const hasFilters = Boolean(q || categorieFilter || typeFilter || gammeFilter);
 
   const { rows: allRows, error } = await fetchPlastiqueRows();
 
   const rows = allRows
     .filter((row) => !q || matchesArticleSearch(row.nom_article, q))
     .filter((row) => !categorieFilter || displayCategorie(row.categorie) === categorieFilter)
+    // Type : un article utilise par plusieurs types (ex. "Clarifiant, Hydratant") ressort pour chacun
+    .filter(
+      (row) =>
+        !typeFilter || row.types_produit.some((type) => type.toLowerCase() === typeFilter.toLowerCase())
+    )
     .filter((row) => !gammeFilter || (row.gamme || "").toLowerCase() === gammeFilter.toLowerCase());
 
   const articleOptions = allRows.map((row, index) => ({ id: index, label: row.nom_article }));
   const categorieOptions = [...new Set(allRows.map((row) => displayCategorie(row.categorie)))].map(
     (label, index) => ({ id: index, label })
   );
+  const typeOptions = [...new Set(allRows.flatMap((row) => row.types_produit))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
   const gammeOptions = [...new Set(allRows.map((row) => row.gamme).filter((g): g is string => Boolean(g)))].map(
     (label, index) => ({ id: index, label })
   );
@@ -273,7 +282,7 @@ export async function StatistiqueArticlePlastique({
   return (
     <div className="space-y-6">
       <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-        <form className="grid gap-3 sm:grid-cols-3">
+        <form className="grid gap-3 sm:grid-cols-4">
           <SearchableFilterInput name="q" defaultValue={q} options={articleOptions} placeholder="Article..." />
           <SearchableFilterInput
             name="categorie"
@@ -281,8 +290,9 @@ export async function StatistiqueArticlePlastique({
             options={categorieOptions}
             placeholder="Sous famille..."
           />
+          <SearchableFilterInput name="type" defaultValue={typeFilter} options={typeOptions} placeholder="Type..." />
           <SearchableFilterInput name="gamme" defaultValue={gammeFilter} options={gammeOptions} placeholder="Gamme..." />
-          <div className="flex flex-wrap gap-3 sm:col-span-3">
+          <div className="flex flex-wrap gap-3 sm:col-span-4">
             <button
               type="submit"
               className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
