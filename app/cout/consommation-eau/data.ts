@@ -14,10 +14,12 @@ import {
 import { libelleMois, normaliserConfig } from "@/lib/cout-eau";
 import { lireLignesTestLabo } from "@/lib/test-labo-rapports";
 import {
+  ELEMENTS_AUTO_MP,
   debutMoisSuivant,
   premierDuMois,
   totauxAvecPrix,
   totauxDuMois,
+  type ConsoAutoMp,
   type LignePrixElement,
   type SaisieConsoEau,
   type TotalElementAvecPrix,
@@ -266,6 +268,67 @@ export async function lireMoisAvecSaisies(): Promise<MoisAvecSaisies[]> {
   return [...parMois.values()].sort((a, b) => b.annee * 12 + b.mois - (a.annee * 12 + a.mois));
 }
 
+// Consommation automatique du mois (Sel, Produit chlore) : somme des sorties de leur article
+// dans les mouvements MP (tous depots, comme le Rapport mouvements MP).
+export async function lireConsoAutoMp(
+  annee: number,
+  mois: number
+): Promise<{ elements: ConsoAutoMp[]; erreur: string | null }> {
+  const noms = ELEMENTS_AUTO_MP.map((e) => e.articleMp);
+  const articles = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select("id, nom_article, unite")
+    .in("nom_article", noms);
+  if (articles.error) return { elements: [], erreur: articles.error.message };
+
+  const parNom = new Map(
+    ((articles.data ?? []) as { id: number; nom_article: string; unite: string | null }[]).map((a) => [a.nom_article, a])
+  );
+  const ids = [...parNom.values()].map((a) => a.id);
+
+  const sorties = new Map<number, { quantite: number; nombre: number }>();
+  if (ids.length > 0) {
+    const taillePage = 1000;
+    for (let depart = 0; ; depart += taillePage) {
+      const { data, error } = await supabaseServer
+        .from("lots_stock_matiere_premiere")
+        .select("id, article_id, qte_sortie")
+        .in("article_id", ids)
+        .gt("qte_sortie", 0)
+        .gte("date_jour", premierDuMois(annee, mois))
+        .lt("date_jour", debutMoisSuivant(annee, mois))
+        .order("id", { ascending: true })
+        .range(depart, depart + taillePage - 1);
+      if (error) return { elements: [], erreur: error.message };
+      const page = (data ?? []) as { id: number; article_id: number; qte_sortie: number | null }[];
+      for (const m of page) {
+        const cumul = sorties.get(m.article_id) ?? { quantite: 0, nombre: 0 };
+        cumul.quantite += Number(m.qte_sortie ?? 0);
+        cumul.nombre += 1;
+        sorties.set(m.article_id, cumul);
+      }
+      if (page.length < taillePage) break;
+    }
+  }
+
+  const manquants = ELEMENTS_AUTO_MP.filter((e) => !parNom.has(e.articleMp)).map((e) => e.articleMp);
+  return {
+    elements: ELEMENTS_AUTO_MP.map((e) => {
+      const article = parNom.get(e.articleMp);
+      const cumul = article ? sorties.get(article.id) : undefined;
+      return {
+        cle: e.cle,
+        libelle: e.libelle,
+        unite: article?.unite || e.unite,
+        quantite: cumul?.quantite ?? 0,
+        nombre: cumul?.nombre ?? 0,
+        articleMp: e.articleMp,
+      };
+    }),
+    erreur: manquants.length > 0 ? `Article MP introuvable : ${manquants.join(", ")}` : null,
+  };
+}
+
 export type CoutDuLitreDuMois = {
   eau: EauDuMois | null;
   cartons: CartonsDuMois | null;
@@ -292,14 +355,15 @@ export type CoutDuLitreDuMois = {
 // Cout d'UN litre d'eau du mois = (cout des consommables + cout de l'electricite)
 // / litres d'eau du mois.
 export async function lireCoutDuLitre(annee: number, mois: number): Promise<CoutDuLitreDuMois> {
-  const [eauDuMois, electricite, lecture, prix] = await Promise.all([
+  const [eauDuMois, electricite, lecture, prix, auto] = await Promise.all([
     lireEauDuMois(annee, mois),
     lireParametresElectricite(annee, mois),
     lireSaisiesDuMois(annee, mois),
     lirePrixDuMois(annee, mois),
+    lireConsoAutoMp(annee, mois),
   ]);
 
-  const totaux = totauxAvecPrix(totauxDuMois(lecture.saisies), prix.lignes);
+  const totaux = totauxAvecPrix(totauxDuMois(lecture.saisies, auto.elements), prix.lignes);
   const coutConsommables = totaux.reduce((somme, t) => somme + (t.cout ?? 0), 0);
   const consommablesSansPrix = totaux.filter((t) => t.prix === null).length;
 
@@ -328,11 +392,11 @@ export async function lireCoutDuLitre(annee: number, mois: number): Promise<Cout
     coutConsommables,
     totaux,
     sourcePrix: prix.source,
-    nombreConsommables: totaux.length,
+    nombreConsommables: totaux.filter((t) => t.total > 0).length,
     consommablesSansPrix,
     coutElectricite,
     electriciteIncomplete,
     coutLitre: litres === null ? null : coutDuLitre(coutConsommables, coutElectricite, litres),
-    erreur: eauDuMois.erreur ?? lecture.erreur,
+    erreur: eauDuMois.erreur ?? lecture.erreur ?? auto.erreur,
   };
 }

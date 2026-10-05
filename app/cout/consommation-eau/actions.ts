@@ -5,6 +5,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
 import {
+  ELEMENTS_AUTO_MP,
   ELEMENTS_CONSO,
   MAX_ELEMENTS_PAR_SAISIE,
   cleElementPerso,
@@ -64,6 +65,14 @@ export async function ajouterSaisiesAction(dateBrute: string, lignesBrutes: Lign
     const habituel = brute?.perso ? undefined : habituels.get(String(brute?.cle));
     const libelle = habituel ? habituel.libelle : texteNettoye(brute?.libelle, 80);
     if (!libelle) return { ok: false, message: "Un element ajoute n'a pas de nom." };
+
+    // Sel et Produit chlore se calculent tout seuls (mouvements MP) : pas de saisie
+    const auto = ELEMENTS_AUTO_MP.find(
+      (e) => e.cle === habituel?.cle || e.libelle.toLowerCase() === libelle.toLowerCase()
+    );
+    if (auto) {
+      return { ok: false, message: `${auto.libelle} ne se saisit pas : il vient des mouvements MP du mois.` };
+    }
 
     lignes.push({
       date_jour: date,

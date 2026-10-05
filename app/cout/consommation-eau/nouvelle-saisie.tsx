@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ELEMENTS_CONSO,
+  ELEMENTS_SAISISSABLES,
   MAX_ELEMENTS_PAR_SAISIE,
   coutDe,
   dateFr,
@@ -24,7 +24,7 @@ type LigneSaisie = { cle: string; libelle: string; ligne1: string; ligne2: strin
 // L'unite proposee est celle du prix (precision saisie dans "Prix des
 // consommables") quand elle existe : le cout = quantite x prix d'UNE unite.
 function lignesVides(lignesPrix: LignePrixElement[]): LigneSaisie[] {
-  return ELEMENTS_CONSO.map((e) => ({
+  return ELEMENTS_SAISISSABLES.map((e) => ({
     cle: e.cle,
     libelle: e.libelle,
     ligne1: "",
@@ -151,7 +151,8 @@ export function NouvelleSaisie({
       <p className="mt-1 text-sm text-slate-600">
         Choisis la date, puis saisis ce qui a ete consomme ce jour-la sur la{" "}
         <span className="font-semibold">Ligne 1</span> et sur la <span className="font-semibold">Ligne 2</span>. Seuls
-        les elements renseignes sont enregistres. Si tu choisis une date d&apos;un autre mois, la page affiche ce
+        les elements renseignes sont enregistres. Le sel et le produit chlore ne se saisissent pas : ils viennent tout
+        seuls des mouvements MP (sorties du mois). Si tu choisis une date d&apos;un autre mois, la page affiche ce
         mois.
       </p>
 

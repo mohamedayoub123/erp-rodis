@@ -4,6 +4,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { moisValide } from "@/lib/cout-eau";
 import {
+  ELEMENTS_AUTO_MP,
   dateValide,
   moisDeDate,
   premierDuMois,
@@ -12,7 +13,7 @@ import {
 } from "@/lib/cout-eau-conso";
 import { HistoriqueMois } from "../_components/historique-mois";
 import { SelecteurMois } from "../_components/selecteur-mois";
-import { lireMoisAvecSaisies, lirePrixDuMois, lireSaisiesDuMois } from "./data";
+import { lireConsoAutoMp, lireMoisAvecSaisies, lirePrixDuMois, lireSaisiesDuMois } from "./data";
 import { NouvelleSaisie } from "./nouvelle-saisie";
 import { SaisiesDuMois } from "./saisies-du-mois";
 import { TotauxDuMois } from "../_components/totaux-du-mois";
@@ -82,13 +83,16 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
     dateDemandee ??
     (choisi.annee === aujourd.annee && choisi.mois === aujourd.mois ? aujourd.date : premierDuMois(choisi.annee, choisi.mois));
 
-  const [{ saisies, erreur }, mois, prix] = await Promise.all([
+  const [{ saisies, erreur }, mois, prix, auto] = await Promise.all([
     lireSaisiesDuMois(choisi.annee, choisi.mois),
     lireMoisAvecSaisies(),
     lirePrixDuMois(choisi.annee, choisi.mois),
+    lireConsoAutoMp(choisi.annee, choisi.mois),
   ]);
 
-  const totaux = totauxAvecPrix(totauxDuMois(saisies), prix.lignes);
+  // Sel et Produit chlore : consommation automatique (mouvements MP du mois)
+  const totaux = totauxAvecPrix(totauxDuMois(saisies, auto.elements), prix.lignes);
+  const clesAuto = ELEMENTS_AUTO_MP.map((e) => e.cle);
 
   const anneeMin = Math.min(aujourd.annee - 3, ...mois.map((m) => m.annee));
   const anneeMax = Math.max(aujourd.annee + 1, ...mois.map((m) => m.annee));
@@ -108,7 +112,9 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
                 La consommation du traitement de l&apos;eau (filtres, produits, UV, membrane, sel) se saisit avec sa
                 date, pour la Ligne 1 et la Ligne 2 ; choisis un mois ou une date pour voir ce mois. Les prix se
                 saisissent dans &laquo; Prix des consommables &raquo; ; le cout d&apos;un litre d&apos;eau est dans
-                &laquo; Prix 1 litre &raquo;.
+                &laquo; Prix 1 litre &raquo;. Le sel et le produit chlore ne se saisissent pas : ils viennent tout
+                seuls des mouvements MP du mois (sorties de &laquo; TABLETTE SEL HYPERPUR POUR ADOUCISSEUR &raquo; et de
+                &laquo; CHLORE AU 15% &raquo;).
               </p>
             </div>
 
@@ -118,6 +124,12 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
             </div>
           </div>
         </section>
+
+        {auto.erreur ? (
+          <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+            Consommation automatique (mouvements MP) : {auto.erreur}.
+          </p>
+        ) : null}
 
         {erreur ? (
           <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
@@ -171,6 +183,7 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
           canDelete={canDelete}
           basePath="/cout/consommation-eau"
           lignesPrix={prix.lignes}
+          clesAuto={clesAuto}
         />
 
         <HistoriqueMois

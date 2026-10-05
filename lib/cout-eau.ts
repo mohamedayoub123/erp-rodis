@@ -42,10 +42,10 @@ export const LIGNES_PAR_DEFAUT: { cle: string; libelle: string }[] = [
   { cle: "filtre_5", libelle: "Filtre 5 micron" },
   { cle: "filtre_1", libelle: "Filtre 1 micron" },
   { cle: "test_th", libelle: "Produit test TH (durete)" },
-  { cle: "test_chlore", libelle: "Produit test chlore" },
-  { cle: "chlore_a", libelle: "Produit chlore A" },
-  { cle: "chlore_b", libelle: "Produit chlore B" },
-  { cle: "chlore_c", libelle: "Produit chlore C" },
+  { cle: "test_chlore_a", libelle: "Produit test chlore A" },
+  { cle: "test_chlore_b", libelle: "Produit test chlore B" },
+  { cle: "test_chlore_c", libelle: "Produit test chlore C" },
+  { cle: "chlore", libelle: "Produit chlore" },
   { cle: "bisulfite", libelle: "Produit bisulfite" },
   { cle: "uv", libelle: "UV (lampe)" },
   { cle: "membrane", libelle: "Membrane" },
@@ -55,12 +55,19 @@ export const LIGNES_PAR_DEFAUT: { cle: string; libelle: string }[] = [
 export const MAX_LIGNES = 40;
 
 // Lignes supprimees de la liste : un prix deja enregistre sous cette cle n'est plus
-// affiche. "Produit chlore" (une seule ligne) est remplace par Produit chlore A / B / C.
-const CLES_RETIREES = new Set(["chlore"]);
+// affiche. "Produit test chlore" (une seule ligne) est remplace par Produit test chlore A / B / C.
+const CLES_RETIREES = new Set(["test_chlore"]);
 
 // Anciennes cles reprises sous leur nouvelle cle : les 3 lignes saisies d'abord sous le
-// nom "Produit TH A / B / C" sont en fait Produit chlore A / B / C (prix conserves).
-const CLES_RENOMMEES: Record<string, string> = { th_a: "chlore_a", th_b: "chlore_b", th_c: "chlore_c" };
+// nom "Produit TH A / B / C" sont en fait Produit test chlore A / B / C (prix conserves).
+const CLES_RENOMMEES: Record<string, string> = {
+  th_a: "test_chlore_a",
+  th_b: "test_chlore_b",
+  th_c: "test_chlore_c",
+  chlore_a: "test_chlore_a",
+  chlore_b: "test_chlore_b",
+  chlore_c: "test_chlore_c",
+};
 function cleActuelle(cle: string): string {
   return CLES_RENOMMEES[cle] ?? cle;
 }

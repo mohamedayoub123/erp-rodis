@@ -1,4 +1,4 @@
-import { formaterFcfa, formaterQuantite, type TotalElementAvecPrix } from "@/lib/cout-eau-conso";
+import { formaterFcfa, formaterQuantite, unitesCompatibles, type TotalElementAvecPrix } from "@/lib/cout-eau-conso";
 import { libelleMois } from "@/lib/cout-eau";
 
 // Total du mois : somme des saisies datees, element par element, avec le prix
@@ -51,19 +51,35 @@ export function TotauxDuMois({
             <tbody>
               {totaux.map((t) => (
                 <tr key={t.cle} className="border-t border-slate-100">
-                  <td className="px-5 py-3 font-medium text-slate-900">{t.libelle}</td>
-                  <td className="px-5 py-3 text-slate-700">{formaterQuantite(t.ligne1)}</td>
-                  <td className="px-5 py-3 text-slate-700">{formaterQuantite(t.ligne2)}</td>
+                  <td className="px-5 py-3 font-medium text-slate-900">
+                    {t.libelle}
+                    {t.auto ? (
+                      <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">
+                        auto
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-5 py-3 text-slate-700">{t.auto ? "-" : formaterQuantite(t.ligne1)}</td>
+                  <td className="px-5 py-3 text-slate-700">{t.auto ? "-" : formaterQuantite(t.ligne2)}</td>
                   <td className="px-5 py-3 font-semibold text-sky-800">{formaterQuantite(t.total)}</td>
                   <td className="px-5 py-3 text-slate-600">{t.unite || "-"}</td>
                   <td className="px-5 py-3 text-right text-slate-700">
                     {formaterFcfa(t.prix, 4)}
                     {t.prix !== null && t.precision ? (
-                      <span className="block text-xs text-slate-500">par {t.precision}</span>
+                      <span
+                        className={`block text-xs ${
+                          unitesCompatibles(t.unite, t.precision) ? "text-slate-500" : "font-semibold text-amber-700"
+                        }`}
+                      >
+                        par {t.precision}
+                        {unitesCompatibles(t.unite, t.precision) ? "" : ` (quantite en ${t.unite} : verifie le prix)`}
+                      </span>
                     ) : null}
                   </td>
                   <td className="px-5 py-3 text-right font-semibold text-slate-900">{formaterFcfa(t.cout)}</td>
-                  <td className="px-5 py-3 text-slate-600">{t.nombre}</td>
+                  <td className="px-5 py-3 text-slate-600">
+                    {t.auto ? `mouvements MP (${t.nombre})` : t.nombre}
+                  </td>
                 </tr>
               ))}
             </tbody>

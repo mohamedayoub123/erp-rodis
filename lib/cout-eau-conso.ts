@@ -23,20 +23,40 @@ export type SaisieConsoEau = {
   par: string | null;
 };
 
-export const ELEMENTS_CONSO: { cle: string; libelle: string; unite: string }[] = [
+// articleMp : l'element se calcule TOUT SEUL a partir des sorties de cet article dans les
+// mouvements MP du mois (pas de saisie a la main) - meme chiffre que le Rapport
+// mouvements MP.
+export const ELEMENTS_CONSO: { cle: string; libelle: string; unite: string; articleMp?: string }[] = [
   { cle: "filtre_10", libelle: "Filtre 10 micron", unite: "pieces" },
   { cle: "filtre_5", libelle: "Filtre 5 micron", unite: "pieces" },
   { cle: "filtre_1", libelle: "Filtre 1 micron", unite: "pieces" },
   { cle: "test_th", libelle: "Produit test TH (durete)", unite: "pieces" },
-  { cle: "test_chlore", libelle: "Produit test chlore", unite: "pieces" },
-  { cle: "chlore_a", libelle: "Produit chlore A", unite: "pieces" },
-  { cle: "chlore_b", libelle: "Produit chlore B", unite: "pieces" },
-  { cle: "chlore_c", libelle: "Produit chlore C", unite: "pieces" },
+  { cle: "test_chlore_a", libelle: "Produit test chlore A", unite: "pieces" },
+  { cle: "test_chlore_b", libelle: "Produit test chlore B", unite: "pieces" },
+  { cle: "test_chlore_c", libelle: "Produit test chlore C", unite: "pieces" },
+  { cle: "chlore", libelle: "Produit chlore", unite: "kg", articleMp: "CHLORE AU 15%" },
   { cle: "bisulfite", libelle: "Produit bisulfite", unite: "L" },
   { cle: "uv", libelle: "UV (lampe)", unite: "pieces" },
   { cle: "membrane", libelle: "Membrane", unite: "pieces" },
-  { cle: "sel", libelle: "Sel", unite: "kg" },
+  { cle: "sel", libelle: "Sel", unite: "kg", articleMp: "TABLETTE SEL HYPERPUR POUR ADOUCISSEUR" },
 ];
+
+// Elements saisis a la main (ceux de la grille "Nouvelle saisie") et elements automatiques.
+export const ELEMENTS_SAISISSABLES = ELEMENTS_CONSO.filter((e) => !e.articleMp);
+export const ELEMENTS_AUTO_MP = ELEMENTS_CONSO.filter(
+  (e): e is (typeof ELEMENTS_CONSO)[number] & { articleMp: string } => !!e.articleMp
+);
+
+// Consommation automatique d'un element : sorties de son article dans les mouvements MP du mois.
+export type ConsoAutoMp = {
+  cle: string;
+  libelle: string;
+  unite: string;
+  quantite: number;
+  // Nombre de mouvements de sortie comptes
+  nombre: number;
+  articleMp: string;
+};
 
 // Elements ajoutes par l'utilisateur dans une saisie, en plus des habituels.
 export const MAX_ELEMENTS_PAR_SAISIE = 40;
@@ -106,13 +126,33 @@ export type TotalElement = {
   ligne2: number;
   total: number;
   nombre: number;
+  // Element calcule automatiquement (mouvements MP) : pas de Ligne 1 / Ligne 2
+  auto?: boolean;
 };
 
-// Total du mois par element (somme des saisies datees), dans l'ordre des
-// elements habituels puis les elements ajoutes par ordre alphabetique.
-export function totauxDuMois(saisies: SaisieConsoEau[]): TotalElement[] {
+// Total du mois par element (somme des saisies datees + elements automatiques des
+// mouvements MP), dans l'ordre des elements habituels puis les elements ajoutes par
+// ordre alphabetique. Une saisie a la main d'un element automatique n'est PAS comptee.
+export function totauxDuMois(saisies: SaisieConsoEau[], autos: ConsoAutoMp[] = []): TotalElement[] {
   const parCle = new Map<string, TotalElement>();
+  const clesAuto = new Set(autos.map((a) => a.cle));
+  const nomsAuto = new Set(autos.map((a) => nomNormalise(a.libelle)));
+
+  for (const a of autos) {
+    parCle.set(a.cle, {
+      cle: a.cle,
+      libelle: a.libelle,
+      unite: a.unite,
+      ligne1: 0,
+      ligne2: 0,
+      total: a.quantite,
+      nombre: a.nombre,
+      auto: true,
+    });
+  }
+
   for (const s of saisies) {
+    if (clesAuto.has(s.cle) || nomsAuto.has(nomNormalise(s.libelle))) continue;
     const existant = parCle.get(s.cle) ?? {
       cle: s.cle,
       libelle: s.libelle,
@@ -181,6 +221,14 @@ export function uniteProposee(precision: string | undefined, uniteParDefaut: str
   if (!p) return uniteParDefaut;
   if (p === "u" || p === "unite" || p === "unites" || p === "piece" || p === "pieces") return "pieces";
   return (precision ?? "").trim().slice(0, 20);
+}
+
+// Vrai si l'unite de la quantite correspond a la precision du prix (kg/KG, U/pieces...) ;
+// vide d'un cote ou de l'autre = pas de comparaison possible.
+export function unitesCompatibles(unite: string, precision: string): boolean {
+  const u = uniteProposee(unite, "").toLowerCase();
+  const p = uniteProposee(precision, "").toLowerCase();
+  return !u || !p || u === p;
 }
 
 export function coutDe(quantite: number | null, prix: number | null): number | null {

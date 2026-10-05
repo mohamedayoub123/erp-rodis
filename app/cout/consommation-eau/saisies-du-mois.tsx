@@ -31,6 +31,7 @@ export function SaisiesDuMois({
   canDelete,
   basePath,
   lignesPrix,
+  clesAuto,
 }: {
   saisies: SaisieConsoEau[];
   annee: number;
@@ -39,6 +40,8 @@ export function SaisiesDuMois({
   canDelete: boolean;
   basePath: string;
   lignesPrix: LignePrixElement[];
+  // Elements calcules automatiquement (mouvements MP) : leurs saisies manuelles ne sont pas comptees
+  clesAuto: string[];
 }) {
   const router = useRouter();
   const [enEdition, setEnEdition] = useState<number | null>(null);
@@ -202,10 +205,18 @@ export function SaisiesDuMois({
                     <td className="px-5 py-3 text-right font-semibold text-sky-800">
                       {formaterQuantite(totalLigne1Ligne2(s))}
                     </td>
-                    <td className="px-5 py-3 text-right text-slate-700">{formaterFcfa(prixDe(s), 4)}</td>
-                    <td className="px-5 py-3 text-right font-semibold text-slate-900">
-                      {formaterFcfa(coutDe(totalLigne1Ligne2(s), prixDe(s)))}
-                    </td>
+                    {clesAuto.includes(s.cle) ? (
+                      <td className="px-5 py-3 text-right text-xs font-semibold text-amber-700" colSpan={2}>
+                        non compte : vient des mouvements MP
+                      </td>
+                    ) : (
+                      <>
+                        <td className="px-5 py-3 text-right text-slate-700">{formaterFcfa(prixDe(s), 4)}</td>
+                        <td className="px-5 py-3 text-right font-semibold text-slate-900">
+                          {formaterFcfa(coutDe(totalLigne1Ligne2(s), prixDe(s)))}
+                        </td>
+                      </>
+                    )}
                     <td className="px-5 py-3 text-slate-600">{s.par ?? "-"}</td>
                     {modifiable ? (
                       <td className="whitespace-nowrap px-5 py-3 text-right">

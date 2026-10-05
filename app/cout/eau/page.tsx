@@ -13,7 +13,7 @@ const TILES = [
     pageKey: "coutEau",
     icon: "\u{1F4A7}",
     description:
-      "Prix d'une unite de chaque consommable (filtres 10/5/1 micron, produit test TH, produit test chlore, produits chlore A/B/C, bisulfite, UV, membrane, sel, electricite), enregistres mois par mois.",
+      "Prix d'une unite de chaque consommable (filtres 10/5/1 micron, produit test TH, produits test chlore A/B/C, produit chlore, bisulfite, UV, membrane, sel, electricite), enregistres mois par mois.",
   },
   {
     label: "Consommation par mois",
