@@ -15,6 +15,7 @@ import {
 import { GlobalNav } from "./_components/global-nav";
 import { RouteAccessGate } from "./_components/route-access-gate";
 import { ServiceWorkerRegister } from "./_components/service-worker-register";
+import { SessionWatcher } from "./_components/session-watcher";
 import { ZoomControl } from "./_components/zoom-control";
 import { SubmitButton } from "@/app/_components/submit-button";
 import "./globals.css";
@@ -153,6 +154,7 @@ export default async function RootLayout({
     >
       <body className="min-h-full bg-[#f7f3ea] pb-24 text-slate-900 md:pb-0">
         <ServiceWorkerRegister />
+        <SessionWatcher />
         <div className="min-h-full">
           <GlobalNav pageViewMap={pageViewMap} canManageUsers={canManageUsers} />
           <div className="flex min-h-[calc(100vh-132px)] flex-col">

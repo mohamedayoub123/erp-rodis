@@ -1027,3 +1027,38 @@ export async function wasSessionClosedElsewhere() {
   const user = users[username];
   return !!user && user.activeSessionToken !== token;
 }
+
+// Etat de la session de CE navigateur, verifie cote serveur sans charger tout
+// le monde (une seule ligne lue) - consulte regulierement par le composant
+// SessionWatcher pour prevenir l'utilisateur quand sa session a ete fermee
+// (meme compte connecte sur un autre ordinateur, deconnexion par un admin,
+// session expiree). Sans cela, la page restait affichee et le bouton
+// "Approuver" ne faisait plus rien, sans aucun message.
+export type SessionStatus = "ok" | "closed_elsewhere" | "expired" | "none";
+
+export async function getSessionStatus(): Promise<SessionStatus> {
+  const cookieStore = await cookies();
+  const raw = cookieStore.get(STOCK_AUTH_COOKIE)?.value || "";
+  if (!raw) return "none";
+
+  const [expiresAt, token, signature, ...usernameParts] = raw.split(".");
+  const username = usernameParts.join(".");
+  if (!username || !expiresAt || !token || !signature) return "none";
+  if (!safeEqual(signature, signSession(username, expiresAt, token))) return "none";
+  if (Number(expiresAt) < Date.now()) return "expired";
+
+  const { data, error } = await supabaseServer
+    .from("stock_users")
+    .select("active_session_token")
+    .eq("username", username)
+    .maybeSingle();
+
+  // Erreur de lecture (base tres sollicitee...) : on ne declare surtout pas la
+  // session fermee a tort - le controle reessaiera.
+  if (error) return "ok";
+  if (!data) return "closed_elsewhere";
+
+  return (data as { active_session_token: string | null }).active_session_token === token
+    ? "ok"
+    : "closed_elsewhere";
+}
