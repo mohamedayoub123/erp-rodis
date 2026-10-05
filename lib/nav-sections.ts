@@ -196,7 +196,8 @@ export const navItems: NavItem[] = [
     subLinks: [
       { href: "/charges", label: "Charges mensuelles", pageKey: "chargesHub" },
       { href: "/production/rapport/cout-reel", label: "Cout Reel (piece/gramme)", pageKey: "productionRapportCoutReel" },
-      { href: "/cout/prix-litre-eau", label: "Prix du litre d'eau", pageKey: "coutEau" },
+      { href: "/cout/prix-litre-eau", label: "Eau - Prix", pageKey: "coutEau" },
+      { href: "/cout/consommation-eau", label: "Eau - Consommation", pageKey: "coutEauConso" },
     ],
   },
   {

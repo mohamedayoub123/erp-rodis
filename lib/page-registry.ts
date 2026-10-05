@@ -991,8 +991,16 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "coutEau",
     module: "ChargesUsine",
-    label: "Cout - Prix du litre d'eau",
+    label: "Cout - Eau : Prix",
     pathPrefixes: ["/cout/prix-litre-eau"],
+  },
+  // 2e page "Eau" : consommation saisie chaque mois (Ligne 1 / Ligne 2). Aussi
+  // NOUVELLE donc fermee par defaut (voir PAGES_EXISTANTES).
+  {
+    key: "coutEauConso",
+    module: "ChargesUsine",
+    label: "Cout - Eau : Consommation par mois",
+    pathPrefixes: ["/cout/consommation-eau"],
   },
   // Module vide pour l'instant (contenu pas encore defini) - cache pour
   // tout le monde par defaut, visible seulement pour l'admin tant qu'aucun

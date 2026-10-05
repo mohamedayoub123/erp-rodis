@@ -3,9 +3,10 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { libelleMois, moisValide, nombreDePrix, normaliserConfig } from "@/lib/cout-eau";
-import { CoutEauForm } from "./cout-eau-form";
+import { moisValide } from "@/lib/cout-eau";
+import { nombreDeQuantites, normaliserConsoEau } from "@/lib/cout-eau-conso";
 import { HistoriqueMois } from "../_components/historique-mois";
+import { ConsoEauForm } from "./conso-eau-form";
 
 type MoisEnregistre = {
   annee: number;
@@ -34,16 +35,16 @@ function formaterDate(iso: string | null) {
   return `${jj}-${mm}-${d.getFullYear()} ${hh}h${mi}`;
 }
 
-export default async function PrixLitreEauPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function ConsommationEauPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
 
   const params = await searchParams;
   const currentUser = await getCurrentStockUser();
 
-  // Controle cote serveur AVANT de lire les prix : la barriere d'acces de la mise
-  // en page masque la page a l'ecran, mais ne doit pas etre la seule protection
-  // pour des donnees de cout.
-  if (!(await canViewPageUser(currentUser, "coutEau"))) {
+  // Controle cote serveur AVANT de lire les donnees (la barriere d'acces de la
+  // mise en page masque la page a l'ecran, mais ne doit pas etre la seule
+  // protection).
+  if (!(await canViewPageUser(currentUser, "coutEauConso"))) {
     return (
       <main className="px-6 py-10 lg:px-10">
         <section className="mx-auto max-w-3xl rounded-[2rem] border border-red-200 bg-white p-8 text-center">
@@ -56,8 +57,8 @@ export default async function PrixLitreEauPage({ searchParams }: { searchParams:
     );
   }
 
-  const canEdit = await canWritePageUser(currentUser, "coutEau");
-  const canDelete = await canDeletePageUser(currentUser, "coutEau");
+  const canEdit = await canWritePageUser(currentUser, "coutEauConso");
+  const canDelete = await canDeletePageUser(currentUser, "coutEauConso");
 
   const courant = moisCourant();
   const anneeDemandee = Number(params.annee);
@@ -67,7 +68,7 @@ export default async function PrixLitreEauPage({ searchParams }: { searchParams:
     : courant;
 
   const { data, error } = await supabaseServer
-    .from("cout_eau_mois")
+    .from("cout_eau_conso")
     .select("annee, mois, donnees, updated_by, updated_at")
     .order("annee", { ascending: false })
     .order("mois", { ascending: false });
@@ -75,14 +76,9 @@ export default async function PrixLitreEauPage({ searchParams }: { searchParams:
   const mois = (data ?? []) as MoisEnregistre[];
   const dejaEnregistre = mois.find((m) => m.annee === choisi.annee && m.mois === choisi.mois) ?? null;
 
-  // Un mois pas encore enregistre repart des prix du mois enregistre le plus
-  // recent AVANT lui (les prix changent rarement) - clairement signale sur la
-  // page, et rien n'est enregistre tant qu'on ne clique pas sur Enregistrer.
-  const repris = dejaEnregistre
-    ? null
-    : (mois.find((m) => m.annee * 12 + m.mois < choisi.annee * 12 + choisi.mois) ?? null);
-
-  const config = normaliserConfig((dejaEnregistre ?? repris)?.donnees);
+  // Une consommation n'est jamais reprise d'un autre mois : un mois pas encore
+  // enregistre commence vide.
+  const config = normaliserConsoEau(dejaEnregistre?.donnees);
 
   const anneeMin = Math.min(courant.annee - 3, ...mois.map((m) => m.annee));
   const anneeMax = Math.max(courant.annee + 1, ...mois.map((m) => m.annee));
@@ -95,11 +91,12 @@ export default async function PrixLitreEauPage({ searchParams }: { searchParams:
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Eau - Prix</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
+                Eau - Consommation par mois
+              </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Prix des elements du traitement de l&apos;eau (filtres, produits, UV, membrane, sel, electricite),
-                enregistres mois par mois. La consommation se saisit dans &laquo; Eau - Consommation par mois &raquo;
-                ; le calcul du prix du litre viendra ensuite.
+                Consommation du traitement de l&apos;eau (filtres, produits, UV, membrane, sel, electricite) saisie
+                chaque mois pour la Ligne 1 et la Ligne 2. Les prix se saisissent dans &laquo; Eau - Prix &raquo;.
               </p>
             </div>
 
@@ -112,12 +109,12 @@ export default async function PrixLitreEauPage({ searchParams }: { searchParams:
 
         {error ? (
           <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-            Les prix enregistres n&apos;ont pas pu etre lus ({error.message}). Si c&apos;est la premiere
+            La consommation enregistree n&apos;a pas pu etre lue ({error.message}). Si c&apos;est la premiere
             utilisation, le script SQL de ce module doit etre execute dans Supabase.
           </p>
         ) : null}
 
-        <CoutEauForm
+        <ConsoEauForm
           key={`${choisi.annee}-${choisi.mois}-${dejaEnregistre?.updated_at ?? "nouveau"}`}
           initial={config}
           annee={choisi.annee}
@@ -128,20 +125,19 @@ export default async function PrixLitreEauPage({ searchParams }: { searchParams:
           dejaEnregistre={
             dejaEnregistre ? { par: dejaEnregistre.updated_by, le: formaterDate(dejaEnregistre.updated_at) } : null
           }
-          repris={repris ? libelleMois(repris.annee, repris.mois) : null}
         />
 
         <HistoriqueMois
           lignes={mois.map((m) => ({
             annee: m.annee,
             mois: m.mois,
-            nombre: nombreDePrix(normaliserConfig(m.donnees)),
+            nombre: nombreDeQuantites(normaliserConsoEau(m.donnees)),
             par: m.updated_by,
             le: formaterDate(m.updated_at),
           }))}
           choisi={choisi}
-          basePath="/cout/prix-litre-eau"
-          libelleNombre="Prix saisis"
+          basePath="/cout/consommation-eau"
+          libelleNombre="Elements renseignes"
         />
       </div>
     </main>

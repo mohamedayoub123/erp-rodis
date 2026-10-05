@@ -21,12 +21,18 @@ const TILES = [
       "Par article : cout reel (vrac/conditionnement, electricite machine, journaliers) sur une periode.",
   },
   {
-    label: "Prix du litre d'eau",
+    label: "Eau - Prix",
     href: "/cout/prix-litre-eau",
     pageKey: "coutEau",
-    icon: "💧",
-    description:
-      "Prix des filtres, produits de traitement, UV, membrane, sel et consommation electrique (le calcul du litre viendra ensuite).",
+    icon: "\u{1F4A7}",
+    description: "Prix des filtres, produits de traitement, UV, membrane, sel et electricite, enregistres mois par mois.",
+  },
+  {
+    label: "Eau - Consommation par mois",
+    href: "/cout/consommation-eau",
+    pageKey: "coutEauConso",
+    icon: "\u{1F9EA}",
+    description: "Consommation de chaque element dans le mois, Ligne 1 et Ligne 2.",
   },
 ] as const;
 

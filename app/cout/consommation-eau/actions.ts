@@ -4,44 +4,45 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
-import { libelleMois, moisValide, nombreDePrix, normaliserConfig, type ConfigCoutEau } from "@/lib/cout-eau";
+import { libelleMois, moisValide } from "@/lib/cout-eau";
+import { nombreDeQuantites, normaliserConsoEau, type ConfigConsoEau } from "@/lib/cout-eau-conso";
 
 function messageTable(message: string) {
   // Seulement quand la table est vraiment absente (script SQL pas execute) : une
   // autre erreur garde son vrai message.
-  return message.includes("cout_eau_mois") && (message.includes("schema cache") || message.includes("does not exist"))
-    ? "La table des prix de l'eau n'existe pas encore (script SQL a executer)."
+  return message.includes("cout_eau_conso") && (message.includes("schema cache") || message.includes("does not exist"))
+    ? "La table de consommation de l'eau n'existe pas encore (script SQL a executer)."
     : message;
 }
 
-// Enregistre les prix du mois choisi (cree la ligne du mois, ou la remplace).
-// Renvoie un message lisible au lieu de lever une exception : en production
-// Next.js masque le texte des exceptions des Server Actions.
-export async function saveCoutEauAction(
+// Enregistre la consommation du mois choisi (cree la ligne du mois, ou la
+// remplace). Renvoie un message lisible au lieu de lever une exception : en
+// production Next.js masque le texte des exceptions des Server Actions.
+export async function saveConsoEauAction(
   annee: number,
   mois: number,
-  configBrute: ConfigCoutEau
+  configBrute: ConfigConsoEau
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "coutEau"))) {
-    return { ok: false, message: "Cet utilisateur ne peut pas modifier les prix de l'eau." };
+  if (!(await canWritePageUser(currentUser, "coutEauConso"))) {
+    return { ok: false, message: "Cet utilisateur ne peut pas modifier la consommation de l'eau." };
   }
 
   if (!moisValide(annee, mois)) {
     return { ok: false, message: "Mois ou annee invalide." };
   }
 
-  const config = normaliserConfig(configBrute);
+  const config = normaliserConsoEau(configBrute);
 
   const { data: avantData } = await supabaseServer
-    .from("cout_eau_mois")
+    .from("cout_eau_conso")
     .select("donnees")
     .eq("annee", annee)
     .eq("mois", mois)
     .maybeSingle();
 
-  const { error } = await supabaseServer.from("cout_eau_mois").upsert(
+  const { error } = await supabaseServer.from("cout_eau_conso").upsert(
     {
       annee,
       mois,
@@ -58,26 +59,26 @@ export async function saveCoutEauAction(
 
   await logAudit({
     utilisateur: currentUser,
-    module: "CoutEau",
+    module: "CoutEauConso",
     action: avantData ? "modification" : "creation",
-    cible: `Prix de l'eau ${libelleMois(annee, mois)}`,
-    resume: `Prix de l'eau ${libelleMois(annee, mois)} enregistres (${nombreDePrix(config)} prix saisis)`,
+    cible: `Consommation d'eau ${libelleMois(annee, mois)}`,
+    resume: `Consommation d'eau ${libelleMois(annee, mois)} enregistree (${nombreDeQuantites(config)} element(s) renseigne(s))`,
     avant: (avantData as { donnees: unknown } | null)?.donnees ?? null,
     apres: config,
   });
 
-  revalidatePath("/cout/prix-litre-eau");
+  revalidatePath("/cout/consommation-eau");
   return { ok: true };
 }
 
 // Supprime un mois enregistre (reserve a ceux qui ont le droit Supprimer).
-export async function deleteCoutEauMoisAction(
+export async function deleteConsoEauMoisAction(
   annee: number,
   mois: number
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canDeletePageUser(currentUser, "coutEau"))) {
+  if (!(await canDeletePageUser(currentUser, "coutEauConso"))) {
     return { ok: false, message: "Cet utilisateur ne peut pas supprimer un mois." };
   }
 
@@ -86,13 +87,13 @@ export async function deleteCoutEauMoisAction(
   }
 
   const { data: avantData } = await supabaseServer
-    .from("cout_eau_mois")
+    .from("cout_eau_conso")
     .select("donnees")
     .eq("annee", annee)
     .eq("mois", mois)
     .maybeSingle();
 
-  const { error } = await supabaseServer.from("cout_eau_mois").delete().eq("annee", annee).eq("mois", mois);
+  const { error } = await supabaseServer.from("cout_eau_conso").delete().eq("annee", annee).eq("mois", mois);
 
   if (error) {
     return { ok: false, message: messageTable(error.message) };
@@ -100,13 +101,13 @@ export async function deleteCoutEauMoisAction(
 
   await logAudit({
     utilisateur: currentUser,
-    module: "CoutEau",
+    module: "CoutEauConso",
     action: "suppression",
-    cible: `Prix de l'eau ${libelleMois(annee, mois)}`,
-    resume: `Prix de l'eau ${libelleMois(annee, mois)} supprimes`,
+    cible: `Consommation d'eau ${libelleMois(annee, mois)}`,
+    resume: `Consommation d'eau ${libelleMois(annee, mois)} supprimee`,
     avant: (avantData as { donnees: unknown } | null)?.donnees ?? null,
   });
 
-  revalidatePath("/cout/prix-litre-eau");
+  revalidatePath("/cout/consommation-eau");
   return { ok: true };
 }

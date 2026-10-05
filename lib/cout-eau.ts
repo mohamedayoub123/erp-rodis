@@ -96,3 +96,35 @@ export function normaliserConfig(brute: unknown): ConfigCoutEau {
     },
   };
 }
+
+export const MOIS_NOMS = [
+  "Janvier",
+  "Fevrier",
+  "Mars",
+  "Avril",
+  "Mai",
+  "Juin",
+  "Juillet",
+  "Aout",
+  "Septembre",
+  "Octobre",
+  "Novembre",
+  "Decembre",
+];
+
+export function libelleMois(annee: number, mois: number): string {
+  return `${MOIS_NOMS[mois - 1] ?? mois} ${annee}`;
+}
+
+export function moisValide(annee: number, mois: number): boolean {
+  return Number.isInteger(annee) && annee >= 2020 && annee <= 2100 && Number.isInteger(mois) && mois >= 1 && mois <= 12;
+}
+
+// Nombre de prix reellement saisis (lignes + electricite).
+export function nombreDePrix(config: ConfigCoutEau): number {
+  return (
+    config.lignes.filter((ligne) => ligne.prix !== null).length +
+    (config.electricite.puissanceKw !== null ? 1 : 0) +
+    (config.electricite.prixKwh !== null ? 1 : 0)
+  );
+}
