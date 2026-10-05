@@ -38,6 +38,9 @@ export type PlastiqueRow = {
   article_id: number;
   nom_article: string;
   categorie: string | null;
+  // Type du ou des produits finis dont la recette de conditionnement contient cet article
+  // (ex: "Gel douche", "Clarifiant") ; vide si l'article n'est dans aucune recette.
+  types_produit: string[];
   unite: string | null;
   gamme: string | null;
   stock_actuel: number;
@@ -45,6 +48,67 @@ export type PlastiqueRow = {
   max_stock: number | null;
   avis_fabrication: string | null;
 };
+
+// "gel douche" -> "Gel douche" (articles.type_article est saisi a la main, casse variable).
+function typeAffiche(type: string): string {
+  const propre = type.trim();
+  return propre ? propre.charAt(0).toUpperCase() + propre.slice(1).toLowerCase() : "";
+}
+
+// Types des produits finis qui utilisent chaque article plastique : on cherche l'article dans
+// les recettes de CONDITIONNEMENT (recettes_pf des produits finis, nature differente de "vrac"),
+// puis on prend le type (clarifiant, gel douche...) de chaque produit fini trouve.
+async function fetchTypesParArticlePlastique(articleIds: number[]): Promise<Map<number, string[]>> {
+  const resultat = new Map<number, string[]>();
+  if (articleIds.length === 0) return resultat;
+
+  // article plastique -> produits finis (recettes)
+  const produitsParArticle = new Map<number, Set<number>>();
+  const tailleLot = 50;
+  for (let i = 0; i < articleIds.length; i += tailleLot) {
+    const lot = articleIds.slice(i, i + tailleLot);
+    const taillePage = 1000;
+    for (let depart = 0; ; depart += taillePage) {
+      const { data, error } = await supabaseServer
+        .from("recettes_pf")
+        .select("id, article_pf_id, article_mp_id")
+        .in("article_mp_id", lot)
+        .order("id", { ascending: true })
+        .range(depart, depart + taillePage - 1);
+      if (error) return resultat;
+      const page = (data ?? []) as { id: number; article_pf_id: number; article_mp_id: number }[];
+      for (const ligne of page) {
+        const set = produitsParArticle.get(ligne.article_mp_id) ?? new Set<number>();
+        set.add(ligne.article_pf_id);
+        produitsParArticle.set(ligne.article_mp_id, set);
+      }
+      if (page.length < taillePage) break;
+    }
+  }
+
+  // produit fini -> type (seulement les produits finis : la recette de conditionnement)
+  const idsProduits = [...new Set([...produitsParArticle.values()].flatMap((s) => [...s]))];
+  const typeParProduit = new Map<number, string>();
+  for (let i = 0; i < idsProduits.length; i += 200) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nature, type_article")
+      .in("id", idsProduits.slice(i, i + 200));
+    if (error) return resultat;
+    for (const produit of (data ?? []) as { id: number; nature: string | null; type_article: string | null }[]) {
+      if (produit.nature === "vrac") continue;
+      const type = typeAffiche(produit.type_article ?? "");
+      if (type) typeParProduit.set(produit.id, type);
+    }
+  }
+
+  for (const [articleId, produits] of produitsParArticle) {
+    const types = [...new Set([...produits].map((id) => typeParProduit.get(id)).filter((t): t is string => !!t))];
+    types.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+    resultat.set(articleId, types);
+  }
+  return resultat;
+}
 
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
@@ -106,6 +170,9 @@ export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; erro
   if (detailResult.error) return { rows: [], error: detailResult.error.message };
 
   const detailById = new Map((detailResult.data as ArticleDetailRow[]).map((row) => [row.id, row]));
+  const typesParArticle = await fetchTypesParArticlePlastique(
+    stockResult.rows.filter((row) => row.categorie === CATEGORIE_PLASTIQUE).map((row) => row.article_id)
+  );
 
   const rows = stockResult.rows
     .filter((row) => row.categorie === CATEGORIE_PLASTIQUE)
@@ -116,6 +183,7 @@ export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; erro
         nom_article: row.nom_article,
         // Sous famille lue sur l'article (la fonction SQL ne la renvoie pas toujours)
         categorie: detail?.sous_famille ?? row.sous_famille ?? null,
+        types_produit: typesParArticle.get(row.article_id) ?? [],
         unite: row.unite,
         gamme: detail?.gamme ?? null,
         stock_actuel: Number(row.stock_actuel ?? 0),
@@ -181,6 +249,7 @@ export async function StatistiqueArticlePlastique({
     { label: "Article", key: "article" },
     { label: "Gamme", key: "gamme" },
     { label: "Sous famille", key: "categorie" },
+    { label: "Type", key: "type" },
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stock" },
     { label: "Stock min", key: "min" },
@@ -192,6 +261,7 @@ export async function StatistiqueArticlePlastique({
     article: row.nom_article,
     gamme: row.gamme || "-",
     categorie: displayCategorie(row.categorie),
+    type: row.types_produit.length > 0 ? row.types_produit.join(", ") : "-",
     unite: row.unite || "-",
     stock: row.stock_actuel,
     min: row.min_stock ?? "-",
@@ -254,6 +324,7 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">Article</th>
                   <th className="px-6 py-4 font-semibold">Gamme</th>
                   <th className="px-6 py-4 font-semibold">Sous famille</th>
+                  <th className="px-6 py-4 font-semibold">Type</th>
                   <th className="px-6 py-4 font-semibold">Unite</th>
                   <th className="px-6 py-4 font-semibold">Stock actuel</th>
                   <th className="px-6 py-4 font-semibold">Stock min</th>
@@ -282,6 +353,9 @@ export async function StatistiqueArticlePlastique({
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.gamme || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{displayCategorie(row.categorie)}</td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {row.types_produit.length > 0 ? row.types_produit.join(", ") : "-"}
+                      </td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4">
                         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
