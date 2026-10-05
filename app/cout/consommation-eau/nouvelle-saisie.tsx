@@ -151,8 +151,8 @@ export function NouvelleSaisie({
       <p className="mt-1 text-sm text-slate-600">
         Choisis la date, puis saisis ce qui a ete consomme ce jour-la sur la{" "}
         <span className="font-semibold">Ligne 1</span> et sur la <span className="font-semibold">Ligne 2</span>. Seuls
-        les elements renseignes sont enregistres. Le sel et le produit chlore ne se saisissent pas : ils viennent tout
-        seuls des mouvements MP (sorties du mois, divisees sur les 2 lignes). Si tu choisis une date d&apos;un autre mois, la page affiche ce
+        les elements renseignes sont enregistres. Le sel, le produit chlore et le sodium sulphite ne se saisissent pas :
+        ils viennent tout seuls des mouvements MP (sorties du mois, divisees sur les 2 lignes). Si tu choisis une date d&apos;un autre mois, la page affiche ce
         mois.
       </p>
 

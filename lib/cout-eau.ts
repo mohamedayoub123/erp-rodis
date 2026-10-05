@@ -46,7 +46,7 @@ export const LIGNES_PAR_DEFAUT: { cle: string; libelle: string }[] = [
   { cle: "test_chlore_b", libelle: "Produit test chlore B" },
   { cle: "test_chlore_c", libelle: "Produit test chlore C" },
   { cle: "chlore", libelle: "Produit chlore" },
-  { cle: "bisulfite", libelle: "METABISILFITE DE SOUDE" },
+  { cle: "bisulfite", libelle: "SODIUM SULPHITE ANHYDROUS" },
   { cle: "uv", libelle: "UV (lampe)" },
   { cle: "membrane", libelle: "Membrane" },
   { cle: "sel", libelle: "Sel" },

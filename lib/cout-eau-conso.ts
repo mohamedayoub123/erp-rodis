@@ -37,8 +37,9 @@ export const ELEMENTS_CONSO: { cle: string; libelle: string; unite: string; arti
   // Le chlore se compte en LITRES (prix par L) : la quantite des mouvements MP (article en kg,
   // des bidons de 50) est reprise telle quelle, sans conversion.
   { cle: "chlore", libelle: "Produit chlore", unite: "L", articleMp: "CHLORE AU 15%" },
-  // Saisi a la main (pas automatique) : meme nom que l'article MP.
-  { cle: "bisulfite", libelle: "METABISILFITE DE SOUDE", unite: "kg" },
+  // Produit realement utilise : SODIUM SULPHITE (et non le metabisulfite / bisulfite). La cle
+  // "bisulfite" est gardee pour conserver le prix deja saisi.
+  { cle: "bisulfite", libelle: "SODIUM SULPHITE ANHYDROUS", unite: "kg", articleMp: "SODIUM SULPHITE ANHYDROUS" },
   { cle: "uv", libelle: "UV (lampe)", unite: "pieces" },
   { cle: "membrane", libelle: "Membrane", unite: "pieces" },
   { cle: "sel", libelle: "Sel", unite: "kg", articleMp: "TABLETTE SEL HYPERPUR POUR ADOUCISSEUR" },

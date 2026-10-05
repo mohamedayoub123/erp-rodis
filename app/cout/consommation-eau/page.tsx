@@ -112,9 +112,10 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
                 La consommation du traitement de l&apos;eau (filtres, produits, UV, membrane, sel) se saisit avec sa
                 date, pour la Ligne 1 et la Ligne 2 ; choisis un mois ou une date pour voir ce mois. Les prix se
                 saisissent dans &laquo; Prix des consommables &raquo; ; le cout d&apos;un litre d&apos;eau est dans
-                &laquo; Prix 1 litre &raquo;. Le sel et le produit chlore ne se saisissent pas : ils viennent tout
-                seuls des mouvements MP du mois (sorties de &laquo; TABLETTE SEL HYPERPUR POUR ADOUCISSEUR &raquo; et de
-                &laquo; CHLORE AU 15% &raquo;), la quantite etant divisee a parts egales sur la Ligne 1 et la Ligne 2.
+                &laquo; Prix 1 litre &raquo;. Le sel, le produit chlore et le sodium sulphite ne se saisissent pas :
+                ils viennent tout seuls des mouvements MP du mois (sorties de &laquo; TABLETTE SEL HYPERPUR POUR
+                ADOUCISSEUR &raquo;, de &laquo; CHLORE AU 15% &raquo; et de &laquo; SODIUM SULPHITE ANHYDROUS &raquo;), la
+                quantite etant divisee a parts egales sur la Ligne 1 et la Ligne 2.
               </p>
             </div>
 
