@@ -9,6 +9,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import {
   computeProduitParCode,
   fetchAllCartonEntries,
+  fetchAllCodeTermineRows,
   fetchAllEmballageEntries,
   fetchAllProgrammeLignes,
   fetchAllVracEntries,
@@ -399,6 +400,9 @@ async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracCommande:
 
   const articleFactors = await fetchArticleKgFactorsByIds(lignes.map((ligne) => ligne.article_id));
   const poidsReelByKey = await fetchPoidsReelByLigneCode(lignes.map((ligne) => ligne.id));
+  // Codes marques "Fin programme" a la main (meme source que le Rapport Balance Matiere)
+  const codeTermineRows = await fetchAllCodeTermineRows(lignes.map((ligne) => ligne.id));
+  const terminatedCodes = new Set(codeTermineRows.map((row) => `${row.programme_ligne_id}::${row.code}::${row.stage}`));
 
   function sumEntries(entries: { quantite: number }[]) {
     return entries.reduce((sum, entry) => sum + Number(entry.quantite), 0);
@@ -551,14 +555,41 @@ async function fetchBalanceMatiereMonthly(): Promise<Map<string, { vracCommande:
   }
 
   const byMonth = new Map<string, { vracCommande: number; cartonFabriqueKg: number }>();
-  for (const base of baseByKey.values()) {
+  // Memes lignes, dans le meme ordre et avec les memes repetitions que le Rapport Balance Matiere
+  // (un code liste 2 fois dans numero_lot donne 2 lignes dans le rapport) : le total du mois est
+  // ainsi exactement celui des KPI du rapport.
+  const basesDuRapport = lignesWithLot.flatMap((ligne) =>
+    ligneOwnCodes(ligne).flatMap((code) => {
+      const base = baseByKey.get(`${ligne.id}::${code}`);
+      return base ? [base] : [];
+    })
+  );
+  for (const base of basesDuRapport) {
     const mois = (base.ligne.date_jour || "").slice(0, 7);
     if (mois.length !== 7) continue;
 
-    // Compte le vrac/carton REELLEMENT sorti, meme si le code n'est pas
-    // encore marque Termine - demande explicite (meme raison que
-    // fetchCartonMonthly ci-dessus).
     if (base.vracDemande <= 0 && base.vracFabrique <= 0 && base.cartonFabrique <= 0) continue;
+
+    // Uniquement les codes dont le vrac, le carton ET l'emballage sont termines (naturellement
+    // ou via "Fin programme") - EXACTEMENT comme les KPI du Rapport Balance Matiere. Avec les
+    // codes pas finis, le vrac commande etait compte sans que le carton ait ete tire, ce qui
+    // donnait un ecart de plusieurs % (ex. 6,1 % au lieu de 0,22 % en septembre 2026).
+    const { ligne, code, vracDemande, vracFabrique, cartonDemande, cartonFabrique, cartonEmballe } = base;
+    const vracOk =
+      Boolean(ligne.programme_termine || ligne.vrac_termine || terminatedCodes.has(`${ligne.id}::${code}::vrac`)) ||
+      vracDemande <= 0 ||
+      vracFabrique >= vracDemande;
+    const cartonOk =
+      Boolean(ligne.programme_termine || ligne.carton_termine || terminatedCodes.has(`${ligne.id}::${code}::carton`)) ||
+      cartonDemande <= 0 ||
+      cartonFabrique >= cartonDemande;
+    const emballageOk =
+      Boolean(
+        ligne.programme_termine || ligne.emballage_termine || terminatedCodes.has(`${ligne.id}::${code}::emballage`)
+      ) ||
+      cartonDemande <= 0 ||
+      (cartonFabrique > 0 && cartonEmballe >= cartonFabrique);
+    if (!(vracOk && cartonOk && emballageOk)) continue;
 
     const factor = base.ligne.article_id ? articleFactors.get(base.ligne.article_id) : undefined;
     const pieceParCarton = factor?.pieceParCarton ?? null;
@@ -1115,8 +1146,9 @@ export default async function Pr4Page() {
       const pctProgramme = carton.commande > 0 ? (carton.fabrique / carton.commande) * 100 : null;
       const pctADetruire = testLabo.total > 0 ? (testLabo.aDetruire / testLabo.total) * 100 : null;
       const pctSousDerogation = testLabo.total > 0 ? (testLabo.sousDerogation / testLabo.total) * 100 : null;
+      // Ecart en % du vrac commande : + quand le carton tire (en kg) depasse le vrac commande
       const pctEcart =
-        balance.vracCommande > 0 ? ((balance.vracCommande - balance.cartonFabriqueKg) / balance.vracCommande) * 100 : null;
+        balance.vracCommande > 0 ? ((balance.cartonFabriqueKg - balance.vracCommande) / balance.vracCommande) * 100 : null;
       const pctArret = arret.travail > 0 ? (arret.arret / arret.travail) * 100 : null;
       const pctDechets = dechets.pieces + dechets.dechet > 0 ? (dechets.dechet / (dechets.pieces + dechets.dechet)) * 100 : null;
 
@@ -1173,7 +1205,8 @@ export default async function Pr4Page() {
         cartonFabriqueKgBalance: balance.cartonFabriqueKg,
         cartonFabriqueKgLabel: fmt(balance.cartonFabriqueKg),
         pctEcart,
-        pctEcartLabel: fmtPct(pctEcart),
+        // Balance matiere : 2 decimales et signe (+ = carton tire superieur au vrac commande)
+        pctEcartLabel: pctEcart !== null && pctEcart > 0 ? `+${fmtPct(pctEcart, 2)}` : fmtPct(pctEcart, 2),
         arretMinutes: arret.arret,
         travailMinutes: arret.travail,
         pctArret,
@@ -1360,7 +1393,7 @@ export default async function Pr4Page() {
       subRows: [
         { label: "Totale vrac commande (kg)", getValue: (r) => r.vracFabriqueKgLabel },
         { label: "Carton fabrique converti (kg)", getValue: (r) => r.cartonFabriqueKgLabel },
-        { label: "% de perte", getValue: (r) => r.pctEcartLabel },
+        { label: "% d'ecart (tire - commande)", getValue: (r) => r.pctEcartLabel },
       ],
     },
     {
