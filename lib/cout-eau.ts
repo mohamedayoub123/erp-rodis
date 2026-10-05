@@ -38,7 +38,9 @@ export const LIGNES_PAR_DEFAUT: { cle: string; libelle: string }[] = [
   { cle: "filtre_10", libelle: "Filtre 10 micron" },
   { cle: "filtre_5", libelle: "Filtre 5 micron" },
   { cle: "filtre_1", libelle: "Filtre 1 micron" },
-  { cle: "test_th", libelle: "Produit test TH (durete)" },
+  { cle: "th_a", libelle: "Produit TH A" },
+  { cle: "th_b", libelle: "Produit TH B" },
+  { cle: "th_c", libelle: "Produit TH C" },
   { cle: "test_chlore", libelle: "Produit test chlore" },
   { cle: "chlore", libelle: "Produit chlore" },
   { cle: "bisulfite", libelle: "Produit bisulfite" },
@@ -48,6 +50,10 @@ export const LIGNES_PAR_DEFAUT: { cle: string; libelle: string }[] = [
 ];
 
 export const MAX_LIGNES = 40;
+
+// Lignes supprimees de la liste (remplacees) : un prix deja enregistre sous cette
+// cle n'est plus affiche.
+const CLES_RETIREES = new Set(["test_th"]);
 
 function nombreValide(value: unknown): number | null {
   const n = typeof value === "string" ? Number(value.replace(",", ".").trim()) : Number(value);
@@ -84,7 +90,7 @@ export function normaliserConfig(brute: unknown): ConfigCoutEau {
   const clesDefaut = new Set(LIGNES_PAR_DEFAUT.map((l) => l.cle));
   for (const ligne of lignesSource) {
     const l = ligne as Partial<LigneCoutEau> | null;
-    if (!l || typeof l.cle !== "string" || clesDefaut.has(l.cle) || lignes.length >= MAX_LIGNES) continue;
+    if (!l || typeof l.cle !== "string" || clesDefaut.has(l.cle) || CLES_RETIREES.has(l.cle) || lignes.length >= MAX_LIGNES) continue;
     lignes.push({
       cle: l.cle.slice(0, 40),
       libelle: texteNettoye(l.libelle, 80),
