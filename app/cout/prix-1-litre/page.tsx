@@ -6,6 +6,7 @@ import { moisValide } from "@/lib/cout-eau";
 import { CoutDuLitre } from "../_components/cout-du-litre";
 import { EauAutomatique } from "../_components/eau-automatique";
 import { SelecteurMois } from "../_components/selecteur-mois";
+import { TotauxDuMois } from "../_components/totaux-du-mois";
 import { lireCoutDuLitre } from "../consommation-eau/data";
 
 type SearchParams = Promise<{ annee?: string; mois?: string }>;
@@ -104,6 +105,8 @@ export default async function PrixUnLitrePage({ searchParams }: { searchParams: 
           electriciteIncomplete={cout.electriciteIncomplete}
           coutLitre={cout.coutLitre}
         />
+
+        <TotauxDuMois annee={choisi.annee} mois={choisi.mois} totaux={cout.totaux} sourcePrix={cout.sourcePrix} />
 
         <EauAutomatique
           annee={choisi.annee}

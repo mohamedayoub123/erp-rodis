@@ -15,7 +15,7 @@ import { SelecteurMois } from "../_components/selecteur-mois";
 import { lireMoisAvecSaisies, lirePrixDuMois, lireSaisiesDuMois } from "./data";
 import { NouvelleSaisie } from "./nouvelle-saisie";
 import { SaisiesDuMois } from "./saisies-du-mois";
-import { TotauxDuMois } from "./totaux-du-mois";
+import { TotauxDuMois } from "../_components/totaux-du-mois";
 
 // ?annee=&mois= choisit le mois ; ?date=AAAA-MM-JJ choisit directement le mois
 // de cette date (et la propose dans "Nouvelle saisie").

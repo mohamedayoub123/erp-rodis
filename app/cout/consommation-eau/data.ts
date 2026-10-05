@@ -18,6 +18,7 @@ import {
   totauxDuMois,
   type LignePrixElement,
   type SaisieConsoEau,
+  type TotalElementAvecPrix,
 } from "@/lib/cout-eau-conso";
 
 // Quantites du mois : EXACTEMENT celles du Rapport Test labo (memes preparations,
@@ -233,6 +234,10 @@ export type CoutDuLitreDuMois = {
   parametres: ParametresElectricite;
   litres: number | null;
   coutConsommables: number;
+  // Total du mois par element, avec prix d'une unite et cout (tableau des consommables)
+  totaux: TotalElementAvecPrix[];
+  // D'ou viennent les prix : "ce mois", "repris de ..." ou null (aucun prix saisi)
+  sourcePrix: string | null;
   // Nombre d'elements consommes saisis ce mois-la (0 = aucune consommation saisie)
   nombreConsommables: number;
   consommablesSansPrix: number;
@@ -278,6 +283,8 @@ export async function lireCoutDuLitre(annee: number, mois: number): Promise<Cout
     parametres,
     litres,
     coutConsommables,
+    totaux,
+    sourcePrix: prix.source,
     nombreConsommables: totaux.length,
     consommablesSansPrix,
     coutElectricite,
