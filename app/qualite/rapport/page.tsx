@@ -7,7 +7,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { formatDate } from "../../production/suivi/data";
 import { formatDateTime } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
-import { TestLaboPieChart } from "./test-labo-pie-chart";
+import { RepartitionPieChart, TestLaboPieChart, type PieSlice } from "./test-labo-pie-chart";
 import { TestLaboLineChart } from "./test-labo-line-chart";
 
 type RapportRow = {
@@ -346,6 +346,46 @@ export default async function QualiteRapportPage({
   }
   const typeBreakdown = [...countByType.entries()].sort((a, b) => b[1] - a[1]);
 
+  // Combien de preparations par TYPE d'article (gel douche, clarifiant,
+  // hydratant...) - meme filtre que le reste de la page. La couleur d'un type
+  // suit sa place dans l'ordre alphabetique de TOUS les types (pas son rang
+  // dans le filtre) : elle ne change pas quand on filtre.
+  const COULEURS_TYPES = [
+    "#2563eb",
+    "#b45309",
+    "#059669",
+    "#a21caf",
+    "#0e7490",
+    "#dc2626",
+    "#4d7c0f",
+    "#6d28d9",
+    "#be123c",
+    "#0f766e",
+    "#c2410c",
+    "#4338ca",
+  ];
+  const couleurParType = new Map(
+    typeArticleOptions.map((option, index) => [option.label, COULEURS_TYPES[index] ?? "#64748b"])
+  );
+  const statsParType = new Map<string, { total: number; nonConforme: number }>();
+  for (const row of rows) {
+    const label = row.typeArticleLabel === "-" ? "Sans type" : row.typeArticleLabel;
+    const stats = statsParType.get(label) ?? { total: 0, nonConforme: 0 };
+    stats.total += 1;
+    if (decisionLabel(row) !== "-") stats.nonConforme += 1;
+    statsParType.set(label, stats);
+  }
+  const typeStats = [...statsParType.entries()]
+    .map(([label, stats]) => ({
+      label,
+      total: stats.total,
+      nonConforme: stats.nonConforme,
+      conforme: stats.total - stats.nonConforme,
+      color: couleurParType.get(label) ?? "#475569",
+    }))
+    .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, "fr"));
+  const typeSlices: PieSlice[] = typeStats.map((t) => ({ label: t.label, value: t.total, color: t.color }));
+
   // Evolution par mois (graphique multi-courbes) - meme filtre que le reste
   // de la page, triee chronologiquement (le plus ancien a gauche). 5
   // series : total, sous derogation, a detruire (statut qualite) + auto,
@@ -572,6 +612,62 @@ export default async function QualiteRapportPage({
           </div>
           <div className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <TestLaboLineChart months={monthLabels} series={lineChartSeries} />
+          </div>
+        </section>
+
+        {/* Combien de gel douche, de clarifiant... : camembert + tableau par type */}
+        <section className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <RepartitionPieChart
+              title="Preparations par type (gel douche, clarifiant...)"
+              slices={typeSlices}
+              emptyText="Aucune preparation pour ce filtre."
+              ariaLabel="Preparations par type"
+            />
+          </div>
+          <div className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+            <h2 className="mb-4 text-lg font-bold text-slate-900">On a fait combien, par type</h2>
+            {typeStats.length === 0 ? (
+              <p className="text-sm text-slate-500">Aucune preparation pour ce filtre.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-slate-950">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Type</th>
+                      <th className="px-4 py-3 text-right font-semibold">Preparations</th>
+                      <th className="px-4 py-3 text-right font-semibold">Conforme</th>
+                      <th className="px-4 py-3 text-right font-semibold">Non conforme</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {typeStats.map((t) => (
+                      <tr key={t.label} className="border-t border-slate-100">
+                        <td className="px-4 py-3 font-medium text-slate-900">
+                          <span
+                            className="mr-2 inline-block h-3 w-3 rounded-full align-middle"
+                            style={{ backgroundColor: t.color }}
+                            aria-hidden="true"
+                          />
+                          {t.label}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold text-slate-900">{t.total}</td>
+                        <td className="px-4 py-3 text-right text-emerald-700">{t.conforme}</td>
+                        <td className="px-4 py-3 text-right text-amber-700">{t.nonConforme}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-slate-200 bg-slate-50 font-bold text-slate-900">
+                      <td className="px-4 py-3">Total</td>
+                      <td className="px-4 py-3 text-right">{total}</td>
+                      <td className="px-4 py-3 text-right text-emerald-700">{conforme}</td>
+                      <td className="px-4 py-3 text-right text-amber-700">{nonConforme}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
           </div>
         </section>
 

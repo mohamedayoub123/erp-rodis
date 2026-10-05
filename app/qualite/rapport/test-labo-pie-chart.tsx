@@ -2,7 +2,7 @@
 
 import { useId } from "react";
 
-type Slice = { label: string; value: number; color: string };
+export type PieSlice = { label: string; value: number; color: string };
 
 const RADIUS = 90;
 const CENTER = 100;
@@ -27,34 +27,29 @@ function arcPath(startDeg: number, endDeg: number) {
 // porte jamais l'identite (contrainte accessibilite : WARN de contraste sur
 // le vert, compense par ces etiquettes visibles). Toujours affiche (pas de
 // repli/toggle) - sur demande explicite, doit rester grand et visible.
-export function TestLaboPieChart({
-  conforme,
-  aDetruire,
-  sousDerogation,
-  aRecuperer,
+export function RepartitionPieChart({
+  title,
+  slices: toutesLesParts,
+  emptyText,
+  ariaLabel,
 }: {
-  conforme: number;
-  aDetruire: number;
-  sousDerogation: number;
-  aRecuperer: number;
+  title: string;
+  slices: PieSlice[];
+  emptyText: string;
+  ariaLabel: string;
 }) {
   const gradientId = useId();
-  const total = conforme + aDetruire + sousDerogation + aRecuperer;
+  const slices = toutesLesParts.filter((slice) => slice.value > 0);
+  const total = slices.reduce((somme, slice) => somme + slice.value, 0);
 
-  const slices: Slice[] = [
-    { label: "Conforme", value: conforme, color: "#059669" },
-    { label: "A detruire", value: aDetruire, color: "#dc2626" },
-    { label: "Sous derogation", value: sousDerogation, color: "#c026d3" },
-    { label: "A recuperer", value: aRecuperer, color: "#ea580c" },
-  ].filter((slice) => slice.value > 0);
-
-  let cursor = 0;
-  const arcs = slices.map((slice) => {
+  const arcs = slices.map((slice, index) => {
     const fraction = total > 0 ? slice.value / total : 0;
     const sweep = fraction * 360;
+    // Angle de depart = somme des parts precedentes (pas de variable modifiee
+    // pendant le rendu)
+    const cursor = total > 0 ? (slices.slice(0, index).reduce((somme, part) => somme + part.value, 0) / total) * 360 : 0;
     const start = cursor + GAP_DEG / 2;
     const end = cursor + sweep - GAP_DEG / 2;
-    cursor += sweep;
     const midAngle = (start + end) / 2;
     const labelPos = polarToCartesian(midAngle);
     const labelInner = {
@@ -64,25 +59,27 @@ export function TestLaboPieChart({
     return {
       ...slice,
       fraction,
-      path: end > start ? arcPath(start, end) : null,
+      // Un camembert d'une seule part est un disque entier (un arc de 360 deg ne
+      // se dessine pas avec un chemin A)
+      path: fraction >= 0.9999 ? null : end > start ? arcPath(start, end) : null,
       labelInner,
     };
   });
 
   return (
     <div className="flex h-full flex-col">
-      <h2 className="mb-4 text-lg font-bold text-slate-900">Repartition qualite (camembert)</h2>
+      <h2 className="mb-4 text-lg font-bold text-slate-900">{title}</h2>
 
       <div className="flex flex-1 flex-col items-center justify-center gap-8 sm:flex-row">
         {total === 0 ? (
-          <p className="text-sm text-slate-500">Aucune preparation pour ce filtre.</p>
+          <p className="text-sm text-slate-500">{emptyText}</p>
         ) : (
           <>
             <svg
               viewBox="0 0 200 200"
               className="h-72 w-72 shrink-0 sm:h-80 sm:w-80"
               role="img"
-              aria-label={`Repartition qualite : ${arcs.map((a) => `${a.label} ${Math.round(a.fraction * 100)}%`).join(", ")}`}
+              aria-label={`${ariaLabel} : ${arcs.map((a) => `${a.label} ${Math.round(a.fraction * 100)}%`).join(", ")}`}
             >
               <defs>
                 <filter id={gradientId}>
@@ -92,6 +89,8 @@ export function TestLaboPieChart({
               {arcs.map((arc) =>
                 arc.path ? (
                   <path key={arc.label} d={arc.path} fill={arc.color} filter={`url(#${gradientId})`} />
+                ) : arc.fraction >= 0.9999 ? (
+                  <circle key={arc.label} cx={CENTER} cy={CENTER} r={RADIUS} fill={arc.color} filter={`url(#${gradientId})`} />
                 ) : null
               )}
               {arcs
@@ -99,8 +98,8 @@ export function TestLaboPieChart({
                 .map((arc) => (
                   <text
                     key={`${arc.label}-label`}
-                    x={arc.labelInner.x}
-                    y={arc.labelInner.y}
+                    x={arc.fraction >= 0.9999 ? CENTER : arc.labelInner.x}
+                    y={arc.fraction >= 0.9999 ? CENTER : arc.labelInner.y}
                     textAnchor="middle"
                     dominantBaseline="middle"
                     className="fill-white text-[13px] font-bold"
@@ -129,5 +128,34 @@ export function TestLaboPieChart({
         )}
       </div>
     </div>
+  );
+}
+
+// Repartition qualite (conforme / a detruire / sous derogation / a recuperer).
+export function TestLaboPieChart({
+  conforme,
+  aDetruire,
+  sousDerogation,
+  aRecuperer,
+}: {
+  conforme: number;
+  aDetruire: number;
+  sousDerogation: number;
+  aRecuperer: number;
+}) {
+  const slices: PieSlice[] = [
+    { label: "Conforme", value: conforme, color: "#059669" },
+    { label: "A detruire", value: aDetruire, color: "#dc2626" },
+    { label: "Sous derogation", value: sousDerogation, color: "#c026d3" },
+    { label: "A recuperer", value: aRecuperer, color: "#ea580c" },
+  ];
+
+  return (
+    <RepartitionPieChart
+      title="Repartition qualite (camembert)"
+      slices={slices}
+      emptyText="Aucune preparation pour ce filtre."
+      ariaLabel="Repartition qualite"
+    />
   );
 }
