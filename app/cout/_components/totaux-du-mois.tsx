@@ -1,5 +1,4 @@
 import {
-  AUTEUR_CONSO_AUTO,
   formaterFcfa,
   formaterQuantite,
   unitesCompatibles,
@@ -25,7 +24,7 @@ export function TotauxDuMois({
   const sansPrix = totaux.filter((t) => t.prix === null).length;
 
   return (
-    <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+    <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)] print:break-inside-avoid print:overflow-visible">
       <div className="border-b border-slate-100 px-5 py-4">
         <h2 className="text-lg font-bold text-slate-900">Consommation de {libelleMois(annee, mois)}</h2>
         <p className="mt-1 text-sm text-slate-600">
@@ -86,7 +85,9 @@ export function TotauxDuMois({
                   <td className="px-5 py-3 text-slate-600">
                     {t.auto ? (
                       <>
-                        <span className="font-semibold text-slate-800">{AUTEUR_CONSO_AUTO}</span>
+                        {t.par && t.par.length > 0 ? (
+                          <span className="font-semibold text-slate-800">{t.par.join(", ")}</span>
+                        ) : null}
                         <span className="block text-xs text-slate-500">mouvements MP ({t.nombre})</span>
                       </>
                     ) : t.par && t.par.length > 0 ? (

@@ -291,13 +291,13 @@ export async function lireConsoAutoMp(
   }
   const ids = [...articleParCle.values()].map((a) => a.id);
 
-  const sorties = new Map<number, { quantite: number; nombre: number }>();
+  const sorties = new Map<number, { quantite: number; nombre: number; par: Set<string> }>();
   if (ids.length > 0) {
     const taillePage = 1000;
     for (let depart = 0; ; depart += taillePage) {
       const { data, error } = await supabaseServer
         .from("lots_stock_matiere_premiere")
-        .select("id, article_id, qte_sortie")
+        .select("id, article_id, qte_sortie, utilisateur")
         .in("article_id", ids)
         .gt("qte_sortie", 0)
         .gte("date_jour", premierDuMois(annee, mois))
@@ -305,11 +305,17 @@ export async function lireConsoAutoMp(
         .order("id", { ascending: true })
         .range(depart, depart + taillePage - 1);
       if (error) return { elements: [], erreur: error.message };
-      const page = (data ?? []) as { id: number; article_id: number; qte_sortie: number | null }[];
+      const page = (data ?? []) as {
+        id: number;
+        article_id: number;
+        qte_sortie: number | null;
+        utilisateur: string | null;
+      }[];
       for (const m of page) {
-        const cumul = sorties.get(m.article_id) ?? { quantite: 0, nombre: 0 };
+        const cumul = sorties.get(m.article_id) ?? { quantite: 0, nombre: 0, par: new Set<string>() };
         cumul.quantite += Number(m.qte_sortie ?? 0);
         cumul.nombre += 1;
+        if (m.utilisateur && m.utilisateur.trim()) cumul.par.add(m.utilisateur.trim());
         sorties.set(m.article_id, cumul);
       }
       if (page.length < taillePage) break;
@@ -329,6 +335,7 @@ export async function lireConsoAutoMp(
         quantite: cumul?.quantite ?? 0,
         nombre: cumul?.nombre ?? 0,
         articleMp: e.articleMp,
+        par: [...(cumul?.par ?? [])].sort((a, b) => a.localeCompare(b, "fr")),
       };
     }),
     erreur: manquants.length > 0 ? `Article MP introuvable : ${manquants.join(", ")}` : null,
