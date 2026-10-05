@@ -102,7 +102,7 @@ export function CoutDuLitre({
         <span className="font-semibold text-slate-800">{formaterFcfa(pourcentage, 2)} %</span>
         {pourcentageSource ? ` (${pourcentageSource})` : ""}.{" "}
         {lienPourcentage ? (
-          <Link href={lienPourcentage} className="font-semibold text-sky-700 underline">
+          <Link href={lienPourcentage} className="no-print font-semibold text-sky-700 underline">
             Modifier le pourcentage
           </Link>
         ) : null}

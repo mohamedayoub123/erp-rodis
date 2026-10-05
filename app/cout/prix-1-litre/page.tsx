@@ -2,7 +2,8 @@ import { unstable_noStore as noStore } from "next/cache";
 import { canViewPageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { moisValide } from "@/lib/cout-eau";
+import { SimplePrintButton } from "@/app/_components/simple-print-button";
+import { libelleMois, moisValide } from "@/lib/cout-eau";
 import { CoutDuLitre } from "../_components/cout-du-litre";
 import { EauAutomatique } from "../_components/eau-automatique";
 import { SelecteurMois } from "../_components/selecteur-mois";
@@ -16,6 +17,13 @@ type SearchParams = Promise<{ annee?: string; mois?: string }>;
 function moisCourant() {
   const maintenant = new Date();
   return { annee: maintenant.getFullYear(), mois: maintenant.getMonth() + 1 };
+}
+
+// Date du jour (jj-mm-aaaa) pour l'en-tete du PDF. Hors du rendu : la regle de lint
+// "rendu pur" refuse new Date() en direct dans le composant.
+function dateDuJour() {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
 }
 
 // Eau - Prix 1 litre : on choisit le mois, la page donne le cout d'un litre d'eau =
@@ -66,14 +74,20 @@ export default async function PrixUnLitrePage({ searchParams }: { searchParams: 
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Eau - Prix 1 litre</h1>
-              <p className="mt-2 text-sm text-slate-600">
+              {/* En-tete du PDF (visible seulement a l'impression) */}
+              <p className="print-only mt-1 text-sm font-semibold text-slate-700">
+                {libelleMois(choisi.annee, choisi.mois)} - edite le {dateDuJour()}
+                {currentUser ? ` par ${currentUser}` : ""}
+              </p>
+              <p className="no-print mt-2 text-sm text-slate-600">
                 Choisis le mois : le cout d&apos;un litre d&apos;eau s&apos;affiche tout seul. Cout total des
                 consommables (saisis dans &laquo; Consommation par mois &raquo;) + cout de l&apos;electricite, divise
                 par les litres d&apos;eau du mois.
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="no-print flex items-center gap-3">
+              <SimplePrintButton label="Exporter en PDF" />
               <BackButton href="/cout/eau" label="Retour Eau" />
               <RefreshButton />
             </div>
@@ -86,16 +100,18 @@ export default async function PrixUnLitrePage({ searchParams }: { searchParams: 
           </p>
         ) : null}
 
-        <SelecteurMois
-          annee={choisi.annee}
-          mois={choisi.mois}
-          annees={annees}
-          basePath="/cout/prix-1-litre"
-          dejaEnregistre={null}
-          repris={null}
-          texteRepris=""
-          statut="Choisis le mois et l'annee : le resultat change tout seul."
-        />
+        <div className="no-print">
+          <SelecteurMois
+            annee={choisi.annee}
+            mois={choisi.mois}
+            annees={annees}
+            basePath="/cout/prix-1-litre"
+            dejaEnregistre={null}
+            repris={null}
+            texteRepris=""
+            statut="Choisis le mois et l'annee : le resultat change tout seul."
+          />
+        </div>
 
         <CoutDuLitre
           annee={choisi.annee}
