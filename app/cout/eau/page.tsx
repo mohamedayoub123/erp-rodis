@@ -4,59 +4,47 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { getCurrentStockUser, getPageViewMap } from "@/lib/stock-auth";
 
+// Page "Eau" : regroupe les deux pages du traitement de l'eau. Chaque tuile
+// n'apparait que si l'utilisateur a le droit de voir la page correspondante.
 const TILES = [
   {
-    label: "Charges mensuelles",
-    href: "/charges",
-    pageKey: "chargesHub",
-    icon: "\u{1F4B0}",
-    description: "Consommations et depenses saisies chaque mois (electricite, gaz, gasoil, essence, salaires).",
-  },
-  {
-    label: "Cout Reel (piece/gramme)",
-    href: "/production/rapport/cout-reel",
-    pageKey: "productionRapportCoutReel",
-    icon: "\u{1F4C8}",
-    description:
-      "Par article : cout reel (vrac/conditionnement, electricite machine, journaliers) sur une periode.",
-  },
-  {
-    label: "Eau",
-    href: "/cout/eau",
-    // visible des qu'une des deux pages Eau est ouverte pour l'utilisateur
-    anyOfPageKeys: ["coutEau", "coutEauConso"],
+    label: "Prix des consommables",
+    href: "/cout/prix-litre-eau",
+    pageKey: "coutEau",
     icon: "\u{1F4A7}",
-    description: "Prix des consommables (filtres, produits, UV, membrane, sel...) et consommation de chaque mois.",
+    description:
+      "Prix d'une unite de chaque consommable (filtres 10/5/1 micron, produits test, chlore, bisulfite, UV, membrane, sel, electricite), enregistres mois par mois.",
+  },
+  {
+    label: "Consommation par mois",
+    href: "/cout/consommation-eau",
+    pageKey: "coutEauConso",
+    icon: "\u{1F9EA}",
+    description: "Ce qui a ete consomme chaque mois sur la Ligne 1 et la Ligne 2.",
   },
 ] as const;
 
-export default async function CoutHubPage() {
+export default async function EauHubPage() {
   noStore();
   const currentUser = await getCurrentStockUser();
   const pageViewMap = await getPageViewMap(currentUser);
-  const visibleTiles = TILES.filter((tile) =>
-    "anyOfPageKeys" in tile
-      ? tile.anyOfPageKeys.some((key) => pageViewMap[key] ?? false)
-      : (pageViewMap[tile.pageKey] ?? false)
-  );
+  const visibleTiles = TILES.filter((tile) => pageViewMap[tile.pageKey] ?? false);
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
+    <main className="min-h-screen bg-[linear-gradient(180deg,#eaf6fb_0%,#f5fbfd_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-700">
-                ERP Rodis
-              </p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Cout</h1>
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Eau</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Charges mensuelles de l&apos;usine et cout reel par article, au meme endroit.
+                Traitement de l&apos;eau : les prix des consommables et la consommation de chaque mois.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
-              <BackButton href="/" label="Retour accueil" />
+              <BackButton href="/cout" label="Retour Cout" />
               <RefreshButton />
             </div>
           </div>

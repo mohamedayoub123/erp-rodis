@@ -1,8 +1,9 @@
 // Consommation d'eau (traitement) saisie PAR MOIS et PAR LIGNE de production
 // (Ligne 1 et Ligne 2) : quantite consommee de chaque element dans le mois
-// (filtres changes, produits utilises, sel, electricite en kWh...) et eau
-// produite. Pour l'instant on saisit seulement les quantites ; le calcul du
-// prix du litre viendra ensuite (prix du module "Eau - Prix" x consommation du
+// (filtres changes, produits utilises, sel, electricite en kWh...). L'eau
+// produite du mois n'est PAS saisie : elle est calculee automatiquement a
+// partir du vrac fabrique (voir lib/cout-eau-fabrication.ts). Le calcul du prix
+// du litre viendra ensuite (prix du module "Eau - Prix" x consommation du
 // mois).
 
 export type LigneConsoEau = {
@@ -32,7 +33,6 @@ export const LIGNES_CONSO_PAR_DEFAUT: { cle: string; libelle: string; unite: str
   { cle: "membrane", libelle: "Membrane", unite: "pieces" },
   { cle: "sel", libelle: "Sel", unite: "kg" },
   { cle: "electricite", libelle: "Electricite (consommation du mois)", unite: "kWh" },
-  { cle: "eau_produite", libelle: "Eau produite dans le mois", unite: "L" },
 ];
 
 export const MAX_LIGNES_CONSO = 40;
@@ -71,6 +71,8 @@ export function normaliserConsoEau(brute: unknown): ConfigConsoEau {
   });
 
   const clesDefaut = new Set(LIGNES_CONSO_PAR_DEFAUT.map((l) => l.cle));
+  // Ancienne ligne manuelle "eau produite" : remplacee par le calcul automatique.
+  clesDefaut.add("eau_produite");
   for (const ligne of lignesSource) {
     const l = ligne as Partial<LigneConsoEau> | null;
     if (!l || typeof l.cle !== "string" || clesDefaut.has(l.cle) || lignes.length >= MAX_LIGNES_CONSO) continue;

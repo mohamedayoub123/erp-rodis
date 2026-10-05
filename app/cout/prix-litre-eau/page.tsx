@@ -95,16 +95,16 @@ export default async function PrixLitreEauPage({ searchParams }: { searchParams:
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Eau - Prix</h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Eau - Prix des consommables</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Prix des elements du traitement de l&apos;eau (filtres, produits, UV, membrane, sel, electricite),
-                enregistres mois par mois. La consommation se saisit dans &laquo; Eau - Consommation par mois &raquo;
-                ; le calcul du prix du litre viendra ensuite.
+                Prix des consommables du traitement de l&apos;eau (filtres, produits, UV, membrane, sel, electricite),
+                enregistres mois par mois. La consommation se saisit dans &laquo; Consommation par mois &raquo; ; le
+                calcul du prix du litre viendra ensuite.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
-              <BackButton href="/cout" label="Retour Cout" />
+              <BackButton href="/cout/eau" label="Retour Eau" />
               <RefreshButton />
             </div>
           </div>

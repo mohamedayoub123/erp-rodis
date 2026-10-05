@@ -10,7 +10,9 @@ export type NavItem = {
   pageKey?: string;
   adminOnly?: boolean;
   matchPrefixes?: string[];
-  subLinks?: { href: string; label: string; pageKey?: string }[];
+  // anyOfPageKeys : lien visible des qu'UNE de ces pages est visible (ex: le
+  // groupe "Eau" regroupe deux pages avec chacune son droit)
+  subLinks?: { href: string; label: string; pageKey?: string; anyOfPageKeys?: string[] }[];
 };
 
 export const navItems: NavItem[] = [
@@ -196,8 +198,7 @@ export const navItems: NavItem[] = [
     subLinks: [
       { href: "/charges", label: "Charges mensuelles", pageKey: "chargesHub" },
       { href: "/production/rapport/cout-reel", label: "Cout Reel (piece/gramme)", pageKey: "productionRapportCoutReel" },
-      { href: "/cout/prix-litre-eau", label: "Eau - Prix", pageKey: "coutEau" },
-      { href: "/cout/consommation-eau", label: "Eau - Consommation", pageKey: "coutEauConso" },
+      { href: "/cout/eau", label: "Eau", anyOfPageKeys: ["coutEau", "coutEauConso"] },
     ],
   },
   {
@@ -236,5 +237,7 @@ export function isSectionVisible(pageKey: string, pageViewMap: Record<string, bo
   if (pageViewMap[pageKey]) return true;
 
   const item = navItems.find((navItem) => navItem.pageKey === pageKey);
-  return (item?.subLinks ?? []).some((link) => link.pageKey && pageViewMap[link.pageKey]);
+  return (item?.subLinks ?? []).some((link) =>
+    link.pageKey ? pageViewMap[link.pageKey] : link.anyOfPageKeys?.some((key) => pageViewMap[key])
+  );
 }

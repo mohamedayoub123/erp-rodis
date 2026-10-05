@@ -991,7 +991,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "coutEau",
     module: "ChargesUsine",
-    label: "Cout - Eau : Prix",
+    label: "Cout - Eau : Prix des consommables",
     pathPrefixes: ["/cout/prix-litre-eau"],
   },
   // 2e page "Eau" : consommation saisie chaque mois (Ligne 1 / Ligne 2). Aussi

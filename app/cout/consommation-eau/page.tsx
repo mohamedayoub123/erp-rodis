@@ -7,6 +7,8 @@ import { moisValide } from "@/lib/cout-eau";
 import { nombreDeQuantites, normaliserConsoEau } from "@/lib/cout-eau-conso";
 import { HistoriqueMois } from "../_components/historique-mois";
 import { ConsoEauForm } from "./conso-eau-form";
+import { lireEauDuMois } from "./data";
+import { EauAutomatique } from "./eau-automatique";
 
 type MoisEnregistre = {
   annee: number;
@@ -67,11 +69,14 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
     ? { annee: anneeDemandee, mois: moisDemande }
     : courant;
 
-  const { data, error } = await supabaseServer
-    .from("cout_eau_conso")
-    .select("annee, mois, donnees, updated_by, updated_at")
-    .order("annee", { ascending: false })
-    .order("mois", { ascending: false });
+  const [{ data, error }, eauDuMois] = await Promise.all([
+    supabaseServer
+      .from("cout_eau_conso")
+      .select("annee, mois, donnees, updated_by, updated_at")
+      .order("annee", { ascending: false })
+      .order("mois", { ascending: false }),
+    lireEauDuMois(choisi.annee, choisi.mois),
+  ]);
 
   const mois = (data ?? []) as MoisEnregistre[];
   const dejaEnregistre = mois.find((m) => m.annee === choisi.annee && m.mois === choisi.mois) ?? null;
@@ -95,13 +100,14 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
                 Eau - Consommation par mois
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Consommation du traitement de l&apos;eau (filtres, produits, UV, membrane, sel, electricite) saisie
-                chaque mois pour la Ligne 1 et la Ligne 2. Les prix se saisissent dans &laquo; Eau - Prix &raquo;.
+                L&apos;eau utilisee dans le mois vient toute seule de ce qui a ete fabrique (60 %). La consommation du
+                traitement de l&apos;eau (filtres, produits, UV, membrane, sel, electricite) se saisit chaque mois pour la
+                Ligne 1 et la Ligne 2. Les prix se saisissent dans &laquo; Prix des consommables &raquo;.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
-              <BackButton href="/cout" label="Retour Cout" />
+              <BackButton href="/cout/eau" label="Retour Eau" />
               <RefreshButton />
             </div>
           </div>
@@ -120,6 +126,9 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
           annee={choisi.annee}
           mois={choisi.mois}
           annees={annees}
+          panneauEau={
+            <EauAutomatique annee={choisi.annee} mois={choisi.mois} eau={eauDuMois.eau} erreur={eauDuMois.erreur} />
+          }
           canEdit={canEdit}
           canDelete={canDelete}
           dejaEnregistre={

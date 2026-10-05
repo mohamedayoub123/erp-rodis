@@ -40,7 +40,10 @@ export function GlobalNav({
       return bestMatch;
     }, null)?.item ?? visibleItems[0];
   const visibleSubLinks = (currentItem.subLinks ?? []).filter(
-    (link) => !link.pageKey || (pageViewMap[link.pageKey] ?? false)
+    (link) =>
+      link.anyOfPageKeys
+        ? link.anyOfPageKeys.some((key) => pageViewMap[key] ?? false)
+        : !link.pageKey || (pageViewMap[link.pageKey] ?? false)
   );
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur">
