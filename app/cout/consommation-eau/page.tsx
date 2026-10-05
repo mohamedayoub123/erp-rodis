@@ -184,6 +184,7 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
           basePath="/cout/consommation-eau"
           lignesPrix={prix.lignes}
           clesAuto={clesAuto}
+          autos={auto.elements}
         />
 
         <HistoriqueMois

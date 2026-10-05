@@ -10,6 +10,7 @@ import {
   formaterQuantite,
   prixDeElement,
   totalLigne1Ligne2,
+  type ConsoAutoMp,
   type LignePrixElement,
   type SaisieConsoEau,
 } from "@/lib/cout-eau-conso";
@@ -32,6 +33,7 @@ export function SaisiesDuMois({
   basePath,
   lignesPrix,
   clesAuto,
+  autos,
 }: {
   saisies: SaisieConsoEau[];
   annee: number;
@@ -42,6 +44,8 @@ export function SaisiesDuMois({
   lignesPrix: LignePrixElement[];
   // Elements calcules automatiquement (mouvements MP) : leurs saisies manuelles ne sont pas comptees
   clesAuto: string[];
+  // Consommation automatique du mois (mouvements MP) : Sel et Produit chlore
+  autos: ConsoAutoMp[];
 }) {
   const router = useRouter();
   const [enEdition, setEnEdition] = useState<number | null>(null);
@@ -126,7 +130,7 @@ export function SaisiesDuMois({
 
       {message ? <p className="px-5 pt-4 text-sm font-semibold text-red-600">{message}</p> : null}
 
-      {saisies.length === 0 ? (
+      {saisies.length === 0 && autos.length === 0 ? (
         <p className="px-5 py-6 text-sm text-slate-500">Aucune saisie pour ce mois.</p>
       ) : (
         <div className="overflow-x-auto">
@@ -146,6 +150,30 @@ export function SaisiesDuMois({
               </tr>
             </thead>
             <tbody>
+              {autos.map((a) => {
+                const prix = prixDeElement(lignesPrix, a)?.prix ?? null;
+                return (
+                  <tr key={`auto-${a.cle}`} className="border-t border-slate-100 bg-sky-50/50 align-middle">
+                    <td className="px-5 py-3 font-semibold text-slate-900">Tout le mois</td>
+                    <td className="px-5 py-3 font-medium text-slate-900">
+                      {a.libelle}
+                      <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">
+                        auto
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-slate-700">-</td>
+                    <td className="px-5 py-3 text-slate-700">-</td>
+                    <td className="px-5 py-3 text-slate-700">{a.unite || "-"}</td>
+                    <td className="px-5 py-3 text-right font-semibold text-sky-800">{formaterQuantite(a.quantite)}</td>
+                    <td className="px-5 py-3 text-right text-slate-700">{formaterFcfa(prix, 4)}</td>
+                    <td className="px-5 py-3 text-right font-semibold text-slate-900">
+                      {formaterFcfa(coutDe(a.quantite, prix))}
+                    </td>
+                    <td className="px-5 py-3 text-xs text-slate-600">mouvements MP ({a.nombre})</td>
+                    {modifiable ? <td className="px-5 py-3" /> : null}
+                  </tr>
+                );
+              })}
               {saisies.map((s) => {
                 const edition = enEdition === s.id && brouillon;
                 return (
