@@ -104,7 +104,7 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
                 Eau - Consommation par mois
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                L&apos;eau et l&apos;electricite utilisees dans le mois viennent toutes seules de ce qui a ete fabrique.
+                L&apos;eau et l&apos;electricite utilisees dans le mois viennent toutes seules des quantites des PD (comme dans le Dashboard).
                 La consommation du traitement de l&apos;eau (filtres, produits, UV, membrane, sel) se saisit avec sa
                 date, pour la Ligne 1 et la Ligne 2 ; choisis un mois ou une date pour voir ce mois. Les prix se
                 saisissent dans &laquo; Prix des consommables &raquo;.
@@ -144,6 +144,7 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
           annee={choisi.annee}
           mois={choisi.mois}
           eau={eauDuMois.eau}
+          cartons={eauDuMois.cartons}
           erreur={eauDuMois.erreur}
           parametres={electricite.parametres}
         />

@@ -1,6 +1,7 @@
-// Eau utilisee dans le mois, calculee AUTOMATIQUEMENT a partir de ce qui a ete
-// fabrique (vrac fabrique saisi dans Entree production, en kg) :
-//   litres d'eau = kg fabriques AVEC eau x 60 %
+// Eau utilisee dans le mois, calculee AUTOMATIQUEMENT a partir des quantites des
+// PD du mois (vrac a fabriquer des programmes confirmes, en kg - les memes
+// quantites que le Dashboard, pas les quantites reellement fabriquees) :
+//   litres d'eau = kg AVEC eau x 60 %
 // Les produits SAVON, HUILE, SERUM et TALC n'utilisent pas d'eau : leur
 // quantite est comptee (affichee) mais elle n'entre pas dans la base du calcul.
 
@@ -44,25 +45,24 @@ export function familleSansEau(
 }
 
 export type EauDuMois = {
-  // Tout le vrac fabrique dans le mois (kg)
+  // Tout le vrac des PD du mois (kg)
   kgTotal: number;
   // Part des produits sans eau (kg), au total puis par famille
   kgSansEau: number;
   parFamille: Record<FamilleSansEau, number>;
-  // Base du calcul : kg fabriques avec eau
+  // Base du calcul : kg avec eau
   kgAvecEau: number;
   pourcentage: number;
   litres: number;
-  // Nombre d'entrees de fabrication comptees
+  // Nombre de lignes de programme comptees
   nombreEntrees: number;
 };
 
 // Electricite du mois, calculee a partir des litres d'eau : la machine produit
 // "debit" litres par heure et consomme "puissance" kW quand elle tourne.
 //   heures de marche = litres / debit      kWh = heures x puissance
-// Exemple : debit 9000 L/h, 30 kW -> 9000 L = 30 kWh, 18000 L = 60 kWh.
-export const DEBIT_MACHINE_PAR_DEFAUT = 9000;
-export const PUISSANCE_LIGNE_PAR_DEFAUT_KW = 30;
+// Le debit et les kW sont ceux SAISIS dans "Prix des consommables" (aucune valeur
+// par defaut). Exemple : debit 9000 L/h, 30 kW -> 9000 L = 30 kWh, 18000 L = 60 kWh.
 
 export type ElectriciteLigneDuMois = {
   litres: number;
@@ -139,4 +139,33 @@ export function calculerEauDuMois(entrees: EntreeFabrication[]): EauDuMois {
     litres: (kgAvecEau * POURCENTAGE_EAU) / 100,
     nombreEntrees: entrees.filter((e) => Number.isFinite(e.quantite) && e.quantite > 0).length,
   };
+}
+
+// Cartons des PD du mois (quantite de cartons des programmes confirmes), toutes
+// familles confondues, avec la part des produits sans eau (savon, huile, serum,
+// talc) : ils sont comptes aussi.
+export type CartonsDuMois = {
+  total: number;
+  sansEau: number;
+  parFamille: Record<FamilleSansEau, number>;
+  nombreEntrees: number;
+};
+
+export function calculerCartonsDuMois(entrees: EntreeFabrication[]): CartonsDuMois {
+  const parFamille: Record<FamilleSansEau, number> = { savon: 0, huile: 0, serum: 0, talc: 0 };
+  let total = 0;
+  let sansEau = 0;
+  let nombreEntrees = 0;
+
+  for (const entree of entrees) {
+    if (!Number.isFinite(entree.quantite) || entree.quantite <= 0) continue;
+    nombreEntrees += 1;
+    total += entree.quantite;
+    if (entree.famille) {
+      parFamille[entree.famille] += entree.quantite;
+      sansEau += entree.quantite;
+    }
+  }
+
+  return { total, sansEau, parFamille, nombreEntrees };
 }

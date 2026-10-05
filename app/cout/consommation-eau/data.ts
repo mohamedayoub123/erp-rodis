@@ -1,85 +1,90 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import {
-  DEBIT_MACHINE_PAR_DEFAUT,
-  PUISSANCE_LIGNE_PAR_DEFAUT_KW,
+  calculerCartonsDuMois,
   calculerEauDuMois,
   familleSansEau,
+  type CartonsDuMois,
   type EauDuMois,
 } from "@/lib/cout-eau-fabrication";
 import { normaliserConfig } from "@/lib/cout-eau";
 import { debutMoisSuivant, premierDuMois, type SaisieConsoEau } from "@/lib/cout-eau-conso";
 
-type EntreeVrac = { id: number; programme_ligne_id: number; quantite: number | null };
-type LigneProgramme = {
+type LigneProgrammeDuMois = {
   id: number;
   produit: string | null;
   type_article: string | null;
-  exclu_rapports: boolean | null;
+  vrac_a_fabriquer: number | null;
+  qt_carton: number | null;
+  numero_lot: string | null;
+  numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
 };
 
-// Vrac fabrique (kg) dans le mois choisi, d'apres la date du jour de chaque
-// entree de fabrication, puis eau utilisee = base avec eau x 60 %. Les lignes
-// exclues des rapports ne comptent pas (comme dans les autres rapports de
-// production). Lecture seule.
+// Quantites du PD d'une ligne de programme, comme le Dashboard : si la ligne est
+// decoupee en plusieurs codes avec le detail de chaque code, on additionne le
+// detail ; sinon on prend les quantites de la ligne (vrac en kg, cartons).
+function quantitesDuPd(ligne: LigneProgrammeDuMois): { vrac: number; carton: number } {
+  const codes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+  const detail = ligne.numero_lot_detail ?? [];
+  if (codes.length > 1 && detail.length === codes.length) {
+    return {
+      vrac: detail.reduce((somme, d) => somme + Number(d.qt_vrac ?? 0), 0),
+      carton: detail.reduce((somme, d) => somme + Number(d.qt_carton ?? 0), 0),
+    };
+  }
+  return { vrac: Number(ligne.vrac_a_fabriquer ?? 0), carton: Number(ligne.qt_carton ?? 0) };
+}
+
+// Quantites des PD du mois choisi (celles du Dashboard : lignes de programme
+// confirmees, comptees a la date du programme - PAS les quantites fabriquees) :
+// vrac en kg -> eau utilisee = base avec eau x 60 %, et cartons. Les lignes
+// terminees comptent aussi ; les lignes exclues des rapports ne comptent pas.
+// Lecture seule.
 export async function lireEauDuMois(
   annee: number,
   mois: number
-): Promise<{ eau: EauDuMois | null; erreur: string | null }> {
+): Promise<{ eau: EauDuMois | null; cartons: CartonsDuMois | null; erreur: string | null }> {
   const debut = premierDuMois(annee, mois);
   const fin = debutMoisSuivant(annee, mois);
 
-  const entrees: EntreeVrac[] = [];
+  const lignes: LigneProgrammeDuMois[] = [];
   const taillePage = 1000;
   for (let depart = 0; ; depart += taillePage) {
     const { data, error } = await supabaseServer
-      .from("production_vrac_entries")
-      .select("id, programme_ligne_id, quantite")
+      .from("programme_lignes")
+      .select("id, produit, type_article, vrac_a_fabriquer, qt_carton, numero_lot, numero_lot_detail")
+      .eq("exclu_rapports", false)
+      .eq("confirme_production", true)
       .gte("date_jour", debut)
       .lt("date_jour", fin)
       .order("id", { ascending: true })
       .range(depart, depart + taillePage - 1);
 
-    if (error) return { eau: null, erreur: error.message };
-    const page = (data ?? []) as EntreeVrac[];
-    entrees.push(...page);
+    if (error) return { eau: null, cartons: null, erreur: error.message };
+    const page = (data ?? []) as LigneProgrammeDuMois[];
+    lignes.push(...page);
     if (page.length < taillePage) break;
   }
 
-  const idsLignes = [...new Set(entrees.map((e) => e.programme_ligne_id))];
-  const lignes = new Map<number, LigneProgramme>();
-  const tailleLot = 200;
-  for (let i = 0; i < idsLignes.length; i += tailleLot) {
-    const { data, error } = await supabaseServer
-      .from("programme_lignes")
-      .select("id, produit, type_article, exclu_rapports")
-      .in("id", idsLignes.slice(i, i + tailleLot));
+  const quantites = lignes.map((ligne) => ({
+    ...quantitesDuPd(ligne),
+    famille: familleSansEau(ligne.type_article, ligne.produit),
+  }));
 
-    if (error) return { eau: null, erreur: error.message };
-    for (const ligne of (data ?? []) as LigneProgramme[]) lignes.set(ligne.id, ligne);
-  }
-
-  const aCompter = entrees.flatMap((entree) => {
-    const ligne = lignes.get(entree.programme_ligne_id);
-    if (!ligne || ligne.exclu_rapports) return [];
-    return [
-      {
-        quantite: Number(entree.quantite ?? 0),
-        famille: familleSansEau(ligne.type_article, ligne.produit),
-      },
-    ];
-  });
-
-  return { eau: calculerEauDuMois(aCompter), erreur: null };
+  return {
+    eau: calculerEauDuMois(quantites.map((q) => ({ quantite: q.vrac, famille: q.famille }))),
+    cartons: calculerCartonsDuMois(quantites.map((q) => ({ quantite: q.carton, famille: q.famille }))),
+    erreur: null,
+  };
 }
 
 export type ParametresLigneElectricite = {
-  debitLitresHeure: number;
-  puissanceKw: number;
+  // null = pas encore saisi dans "Prix des consommables"
+  debitLitresHeure: number | null;
+  puissanceKw: number | null;
   prixKwh: number | null;
-  // D'ou viennent les valeurs : ce mois, un mois precedent, ou les valeurs par
-  // defaut (rien de saisi nulle part)
-  sourceDebit: string;
-  sourcePuissance: string;
+  // D'ou viennent les valeurs : ce mois, ou un mois precedent
+  sourceDebit: string | null;
+  sourcePuissance: string | null;
 };
 
 export type ParametresElectricite = {
@@ -89,7 +94,8 @@ export type ParametresElectricite = {
 
 // Debit de la machine (L/h) et consommation (kW) de CHAQUE ligne, saisis dans
 // "Prix des consommables" : valeur du mois choisi, sinon celle du mois
-// enregistre le plus recent AVANT (comme les prix), sinon valeurs par defaut.
+// enregistre le plus recent AVANT (comme les prix). Rien n'est suppose : sans
+// valeur saisie, l'electricite de la ligne n'est pas calculee.
 export async function lireParametresElectricite(
   annee: number,
   mois: number
@@ -121,11 +127,11 @@ export async function lireParametresElectricite(
     const debit = trouver(ligne, "debitLitresHeure");
     const puissance = trouver(ligne, "puissanceKw");
     return {
-      debitLitresHeure: debit?.valeur ?? DEBIT_MACHINE_PAR_DEFAUT,
-      puissanceKw: puissance?.valeur ?? PUISSANCE_LIGNE_PAR_DEFAUT_KW,
+      debitLitresHeure: debit?.valeur ?? null,
+      puissanceKw: puissance?.valeur ?? null,
       prixKwh: trouver(ligne, "prixKwh")?.valeur ?? null,
-      sourceDebit: debit?.source ?? "valeur par defaut",
-      sourcePuissance: puissance?.source ?? "valeur par defaut",
+      sourceDebit: debit?.source ?? null,
+      sourcePuissance: puissance?.source ?? null,
     };
   };
 
