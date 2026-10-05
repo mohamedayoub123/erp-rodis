@@ -3,6 +3,7 @@ import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { supabaseServer } from "./supabase-server";
 import { PAGE_REGISTRY, findPageForPath, type PageDefinition } from "./page-registry";
+import { PAGES_EXISTANTES } from "./pages-existantes";
 
 const STOCK_AUTH_COOKIE = "stock_edit_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
@@ -135,8 +136,12 @@ function defaultPagePermissions(isAdmin: boolean): PagePermissions {
       continue;
     }
 
+    // Une page NOUVELLE (absente de PAGES_EXISTANTES) est fermee par defaut pour
+    // tous les comptes sauf les administrateurs : tout nouveau module ne doit
+    // jamais s'ouvrir tout seul chez les autres utilisateurs. Une valeur
+    // explicite defaultView sur la page reste prioritaire.
     pages[page.key] = {
-      view: page.defaultView ?? true,
+      view: page.defaultView ?? PAGES_EXISTANTES.has(page.key),
       write: page.hasWrite === false ? false : page.defaultWrite ?? false,
       delete: page.hasWrite === false ? false : page.defaultWrite ?? false,
     };
@@ -222,18 +227,26 @@ function normalizeUserRecord(
     }
 
     const stored = storedPages[page.key];
+    // Page NOUVELLE sans reglage enregistre : fermee, sans heriter de l'ancien
+    // droit du module (viewProduction, writeStock...) qui l'ouvrirait a tous
+    // ceux qui avaient deja acces au reste du module.
+    const pageNouvelle = !PAGES_EXISTANTES.has(page.key);
 
     const view =
       typeof stored?.view === "boolean"
         ? stored.view
-        : legacyPageValue(page, source, "view") ?? defaults.pages[page.key].view;
+        : pageNouvelle
+          ? defaults.pages[page.key].view
+          : legacyPageValue(page, source, "view") ?? defaults.pages[page.key].view;
 
     const write =
       page.hasWrite === false
         ? false
         : typeof stored?.write === "boolean"
           ? stored.write
-          : legacyPageValue(page, source, "write") ?? defaults.pages[page.key].write;
+          : pageNouvelle
+            ? defaults.pages[page.key].write
+            : legacyPageValue(page, source, "write") ?? defaults.pages[page.key].write;
 
     // "Supprimer" n'existait pas comme droit distinct avant - tant qu'un
     // admin n'a pas explicitement decoche la case, on herite de "write" pour

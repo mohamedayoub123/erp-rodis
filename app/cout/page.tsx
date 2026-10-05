@@ -20,6 +20,14 @@ const TILES = [
     description:
       "Par article : cout reel (vrac/conditionnement, electricite machine, journaliers) sur une periode.",
   },
+  {
+    label: "Prix du litre d'eau",
+    href: "/cout/prix-litre-eau",
+    pageKey: "coutEau",
+    icon: "💧",
+    description:
+      "Prix de revient d'1 litre d'eau : filtres, produits de traitement, UV, membrane, sel et electricite.",
+  },
 ] as const;
 
 export default async function CoutHubPage() {

@@ -984,6 +984,16 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
     defaultView: false,
   },
+  // Calculateur "Prix du litre d'eau" (filtres, produits, UV, membrane, sel,
+  // electricite). Module NOUVEAU : absent de PAGES_EXISTANTES (lib/pages-existantes.ts),
+  // donc ferme pour tous les comptes - seuls les admins (mayoub, ayoub) l'ouvrent
+  // tant que l'acces n'est pas accorde depuis Admin.
+  {
+    key: "coutEau",
+    module: "ChargesUsine",
+    label: "Cout - Prix du litre d'eau",
+    pathPrefixes: ["/cout/prix-litre-eau"],
+  },
   // Module vide pour l'instant (contenu pas encore defini) - cache pour
   // tout le monde par defaut, visible seulement pour l'admin tant qu'aucun
   // acces n'est accorde explicitement ici.
