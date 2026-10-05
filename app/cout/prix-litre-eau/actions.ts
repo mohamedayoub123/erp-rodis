@@ -4,13 +4,13 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
-import { calculerCoutEau, normaliserConfig, type ConfigCoutEau } from "@/lib/cout-eau";
+import { normaliserConfig, type ConfigCoutEau } from "@/lib/cout-eau";
 
 // Renvoie un message lisible au lieu de lever une exception : en production
 // Next.js masque le texte des exceptions des Server Actions.
 export async function saveCoutEauAction(
   configBrute: ConfigCoutEau
-): Promise<{ ok: true; totalParLitre: number } | { ok: false; message: string }> {
+): Promise<{ ok: true } | { ok: false; message: string }> {
   const currentUser = await getCurrentStockUser();
 
   if (!(await canWritePageUser(currentUser, "coutEau"))) {
@@ -18,7 +18,6 @@ export async function saveCoutEauAction(
   }
 
   const config = normaliserConfig(configBrute);
-  const resultat = calculerCoutEau(config);
 
   const { data: avantData } = await supabaseServer
     .from("cout_eau_config")
@@ -45,18 +44,18 @@ export async function saveCoutEauAction(
     };
   }
 
+  const nbPrix = config.lignes.filter((ligne) => ligne.prix !== null).length;
+
   await logAudit({
     utilisateur: currentUser,
     module: "CoutEau",
     action: "modification",
-    cible: "Prix du litre d'eau",
-    resume: `Prix du litre d'eau mis a jour : ${resultat.totalParLitre.toLocaleString("fr-FR", {
-      maximumFractionDigits: 4,
-    })} FCFA / litre`,
+    cible: "Prix de l'eau",
+    resume: `Prix de l'eau mis a jour (${nbPrix} prix saisis)`,
     avant: (avantData as { donnees: unknown } | null)?.donnees ?? null,
     apres: config,
   });
 
   revalidatePath("/cout/prix-litre-eau");
-  return { ok: true, totalParLitre: resultat.totalParLitre };
+  return { ok: true };
 }

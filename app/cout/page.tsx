@@ -26,7 +26,7 @@ const TILES = [
     pageKey: "coutEau",
     icon: "💧",
     description:
-      "Prix de revient d'1 litre d'eau : filtres, produits de traitement, UV, membrane, sel et electricite.",
+      "Prix des filtres, produits de traitement, UV, membrane, sel et consommation electrique (le calcul du litre viendra ensuite).",
   },
 ] as const;
 

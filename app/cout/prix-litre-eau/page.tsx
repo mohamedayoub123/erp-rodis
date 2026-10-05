@@ -47,8 +47,8 @@ export default async function PrixLitreEauPage() {
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Prix du litre d&apos;eau</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Saisis le prix de chaque element du traitement de l&apos;eau (filtres, produits, UV, membrane, sel,
-                electricite) : le prix de revient d&apos;1 litre d&apos;eau se calcule tout seul.
+                Prix des elements du traitement de l&apos;eau (filtres, produits, UV, membrane, sel, electricite).
+                Pour l&apos;instant on saisit seulement les prix ; le calcul du prix du litre viendra ensuite.
               </p>
             </div>
 

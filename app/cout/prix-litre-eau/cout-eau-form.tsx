@@ -1,24 +1,13 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import {
-  MAX_LIGNES,
-  calculerCoutEau,
-  coutParLitreElectricite,
-  coutParLitreLigne,
-  type ConfigCoutEau,
-} from "@/lib/cout-eau";
+import { MAX_LIGNES, type ConfigCoutEau } from "@/lib/cout-eau";
 import { saveCoutEauAction } from "./actions";
 
 // Les champs gardent le texte tape (virgule ou point accepte) ; la conversion
-// en nombre se fait pour le calcul et l'enregistrement.
-type LigneSaisie = { cle: string; libelle: string; prix: string; litres: string; perso: boolean };
-type Saisie = {
-  lignes: LigneSaisie[];
-  puissanceKw: string;
-  prixKwh: string;
-  litresParHeure: string;
-};
+// en nombre se fait pour l'enregistrement.
+type LigneSaisie = { cle: string; libelle: string; prix: string; precision: string; perso: boolean };
+type Saisie = { lignes: LigneSaisie[]; puissanceKw: string; prixKwh: string };
 
 function enTexte(value: number | null) {
   return value === null ? "" : String(value);
@@ -37,12 +26,11 @@ function versSaisie(config: ConfigCoutEau): Saisie {
       cle: l.cle,
       libelle: l.libelle,
       prix: enTexte(l.prix),
-      litres: enTexte(l.litres),
+      precision: l.precision,
       perso: !!l.perso,
     })),
     puissanceKw: enTexte(config.electricite.puissanceKw),
     prixKwh: enTexte(config.electricite.prixKwh),
-    litresParHeure: enTexte(config.electricite.litresParHeure),
   };
 }
 
@@ -52,20 +40,14 @@ function versConfig(saisie: Saisie): ConfigCoutEau {
       cle: l.cle,
       libelle: l.libelle,
       prix: enNombre(l.prix),
-      litres: enNombre(l.litres),
+      precision: l.precision,
       perso: l.perso || undefined,
     })),
     electricite: {
       puissanceKw: enNombre(saisie.puissanceKw),
       prixKwh: enNombre(saisie.prixKwh),
-      litresParHeure: enNombre(saisie.litresParHeure),
     },
   };
-}
-
-function formaterFcfa(value: number | null, decimales = 4) {
-  if (value === null) return "-";
-  return value.toLocaleString("fr-FR", { maximumFractionDigits: decimales });
 }
 
 function formaterDate(iso: string) {
@@ -94,15 +76,13 @@ export function CoutEauForm({
   const [enregistrement, demarrer] = useTransition();
 
   const config = useMemo(() => versConfig(saisie), [saisie]);
-  const resultat = useMemo(() => calculerCoutEau(config), [config]);
-  const coutElec = coutParLitreElectricite(config.electricite);
 
-  function majLigne(cle: string, champ: "libelle" | "prix" | "litres", valeur: string) {
+  function majLigne(cle: string, champ: "libelle" | "prix" | "precision", valeur: string) {
     setMessage(null);
     setSaisie((s) => ({ ...s, lignes: s.lignes.map((l) => (l.cle === cle ? { ...l, [champ]: valeur } : l)) }));
   }
 
-  function majElec(champ: "puissanceKw" | "prixKwh" | "litresParHeure", valeur: string) {
+  function majElec(champ: "puissanceKw" | "prixKwh", valeur: string) {
     setMessage(null);
     setSaisie((s) => ({ ...s, [champ]: valeur }));
   }
@@ -114,7 +94,7 @@ export function CoutEauForm({
         ? s
         : {
             ...s,
-            lignes: [...s.lignes, { cle: `perso_${Date.now()}`, libelle: "", prix: "", litres: "", perso: true }],
+            lignes: [...s.lignes, { cle: `perso_${Date.now()}`, libelle: "", prix: "", precision: "", perso: true }],
           }
     );
   }
@@ -142,32 +122,12 @@ export function CoutEauForm({
 
   return (
     <>
-      <section className="rounded-[1.75rem] border border-sky-200 bg-sky-50 p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-800">Prix de revient</p>
-        <div className="mt-2 flex flex-wrap items-end gap-x-10 gap-y-3">
-          <div>
-            <p className="text-4xl font-black tracking-tight text-slate-950">
-              {formaterFcfa(resultat.totalParLitre)} <span className="text-lg font-bold">FCFA / litre</span>
-            </p>
-            <p className="mt-1 text-sm text-slate-600">
-              soit <span className="font-semibold">{formaterFcfa(resultat.totalPour1000Litres, 2)} FCFA</span> les
-              1 000 litres (1 m&sup3;)
-            </p>
-          </div>
-        </div>
-        {resultat.lignesIncompletes.length > 0 ? (
-          <p className="mt-3 text-sm font-medium text-amber-800">
-            Pas comptees (prix ou litres manquant) : {resultat.lignesIncompletes.join(", ")}.
-          </p>
-        ) : null}
-      </section>
-
       <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-        <h2 className="text-lg font-bold text-slate-900">Filtres, produits, UV, membrane, sel</h2>
+        <h2 className="text-lg font-bold text-slate-900">Prix des elements</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Pour chaque ligne : le <span className="font-semibold">prix d&apos;un achat</span> (FCFA) et le{" "}
-          <span className="font-semibold">nombre de litres d&apos;eau produits</span> avec cet achat (sa duree de vie).
-          Exemple : un filtre a 5 000 FCFA qui dure 100 000 litres coute 0,05 FCFA par litre.
+          Saisis le <span className="font-semibold">prix d&apos;UNE unite</span> de chaque element (1 filtre, 1 lampe
+          UV, 1 membrane, 1 sac de sel...). Le champ &laquo; Precision &raquo; est libre (ex : bidon de 25 L, sac de
+          25 kg). Le calcul du prix du litre sera ajoute ensuite.
         </p>
 
         <div className="mt-4 overflow-x-auto">
@@ -175,68 +135,63 @@ export function CoutEauForm({
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-2 py-1 font-semibold">Element</th>
-                <th className="px-2 py-1 font-semibold">Prix d&apos;un achat (FCFA)</th>
-                <th className="px-2 py-1 font-semibold">Litres produits avec cet achat</th>
-                <th className="px-2 py-1 text-right font-semibold">Cout par litre (FCFA)</th>
+                <th className="px-2 py-1 font-semibold">Prix d&apos;une unite (FCFA)</th>
+                <th className="px-2 py-1 font-semibold">Precision</th>
                 {canEdit ? <th className="px-2 py-1" /> : null}
               </tr>
             </thead>
             <tbody>
-              {saisie.lignes.map((ligne, index) => {
-                const cout = coutParLitreLigne(config.lignes[index]);
-                return (
-                  <tr key={ligne.cle}>
-                    <td className="min-w-48 px-2">
+              {saisie.lignes.map((ligne) => (
+                <tr key={ligne.cle}>
+                  <td className="min-w-48 px-2">
+                    {ligne.perso ? (
+                      <input
+                        type="text"
+                        value={ligne.libelle}
+                        onChange={(e) => majLigne(ligne.cle, "libelle", e.target.value)}
+                        placeholder="Nom de la ligne"
+                        disabled={!canEdit}
+                        className={CHAMP}
+                      />
+                    ) : (
+                      <span className="font-medium text-slate-900">{ligne.libelle}</span>
+                    )}
+                  </td>
+                  <td className="px-2">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={ligne.prix}
+                      onChange={(e) => majLigne(ligne.cle, "prix", e.target.value)}
+                      disabled={!canEdit}
+                      className={CHAMP}
+                    />
+                  </td>
+                  <td className="px-2">
+                    <input
+                      type="text"
+                      value={ligne.precision}
+                      onChange={(e) => majLigne(ligne.cle, "precision", e.target.value)}
+                      maxLength={60}
+                      disabled={!canEdit}
+                      className={CHAMP}
+                    />
+                  </td>
+                  {canEdit ? (
+                    <td className="px-2 text-right">
                       {ligne.perso ? (
-                        <input
-                          type="text"
-                          value={ligne.libelle}
-                          onChange={(e) => majLigne(ligne.cle, "libelle", e.target.value)}
-                          placeholder="Nom de la ligne"
-                          disabled={!canEdit}
-                          className={CHAMP}
-                        />
-                      ) : (
-                        <span className="font-medium text-slate-900">{ligne.libelle}</span>
-                      )}
+                        <button
+                          type="button"
+                          onClick={() => supprimerLigne(ligne.cle)}
+                          className="text-xs font-semibold text-red-600 hover:underline"
+                        >
+                          Retirer
+                        </button>
+                      ) : null}
                     </td>
-                    <td className="px-2">
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={ligne.prix}
-                        onChange={(e) => majLigne(ligne.cle, "prix", e.target.value)}
-                        disabled={!canEdit}
-                        className={CHAMP}
-                      />
-                    </td>
-                    <td className="px-2">
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={ligne.litres}
-                        onChange={(e) => majLigne(ligne.cle, "litres", e.target.value)}
-                        disabled={!canEdit}
-                        className={CHAMP}
-                      />
-                    </td>
-                    <td className="px-2 text-right font-semibold text-sky-800">{formaterFcfa(cout)}</td>
-                    {canEdit ? (
-                      <td className="px-2 text-right">
-                        {ligne.perso ? (
-                          <button
-                            type="button"
-                            onClick={() => supprimerLigne(ligne.cle)}
-                            className="text-xs font-semibold text-red-600 hover:underline"
-                          >
-                            Retirer
-                          </button>
-                        ) : null}
-                      </td>
-                    ) : null}
-                  </tr>
-                );
-              })}
+                  ) : null}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -254,13 +209,10 @@ export function CoutEauForm({
       </section>
 
       <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-        <h2 className="text-lg font-bold text-slate-900">Electricite (consommation kW)</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Cout par litre = puissance (kW) x prix du kWh / litres produits par heure.
-        </p>
-        <div className="mt-4 grid gap-4 sm:grid-cols-4">
+        <h2 className="text-lg font-bold text-slate-900">Electricite</h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Puissance de l&apos;installation (kW)
+            Consommation (kW)
             <input
               type="text"
               inputMode="decimal"
@@ -281,21 +233,6 @@ export function CoutEauForm({
               className={CHAMP}
             />
           </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Litres produits par heure
-            <input
-              type="text"
-              inputMode="decimal"
-              value={saisie.litresParHeure}
-              onChange={(e) => majElec("litresParHeure", e.target.value)}
-              disabled={!canEdit}
-              className={CHAMP}
-            />
-          </label>
-          <div className="grid gap-1 text-xs font-semibold text-slate-500">
-            Cout par litre (FCFA)
-            <p className="px-1 py-2 text-sm font-semibold text-sky-800">{formaterFcfa(coutElec)}</p>
-          </div>
         </div>
       </section>
 
