@@ -1,30 +1,34 @@
 import { unstable_noStore as noStore } from "next/cache";
-import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { moisValide } from "@/lib/cout-eau";
-import { nombreDeQuantites, normaliserConsoEau } from "@/lib/cout-eau-conso";
+import {
+  dateValide,
+  moisDeDate,
+  premierDuMois,
+  totauxDuMois,
+} from "@/lib/cout-eau-conso";
 import { HistoriqueMois } from "../_components/historique-mois";
-import { ConsoEauForm } from "./conso-eau-form";
-import { lireEauDuMois } from "./data";
+import { SelecteurMois } from "../_components/selecteur-mois";
+import { lireEauDuMois, lireMoisAvecSaisies, lireParametresElectricite, lireSaisiesDuMois } from "./data";
 import { EauAutomatique } from "./eau-automatique";
+import { NouvelleSaisie } from "./nouvelle-saisie";
+import { SaisiesDuMois } from "./saisies-du-mois";
+import { TotauxDuMois } from "./totaux-du-mois";
 
-type MoisEnregistre = {
-  annee: number;
-  mois: number;
-  donnees: unknown;
-  updated_by: string | null;
-  updated_at: string | null;
-};
-
-type SearchParams = Promise<{ annee?: string; mois?: string }>;
+// ?annee=&mois= choisit le mois ; ?date=AAAA-MM-JJ choisit directement le mois
+// de cette date (et la propose dans "Nouvelle saisie").
+type SearchParams = Promise<{ annee?: string; mois?: string; date?: string }>;
 
 // Hors du rendu : la regle de lint "rendu pur" refuse new Date() en direct
 // dans le composant, mais cette page est de toute facon dynamique (noStore).
-function moisCourant() {
+function aujourdhui() {
   const maintenant = new Date();
-  return { annee: maintenant.getFullYear(), mois: maintenant.getMonth() + 1 };
+  const annee = maintenant.getFullYear();
+  const mois = maintenant.getMonth() + 1;
+  const jour = maintenant.getDate();
+  return { annee, mois, date: `${annee}-${String(mois).padStart(2, "0")}-${String(jour).padStart(2, "0")}` };
 }
 
 function formaterDate(iso: string | null) {
@@ -62,31 +66,31 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
   const canEdit = await canWritePageUser(currentUser, "coutEauConso");
   const canDelete = await canDeletePageUser(currentUser, "coutEauConso");
 
-  const courant = moisCourant();
+  const aujourd = aujourdhui();
+  const dateDemandee = dateValide(params.date);
   const anneeDemandee = Number(params.annee);
   const moisDemande = Number(params.mois);
-  const choisi = moisValide(anneeDemandee, moisDemande)
-    ? { annee: anneeDemandee, mois: moisDemande }
-    : courant;
+  const choisi = dateDemandee
+    ? moisDeDate(dateDemandee)
+    : moisValide(anneeDemandee, moisDemande)
+      ? { annee: anneeDemandee, mois: moisDemande }
+      : { annee: aujourd.annee, mois: aujourd.mois };
 
-  const [{ data, error }, eauDuMois] = await Promise.all([
-    supabaseServer
-      .from("cout_eau_conso")
-      .select("annee, mois, donnees, updated_by, updated_at")
-      .order("annee", { ascending: false })
-      .order("mois", { ascending: false }),
+  // Date proposee dans "Nouvelle saisie" : celle demandee, sinon aujourd'hui si
+  // on regarde le mois en cours, sinon le 1er du mois affiche.
+  const dateInitiale =
+    dateDemandee ??
+    (choisi.annee === aujourd.annee && choisi.mois === aujourd.mois ? aujourd.date : premierDuMois(choisi.annee, choisi.mois));
+
+  const [eauDuMois, electricite, { saisies, erreur }, mois] = await Promise.all([
     lireEauDuMois(choisi.annee, choisi.mois),
+    lireParametresElectricite(choisi.annee, choisi.mois),
+    lireSaisiesDuMois(choisi.annee, choisi.mois),
+    lireMoisAvecSaisies(),
   ]);
 
-  const mois = (data ?? []) as MoisEnregistre[];
-  const dejaEnregistre = mois.find((m) => m.annee === choisi.annee && m.mois === choisi.mois) ?? null;
-
-  // Une consommation n'est jamais reprise d'un autre mois : un mois pas encore
-  // enregistre commence vide.
-  const config = normaliserConsoEau(dejaEnregistre?.donnees);
-
-  const anneeMin = Math.min(courant.annee - 3, ...mois.map((m) => m.annee));
-  const anneeMax = Math.max(courant.annee + 1, ...mois.map((m) => m.annee));
+  const anneeMin = Math.min(aujourd.annee - 3, ...mois.map((m) => m.annee));
+  const anneeMax = Math.max(aujourd.annee + 1, ...mois.map((m) => m.annee));
   const annees = Array.from({ length: anneeMax - anneeMin + 1 }, (_, i) => anneeMax - i);
 
   return (
@@ -100,9 +104,10 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
                 Eau - Consommation par mois
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                L&apos;eau utilisee dans le mois vient toute seule de ce qui a ete fabrique (60 %). La consommation du
-                traitement de l&apos;eau (filtres, produits, UV, membrane, sel, electricite) se saisit chaque mois pour la
-                Ligne 1 et la Ligne 2. Les prix se saisissent dans &laquo; Prix des consommables &raquo;.
+                L&apos;eau et l&apos;electricite utilisees dans le mois viennent toutes seules de ce qui a ete fabrique.
+                La consommation du traitement de l&apos;eau (filtres, produits, UV, membrane, sel) se saisit avec sa
+                date, pour la Ligne 1 et la Ligne 2 ; choisis un mois ou une date pour voir ce mois. Les prix se
+                saisissent dans &laquo; Prix des consommables &raquo;.
               </p>
             </div>
 
@@ -113,40 +118,75 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
           </div>
         </section>
 
-        {error ? (
+        {erreur ? (
           <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-            La consommation enregistree n&apos;a pas pu etre lue ({error.message}). Si c&apos;est la premiere
-            utilisation, le script SQL de ce module doit etre execute dans Supabase.
+            La consommation enregistree n&apos;a pas pu etre lue ({erreur}). Si c&apos;est la premiere utilisation,
+            le script SQL de ce module doit etre execute dans Supabase.
           </p>
         ) : null}
 
-        <ConsoEauForm
-          key={`${choisi.annee}-${choisi.mois}-${dejaEnregistre?.updated_at ?? "nouveau"}`}
-          initial={config}
+        <SelecteurMois
           annee={choisi.annee}
           mois={choisi.mois}
           annees={annees}
-          panneauEau={
-            <EauAutomatique annee={choisi.annee} mois={choisi.mois} eau={eauDuMois.eau} erreur={eauDuMois.erreur} />
+          basePath="/cout/consommation-eau"
+          dejaEnregistre={null}
+          repris={null}
+          texteRepris=""
+          statut={
+            saisies.length === 0
+              ? "Aucune saisie datee pour ce mois."
+              : `${saisies.length} saisie(s) datee(s) ce mois-ci.`
           }
+        />
+
+        <EauAutomatique
+          annee={choisi.annee}
+          mois={choisi.mois}
+          eau={eauDuMois.eau}
+          erreur={eauDuMois.erreur}
+          parametres={electricite.parametres}
+        />
+
+        <TotauxDuMois annee={choisi.annee} mois={choisi.mois} totaux={totauxDuMois(saisies)} />
+
+        {canEdit ? (
+          <NouvelleSaisie
+            key={`${choisi.annee}-${choisi.mois}-${dateInitiale}`}
+            annee={choisi.annee}
+            mois={choisi.mois}
+            dateInitiale={dateInitiale}
+            basePath="/cout/consommation-eau"
+          />
+        ) : (
+          <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-600">
+            Tu peux consulter cette consommation mais pas la modifier.
+          </p>
+        )}
+
+        <SaisiesDuMois
+          saisies={saisies}
+          annee={choisi.annee}
+          mois={choisi.mois}
           canEdit={canEdit}
           canDelete={canDelete}
-          dejaEnregistre={
-            dejaEnregistre ? { par: dejaEnregistre.updated_by, le: formaterDate(dejaEnregistre.updated_at) } : null
-          }
+          basePath="/cout/consommation-eau"
         />
 
         <HistoriqueMois
           lignes={mois.map((m) => ({
             annee: m.annee,
             mois: m.mois,
-            nombre: nombreDeQuantites(normaliserConsoEau(m.donnees)),
-            par: m.updated_by,
-            le: formaterDate(m.updated_at),
+            nombre: m.nombre,
+            par: m.par,
+            le: formaterDate(m.derniereSaisie),
           }))}
           choisi={choisi}
           basePath="/cout/consommation-eau"
-          libelleNombre="Elements renseignes"
+          libelleNombre="Saisies"
+          description="Les mois qui ont des consommations saisies. Clique sur un mois pour le revoir."
+          libellePar="Derniere saisie par"
+          libelleLe="Derniere saisie le"
         />
       </div>
     </main>

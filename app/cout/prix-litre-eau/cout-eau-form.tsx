@@ -9,7 +9,10 @@ import { deleteCoutEauMoisAction, saveCoutEauAction } from "./actions";
 // Les champs gardent le texte tape (virgule ou point accepte) ; la conversion
 // en nombre se fait pour l'enregistrement.
 type LigneSaisie = { cle: string; libelle: string; prix: string; precision: string; perso: boolean };
-type Saisie = { lignes: LigneSaisie[]; puissanceKw: string; prixKwh: string };
+type ElecSaisie = { puissanceKw: string; debitLitresHeure: string; prixKwh: string };
+type Saisie = { lignes: LigneSaisie[]; electricite: { ligne1: ElecSaisie; ligne2: ElecSaisie } };
+type NumeroLigne = "ligne1" | "ligne2";
+type ChampElec = keyof ElecSaisie;
 
 function enTexte(value: number | null) {
   return value === null ? "" : String(value);
@@ -22,6 +25,22 @@ function enNombre(texte: string): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+function elecEnTexte(l: ConfigCoutEau["electricite"]["ligne1"]): ElecSaisie {
+  return {
+    puissanceKw: enTexte(l.puissanceKw),
+    debitLitresHeure: enTexte(l.debitLitresHeure),
+    prixKwh: enTexte(l.prixKwh),
+  };
+}
+
+function elecEnNombres(l: ElecSaisie): ConfigCoutEau["electricite"]["ligne1"] {
+  return {
+    puissanceKw: enNombre(l.puissanceKw),
+    debitLitresHeure: enNombre(l.debitLitresHeure),
+    prixKwh: enNombre(l.prixKwh),
+  };
+}
+
 function versSaisie(config: ConfigCoutEau): Saisie {
   return {
     lignes: config.lignes.map((l) => ({
@@ -31,8 +50,10 @@ function versSaisie(config: ConfigCoutEau): Saisie {
       precision: l.precision,
       perso: !!l.perso,
     })),
-    puissanceKw: enTexte(config.electricite.puissanceKw),
-    prixKwh: enTexte(config.electricite.prixKwh),
+    electricite: {
+      ligne1: elecEnTexte(config.electricite.ligne1),
+      ligne2: elecEnTexte(config.electricite.ligne2),
+    },
   };
 }
 
@@ -46,8 +67,8 @@ function versConfig(saisie: Saisie): ConfigCoutEau {
       perso: l.perso || undefined,
     })),
     electricite: {
-      puissanceKw: enNombre(saisie.puissanceKw),
-      prixKwh: enNombre(saisie.prixKwh),
+      ligne1: elecEnNombres(saisie.electricite.ligne1),
+      ligne2: elecEnNombres(saisie.electricite.ligne2),
     },
   };
 }
@@ -86,9 +107,12 @@ export function CoutEauForm({
     setSaisie((s) => ({ ...s, lignes: s.lignes.map((l) => (l.cle === cle ? { ...l, [champ]: valeur } : l)) }));
   }
 
-  function majElec(champ: "puissanceKw" | "prixKwh", valeur: string) {
+  function majElec(ligne: NumeroLigne, champ: ChampElec, valeur: string) {
     setMessage(null);
-    setSaisie((s) => ({ ...s, [champ]: valeur }));
+    setSaisie((s) => ({
+      ...s,
+      electricite: { ...s.electricite, [ligne]: { ...s.electricite[ligne], [champ]: valeur } },
+    }));
   }
 
   function ajouterLigne() {
@@ -241,30 +265,47 @@ export function CoutEauForm({
       </section>
 
       <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-        <h2 className="text-lg font-bold text-slate-900">Electricite</h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Consommation (kW)
-            <input
-              type="text"
-              inputMode="decimal"
-              value={saisie.puissanceKw}
-              onChange={(e) => majElec("puissanceKw", e.target.value)}
-              disabled={!canEdit}
-              className={CHAMP}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Prix du kWh (FCFA)
-            <input
-              type="text"
-              inputMode="decimal"
-              value={saisie.prixKwh}
-              onChange={(e) => majElec("prixKwh", e.target.value)}
-              disabled={!canEdit}
-              className={CHAMP}
-            />
-          </label>
+        <h2 className="text-lg font-bold text-slate-900">Electricite (pour chaque ligne)</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Saisis pour la Ligne 1 et pour la Ligne 2 : la consommation de la ligne, le debit de la machine et le prix
+          du kWh. L&apos;electricite du mois est calculee automatiquement dans &laquo; Consommation par mois &raquo; :
+          litres d&apos;eau &divide; debit = heures de marche, puis x consommation de la ligne.
+        </p>
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full border-separate border-spacing-y-2 text-left text-sm">
+            <thead className="text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-2 py-1 font-semibold">Electricite</th>
+                <th className="px-2 py-1 font-semibold">Ligne 1</th>
+                <th className="px-2 py-1 font-semibold">Ligne 2</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(
+                [
+                  ["puissanceKw", "Consommation de la ligne (kW)"],
+                  ["debitLitresHeure", "Debit de la machine (litres par heure)"],
+                  ["prixKwh", "Prix du kWh (FCFA)"],
+                ] as [ChampElec, string][]
+              ).map(([champ, libelle]) => (
+                <tr key={champ}>
+                  <td className="min-w-56 px-2 font-medium text-slate-900">{libelle}</td>
+                  {(["ligne1", "ligne2"] as NumeroLigne[]).map((ligne) => (
+                    <td key={ligne} className="px-2">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={saisie.electricite[ligne][champ]}
+                        onChange={(e) => majElec(ligne, champ, e.target.value)}
+                        disabled={!canEdit}
+                        className={CHAMP}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 

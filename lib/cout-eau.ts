@@ -15,11 +15,21 @@ export type LigneCoutEau = {
   perso?: boolean;
 };
 
-export type ElectriciteCoutEau = {
-  // Consommation de l'installation, en kW
+// Electricite d'UNE ligne (Ligne 1 ou Ligne 2), saisie separement pour chaque
+// ligne.
+export type ElectriciteLigneCoutEau = {
+  // Consommation electrique de la ligne quand la machine tourne, en kW
   puissanceKw: number | null;
+  // Debit de la machine, en litres par heure : sert a calculer l'electricite du
+  // mois (litres d'eau / debit = heures de marche, x kW = kWh)
+  debitLitresHeure: number | null;
   // Prix du kWh, en FCFA
   prixKwh: number | null;
+};
+
+export type ElectriciteCoutEau = {
+  ligne1: ElectriciteLigneCoutEau;
+  ligne2: ElectriciteLigneCoutEau;
 };
 
 export type ConfigCoutEau = {
@@ -87,13 +97,28 @@ export function normaliserConfig(brute: unknown): ConfigCoutEau {
     });
   }
 
-  const el = (source.electricite ?? {}) as Partial<ElectriciteCoutEau>;
+  // Ancien format (une seule electricite pour toute l'installation, sans ligne1 /
+  // ligne2) : les memes valeurs sont reprises pour les deux lignes.
+  const el = (source.electricite && typeof source.electricite === "object" ? source.electricite : {}) as Record<
+    string,
+    unknown
+  >;
+  const ancienFormat = "ligne1" in el || "ligne2" in el ? null : el;
   return {
     lignes,
     electricite: {
-      puissanceKw: nombreValide(el.puissanceKw),
-      prixKwh: nombreValide(el.prixKwh),
+      ligne1: electriciteLigne(el.ligne1 ?? ancienFormat),
+      ligne2: electriciteLigne(el.ligne2 ?? ancienFormat),
     },
+  };
+}
+
+function electriciteLigne(brute: unknown): ElectriciteLigneCoutEau {
+  const l = (brute && typeof brute === "object" ? brute : {}) as Partial<ElectriciteLigneCoutEau>;
+  return {
+    puissanceKw: nombreValide(l.puissanceKw),
+    debitLitresHeure: nombreValide(l.debitLitresHeure),
+    prixKwh: nombreValide(l.prixKwh),
   };
 }
 
@@ -120,11 +145,14 @@ export function moisValide(annee: number, mois: number): boolean {
   return Number.isInteger(annee) && annee >= 2020 && annee <= 2100 && Number.isInteger(mois) && mois >= 1 && mois <= 12;
 }
 
-// Nombre de prix reellement saisis (lignes + electricite).
+// Nombre de valeurs reellement saisies (prix des lignes + electricite des deux
+// lignes).
 export function nombreDePrix(config: ConfigCoutEau): number {
+  const nombreElec = (l: ElectriciteLigneCoutEau) =>
+    (l.puissanceKw !== null ? 1 : 0) + (l.debitLitresHeure !== null ? 1 : 0) + (l.prixKwh !== null ? 1 : 0);
   return (
     config.lignes.filter((ligne) => ligne.prix !== null).length +
-    (config.electricite.puissanceKw !== null ? 1 : 0) +
-    (config.electricite.prixKwh !== null ? 1 : 0)
+    nombreElec(config.electricite.ligne1) +
+    nombreElec(config.electricite.ligne2)
   );
 }

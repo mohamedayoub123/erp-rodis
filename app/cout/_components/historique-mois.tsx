@@ -17,19 +17,23 @@ export function HistoriqueMois({
   choisi,
   basePath,
   libelleNombre,
+  description = "Chaque Enregistrer ajoute une ligne. Clique sur un mois pour le revoir en entier.",
+  libellePar = "Enregistre par",
+  libelleLe = "Enregistre le",
 }: {
   lignes: LigneHistoriqueMois[];
   choisi: { annee: number; mois: number };
   basePath: string;
   libelleNombre: string;
+  description?: string;
+  libellePar?: string;
+  libelleLe?: string;
 }) {
   return (
     <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
       <div className="border-b border-slate-100 px-5 py-4">
         <h2 className="text-lg font-bold text-slate-900">Mois enregistres</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Chaque Enregistrer ajoute une ligne. Clique sur un mois pour le revoir en entier.
-        </p>
+        <p className="mt-1 text-sm text-slate-600">{description}</p>
       </div>
 
       {lignes.length === 0 ? (
@@ -41,8 +45,8 @@ export function HistoriqueMois({
               <tr>
                 <th className="px-5 py-3 font-semibold">Mois</th>
                 <th className="px-5 py-3 font-semibold">{libelleNombre}</th>
-                <th className="px-5 py-3 font-semibold">Enregistre par</th>
-                <th className="px-5 py-3 font-semibold">Enregistre le</th>
+                <th className="px-5 py-3 font-semibold">{libellePar}</th>
+                <th className="px-5 py-3 font-semibold">{libelleLe}</th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>

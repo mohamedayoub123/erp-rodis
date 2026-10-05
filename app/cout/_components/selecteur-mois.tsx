@@ -13,6 +13,7 @@ export function SelecteurMois({
   dejaEnregistre,
   repris,
   texteRepris,
+  statut,
 }: {
   annee: number;
   mois: number;
@@ -23,6 +24,8 @@ export function SelecteurMois({
   repris: string | null;
   // Fin de la phrase quand des valeurs sont reprises
   texteRepris: string;
+  // Phrase d'etat propre a la page (remplace celle de "mois enregistre")
+  statut?: string;
 }) {
   const router = useRouter();
 
@@ -64,7 +67,9 @@ export function SelecteurMois({
         <p className="pb-2 text-lg font-black text-slate-950">{libelleMois(annee, mois)}</p>
       </div>
 
-      {dejaEnregistre ? (
+      {statut ? (
+        <p className="mt-3 text-sm font-medium text-slate-700">{statut}</p>
+      ) : dejaEnregistre ? (
         <p className="mt-3 text-sm text-slate-700">
           Mois enregistre le {dejaEnregistre.le}
           {dejaEnregistre.par ? ` par ${dejaEnregistre.par}` : ""}.

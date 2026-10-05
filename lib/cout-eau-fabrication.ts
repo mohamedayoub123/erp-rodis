@@ -57,6 +57,62 @@ export type EauDuMois = {
   nombreEntrees: number;
 };
 
+// Electricite du mois, calculee a partir des litres d'eau : la machine produit
+// "debit" litres par heure et consomme "puissance" kW quand elle tourne.
+//   heures de marche = litres / debit      kWh = heures x puissance
+// Exemple : debit 9000 L/h, 30 kW -> 9000 L = 30 kWh, 18000 L = 60 kWh.
+export const DEBIT_MACHINE_PAR_DEFAUT = 9000;
+export const PUISSANCE_LIGNE_PAR_DEFAUT_KW = 30;
+
+export type ElectriciteLigneDuMois = {
+  litres: number;
+  debitLitresHeure: number;
+  puissanceKw: number;
+  heures: number;
+  kwh: number;
+};
+
+export function calculerElectricite(
+  litres: number,
+  debitLitresHeure: number | null,
+  puissanceKw: number | null
+): ElectriciteLigneDuMois | null {
+  if (!debitLitresHeure || debitLitresHeure <= 0 || puissanceKw === null) return null;
+  const heures = litres / debitLitresHeure;
+  return { litres, debitLitresHeure, puissanceKw, heures, kwh: heures * puissanceKw };
+}
+
+// Les litres du mois ne sont pas connus ligne par ligne : tant que la part de
+// chaque ligne n'est pas saisie, l'eau est repartie a parts egales entre la
+// Ligne 1 et la Ligne 2 (avec les memes kW et le meme debit sur les deux lignes,
+// le total est identique quelle que soit la repartition).
+export const PART_EAU_PAR_LIGNE = 0.5;
+
+export type ElectriciteDuMois = {
+  ligne1: ElectriciteLigneDuMois | null;
+  ligne2: ElectriciteLigneDuMois | null;
+  litres: number;
+  heures: number;
+  kwh: number;
+};
+
+export function calculerElectriciteDuMois(
+  litres: number,
+  ligne1: { debitLitresHeure: number | null; puissanceKw: number | null },
+  ligne2: { debitLitresHeure: number | null; puissanceKw: number | null }
+): ElectriciteDuMois {
+  const part = litres * PART_EAU_PAR_LIGNE;
+  const l1 = calculerElectricite(part, ligne1.debitLitresHeure, ligne1.puissanceKw);
+  const l2 = calculerElectricite(part, ligne2.debitLitresHeure, ligne2.puissanceKw);
+  return {
+    ligne1: l1,
+    ligne2: l2,
+    litres,
+    heures: (l1?.heures ?? 0) + (l2?.heures ?? 0),
+    kwh: (l1?.kwh ?? 0) + (l2?.kwh ?? 0),
+  };
+}
+
 type EntreeFabrication = { quantite: number; famille: FamilleSansEau | null };
 
 export function calculerEauDuMois(entrees: EntreeFabrication[]): EauDuMois {
