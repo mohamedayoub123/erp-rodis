@@ -27,10 +27,10 @@ export const ELEMENTS_CONSO: { cle: string; libelle: string; unite: string }[] =
   { cle: "filtre_10", libelle: "Filtre 10 micron", unite: "pieces" },
   { cle: "filtre_5", libelle: "Filtre 5 micron", unite: "pieces" },
   { cle: "filtre_1", libelle: "Filtre 1 micron", unite: "pieces" },
-  { cle: "th_a", libelle: "Produit test TH (durete) A", unite: "U" },
-  { cle: "th_b", libelle: "Produit test TH (durete) B", unite: "U" },
-  { cle: "th_c", libelle: "Produit test TH (durete) C", unite: "U" },
-  { cle: "test_chlore", libelle: "Produit test chlore", unite: "tests" },
+  { cle: "th_a", libelle: "Produit test TH (durete) A", unite: "pieces" },
+  { cle: "th_b", libelle: "Produit test TH (durete) B", unite: "pieces" },
+  { cle: "th_c", libelle: "Produit test TH (durete) C", unite: "pieces" },
+  { cle: "test_chlore", libelle: "Produit test chlore", unite: "pieces" },
   { cle: "chlore", libelle: "Produit chlore", unite: "L" },
   { cle: "bisulfite", libelle: "Produit bisulfite", unite: "L" },
   { cle: "uv", libelle: "UV (lampe)", unite: "pieces" },
@@ -172,6 +172,15 @@ export function prixDeElement(
     (element.cle ? lignesPrix.find((l) => l.cle === element.cle) : undefined) ??
     (nom ? lignesPrix.find((l) => nomNormalise(l.libelle) === nom) : undefined);
   return trouve ? { prix: trouve.prix, precision: trouve.precision } : null;
+}
+
+// Unite proposee dans une nouvelle saisie : la precision du prix, sauf "U" / "unite" /
+// "piece" qui veulent dire des pieces.
+export function uniteProposee(precision: string | undefined, uniteParDefaut: string): string {
+  const p = nomNormalise(precision ?? "");
+  if (!p) return uniteParDefaut;
+  if (p === "u" || p === "unite" || p === "unites" || p === "piece" || p === "pieces") return "pieces";
+  return (precision ?? "").trim().slice(0, 20);
 }
 
 export function coutDe(quantite: number | null, prix: number | null): number | null {

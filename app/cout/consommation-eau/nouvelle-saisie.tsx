@@ -12,6 +12,7 @@ import {
   moisDeDate,
   nombreValide,
   prixDeElement,
+  uniteProposee,
   type LignePrixElement,
 } from "@/lib/cout-eau-conso";
 import { ajouterSaisiesAction } from "./actions";
@@ -28,7 +29,7 @@ function lignesVides(lignesPrix: LignePrixElement[]): LigneSaisie[] {
     libelle: e.libelle,
     ligne1: "",
     ligne2: "",
-    unite: prixDeElement(lignesPrix, e)?.precision.trim().slice(0, 20) || e.unite,
+    unite: uniteProposee(prixDeElement(lignesPrix, e)?.precision, e.unite),
     perso: false,
   }));
 }
