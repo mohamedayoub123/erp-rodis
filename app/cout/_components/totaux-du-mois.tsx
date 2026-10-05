@@ -89,6 +89,13 @@ export function TotauxDuMois({
                         <span className="font-semibold text-slate-800">{AUTEUR_CONSO_AUTO}</span>
                         <span className="block text-xs text-slate-500">mouvements MP ({t.nombre})</span>
                       </>
+                    ) : t.par && t.par.length > 0 ? (
+                      <>
+                        <span className="font-semibold text-slate-800">{t.par.join(", ")}</span>
+                        {t.nombre > 1 ? (
+                          <span className="block text-xs text-slate-500">{t.nombre} saisies</span>
+                        ) : null}
+                      </>
                     ) : (
                       t.nombre
                     )}

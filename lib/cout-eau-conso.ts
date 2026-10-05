@@ -139,6 +139,8 @@ export type TotalElement = {
   nombre: number;
   // Element calcule automatiquement (mouvements MP) : quantite divisee sur les 2 lignes
   auto?: boolean;
+  // Utilisateurs qui ont saisi cet element dans le mois (noms distincts)
+  par?: string[];
 };
 
 // Total du mois par element (somme des saisies datees + elements automatiques des
@@ -177,6 +179,7 @@ export function totauxDuMois(saisies: SaisieConsoEau[], autos: ConsoAutoMp[] = [
     existant.ligne2 += s.ligne2 ?? 0;
     existant.total = existant.ligne1 + existant.ligne2;
     existant.nombre += 1;
+    if (s.par && !(existant.par ?? []).includes(s.par)) existant.par = [...(existant.par ?? []), s.par];
     parCle.set(s.cle, existant);
   }
 
