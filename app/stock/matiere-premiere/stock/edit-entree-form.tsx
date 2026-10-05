@@ -11,6 +11,7 @@ export function EditStockMpEntreeForm({
   lotId,
   quantite,
   numeroLot,
+  dateEntree,
   dateFabrication,
   dateExpiration,
   fournisseur,
@@ -19,6 +20,7 @@ export function EditStockMpEntreeForm({
   lotId: number;
   quantite: number;
   numeroLot: string;
+  dateEntree: string;
   dateFabrication: string;
   dateExpiration: string;
   fournisseur: string;
@@ -62,6 +64,15 @@ export function EditStockMpEntreeForm({
           type="text"
           name="numero_lot"
           defaultValue={numeroLot}
+          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+        />
+      </label>
+      <label className="grid gap-1 text-xs text-slate-500">
+        Date entree
+        <input
+          type="date"
+          name="date_entree"
+          defaultValue={dateEntree}
           className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
         />
       </label>

@@ -636,11 +636,18 @@ export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
 
   const { data: avantData } = await supabaseServer
     .from("lots_stock_matiere_premiere")
-    .select("article_id, qte_entree, numero_lot, code_normalise")
+    .select("article_id, qte_entree, numero_lot, code_normalise, date_jour, date_reception")
     .eq("id", lotId)
     .maybeSingle();
   const avant = avantData as
-    | { article_id: number | null; qte_entree: number; numero_lot: string | null; code_normalise: string | null }
+    | {
+        article_id: number | null;
+        qte_entree: number;
+        numero_lot: string | null;
+        code_normalise: string | null;
+        date_jour: string | null;
+        date_reception: string | null;
+      }
     | null;
 
   // Un numero de lot peut etre partage par PLUSIEURS lignes (une par
@@ -676,24 +683,61 @@ export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
     }
   }
 
-  const { error } = await supabaseServer
-    .from("lots_stock_matiere_premiere")
-    .update({
-      qte_entree: quantite,
-      numero_lot: numeroLot,
-      // code_normalise doit suivre numero_lot (meme convention qu'a la
-      // creation, voir createEntreeMpBatchAction).
-      code_normalise: numeroLot ? numeroLot.toUpperCase() : null,
-      date_reception: parseOptionalText(formData, "date_reception"),
-      date_fabrication: parseOptionalText(formData, "date_fabrication"),
-      date_expiration: parseOptionalText(formData, "date_expiration"),
-      fournisseur: parseOptionalText(formData, "fournisseur"),
-      emplacement: parseOptionalText(formData, "emplacement"),
-      n_doss_erp: parseOptionalText(formData, "n_doss_erp"),
-      n_doss_4d: parseOptionalText(formData, "n_doss_4d"),
-      note: parseOptionalText(formData, "note"),
-    })
-    .eq("id", lotId);
+  // Seuls les champs ENVOYES par le formulaire sont modifies : le formulaire de
+  // Stock MP n'affiche qu'une partie des champs (ni emplacement, ni dossiers
+  // ERP/4D, ni date de reception) - avant, les champs absents etaient remis a
+  // vide a chaque "Enregistrer" depuis cette page. Un champ envoye vide reste
+  // un champ que l'utilisateur a vide expres.
+  const champTexte = (name: string) => (formData.has(name) ? parseOptionalText(formData, name) : undefined);
+
+  const miseAJour: Record<string, unknown> = {
+    qte_entree: quantite,
+    numero_lot: numeroLot,
+    // code_normalise doit suivre numero_lot (meme convention qu'a la
+    // creation, voir createEntreeMpBatchAction).
+    code_normalise: numeroLot ? numeroLot.toUpperCase() : null,
+  };
+
+  // Date de l'entree : a la creation, date_jour (date affichee et filtree dans
+  // Stock MP) et date_reception portent la meme date - on les change donc
+  // ensemble, mais seulement si la date a REELLEMENT change (sinon un simple
+  // "Enregistrer" ecraserait une date_reception volontairement differente).
+  const dateEntree = parseOptionalText(formData, "date_entree");
+  const dateReception = champTexte("date_reception");
+  const formatDate = /^\d{4}-\d{2}-\d{2}$/;
+
+  if (dateEntree) {
+    if (!formatDate.test(dateEntree)) {
+      throw new Error("Date d'entree invalide.");
+    }
+    if (dateEntree !== avant?.date_jour) {
+      miseAJour.date_jour = dateEntree;
+      miseAJour.date_reception = dateEntree;
+    }
+  } else if (dateReception !== undefined) {
+    if (dateReception !== null && !formatDate.test(dateReception)) {
+      throw new Error("Date de reception invalide.");
+    }
+    miseAJour.date_reception = dateReception;
+    if (dateReception && dateReception !== avant?.date_reception) {
+      miseAJour.date_jour = dateReception;
+    }
+  }
+
+  for (const nom of [
+    "date_fabrication",
+    "date_expiration",
+    "fournisseur",
+    "emplacement",
+    "n_doss_erp",
+    "n_doss_4d",
+    "note",
+  ]) {
+    const valeur = champTexte(nom);
+    if (valeur !== undefined) miseAJour[nom] = valeur;
+  }
+
+  const { error } = await supabaseServer.from("lots_stock_matiere_premiere").update(miseAJour).eq("id", lotId);
 
   if (error) {
     throw new Error(error.message);
@@ -705,8 +749,16 @@ export async function updateLotFromEntreeMpDetailAction(formData: FormData) {
     action: "modification",
     cible: numeroLot || `#${lotId}`,
     resume: `Lot MP ${numeroLot || `#${lotId}`} modifie (entree)`,
-    avant: { qte_entree: avant?.qte_entree ?? null, numero_lot: avant?.numero_lot ?? null },
-    apres: { qte_entree: quantite, numero_lot: numeroLot },
+    avant: {
+      qte_entree: avant?.qte_entree ?? null,
+      numero_lot: avant?.numero_lot ?? null,
+      date_jour: avant?.date_jour ?? null,
+    },
+    apres: {
+      qte_entree: quantite,
+      numero_lot: numeroLot,
+      date_jour: (miseAJour.date_jour as string | undefined) ?? avant?.date_jour ?? null,
+    },
   });
 
   revalidateMouvementsMpPages();

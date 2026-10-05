@@ -569,6 +569,7 @@ export default async function StockMatierePremiereStockPage({
                                 lotId={row.id}
                                 quantite={row.qte_entree}
                                 numeroLot={row.numero_lot || ""}
+                                dateEntree={row.date_jour || ""}
                                 dateFabrication={row.date_fabrication || ""}
                                 dateExpiration={row.date_expiration || ""}
                                 fournisseur={row.fournisseur || ""}
