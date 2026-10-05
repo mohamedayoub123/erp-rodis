@@ -22,6 +22,13 @@ const TILES = [
     icon: "\u{1F9EA}",
     description: "Ce qui a ete consomme chaque mois sur la Ligne 1 et la Ligne 2.",
   },
+  {
+    label: "Prix 1 litre",
+    href: "/cout/prix-1-litre",
+    pageKey: "coutEauPrixLitre",
+    icon: "\u{1F4B0}",
+    description: "Cout d'un litre d'eau du mois choisi : consommables + electricite, divises par les litres du mois.",
+  },
 ] as const;
 
 export default async function EauHubPage() {
@@ -39,7 +46,7 @@ export default async function EauHubPage() {
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Eau</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Traitement de l&apos;eau : les prix des consommables et la consommation de chaque mois.
+                Traitement de l&apos;eau : les prix des consommables, la consommation de chaque mois et le prix d&apos;un litre.
               </p>
             </div>
 

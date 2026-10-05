@@ -10,22 +10,9 @@ import {
   totauxAvecPrix,
   totauxDuMois,
 } from "@/lib/cout-eau-conso";
-import {
-  calculerElectriciteDuMois,
-  coutDuLitre,
-  coutElectriciteDuMois,
-} from "@/lib/cout-eau-fabrication";
 import { HistoriqueMois } from "../_components/historique-mois";
 import { SelecteurMois } from "../_components/selecteur-mois";
-import {
-  lireEauDuMois,
-  lireMoisAvecSaisies,
-  lireParametresElectricite,
-  lirePrixDuMois,
-  lireSaisiesDuMois,
-} from "./data";
-import { CoutDuLitre } from "./cout-du-litre";
-import { EauAutomatique } from "./eau-automatique";
+import { lireMoisAvecSaisies, lirePrixDuMois, lireSaisiesDuMois } from "./data";
 import { NouvelleSaisie } from "./nouvelle-saisie";
 import { SaisiesDuMois } from "./saisies-du-mois";
 import { TotauxDuMois } from "./totaux-du-mois";
@@ -95,32 +82,13 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
     dateDemandee ??
     (choisi.annee === aujourd.annee && choisi.mois === aujourd.mois ? aujourd.date : premierDuMois(choisi.annee, choisi.mois));
 
-  const [eauDuMois, electricite, { saisies, erreur }, mois, prix] = await Promise.all([
-    lireEauDuMois(choisi.annee, choisi.mois),
-    lireParametresElectricite(choisi.annee, choisi.mois),
+  const [{ saisies, erreur }, mois, prix] = await Promise.all([
     lireSaisiesDuMois(choisi.annee, choisi.mois),
     lireMoisAvecSaisies(),
     lirePrixDuMois(choisi.annee, choisi.mois),
   ]);
 
-  // Cout d'un litre d'eau = (consommables + electricite) / litres du mois
   const totaux = totauxAvecPrix(totauxDuMois(saisies), prix.lignes);
-  const coutConsommables = totaux.reduce((somme, t) => somme + (t.cout ?? 0), 0);
-  const consommablesSansPrix = totaux.filter((t) => t.prix === null).length;
-  const parametres = electricite.parametres;
-  const electriciteDuMois = eauDuMois.eau
-    ? calculerElectriciteDuMois(eauDuMois.eau.litres, parametres.ligne1, parametres.ligne2)
-    : null;
-  const coutElectricite = electriciteDuMois
-    ? coutElectriciteDuMois(electriciteDuMois, parametres.ligne1.prixKwh, parametres.ligne2.prixKwh)
-    : null;
-  const electriciteIncomplete =
-    !electriciteDuMois ||
-    !electriciteDuMois.ligne1 ||
-    !electriciteDuMois.ligne2 ||
-    parametres.ligne1.prixKwh === null ||
-    parametres.ligne2.prixKwh === null;
-  const litres = eauDuMois.eau?.litres ?? null;
 
   const anneeMin = Math.min(aujourd.annee - 3, ...mois.map((m) => m.annee));
   const anneeMax = Math.max(aujourd.annee + 1, ...mois.map((m) => m.annee));
@@ -137,10 +105,10 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
                 Eau - Consommation par mois
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                L&apos;eau et l&apos;electricite utilisees dans le mois viennent toutes seules des quantites du Rapport Test labo (memes chiffres).
                 La consommation du traitement de l&apos;eau (filtres, produits, UV, membrane, sel) se saisit avec sa
                 date, pour la Ligne 1 et la Ligne 2 ; choisis un mois ou une date pour voir ce mois. Les prix se
-                saisissent dans &laquo; Prix des consommables &raquo;.
+                saisissent dans &laquo; Prix des consommables &raquo; ; le cout d&apos;un litre d&apos;eau est dans
+                &laquo; Prix 1 litre &raquo;.
               </p>
             </div>
 
@@ -171,26 +139,6 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
               ? "Aucune saisie datee pour ce mois."
               : `${saisies.length} saisie(s) datee(s) ce mois-ci.`
           }
-        />
-
-        <CoutDuLitre
-          annee={choisi.annee}
-          mois={choisi.mois}
-          litres={litres}
-          coutConsommables={coutConsommables}
-          consommablesSansPrix={consommablesSansPrix}
-          coutElectricite={coutElectricite}
-          electriciteIncomplete={electriciteIncomplete}
-          coutLitre={litres === null ? null : coutDuLitre(coutConsommables, coutElectricite, litres)}
-        />
-
-        <EauAutomatique
-          annee={choisi.annee}
-          mois={choisi.mois}
-          eau={eauDuMois.eau}
-          cartons={eauDuMois.cartons}
-          erreur={eauDuMois.erreur}
-          parametres={electricite.parametres}
         />
 
         <TotauxDuMois

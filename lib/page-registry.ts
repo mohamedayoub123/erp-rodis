@@ -1002,6 +1002,15 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     label: "Cout - Eau : Consommation par mois",
     pathPrefixes: ["/cout/consommation-eau"],
   },
+  // Cout d'un litre d'eau, mois par mois (lecture seule). NOUVELLE donc fermee par
+  // defaut (voir PAGES_EXISTANTES).
+  {
+    key: "coutEauPrixLitre",
+    module: "ChargesUsine",
+    label: "Cout - Eau : Prix 1 litre",
+    pathPrefixes: ["/cout/prix-1-litre"],
+    hasWrite: false,
+  },
   // Module vide pour l'instant (contenu pas encore defini) - cache pour
   // tout le monde par defaut, visible seulement pour l'admin tant qu'aucun
   // acces n'est accorde explicitement ici.

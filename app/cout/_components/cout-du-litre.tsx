@@ -12,6 +12,7 @@ export function CoutDuLitre({
   mois,
   litres,
   coutConsommables,
+  nombreConsommables,
   consommablesSansPrix,
   coutElectricite,
   electriciteIncomplete,
@@ -21,6 +22,8 @@ export function CoutDuLitre({
   mois: number;
   litres: number | null;
   coutConsommables: number;
+  // 0 = aucune consommation saisie ce mois-la
+  nombreConsommables: number;
   consommablesSansPrix: number;
   coutElectricite: number | null;
   // Vrai tant que l'electricite d'une ligne n'est pas calculable (kW ou prix du kWh a saisir)
@@ -28,7 +31,7 @@ export function CoutDuLitre({
   coutLitre: number | null;
 }) {
   const coutTotal = coutConsommables + (coutElectricite ?? 0);
-  const incomplet = consommablesSansPrix > 0 || electriciteIncomplete;
+  const incomplet = nombreConsommables === 0 || consommablesSansPrix > 0 || electriciteIncomplete;
 
   return (
     <section className="rounded-[1.75rem] border border-sky-300 bg-gradient-to-br from-sky-50 to-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -88,6 +91,9 @@ export function CoutDuLitre({
       {incomplet ? (
         <p className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
           Cout incomplet pour l&apos;instant :
+          {nombreConsommables === 0
+            ? " aucune consommation de consommables saisie ce mois-ci (« Consommation par mois ») : le cout ne compte que l'electricite."
+            : ""}
           {consommablesSansPrix > 0
             ? ` ${consommablesSansPrix} consommable(s) saisi(s) sans prix (non compte(s)).`
             : ""}

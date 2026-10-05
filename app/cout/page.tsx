@@ -24,9 +24,9 @@ const TILES = [
     label: "Eau",
     href: "/cout/eau",
     // visible des qu'une des deux pages Eau est ouverte pour l'utilisateur
-    anyOfPageKeys: ["coutEau", "coutEauConso"],
+    anyOfPageKeys: ["coutEau", "coutEauConso", "coutEauPrixLitre"],
     icon: "\u{1F4A7}",
-    description: "Prix des consommables (filtres, produits, UV, membrane, sel...) et consommation de chaque mois.",
+    description: "Prix des consommables, consommation de chaque mois et prix d'un litre d'eau.",
   },
 ] as const;
 

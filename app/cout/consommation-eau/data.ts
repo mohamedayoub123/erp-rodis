@@ -1,14 +1,24 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import {
   calculerCartonsDuMois,
+  calculerElectriciteDuMois,
   calculerEauDuMois,
+  coutDuLitre,
+  coutElectriciteDuMois,
   familleSansEau,
   type CartonsDuMois,
   type EauDuMois,
 } from "@/lib/cout-eau-fabrication";
 import { libelleMois, normaliserConfig } from "@/lib/cout-eau";
 import { lireLignesTestLabo } from "@/lib/test-labo-rapports";
-import { debutMoisSuivant, premierDuMois, type LignePrixElement, type SaisieConsoEau } from "@/lib/cout-eau-conso";
+import {
+  debutMoisSuivant,
+  premierDuMois,
+  totauxAvecPrix,
+  totauxDuMois,
+  type LignePrixElement,
+  type SaisieConsoEau,
+} from "@/lib/cout-eau-conso";
 
 // Quantites du mois : EXACTEMENT celles du Rapport Test labo (memes preparations,
 // meme date - la date de prise d'echantillon -, memes quantites commandees PD
@@ -215,4 +225,64 @@ export async function lireMoisAvecSaisies(): Promise<MoisAvecSaisies[]> {
   }
 
   return [...parMois.values()].sort((a, b) => b.annee * 12 + b.mois - (a.annee * 12 + a.mois));
+}
+
+export type CoutDuLitreDuMois = {
+  eau: EauDuMois | null;
+  cartons: CartonsDuMois | null;
+  parametres: ParametresElectricite;
+  litres: number | null;
+  coutConsommables: number;
+  // Nombre d'elements consommes saisis ce mois-la (0 = aucune consommation saisie)
+  nombreConsommables: number;
+  consommablesSansPrix: number;
+  coutElectricite: number | null;
+  // Vrai tant que l'electricite d'une ligne n'est pas calculable (kW ou prix du kWh a saisir)
+  electriciteIncomplete: boolean;
+  coutLitre: number | null;
+  erreur: string | null;
+};
+
+// Cout d'UN litre d'eau du mois = (cout des consommables + cout de l'electricite)
+// / litres d'eau du mois.
+export async function lireCoutDuLitre(annee: number, mois: number): Promise<CoutDuLitreDuMois> {
+  const [eauDuMois, electricite, lecture, prix] = await Promise.all([
+    lireEauDuMois(annee, mois),
+    lireParametresElectricite(annee, mois),
+    lireSaisiesDuMois(annee, mois),
+    lirePrixDuMois(annee, mois),
+  ]);
+
+  const totaux = totauxAvecPrix(totauxDuMois(lecture.saisies), prix.lignes);
+  const coutConsommables = totaux.reduce((somme, t) => somme + (t.cout ?? 0), 0);
+  const consommablesSansPrix = totaux.filter((t) => t.prix === null).length;
+
+  const parametres = electricite.parametres;
+  const electriciteDuMois = eauDuMois.eau
+    ? calculerElectriciteDuMois(eauDuMois.eau.litres, parametres.ligne1, parametres.ligne2)
+    : null;
+  const coutElectricite = electriciteDuMois
+    ? coutElectriciteDuMois(electriciteDuMois, parametres.ligne1.prixKwh, parametres.ligne2.prixKwh)
+    : null;
+  const electriciteIncomplete =
+    !electriciteDuMois ||
+    !electriciteDuMois.ligne1 ||
+    !electriciteDuMois.ligne2 ||
+    parametres.ligne1.prixKwh === null ||
+    parametres.ligne2.prixKwh === null;
+  const litres = eauDuMois.eau?.litres ?? null;
+
+  return {
+    eau: eauDuMois.eau,
+    cartons: eauDuMois.cartons,
+    parametres,
+    litres,
+    coutConsommables,
+    nombreConsommables: totaux.length,
+    consommablesSansPrix,
+    coutElectricite,
+    electriciteIncomplete,
+    coutLitre: litres === null ? null : coutDuLitre(coutConsommables, coutElectricite, litres),
+    erreur: eauDuMois.erreur ?? lecture.erreur,
+  };
 }

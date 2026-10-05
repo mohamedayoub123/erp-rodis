@@ -9,7 +9,7 @@ import {
   type EauDuMois,
 } from "@/lib/cout-eau-fabrication";
 import { libelleMois } from "@/lib/cout-eau";
-import type { ParametresElectricite } from "./data";
+import type { ParametresElectricite } from "../consommation-eau/data";
 
 function nombre(value: number, decimales = 0) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: decimales });
