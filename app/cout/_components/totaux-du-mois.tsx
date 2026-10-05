@@ -59,8 +59,8 @@ export function TotauxDuMois({
                       </span>
                     ) : null}
                   </td>
-                  <td className="px-5 py-3 text-slate-700">{t.auto ? "-" : formaterQuantite(t.ligne1)}</td>
-                  <td className="px-5 py-3 text-slate-700">{t.auto ? "-" : formaterQuantite(t.ligne2)}</td>
+                  <td className="px-5 py-3 text-slate-700">{formaterQuantite(t.ligne1)}</td>
+                  <td className="px-5 py-3 text-slate-700">{formaterQuantite(t.ligne2)}</td>
                   <td className="px-5 py-3 font-semibold text-sky-800">{formaterQuantite(t.total)}</td>
                   <td className="px-5 py-3 text-slate-600">{t.unite || "-"}</td>
                   <td className="px-5 py-3 text-right text-slate-700">

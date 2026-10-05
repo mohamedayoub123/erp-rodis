@@ -7,6 +7,7 @@ import {
   dateFr,
   dateValide,
   formaterFcfa,
+  PART_AUTO_PAR_LIGNE,
   formaterQuantite,
   prixDeElement,
   totalLigne1Ligne2,
@@ -161,8 +162,8 @@ export function SaisiesDuMois({
                         auto
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-slate-700">-</td>
-                    <td className="px-5 py-3 text-slate-700">-</td>
+                    <td className="px-5 py-3 text-slate-700">{formaterQuantite(a.quantite * PART_AUTO_PAR_LIGNE)}</td>
+                    <td className="px-5 py-3 text-slate-700">{formaterQuantite(a.quantite * PART_AUTO_PAR_LIGNE)}</td>
                     <td className="px-5 py-3 text-slate-700">{a.unite || "-"}</td>
                     <td className="px-5 py-3 text-right font-semibold text-sky-800">{formaterQuantite(a.quantite)}</td>
                     <td className="px-5 py-3 text-right text-slate-700">{formaterFcfa(prix, 4)}</td>

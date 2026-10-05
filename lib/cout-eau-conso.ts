@@ -34,8 +34,10 @@ export const ELEMENTS_CONSO: { cle: string; libelle: string; unite: string; arti
   { cle: "test_chlore_a", libelle: "Produit test chlore A", unite: "pieces" },
   { cle: "test_chlore_b", libelle: "Produit test chlore B", unite: "pieces" },
   { cle: "test_chlore_c", libelle: "Produit test chlore C", unite: "pieces" },
-  { cle: "chlore", libelle: "Produit chlore", unite: "kg", articleMp: "CHLORE AU 15%" },
-  { cle: "bisulfite", libelle: "Produit bisulfite", unite: "L" },
+  // Le chlore se compte en LITRES (prix par L) : la quantite des mouvements MP (article en kg,
+  // des bidons de 50) est reprise telle quelle, sans conversion.
+  { cle: "chlore", libelle: "Produit chlore", unite: "L", articleMp: "CHLORE AU 15%" },
+  { cle: "bisulfite", libelle: "METABISILFITE DE SOUDE", unite: "kg", articleMp: "METABISILFITE DE SOUDE" },
   { cle: "uv", libelle: "UV (lampe)", unite: "pieces" },
   { cle: "membrane", libelle: "Membrane", unite: "pieces" },
   { cle: "sel", libelle: "Sel", unite: "kg", articleMp: "TABLETTE SEL HYPERPUR POUR ADOUCISSEUR" },
@@ -46,6 +48,9 @@ export const ELEMENTS_SAISISSABLES = ELEMENTS_CONSO.filter((e) => !e.articleMp);
 export const ELEMENTS_AUTO_MP = ELEMENTS_CONSO.filter(
   (e): e is (typeof ELEMENTS_CONSO)[number] & { articleMp: string } => !!e.articleMp
 );
+
+// La quantite qui sort des mouvements MP est divisee a parts egales entre la Ligne 1 et la Ligne 2.
+export const PART_AUTO_PAR_LIGNE = 0.5;
 
 // Consommation automatique d'un element : sorties de son article dans les mouvements MP du mois.
 export type ConsoAutoMp = {
@@ -126,7 +131,7 @@ export type TotalElement = {
   ligne2: number;
   total: number;
   nombre: number;
-  // Element calcule automatiquement (mouvements MP) : pas de Ligne 1 / Ligne 2
+  // Element calcule automatiquement (mouvements MP) : quantite divisee sur les 2 lignes
   auto?: boolean;
 };
 
@@ -143,8 +148,8 @@ export function totauxDuMois(saisies: SaisieConsoEau[], autos: ConsoAutoMp[] = [
       cle: a.cle,
       libelle: a.libelle,
       unite: a.unite,
-      ligne1: 0,
-      ligne2: 0,
+      ligne1: a.quantite * PART_AUTO_PAR_LIGNE,
+      ligne2: a.quantite * PART_AUTO_PAR_LIGNE,
       total: a.quantite,
       nombre: a.nombre,
       auto: true,

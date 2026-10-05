@@ -274,17 +274,22 @@ export async function lireConsoAutoMp(
   annee: number,
   mois: number
 ): Promise<{ elements: ConsoAutoMp[]; erreur: string | null }> {
-  const noms = ELEMENTS_AUTO_MP.map((e) => e.articleMp);
-  const articles = await supabaseServer
-    .from("articles_matiere_premiere")
-    .select("id, nom_article, unite")
-    .in("nom_article", noms);
-  if (articles.error) return { elements: [], erreur: articles.error.message };
-
-  const parNom = new Map(
-    ((articles.data ?? []) as { id: number; nom_article: string; unite: string | null }[]).map((a) => [a.nom_article, a])
-  );
-  const ids = [...parNom.values()].map((a) => a.id);
+  // Article MP de chaque element : meme nom que dans le catalogue, sans tenir compte des
+  // majuscules ni des espaces en trop (ex: "METABISILFITE  DE SOUDE" avec 2 espaces).
+  const nomNormalise = (nom: string) => nom.replace(/\s+/g, " ").trim().toUpperCase();
+  const articleParCle = new Map<string, { id: number; nom_article: string; unite: string | null }>();
+  for (const e of ELEMENTS_AUTO_MP) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("id, nom_article, unite")
+      .ilike("nom_article", e.articleMp.trim().replace(/\s+/g, "%"))
+      .limit(20);
+    if (error) return { elements: [], erreur: error.message };
+    const trouves = (data ?? []) as { id: number; nom_article: string; unite: string | null }[];
+    const exact = trouves.find((a) => nomNormalise(a.nom_article) === nomNormalise(e.articleMp));
+    if (exact) articleParCle.set(e.cle, exact);
+  }
+  const ids = [...articleParCle.values()].map((a) => a.id);
 
   const sorties = new Map<number, { quantite: number; nombre: number }>();
   if (ids.length > 0) {
@@ -311,15 +316,16 @@ export async function lireConsoAutoMp(
     }
   }
 
-  const manquants = ELEMENTS_AUTO_MP.filter((e) => !parNom.has(e.articleMp)).map((e) => e.articleMp);
+  const manquants = ELEMENTS_AUTO_MP.filter((e) => !articleParCle.has(e.cle)).map((e) => e.articleMp);
   return {
     elements: ELEMENTS_AUTO_MP.map((e) => {
-      const article = parNom.get(e.articleMp);
+      const article = articleParCle.get(e.cle);
       const cumul = article ? sorties.get(article.id) : undefined;
       return {
         cle: e.cle,
         libelle: e.libelle,
-        unite: article?.unite || e.unite,
+        // Unite d'affichage de l'element (le chlore en L), pas celle de l'article MP
+        unite: e.unite,
         quantite: cumul?.quantite ?? 0,
         nombre: cumul?.nombre ?? 0,
         articleMp: e.articleMp,
