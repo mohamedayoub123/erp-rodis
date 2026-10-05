@@ -1,4 +1,10 @@
-import { formaterFcfa, formaterQuantite, unitesCompatibles, type TotalElementAvecPrix } from "@/lib/cout-eau-conso";
+import {
+  AUTEUR_CONSO_AUTO,
+  formaterFcfa,
+  formaterQuantite,
+  unitesCompatibles,
+  type TotalElementAvecPrix,
+} from "@/lib/cout-eau-conso";
 import { libelleMois } from "@/lib/cout-eau";
 
 // Total du mois : somme des saisies datees, element par element, avec le prix
@@ -78,7 +84,14 @@ export function TotauxDuMois({
                   </td>
                   <td className="px-5 py-3 text-right font-semibold text-slate-900">{formaterFcfa(t.cout)}</td>
                   <td className="px-5 py-3 text-slate-600">
-                    {t.auto ? `mouvements MP (${t.nombre})` : t.nombre}
+                    {t.auto ? (
+                      <>
+                        <span className="font-semibold text-slate-800">{AUTEUR_CONSO_AUTO}</span>
+                        <span className="block text-xs text-slate-500">mouvements MP ({t.nombre})</span>
+                      </>
+                    ) : (
+                      t.nombre
+                    )}
                   </td>
                 </tr>
               ))}

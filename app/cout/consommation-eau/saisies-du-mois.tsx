@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AUTEUR_CONSO_AUTO,
   coutDe,
   dateFr,
   dateValide,
@@ -170,7 +171,10 @@ export function SaisiesDuMois({
                     <td className="px-5 py-3 text-right font-semibold text-slate-900">
                       {formaterFcfa(coutDe(a.quantite, prix))}
                     </td>
-                    <td className="px-5 py-3 text-xs text-slate-600">mouvements MP ({a.nombre})</td>
+                    <td className="px-5 py-3 text-slate-600">
+                      {AUTEUR_CONSO_AUTO}
+                      <span className="block text-xs text-slate-500">mouvements MP ({a.nombre})</span>
+                    </td>
                     {modifiable ? <td className="px-5 py-3" /> : null}
                   </tr>
                 );

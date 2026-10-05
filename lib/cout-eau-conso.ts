@@ -51,6 +51,10 @@ export const ELEMENTS_AUTO_MP = ELEMENTS_CONSO.filter(
   (e): e is (typeof ELEMENTS_CONSO)[number] & { articleMp: string } => !!e.articleMp
 );
 
+// Nom affiche pour les lignes automatiques (qui n'ont pas de saisie) : c'est mayoub qui a
+// mis en place ce calcul automatique.
+export const AUTEUR_CONSO_AUTO = "mayoub";
+
 // La quantite qui sort des mouvements MP est divisee a parts egales entre la Ligne 1 et la Ligne 2.
 export const PART_AUTO_PAR_LIGNE = 0.5;
 
