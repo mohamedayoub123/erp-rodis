@@ -143,3 +143,56 @@ export function totauxDuMois(saisies: SaisieConsoEau[]): TotalElement[] {
 export function formaterQuantite(value: number | null): string {
   return value === null ? "-" : value.toLocaleString("fr-FR", { maximumFractionDigits: 4 });
 }
+
+// ---------------------------------------------------------------------------
+// Prix de chaque element (saisis dans "Prix des consommables") et cout.
+// ---------------------------------------------------------------------------
+
+// Une ligne de prix : prix d'UNE unite (FCFA) et la precision de cette unite
+// (U, L, KG, "bidon de 25 L"...).
+export type LignePrixElement = { cle: string; libelle: string; prix: number | null; precision: string };
+
+function nomNormalise(texte: string): string {
+  return texte
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Prix d'un element de consommation : meme cle (elements habituels), sinon meme
+// nom (elements ajoutes a la main des deux cotes, ex. "Produit test TH (durete) A").
+export function prixDeElement(
+  lignesPrix: LignePrixElement[],
+  element: { cle: string; libelle: string }
+): { prix: number | null; precision: string } | null {
+  const nom = nomNormalise(element.libelle);
+  const trouve =
+    (element.cle ? lignesPrix.find((l) => l.cle === element.cle) : undefined) ??
+    (nom ? lignesPrix.find((l) => nomNormalise(l.libelle) === nom) : undefined);
+  return trouve ? { prix: trouve.prix, precision: trouve.precision } : null;
+}
+
+export function coutDe(quantite: number | null, prix: number | null): number | null {
+  return quantite === null || prix === null ? null : quantite * prix;
+}
+
+// Les prix d une unite gardent jusqu a 4 decimales (ex. 211,888 le kg de sel) ; les couts 2.
+export function formaterFcfa(value: number | null, decimales = 2): string {
+  return value === null ? "-" : value.toLocaleString("fr-FR", { maximumFractionDigits: decimales });
+}
+
+export type TotalElementAvecPrix = TotalElement & {
+  prix: number | null;
+  precision: string;
+  cout: number | null;
+};
+
+export function totauxAvecPrix(totaux: TotalElement[], lignesPrix: LignePrixElement[]): TotalElementAvecPrix[] {
+  return totaux.map((t) => {
+    const p = prixDeElement(lignesPrix, t);
+    const prix = p?.prix ?? null;
+    return { ...t, prix, precision: p?.precision ?? "", cout: coutDe(t.total, prix) };
+  });
+}

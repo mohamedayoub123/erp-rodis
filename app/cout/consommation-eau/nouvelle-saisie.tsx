@@ -5,10 +5,14 @@ import { useRouter } from "next/navigation";
 import {
   ELEMENTS_CONSO,
   MAX_ELEMENTS_PAR_SAISIE,
+  coutDe,
   dateFr,
   dateValide,
+  formaterFcfa,
   moisDeDate,
   nombreValide,
+  prixDeElement,
+  type LignePrixElement,
 } from "@/lib/cout-eau-conso";
 import { ajouterSaisiesAction } from "./actions";
 
@@ -16,8 +20,17 @@ import { ajouterSaisiesAction } from "./actions";
 // en nombre se fait a l'enregistrement.
 type LigneSaisie = { cle: string; libelle: string; ligne1: string; ligne2: string; unite: string; perso: boolean };
 
-function lignesVides(): LigneSaisie[] {
-  return ELEMENTS_CONSO.map((e) => ({ cle: e.cle, libelle: e.libelle, ligne1: "", ligne2: "", unite: e.unite, perso: false }));
+// L'unite proposee est celle du prix (precision saisie dans "Prix des
+// consommables") quand elle existe : le cout = quantite x prix d'UNE unite.
+function lignesVides(lignesPrix: LignePrixElement[]): LigneSaisie[] {
+  return ELEMENTS_CONSO.map((e) => ({
+    cle: e.cle,
+    libelle: e.libelle,
+    ligne1: "",
+    ligne2: "",
+    unite: prixDeElement(lignesPrix, e)?.precision.trim().slice(0, 20) || e.unite,
+    perso: false,
+  }));
 }
 
 const CHAMP =
@@ -30,15 +43,17 @@ export function NouvelleSaisie({
   mois,
   dateInitiale,
   basePath,
+  lignesPrix,
 }: {
   annee: number;
   mois: number;
   dateInitiale: string;
   basePath: string;
+  lignesPrix: LignePrixElement[];
 }) {
   const router = useRouter();
   const [date, setDate] = useState(dateInitiale);
-  const [lignes, setLignes] = useState<LigneSaisie[]>(lignesVides);
+  const [lignes, setLignes] = useState<LigneSaisie[]>(() => lignesVides(lignesPrix));
   const [message, setMessage] = useState<{ type: "ok" | "erreur"; texte: string } | null>(null);
   const [enCours, demarrer] = useTransition();
 
@@ -116,7 +131,7 @@ export function NouvelleSaisie({
           return;
         }
 
-        setLignes(lignesVides());
+        setLignes(lignesVides(lignesPrix));
         if (reponse.annee !== annee || reponse.mois !== mois) {
           router.push(`${basePath}?date=${dateChoisie}`);
         } else {
@@ -157,11 +172,21 @@ export function NouvelleSaisie({
               <th className="px-2 py-1 font-semibold">Ligne 1</th>
               <th className="px-2 py-1 font-semibold">Ligne 2</th>
               <th className="px-2 py-1 font-semibold">Unite</th>
+              <th className="px-2 py-1 text-right font-semibold">Prix d&apos;une unite (FCFA)</th>
+              <th className="px-2 py-1 text-right font-semibold">Cout (FCFA)</th>
               <th className="px-2 py-1" />
             </tr>
           </thead>
           <tbody>
-            {lignes.map((ligne, index) => (
+            {lignes.map((ligne, index) => {
+              // Prix de la ligne : meme cle (elements habituels) ou meme nom (elements ajoutes)
+              const prix =
+                prixDeElement(lignesPrix, { cle: ligne.perso ? "" : ligne.cle, libelle: ligne.libelle })?.prix ?? null;
+              const quantite =
+                ligne.ligne1.trim() === "" && ligne.ligne2.trim() === ""
+                  ? null
+                  : (nombreValide(ligne.ligne1) ?? 0) + (nombreValide(ligne.ligne2) ?? 0);
+              return (
               <tr key={`${ligne.cle}-${index}`}>
                 <td className="min-w-48 px-2">
                   {ligne.perso ? (
@@ -204,6 +229,8 @@ export function NouvelleSaisie({
                     className={CHAMP}
                   />
                 </td>
+                <td className="px-2 text-right text-slate-700">{formaterFcfa(prix, 4)}</td>
+                <td className="px-2 text-right font-semibold text-slate-900">{formaterFcfa(coutDe(quantite, prix))}</td>
                 <td className="px-2 text-right">
                   {ligne.perso ? (
                     <button
@@ -216,7 +243,8 @@ export function NouvelleSaisie({
                   ) : null}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

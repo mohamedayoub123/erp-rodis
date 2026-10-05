@@ -6,9 +6,9 @@ import {
   type CartonsDuMois,
   type EauDuMois,
 } from "@/lib/cout-eau-fabrication";
-import { normaliserConfig } from "@/lib/cout-eau";
+import { libelleMois, normaliserConfig } from "@/lib/cout-eau";
 import { lireLignesTestLabo } from "@/lib/test-labo-rapports";
-import { debutMoisSuivant, premierDuMois, type SaisieConsoEau } from "@/lib/cout-eau-conso";
+import { debutMoisSuivant, premierDuMois, type LignePrixElement, type SaisieConsoEau } from "@/lib/cout-eau-conso";
 
 // Quantites du mois : EXACTEMENT celles du Rapport Test labo (memes preparations,
 // meme date - la date de prise d'echantillon -, memes quantites commandees PD
@@ -42,6 +42,34 @@ export async function lireEauDuMois(
   } catch (erreur) {
     return { eau: null, cartons: null, erreur: erreur instanceof Error ? erreur.message : "lecture impossible" };
   }
+}
+
+// Prix de chaque element (page "Prix des consommables") : ceux du mois choisi,
+// sinon ceux du mois enregistre le plus recent AVANT (comme la page des prix).
+export async function lirePrixDuMois(
+  annee: number,
+  mois: number
+): Promise<{ lignes: LignePrixElement[]; source: string | null; erreur: string | null }> {
+  const { data, error } = await supabaseServer
+    .from("cout_eau_mois")
+    .select("annee, mois, donnees")
+    .order("annee", { ascending: false })
+    .order("mois", { ascending: false });
+
+  const choisi = annee * 12 + mois;
+  const retenu = ((data ?? []) as { annee: number; mois: number; donnees: unknown }[]).find(
+    (m) => m.annee * 12 + m.mois <= choisi
+  );
+  if (!retenu) return { lignes: [], source: null, erreur: error ? error.message : null };
+
+  const lignes = normaliserConfig(retenu.donnees).lignes.map((l) => ({
+    cle: l.cle,
+    libelle: l.libelle,
+    prix: l.prix,
+    precision: l.precision,
+  }));
+  const meme = retenu.annee === annee && retenu.mois === mois;
+  return { lignes, source: meme ? "ce mois" : `repris de ${libelleMois(retenu.annee, retenu.mois)}`, erreur: null };
 }
 
 export type ParametresLigneElectricite = {

@@ -3,10 +3,14 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  coutDe,
   dateFr,
   dateValide,
+  formaterFcfa,
   formaterQuantite,
+  prixDeElement,
   totalLigne1Ligne2,
+  type LignePrixElement,
   type SaisieConsoEau,
 } from "@/lib/cout-eau-conso";
 import { modifierSaisieAction, supprimerSaisieAction } from "./actions";
@@ -26,6 +30,7 @@ export function SaisiesDuMois({
   canEdit,
   canDelete,
   basePath,
+  lignesPrix,
 }: {
   saisies: SaisieConsoEau[];
   annee: number;
@@ -33,6 +38,7 @@ export function SaisiesDuMois({
   canEdit: boolean;
   canDelete: boolean;
   basePath: string;
+  lignesPrix: LignePrixElement[];
 }) {
   const router = useRouter();
   const [enEdition, setEnEdition] = useState<number | null>(null);
@@ -103,6 +109,11 @@ export function SaisiesDuMois({
 
   const modifiable = canEdit || canDelete;
 
+  // Prix d'UNE unite de l'element de la saisie (meme cle, sinon meme nom)
+  function prixDe(s: SaisieConsoEau): number | null {
+    return prixDeElement(lignesPrix, s)?.prix ?? null;
+  }
+
   return (
     <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
       <div className="border-b border-slate-100 px-5 py-4">
@@ -125,6 +136,8 @@ export function SaisiesDuMois({
                 <th className="px-5 py-3 font-semibold">Ligne 2</th>
                 <th className="px-5 py-3 font-semibold">Unite</th>
                 <th className="px-5 py-3 text-right font-semibold">Total</th>
+                <th className="px-5 py-3 text-right font-semibold">Prix d&apos;une unite (FCFA)</th>
+                <th className="px-5 py-3 text-right font-semibold">Cout (FCFA)</th>
                 <th className="px-5 py-3 font-semibold">Saisi par</th>
                 {modifiable ? <th className="px-5 py-3" /> : null}
               </tr>
@@ -188,6 +201,10 @@ export function SaisiesDuMois({
                     </td>
                     <td className="px-5 py-3 text-right font-semibold text-sky-800">
                       {formaterQuantite(totalLigne1Ligne2(s))}
+                    </td>
+                    <td className="px-5 py-3 text-right text-slate-700">{formaterFcfa(prixDe(s), 4)}</td>
+                    <td className="px-5 py-3 text-right font-semibold text-slate-900">
+                      {formaterFcfa(coutDe(totalLigne1Ligne2(s), prixDe(s)))}
                     </td>
                     <td className="px-5 py-3 text-slate-600">{s.par ?? "-"}</td>
                     {modifiable ? (

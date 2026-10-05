@@ -35,6 +35,15 @@ export function EauAutomatique({
   const electricite = eau
     ? calculerElectriciteDuMois(eau.litres, parametres.ligne1, parametres.ligne2)
     : null;
+  // Cout de l'electricite = kWh de chaque ligne x prix du kWh de cette ligne
+  // (null tant qu'aucune ligne n'a a la fois ses kWh et son prix)
+  const couts = electricite
+    ? [
+        electricite.ligne1 && parametres.ligne1.prixKwh !== null ? electricite.ligne1.kwh * parametres.ligne1.prixKwh : null,
+        electricite.ligne2 && parametres.ligne2.prixKwh !== null ? electricite.ligne2.kwh * parametres.ligne2.prixKwh : null,
+      ]
+    : [];
+  const coutElectricite = couts.some((c) => c !== null) ? couts.reduce<number>((somme, c) => somme + (c ?? 0), 0) : null;
 
   return (
     <section className="rounded-[1.75rem] border border-sky-200 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
@@ -115,6 +124,8 @@ export function EauAutomatique({
                     <th className="px-4 py-3 font-semibold">Consommation</th>
                     <th className="px-4 py-3 font-semibold">Heures de marche</th>
                     <th className="px-4 py-3 text-right font-semibold">Electricite</th>
+                    <th className="px-4 py-3 text-right font-semibold">Prix du kWh</th>
+                    <th className="px-4 py-3 text-right font-semibold">Cout</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -147,6 +158,16 @@ export function EauAutomatique({
                       <td className="px-4 py-3 text-right font-semibold text-sky-800">
                         {calcul ? `${nombre(calcul.kwh, 1)} kWh` : "-"}
                       </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {param.prixKwh === null ? (
+                          <span className="font-semibold text-amber-700">A saisir</span>
+                        ) : (
+                          `${nombre(param.prixKwh, 2)} FCFA`
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-900">
+                        {calcul && param.prixKwh !== null ? `${nombre(calcul.kwh * param.prixKwh)} FCFA` : "-"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -161,6 +182,10 @@ export function EauAutomatique({
                     </td>
                     <td className="px-4 py-3 text-right text-lg font-black">
                       {electricite.ligne1 || electricite.ligne2 ? `${nombre(electricite.kwh, 1)} kWh` : "-"}
+                    </td>
+                    <td className="px-4 py-3" />
+                    <td className="px-4 py-3 text-right text-lg font-black">
+                      {coutElectricite === null ? "-" : `${nombre(coutElectricite)} FCFA`}
                     </td>
                   </tr>
                 </tfoot>

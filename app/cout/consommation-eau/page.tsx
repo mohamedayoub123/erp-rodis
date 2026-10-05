@@ -7,11 +7,18 @@ import {
   dateValide,
   moisDeDate,
   premierDuMois,
+  totauxAvecPrix,
   totauxDuMois,
 } from "@/lib/cout-eau-conso";
 import { HistoriqueMois } from "../_components/historique-mois";
 import { SelecteurMois } from "../_components/selecteur-mois";
-import { lireEauDuMois, lireMoisAvecSaisies, lireParametresElectricite, lireSaisiesDuMois } from "./data";
+import {
+  lireEauDuMois,
+  lireMoisAvecSaisies,
+  lireParametresElectricite,
+  lirePrixDuMois,
+  lireSaisiesDuMois,
+} from "./data";
 import { EauAutomatique } from "./eau-automatique";
 import { NouvelleSaisie } from "./nouvelle-saisie";
 import { SaisiesDuMois } from "./saisies-du-mois";
@@ -82,11 +89,12 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
     dateDemandee ??
     (choisi.annee === aujourd.annee && choisi.mois === aujourd.mois ? aujourd.date : premierDuMois(choisi.annee, choisi.mois));
 
-  const [eauDuMois, electricite, { saisies, erreur }, mois] = await Promise.all([
+  const [eauDuMois, electricite, { saisies, erreur }, mois, prix] = await Promise.all([
     lireEauDuMois(choisi.annee, choisi.mois),
     lireParametresElectricite(choisi.annee, choisi.mois),
     lireSaisiesDuMois(choisi.annee, choisi.mois),
     lireMoisAvecSaisies(),
+    lirePrixDuMois(choisi.annee, choisi.mois),
   ]);
 
   const anneeMin = Math.min(aujourd.annee - 3, ...mois.map((m) => m.annee));
@@ -149,7 +157,12 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
           parametres={electricite.parametres}
         />
 
-        <TotauxDuMois annee={choisi.annee} mois={choisi.mois} totaux={totauxDuMois(saisies)} />
+        <TotauxDuMois
+          annee={choisi.annee}
+          mois={choisi.mois}
+          totaux={totauxAvecPrix(totauxDuMois(saisies), prix.lignes)}
+          sourcePrix={prix.source}
+        />
 
         {canEdit ? (
           <NouvelleSaisie
@@ -158,6 +171,7 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
             mois={choisi.mois}
             dateInitiale={dateInitiale}
             basePath="/cout/consommation-eau"
+            lignesPrix={prix.lignes}
           />
         ) : (
           <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-600">
@@ -172,6 +186,7 @@ export default async function ConsommationEauPage({ searchParams }: { searchPara
           canEdit={canEdit}
           canDelete={canDelete}
           basePath="/cout/consommation-eau"
+          lignesPrix={prix.lignes}
         />
 
         <HistoriqueMois

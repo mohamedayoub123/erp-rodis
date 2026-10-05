@@ -1,13 +1,34 @@
-import { formaterQuantite, type TotalElement } from "@/lib/cout-eau-conso";
+import { formaterFcfa, formaterQuantite, type TotalElementAvecPrix } from "@/lib/cout-eau-conso";
 import { libelleMois } from "@/lib/cout-eau";
 
-// Total du mois : somme des saisies datees, element par element.
-export function TotauxDuMois({ annee, mois, totaux }: { annee: number; mois: number; totaux: TotalElement[] }) {
+// Total du mois : somme des saisies datees, element par element, avec le prix
+// d'une unite (page "Prix des consommables") et le cout (total x prix).
+export function TotauxDuMois({
+  annee,
+  mois,
+  totaux,
+  sourcePrix,
+}: {
+  annee: number;
+  mois: number;
+  totaux: TotalElementAvecPrix[];
+  // "ce mois", "repris de ..." ou null (aucun prix saisi)
+  sourcePrix: string | null;
+}) {
+  const coutTotal = totaux.reduce((somme, t) => somme + (t.cout ?? 0), 0);
+  const sansPrix = totaux.filter((t) => t.prix === null).length;
+
   return (
     <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
       <div className="border-b border-slate-100 px-5 py-4">
         <h2 className="text-lg font-bold text-slate-900">Consommation de {libelleMois(annee, mois)}</h2>
-        <p className="mt-1 text-sm text-slate-600">Total des saisies datees du mois, element par element.</p>
+        <p className="mt-1 text-sm text-slate-600">
+          Total des saisies datees du mois, element par element, avec le prix d&apos;une unite et le cout (total x
+          prix).{" "}
+          {sourcePrix
+            ? `Prix : ${sourcePrix} (page « Prix des consommables »).`
+            : "Aucun prix saisi : renseigne-les dans « Prix des consommables »."}
+        </p>
       </div>
 
       {totaux.length === 0 ? (
@@ -22,6 +43,8 @@ export function TotauxDuMois({ annee, mois, totaux }: { annee: number; mois: num
                 <th className="px-5 py-3 font-semibold">Ligne 2</th>
                 <th className="px-5 py-3 font-semibold">Total</th>
                 <th className="px-5 py-3 font-semibold">Unite</th>
+                <th className="px-5 py-3 text-right font-semibold">Prix d&apos;une unite (FCFA)</th>
+                <th className="px-5 py-3 text-right font-semibold">Cout (FCFA)</th>
                 <th className="px-5 py-3 font-semibold">Saisies</th>
               </tr>
             </thead>
@@ -33,10 +56,31 @@ export function TotauxDuMois({ annee, mois, totaux }: { annee: number; mois: num
                   <td className="px-5 py-3 text-slate-700">{formaterQuantite(t.ligne2)}</td>
                   <td className="px-5 py-3 font-semibold text-sky-800">{formaterQuantite(t.total)}</td>
                   <td className="px-5 py-3 text-slate-600">{t.unite || "-"}</td>
+                  <td className="px-5 py-3 text-right text-slate-700">
+                    {formaterFcfa(t.prix, 4)}
+                    {t.prix !== null && t.precision ? (
+                      <span className="block text-xs text-slate-500">par {t.precision}</span>
+                    ) : null}
+                  </td>
+                  <td className="px-5 py-3 text-right font-semibold text-slate-900">{formaterFcfa(t.cout)}</td>
                   <td className="px-5 py-3 text-slate-600">{t.nombre}</td>
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr className="border-t border-slate-200 bg-slate-50 font-bold text-slate-900">
+                <td className="px-5 py-3" colSpan={6}>
+                  Cout total des consommables
+                  {sansPrix > 0 ? (
+                    <span className="ml-2 text-xs font-medium text-amber-700">
+                      ({sansPrix} element(s) sans prix, non comptes)
+                    </span>
+                  ) : null}
+                </td>
+                <td className="px-5 py-3 text-right">{formaterFcfa(coutTotal)}</td>
+                <td className="px-5 py-3" />
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}
