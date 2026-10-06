@@ -401,7 +401,7 @@ export async function StatistiqueArticlePlastique({
     { label: "Demarrer la production ?", key: "arret" },
     { label: "A fabriquer", key: "aFabriquer" },
     { label: "Avis de fabrication", key: "avis" },
-    { label: "Machine", key: "machine" },
+    { label: "Machine en cours", key: "machine" },
     { label: "Cavites", key: "cavites" },
   ];
   const exportRows = rows.map((row) => ({
@@ -532,7 +532,7 @@ export async function StatistiqueArticlePlastique({
                     ) : null}
                   </th>
                   <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
-                  <th className="px-6 py-4 font-semibold">Machine</th>
+                  <th className="px-6 py-4 font-semibold">Machine en cours</th>
                   <th className="px-6 py-4 font-semibold">Cavites</th>
                 </tr>
               </thead>
@@ -619,23 +619,43 @@ export async function StatistiqueArticlePlastique({
                       </td>
                       <td className="px-6 py-4">
                         {canEdit && machineCavitesPret ? (
-                          <form action={updateMachinePlastiqueAction} className="flex items-center gap-2">
-                            <input type="hidden" name="article_id" value={row.article_id} />
-                            <input
-                              type="text"
-                              name="machine"
-                              defaultValue={row.machine ?? ""}
-                              placeholder="Machine..."
-                              maxLength={100}
-                              className="w-40 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
-                            />
-                            <SubmitButton
-                              pendingLabel="..."
-                              className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                          <div className="flex items-center gap-2">
+                            {/* key : le champ se remet a jour apres Enregistrer / Supprimer */}
+                            <form
+                              key={`machine-${row.machine ?? ""}`}
+                              action={updateMachinePlastiqueAction}
+                              className="flex items-center gap-2"
                             >
-                              OK
-                            </SubmitButton>
-                          </form>
+                              <input type="hidden" name="article_id" value={row.article_id} />
+                              <input
+                                type="text"
+                                name="machine"
+                                defaultValue={row.machine ?? ""}
+                                placeholder="Machine..."
+                                maxLength={100}
+                                className="w-40 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
+                              />
+                              <SubmitButton
+                                pendingLabel="..."
+                                className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                              >
+                                OK
+                              </SubmitButton>
+                            </form>
+                            {row.machine ? (
+                              // Machine vide = plus aucune machine ne travaille sur cet article
+                              <form action={updateMachinePlastiqueAction}>
+                                <input type="hidden" name="article_id" value={row.article_id} />
+                                <input type="hidden" name="machine" value="" />
+                                <SubmitButton
+                                  pendingLabel="..."
+                                  className="rounded-full border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                                >
+                                  Supprimer
+                                </SubmitButton>
+                              </form>
+                            ) : null}
+                          </div>
                         ) : (
                           <span className="text-slate-600">{row.machine || "-"}</span>
                         )}
