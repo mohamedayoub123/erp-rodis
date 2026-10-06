@@ -214,6 +214,14 @@ export function computeAFabriquer(row: PlastiqueRow): number | null {
   return Math.max(0, row.max_stock - row.stock_actuel);
 }
 
+// Stock critique = 60 % du stock min (null tant que le stock min n'est pas renseigne).
+export const POURCENTAGE_STOCK_CRITIQUE = 0.6;
+
+export function computeStockCritique(row: PlastiqueRow): number | null {
+  if (row.min_stock === null) return null;
+  return row.min_stock * POURCENTAGE_STOCK_CRITIQUE;
+}
+
 export async function StatistiqueArticlePlastique({
   pageHref,
   canEdit,
@@ -262,6 +270,7 @@ export async function StatistiqueArticlePlastique({
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stock" },
     { label: "Stock min", key: "min" },
+    { label: "Stock critique", key: "critique" },
     { label: "Stock max", key: "max" },
     { label: "A fabriquer", key: "aFabriquer" },
     { label: "Avis de fabrication", key: "avis" },
@@ -274,6 +283,7 @@ export async function StatistiqueArticlePlastique({
     unite: row.unite || "-",
     stock: row.stock_actuel,
     min: row.min_stock ?? "-",
+    critique: computeStockCritique(row) ?? "-",
     max: row.max_stock ?? "-",
     aFabriquer: computeAFabriquer(row) ?? "-",
     avis: row.avis_fabrication || "-",
@@ -338,6 +348,7 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">Unite</th>
                   <th className="px-6 py-4 font-semibold">Stock actuel</th>
                   <th className="px-6 py-4 font-semibold">Stock min</th>
+                  <th className="px-6 py-4 font-semibold">Stock critique</th>
                   <th className="px-6 py-4 font-semibold">Stock max</th>
                   <th className="px-6 py-4 font-semibold">A fabriquer</th>
                   <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
@@ -358,6 +369,7 @@ export async function StatistiqueArticlePlastique({
                       ? "bg-amber-100 text-amber-800"
                       : "bg-emerald-100 text-emerald-800";
                   const aFabriquer = computeAFabriquer(row);
+                  const critique = computeStockCritique(row);
                   return (
                     <tr key={row.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
@@ -374,6 +386,9 @@ export async function StatistiqueArticlePlastique({
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.min_stock !== null ? formatNumber(row.min_stock) : "-"}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {critique !== null ? formatNumber(critique) : "-"}
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.max_stock !== null ? formatNumber(row.max_stock) : "-"}
