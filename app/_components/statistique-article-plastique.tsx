@@ -330,7 +330,7 @@ export async function StatistiqueArticlePlastique({
     { label: "Stock critique", key: "critique" },
     { label: "Stock max", key: "max" },
     { label: "Stock max - 20 %", key: "seuilArret" },
-    { label: "Arreter la production", key: "arret" },
+    { label: "Demarrer la production ?", key: "arret" },
     { label: "A fabriquer", key: "aFabriquer" },
     { label: "Avis de fabrication", key: "avis" },
     { label: "Machine", key: "machine" },
@@ -349,7 +349,7 @@ export async function StatistiqueArticlePlastique({
     seuilArret: computeSeuilArret(row) ?? "-",
     arret: (() => {
       const arret = doitArreterProduction(row);
-      return arret === null ? "-" : arret ? "Arreter" : "Continuer";
+      return arret === null ? "-" : arret ? "Ne pas demarrer" : "Demarrer";
     })(),
     aFabriquer: computeAFabriquer(row) ?? "-",
     avis: row.avis_fabrication || "-",
@@ -426,7 +426,7 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">Stock critique</th>
                   <th className="px-6 py-4 font-semibold">Stock max</th>
                   <th className="px-6 py-4 font-semibold">Stock max - 20 %</th>
-                  <th className="px-6 py-4 font-semibold">Arreter la production ?</th>
+                  <th className="px-6 py-4 font-semibold">Demarrer la production ?</th>
                   <th className="px-6 py-4 font-semibold">A fabriquer</th>
                   <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
                   <th className="px-6 py-4 font-semibold">Machine</th>
@@ -486,7 +486,7 @@ export async function StatistiqueArticlePlastique({
                               arret ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"
                             }`}
                           >
-                            {arret ? "Arreter" : "Continuer"}
+                            {arret ? "Ne pas demarrer" : "Demarrer"}
                           </span>
                         )}
                       </td>
