@@ -28,6 +28,9 @@ export type LecturePhotoTransferOrder =
       depotSourceLu: string | null;
       depotDestinationLu: string | null;
       lignes: LigneLuePhoto[];
+      // Listes pour choisir un article a la main a l'ecran de verification (evite de les charger a l'ouverture de la page)
+      articlesMp: { id: number; label: string }[];
+      articlesPf: { id: number; label: string }[];
     }
   | { ok: false; message: string };
 

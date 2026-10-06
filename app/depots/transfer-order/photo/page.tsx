@@ -8,22 +8,8 @@ import { PhotoTransferOrderForm } from "./photo-form";
 // La lecture de la photo par l'IA peut prendre plusieurs secondes
 export const maxDuration = 60;
 
-async function lireArticles(table: "articles_matiere_premiere" | "articles") {
-  const resultat: { id: number; label: string }[] = [];
-  for (let debut = 0; ; debut += 1000) {
-    const { data } = await supabaseServer
-      .from(table)
-      .select("id, nom_article")
-      .order("id", { ascending: true })
-      .range(debut, debut + 999);
-    const page = (data ?? []) as { id: number; nom_article: string | null }[];
-    for (const a of page) if (a.nom_article) resultat.push({ id: a.id, label: a.nom_article });
-    if (page.length < 1000) break;
-  }
-  return resultat.sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
-}
-
-// Transfer Order cree a partir de la photo d'un TO d'un autre systeme.
+// Transfer Order cree a partir de la photo d'un TO d'un autre systeme. La page ne charge que les
+// depots (5 lignes) : les listes d'articles arrivent avec le resultat de la lecture de la photo.
 export default async function TransferOrderPhotoPage() {
   noStore();
 
@@ -41,11 +27,7 @@ export default async function TransferOrderPhotoPage() {
     );
   }
 
-  const [{ data: depotsData }, articlesMp, articlesPf] = await Promise.all([
-    supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
-    lireArticles("articles_matiere_premiere"),
-    lireArticles("articles"),
-  ]);
+  const { data: depotsData } = await supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true });
   const depots = (depotsData ?? []) as { id: number; nom: string }[];
 
   return (
@@ -69,7 +51,7 @@ export default async function TransferOrderPhotoPage() {
           </div>
         </section>
 
-        <PhotoTransferOrderForm depots={depots} articlesMp={articlesMp} articlesPf={articlesPf} />
+        <PhotoTransferOrderForm depots={depots} />
       </div>
     </main>
   );

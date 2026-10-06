@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
+import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { lireTransferOrderSurPhoto } from "@/lib/transfer-order-photo-lecture";
 import {
@@ -18,20 +19,33 @@ import { createTransferOrder } from "../actions";
 
 type Reponse<T> = ({ ok: true } & T) | { ok: false; message: string };
 
+// Toutes les pages d'un coup (en parallele) : une lecture une page apres l'autre devenait tres
+// longue des que la base ralentissait, et la lecture de la photo depassait alors le temps limite.
 async function lireNomsArticles(table: "articles_matiere_premiere" | "articles"): Promise<ArticleRapprochable[]> {
+  const lignes = await fetchAllRowsParallel<{ id: number; nom_article: string | null }>(
+    () => supabaseServer.from(table).select("id", { count: "exact", head: true }),
+    (from, to) =>
+      supabaseServer.from(table).select("id, nom_article").order("id", { ascending: true }).range(from, to)
+  );
   const resultat: ArticleRapprochable[] = [];
-  for (let debut = 0; ; debut += 1000) {
-    const { data, error } = await supabaseServer
-      .from(table)
-      .select("id, nom_article")
-      .order("id", { ascending: true })
-      .range(debut, debut + 999);
-    if (error) throw new Error(error.message);
-    const page = (data ?? []) as { id: number; nom_article: string | null }[];
-    for (const a of page) if (a.nom_article) resultat.push({ id: a.id, nom: a.nom_article });
-    if (page.length < 1000) break;
-  }
+  for (const a of lignes) if (a.nom_article) resultat.push({ id: a.id, nom: a.nom_article });
   return resultat;
+}
+
+async function chargerDonneesRapprochement() {
+  const [articlesMp, articlesPf, { data: depotsData, error: depotsError }] = await Promise.all([
+    lireNomsArticles("articles_matiere_premiere"),
+    lireNomsArticles("articles"),
+    supabaseServer.from("depots").select("id, nom"),
+  ]);
+  if (depotsError) throw new Error(depotsError.message);
+  return { articlesMp, articlesPf, depots: (depotsData ?? []) as { id: number; nom: string }[] };
+}
+
+function enOptions(articles: ArticleRapprochable[]) {
+  return articles
+    .map((a) => ({ id: a.id, label: a.nom }))
+    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
 }
 
 // Lit la photo (IA) puis rapproche chaque nom d'article de ceux de l'ERP. Ne cree rien :
@@ -48,10 +62,18 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
     if (!image) return { ok: false, message: "Choisis d'abord une photo." };
     if (image.length > TAILLE_MAX_PHOTO_BASE64) return { ok: false, message: "La photo est trop lourde." };
 
+    // La lecture par l'IA et le chargement des articles se font EN MEME TEMPS : la duree totale
+    // est celle du plus long des deux, pas leur somme. Le navigateur envoie toujours un JPEG
+    // (photo reduite avant l'envoi).
+    const extractionEnCours = lireTransferOrderSurPhoto(image, "image/jpeg");
+    const donneesEnCours = chargerDonneesRapprochement().then(
+      (donnees) => ({ ok: true as const, donnees }),
+      (erreur: unknown) => ({ ok: false as const, erreur })
+    );
+
     let extraction;
     try {
-      // Le navigateur envoie toujours un JPEG (photo reduite avant l'envoi)
-      extraction = await lireTransferOrderSurPhoto(image, "image/jpeg");
+      extraction = await extractionEnCours;
     } catch (error) {
       if (error instanceof Error && error.message === "CLE_ANTHROPIC_ABSENTE") {
         return {
@@ -68,12 +90,12 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
       return { ok: false, message: "Aucun article n'a ete lu sur cette photo. Reessaie avec une photo plus nette." };
     }
 
-    const [articlesMp, articlesPf, { data: depotsData }] = await Promise.all([
-      lireNomsArticles("articles_matiere_premiere"),
-      lireNomsArticles("articles"),
-      supabaseServer.from("depots").select("id, nom"),
-    ]);
-    const depots = (depotsData ?? []) as { id: number; nom: string }[];
+    const chargement = await donneesEnCours;
+    if (!chargement.ok) {
+      const detail = chargement.erreur instanceof Error ? chargement.erreur.message : "erreur inconnue";
+      return { ok: false, message: `La liste des articles n'a pas pu etre lue (${detail}). Reessaie dans un instant.` };
+    }
+    const { articlesMp, articlesPf, depots } = chargement.donnees;
 
     const date = extraction.date && /^\d{4}-\d{2}-\d{2}$/.test(extraction.date) ? extraction.date : null;
 
@@ -92,6 +114,8 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
         unite: ligne.unite,
         ...rapprocherArticle(ligne.nom, articlesMp, articlesPf),
       })),
+      articlesMp: enOptions(articlesMp),
+      articlesPf: enOptions(articlesPf),
     };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Lecture impossible." };

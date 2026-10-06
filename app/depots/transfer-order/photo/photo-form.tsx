@@ -54,15 +54,7 @@ const STATUT_STYLE: Record<LigneLuePhoto["statut"], { label: string; classe: str
   introuvable: { label: "Introuvable", classe: "bg-red-100 text-red-700" },
 };
 
-export function PhotoTransferOrderForm({
-  depots,
-  articlesMp,
-  articlesPf,
-}: {
-  depots: DepotOption[];
-  articlesMp: ArticleOption[];
-  articlesPf: ArticleOption[];
-}) {
+export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
   const router = useRouter();
   const [image, setImage] = useState<Image | null>(null);
   const [enLecture, lancerLecture] = useTransition();
@@ -76,6 +68,9 @@ export function PhotoTransferOrderForm({
   const [depotDestinationId, setDepotDestinationId] = useState("");
   const [remarque, setRemarque] = useState("");
   const [lignes, setLignes] = useState<LigneEdit[]>([]);
+  // Listes d'articles recues avec la lecture de la photo (pour choisir un article a la main)
+  const [articlesMp, setArticlesMp] = useState<ArticleOption[]>([]);
+  const [articlesPf, setArticlesPf] = useState<ArticleOption[]>([]);
   // Change a chaque lecture : remet a zero les champs article (sinon l'ancien texte tape resterait)
   const [versionLecture, setVersionLecture] = useState(0);
   const entreeCamera = useRef<HTMLInputElement>(null);
@@ -122,6 +117,8 @@ export function PhotoTransferOrderForm({
         }
         setLu({ depotSourceLu: reponse.depotSourceLu, depotDestinationLu: reponse.depotDestinationLu });
         setVersionLecture((v) => v + 1);
+        setArticlesMp(reponse.articlesMp);
+        setArticlesPf(reponse.articlesPf);
         if (reponse.date) setDate(reponse.date);
         setDepotSourceId(reponse.depotSourceId ? String(reponse.depotSourceId) : "");
         setDepotDestinationId(reponse.depotDestinationId ? String(reponse.depotDestinationId) : "");

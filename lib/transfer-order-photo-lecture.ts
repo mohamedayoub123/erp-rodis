@@ -14,16 +14,34 @@ export type ExtractionPhotoTo = {
 
 const MODELE_LECTURE = process.env.ANTHROPIC_MODEL_PHOTO_TO || "claude-opus-5-5";
 
-const OUTIL = "enregistrer_transfer_order";
-
+// Reponse demandee en JSON simple (sans mode "outil force" : certains modeles le refusent) ;
+// la reponse est ensuite relue et verifiee champ par champ.
 const CONSIGNES = `Tu lis la photo d'un document de transfert de stock (Transfer Order / bon de transfert) venant d'un autre logiciel.
 Recopie fidelement ce qui est ecrit : ne devine rien et n'invente aucune ligne.
+
+Reponds UNIQUEMENT avec un objet JSON, sans aucun texte avant ou apres, de cette forme :
+{
+  "depot_source": string ou null,
+  "depot_destination": string ou null,
+  "date": string ou null,
+  "numero_document": string ou null,
+  "lignes": [ { "nom": string, "quantite": nombre ou null, "unite": string ou null } ]
+}
+
 - depot_source / depot_destination : les depots "de" et "vers" tels qu'ecrits (ex: "Depot B"), null s'ils ne sont pas visibles.
 - date : la date du document au format AAAA-MM-JJ, null si absente.
 - numero_document : le numero du TO s'il est visible, sinon null.
 - lignes : une entree par article, avec le nom EXACTEMENT comme ecrit (ne le corrige pas, ne le traduis pas) et la quantite demandee/transferee.
 - Quantites : un espace ou un point entre des groupes de 3 chiffres separe les milliers (1 200 ou 1.200 = 1200) ; la virgule est le separateur decimal. Si une quantite est illisible, mets null.
 - Ignore les lignes de total, les en-tetes et les lignes vides.`;
+
+// Prend le premier objet JSON de la reponse (au cas ou le modele l'entoure d'un bloc de code)
+function extraireJson(texte: string): unknown {
+  const debut = texte.indexOf("{");
+  const fin = texte.lastIndexOf("}");
+  if (debut === -1 || fin <= debut) throw new Error("reponse de l'IA illisible");
+  return JSON.parse(texte.slice(debut, fin + 1));
+}
 
 export async function lireTransferOrderSurPhoto(
   imageBase64: string,
@@ -36,58 +54,37 @@ export async function lireTransferOrderSurPhoto(
 
   const reponse = await client.messages.create({
     model: MODELE_LECTURE,
-    max_tokens: 4096,
+    max_tokens: 8000,
     system: CONSIGNES,
-    tools: [
-      {
-        name: OUTIL,
-        description: "Enregistre le contenu lu sur la photo du Transfer Order.",
-        input_schema: {
-          type: "object",
-          properties: {
-            depot_source: { type: ["string", "null"] },
-            depot_destination: { type: ["string", "null"] },
-            date: { type: ["string", "null"], description: "AAAA-MM-JJ" },
-            numero_document: { type: ["string", "null"] },
-            lignes: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  nom: { type: "string", description: "Nom de l'article exactement comme ecrit" },
-                  quantite: { type: ["number", "null"] },
-                  unite: { type: ["string", "null"] },
-                },
-                required: ["nom", "quantite"],
-              },
-            },
-          },
-          required: ["lignes"],
-        },
-      },
-    ],
-    tool_choice: { type: "tool", name: OUTIL },
     messages: [
       {
         role: "user",
         content: [
           { type: "image", source: { type: "base64", media_type: mediaType, data: imageBase64 } },
-          { type: "text", text: "Lis ce Transfer Order et enregistre son contenu." },
+          { type: "text", text: "Lis ce Transfer Order et reponds avec le JSON demande." },
         ],
       },
     ],
   });
 
-  const bloc = reponse.content.find((b) => b.type === "tool_use");
-  if (!bloc || bloc.type !== "tool_use") throw new Error("Aucune lecture renvoyee pour cette photo.");
+  if (reponse.stop_reason === "max_tokens") {
+    throw new Error("la liste est trop longue pour etre lue en une fois");
+  }
 
-  const brut = bloc.input as {
-    depot_source?: string | null;
-    depot_destination?: string | null;
-    date?: string | null;
-    numero_document?: string | null;
+  const texteReponse = reponse.content.map((bloc) => (bloc.type === "text" ? bloc.text : "")).join("");
+
+  let brut: {
+    depot_source?: unknown;
+    depot_destination?: unknown;
+    date?: unknown;
+    numero_document?: unknown;
     lignes?: { nom?: unknown; quantite?: unknown; unite?: unknown }[];
   };
+  try {
+    brut = extraireJson(texteReponse) as typeof brut;
+  } catch {
+    throw new Error("reponse de l'IA illisible");
+  }
 
   const texte = (valeur: unknown): string | null =>
     typeof valeur === "string" && valeur.trim() !== "" ? valeur.trim() : null;
@@ -97,11 +94,11 @@ export async function lireTransferOrderSurPhoto(
     depotDestination: texte(brut.depot_destination),
     date: texte(brut.date),
     numeroDocument: texte(brut.numero_document),
-    lignes: (brut.lignes ?? [])
+    lignes: (Array.isArray(brut.lignes) ? brut.lignes : [])
       .map((l) => ({
-        nom: texte(l.nom) ?? "",
-        quantite: typeof l.quantite === "number" && Number.isFinite(l.quantite) ? l.quantite : null,
-        unite: texte(l.unite),
+        nom: texte(l?.nom) ?? "",
+        quantite: typeof l?.quantite === "number" && Number.isFinite(l.quantite) ? l.quantite : null,
+        unite: texte(l?.unite),
       }))
       .filter((l) => l.nom !== ""),
   };
