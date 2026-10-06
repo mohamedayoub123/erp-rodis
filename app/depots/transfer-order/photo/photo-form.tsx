@@ -126,6 +126,8 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
   const [articlesPf, setArticlesPf] = useState<ArticleOption[]>([]);
   // Change a chaque lecture : remet a zero les champs article (sinon l'ancien texte tape resterait)
   const [versionLecture, setVersionLecture] = useState(0);
+  // Photo deja gardee par le serveur pendant la lecture : evite de la renvoyer a la creation
+  const [photoTemp, setPhotoTemp] = useState<string | null>(null);
   const zoneMessage = useRef<HTMLDivElement>(null);
   const entreeCamera = useRef<HTMLInputElement>(null);
   const entreeFichier = useRef<HTMLInputElement>(null);
@@ -135,6 +137,7 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
     setMessage(null);
     try {
       setImage(await reduireImage(fichier));
+      setPhotoTemp(null);
       setLu(null);
       setLignes([]);
     } catch {
@@ -150,6 +153,8 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
     setMessage(null);
     try {
       setImage(await pivoterImage(image));
+      // la photo gardee par le serveur n'est plus la bonne : elle sera renvoyee a la creation
+      setPhotoTemp(null);
     } catch {
       setMessage({ type: "erreur", texte: "Impossible de tourner cette image." });
     }
@@ -179,13 +184,14 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
     setMessage(null);
     lancerLecture(async () => {
       try {
-        const reponse = await lirePhotoTransferOrderAction(image.base64);
+        const reponse = await lirePhotoTransferOrderAction(image.base64, photoTemp);
         if (!reponse.ok) {
           setMessage({ type: "erreur", texte: reponse.message });
           return;
         }
         setLu({ depotSourceLu: reponse.depotSourceLu, depotDestinationLu: reponse.depotDestinationLu });
         setVersionLecture((v) => v + 1);
+        setPhotoTemp(reponse.photoTemp);
         setArticlesMp(reponse.articlesMp);
         setArticlesPf(reponse.articlesPf);
         if (reponse.date) setDate(reponse.date);
@@ -255,7 +261,8 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
             articleId: l.articleId as number,
             quantite: lireQuantite(l.quantite) as number,
           })),
-          imageBase64: image?.base64 ?? "",
+          photoTemp,
+          imageBase64: photoTemp ? "" : (image?.base64 ?? ""),
         });
         if (!reponse.ok) {
           setMessage({ type: "erreur", texte: reponse.message });

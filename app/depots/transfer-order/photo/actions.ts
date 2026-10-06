@@ -11,7 +11,11 @@ import {
   preparerArticles,
   rapprocherArticle,
   rapprocherDepot,
+  nettoyerPhotosTemporaires,
+  rattacherPhotoTemporaire,
+  sauverPhotoTemporaire,
   sauverPhotoTransferOrder,
+  supprimerPhotoTemporaire,
   type ArticleRapprochable,
   type ArticleTypePhoto,
   type LecturePhotoTransferOrder,
@@ -52,7 +56,10 @@ function enOptions(articles: ArticleRapprochable[]) {
 // Lit la photo (IA) puis rapproche chaque nom d'article de ceux de l'ERP. Ne cree rien :
 // l'utilisateur verifie la liste avant la creation. Retourne {ok, message} (jamais de throw :
 // Next.js efface le message d'une Error jetee depuis une Server Action en production).
-export async function lirePhotoTransferOrderAction(imageBase64: string): Promise<LecturePhotoTransferOrder> {
+export async function lirePhotoTransferOrderAction(
+  imageBase64: string,
+  photoTempPrecedente?: string | null
+): Promise<LecturePhotoTransferOrder> {
   try {
     const utilisateur = await getCurrentStockUser();
     if (!(await canWritePageUser(utilisateur, "depots"))) {
@@ -67,6 +74,15 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
     // est celle du plus long des deux, pas leur somme. Le navigateur envoie toujours un JPEG
     // (photo reduite avant l'envoi).
     const extractionEnCours = lireTransferOrderSurPhoto(image, "image/jpeg");
+    // La photo est aussi gardee cote serveur pendant la lecture (sans attendre) : a la creation du TO,
+    // elle sera simplement rattachee, sans que le telephone doive la renvoyer. Une relecture
+    // remplace la photo temporaire precedente.
+    const photoTempEnCours = Promise.all([
+      sauverPhotoTemporaire(Buffer.from(image, "base64")),
+      supprimerPhotoTemporaire(photoTempPrecedente),
+      nettoyerPhotosTemporaires(),
+    ]).then(([chemin]) => chemin);
+    const abandonner = () => void photoTempEnCours.then((chemin) => supprimerPhotoTemporaire(chemin));
     const donneesEnCours = chargerDonneesRapprochement().then(
       (donnees) => ({ ok: true as const, donnees }),
       (erreur: unknown) => ({ ok: false as const, erreur })
@@ -76,6 +92,7 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
     try {
       extraction = await extractionEnCours;
     } catch (error) {
+      abandonner();
       if (error instanceof Error && error.message === "CLE_ANTHROPIC_ABSENTE") {
         return {
           ok: false,
@@ -88,11 +105,13 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
     }
 
     if (extraction.lignes.length === 0) {
+      abandonner();
       return { ok: false, message: "Aucun article n'a ete lu sur cette photo. Reessaie avec une photo plus nette : telephone a plat, tout le tableau visible, bien eclaire." };
     }
 
     const chargement = await donneesEnCours;
     if (!chargement.ok) {
+      abandonner();
       const detail = chargement.erreur instanceof Error ? chargement.erreur.message : "erreur inconnue";
       return { ok: false, message: `La liste des articles n'a pas pu etre lue (${detail}). Reessaie dans un instant.` };
     }
@@ -120,6 +139,7 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
       })),
       articlesMp: enOptions(articlesMp),
       articlesPf: enOptions(articlesPf),
+      photoTemp: await photoTempEnCours,
     };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Lecture impossible." };
@@ -139,6 +159,9 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
   depotDestinationId: number;
   remarque: string;
   lignes: LigneACreer[];
+  // Photo deja gardee pendant la lecture (cas normal) ; imageBase64 n'est envoyee que si elle manque
+  // (photo tournee apres la lecture, par exemple)
+  photoTemp: string | null;
   imageBase64: string;
 }): Promise<Reponse<{ transferOrderId: number; photoJointe: boolean }>> {
   try {
@@ -197,9 +220,9 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
       sansControleStock: true,
     });
 
-    let photoJointe = false;
+    let photoJointe = params.photoTemp ? await rattacherPhotoTemporaire(params.photoTemp, transferOrderId) : false;
     const image = String(params.imageBase64 || "");
-    if (image && image.length <= TAILLE_MAX_PHOTO_BASE64) {
+    if (!photoJointe && image && image.length <= TAILLE_MAX_PHOTO_BASE64) {
       photoJointe = await sauverPhotoTransferOrder(transferOrderId, Buffer.from(image, "base64"));
     }
 
