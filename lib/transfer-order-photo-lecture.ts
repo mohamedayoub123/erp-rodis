@@ -18,6 +18,7 @@ const MODELE_LECTURE = process.env.ANTHROPIC_MODEL_PHOTO_TO || "claude-opus-5-5"
 // la reponse est ensuite relue et verifiee champ par champ.
 const CONSIGNES = `Tu lis la photo d'un document de transfert de stock (Transfer Order / bon de transfert) venant d'un autre logiciel.
 Recopie fidelement ce qui est ecrit : ne devine rien et n'invente aucune ligne.
+La photo peut avoir ete prise au telephone : document un peu penche, tourne d'un quart de tour, avec des reflets ou une perspective. Lis-la quand meme, en remettant mentalement le texte droit.
 
 Reponds UNIQUEMENT avec un objet JSON, sans aucun texte avant ou apres, de cette forme :
 {

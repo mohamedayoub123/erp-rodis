@@ -9,6 +9,7 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { RemarqueField } from "@/app/_components/remarque-field";
 import { formatDate } from "@/lib/format-date";
+import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
 import { fetchLotsInDepot, type ArticleType } from "../stock-lots";
 import {
   approveTransferOrderAction,
@@ -26,20 +27,21 @@ import { urlPhotoTransferOrder } from "@/lib/transfer-order-photo";
 import { fetchFluxInfo } from "../flux";
 import { FluxSection } from "../flux-section";
 
+// Toutes les pages d'un coup, en parallele (une page apres l'autre devenait tres lent quand la base ralentit)
 async function fetchAllArticles<T>(table: string, select: string) {
-  const rows: T[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer.from(table).select(select).range(from, from + pageSize - 1);
-    if (error) return rows;
-    rows.push(...((data ?? []) as T[]));
-    if ((data ?? []).length < pageSize) break;
-    from += pageSize;
+  try {
+    return await fetchAllRowsParallel<T>(
+      () => supabaseServer.from(table).select("id", { count: "exact", head: true }),
+      (from, to) =>
+        supabaseServer
+          .from(table)
+          .select(select)
+          .order("id", { ascending: true })
+          .range(from, to) as unknown as PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+    );
+  } catch {
+    return [] as T[];
   }
-
-  return rows;
 }
 
 type TransferOrderRow = {
@@ -96,6 +98,8 @@ export default async function TransferOrderDetailPage({
     { data: invoiceOrdersData },
     articlesMpRows,
     articlesPfRows,
+    photoUrl,
+    flux,
   ] = await Promise.all([
     supabaseServer
       .from("transfer_orders")
@@ -117,6 +121,8 @@ export default async function TransferOrderDetailPage({
       .order("created_at", { ascending: true }),
     fetchAllArticles<{ id: number; nom_article: string }>("articles_matiere_premiere", "id, nom_article"),
     fetchAllArticles<{ id: number; nom_article: string }>("articles", "id, nom_article"),
+    urlPhotoTransferOrder(transferOrderId),
+    fetchFluxInfo(transferOrderId),
   ]);
 
   const articlesMp = articlesMpRows
@@ -171,8 +177,6 @@ export default async function TransferOrderDetailPage({
   // TO1.2026, TO2.2026... fige a la creation (colonne numero) - stable.
   const code = `TO.${transferOrder.date_jour.slice(0, 4)}.${transferOrder.numero ?? transferOrder.id}`;
 
-  const flux = await fetchFluxInfo(transferOrderId);
-
   const lignesEnrichies = await Promise.all(
     lignes.map(async (ligne) => {
       const [nom, lotsDisponiblesBruts] = await Promise.all([
@@ -204,8 +208,6 @@ export default async function TransferOrderDetailPage({
       return { ...ligne, nom, lotsDisponibles };
     })
   );
-
-  const photoUrl = await urlPhotoTransferOrder(transferOrderId);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">

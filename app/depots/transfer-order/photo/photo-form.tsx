@@ -26,18 +26,71 @@ const COTE_MAX = 1800;
 
 // La photo est reduite avant l'envoi (un telephone en fait 3 a 8 Mo) : 1800 px suffisent
 // pour lire un tableau, et l'envoi reste rapide meme en 4G.
+type ImageDecodee = { source: CanvasImageSource; largeur: number; hauteur: number; fermer: () => void };
+
+// Une photo de telephone porte son sens (portrait / paysage) dans ses metadonnees : on demande
+// explicitement de le respecter. Si ce decodage echoue, on retombe sur une balise image.
+async function decoder(fichier: File): Promise<ImageDecodee> {
+  try {
+    const bitmap = await createImageBitmap(fichier, { imageOrientation: "from-image" });
+    return { source: bitmap, largeur: bitmap.width, hauteur: bitmap.height, fermer: () => bitmap.close() };
+  } catch {
+    const url = URL.createObjectURL(fichier);
+    try {
+      const img = new window.Image();
+      await new Promise<void>((ok, ko) => {
+        img.onload = () => ok();
+        img.onerror = () => ko(new Error("decodage"));
+        img.src = url;
+      });
+      return {
+        source: img,
+        largeur: img.naturalWidth,
+        hauteur: img.naturalHeight,
+        fermer: () => URL.revokeObjectURL(url),
+      };
+    } catch (erreur) {
+      URL.revokeObjectURL(url);
+      throw erreur;
+    }
+  }
+}
+
 async function reduireImage(fichier: File): Promise<Image> {
-  const bitmap = await createImageBitmap(fichier);
-  const echelle = Math.min(1, COTE_MAX / Math.max(bitmap.width, bitmap.height));
+  const decodee = await decoder(fichier);
+  try {
+    const echelle = Math.min(1, COTE_MAX / Math.max(decodee.largeur, decodee.hauteur));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(decodee.largeur * echelle));
+    canvas.height = Math.max(1, Math.round(decodee.hauteur * echelle));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(decodee.source, 0, 0, canvas.width, canvas.height);
+    const apercu = canvas.toDataURL("image/jpeg", 0.85);
+    return { base64: apercu.split(",")[1] ?? "", apercu };
+  } finally {
+    decodee.fermer();
+  }
+}
+
+// Tourne la photo d'un quart de tour (si le telephone l'a enregistree couchee)
+async function pivoterImage(image: Image): Promise<Image> {
+  const img = new window.Image();
+  await new Promise<void>((ok, ko) => {
+    img.onload = () => ok();
+    img.onerror = () => ko(new Error("decodage"));
+    img.src = image.apercu;
+  });
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bitmap.width * echelle);
-  canvas.height = Math.round(bitmap.height * echelle);
+  canvas.width = img.naturalHeight;
+  canvas.height = img.naturalWidth;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
+  ctx.translate(canvas.width, 0);
+  ctx.rotate(Math.PI / 2);
+  ctx.drawImage(img, 0, 0);
   const apercu = canvas.toDataURL("image/jpeg", 0.85);
   return { base64: apercu.split(",")[1] ?? "", apercu };
 }
@@ -91,6 +144,16 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
       });
     }
   }, []);
+
+  async function pivoter() {
+    if (!image) return;
+    setMessage(null);
+    try {
+      setImage(await pivoterImage(image));
+    } catch {
+      setMessage({ type: "erreur", texte: "Impossible de tourner cette image." });
+    }
+  }
 
   // Un message d'erreur apparait a cote du bouton "Creer" : on y amene l'ecran pour qu'il soit vu
   useEffect(() => {
@@ -198,10 +261,7 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
           setMessage({ type: "erreur", texte: reponse.message });
           return;
         }
-        const avertissement = reponse.avertissement
-          ? `?avertissement=${encodeURIComponent(reponse.avertissement.slice(0, 900))}`
-          : "";
-        router.push(`/depots/transfer-order/${reponse.transferOrderId}${avertissement}`);
+        router.push(`/depots/transfer-order/${reponse.transferOrderId}`);
       } catch {
         setMessage({ type: "erreur", texte: "Creation impossible (session fermee ?). Recharge la page." });
       }
@@ -217,6 +277,10 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
         <p className="mt-1 text-sm text-slate-600">
           Sur telephone, &laquo; Prendre une photo &raquo; ouvre directement l&apos;appareil photo. Sur ordinateur, choisis une
           image de ton disque, ou colle une capture d&apos;ecran avec Ctrl+V.
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          Pour une bonne lecture : tiens le telephone bien a plat au-dessus du document, avec tout le tableau dans la photo,
+          bien eclaire et sans reflet. Si la photo est couchee, clique sur &laquo; Tourner la photo &raquo;.
         </p>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -250,17 +314,32 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
         </div>
 
         {image ? (
-          <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start">
+          <div className="mt-4 flex flex-col items-start gap-4 sm:flex-row">
+            {/* items-start + object-contain : sur telephone l'apercu etait etire dans une bande large */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={image.apercu} alt="Photo du Transfer Order" className="max-h-72 rounded-xl border border-slate-200" />
-            <button
-              type="button"
-              onClick={lirePhoto}
-              disabled={enLecture}
-              className="rounded-2xl bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:opacity-60"
-            >
-              {enLecture ? "Lecture en cours..." : lu ? "Lire de nouveau la photo" : "Lire la photo"}
-            </button>
+            <img
+              src={image.apercu}
+              alt="Photo du Transfer Order"
+              className="h-auto max-h-72 w-auto max-w-full self-start rounded-xl border border-slate-200 object-contain"
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={lirePhoto}
+                disabled={enLecture}
+                className="rounded-2xl bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:opacity-60"
+              >
+                {enLecture ? "Lecture en cours..." : lu ? "Lire de nouveau la photo" : "Lire la photo"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void pivoter()}
+                disabled={enLecture}
+                className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-slate-500 disabled:opacity-60"
+              >
+                Tourner la photo
+              </button>
+            </div>
           </div>
         ) : null}
       </section>
@@ -270,7 +349,7 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
           <h2 className="text-lg font-bold text-slate-900">2. Verifie ce qui a ete lu</h2>
           <p className="mt-1 text-sm text-slate-600">
             Compare avec la photo : corrige un article ou une quantite si besoin, puis cree le Transfer Order. Rien n&apos;est
-            cree avant ton clic. Le TO est cree meme si le stock du depot source est insuffisant (un avertissement te le dit).
+            cree avant ton clic. Le TO est cree meme si le stock du depot source est insuffisant : sa fiche montre le stock disponible de chaque ligne.
             {aVerifier > 0 ? (
               <span className="font-semibold text-red-600">
                 {" "}

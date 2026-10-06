@@ -16,7 +16,6 @@ import {
   type ArticleTypePhoto,
   type LecturePhotoTransferOrder,
 } from "@/lib/transfer-order-photo";
-import { fetchLotsInDepot, totalAvailable } from "../stock-lots";
 import { createTransferOrder } from "../actions";
 
 type Reponse<T> = ({ ok: true } & T) | { ok: false; message: string };
@@ -89,7 +88,7 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
     }
 
     if (extraction.lignes.length === 0) {
-      return { ok: false, message: "Aucun article n'a ete lu sur cette photo. Reessaie avec une photo plus nette." };
+      return { ok: false, message: "Aucun article n'a ete lu sur cette photo. Reessaie avec une photo plus nette : telephone a plat, tout le tableau visible, bien eclaire." };
     }
 
     const chargement = await donneesEnCours;
@@ -132,8 +131,8 @@ type LigneACreer = { nom: string; articleType: ArticleTypePhoto; articleId: numb
 
 // Cree le Transfer Order (en attente) puis garde la photo en piece jointe. Le TO reproduit un TO
 // qui existe deja dans l'autre systeme : il est cree MEME si le stock du depot source est
-// insuffisant ou a 0 (l'approbation repartit seulement ce qui est disponible). Les articles en manque sont
-// signales dans un avertissement affiche sur la fiche du TO.
+// insuffisant ou a 0 (l'approbation repartit seulement ce qui est disponible). La fiche du TO
+// montre le stock disponible de chaque ligne ; aucun calcul de stock ici pour que la creation soit rapide.
 export async function creerTransferOrderDepuisPhotoAction(params: {
   date: string;
   depotSourceId: number;
@@ -141,7 +140,7 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
   remarque: string;
   lignes: LigneACreer[];
   imageBase64: string;
-}): Promise<Reponse<{ transferOrderId: number; photoJointe: boolean; avertissement: string | null }>> {
+}): Promise<Reponse<{ transferOrderId: number; photoJointe: boolean }>> {
   try {
     const utilisateur = await getCurrentStockUser();
     if (!(await canWritePageUser(utilisateur, "depots"))) {
@@ -198,29 +197,6 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
       sansControleStock: true,
     });
 
-    // Information (jamais un blocage) : quels articles n'ont pas assez de stock au depot source
-    let avertissement: string | null = null;
-    try {
-      const lotsParLigne = await Promise.all(
-        lignesTo.map((l) => fetchLotsInDepot(l.articleType, l.articleId, depotSourceId))
-      );
-      const manquants = lignesTo
-        .map((l, i) => ({ ligne: l, disponible: totalAvailable(lotsParLigne[i]) }))
-        .filter(({ ligne, disponible }) => ligne.quantiteDemandee > disponible + 1e-6);
-      if (manquants.length > 0) {
-        const { data: depotData } = await supabaseServer.from("depots").select("nom").eq("id", depotSourceId).maybeSingle();
-        const nomDepot = (depotData as { nom: string } | null)?.nom ?? "le depot source";
-        const fmt = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
-        const detail = manquants
-          .slice(0, 6)
-          .map(({ ligne, disponible }) => `${ligne.nom} (demande ${fmt(ligne.quantiteDemandee)}, stock ${fmt(disponible)})`)
-          .join(" ; ");
-        avertissement = `Transfer Order cree. Stock insuffisant dans ${nomDepot} pour ${manquants.length} article${manquants.length > 1 ? "s" : ""} : ${detail}${manquants.length > 6 ? " ..." : ""}. Verifie le stock avant de l'approuver : seule la quantite disponible pourra etre repartie sur des lots.`;
-      }
-    } catch {
-      // l'avertissement est facultatif : le TO est deja cree
-    }
-
     let photoJointe = false;
     const image = String(params.imageBase64 || "");
     if (image && image.length <= TAILLE_MAX_PHOTO_BASE64) {
@@ -228,7 +204,7 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
     }
 
     revalidatePath("/depots/transfer-order");
-    return { ok: true, transferOrderId, photoJointe, avertissement };
+    return { ok: true, transferOrderId, photoJointe };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Creation impossible." };
   }
