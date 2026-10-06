@@ -64,8 +64,11 @@ export async function createTransferOrder(params: {
   creePar: string | null;
   remarque?: string | null;
   lignes: { articleType: ArticleType; articleId: number; quantiteDemandee: number }[];
+  // Seulement pour un TO qui reproduit un TO deja existant ailleurs (depuis une photo) : il est cree
+  // meme si le stock du depot source est insuffisant (l'approbation repartit seulement ce qui est disponible).
+  sansControleStock?: boolean;
 }): Promise<number> {
-  const { depotSourceId, depotDestinationId, dateJour, creePar, remarque, lignes } = params;
+  const { depotSourceId, depotDestinationId, dateJour, creePar, remarque, lignes, sansControleStock } = params;
 
   if (!depotSourceId) {
     throw new Error("Choisis le depot source.");
@@ -85,10 +88,13 @@ export async function createTransferOrder(params: {
 
   // Les lignes sont verifiees en parallele (une par une, un Transfer Order de 20 articles
   // prenait tres longtemps) ; l'erreur renvoyee reste celle de la premiere ligne en defaut.
-  const lotsParLigne = await Promise.all(
-    lignesValides.map((ligne) => fetchLotsInDepot(ligne.articleType, ligne.articleId, depotSourceId))
-  );
+  const lotsParLigne = sansControleStock
+    ? []
+    : await Promise.all(
+        lignesValides.map((ligne) => fetchLotsInDepot(ligne.articleType, ligne.articleId, depotSourceId))
+      );
   for (const [index, ligne] of lignesValides.entries()) {
+    if (sansControleStock) break;
     const disponible = totalAvailable(lotsParLigne[index]);
     if (ligne.quantiteDemandee > disponible + 1e-6) {
       throw new Error(

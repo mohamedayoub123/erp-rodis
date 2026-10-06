@@ -19,7 +19,7 @@ import {
 import { fetchLotsInDepot, totalAvailable } from "../stock-lots";
 import { createTransferOrder } from "../actions";
 
-type Reponse<T> = ({ ok: true } & T) | { ok: false; message: string; lignesEnErreur?: number[] };
+type Reponse<T> = ({ ok: true } & T) | { ok: false; message: string };
 
 // Toutes les pages d'un coup (en parallele) : une lecture une page apres l'autre devenait tres
 // longue des que la base ralentissait, et la lecture de la photo depassait alors le temps limite.
@@ -127,11 +127,13 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
   }
 }
 
-// cle + nom : pour dire QUEL article pose probleme (stock insuffisant) et le surligner a l'ecran
-type LigneACreer = { cle: number; nom: string; articleType: ArticleTypePhoto; articleId: number; quantite: number };
+// nom : pour dire QUEL article manque de stock dans l'avertissement
+type LigneACreer = { nom: string; articleType: ArticleTypePhoto; articleId: number; quantite: number };
 
-// Cree le Transfer Order (en attente, comme un TO normal : meme controle du stock du depot
-// source) puis garde la photo en piece jointe.
+// Cree le Transfer Order (en attente) puis garde la photo en piece jointe. Le TO reproduit un TO
+// qui existe deja dans l'autre systeme : il est cree MEME si le stock du depot source est
+// insuffisant ou a 0 (l'approbation repartit seulement ce qui est disponible). Les articles en manque sont
+// signales dans un avertissement affiche sur la fiche du TO.
 export async function creerTransferOrderDepuisPhotoAction(params: {
   date: string;
   depotSourceId: number;
@@ -139,7 +141,7 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
   remarque: string;
   lignes: LigneACreer[];
   imageBase64: string;
-}): Promise<Reponse<{ transferOrderId: number; photoJointe: boolean }>> {
+}): Promise<Reponse<{ transferOrderId: number; photoJointe: boolean; avertissement: string | null }>> {
   try {
     const utilisateur = await getCurrentStockUser();
     if (!(await canWritePageUser(utilisateur, "depots"))) {
@@ -157,7 +159,7 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
     // Un meme article lu sur 2 lignes = une seule ligne de TO (quantites additionnees)
     const regroupees = new Map<
       string,
-      { articleType: ArticleTypePhoto; articleId: number; quantiteDemandee: number; cles: number[]; nom: string }
+      { articleType: ArticleTypePhoto; articleId: number; quantiteDemandee: number; nom: string }
     >();
     for (const [i, ligne] of params.lignes.entries()) {
       const type: ArticleTypePhoto = ligne.articleType === "PF" ? "PF" : "MP";
@@ -173,43 +175,18 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
       const existante = regroupees.get(cle);
       if (existante) {
         existante.quantiteDemandee += quantite;
-        existante.cles.push(ligne.cle);
       } else {
         regroupees.set(cle, {
           articleType: type,
           articleId,
           quantiteDemandee: quantite,
-          cles: [ligne.cle],
           nom: String(ligne.nom || "").trim() || `article #${articleId}`,
         });
       }
     }
 
-    // Controle du stock du depot source AVANT de creer quoi que ce soit, article par article :
-    // le message dit lesquels manquent de stock (un TO venu d'un autre systeme demande souvent
-    // plus que ce que ce depot a en stock chez nous).
     const depotSourceId = Number(params.depotSourceId);
-    const aControler = [...regroupees.values()];
-    const lotsParLigne = depotSourceId > 0
-      ? await Promise.all(aControler.map((l) => fetchLotsInDepot(l.articleType, l.articleId, depotSourceId)))
-      : aControler.map(() => []);
-    const manquants = aControler
-      .map((l, i) => ({ ligne: l, disponible: totalAvailable(lotsParLigne[i]) }))
-      .filter(({ ligne, disponible }) => depotSourceId > 0 && ligne.quantiteDemandee > disponible + 1e-6);
-    if (manquants.length > 0) {
-      const { data: depotData } = await supabaseServer.from("depots").select("nom").eq("id", depotSourceId).maybeSingle();
-      const nomDepot = (depotData as { nom: string } | null)?.nom ?? "le depot source";
-      const fmt = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
-      const detail = manquants
-        .slice(0, 8)
-        .map(({ ligne, disponible }) => `${ligne.nom} (demande ${fmt(ligne.quantiteDemandee)}, disponible ${fmt(disponible)})`)
-        .join(" ; ");
-      return {
-        ok: false,
-        message: `Stock insuffisant dans ${nomDepot} pour ${manquants.length} article${manquants.length > 1 ? "s" : ""} : ${detail}${manquants.length > 8 ? " ..." : ""}. Les lignes concernees sont en rouge dans la liste : corrige leur quantite (ou change le depot source), puis recree.`,
-        lignesEnErreur: manquants.flatMap(({ ligne }) => ligne.cles),
-      };
-    }
+    const lignesTo = [...regroupees.values()];
 
     const transferOrderId = await createTransferOrder({
       depotSourceId,
@@ -217,8 +194,32 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
       dateJour: params.date,
       creePar: utilisateur,
       remarque: String(params.remarque || "").trim().slice(0, 300) || null,
-      lignes: [...regroupees.values()],
+      lignes: lignesTo,
+      sansControleStock: true,
     });
+
+    // Information (jamais un blocage) : quels articles n'ont pas assez de stock au depot source
+    let avertissement: string | null = null;
+    try {
+      const lotsParLigne = await Promise.all(
+        lignesTo.map((l) => fetchLotsInDepot(l.articleType, l.articleId, depotSourceId))
+      );
+      const manquants = lignesTo
+        .map((l, i) => ({ ligne: l, disponible: totalAvailable(lotsParLigne[i]) }))
+        .filter(({ ligne, disponible }) => ligne.quantiteDemandee > disponible + 1e-6);
+      if (manquants.length > 0) {
+        const { data: depotData } = await supabaseServer.from("depots").select("nom").eq("id", depotSourceId).maybeSingle();
+        const nomDepot = (depotData as { nom: string } | null)?.nom ?? "le depot source";
+        const fmt = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
+        const detail = manquants
+          .slice(0, 6)
+          .map(({ ligne, disponible }) => `${ligne.nom} (demande ${fmt(ligne.quantiteDemandee)}, stock ${fmt(disponible)})`)
+          .join(" ; ");
+        avertissement = `Transfer Order cree. Stock insuffisant dans ${nomDepot} pour ${manquants.length} article${manquants.length > 1 ? "s" : ""} : ${detail}${manquants.length > 6 ? " ..." : ""}. Verifie le stock avant de l'approuver : seule la quantite disponible pourra etre repartie sur des lots.`;
+      }
+    } catch {
+      // l'avertissement est facultatif : le TO est deja cree
+    }
 
     let photoJointe = false;
     const image = String(params.imageBase64 || "");
@@ -227,7 +228,7 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
     }
 
     revalidatePath("/depots/transfer-order");
-    return { ok: true, transferOrderId, photoJointe };
+    return { ok: true, transferOrderId, photoJointe, avertissement };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Creation impossible." };
   }

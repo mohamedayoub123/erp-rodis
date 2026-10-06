@@ -73,8 +73,6 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
   const [articlesPf, setArticlesPf] = useState<ArticleOption[]>([]);
   // Change a chaque lecture : remet a zero les champs article (sinon l'ancien texte tape resterait)
   const [versionLecture, setVersionLecture] = useState(0);
-  // Lignes refusees a la creation (stock insuffisant...) : surlignees en rouge
-  const [lignesEnErreur, setLignesEnErreur] = useState<number[]>([]);
   const zoneMessage = useRef<HTMLDivElement>(null);
   const entreeCamera = useRef<HTMLInputElement>(null);
   const entreeFichier = useRef<HTMLInputElement>(null);
@@ -152,13 +150,11 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
 
   function majLigne(cle: number, changement: Partial<LigneEdit>) {
     setMessage(null);
-    setLignesEnErreur((liste) => liste.filter((c) => c !== cle));
     setLignes((ls) => ls.map((l) => (l.cle === cle ? { ...l, ...changement } : l)));
   }
 
   function creer() {
     setMessage(null);
-    setLignesEnErreur([]);
     if (!depotSourceId || !depotDestinationId) {
       setMessage({ type: "erreur", texte: "Choisis le depot source et le depot destination." });
       return;
@@ -191,7 +187,6 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
           depotDestinationId: Number(depotDestinationId),
           remarque,
           lignes: lignes.map((l) => ({
-            cle: l.cle,
             nom: l.articleNom || l.nomLu,
             articleType: l.articleType,
             articleId: l.articleId as number,
@@ -200,11 +195,13 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
           imageBase64: image?.base64 ?? "",
         });
         if (!reponse.ok) {
-          setLignesEnErreur(reponse.lignesEnErreur ?? []);
           setMessage({ type: "erreur", texte: reponse.message });
           return;
         }
-        router.push(`/depots/transfer-order/${reponse.transferOrderId}`);
+        const avertissement = reponse.avertissement
+          ? `?avertissement=${encodeURIComponent(reponse.avertissement.slice(0, 900))}`
+          : "";
+        router.push(`/depots/transfer-order/${reponse.transferOrderId}${avertissement}`);
       } catch {
         setMessage({ type: "erreur", texte: "Creation impossible (session fermee ?). Recharge la page." });
       }
@@ -273,7 +270,7 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
           <h2 className="text-lg font-bold text-slate-900">2. Verifie ce qui a ete lu</h2>
           <p className="mt-1 text-sm text-slate-600">
             Compare avec la photo : corrige un article ou une quantite si besoin, puis cree le Transfer Order. Rien n&apos;est
-            cree avant ton clic.
+            cree avant ton clic. Le TO est cree meme si le stock du depot source est insuffisant (un avertissement te le dit).
             {aVerifier > 0 ? (
               <span className="font-semibold text-red-600">
                 {" "}
@@ -328,7 +325,7 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
                   const statut = l.articleId ? l.statut : "introuvable";
                   const style = STATUT_STYLE[statut];
                   return (
-                    <tr key={l.cle} className={`align-middle ${lignesEnErreur.includes(l.cle) ? "bg-red-50" : ""}`}>
+                    <tr key={l.cle} className="align-middle">
                       <td className="min-w-48 px-2 font-medium text-slate-900">{l.nomLu}</td>
                       <td className="w-24 px-2">
                         <select
