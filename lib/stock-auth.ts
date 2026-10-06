@@ -1049,6 +1049,14 @@ export async function wasSessionClosedElsewhere() {
 // "Approuver" ne faisait plus rien, sans aucun message.
 export type SessionStatus = "ok" | "closed_elsewhere" | "expired" | "none";
 
+// Meme verdict "session ouverte / fermee ailleurs" pendant 30 s, par instance du serveur : chaque
+// onglet ouvert verifie sa session regulierement (SessionWatcher), et chaque verification lisait la
+// base. Avec beaucoup d'onglets ouverts, c'etait des dizaines de milliers de requetes par jour (et
+// les onglets restes sur l'ancien code continuent toutes les 30 s). Une session fermee ailleurs est
+// donc signalee avec au plus 30 s de retard. Seuls les verdicts lus avec succes sont gardes.
+const DUREE_CACHE_SESSION_MS = 30_000;
+const verdictsSession = new Map<string, { statut: SessionStatus; jusqua: number }>();
+
 export async function getSessionStatus(): Promise<SessionStatus> {
   const cookieStore = await cookies();
   const raw = cookieStore.get(STOCK_AUTH_COOKIE)?.value || "";
@@ -1060,6 +1068,11 @@ export async function getSessionStatus(): Promise<SessionStatus> {
   if (!safeEqual(signature, signSession(username, expiresAt, token))) return "none";
   if (Number(expiresAt) < Date.now()) return "expired";
 
+  const cle = `${username}\n${token}`;
+  const maintenant = Date.now();
+  const enCache = verdictsSession.get(cle);
+  if (enCache && enCache.jusqua > maintenant) return enCache.statut;
+
   const { data, error } = await supabaseServer
     .from("stock_users")
     .select("active_session_token")
@@ -1069,9 +1082,16 @@ export async function getSessionStatus(): Promise<SessionStatus> {
   // Erreur de lecture (base tres sollicitee...) : on ne declare surtout pas la
   // session fermee a tort - le controle reessaiera.
   if (error) return "ok";
-  if (!data) return "closed_elsewhere";
 
-  return (data as { active_session_token: string | null }).active_session_token === token
-    ? "ok"
-    : "closed_elsewhere";
+  const statut: SessionStatus =
+    data && (data as { active_session_token: string | null }).active_session_token === token
+      ? "ok"
+      : "closed_elsewhere";
+
+  if (verdictsSession.size > 500) {
+    for (const [autreCle, valeur] of verdictsSession) if (valeur.jusqua <= maintenant) verdictsSession.delete(autreCle);
+    if (verdictsSession.size > 500) verdictsSession.clear();
+  }
+  verdictsSession.set(cle, { statut, jusqua: maintenant + DUREE_CACHE_SESSION_MS });
+  return statut;
 }
