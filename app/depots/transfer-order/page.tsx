@@ -158,6 +158,14 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
 
             <div className="flex flex-wrap items-center gap-3">
               <BackButton href="/depots" label="Retour" />
+              {canEdit ? (
+                <Link
+                  href="/depots/transfer-order/photo"
+                  className="rounded-full bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-500"
+                >
+                  Creer depuis une photo
+                </Link>
+              ) : null}
               <RefreshButton />
             </div>
           </div>

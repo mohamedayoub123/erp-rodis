@@ -22,6 +22,7 @@ import {
 } from "../actions";
 import { TransferOrderLignesEditor } from "../lignes-editor";
 import { TransferOrderLignesEditorEnAttente } from "../lignes-editor-en-attente";
+import { urlPhotoTransferOrder } from "@/lib/transfer-order-photo";
 import { fetchFluxInfo } from "../flux";
 import { FluxSection } from "../flux-section";
 
@@ -204,6 +205,8 @@ export default async function TransferOrderDetailPage({
     })
   );
 
+  const photoUrl = await urlPhotoTransferOrder(transferOrderId);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -285,6 +288,20 @@ export default async function TransferOrderDetailPage({
               canEdit={canEdit}
             />
           </div>
+
+          {photoUrl ? (
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <p className="text-xs font-semibold text-slate-500">Photo jointe (TO d&apos;origine)</p>
+              <a href={photoUrl} target="_blank" rel="noreferrer">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photoUrl}
+                  alt="Photo du TO d'origine"
+                  className="mt-2 max-h-48 rounded-xl border border-slate-200"
+                />
+              </a>
+            </div>
+          ) : null}
         </section>
 
         {avertissement ? (
