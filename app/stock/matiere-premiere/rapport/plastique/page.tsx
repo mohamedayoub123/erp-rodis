@@ -3,7 +3,15 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { StatistiqueArticlePlastique } from "@/app/_components/statistique-article-plastique";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
-type SearchParams = Promise<{ q?: string; categorie?: string; type?: string; gamme?: string }>;
+type SearchParams = Promise<{
+  q?: string;
+  categorie?: string;
+  type?: string;
+  gamme?: string;
+  machine?: string;
+  afabriquer?: string;
+  demarrage?: string;
+}>;
 
 export default async function StatistiqueArticlePlastiqueMpPage({
   searchParams,

@@ -3,6 +3,8 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { SupprimerCommandeButton } from "../supprimer-commande-button";
 
 type CommandeRow = {
   id: number;
@@ -46,6 +48,7 @@ export default async function CommandeArticlePlastiqueDetailPage({
     .eq("commande_id", (commande as CommandeRow).id)
     .order("nom_article", { ascending: true });
   const lignes = (lignesData ?? []) as LigneRow[];
+  const canDelete = await canDeletePageUser(await getCurrentStockUser(), "productionPlastique");
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -67,6 +70,13 @@ export default async function CommandeArticlePlastiqueDetailPage({
 
             <div className="flex items-center gap-3">
               <BackButton href="/production-plastique/commandes" label="Retour commandes" />
+              {canDelete ? (
+                <SupprimerCommandeButton
+                  commandeId={(commande as CommandeRow).id}
+                  code={(commande as CommandeRow).code}
+                  retourListe
+                />
+              ) : null}
               <RefreshButton />
             </div>
           </div>

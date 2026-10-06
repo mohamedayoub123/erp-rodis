@@ -4,6 +4,8 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
+import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { SupprimerCommandeButton } from "./supprimer-commande-button";
 
 type CommandeRow = {
   id: number;
@@ -14,6 +16,8 @@ type CommandeRow = {
 
 export default async function CommandesArticlePlastiquePage() {
   noStore();
+
+  const canDelete = await canDeletePageUser(await getCurrentStockUser(), "productionPlastique");
 
   const { data: commandesData } = await supabaseServer
     .from("commandes_article_plastique")
@@ -62,6 +66,7 @@ export default async function CommandesArticlePlastiquePage() {
                   <th className="px-6 py-4 font-semibold">Date</th>
                   <th className="px-6 py-4 font-semibold">Cree par</th>
                   <th className="px-6 py-4 font-semibold">Articles</th>
+                  {canDelete ? <th className="px-6 py-4" /> : null}
                 </tr>
               </thead>
               <tbody>
@@ -78,6 +83,11 @@ export default async function CommandesArticlePlastiquePage() {
                     <td className="px-6 py-4 text-slate-600">{formatDate(commande.created_at.slice(0, 10))}</td>
                     <td className="px-6 py-4 text-slate-600">{commande.created_by || "-"}</td>
                     <td className="px-6 py-4 text-slate-600">{countByCommandeId.get(commande.id) ?? 0}</td>
+                    {canDelete ? (
+                      <td className="px-6 py-4 text-right">
+                        <SupprimerCommandeButton commandeId={commande.id} code={commande.code} />
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

@@ -329,7 +329,15 @@ export async function StatistiqueArticlePlastique({
 }: {
   pageHref: string;
   canEdit: boolean;
-  searchParams: Promise<{ q?: string; categorie?: string; type?: string; gamme?: string }>;
+  searchParams: Promise<{
+  q?: string;
+  categorie?: string;
+  type?: string;
+  gamme?: string;
+  machine?: string;
+  afabriquer?: string;
+  demarrage?: string;
+}>;
 }) {
   noStore();
   const params = await searchParams;
@@ -337,7 +345,14 @@ export async function StatistiqueArticlePlastique({
   const categorieFilter = (params.categorie || "").trim();
   const typeFilter = (params.type || "").trim();
   const gammeFilter = (params.gamme || "").trim();
-  const hasFilters = Boolean(q || categorieFilter || typeFilter || gammeFilter);
+  // Filtres a 3 choix (tous / avec / sans) : toute autre valeur de l'adresse est ignoree
+  const machineFilter = params.machine === "avec" || params.machine === "sans" ? params.machine : "";
+  const aFabriquerFilter = params.afabriquer === "avec" || params.afabriquer === "sans" ? params.afabriquer : "";
+  const demarrageFilter =
+    params.demarrage === "demarrer" || params.demarrage === "ne_pas_demarrer" ? params.demarrage : "";
+  const hasFilters = Boolean(
+    q || categorieFilter || typeFilter || gammeFilter || machineFilter || aFabriquerFilter || demarrageFilter
+  );
 
   const { rows: allRows, error, machineCavitesPret, derniereCommandeCode } = await fetchPlastiqueRows();
 
@@ -349,7 +364,17 @@ export async function StatistiqueArticlePlastique({
       (row) =>
         !typeFilter || row.types_produit.some((type) => type.toLowerCase() === typeFilter.toLowerCase())
     )
-    .filter((row) => !gammeFilter || (row.gamme || "").toLowerCase() === gammeFilter.toLowerCase());
+    .filter((row) => !gammeFilter || (row.gamme || "").toLowerCase() === gammeFilter.toLowerCase())
+    // Machine : "avec" = un nom de machine est renseigne
+    .filter((row) => !machineFilter || Boolean(row.machine?.trim()) === (machineFilter === "avec"))
+    // A fabriquer : "avec" = l'article est dans la derniere commande
+    .filter((row) => !aFabriquerFilter || Boolean(row.a_fabriquer) === (aFabriquerFilter === "avec"))
+    // Production : "Demarrer" ou "Ne pas demarrer" (les articles sans stock max n'ont ni l'un ni l'autre)
+    .filter((row) => {
+      if (!demarrageFilter) return true;
+      const arret = doitArreterProduction(row);
+      return arret !== null && arret === (demarrageFilter === "ne_pas_demarrer");
+    });
 
   const articleOptions = allRows.map((row, index) => ({ id: index, label: row.nom_article }));
   const categorieOptions = [...new Set(allRows.map((row) => displayCategorie(row.categorie)))].map(
@@ -413,6 +438,36 @@ export async function StatistiqueArticlePlastique({
           />
           <SearchableFilterInput name="type" defaultValue={typeFilter} options={typeOptions} placeholder="Type..." />
           <SearchableFilterInput name="gamme" defaultValue={gammeFilter} options={gammeOptions} placeholder="Gamme..." />
+          <select
+            name="machine"
+            defaultValue={machineFilter}
+            aria-label="Filtre machine"
+            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+          >
+            <option value="">Machine : tous les articles</option>
+            <option value="avec">Avec machine</option>
+            <option value="sans">Sans machine</option>
+          </select>
+          <select
+            name="afabriquer"
+            defaultValue={aFabriquerFilter}
+            aria-label="Filtre a fabriquer"
+            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+          >
+            <option value="">A fabriquer : tous les articles</option>
+            <option value="avec">Avec a fabriquer</option>
+            <option value="sans">Sans a fabriquer</option>
+          </select>
+          <select
+            name="demarrage"
+            defaultValue={demarrageFilter}
+            aria-label="Filtre demarrer la production"
+            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+          >
+            <option value="">Production : tous les articles</option>
+            <option value="demarrer">Demarrer</option>
+            <option value="ne_pas_demarrer">Ne pas demarrer</option>
+          </select>
           <div className="flex flex-wrap gap-3 sm:col-span-4">
             <button
               type="submit"
