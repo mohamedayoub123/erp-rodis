@@ -8,7 +8,9 @@ import { useEffect, useState } from "react";
 // mais "Approuver" / "Enregistrer" ne faisaient plus rien, sans message.
 // Maintenant un bandeau bloquant l'explique tout de suite et propose de se
 // reconnecter. Une erreur reseau ne declenche jamais le bandeau.
-const INTERVALLE_MS = 30_000;
+// 1 appel serveur par verification : toutes les minutes, et seulement si l'onglet est affiche (un onglet
+// cache ne verifie plus ; la verification repart des qu'on y revient, voir plus bas).
+const INTERVALLE_MS = 60_000;
 
 type Statut = "ok" | "closed_elsewhere" | "expired" | "none";
 
@@ -19,6 +21,7 @@ export function SessionWatcher() {
     let arrete = false;
 
     async function verifier() {
+      if (document.visibilityState !== "visible") return;
       try {
         const reponse = await fetch("/api/session", { cache: "no-store", credentials: "same-origin" });
         if (!reponse.ok) return;
