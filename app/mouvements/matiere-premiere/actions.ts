@@ -12,6 +12,7 @@ import {
   type RecettePlastiqueLigne,
 } from "@/app/production-plastique/shared";
 import { logAudit } from "@/lib/audit-log";
+import { invaliderSoldesLotsMp } from "@/lib/lot-balances-mp";
 
 // Supprime une ligne de detail puis, si c'etait la derniere ligne de son
 // mouvement (groupe), renvoie vers la liste au lieu de laisser la page
@@ -134,6 +135,8 @@ async function requireMouvementsMpSortieAdminWriteAccess() {
 }
 
 function revalidateMouvementsMpPages() {
+  // le stock vient de changer : les soldes par lot gardes en memoire doivent etre relus
+  invaliderSoldesLotsMp();
   revalidatePath("/stock/matiere-premiere/stock");
   revalidatePath("/mouvements/matiere-premiere");
   revalidatePath("/dashboard");

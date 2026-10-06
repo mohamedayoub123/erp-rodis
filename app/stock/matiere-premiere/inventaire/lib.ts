@@ -1,31 +1,14 @@
 import { supabaseServer } from "@/lib/supabase-server";
+import { lireSoldesLotsMp, type LotBalanceRow } from "@/lib/lot-balances-mp";
 
-export type LotBalanceRow = { article_id: number; numero_lot: string; stock: number };
+export type { LotBalanceRow };
 export type CategorieCount = { categorie: string; count: number };
 export type GammeCount = { gamme: string; count: number };
 
+// Soldes par article + lot : lecture partagee et gardee 10 s (voir lib/lot-balances-mp.ts), car chaque
+// affichage de l'Inventaire la relisait 2 a 3 fois (comptes par categorie et par gamme, nombre de lots).
 export async function fetchAllLotBalances(): Promise<LotBalanceRow[]> {
-  // Deduplique par (article_id, numero_lot) - filet de securite en plus de
-  // l'ORDER BY cote SQL (stock_mp_lot_balances) : sans ordre stable, une
-  // pagination en plusieurs appels peut renvoyer la meme ligne deux fois
-  // (bug reel confirme sur l'equivalent PF, voir
-  // scripts/sql/fix_lot_balances_pagination_order.sql), ce qui provoquait
-  // une violation de contrainte unique lors de la distribution d'un lot de
-  // travail.
-  const byKey = new Map<string, LotBalanceRow>();
-  let from = 0;
-  const pageSize = 1000;
-  for (;;) {
-    const { data, error } = await supabaseServer.rpc("stock_mp_lot_balances").range(from, from + pageSize - 1);
-    if (error) throw new Error(error.message);
-    const chunk = (data ?? []) as LotBalanceRow[];
-    for (const row of chunk) {
-      byKey.set(`${row.article_id}::${row.numero_lot}`, row);
-    }
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-  return [...byKey.values()];
+  return lireSoldesLotsMp();
 }
 
 export async function fetchArticleCategorieById(): Promise<Map<number, string | null>> {

@@ -13,7 +13,7 @@ import {
   annulerInventaireMpAction,
   supprimerSessionInventaireMpAction,
 } from "./actions";
-import { fetchCategorieCounts, fetchGammeCounts } from "./lib";
+import { fetchAllLotBalances, fetchCategorieCounts, fetchGammeCounts } from "./lib";
 import { LotSizePlanner } from "./lot-size-planner";
 
 type SessionRow = {
@@ -76,7 +76,9 @@ export default async function InventaireMpPage() {
         .order("created_at", { ascending: false })
         .limit(50),
       supabaseServer.from("inventaire_mp_sessions").select("id, created_at").order("created_at", { ascending: true }),
-      supabaseServer.rpc("stock_mp_lot_balances", {}, { count: "exact", head: true }),
+      // nombre de lots en stock : deja lu (et garde 10 s) pour les comptes par categorie / gamme,
+      // inutile de relancer toute la fonction SQL rien que pour compter
+      fetchAllLotBalances().then((lots) => ({ count: lots.length })),
       fetchCategorieCounts(),
       fetchGammeCounts(),
     ]);

@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { lireSoldesLotsMp } from "@/lib/lot-balances-mp";
 import { SortieMpClient } from "./sortie-client";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -47,21 +48,13 @@ async function fetchAllArticlesForSortie() {
 // (bug reel confirme : ETUIS SAVON ELIXIR LIGHT 200 GR / "ancien lot",
 // 629171 en stock, refuse par Sortie).
 async function fetchLotBalancesForSortie() {
-  type Row = { article_id: number; numero_lot: string; stock: number };
-  const pageSize = 1000;
-  const rows: Row[] = [];
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabaseServer.rpc("stock_mp_lot_balances").range(from, from + pageSize - 1);
-    if (error) return [];
-    const chunk = (data as Row[] | null) ?? [];
-    rows.push(...chunk);
-    if (chunk.length < pageSize) break;
-    from += pageSize;
+  // Lecture partagee et gardee 10 s (voir lib/lot-balances-mp.ts) : cette page relancait toute la
+  // fonction SQL, page par page, a chaque affichage. En cas d'erreur la liste reste vide, comme avant.
+  try {
+    return await lireSoldesLotsMp();
+  } catch {
+    return [];
   }
-
-  return rows;
 }
 
 export default async function MouvementsMatierePremiereSortiePage() {
