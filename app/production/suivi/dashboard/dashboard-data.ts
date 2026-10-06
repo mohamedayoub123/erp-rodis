@@ -47,6 +47,41 @@ function groupByLigne(entries: EntryTotal[]): Map<number, EntryTotal[]> {
   return map;
 }
 
+// Protection de la base : le Dashboard est lourd, et chaque affichage relancait la fonction SQL.
+// - le meme resultat est reutilise pendant 5 s (par instance du serveur) ;
+// - si plusieurs affichages arrivent en meme temps, ils partagent UN SEUL appel a la base.
+// Un onglet qui se rechargerait en boucle, ou 10 personnes qui ouvrent le Dashboard ensemble, ne
+// font plus 10 appels : la page garde au plus 5 s de retard (c'etait aussi la cause d'une base
+// saturee quand un onglet bouclait ~2 fois par seconde).
+const DUREE_CACHE_DASHBOARD_MS = 5_000;
+let resultatDashboard: { jusqua: number; data: unknown } | null = null;
+let appelDashboardEnCours: Promise<{ data: unknown; error: { message: string } | null }> | null = null;
+
+async function lireDashboardRpc(): Promise<{ data: unknown; error: { message: string } | null }> {
+  if (resultatDashboard && resultatDashboard.jusqua > Date.now()) return { data: resultatDashboard.data, error: null };
+  if (appelDashboardEnCours) return appelDashboardEnCours;
+
+  appelDashboardEnCours = (async () => {
+    try {
+      // Un 2e essai apres une courte pause : quand la base est tres sollicitee
+      // (beaucoup d'utilisateurs en meme temps), une requete peut depasser le
+      // delai maximum ("statement timeout") alors que la suivante passe sans
+      // probleme - bug reel constate, le Dashboard affichait directement l'erreur.
+      let { data, error } = await supabaseServer.rpc("dashboard_production_data");
+      if (error || !data) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        ({ data, error } = await supabaseServer.rpc("dashboard_production_data"));
+      }
+      if (!error && data) resultatDashboard = { jusqua: Date.now() + DUREE_CACHE_DASHBOARD_MS, data };
+      return { data, error };
+    } finally {
+      appelDashboardEnCours = null;
+    }
+  })();
+
+  return appelDashboardEnCours;
+}
+
 // Tout le Dashboard Production en UN aller-retour vers la base (voir
 // scripts/sql/create_dashboard_production_data.sql) - avant, une dizaine de
 // requetes paginees par 1000 lignes dont la plupart attendaient la fin de
@@ -54,15 +89,7 @@ function groupByLigne(entries: EntryTotal[]): Map<number, EntryTotal[]> {
 // la page. Les entrees (carton/vrac/emballage) arrivent deja sommees par
 // (ligne, code) : c'est tout ce que le Dashboard utilise.
 export async function fetchDashboardData(): Promise<{ data: DashboardData | null; error: string | null }> {
-  // Un 2e essai apres une courte pause : quand la base est tres sollicitee
-  // (beaucoup d'utilisateurs en meme temps), une requete peut depasser le
-  // delai maximum ("statement timeout") alors que la suivante passe sans
-  // probleme - bug reel constate, le Dashboard affichait directement l'erreur.
-  let { data, error } = await supabaseServer.rpc("dashboard_production_data");
-  if (error || !data) {
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    ({ data, error } = await supabaseServer.rpc("dashboard_production_data"));
-  }
+  const { data, error } = await lireDashboardRpc();
 
   if (error || !data) {
     const timeout = /timeout|canceling statement/i.test(error?.message || "");
