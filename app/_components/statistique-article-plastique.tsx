@@ -222,6 +222,22 @@ export function computeStockCritique(row: PlastiqueRow): number | null {
   return row.min_stock * POURCENTAGE_STOCK_CRITIQUE;
 }
 
+// Seuil d'arret = stock max moins 20 % (80 % du max) : une fois le stock arrive
+// a ce niveau, on arrete la production (null tant que le stock max n'est pas renseigne).
+export const POURCENTAGE_SEUIL_ARRET = 0.8;
+
+export function computeSeuilArret(row: PlastiqueRow): number | null {
+  if (row.max_stock === null) return null;
+  return row.max_stock * POURCENTAGE_SEUIL_ARRET;
+}
+
+// true = le stock a atteint le seuil d'arret ; null = pas de stock max pour decider
+export function doitArreterProduction(row: PlastiqueRow): boolean | null {
+  const seuil = computeSeuilArret(row);
+  if (seuil === null) return null;
+  return row.stock_actuel >= seuil;
+}
+
 export async function StatistiqueArticlePlastique({
   pageHref,
   canEdit,
@@ -272,6 +288,8 @@ export async function StatistiqueArticlePlastique({
     { label: "Stock min", key: "min" },
     { label: "Stock critique", key: "critique" },
     { label: "Stock max", key: "max" },
+    { label: "Stock max - 20 %", key: "seuilArret" },
+    { label: "Arreter la production", key: "arret" },
     { label: "A fabriquer", key: "aFabriquer" },
     { label: "Avis de fabrication", key: "avis" },
   ];
@@ -285,6 +303,11 @@ export async function StatistiqueArticlePlastique({
     min: row.min_stock ?? "-",
     critique: computeStockCritique(row) ?? "-",
     max: row.max_stock ?? "-",
+    seuilArret: computeSeuilArret(row) ?? "-",
+    arret: (() => {
+      const arret = doitArreterProduction(row);
+      return arret === null ? "-" : arret ? "Arreter" : "Continuer";
+    })(),
     aFabriquer: computeAFabriquer(row) ?? "-",
     avis: row.avis_fabrication || "-",
   }));
@@ -350,6 +373,8 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">Stock min</th>
                   <th className="px-6 py-4 font-semibold">Stock critique</th>
                   <th className="px-6 py-4 font-semibold">Stock max</th>
+                  <th className="px-6 py-4 font-semibold">Stock max - 20 %</th>
+                  <th className="px-6 py-4 font-semibold">Arreter la production ?</th>
                   <th className="px-6 py-4 font-semibold">A fabriquer</th>
                   <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
                 </tr>
@@ -370,6 +395,8 @@ export async function StatistiqueArticlePlastique({
                       : "bg-emerald-100 text-emerald-800";
                   const aFabriquer = computeAFabriquer(row);
                   const critique = computeStockCritique(row);
+                  const seuilArret = computeSeuilArret(row);
+                  const arret = doitArreterProduction(row);
                   return (
                     <tr key={row.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
@@ -392,6 +419,22 @@ export async function StatistiqueArticlePlastique({
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.max_stock !== null ? formatNumber(row.max_stock) : "-"}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {seuilArret !== null ? formatNumber(seuilArret) : "-"}
+                      </td>
+                      <td className="px-6 py-4">
+                        {arret === null ? (
+                          <span className="text-slate-400">-</span>
+                        ) : (
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                              arret ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"
+                            }`}
+                          >
+                            {arret ? "Arreter" : "Continuer"}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 font-bold text-red-600">
                         {aFabriquer ? formatNumber(aFabriquer) : "-"}
