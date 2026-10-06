@@ -83,9 +83,13 @@ export async function createTransferOrder(params: {
     throw new Error("Ajoute au moins un article avec une quantite.");
   }
 
-  for (const ligne of lignesValides) {
-    const lots = await fetchLotsInDepot(ligne.articleType, ligne.articleId, depotSourceId);
-    const disponible = totalAvailable(lots);
+  // Les lignes sont verifiees en parallele (une par une, un Transfer Order de 20 articles
+  // prenait tres longtemps) ; l'erreur renvoyee reste celle de la premiere ligne en defaut.
+  const lotsParLigne = await Promise.all(
+    lignesValides.map((ligne) => fetchLotsInDepot(ligne.articleType, ligne.articleId, depotSourceId))
+  );
+  for (const [index, ligne] of lignesValides.entries()) {
+    const disponible = totalAvailable(lotsParLigne[index]);
     if (ligne.quantiteDemandee > disponible + 1e-6) {
       throw new Error(
         `Stock insuffisant dans le depot source pour un des articles - disponible : ${disponible.toLocaleString("fr-FR")}.`

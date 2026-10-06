@@ -73,6 +73,9 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
   const [articlesPf, setArticlesPf] = useState<ArticleOption[]>([]);
   // Change a chaque lecture : remet a zero les champs article (sinon l'ancien texte tape resterait)
   const [versionLecture, setVersionLecture] = useState(0);
+  // Lignes refusees a la creation (stock insuffisant...) : surlignees en rouge
+  const [lignesEnErreur, setLignesEnErreur] = useState<number[]>([]);
+  const zoneMessage = useRef<HTMLDivElement>(null);
   const entreeCamera = useRef<HTMLInputElement>(null);
   const entreeFichier = useRef<HTMLInputElement>(null);
 
@@ -90,6 +93,11 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
       });
     }
   }, []);
+
+  // Un message d'erreur apparait a cote du bouton "Creer" : on y amene l'ecran pour qu'il soit vu
+  useEffect(() => {
+    if (message?.type === "erreur") zoneMessage.current?.scrollIntoView({ block: "center" });
+  }, [message]);
 
   // Ctrl+V d'une capture d'ecran (ordinateur)
   useEffect(() => {
@@ -144,11 +152,13 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
 
   function majLigne(cle: number, changement: Partial<LigneEdit>) {
     setMessage(null);
+    setLignesEnErreur((liste) => liste.filter((c) => c !== cle));
     setLignes((ls) => ls.map((l) => (l.cle === cle ? { ...l, ...changement } : l)));
   }
 
   function creer() {
     setMessage(null);
+    setLignesEnErreur([]);
     if (!depotSourceId || !depotDestinationId) {
       setMessage({ type: "erreur", texte: "Choisis le depot source et le depot destination." });
       return;
@@ -181,6 +191,8 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
           depotDestinationId: Number(depotDestinationId),
           remarque,
           lignes: lignes.map((l) => ({
+            cle: l.cle,
+            nom: l.articleNom || l.nomLu,
             articleType: l.articleType,
             articleId: l.articleId as number,
             quantite: lireQuantite(l.quantite) as number,
@@ -188,6 +200,7 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
           imageBase64: image?.base64 ?? "",
         });
         if (!reponse.ok) {
+          setLignesEnErreur(reponse.lignesEnErreur ?? []);
           setMessage({ type: "erreur", texte: reponse.message });
           return;
         }
@@ -315,7 +328,7 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
                   const statut = l.articleId ? l.statut : "introuvable";
                   const style = STATUT_STYLE[statut];
                   return (
-                    <tr key={l.cle} className="align-middle">
+                    <tr key={l.cle} className={`align-middle ${lignesEnErreur.includes(l.cle) ? "bg-red-50" : ""}`}>
                       <td className="min-w-48 px-2 font-medium text-slate-900">{l.nomLu}</td>
                       <td className="w-24 px-2">
                         <select
@@ -390,10 +403,23 @@ export function PhotoTransferOrderForm({ depots }: { depots: DepotOption[] }) {
               {enCreation ? "Creation..." : "Creer le Transfer Order"}
             </button>
           </div>
+
+          <div ref={zoneMessage}>
+            {message ? (
+              <p
+                className={`mt-4 rounded-2xl px-4 py-3 text-sm font-semibold ${
+                  message.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+                }`}
+              >
+                {message.texte}
+              </p>
+            ) : null}
+          </div>
         </section>
       ) : null}
 
-      {message ? (
+      {/* Messages de l'etape 1 (lecture de la photo) : avant que l'ecran de verification n'existe */}
+      {message && !lu ? (
         <p
           className={`rounded-2xl px-4 py-3 text-sm font-semibold ${
             message.type === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"

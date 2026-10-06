@@ -8,6 +8,7 @@ import { lireTransferOrderSurPhoto } from "@/lib/transfer-order-photo-lecture";
 import {
   MAX_LIGNES_PHOTO,
   TAILLE_MAX_PHOTO_BASE64,
+  preparerArticles,
   rapprocherArticle,
   rapprocherDepot,
   sauverPhotoTransferOrder,
@@ -15,9 +16,10 @@ import {
   type ArticleTypePhoto,
   type LecturePhotoTransferOrder,
 } from "@/lib/transfer-order-photo";
+import { fetchLotsInDepot, totalAvailable } from "../stock-lots";
 import { createTransferOrder } from "../actions";
 
-type Reponse<T> = ({ ok: true } & T) | { ok: false; message: string };
+type Reponse<T> = ({ ok: true } & T) | { ok: false; message: string; lignesEnErreur?: number[] };
 
 // Toutes les pages d'un coup (en parallele) : une lecture une page apres l'autre devenait tres
 // longue des que la base ralentissait, et la lecture de la photo depassait alors le temps limite.
@@ -96,6 +98,9 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
       return { ok: false, message: `La liste des articles n'a pas pu etre lue (${detail}). Reessaie dans un instant.` };
     }
     const { articlesMp, articlesPf, depots } = chargement.donnees;
+    // Chaque nom d'article n'est decoupe qu'une fois pour toutes les lignes lues
+    const articlesMpPrepares = preparerArticles(articlesMp);
+    const articlesPfPrepares = preparerArticles(articlesPf);
 
     const date = extraction.date && /^\d{4}-\d{2}-\d{2}$/.test(extraction.date) ? extraction.date : null;
 
@@ -112,7 +117,7 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
         nomLu: ligne.nom,
         quantite: ligne.quantite,
         unite: ligne.unite,
-        ...rapprocherArticle(ligne.nom, articlesMp, articlesPf),
+        ...rapprocherArticle(ligne.nom, articlesMpPrepares, articlesPfPrepares),
       })),
       articlesMp: enOptions(articlesMp),
       articlesPf: enOptions(articlesPf),
@@ -122,7 +127,8 @@ export async function lirePhotoTransferOrderAction(imageBase64: string): Promise
   }
 }
 
-type LigneACreer = { articleType: ArticleTypePhoto; articleId: number; quantite: number };
+// cle + nom : pour dire QUEL article pose probleme (stock insuffisant) et le surligner a l'ecran
+type LigneACreer = { cle: number; nom: string; articleType: ArticleTypePhoto; articleId: number; quantite: number };
 
 // Cree le Transfer Order (en attente, comme un TO normal : meme controle du stock du depot
 // source) puis garde la photo en piece jointe.
@@ -149,7 +155,10 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
     }
 
     // Un meme article lu sur 2 lignes = une seule ligne de TO (quantites additionnees)
-    const regroupees = new Map<string, { articleType: ArticleTypePhoto; articleId: number; quantiteDemandee: number }>();
+    const regroupees = new Map<
+      string,
+      { articleType: ArticleTypePhoto; articleId: number; quantiteDemandee: number; cles: number[]; nom: string }
+    >();
     for (const [i, ligne] of params.lignes.entries()) {
       const type: ArticleTypePhoto = ligne.articleType === "PF" ? "PF" : "MP";
       const articleId = Number(ligne.articleId);
@@ -162,12 +171,48 @@ export async function creerTransferOrderDepuisPhotoAction(params: {
       }
       const cle = `${type}-${articleId}`;
       const existante = regroupees.get(cle);
-      if (existante) existante.quantiteDemandee += quantite;
-      else regroupees.set(cle, { articleType: type, articleId, quantiteDemandee: quantite });
+      if (existante) {
+        existante.quantiteDemandee += quantite;
+        existante.cles.push(ligne.cle);
+      } else {
+        regroupees.set(cle, {
+          articleType: type,
+          articleId,
+          quantiteDemandee: quantite,
+          cles: [ligne.cle],
+          nom: String(ligne.nom || "").trim() || `article #${articleId}`,
+        });
+      }
+    }
+
+    // Controle du stock du depot source AVANT de creer quoi que ce soit, article par article :
+    // le message dit lesquels manquent de stock (un TO venu d'un autre systeme demande souvent
+    // plus que ce que ce depot a en stock chez nous).
+    const depotSourceId = Number(params.depotSourceId);
+    const aControler = [...regroupees.values()];
+    const lotsParLigne = depotSourceId > 0
+      ? await Promise.all(aControler.map((l) => fetchLotsInDepot(l.articleType, l.articleId, depotSourceId)))
+      : aControler.map(() => []);
+    const manquants = aControler
+      .map((l, i) => ({ ligne: l, disponible: totalAvailable(lotsParLigne[i]) }))
+      .filter(({ ligne, disponible }) => depotSourceId > 0 && ligne.quantiteDemandee > disponible + 1e-6);
+    if (manquants.length > 0) {
+      const { data: depotData } = await supabaseServer.from("depots").select("nom").eq("id", depotSourceId).maybeSingle();
+      const nomDepot = (depotData as { nom: string } | null)?.nom ?? "le depot source";
+      const fmt = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
+      const detail = manquants
+        .slice(0, 8)
+        .map(({ ligne, disponible }) => `${ligne.nom} (demande ${fmt(ligne.quantiteDemandee)}, disponible ${fmt(disponible)})`)
+        .join(" ; ");
+      return {
+        ok: false,
+        message: `Stock insuffisant dans ${nomDepot} pour ${manquants.length} article${manquants.length > 1 ? "s" : ""} : ${detail}${manquants.length > 8 ? " ..." : ""}. Les lignes concernees sont en rouge dans la liste : corrige leur quantite (ou change le depot source), puis recree.`,
+        lignesEnErreur: manquants.flatMap(({ ligne }) => ligne.cles),
+      };
     }
 
     const transferOrderId = await createTransferOrder({
-      depotSourceId: Number(params.depotSourceId),
+      depotSourceId,
       depotDestinationId: Number(params.depotDestinationId),
       dateJour: params.date,
       creePar: utilisateur,
