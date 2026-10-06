@@ -14,7 +14,7 @@ async function requireStatistiqueArticlePlastiqueWriteAccess() {
   const canFromProduction = await canWritePageUser(currentUser, "productionPlastique");
 
   if (!canFromRapportMp && !canFromProduction) {
-    throw new Error("Cet utilisateur ne peut pas modifier l'avis de fabrication.");
+    throw new Error("Cet utilisateur ne peut pas modifier cette page.");
   }
 
   return currentUser;
@@ -33,6 +33,57 @@ export async function updateAvisFabricationAction(formData: FormData) {
   const { error } = await supabaseServer
     .from("articles_matiere_premiere")
     .update({ avis_fabrication: avis })
+    .eq("id", articleId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/stock/matiere-premiere/rapport/plastique");
+  revalidatePath("/production-plastique/statistique");
+}
+
+function lireArticleId(formData: FormData): number {
+  const articleId = Number(formData.get("article_id"));
+  if (!Number.isInteger(articleId) || articleId <= 0) {
+    throw new Error("Article invalide.");
+  }
+  return articleId;
+}
+
+// Nom de la machine sur laquelle l'article travaille, saisi a la main (vide = aucune machine).
+export async function updateMachinePlastiqueAction(formData: FormData) {
+  await requireStatistiqueArticlePlastiqueWriteAccess();
+
+  const articleId = lireArticleId(formData);
+  const machine = String(formData.get("machine") || "").trim().slice(0, 100) || null;
+
+  const { error } = await supabaseServer
+    .from("articles_matiere_premiere")
+    .update({ machine_plastique: machine })
+    .eq("id", articleId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/stock/matiere-premiere/rapport/plastique");
+  revalidatePath("/production-plastique/statistique");
+}
+
+// Nombre de cavites du moule, saisi a la main (vide = non renseigne).
+export async function updateNbCavitesAction(formData: FormData) {
+  await requireStatistiqueArticlePlastiqueWriteAccess();
+
+  const articleId = lireArticleId(formData);
+  const texte = String(formData.get("nb_cavites") || "").trim();
+  let nbCavites: number | null = null;
+  if (texte !== "") {
+    nbCavites = Number(texte);
+    if (!Number.isInteger(nbCavites) || nbCavites < 1 || nbCavites > 999) {
+      throw new Error("Le nombre de cavites doit etre un nombre entier entre 1 et 999.");
+    }
+  }
+
+  const { error } = await supabaseServer
+    .from("articles_matiere_premiere")
+    .update({ nb_cavites: nbCavites })
     .eq("id", articleId);
 
   if (error) throw new Error(error.message);

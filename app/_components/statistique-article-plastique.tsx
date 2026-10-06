@@ -8,7 +8,12 @@ import { SaveCommandeButton } from "@/app/_components/save-commande-plastique-bu
 import { matchesArticleSearch } from "@/lib/article-search";
 import { familyRank } from "@/lib/gamme-families";
 import { CATEGORIE_PLASTIQUE } from "@/app/production-plastique/shared";
-import { updateAvisFabricationAction, saveCommandeArticlePlastiqueAction } from "@/app/_components/statistique-article-plastique-actions";
+import {
+  updateAvisFabricationAction,
+  updateMachinePlastiqueAction,
+  updateNbCavitesAction,
+  saveCommandeArticlePlastiqueAction,
+} from "@/app/_components/statistique-article-plastique-actions";
 
 // Module partage - meme rendu utilise depuis Rapport MP
 // (stock/matiere-premiere/rapport/plastique) et Production Plastique
@@ -32,6 +37,9 @@ type ArticleDetailRow = {
   max_stock: number | null;
   gamme: string | null;
   avis_fabrication: string | null;
+  // Colonnes ajoutees par scripts/sql/add_machine_cavites_articles_matiere_premiere.sql
+  machine_plastique?: string | null;
+  nb_cavites?: number | null;
 };
 
 export type PlastiqueRow = {
@@ -47,6 +55,9 @@ export type PlastiqueRow = {
   min_stock: number | null;
   max_stock: number | null;
   avis_fabrication: string | null;
+  // Saisis a la main : machine sur laquelle l'article travaille (vide = aucune) et cavites du moule
+  machine: string | null;
+  nb_cavites: number | null;
 };
 
 // "gel douche" -> "Gel douche" (articles.type_article est saisi a la main, casse variable).
@@ -157,19 +168,47 @@ async function fetchAllStockActuelMpRows(): Promise<{ rows: StockActuelMpRpcRow[
   return { rows, error: null };
 }
 
-export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; error: string | null }> {
-  const [stockResult, detailResult] = await Promise.all([
-    fetchAllStockActuelMpRows(),
-    supabaseServer
-      .from("articles_matiere_premiere")
-      .select("id, sous_famille, min_stock, max_stock, gamme, avis_fabrication")
-      .eq("categorie", CATEGORIE_PLASTIQUE),
-  ]);
+const COLONNES_DETAIL = "id, sous_famille, min_stock, max_stock, gamme, avis_fabrication";
 
-  if (stockResult.error) return { rows: [], error: stockResult.error };
-  if (detailResult.error) return { rows: [], error: detailResult.error.message };
+// Lit les details des articles plastique avec Machine/Cavites ; tant que le script SQL
+// n'a pas ete lance (colonnes absentes), relit sans eux pour que la page reste utilisable.
+async function lireDetailsPlastique(): Promise<{
+  data: ArticleDetailRow[] | null;
+  error: string | null;
+  machineCavitesPret: boolean;
+}> {
+  const complet = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select(`${COLONNES_DETAIL}, machine_plastique, nb_cavites`)
+    .eq("categorie", CATEGORIE_PLASTIQUE);
+  if (!complet.error) {
+    return { data: complet.data as unknown as ArticleDetailRow[], error: null, machineCavitesPret: true };
+  }
 
-  const detailById = new Map((detailResult.data as ArticleDetailRow[]).map((row) => [row.id, row]));
+  const simple = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select(COLONNES_DETAIL)
+    .eq("categorie", CATEGORIE_PLASTIQUE);
+  return {
+    data: simple.error ? null : (simple.data as unknown as ArticleDetailRow[]),
+    error: simple.error?.message ?? null,
+    machineCavitesPret: false,
+  };
+}
+
+export async function fetchPlastiqueRows(): Promise<{
+  rows: PlastiqueRow[];
+  error: string | null;
+  machineCavitesPret: boolean;
+}> {
+  const [stockResult, detailResult] = await Promise.all([fetchAllStockActuelMpRows(), lireDetailsPlastique()]);
+
+  if (stockResult.error) return { rows: [], error: stockResult.error, machineCavitesPret: false };
+  if (detailResult.error || !detailResult.data) {
+    return { rows: [], error: detailResult.error ?? "Lecture des articles impossible.", machineCavitesPret: false };
+  }
+
+  const detailById = new Map(detailResult.data.map((row) => [row.id, row]));
   const typesParArticle = await fetchTypesParArticlePlastique(
     stockResult.rows.filter((row) => row.categorie === CATEGORIE_PLASTIQUE).map((row) => row.article_id)
   );
@@ -190,6 +229,8 @@ export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; erro
         min_stock: detail?.min_stock ?? null,
         max_stock: detail?.max_stock ?? null,
         avis_fabrication: detail?.avis_fabrication ?? null,
+        machine: detail?.machine_plastique ?? null,
+        nb_cavites: detail?.nb_cavites ?? null,
       };
     })
     .sort((a, b) => {
@@ -201,7 +242,7 @@ export async function fetchPlastiqueRows(): Promise<{ rows: PlastiqueRow[]; erro
       );
     });
 
-  return { rows, error: null };
+  return { rows, error: null, machineCavitesPret: detailResult.machineCavitesPret };
 }
 
 // Quantite a fabriquer pour ramener le stock au maximum - seulement quand
@@ -255,7 +296,7 @@ export async function StatistiqueArticlePlastique({
   const gammeFilter = (params.gamme || "").trim();
   const hasFilters = Boolean(q || categorieFilter || typeFilter || gammeFilter);
 
-  const { rows: allRows, error } = await fetchPlastiqueRows();
+  const { rows: allRows, error, machineCavitesPret } = await fetchPlastiqueRows();
 
   const rows = allRows
     .filter((row) => !q || matchesArticleSearch(row.nom_article, q))
@@ -292,6 +333,8 @@ export async function StatistiqueArticlePlastique({
     { label: "Arreter la production", key: "arret" },
     { label: "A fabriquer", key: "aFabriquer" },
     { label: "Avis de fabrication", key: "avis" },
+    { label: "Machine", key: "machine" },
+    { label: "Cavites", key: "cavites" },
   ];
   const exportRows = rows.map((row) => ({
     article: row.nom_article,
@@ -310,6 +353,8 @@ export async function StatistiqueArticlePlastique({
     })(),
     aFabriquer: computeAFabriquer(row) ?? "-",
     avis: row.avis_fabrication || "-",
+    machine: row.machine || "-",
+    cavites: row.nb_cavites ?? "-",
   }));
 
   return (
@@ -352,6 +397,13 @@ export async function StatistiqueArticlePlastique({
         </form>
       </section>
 
+      {!error && !machineCavitesPret ? (
+        <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          Machine et Cavites ne sont pas encore actives : lance d&apos;abord le script SQL
+          add_machine_cavites_articles_matiere_premiere.sql dans Supabase (SQL Editor).
+        </p>
+      ) : null}
+
       <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
         {error ? (
           <p className="px-6 py-8 text-sm font-medium text-red-700">{error}</p>
@@ -377,6 +429,8 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">Arreter la production ?</th>
                   <th className="px-6 py-4 font-semibold">A fabriquer</th>
                   <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
+                  <th className="px-6 py-4 font-semibold">Machine</th>
+                  <th className="px-6 py-4 font-semibold">Cavites</th>
                 </tr>
               </thead>
               <tbody>
@@ -459,6 +513,54 @@ export async function StatistiqueArticlePlastique({
                           </form>
                         ) : (
                           <span className="text-slate-600">{row.avis_fabrication || "-"}</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {canEdit && machineCavitesPret ? (
+                          <form action={updateMachinePlastiqueAction} className="flex items-center gap-2">
+                            <input type="hidden" name="article_id" value={row.article_id} />
+                            <input
+                              type="text"
+                              name="machine"
+                              defaultValue={row.machine ?? ""}
+                              placeholder="Machine..."
+                              maxLength={100}
+                              className="w-40 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
+                            />
+                            <SubmitButton
+                              pendingLabel="..."
+                              className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                            >
+                              OK
+                            </SubmitButton>
+                          </form>
+                        ) : (
+                          <span className="text-slate-600">{row.machine || "-"}</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {canEdit && machineCavitesPret ? (
+                          <form action={updateNbCavitesAction} className="flex items-center gap-2">
+                            <input type="hidden" name="article_id" value={row.article_id} />
+                            <input
+                              type="number"
+                              name="nb_cavites"
+                              defaultValue={row.nb_cavites ?? ""}
+                              placeholder="Nb"
+                              min="1"
+                              max="999"
+                              step="1"
+                              className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
+                            />
+                            <SubmitButton
+                              pendingLabel="..."
+                              className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                            >
+                              OK
+                            </SubmitButton>
+                          </form>
+                        ) : (
+                          <span className="text-slate-600">{row.nb_cavites ?? "-"}</span>
                         )}
                       </td>
                     </tr>
