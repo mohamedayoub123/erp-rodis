@@ -134,6 +134,11 @@ export const navItems: NavItem[] = [
         pageKey: "retoursConditionnement",
       },
       {
+        href: "/production/vrac-a-recuperer",
+        label: "Vrac a recuperer",
+        pageKey: "productionVracARecuperer",
+      },
+      {
         href: "/production/heures-sup-manuel",
         label: "Heures Sup Manuel",
         pageKey: "productionHeuresSupManuel",

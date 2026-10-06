@@ -645,6 +645,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     adminGroup: "Retours Conditionnement",
   },
   {
+    key: "productionVracARecuperer",
+    module: "Production",
+    label: "Vrac a recuperer (entree dans le Depot B)",
+    pathPrefixes: ["/production/vrac-a-recuperer"],
+    hasWrite: true,
+    adminGroup: "Vrac a recuperer",
+  },
+  {
     key: "codeParArticle",
     module: "Production",
     label: "Code par article",

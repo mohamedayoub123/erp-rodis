@@ -109,6 +109,13 @@ const TILES = [
     icon: "\u{267B}\u{FE0F}",
     description: "Par PD : les articles de conditionnement restants une fois un article termine, avec retour possible en TO vers le depot general.",
   },
+  {
+    label: "Vrac a recuperer",
+    href: "/production/vrac-a-recuperer",
+    pageKey: "productionVracARecuperer",
+    icon: "\u{1F6E2}\u{FE0F}",
+    description: "Enregistre les articles vrac avec le code du vrac a recuperer : ils entrent dans le Depot B et deviennent utilisables en Fabrication.",
+  },
 ] as const;
 
 export default async function ProductionPage() {
