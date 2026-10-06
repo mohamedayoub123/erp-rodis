@@ -58,6 +58,8 @@ export type PlastiqueRow = {
   // Saisis a la main : machine sur laquelle l'article travaille (vide = aucune) et cavites du moule
   machine: string | null;
   nb_cavites: number | null;
+  // Quantite de cet article dans la derniere commande enregistree (Save) ; null = pas dans cette commande
+  a_fabriquer: string | null;
 };
 
 // "gel douche" -> "Gel douche" (articles.type_article est saisi a la main, casse variable).
@@ -196,16 +198,61 @@ async function lireDetailsPlastique(): Promise<{
   };
 }
 
+// "A fabriquer" = ce qui a ete commande : les quantites de la DERNIERE commande enregistree
+// (bouton Save). Un nouveau Save remplace tout ; avant la premiere commande, la colonne est vide.
+async function lireDerniereCommande(): Promise<{ code: string | null; parArticle: Map<number, string> }> {
+  const parArticle = new Map<number, string>();
+
+  const { data: commande, error } = await supabaseServer
+    .from("commandes_article_plastique")
+    .select("id, code")
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !commande) return { code: null, parArticle };
+
+  const { data: lignes, error: lignesError } = await supabaseServer
+    .from("commandes_article_plastique_lignes")
+    .select("article_id, qt_avis")
+    .eq("commande_id", (commande as { id: number }).id);
+  if (lignesError) return { code: (commande as { code: string }).code, parArticle };
+
+  for (const ligne of (lignes ?? []) as { article_id: number; qt_avis: string | null }[]) {
+    const quantite = (ligne.qt_avis ?? "").trim();
+    if (quantite) parArticle.set(ligne.article_id, quantite);
+  }
+  return { code: (commande as { code: string }).code, parArticle };
+}
+
+// La quantite est un texte libre (avis) : un nombre est mis en forme, le reste s'affiche tel quel.
+function formaterAFabriquer(valeur: string | null): string {
+  if (!valeur) return "-";
+  const nombre = Number(valeur.replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(nombre) ? formatNumber(nombre) : valeur;
+}
+
 export async function fetchPlastiqueRows(): Promise<{
   rows: PlastiqueRow[];
   error: string | null;
   machineCavitesPret: boolean;
+  derniereCommandeCode: string | null;
 }> {
-  const [stockResult, detailResult] = await Promise.all([fetchAllStockActuelMpRows(), lireDetailsPlastique()]);
+  const [stockResult, detailResult, derniereCommande] = await Promise.all([
+    fetchAllStockActuelMpRows(),
+    lireDetailsPlastique(),
+    lireDerniereCommande(),
+  ]);
 
-  if (stockResult.error) return { rows: [], error: stockResult.error, machineCavitesPret: false };
+  if (stockResult.error) {
+    return { rows: [], error: stockResult.error, machineCavitesPret: false, derniereCommandeCode: null };
+  }
   if (detailResult.error || !detailResult.data) {
-    return { rows: [], error: detailResult.error ?? "Lecture des articles impossible.", machineCavitesPret: false };
+    return {
+      rows: [],
+      error: detailResult.error ?? "Lecture des articles impossible.",
+      machineCavitesPret: false,
+      derniereCommandeCode: null,
+    };
   }
 
   const detailById = new Map(detailResult.data.map((row) => [row.id, row]));
@@ -231,6 +278,7 @@ export async function fetchPlastiqueRows(): Promise<{
         avis_fabrication: detail?.avis_fabrication ?? null,
         machine: detail?.machine_plastique ?? null,
         nb_cavites: detail?.nb_cavites ?? null,
+        a_fabriquer: derniereCommande.parArticle.get(row.article_id) ?? null,
       };
     })
     .sort((a, b) => {
@@ -242,17 +290,12 @@ export async function fetchPlastiqueRows(): Promise<{
       );
     });
 
-  return { rows, error: null, machineCavitesPret: detailResult.machineCavitesPret };
-}
-
-// Quantite a fabriquer pour ramener le stock au maximum - seulement quand
-// le stock est sous le minimum (sinon rien a produire dans l'urgence) et
-// que min/max sont tous les 2 renseignes pour cet article (sinon aucune
-// cible fiable a viser).
-export function computeAFabriquer(row: PlastiqueRow): number | null {
-  if (row.min_stock === null || row.max_stock === null) return null;
-  if (row.stock_actuel >= row.min_stock) return 0;
-  return Math.max(0, row.max_stock - row.stock_actuel);
+  return {
+    rows,
+    error: null,
+    machineCavitesPret: detailResult.machineCavitesPret,
+    derniereCommandeCode: derniereCommande.code,
+  };
 }
 
 // Stock critique = 60 % du stock min (null tant que le stock min n'est pas renseigne).
@@ -296,7 +339,7 @@ export async function StatistiqueArticlePlastique({
   const gammeFilter = (params.gamme || "").trim();
   const hasFilters = Boolean(q || categorieFilter || typeFilter || gammeFilter);
 
-  const { rows: allRows, error, machineCavitesPret } = await fetchPlastiqueRows();
+  const { rows: allRows, error, machineCavitesPret, derniereCommandeCode } = await fetchPlastiqueRows();
 
   const rows = allRows
     .filter((row) => !q || matchesArticleSearch(row.nom_article, q))
@@ -351,7 +394,7 @@ export async function StatistiqueArticlePlastique({
       const arret = doitArreterProduction(row);
       return arret === null ? "-" : arret ? "Ne pas demarrer" : "Demarrer";
     })(),
-    aFabriquer: computeAFabriquer(row) ?? "-",
+    aFabriquer: formaterAFabriquer(row.a_fabriquer),
     avis: row.avis_fabrication || "-",
     machine: row.machine || "-",
     cavites: row.nb_cavites ?? "-",
@@ -427,7 +470,12 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">Stock max</th>
                   <th className="px-6 py-4 font-semibold">Stock max - 20 %</th>
                   <th className="px-6 py-4 font-semibold">Demarrer la production ?</th>
-                  <th className="px-6 py-4 font-semibold">A fabriquer</th>
+                  <th className="px-6 py-4 font-semibold">
+                    A fabriquer
+                    {derniereCommandeCode ? (
+                      <span className="block text-xs font-normal text-slate-400">commande {derniereCommandeCode}</span>
+                    ) : null}
+                  </th>
                   <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
                   <th className="px-6 py-4 font-semibold">Machine</th>
                   <th className="px-6 py-4 font-semibold">Cavites</th>
@@ -447,7 +495,6 @@ export async function StatistiqueArticlePlastique({
                     : aboveMax
                       ? "bg-amber-100 text-amber-800"
                       : "bg-emerald-100 text-emerald-800";
-                  const aFabriquer = computeAFabriquer(row);
                   const critique = computeStockCritique(row);
                   const seuilArret = computeSeuilArret(row);
                   const arret = doitArreterProduction(row);
@@ -491,7 +538,7 @@ export async function StatistiqueArticlePlastique({
                         )}
                       </td>
                       <td className="px-6 py-4 font-bold text-red-600">
-                        {aFabriquer ? formatNumber(aFabriquer) : "-"}
+                        {formaterAFabriquer(row.a_fabriquer)}
                       </td>
                       <td className="px-6 py-4">
                         {canEdit ? (
