@@ -18,6 +18,8 @@ import {
   splitLigneIntoDisplayRows,
   type ProgrammeLigneRow,
 } from "../../../../production/suivi/data";
+import { lireCartonEntreeProductionParMois } from "@/lib/carton-entree-production";
+import { cartonAutomatiquePourMois } from "@/app/charges/carton";
 import { Pr4ManuelForm } from "./manuel-form";
 import { MANUEL_FIELDS, type ManuelRow } from "./fields";
 
@@ -1072,9 +1074,20 @@ export default async function Pr4Page() {
     fetchManuelByMonth(),
   ]);
 
+  // Nb carton du prix carton : a partir de septembre 2026, les cartons entres au Depot A par Entree
+  // Production ce mois-la (meme chiffre que Charges Usine / Graphe cout carton, voir
+  // app/charges/carton.ts). Avant septembre 2026 rien ne change (valeurs saisies a la main ci-dessous).
   const cartonFabriqueOnlyByMonth = new Map<string, number>(
     [...cartonMonthly.entries()].map(([key, value]) => [key, value.fabrique])
   );
+  const cartonEntreeProduction = await lireCartonEntreeProductionParMois().catch(() => new Map<string, number>());
+  for (const key of [...cartonFabriqueOnlyByMonth.keys(), ...cartonEntreeProduction.keys()]) {
+    const [annee, mois] = key.split("-").map(Number);
+    if (!cartonAutomatiquePourMois(annee, mois)) continue;
+    const nbCarton = cartonEntreeProduction.get(key) ?? 0;
+    if (nbCarton > 0) cartonFabriqueOnlyByMonth.set(key, nbCarton);
+    else cartonFabriqueOnlyByMonth.delete(key);
+  }
   const prixCartonMonthly = await fetchPrixCartonMonthly(cartonFabriqueOnlyByMonth);
 
   const allMonthKeys = new Set<string>([

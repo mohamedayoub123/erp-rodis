@@ -1,10 +1,10 @@
-// Nb carton fabrique d'un mois, utilise par le Graphe Cout par Carton.
+// Nb carton fabrique d'un mois (Charges Usine, Graphe Cout par Carton, prix carton de PR4).
 //
-// - AVANT septembre 2026 : le chiffre saisi a la main dans Charges Usine est celui qui compte (Suivi
-//   Production n'a pas toute l'histoire de ces mois-la). Si rien n'a ete saisi, on retombe sur le
-//   chiffre automatique.
-// - A PARTIR de septembre 2026 : uniquement le chiffre automatique de Suivi Production (cartons
-//   reellement fabriques ce mois-la). La saisie manuelle n'est plus utilisee.
+// - AVANT septembre 2026 : le chiffre saisi a la main dans Charges Usine est celui qui compte (l'ERP
+//   n'a pas toute l'histoire de ces mois-la). Si rien n'a ete saisi, on retombe sur le chiffre automatique.
+// - A PARTIR de septembre 2026 : uniquement le chiffre automatique = cartons entres au Depot A par
+//   "Entree Production" ce mois-la (voir lib/carton-entree-production.ts). La saisie manuelle n'est
+//   plus utilisee.
 export const DEBUT_CARTON_AUTOMATIQUE = { annee: 2026, mois: 9 } as const;
 
 export function cartonAutomatiquePourMois(annee: number, mois: number) {

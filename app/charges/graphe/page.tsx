@@ -5,14 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { CartonMensuelLineChart } from "../../production/rapport/carton-mensuel/carton-mensuel-line-chart";
-import {
-  computeProduitParCode,
-  fetchAllCartonEntries,
-  fetchAllProgrammeLignes,
-  groupCartonEntriesByLigne,
-  splitLigneIntoDisplayRows,
-  type ProgrammeLigneRow,
-} from "../../production/suivi/data";
+import { lireCartonEntreeProductionParMois } from "@/lib/carton-entree-production";
 import { MOIS_NOMS } from "../fields";
 import { choisirNbCarton } from "../carton";
 
@@ -86,49 +79,6 @@ async function fetchPrixByYear(annee: number): Promise<PrixMonthRow[]> {
   return (data ?? []) as unknown as PrixMonthRow[];
 }
 
-// Meme agregation que Rapport Carton Mensuel (production/rapport/carton-mensuel)
-// mais uniquement le total fabrique par mois, toutes lignes/codes confondus -
-// le nb carton fabrique de toute l'usine ce mois-la.
-async function fetchCartonFabriqueByMonth(): Promise<Map<string, number>> {
-  const [{ rows: lignes }, cartonEntries] = await Promise.all([
-    fetchAllProgrammeLignes(),
-    fetchAllCartonEntries(),
-  ]);
-
-  const cartonByLigne = groupCartonEntriesByLigne(cartonEntries);
-
-  function ligneOwnCodes(ligne: ProgrammeLigneRow): string[] {
-    return splitLigneIntoDisplayRows(ligne, "qt_vrac", 0).map((split) => split.displayCode);
-  }
-
-  const lignesWithLot = lignes.filter((ligne) => ligne.numero_lot);
-  const byMonth = new Map<string, number>();
-
-  for (const ligne of lignesWithLot) {
-    const mois = (ligne.date_jour || "").slice(0, 7);
-    if (!mois) continue;
-
-    const codes = ligneOwnCodes(ligne);
-    const cartonEntriesForLigne = (cartonByLigne.get(ligne.id) ?? []) as { code: string; quantite: number }[];
-    const cartonSplits = splitLigneIntoDisplayRows(ligne, "qt_carton", 0);
-    const cartonDemandeByCode = new Map(
-      cartonSplits.map((split) => [split.displayCode, split.displayQuantite ?? ligne.qt_carton ?? 0])
-    );
-    const cartonFabriqueByCode = computeProduitParCode(
-      cartonEntriesForLigne,
-      codes,
-      (code) => cartonDemandeByCode.get(code) ?? 0
-    );
-
-    for (const code of codes) {
-      const fabrique = cartonFabriqueByCode.get(code) ?? 0;
-      byMonth.set(mois, (byMonth.get(mois) ?? 0) + fabrique);
-    }
-  }
-
-  return byMonth;
-}
-
 function n(value: number | null | undefined) {
   return value ?? 0;
 }
@@ -171,7 +121,7 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
   const [chargesRows, prixRows, cartonByMonth] = await Promise.all([
     fetchChargesByYear(annee),
     fetchPrixByYear(annee),
-    fetchCartonFabriqueByMonth(),
+    lireCartonEntreeProductionParMois(),
   ]);
 
   const chargesByMois = new Map(chargesRows.map((row) => [row.mois, row]));
@@ -183,7 +133,8 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
     const prix = prixByMois.get(mois) ?? null;
     const moisKey = `${annee}-${String(mois).padStart(2, "0")}`;
     // Avant septembre 2026 : le chiffre saisi a la main fait foi ; a partir de septembre 2026 :
-    // uniquement le chiffre automatique de Suivi Production (voir ../carton.ts).
+    // uniquement le chiffre automatique = cartons entres au Depot A par Entree Production ce mois-la
+    // (voir ../carton.ts).
     const { valeur: nbCarton, estManuel: nbCartonEstManuel } = choisirNbCarton({
       annee,
       mois,
@@ -282,8 +233,8 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Graphe Cout par Carton</h1>
               <p className="mt-2 text-sm text-slate-600">
                 Cout par carton fabrique (journalier, cosmetique, energie, embauches, global) compare au nb
-                carton fabrique, mois par mois - calcule depuis Charges Usine, Tarifs et la
-                production reelle.
+                carton fabrique, mois par mois - calcule depuis Charges Usine, Tarifs et les cartons
+                entres au Depot A (Entree Production).
               </p>
             </div>
 

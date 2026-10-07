@@ -7,6 +7,8 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { deleteChargesUsineAction } from "./actions";
 import { ChargesUsineForm } from "./charges-form";
+import { lireCartonEntreeProductionParMois } from "@/lib/carton-entree-production";
+import { choisirNbCarton } from "./carton";
 import { CARTON_MANUEL_FIELD, MOIS_NOMS, NUMERIC_FIELDS, type ChargeRow, type FieldKey } from "./fields";
 
 // Champs de consommation carburant (litres) qui ont un cout calcule via le
@@ -65,8 +67,12 @@ export default async function ChargesPage() {
   const canEdit = await canWritePageUser(currentUser, "chargesHub");
   const canDelete = await canDeletePageUser(currentUser, "chargesHub");
 
-  const { rows, error } = await fetchAllCharges();
-  const { rows: prixRows } = await fetchAllPrixCarburant();
+  const [{ rows, error }, { rows: prixRows }, cartonAutoParMois] = await Promise.all([
+    fetchAllCharges(),
+    fetchAllPrixCarburant(),
+    // Cartons entres au Depot A par Entree Production, par mois : un echec ici ne doit pas bloquer la page
+    lireCartonEntreeProductionParMois().catch(() => new Map<string, number>()),
+  ]);
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - 2 + i);
 
@@ -125,6 +131,12 @@ export default async function ChargesPage() {
                 <thead className="bg-slate-50 text-slate-950">
                   <tr>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Mois</th>
+                    <th
+                      className="sticky top-0 z-10 bg-violet-50 px-4 py-3 font-semibold text-violet-800"
+                      title="Pas inclus dans le Total : ce n'est pas un cout"
+                    >
+                      Nb carton fabrique
+                    </th>
                     {NUMERIC_FIELDS.map((field) => (
                       <th key={field.key} className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">
                         {field.label}
@@ -165,10 +177,24 @@ export default async function ChargesPage() {
                       0
                     );
                     const total = nonFuelTotal + fuelCostTotal;
+                    // Avant septembre 2026 : chiffre saisi a la main ; ensuite : cartons entres au Depot A
+                    // par Entree Production ce mois-la (voir carton.ts). Jamais ajoute au Total.
+                    const nbCarton = choisirNbCarton({
+                      annee: row.annee,
+                      mois: row.mois,
+                      auto: cartonAutoParMois.get(`${row.annee}-${String(row.mois).padStart(2, "0")}`) ?? 0,
+                      manuel: row.carton_fabrique_manuel,
+                    });
                     return (
                       <tr key={row.id} className="border-t border-slate-100">
                         <td className="px-4 py-3 font-semibold text-slate-900">
                           {MOIS_NOMS[row.mois - 1]} {row.annee}
+                        </td>
+                        <td className="bg-violet-50/30 px-4 py-3 font-semibold text-violet-800">
+                          {nbCarton.valeur > 0 ? formatNombre(nbCarton.valeur) : "-"}
+                          <span className="ml-1.5 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                            {nbCarton.estManuel ? "manuel" : "auto"}
+                          </span>
                         </td>
                         {NUMERIC_FIELDS.map((field) => (
                           <td key={field.key} className="px-4 py-3 text-slate-600">
