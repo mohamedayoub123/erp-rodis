@@ -8,9 +8,10 @@ import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-a
 import { calculerCartonsCasiers, lireCasiersCoches, lireReleves, moyenne } from "@/lib/conditionnement-par-ligne";
 import {
   MODE_PAR_LIGNE,
+  fetchInfosArticleLigne,
   fetchModesSaisieConditionnement,
-  fetchPiecesParCartonLigne,
 } from "@/lib/conditionnement-modes";
+import { ajouterAnnees } from "@/lib/date-peremption";
 import { fetchCoutReelDepuisReservation, fetchCoutVracParKg } from "@/lib/prix-revient";
 import {
   COMPTE_EN_COURS_PRODUCTION,
@@ -682,7 +683,10 @@ export async function saveConditionnementRapportAction(formData: FormData) {
 
     // Un code deja saisi en "Entree par ligne" ne peut plus recevoir d'Entree simple : les cartons
     // seraient comptes deux fois (voir lib/conditionnement-modes.ts).
-    const modesSaisie = await fetchModesSaisieConditionnement(ligneId, code);
+    const [modesSaisie, infosArticle] = await Promise.all([
+      fetchModesSaisieConditionnement(ligneId, code),
+      fetchInfosArticleLigne(ligneId),
+    ]);
     if (modesSaisie.parLigne) {
       redirect(
         `/production/suivi-production/conditionnement/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(MESSAGE_DEJA_PAR_LIGNE)}`
@@ -691,6 +695,11 @@ export async function saveConditionnementRapportAction(formData: FormData) {
 
     const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
+  // Date de peremption AUTOMATIQUE (fabrication + 3 ou 5 ans, voir lib/date-peremption.ts) : jamais lue
+  // dans le formulaire, personne ne peut la modifier.
+  const datePeremption = dateFabricationConditionnement
+    ? ajouterAnnees(dateFabricationConditionnement, infosArticle.dureeConservationAns) || null
+    : null;
 
   // date_fabrication_conditionnement/date_peremption restent sur
   // production_rapports (proprietes du LOT/code, pas de la fournee physique
@@ -723,7 +732,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     supabaseServer.from("programme_lignes").select("chaine, zone").eq("id", ligneId).maybeSingle(),
     upsertRapport(ligneId, code, {
       date_fabrication_conditionnement: dateFabricationConditionnement,
-      date_peremption: parseOptionalText(formData, "date_peremption"),
+      date_peremption: datePeremption,
     }),
     qtFabriquer && qtFabriquer > 0
       ? dernierEntreeQuantiteIdentique("production_carton_entries", ligneId, code, qtFabriquer)
@@ -864,10 +873,11 @@ export async function saveConditionnementParLigneAction(formData: FormData) {
       redirect(`${urlPage}&erreur=${encodeURIComponent(erreurConditionnement)}`);
     }
 
-    const [modesSaisie, piecesParCarton] = await Promise.all([
+    const [modesSaisie, infosArticle] = await Promise.all([
       fetchModesSaisieConditionnement(ligneId, code),
-      fetchPiecesParCartonLigne(ligneId),
+      fetchInfosArticleLigne(ligneId),
     ]);
+    const { piecesParCarton } = infosArticle;
     if (modesSaisie.colonneAbsente) {
       throw new Error(
         "Entree par ligne pas encore activee : le SQL add_conditionnement_par_ligne.sql doit d'abord etre execute dans Supabase."
@@ -903,12 +913,17 @@ export async function saveConditionnementParLigneAction(formData: FormData) {
     const relevesPoids = lireReleves(formData, "poids");
     const relevesCadence = lireReleves(formData, "cadence");
     const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
+    // Date de peremption AUTOMATIQUE (fabrication + 3 ou 5 ans, voir lib/date-peremption.ts) : jamais lue
+    // dans le formulaire, personne ne peut la modifier.
+    const datePeremption = dateFabricationConditionnement
+      ? ajouterAnnees(dateFabricationConditionnement, infosArticle.dureeConservationAns) || null
+      : null;
 
     const [{ data: ligneChaineData }] = await Promise.all([
       supabaseServer.from("programme_lignes").select("chaine, zone").eq("id", ligneId).maybeSingle(),
       upsertRapport(ligneId, code, {
         date_fabrication_conditionnement: dateFabricationConditionnement,
-        date_peremption: parseOptionalText(formData, "date_peremption"),
+        date_peremption: datePeremption,
       }),
     ]);
     const ligneChaine = ligneChaineData as { chaine: string | null; zone: string | null } | null;

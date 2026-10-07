@@ -1,4 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
+import { dureeConservationAns } from "@/lib/date-peremption";
 
 // Les deux facons de saisir une fournee de Conditionnement (voir scripts/sql/add_conditionnement_par_ligne.sql) :
 // - Entree simple : le formulaire habituel (mode_saisie vide sur toutes les fournees deja saisies) ;
@@ -52,23 +53,35 @@ export async function fetchModesSaisieConditionnement(
   return { simple: (sansMode.data ?? []).length > 0, parLigne: false, colonneAbsente: true };
 }
 
-// Nb de pieces par carton de l'article de la ligne (fiche Article Produit Fini) - null si inconnu.
-export async function fetchPiecesParCartonLigne(ligneId: number): Promise<number | null> {
+export type InfosArticleLigne = {
+  // Nb de pieces par carton (fiche Article Produit Fini) - null si inconnu.
+  piecesParCarton: number | null;
+  // 5 ans pour gel douche / savon / huile / serum / pommade, 3 ans pour tout le reste (voir lib/date-peremption.ts).
+  dureeConservationAns: 3 | 5;
+};
+
+export async function fetchInfosArticleLigne(ligneId: number): Promise<InfosArticleLigne> {
+  const inconnu: InfosArticleLigne = { piecesParCarton: null, dureeConservationAns: 3 };
+
   const { data: ligneData } = await supabaseServer
     .from("programme_lignes")
     .select("article_id, produit")
     .eq("id", ligneId)
     .maybeSingle();
   const ligne = ligneData as { article_id: number | null; produit: string | null } | null;
-  if (!ligne) return null;
+  if (!ligne) return inconnu;
 
-  const requete = supabaseServer.from("articles").select("piece_par_carton");
+  const requete = supabaseServer.from("articles").select("piece_par_carton, type_article");
   const { data } = ligne.article_id
     ? await requete.eq("id", ligne.article_id).maybeSingle()
     : ligne.produit
       ? await requete.eq("nom_article", ligne.produit).limit(1).maybeSingle()
       : { data: null };
 
-  const piecesParCarton = Number((data as { piece_par_carton: number | null } | null)?.piece_par_carton ?? 0);
-  return piecesParCarton > 0 ? piecesParCarton : null;
+  const article = data as { piece_par_carton: number | null; type_article: string | null } | null;
+  const piecesParCarton = Number(article?.piece_par_carton ?? 0);
+  return {
+    piecesParCarton: piecesParCarton > 0 ? piecesParCarton : null,
+    dureeConservationAns: dureeConservationAns(article?.type_article),
+  };
 }

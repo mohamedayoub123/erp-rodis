@@ -7,12 +7,11 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/app/production/suivi/data";
 import { saveConditionnementParLigneAction, messageSiConditionnementInvalide } from "../../../actions";
 import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
-import { fetchModesSaisieConditionnement, fetchPiecesParCartonLigne } from "@/lib/conditionnement-modes";
+import { fetchInfosArticleLigne, fetchModesSaisieConditionnement } from "@/lib/conditionnement-modes";
 import { LigneZoneChaineEditor } from "../zone-chaine-editor";
 import { ModeSaisieSwitch } from "../../mode-switch";
+import { DatesFabricationPeremption } from "../../dates-fabrication-peremption";
 import { ParLigneProduction } from "./par-ligne-production";
-import { DateJmaFormField } from "@/app/_components/date-jma-input";
-import { smartEntryDateDefault } from "@/lib/smart-entry-date-default";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { TimeTextInput } from "@/app/_components/time-text-input";
 
@@ -56,11 +55,6 @@ type LigneInfo = {
   numero_lot: string | null;
 };
 
-type RapportInfo = {
-  date_fabrication_conditionnement: string | null;
-  date_peremption: string | null;
-};
-
 // Seulement l'equipe est reprise de la derniere fournee de ce code (confort) : dechets et arrets
 // repartent a 0 pour chaque nouvelle fournee, jamais re-comptes.
 type EquipeInfo = {
@@ -97,17 +91,11 @@ export default async function ConditionnementParLignePage({
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
 
-  const [{ data: ligneData }, { data: rapportData }, { data: equipeData }, zoneChaineOptions] = await Promise.all([
+  const [{ data: ligneData }, { data: equipeData }, zoneChaineOptions] = await Promise.all([
     supabaseServer
       .from("programme_lignes")
       .select("id, zone, chaine, produit, date_jour, numero_lot")
       .eq("id", ligneIdNumber)
-      .maybeSingle(),
-    supabaseServer
-      .from("production_rapports")
-      .select("date_fabrication_conditionnement, date_peremption")
-      .eq("programme_ligne_id", ligneIdNumber)
-      .eq("code", code)
       .maybeSingle(),
     supabaseServer
       .from("production_carton_entries")
@@ -124,14 +112,17 @@ export default async function ConditionnementParLignePage({
   if (!ligne) {
     notFound();
   }
-  const rapport = rapportData as RapportInfo | null;
   const equipe = equipeData as EquipeInfo | null;
 
-  const [erreurFabricationRequise, modesSaisie, piecesParCarton] = await Promise.all([
+  const [erreurFabricationRequise, modesSaisie, infosArticle] = await Promise.all([
     messageSiConditionnementInvalide(ligne.id, code),
     fetchModesSaisieConditionnement(ligne.id, code, ligne.numero_lot),
-    fetchPiecesParCartonLigne(ligne.id),
+    fetchInfosArticleLigne(ligne.id),
   ]);
+  const { piecesParCarton } = infosArticle;
+  // Chaque Enregistrer est une NOUVELLE fournee : date de fabrication = aujourd'hui (jour, mois, annee
+  // remplis automatiquement, modifiables).
+  const aujourdhui = new Date().toISOString().slice(0, 10);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -229,6 +220,8 @@ export default async function ConditionnementParLignePage({
                     Nom tireur
                     <input type="text" name="tireur" defaultValue={equipe?.tireur || ""} required className={CHAMP} />
                   </label>
+                </div>
+                <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Nb de journaliers
                     <input
@@ -241,6 +234,14 @@ export default async function ConditionnementParLignePage({
                       className={CHAMP}
                     />
                   </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Temps demarage lot
+                    <TimeTextInput name="temps_demarage_lot" required className={CHAMP} />
+                  </label>
+                  <DatesFabricationPeremption
+                    defaultFabrication={aujourdhui}
+                    dureeAns={infosArticle.dureeConservationAns}
+                  />
                 </div>
               </div>
 
@@ -250,25 +251,17 @@ export default async function ConditionnementParLignePage({
                   Ce qui est saisi ici est retire de ce qu&apos;il reste a faire (visible dans le Dashboard).
                   Chaque Enregistrer ajoute une nouvelle fournee.
                 </p>
-                <ParLigneProduction piecesParCarton={piecesParCarton} />
-                <div className="mt-6 grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Date de fabrication
-                    <DateJmaFormField
-                      name="date_fabrication_conditionnement"
-                      defaultValue={smartEntryDateDefault(rapport?.date_fabrication_conditionnement, ligne.date_jour)}
-                      required
-                    />
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Date de peremption
-                    <span className="font-normal normal-case text-red-600">
-                      Obligatoire - aucune valeur par defaut, le bouton Entrer ne fait rien tant qu&apos;elle n&apos;est
-                      pas remplie.
-                    </span>
-                    <DateJmaFormField name="date_peremption" defaultValue={rapport?.date_peremption} required />
-                  </label>
-                </div>
+                <ParLigneProduction
+                  piecesParCarton={piecesParCarton}
+                  apresCasiers={
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                        Temps arret batch
+                        <TimeTextInput name="temps_arret_batch" required className={CHAMP} />
+                      </label>
+                    </div>
+                  }
+                />
               </div>
 
               <div>
@@ -295,16 +288,6 @@ export default async function ConditionnementParLignePage({
                       <input type="number" step="1" min="0" name={cause.field} defaultValue="0" required className={CHAMP} />
                     </label>
                   ))}
-                </div>
-                <div className="mt-4 grid gap-4 md:grid-cols-3">
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Temps demarage lot
-                    <TimeTextInput name="temps_demarage_lot" required className={CHAMP} />
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Temps arret batch
-                    <TimeTextInput name="temps_arret_batch" required className={CHAMP} />
-                  </label>
                 </div>
               </div>
 

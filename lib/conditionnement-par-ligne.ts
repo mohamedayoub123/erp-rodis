@@ -3,7 +3,7 @@
 // Aucun import serveur ici : ce fichier est aussi charge cote navigateur.
 
 export const NB_RELEVES = 10;
-export const NB_CASIERS_MAX = 50;
+export const NB_CASIERS_MAX = 200;
 
 export type Releve = number | null;
 
@@ -43,7 +43,7 @@ export function lireReleves(formData: FormData, prefixe: string): Releve[] {
   return Array.from({ length: NB_RELEVES }, (_, index) => nombreOuNull(formData.get(`${prefixe}_${index + 1}`)));
 }
 
-// Cases cochees (champ "casier", valeur = numero de 1 a 50), sans doublon, dans l'ordre.
+// Cases cochees (champ "casier", valeur = numero de 1 a 200), sans doublon, dans l'ordre.
 export function lireCasiersCoches(formData: FormData): number[] {
   const numeros = formData
     .getAll("casier")

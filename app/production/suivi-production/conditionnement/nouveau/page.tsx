@@ -3,8 +3,8 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
+import { DatesFabricationPeremption } from "../dates-fabrication-peremption";
 import { createManualConditionnementEntryAction } from "../../actions";
 import { ProduitPickerField } from "../../produit-picker-field";
 import { SubmitButton } from "@/app/_components/submit-button";
@@ -240,14 +240,10 @@ export default async function NouvelleFicheConditionnementPage({
                   </label>
                 </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Date de fabrication
-                    <DateJmaFormField name="date_fabrication_conditionnement" required />
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Date de peremption
-                    <DateJmaFormField name="date_peremption" required />
-                  </label>
+                  <DatesFabricationPeremption
+                    defaultFabrication={new Date().toISOString().slice(0, 10)}
+                    dureeAns={null}
+                  />
                 </div>
               </div>
 

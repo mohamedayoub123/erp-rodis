@@ -7,11 +7,10 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
 import { saveConditionnementRapportAction, messageSiConditionnementInvalide } from "../../actions";
 import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
-import { fetchModesSaisieConditionnement } from "@/lib/conditionnement-modes";
+import { fetchInfosArticleLigne, fetchModesSaisieConditionnement } from "@/lib/conditionnement-modes";
 import { ModeSaisieSwitch } from "../mode-switch";
+import { DatesFabricationPeremption } from "../dates-fabrication-peremption";
 import { LigneZoneChaineEditor } from "./zone-chaine-editor";
-import { DateJmaFormField } from "@/app/_components/date-jma-input";
-import { smartEntryDateDefault } from "@/lib/smart-entry-date-default";
 import { formatDateTime } from "@/lib/format-date";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { TimeTextInput } from "@/app/_components/time-text-input";
@@ -56,6 +55,7 @@ type RapportInfo = {
 // precedentes (une nouvelle ligne est toujours creee au Save).
 type DerniereFourneeInfo = {
   id: number;
+  date_jour: string | null;
   chef_zone: string | null;
   chef_ligne: string | null;
   ravitailleur: string | null;
@@ -120,7 +120,7 @@ export default async function RapportConditionnementPage({
 
   const RAPPORT_FIELDS = "date_fabrication_conditionnement, date_peremption";
   const FOURNEE_FIELDS =
-    "id, chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, utilisateur_conditionnement, date_saisie_conditionnement";
+    "id, date_jour, chef_zone, chef_ligne, ravitailleur, tireur, nb_journaliers_conditionnement, qt_fabriquer, cadence, poids_reel, dechet_sleeve, dechet_capsule, dechet_pompe, dechet_flacon, dechet_pot, dechet_etiquette, dechet_etui, arret_depot, arret_consommable_non_livre, arret_manque_conditionnement, arret_manque_vrac, arret_technique, arret_coupure_courant, arret_raclage_vrac, arret_changement_lot, arret_flacons_nc, arret_autre, temps_demarage_lot, temps_arret_batch, utilisateur_conditionnement, date_saisie_conditionnement";
 
   const [{ data: ligneData }, { data: rapportData }, { data: fourneeData }] = await Promise.all([
     supabaseServer
@@ -172,10 +172,19 @@ export default async function RapportConditionnementPage({
     notFound();
   }
 
-  const [erreurFabricationRequise, modesSaisie] = await Promise.all([
+  const [erreurFabricationRequise, modesSaisie, infosArticle] = await Promise.all([
     messageSiConditionnementInvalide(ligne.id, code),
     fetchModesSaisieConditionnement(ligne.id, code, ligne.numero_lot),
+    fetchInfosArticleLigne(ligne.id),
   ]);
+
+  // Date de fabrication : nouvelle fournee = aujourd'hui (jour, mois et annee remplis automatiquement,
+  // modifiables) ; correction d'une fournee deja saisie = la date de CETTE fournee, pour ne jamais la
+  // reecrire par erreur avec la date du jour.
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const dateFabricationParDefaut = derniereFournee
+    ? derniereFournee.date_jour?.slice(0, 10) || rapport?.date_fabrication_conditionnement || aujourdhui
+    : aujourdhui;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -312,6 +321,8 @@ export default async function RapportConditionnementPage({
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
+                </div>
+                <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Nb de journaliers
                     <input
@@ -324,6 +335,19 @@ export default async function RapportConditionnementPage({
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
+                    Temps demarage lot
+                    <TimeTextInput
+                      name="temps_demarage_lot"
+                      defaultValue={derniereFournee?.temps_demarage_lot}
+                      required
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                    />
+                  </label>
+                  <DatesFabricationPeremption
+                    defaultFabrication={dateFabricationParDefaut}
+                    dureeAns={infosArticle.dureeConservationAns}
+                  />
                 </div>
               </div>
 
@@ -365,31 +389,6 @@ export default async function RapportConditionnementPage({
                       defaultValue={derniereFournee?.poids_reel ?? "0"}
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                    />
-                  </label>
-                </div>
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Date de fabrication
-                    <DateJmaFormField
-                      name="date_fabrication_conditionnement"
-                      defaultValue={smartEntryDateDefault(
-                        rapport?.date_fabrication_conditionnement,
-                        ligne.date_jour
-                      )}
-                      required
-                    />
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Date de peremption
-                    <span className="font-normal normal-case text-red-600">
-                      Obligatoire - aucune valeur par defaut, le bouton Entrer ne
-                      fait rien tant qu&apos;elle n&apos;est pas remplie.
-                    </span>
-                    <DateJmaFormField
-                      name="date_peremption"
-                      defaultValue={rapport?.date_peremption}
-                      required
                     />
                   </label>
                 </div>
@@ -500,15 +499,6 @@ export default async function RapportConditionnementPage({
                   ))}
                 </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-3">
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Temps demarage lot
-                    <TimeTextInput
-                      name="temps_demarage_lot"
-                      defaultValue={derniereFournee?.temps_demarage_lot}
-                      required
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                    />
-                  </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Temps arret batch
                     <TimeTextInput
