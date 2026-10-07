@@ -13,7 +13,7 @@ import { ModeSaisieSwitch } from "../../mode-switch";
 import { DatesFabricationPeremption } from "../../dates-fabrication-peremption";
 import { ParLigneProduction } from "./par-ligne-production";
 import { SubmitButton } from "@/app/_components/submit-button";
-import { TimeTextInput } from "@/app/_components/time-text-input";
+import { TimeTextInputMaintenant } from "@/app/_components/time-text-input-maintenant";
 
 // Meme liste que l'Entree simple (conditionnement/[ligneId]/page.tsx) - dupliquee volontairement pour ne
 // jamais faire deriver l'Entree simple en touchant ce fichier.
@@ -236,7 +236,7 @@ export default async function ConditionnementParLignePage({
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Temps demarage lot
-                    <TimeTextInput name="temps_demarage_lot" required className={CHAMP} />
+                    <TimeTextInputMaintenant name="temps_demarage_lot" required className={CHAMP} />
                   </label>
                   <DatesFabricationPeremption
                     defaultFabrication={aujourdhui}
@@ -257,7 +257,7 @@ export default async function ConditionnementParLignePage({
                     <div className="grid gap-4 md:grid-cols-3">
                       <label className="grid gap-1 text-xs font-semibold text-slate-500">
                         Temps arret batch
-                        <TimeTextInput name="temps_arret_batch" required className={CHAMP} />
+                        <TimeTextInputMaintenant name="temps_arret_batch" required className={CHAMP} />
                       </label>
                     </div>
                   }
