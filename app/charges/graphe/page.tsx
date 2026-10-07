@@ -14,6 +14,7 @@ import {
   type ProgrammeLigneRow,
 } from "../../production/suivi/data";
 import { MOIS_NOMS } from "../fields";
+import { choisirNbCarton } from "../carton";
 
 // Graphe cout par carton : reprend la logique du fichier Excel de suivi de
 // paie de l'usine ("graphe 2026") - plusieurs courbes de cout par carton
@@ -181,11 +182,14 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
     const charge = chargesByMois.get(mois) ?? null;
     const prix = prixByMois.get(mois) ?? null;
     const moisKey = `${annee}-${String(mois).padStart(2, "0")}`;
-    // Suivi Production prioritaire si dispo ; sinon repli sur la saisie
-    // manuelle (mois anciens sans donnee dans Suivi Production).
-    const nbCartonAuto = cartonByMonth.get(moisKey) ?? 0;
-    const nbCartonManuel = charge?.carton_fabrique_manuel ?? null;
-    const nbCarton = nbCartonAuto > 0 ? nbCartonAuto : (nbCartonManuel ?? 0);
+    // Avant septembre 2026 : le chiffre saisi a la main fait foi ; a partir de septembre 2026 :
+    // uniquement le chiffre automatique de Suivi Production (voir ../carton.ts).
+    const { valeur: nbCarton, estManuel: nbCartonEstManuel } = choisirNbCarton({
+      annee,
+      mois,
+      auto: cartonByMonth.get(moisKey) ?? 0,
+      manuel: charge?.carton_fabrique_manuel ?? null,
+    });
 
     const gazCout = charge && prix?.prix_gaz != null ? n(charge.gaz) * prix.prix_gaz : 0;
     const essenceCout = charge && prix?.prix_essence != null ? n(charge.essence) * prix.prix_essence : 0;
@@ -225,7 +229,7 @@ export default async function GrapheCoutCartonPage({ searchParams }: { searchPar
       moisLabel: MOIS_NOMS[i],
       hasData,
       nbCarton,
-      nbCartonEstManuel: nbCartonAuto <= 0 && nbCartonManuel !== null,
+      nbCartonEstManuel,
       journalierTotal,
       journalierCosmetique,
       r1,

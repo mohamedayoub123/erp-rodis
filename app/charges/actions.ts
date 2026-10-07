@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { cartonAutomatiquePourMois } from "./carton";
 
 function toNumberOrNull(value: FormDataEntryValue | null) {
   const trimmed = String(value ?? "").trim().replace(",", ".");
@@ -25,6 +26,12 @@ export async function saveChargesUsineAction(formData: FormData) {
     throw new Error("Annee et mois sont obligatoires.");
   }
 
+  // Nb carton fabrique manuel : seulement pour les mois avant septembre 2026 (ensuite c'est
+  // automatique). Pour les mois automatiques la colonne n'est pas touchee, rien n'est efface.
+  const cartonManuel = cartonAutomatiquePourMois(annee, mois)
+    ? {}
+    : { carton_fabrique_manuel: toNumberOrNull(formData.get("carton_fabrique_manuel")) };
+
   // Upsert sur (annee, mois) : re-saisir le meme mois corrige la ligne
   // existante au lieu d'en creer une 2eme.
   const { error } = await supabaseServer.from("charges_usine").upsert(
@@ -42,7 +49,7 @@ export async function saveChargesUsineAction(formData: FormData) {
       salaire_journalier_global: toNumberOrNull(formData.get("salaire_journalier_global")),
       salaire_cadre: toNumberOrNull(formData.get("salaire_cadre")),
       depense_usine: toNumberOrNull(formData.get("depense_usine")),
-      carton_fabrique_manuel: toNumberOrNull(formData.get("carton_fabrique_manuel")),
+      ...cartonManuel,
       utilisateur: currentUser,
       date_saisie: new Date().toISOString(),
     },

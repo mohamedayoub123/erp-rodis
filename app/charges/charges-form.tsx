@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { saveChargesUsineAction } from "./actions";
+import { cartonAutomatiquePourMois } from "./carton";
 import { CARTON_MANUEL_FIELD, MOIS_NOMS, NUMERIC_FIELDS, type ChargeRow } from "./fields";
 
 const GROUPS = ["Energie", "Salaires", "Autres"] as const;
@@ -107,17 +108,24 @@ export function ChargesUsineForm({
 
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">Production</p>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500 sm:max-w-xs">
-            {CARTON_MANUEL_FIELD.label}
-            <input
-              type="number"
-              step="0.01"
-              name={CARTON_MANUEL_FIELD.key}
-              placeholder="Laisser vide si deja dans Suivi Production"
-              defaultValue={defaultValueFor(existing, CARTON_MANUEL_FIELD.key)}
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-            />
-          </label>
+          {cartonAutomatiquePourMois(annee, mois) ? (
+            <p className="rounded-2xl bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 sm:max-w-md">
+              Nb carton fabrique : automatique - pris de Suivi Production pour {MOIS_NOMS[mois - 1]} {annee}
+              (rien a saisir). Le chiffre se voit dans Graphe cout carton.
+            </p>
+          ) : (
+            <label className="grid gap-1 text-xs font-semibold text-slate-500 sm:max-w-xs">
+              {CARTON_MANUEL_FIELD.label}
+              <input
+                type="number"
+                step="0.01"
+                name={CARTON_MANUEL_FIELD.key}
+                placeholder="Laisser vide si deja dans Suivi Production"
+                defaultValue={defaultValueFor(existing, CARTON_MANUEL_FIELD.key)}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              />
+            </label>
+          )}
         </div>
 
         <div>
