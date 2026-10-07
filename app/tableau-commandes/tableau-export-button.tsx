@@ -23,6 +23,11 @@ export type ExportCommandColumn = {
   // Libelle affiche ("EN COURS", "STAND", "BL TRANSFORME") et valeur brute (pour choisir la couleur).
   statut: string;
   statutCode: string;
+  // Note libre de la commande (ligne "Note" de l'en-tete).
+  note: string;
+  // Mode de chargement (ligne "tC") : seulement renseigne pour les feuilles de familles - la vue "Article
+  // manquant" de l'ecran n'a pas cette ligne, donc undefined = pas de ligne tC.
+  modeChargement?: string;
 };
 
 export type ExportDataRow =
@@ -113,9 +118,7 @@ export function addTableauSheet(
   rows: ExportDataRow[],
   sheetName?: string
 ) {
-  const sheet = workbook.addWorksheet(sheetName || title.slice(0, 31) || "Export", {
-    views: [{ state: "frozen", ySplit: 6 }],
-  });
+  const sheet = workbook.addWorksheet(sheetName || title.slice(0, 31) || "Export");
 
   const headerLabels = [
     "Article",
@@ -155,6 +158,9 @@ export function addTableauSheet(
 
   bannerRow(title);
 
+  // Meme ordre d'en-tete que l'ecran : Note, Statut, Client, Nombre de camion, tC (feuilles de familles
+  // seulement), Proforma, Date commande.
+  const noteRow = sheet.addRow(["Note", ...commandColumns.map((col) => col.note || ""), "", "", "", "", ""]);
   const statutRow = sheet.addRow(["Statut", ...commandColumns.map((col) => col.statut), "", "", "", "", ""]);
   const clientRow = sheet.addRow(["Client", ...commandColumns.map((col) => col.client || "-"), "", "", "", "", ""]);
   const camionRow = sheet.addRow([
@@ -166,6 +172,10 @@ export function addTableauSheet(
     "",
     "",
   ]);
+  const avecTc = commandColumns.some((col) => col.modeChargement !== undefined);
+  const tcRow = avecTc
+    ? sheet.addRow(["tC", ...commandColumns.map((col) => col.modeChargement || ""), "", "", "", "", ""])
+    : null;
   const proformaRow = sheet.addRow([
     "Proforma #",
     ...commandColumns.map((col) => col.numeroProforma || "-"),
@@ -188,7 +198,8 @@ export function addTableauSheet(
   // Lignes Statut et Client : chaque commande a la couleur de son statut, comme a l'ecran ; le reste
   // de l'en-tete est turquoise.
   const lignesColoreesParStatut = new Set([statutRow.number, clientRow.number]);
-  for (const row of [statutRow, clientRow, camionRow, proformaRow, dateRow]) {
+  const lignesEnTete = [noteRow, statutRow, clientRow, camionRow, ...(tcRow ? [tcRow] : []), proformaRow, dateRow];
+  for (const row of lignesEnTete) {
     const colonnesParStatut = lignesColoreesParStatut.has(row.number);
     for (let colIndex = 1; colIndex <= totalCols; colIndex++) {
       const cell = row.getCell(colIndex);
@@ -196,7 +207,8 @@ export function addTableauSheet(
         colonnesParStatut && colIndex >= firstCommandCol && colIndex <= lastCommandCol
           ? commandColumns[colIndex - firstCommandCol]
           : null;
-      cell.font = { bold: true, color: { argb: TEXT_DARK } };
+      // La note est un texte libre (souvent long) : pas en gras, comme a l'ecran.
+      cell.font = { bold: !(row.number === noteRow.number && colIndex > 1), color: { argb: TEXT_DARK } };
       cell.fill = {
         type: "pattern",
         pattern: "solid",
@@ -206,6 +218,9 @@ export function addTableauSheet(
       cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     }
   }
+
+  // Titre + lignes d'en-tete restent visibles en faisant defiler les articles.
+  sheet.views = [{ state: "frozen", ySplit: 1 + lignesEnTete.length }];
 
   const colWidths = headerLabels.map((label) => Math.max(String(label).length + 2, 10));
   colWidths[0] = Math.max(colWidths[0], 32);

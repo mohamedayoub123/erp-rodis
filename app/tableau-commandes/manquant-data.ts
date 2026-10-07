@@ -81,6 +81,7 @@ export async function buildManquantSheet(): Promise<{
     dateEcriture: column.date_ecriture,
     statut: getStatusLabel(column.statut),
     statutCode: String(column.statut || ""),
+    note: column.note,
   }));
 
   const rows: ExportDataRow[] = [];

@@ -229,6 +229,7 @@ function renderArticleManquantInsideTableau(
     dateEcriture: column.date_ecriture,
     statut: getStatusLabel(column.statut),
     statutCode: String(column.statut || ""),
+    note: column.note,
   }));
 
   const exportRows: ExportDataRow[] = visibleSections.flatMap(({ family, rows }) => {

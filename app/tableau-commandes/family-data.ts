@@ -793,6 +793,8 @@ export function buildFamilyView(
     dateEcriture: column.date_ecriture,
     statut: getStatusLabel(column.statut),
     statutCode: String(column.statut || ""),
+    note: column.note,
+    modeChargement: column.mode_chargement,
   }));
 
   const exportRows: ExportDataRow[] = rowsWithSubGamme.flatMap(({ article, subGamme, showSubGammeBanner }) => {
