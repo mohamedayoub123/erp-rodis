@@ -110,8 +110,9 @@ export function ChargesUsineForm({
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">Production</p>
           {cartonAutomatiquePourMois(annee, mois) ? (
             <p className="rounded-2xl bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 sm:max-w-md">
-              Nb carton fabrique : automatique - cartons entres au Depot A par Entree Production en{" "}
-              {MOIS_NOMS[mois - 1]} {annee} (rien a saisir). Le chiffre se voit dans le tableau ci-dessous.
+              Nb carton fabrique : automatique - cartons entres au Depot A par Entree Production dont la date de
+              fabrication est en {MOIS_NOMS[mois - 1]} {annee} (rien a saisir). Le chiffre se voit dans le tableau
+              ci-dessous.
             </p>
           ) : (
             <label className="grid gap-1 text-xs font-semibold text-slate-500 sm:max-w-xs">

@@ -2,8 +2,10 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
 
 // Nb carton fabrique par mois = cartons entres au Depot A par "Entree Production" (page Mouvements >
-// Produit fini > Entree Production), mois par mois selon la date du mouvement. Les entrees manuelles
-// (TE) et les imports Excel n'en font pas partie : seulement ce qui vient de l'Entree Production.
+// Produit fini > Entree Production), mois par mois selon la DATE DE FABRICATION du lot (pas la date de
+// saisie : une entree saisie le 2 octobre pour une fabrication du 29 septembre compte en septembre ;
+// repli sur la date du mouvement si la date de fabrication est vide ou impossible). Les entrees manuelles (TE) et les
+// imports Excel n'en font pas partie : seulement ce qui vient de l'Entree Production.
 // Une entree sans depot propre (cas de l'Entree Production) est dans le depot PAR DEFAUT de son article,
 // meme regle que lib/depot-stock.ts.
 //
@@ -19,8 +21,23 @@ type LigneEntree = {
   article_id: number | null;
   depot_id: number | null;
   qte_entree: number | null;
+  date_fabrication: string | null;
   date_jour: string | null;
 };
+
+// Mois de la date de fabrication. Une date de fabrication impossible (APRES la date du mouvement, ou plus
+// de 93 jours avant : faute de frappe sur le mois ou l'annee, constate sur quelques entrees : 2027, 2029,
+// 2031, 2025) ne doit pas envoyer les cartons dans un mois qui n'existe pas -> on garde alors le mois du
+// mouvement. Normalement l'ecart est de 0 a 7 jours.
+function moisDeFabrication(ligne: LigneEntree): string {
+  const jour = ligne.date_jour || "";
+  const fabrication = ligne.date_fabrication || "";
+  if (!fabrication) return jour.slice(0, 7);
+  if (!jour) return fabrication.slice(0, 7);
+
+  const ecartJours = (Date.parse(jour) - Date.parse(fabrication)) / 86_400_000;
+  return ecartJours >= 0 && ecartJours <= 93 ? fabrication.slice(0, 7) : jour.slice(0, 7);
+}
 
 async function lireDepuisLaBase(): Promise<Map<string, number>> {
   const { data: depots, error: depotsError } = await supabaseServer.from("depots").select("id, nom");
@@ -42,7 +59,7 @@ async function lireDepuisLaBase(): Promise<Map<string, number>> {
       (from, to) =>
         supabaseServer
           .from("lots_stock")
-          .select("article_id, depot_id, qte_entree, date_jour")
+          .select("article_id, depot_id, qte_entree, date_fabrication, date_jour")
           .eq("source_import", SOURCE_ENTREE_PRODUCTION)
           .gt("qte_entree", 0)
           .order("id", { ascending: true })
@@ -64,7 +81,7 @@ async function lireDepuisLaBase(): Promise<Map<string, number>> {
   const parMois = new Map<string, number>();
 
   for (const ligne of entrees) {
-    const mois = (ligne.date_jour || "").slice(0, 7);
+    const mois = moisDeFabrication(ligne);
     if (mois.length !== 7) continue;
 
     const auDepotA =
