@@ -7,6 +7,8 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
 import { saveConditionnementRapportAction, messageSiConditionnementInvalide } from "../../actions";
 import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
+import { fetchModesSaisieConditionnement } from "@/lib/conditionnement-modes";
+import { ModeSaisieSwitch } from "../mode-switch";
 import { LigneZoneChaineEditor } from "./zone-chaine-editor";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { smartEntryDateDefault } from "@/lib/smart-entry-date-default";
@@ -170,7 +172,10 @@ export default async function RapportConditionnementPage({
     notFound();
   }
 
-  const erreurFabricationRequise = await messageSiConditionnementInvalide(ligne.id, code);
+  const [erreurFabricationRequise, modesSaisie] = await Promise.all([
+    messageSiConditionnementInvalide(ligne.id, code),
+    fetchModesSaisieConditionnement(ligne.id, code, ligne.numero_lot),
+  ]);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -224,6 +229,11 @@ export default async function RapportConditionnementPage({
                   .
                 </p>
               ) : null}
+              {canWrite ? (
+                <div className="mt-3">
+                  <ModeSaisieSwitch ligneId={ligne.id} code={code} actuel="simple" modes={modesSaisie} />
+                </div>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-3">
@@ -243,6 +253,11 @@ export default async function RapportConditionnementPage({
           {!canWrite ? (
             <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-600">
               Lecture seule : saisie de rapport cachee pour cet utilisateur.
+            </p>
+          ) : modesSaisie.parLigne ? (
+            <p className="rounded-2xl bg-amber-50 px-4 py-4 text-sm font-medium text-amber-800">
+              Ce code est deja saisi en Entree par ligne - l&apos;Entree simple n&apos;est plus possible pour ce
+              code. Utilise &laquo; Entree par ligne &raquo; pour ajouter une fournee.
             </p>
           ) : erreurFabricationRequise ? (
             <p className="rounded-2xl bg-amber-50 px-4 py-4 text-sm font-medium text-amber-800">

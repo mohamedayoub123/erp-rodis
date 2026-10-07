@@ -5,6 +5,12 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-article";
+import { calculerCartonsCasiers, lireCasiersCoches, lireReleves, moyenne } from "@/lib/conditionnement-par-ligne";
+import {
+  MODE_PAR_LIGNE,
+  fetchModesSaisieConditionnement,
+  fetchPiecesParCartonLigne,
+} from "@/lib/conditionnement-modes";
 import { fetchCoutReelDepuisReservation, fetchCoutVracParKg } from "@/lib/prix-revient";
 import {
   COMPTE_EN_COURS_PRODUCTION,
@@ -30,6 +36,11 @@ function revalidateRapportPages() {
   revalidatePath("/production/suivi-production");
   revalidatePath("/production/suivi/dashboard");
 }
+
+const MESSAGE_DEJA_PAR_LIGNE =
+  "Ce code est deja saisi en Entree par ligne - l'Entree simple n'est plus possible pour ce code.";
+const MESSAGE_DEJA_SIMPLE =
+  "Ce code est deja saisi en Entree simple - l'Entree par ligne n'est plus possible pour ce code.";
 
 // Chaque fournee de carton reellement produite doit deduire sa PART de la
 // reservation MP tout de suite (pas seulement a "Fin Programme", qui peut
@@ -669,6 +680,15 @@ export async function saveConditionnementRapportAction(formData: FormData) {
       );
     }
 
+    // Un code deja saisi en "Entree par ligne" ne peut plus recevoir d'Entree simple : les cartons
+    // seraient comptes deux fois (voir lib/conditionnement-modes.ts).
+    const modesSaisie = await fetchModesSaisieConditionnement(ligneId, code);
+    if (modesSaisie.parLigne) {
+      redirect(
+        `/production/suivi-production/conditionnement/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(MESSAGE_DEJA_PAR_LIGNE)}`
+      );
+    }
+
     const qtFabriquer = parseOptionalNumber(formData, "qt_fabriquer");
   const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
 
@@ -814,6 +834,143 @@ export async function saveConditionnementRapportAction(formData: FormData) {
     redirect(
       `/production/suivi-production/conditionnement/${ligneId}?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(message)}`
     );
+  }
+}
+
+// ENTREE PAR LIGNE du Conditionnement : la ligne saisit elle-meme 10 releves de poids, 10 releves de
+// cadence (toutes les 15 min - la moyenne est enregistree dans poids_reel / cadence, comme l'Entree
+// simple) et coche chaque casier sorti (jusqu'a 50) avec le nb de pieces par casier : le nb de cartons
+// est CALCULE ici (casiers x pieces / pieces par carton), jamais lu dans le navigateur. Chaque Enregistrer
+// cree une NOUVELLE fournee (formulaire toujours vide au depart) - pas de "doublon ignore" comme l'Entree
+// simple : deux fournees de meme quantite sont normales ici. Meme deduction proportionnelle de la
+// reservation MP, meme blocages qualite/fabrication. Un code deja saisi en Entree simple est refuse.
+export async function saveConditionnementParLigneAction(formData: FormData) {
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+  const urlPage = `/production/suivi-production/conditionnement/${ligneId}/par-ligne?code=${encodeURIComponent(code)}`;
+
+  try {
+    const currentUser = await getCurrentStockUser();
+
+    if (!(await canWritePageUser(currentUser, "productionSuiviProductionConditionnement"))) {
+      throw new Error("Cet utilisateur ne peut pas enregistrer de rapport production.");
+    }
+    if (!ligneId) {
+      throw new Error("Ligne invalide.");
+    }
+
+    const erreurConditionnement = await messageSiConditionnementInvalide(ligneId, code);
+    if (erreurConditionnement) {
+      redirect(`${urlPage}&erreur=${encodeURIComponent(erreurConditionnement)}`);
+    }
+
+    const [modesSaisie, piecesParCarton] = await Promise.all([
+      fetchModesSaisieConditionnement(ligneId, code),
+      fetchPiecesParCartonLigne(ligneId),
+    ]);
+    if (modesSaisie.colonneAbsente) {
+      throw new Error(
+        "Entree par ligne pas encore activee : le SQL add_conditionnement_par_ligne.sql doit d'abord etre execute dans Supabase."
+      );
+    }
+    if (modesSaisie.simple) {
+      throw new Error(MESSAGE_DEJA_SIMPLE);
+    }
+    if (!piecesParCarton) {
+      throw new Error(
+        "Le nombre de pieces par carton de cet article est inconnu (fiche Article Produit Fini) - impossible de calculer les cartons."
+      );
+    }
+
+    const casiersCoches = lireCasiersCoches(formData);
+    const piecesParCasier = parseOptionalNumber(formData, "pieces_par_casier");
+    if (casiersCoches.length === 0) {
+      throw new Error("Coche au moins un casier sorti.");
+    }
+    if (!piecesParCasier || piecesParCasier <= 0) {
+      throw new Error("Indique le nombre de pieces dans un casier.");
+    }
+
+    const { cartons: qtFabriquer } = calculerCartonsCasiers({
+      nbCasiers: casiersCoches.length,
+      piecesParCasier,
+      piecesParCarton,
+    });
+    if (qtFabriquer <= 0) {
+      throw new Error("Le nombre de cartons calcule est 0 - verifie les casiers et le nombre de pieces par casier.");
+    }
+
+    const relevesPoids = lireReleves(formData, "poids");
+    const relevesCadence = lireReleves(formData, "cadence");
+    const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
+
+    const [{ data: ligneChaineData }] = await Promise.all([
+      supabaseServer.from("programme_lignes").select("chaine, zone").eq("id", ligneId).maybeSingle(),
+      upsertRapport(ligneId, code, {
+        date_fabrication_conditionnement: dateFabricationConditionnement,
+        date_peremption: parseOptionalText(formData, "date_peremption"),
+      }),
+    ]);
+    const ligneChaine = ligneChaineData as { chaine: string | null; zone: string | null } | null;
+
+    const { error: insertError } = await supabaseServer.from("production_carton_entries").insert([
+      {
+        programme_ligne_id: ligneId,
+        code,
+        quantite: qtFabriquer,
+        qt_fabriquer: qtFabriquer,
+        ...(dateFabricationConditionnement ? { date_jour: dateFabricationConditionnement } : {}),
+        chaine: ligneChaine?.chaine ?? null,
+        zone: ligneChaine?.zone ?? null,
+        chef_zone: parseOptionalText(formData, "chef_zone"),
+        chef_ligne: parseOptionalText(formData, "chef_ligne"),
+        ravitailleur: parseOptionalText(formData, "ravitailleur"),
+        tireur: parseOptionalText(formData, "tireur"),
+        nb_journaliers_conditionnement: parseOptionalNumber(formData, "nb_journaliers_conditionnement"),
+        cadence: moyenne(relevesCadence),
+        poids_reel: moyenne(relevesPoids),
+        dechet_sleeve: parseOptionalNumber(formData, "dechet_sleeve"),
+        dechet_capsule: parseOptionalNumber(formData, "dechet_capsule"),
+        dechet_pompe: parseOptionalNumber(formData, "dechet_pompe"),
+        dechet_flacon: parseOptionalNumber(formData, "dechet_flacon"),
+        dechet_pot: parseOptionalNumber(formData, "dechet_pot"),
+        dechet_etiquette: parseOptionalNumber(formData, "dechet_etiquette"),
+        dechet_etui: parseOptionalNumber(formData, "dechet_etui"),
+        arret_depot: parseOptionalNumber(formData, "arret_depot"),
+        arret_consommable_non_livre: parseOptionalNumber(formData, "arret_consommable_non_livre"),
+        arret_manque_conditionnement: parseOptionalNumber(formData, "arret_manque_conditionnement"),
+        arret_manque_vrac: parseOptionalNumber(formData, "arret_manque_vrac"),
+        arret_technique: parseOptionalNumber(formData, "arret_technique"),
+        arret_coupure_courant: parseOptionalNumber(formData, "arret_coupure_courant"),
+        arret_raclage_vrac: parseOptionalNumber(formData, "arret_raclage_vrac"),
+        arret_changement_lot: parseOptionalNumber(formData, "arret_changement_lot"),
+        arret_flacons_nc: parseOptionalNumber(formData, "arret_flacons_nc"),
+        arret_autre: parseOptionalNumber(formData, "arret_autre"),
+        temps_demarage_lot: parseOptionalText(formData, "temps_demarage_lot"),
+        temps_arret_batch: parseOptionalText(formData, "temps_arret_batch"),
+        mode_saisie: MODE_PAR_LIGNE,
+        releves_poids: relevesPoids,
+        releves_cadence: relevesCadence,
+        casiers_coches: casiersCoches,
+        pieces_par_casier: piecesParCasier,
+        utilisateur_conditionnement: currentUser,
+        date_saisie_conditionnement: new Date().toISOString(),
+      },
+    ]);
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    await consommerCartonProportionnel(ligneId, code, qtFabriquer, currentUser);
+
+    revalidateRapportPages();
+    redirect("/production/suivi/dashboard");
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : "Erreur inconnue pendant l'enregistrement.";
+    redirect(`${urlPage}&erreur=${encodeURIComponent(message)}`);
   }
 }
 

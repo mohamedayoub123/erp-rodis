@@ -775,12 +775,20 @@ export default async function PlanningDashboardPage({
                           <RestantBadge restant={row.cartonRestant} prevuIsNull={row.cartonPrevuIsNull} />
                         </td>
                         <td className="px-4 py-3">
-                          <Link
-                            href={`/production/suivi-production/conditionnement/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
-                            className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
-                          >
-                            Entrer
-                          </Link>
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`/production/suivi-production/conditionnement/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
+                              className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
+                            >
+                              Entrer
+                            </Link>
+                            <Link
+                              href={`/production/suivi-production/conditionnement/${row.ligne.id}/par-ligne?code=${encodeURIComponent(row.code)}`}
+                              className="whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800"
+                            >
+                              Par ligne
+                            </Link>
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markCartonTermineAction} />
