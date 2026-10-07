@@ -42,15 +42,39 @@ export async function updateCommandeNoteAction(formData: FormData) {
 // dans le navigateur (voir export-toutes-familles-button.tsx). Renvoie un
 // message d'erreur lisible au lieu de lever une exception : en production
 // Next.js masque le texte des exceptions des Server Actions.
-export async function exportAllFamiliesAction(): Promise<
-  { ok: true; sheets: FamilySheet[]; avertissement?: string } | { ok: false; message: string }
-> {
+type ResultatExport = { ok: true; sheets: FamilySheet[]; avertissement?: string } | { ok: false; message: string };
+
+// Cet export lit tout le stock et toutes les commandes (une dizaine de secondes de lecture soutenue sur la
+// base). Protection : un seul calcul a la fois par instance du serveur, partage entre tous les clics
+// (plusieurs personnes ou clics repetes), et le dernier resultat reussi est reutilise 60 s - sans ca, des
+// exports lances en meme temps se multipliaient et saturaient la base pour tout le monde.
+const DUREE_CACHE_EXPORT_MS = 60_000;
+let exportEnCours: Promise<ResultatExport> | null = null;
+let dernierExport: { jusqua: number; resultat: ResultatExport } | null = null;
+
+export async function exportAllFamiliesAction(): Promise<ResultatExport> {
   const currentUser = await getCurrentStockUser();
 
   if (!(await canViewPageUser(currentUser, "tableauCommandes"))) {
     return { ok: false, message: "Tu n'as pas acces au Tableau de commande." };
   }
 
+  if (dernierExport && dernierExport.jusqua > Date.now()) return dernierExport.resultat;
+  if (exportEnCours) return exportEnCours;
+
+  exportEnCours = calculerExportToutesFamilles()
+    .then((resultat) => {
+      if (resultat.ok) dernierExport = { jusqua: Date.now() + DUREE_CACHE_EXPORT_MS, resultat };
+      return resultat;
+    })
+    .finally(() => {
+      exportEnCours = null;
+    });
+
+  return exportEnCours;
+}
+
+async function calculerExportToutesFamilles(): Promise<ResultatExport> {
   try {
     const sheets = await buildAllFamiliesSheets();
 
