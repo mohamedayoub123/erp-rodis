@@ -7,6 +7,12 @@ import ExcelJS from "exceljs";
 // calculees cote serveur et passees en props - reutilise pour le tableau
 // par gamme ET pour "Article manquant", qui partagent la meme forme
 // (Article, une colonne par commande, Total/Stock/Reste/Qt en cours).
+//
+// Les COULEURS reprennent celles de l'ecran (page.tsx) cellule par cellule :
+// turquoise des en-tetes, couleur de chaque commande selon son statut
+// (EN COURS jaune, STAND orange, BL TRANSFORME vert), bandeaux de sous-gamme
+// avec leur couleur, article en manque en jaune clair, "Reste apres
+// Conditionnement" rouge/vert, bordures sombres des en-tetes et des totaux.
 
 export type ExportCommandColumn = {
   key: string;
@@ -14,11 +20,15 @@ export type ExportCommandColumn = {
   nombreCamion: number | null;
   numeroProforma: string;
   dateEcriture: string | null;
+  // Libelle affiche ("EN COURS", "STAND", "BL TRANSFORME") et valeur brute (pour choisir la couleur).
   statut: string;
+  statutCode: string;
 };
 
 export type ExportDataRow =
-  | { kind: "banner"; label: string }
+  // bannerClass : classes de couleur de l'ecran d'un bandeau de sous-gamme (ex: "bg-[#1a56db] text-white") ;
+  // absent = bandeau de famille (turquoise).
+  | { kind: "banner"; label: string; bannerClass?: string }
   | {
       kind: "article";
       article: string;
@@ -31,16 +41,57 @@ export type ExportDataRow =
     };
 
 const THIN_BORDER: Partial<ExcelJS.Border> = { style: "thin", color: { argb: "FFCBD5E1" } };
-const ALL_BORDERS: Partial<ExcelJS.Borders> = {
+const DARK_BORDER: Partial<ExcelJS.Border> = { style: "thin", color: { argb: "FF334155" } };
+// Cellules de ligne (article, quantites) : bordure claire ; en-tetes et colonnes de totaux : bordure sombre.
+const LINE_BORDERS: Partial<ExcelJS.Borders> = {
   top: THIN_BORDER,
   bottom: THIN_BORDER,
   left: THIN_BORDER,
   right: THIN_BORDER,
 };
+const HEADER_BORDERS: Partial<ExcelJS.Borders> = {
+  top: DARK_BORDER,
+  bottom: DARK_BORDER,
+  left: DARK_BORDER,
+  right: DARK_BORDER,
+};
+
 const TURQUOISE = "FF1F9DA5";
 const MANQUE_YELLOW = "FFFFF59D";
 const BL_TRANSFORME_GREEN = "FF62FF1B";
+const BL_TRANSFORME_TEXT = "FF0D6B0D";
 const STAND_YELLOW = "FFFFE01B";
+const TEXT_DARK = "FF020617";
+const TEXT_WHITE = "FFFFFFFF";
+const TEXT_MANQUE_RED = "FFB91C1C";
+const RESTE_NEGATIF_RED = "FFDC2626";
+const RESTE_POSITIF_GREEN = "FF059669";
+
+// Couleur d'une commande selon son statut - memes valeurs que getStatusCellClass (page.tsx).
+function statutFill(statutCode: string): string {
+  const status = String(statutCode || "").toUpperCase();
+  if (status === "STAND") return "FFF59E0B";
+  if (status === "BL_TRANSFORME") return "FF16A34A";
+  return "FFFFF200";
+}
+
+const TEXTE_PAR_CLASSE: Record<string, string> = {
+  "text-white": TEXT_WHITE,
+  "text-slate-950": TEXT_DARK,
+  "text-slate-900": "FF0F172A",
+  "text-slate-700": "FF334155",
+};
+
+// "bg-[#1a56db] text-white" (classes de l'ecran) -> couleurs Excel.
+function couleursDepuisClasse(classe: string): { fond: string; texte: string } {
+  const fond = classe.match(/bg-\[#([0-9a-fA-F]{6})\]/);
+  const texteHex = classe.match(/text-\[#([0-9a-fA-F]{6})\]/);
+  const jeton = classe.split(/\s+/).find((nom) => nom in TEXTE_PAR_CLASSE);
+  return {
+    fond: fond ? `FF${fond[1].toUpperCase()}` : TURQUOISE,
+    texte: texteHex ? `FF${texteHex[1].toUpperCase()}` : jeton ? TEXTE_PAR_CLASSE[jeton] : TEXT_DARK,
+  };
+}
 
 function formatDateFr(value: string | null): string {
   if (!value) return "-";
@@ -53,8 +104,8 @@ function formatDateFr(value: string | null): string {
 
 // Ajoute une feuille (un tableau de famille) a un classeur Excel. Utilise par
 // l'export d'une famille ET par l'export de toutes les familles dans un seul
-// fichier (une feuille par famille) - sheetName = nom d'onglet (31 caracteres
-// max), title = titre ecrit en haut de la feuille.
+// fichier (une feuille par famille + la feuille Article manquant) - sheetName =
+// nom d'onglet (31 caracteres max), title = titre ecrit en haut de la feuille.
 export function addTableauSheet(
   workbook: ExcelJS.Workbook,
   title: string,
@@ -76,14 +127,29 @@ export function addTableauSheet(
     "Reste apres Conditionnement",
   ];
   const totalCols = headerLabels.length;
+  const firstCommandCol = 2;
+  const lastCommandCol = 1 + commandColumns.length;
 
   function bannerRow(label: string) {
     const row = sheet.addRow([label]);
     sheet.mergeCells(row.number, 1, row.number, totalCols);
     const cell = row.getCell(1);
-    cell.font = { bold: true, color: { argb: "FF0F172A" } };
+    cell.font = { bold: true, color: { argb: TEXT_DARK } };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TURQUOISE } };
-    cell.alignment = { horizontal: "left", vertical: "middle" };
+    cell.alignment = { horizontal: "center", vertical: "middle" };
+    row.height = 20;
+  }
+
+  // Bandeau de sous-gamme : couleur de l'ecran, centre, gras italique en majuscules.
+  function subGammeBannerRow(label: string, bannerClass: string) {
+    const { fond, texte } = couleursDepuisClasse(bannerClass);
+    const row = sheet.addRow([label.toUpperCase()]);
+    sheet.mergeCells(row.number, 1, row.number, totalCols);
+    const cell = row.getCell(1);
+    cell.font = { bold: true, italic: true, color: { argb: texte } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fond } };
+    cell.border = HEADER_BORDERS;
+    cell.alignment = { horizontal: "center", vertical: "middle" };
     row.height = 20;
   }
 
@@ -119,13 +185,26 @@ export function addTableauSheet(
     "",
   ]);
 
+  // Lignes Statut et Client : chaque commande a la couleur de son statut, comme a l'ecran ; le reste
+  // de l'en-tete est turquoise.
+  const lignesColoreesParStatut = new Set([statutRow.number, clientRow.number]);
   for (const row of [statutRow, clientRow, camionRow, proformaRow, dateRow]) {
-    row.eachCell((cell) => {
-      cell.font = { bold: true };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TURQUOISE } };
-      cell.border = ALL_BORDERS;
+    const colonnesParStatut = lignesColoreesParStatut.has(row.number);
+    for (let colIndex = 1; colIndex <= totalCols; colIndex++) {
+      const cell = row.getCell(colIndex);
+      const commande =
+        colonnesParStatut && colIndex >= firstCommandCol && colIndex <= lastCommandCol
+          ? commandColumns[colIndex - firstCommandCol]
+          : null;
+      cell.font = { bold: true, color: { argb: TEXT_DARK } };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: commande ? statutFill(commande.statutCode) : TURQUOISE },
+      };
+      cell.border = HEADER_BORDERS;
       cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-    });
+    }
   }
 
   const colWidths = headerLabels.map((label) => Math.max(String(label).length + 2, 10));
@@ -137,7 +216,8 @@ export function addTableauSheet(
 
   for (const row of rows) {
     if (row.kind === "banner") {
-      bannerRow(row.label);
+      if (row.bannerClass) subGammeBannerRow(row.label, row.bannerClass);
+      else bannerRow(row.label);
       continue;
     }
 
@@ -167,24 +247,36 @@ export function addTableauSheet(
     ];
 
     const excelRow = sheet.addRow(values);
-    excelRow.eachCell((cell, colIndex) => {
-      cell.border = ALL_BORDERS;
-      cell.alignment = { vertical: "middle", wrapText: true };
+    excelRow.eachCell({ includeEmpty: true }, (cell, colIndex) => {
+      const isArticleCol = colIndex === 1;
       const isResteApresCol = colIndex === totalCols;
+      const isSummaryCol = colIndex > totalCols - 5;
+
+      cell.border = isArticleCol ? LINE_BORDERS : isSummaryCol ? HEADER_BORDERS : LINE_BORDERS;
+      cell.alignment = { horizontal: isArticleCol ? "left" : "center", vertical: "middle", wrapText: true };
+
       const fill = isResteApresCol
         ? row.resteApresConditionnement < 0
-          ? "FFDC2626"
-          : "FF059669"
-        : colIndex === 1
+          ? RESTE_NEGATIF_RED
+          : RESTE_POSITIF_GREEN
+        : isArticleCol
           ? articleFill
-          : colIndex > totalCols - 5
+          : isSummaryCol
             ? summaryFill
             : lineFill;
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
+
       if (isResteApresCol) {
-        cell.font = { color: { argb: "FFFFFFFF" }, bold: true };
-      } else if (isManque && colIndex > totalCols - 5) {
-        cell.font = { color: { argb: "FFB91C1C" }, bold: true };
+        cell.font = { color: { argb: TEXT_WHITE }, bold: true };
+      } else if (isArticleCol) {
+        cell.font = {
+          color: { argb: !isManque && !isStand && isBlTransforme ? BL_TRANSFORME_TEXT : TEXT_DARK },
+          bold: true,
+        };
+      } else if (isManque && isSummaryCol) {
+        cell.font = { color: { argb: TEXT_MANQUE_RED }, bold: true };
+      } else {
+        cell.font = { color: { argb: TEXT_DARK } };
       }
       trackWidth(colIndex, String(cell.value ?? ""));
     });

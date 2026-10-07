@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { buildAllFamiliesSheets, type FamilySheet } from "./family-data";
+import { buildManquantSheet } from "./manquant-data";
 
 // "tableauCommandes" est une page en lecture seule (hasWrite: false dans
 // page-registry.ts) - la note est une edition de la commande elle-meme,
@@ -42,7 +43,7 @@ export async function updateCommandeNoteAction(formData: FormData) {
 // message d'erreur lisible au lieu de lever une exception : en production
 // Next.js masque le texte des exceptions des Server Actions.
 export async function exportAllFamiliesAction(): Promise<
-  { ok: true; sheets: FamilySheet[] } | { ok: false; message: string }
+  { ok: true; sheets: FamilySheet[]; avertissement?: string } | { ok: false; message: string }
 > {
   const currentUser = await getCurrentStockUser();
 
@@ -51,7 +52,21 @@ export async function exportAllFamiliesAction(): Promise<
   }
 
   try {
-    return { ok: true, sheets: await buildAllFamiliesSheets() };
+    const sheets = await buildAllFamiliesSheets();
+
+    // Derniere feuille : "Article manquant" (meme contenu que la vue Article manquant). Si elle ne peut
+    // pas etre calculee, le fichier des familles est quand meme livre, avec un avertissement.
+    let avertissement: string | undefined;
+    try {
+      const manquant = await buildManquantSheet();
+      if (manquant) sheets.push(manquant);
+    } catch (error) {
+      avertissement =
+        "La feuille Article manquant n'a pas pu etre ajoutee : " +
+        (error instanceof Error ? error.message : "erreur inconnue.");
+    }
+
+    return { ok: true, sheets, avertissement };
   } catch (error) {
     return {
       ok: false,

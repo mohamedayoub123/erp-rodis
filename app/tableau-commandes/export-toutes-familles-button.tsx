@@ -18,10 +18,12 @@ function formatDateFichier(date: Date) {
 export function ToutesFamillesExportButton() {
   const [enCours, setEnCours] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [avertissement, setAvertissement] = useState<string | null>(null);
 
   async function handleClick() {
     setEnCours(true);
     setErreur(null);
+    setAvertissement(null);
 
     try {
       const result = await exportAllFamiliesAction();
@@ -54,6 +56,7 @@ export function ToutesFamillesExportButton() {
         workbook,
         `tableau-commande-toutes-familles-${formatDateFichier(new Date())}.xlsx`
       );
+      if (result.avertissement) setAvertissement(result.avertissement);
     } catch (e) {
       setErreur(e instanceof Error ? e.message : "Export impossible, reessaie.");
     } finally {
@@ -79,6 +82,7 @@ export function ToutesFamillesExportButton() {
         {enCours ? "Export en cours..." : "Exporter toutes les familles"}
       </button>
       {erreur ? <span className="text-xs font-medium text-red-700">{erreur}</span> : null}
+      {avertissement ? <span className="text-xs font-medium text-amber-700">{avertissement}</span> : null}
     </span>
   );
 }

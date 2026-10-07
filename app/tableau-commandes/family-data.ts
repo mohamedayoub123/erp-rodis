@@ -792,6 +792,7 @@ export function buildFamilyView(
     numeroProforma: column.numero_proforma,
     dateEcriture: column.date_ecriture,
     statut: getStatusLabel(column.statut),
+    statutCode: String(column.statut || ""),
   }));
 
   const exportRows: ExportDataRow[] = rowsWithSubGamme.flatMap(({ article, subGamme, showSubGammeBanner }) => {
@@ -812,7 +813,7 @@ export function buildFamilyView(
 
     const rows: ExportDataRow[] = [];
     if (showSubGammeBanner && subGamme) {
-      rows.push({ kind: "banner", label: subGamme.label });
+      rows.push({ kind: "banner", label: subGamme.label, bannerClass: subGamme.bannerClass });
     }
     rows.push({
       kind: "article",
