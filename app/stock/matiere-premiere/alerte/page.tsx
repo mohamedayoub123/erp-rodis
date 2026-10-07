@@ -5,6 +5,8 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { MultiSelectFilter } from "@/app/_components/multi-select-filter";
+import { construireQuery, correspondALaListe, lireListeParam, optionsDistinctes } from "@/lib/filtre-multiple";
 import { formatDate } from "@/lib/format-date";
 import { encodeDossierId } from "../commande/dossier-id";
 import { matchesArticleSearch } from "@/lib/article-search";
@@ -16,6 +18,7 @@ type ArticleMpRow = {
   id: number;
   nom_article: string;
   categorie: string | null;
+  sous_famille: string | null;
   unite: string | null;
   min_stock: number | null;
   max_stock: number | null;
@@ -26,6 +29,7 @@ type AlerteRow = {
   article_id: number;
   nom_article: string;
   categorie: string | null;
+  sous_famille: string | null;
   unite: string | null;
   stock_actuel: number;
   min_stock: number;
@@ -86,7 +90,7 @@ async function fetchAllArticlesMp() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite, min_stock, max_stock, utilisation")
+      .select("id, nom_article, categorie, sous_famille, unite, min_stock, max_stock, utilisation")
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -168,9 +172,11 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
+// categorie / sous_famille : plusieurs valeurs possibles (?categorie=A&categorie=B) - voir MultiSelectFilter.
 type SearchParams = Promise<{
   q?: string;
-  categorie?: string;
+  categorie?: string | string[];
+  sous_famille?: string | string[];
   hide_low_threshold?: string;
   tout?: string;
 }>;
@@ -188,9 +194,9 @@ export default async function StockAlerteMpPage({
   noStore();
   const params = await searchParams;
   const q = (params.q || "").trim();
-  const categorieFilter = (params.categorie || "").trim();
+  const categoriesChoisies = lireListeParam(params.categorie);
+  const sousFamillesChoisies = lireListeParam(params.sous_famille);
   const qLower = q.toLowerCase();
-  const categorieLower = categorieFilter.toLowerCase();
   const hideLowThreshold = (params.hide_low_threshold || "").trim() === "1";
 
   const [
@@ -313,6 +319,7 @@ export default async function StockAlerteMpPage({
       article_id: article.id,
       nom_article: article.nom_article,
       categorie: article.categorie,
+      sous_famille: article.sous_famille,
       unite: article.unite,
       stock_actuel: stockByArticle.get(article.id) ?? 0,
       min_stock: article.min_stock as number,
@@ -328,28 +335,27 @@ export default async function StockAlerteMpPage({
     }))
     .filter((row) => row.stock_actuel <= row.min_stock)
     .filter((row) => !qLower || matchesArticleSearch(row.nom_article, qLower))
-    .filter((row) => !categorieLower || (row.categorie || "").toLowerCase().includes(categorieLower))
+    .filter((row) => correspondALaListe(row.categorie, categoriesChoisies))
+    .filter((row) => correspondALaListe(row.sous_famille, sousFamillesChoisies))
     .filter((row) => !hideLowThreshold || row.min_stock > 1)
     .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
 
   const toutAffiche = params.tout === "1";
   const alertesAffichees = toutAffiche ? alertes : alertes.slice(0, LIMITE_LIGNES);
-  const hrefVoirTout = `/stock/matiere-premiere/alerte?${new URLSearchParams({
-    ...(q ? { q } : {}),
-    ...(categorieFilter ? { categorie: categorieFilter } : {}),
-    ...(hideLowThreshold ? { hide_low_threshold: "1" } : {}),
-    tout: "1",
-  }).toString()}`;
+  const hrefVoirTout = `/stock/matiere-premiere/alerte?${construireQuery(
+    { q, hide_low_threshold: hideLowThreshold ? "1" : undefined, tout: "1" },
+    { categorie: categoriesChoisies, sous_famille: sousFamillesChoisies }
+  )}`;
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map(
     (label, index) => ({ id: index, label })
   );
-  const categorieOptions = (
-    [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]
-  ).map((label, index) => ({ id: index, label }));
+  const categorieOptions = optionsDistinctes(articles.map((article) => article.categorie));
+  const sousFamilleOptions = optionsDistinctes(articles.map((article) => article.sous_famille));
 
   const exportColumns = [
     { label: "Categorie", key: "categorie" },
+    { label: "Sous famille", key: "sousFamille" },
     { label: "Article", key: "article" },
     { label: "Stock", key: "stock" },
     { label: "Unite", key: "unite" },
@@ -368,6 +374,7 @@ export default async function StockAlerteMpPage({
 
   const exportRows = alertes.map((alerte) => ({
     categorie: alerte.categorie || "-",
+    sousFamille: alerte.sous_famille || "-",
     article: alerte.nom_article,
     stock: alerte.stock_actuel,
     unite: alerte.unite || "-",
@@ -426,18 +433,24 @@ export default async function StockAlerteMpPage({
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <form className="grid gap-3 sm:grid-cols-4">
+          <form className="grid gap-3 sm:grid-cols-5">
             <SearchableFilterInput
               name="q"
               defaultValue={q}
               options={articleOptions}
               placeholder="Rechercher un article..."
             />
-            <SearchableFilterInput
+            <MultiSelectFilter
               name="categorie"
-              defaultValue={categorieFilter}
-              options={categorieOptions}
               placeholder="Categorie..."
+              options={categorieOptions}
+              selected={categoriesChoisies}
+            />
+            <MultiSelectFilter
+              name="sous_famille"
+              placeholder="Sous famille..."
+              options={sousFamilleOptions}
+              selected={sousFamillesChoisies}
             />
             <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
               <input
@@ -475,6 +488,7 @@ export default async function StockAlerteMpPage({
                 <thead className="bg-slate-50 text-slate-950">
                   <tr>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Sous famille</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
@@ -495,6 +509,7 @@ export default async function StockAlerteMpPage({
                   {alertesAffichees.map((alerte) => (
                     <tr key={alerte.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 text-slate-600">{alerte.categorie || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{alerte.sous_famille || "-"}</td>
                       <td className="px-6 py-4 font-medium text-slate-900">{alerte.nom_article}</td>
                       <td className="px-6 py-4">
                         <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">

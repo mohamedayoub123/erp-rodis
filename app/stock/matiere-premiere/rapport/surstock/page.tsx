@@ -4,6 +4,8 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { MultiSelectFilter } from "@/app/_components/multi-select-filter";
+import { construireQuery, correspondALaListe, lireListeParam, optionsDistinctes } from "@/lib/filtre-multiple";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
 import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
@@ -12,6 +14,7 @@ type ArticleMpRow = {
   id: number;
   nom_article: string;
   categorie: string | null;
+  sous_famille: string | null;
   unite: string | null;
 };
 
@@ -19,6 +22,7 @@ type SurstockRow = {
   article_id: number;
   nom_article: string;
   categorie: string | null;
+  sous_famille: string | null;
   unite: string | null;
   stock_actuel: number;
   objectif_6_mois: number;
@@ -50,7 +54,7 @@ async function fetchAllArticlesMp() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite")
+      .select("id, nom_article, categorie, sous_famille, unite")
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -70,7 +74,13 @@ function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-type SearchParams = Promise<{ article?: string; categorie?: string; tout?: string }>;
+// categorie / sous_famille : plusieurs valeurs possibles (?categorie=A&categorie=B) - voir MultiSelectFilter.
+type SearchParams = Promise<{
+  article?: string;
+  categorie?: string | string[];
+  sous_famille?: string | string[];
+  tout?: string;
+}>;
 
 // Plus de 1500 articles rendaient ~2,7 Mo de HTML a chaque ouverture : le
 // tableau montre les plus gros surplus de la liste triee, "Voir tout"
@@ -81,8 +91,9 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
   noStore();
   const params = await searchParams;
   const articleFilter = (params.article || "").trim();
-  const categorieFilter = (params.categorie || "").trim().toLowerCase();
-  const hasFilters = Boolean(articleFilter || categorieFilter);
+  const categoriesChoisies = lireListeParam(params.categorie);
+  const sousFamillesChoisies = lireListeParam(params.sous_famille);
+  const hasFilters = Boolean(articleFilter || categoriesChoisies.length || sousFamillesChoisies.length);
 
   const moisIdx = new Date().getMonth();
 
@@ -122,6 +133,7 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
         article_id: article.id,
         nom_article: article.nom_article,
         categorie: article.categorie,
+        sous_famille: article.sous_famille,
         unite: article.unite,
         stock_actuel: stockActuel,
         objectif_6_mois: objectif,
@@ -130,28 +142,28 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
     })
     .filter((row) => row.stock_actuel > 0 && row.surplus > 0)
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
-    .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
+    .filter((row) => correspondALaListe(row.categorie, categoriesChoisies))
+    .filter((row) => correspondALaListe(row.sous_famille, sousFamillesChoisies))
     .sort((a, b) => b.surplus - a.surplus);
 
   const toutAffiche = params.tout === "1";
   const surstockRowsAffichees = toutAffiche ? surstockRows : surstockRows.slice(0, LIMITE_LIGNES);
-  const hrefVoirTout = `/stock/matiere-premiere/rapport/surstock?${new URLSearchParams({
-    ...(articleFilter ? { article: articleFilter } : {}),
-    ...(categorieFilter ? { categorie: categorieFilter } : {}),
-    tout: "1",
-  }).toString()}`;
+  const hrefVoirTout = `/stock/matiere-premiere/rapport/surstock?${construireQuery(
+    { article: articleFilter, tout: "1" },
+    { categorie: categoriesChoisies, sous_famille: sousFamillesChoisies }
+  )}`;
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map((label, id) => ({
     id,
     label,
   }));
-  const categorieOptions = ([...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]).map(
-    (label, id) => ({ id, label })
-  );
+  const categorieOptions = optionsDistinctes(articles.map((article) => article.categorie));
+  const sousFamilleOptions = optionsDistinctes(articles.map((article) => article.sous_famille));
 
   const exportColumns = [
     { label: "Article", key: "article" },
     { label: "Categorie", key: "categorie" },
+    { label: "Sous famille", key: "sousFamille" },
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stockActuel" },
     { label: "Stock necessaire (9 mois)", key: "stockNecessaire" },
@@ -161,6 +173,7 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
   const exportRows = surstockRows.map((row) => ({
     article: row.nom_article,
     categorie: row.categorie || "-",
+    sousFamille: row.sous_famille || "-",
     unite: row.unite || "-",
     stockActuel: row.stock_actuel,
     stockNecessaire: row.objectif_6_mois,
@@ -199,18 +212,24 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
         </div>
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-          <form className="grid gap-3 sm:grid-cols-3">
+          <form className="grid gap-3 sm:grid-cols-4">
             <SearchableFilterInput
               name="article"
               defaultValue={articleFilter}
               options={articleOptions}
               placeholder="Article..."
             />
-            <SearchableFilterInput
+            <MultiSelectFilter
               name="categorie"
-              defaultValue={params.categorie || ""}
-              options={categorieOptions}
               placeholder="Categorie..."
+              options={categorieOptions}
+              selected={categoriesChoisies}
+            />
+            <MultiSelectFilter
+              name="sous_famille"
+              placeholder="Sous famille..."
+              options={sousFamilleOptions}
+              selected={sousFamillesChoisies}
             />
             <div className="flex gap-3">
               <button
@@ -249,6 +268,7 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
                   <tr>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Sous famille</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock actuel</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock necessaire (9 mois)</th>
@@ -260,6 +280,7 @@ export default async function SurstockMpPage({ searchParams }: { searchParams: S
                     <tr key={row.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.sous_famille || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_actuel)}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.objectif_6_mois)}</td>
