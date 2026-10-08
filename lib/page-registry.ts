@@ -582,22 +582,6 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/production/suivi-production/conditionnement"],
     adminGroup: "Suivi Production",
   },
-  // Cle separee pour l'Entree par ligne du Conditionnement (meme principe que le Test labo ci-dessus) : un
-  // chef de ligne peut avoir le droit d'ecrire l'Entree par ligne SANS celui de l'Entree simple. Meme
-  // pathPrefixes que Conditionnement, place APRES : la route se resout toujours via
-  // productionSuiviProductionConditionnement (le chef de ligne a donc aussi "Voir" sur Conditionnement pour
-  // ouvrir la page) ; cette cle ne sert qu'a l'ecriture. Droit d'ecrire l'Entree par ligne = cette cle OU
-  // celle de Conditionnement (voir canWriteConditionnementParLigneUser) - ceux qui saisissaient deja le
-  // Conditionnement gardent l'acces. Absente de pages-existantes : fermee par defaut.
-  {
-    key: "productionSuiviProductionConditionnementParLigne",
-    module: "Production",
-    label: "Conditionnement - Entree par ligne (chef de ligne)",
-    pathPrefixes: ["/production/suivi-production/conditionnement"],
-    defaultView: false,
-    defaultWrite: false,
-    adminGroup: "Suivi Production",
-  },
   {
     key: "productionSuiviProductionEmballage",
     module: "Production",

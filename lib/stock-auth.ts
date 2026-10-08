@@ -659,17 +659,6 @@ export async function canDeletePageUser(username: string | null | undefined, pag
   return permissions.pages[pageKey]?.delete ?? false;
 }
 
-// Entree par ligne du Conditionnement : le droit propre a l'Entree par ligne (chef de ligne) OU celui du
-// Conditionnement habituel - ceux qui saisissaient deja le Conditionnement gardent l'Entree par ligne.
-// L'Entree simple, elle, reste reservee au droit de Conditionnement (canWritePageUser).
-export async function canWriteConditionnementParLigneUser(username: string | null | undefined) {
-  const permissions = await getUserPermissions(username);
-  return (
-    (permissions.pages["productionSuiviProductionConditionnementParLigne"]?.write ?? false) ||
-    (permissions.pages["productionSuiviProductionConditionnement"]?.write ?? false)
-  );
-}
-
 // Remplace l'ancien canEditModuleUser(user, "Stock") - garde le meme nom
 // pour ne pas avoir a toucher chaque point d'appel de app/stock/actions.ts.
 export async function canEditStockUser(username: string | null | undefined) {

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWriteConditionnementParLigneUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "../../../suivi/data";
@@ -116,8 +116,6 @@ export default async function RapportConditionnementPage({
 
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
-  // Peut aussi saisir l'Entree par ligne (chef de ligne) : l'onglet "Entree par ligne" lui reste visible.
-  const canWriteParLigne = canWrite || (await canWriteConditionnementParLigneUser(currentStockUser));
   const zoneChaineOptions = await fetchConditionnementZoneChaineOptions();
 
   const RAPPORT_FIELDS = "date_fabrication_conditionnement, date_peremption";
@@ -240,7 +238,7 @@ export default async function RapportConditionnementPage({
                   .
                 </p>
               ) : null}
-              {canWriteParLigne ? (
+              {canWrite ? (
                 <div className="mt-3">
                   <ModeSaisieSwitch ligneId={ligne.id} code={code} actuel="simple" modes={modesSaisie} />
                 </div>

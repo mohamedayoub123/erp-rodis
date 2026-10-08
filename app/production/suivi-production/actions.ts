@@ -3,12 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import {
-  canDeletePageUser,
-  canWriteConditionnementParLigneUser,
-  canWritePageUser,
-  getCurrentStockUser,
-} from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-article";
 import { calculerCartonsCasiers, lireCasiersCoches, lireReleves, moyenne } from "@/lib/conditionnement-par-ligne";
 import {
@@ -621,8 +616,7 @@ export async function supprimerToutesTracesProductionPourLigne(
 export async function updateLigneZoneChaineAction(ligneId: number, zone: string, chaine: string) {
   const currentUser = await getCurrentStockUser();
 
-  // Aussi autorise pour l'Entree par ligne (chef de ligne) : le selecteur Zone/Chaine est dans son en-tete.
-  if (!(await canWriteConditionnementParLigneUser(currentUser))) {
+  if (!(await canWritePageUser(currentUser, "productionSuiviProductionConditionnement"))) {
     throw new Error("Cet utilisateur ne peut pas modifier cette ligne.");
   }
 
@@ -867,8 +861,7 @@ export async function saveConditionnementParLigneAction(formData: FormData) {
   try {
     const currentUser = await getCurrentStockUser();
 
-    // Droit "Entree par ligne" (chef de ligne) OU droit de Conditionnement habituel.
-    if (!(await canWriteConditionnementParLigneUser(currentUser))) {
+    if (!(await canWritePageUser(currentUser, "productionSuiviProductionConditionnement"))) {
       throw new Error("Cet utilisateur ne peut pas enregistrer de rapport production.");
     }
     if (!ligneId) {
