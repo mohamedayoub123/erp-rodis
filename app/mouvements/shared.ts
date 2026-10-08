@@ -1,6 +1,7 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { formatDate } from "@/lib/format-date";
 import { formatDocCode, numeroter, type DocKind } from "@/lib/document-numbers";
+import { creerLecteurValide, lirePagesAvecLimite } from "@/lib/lecteur-valide";
 
 export type MouvementSourceRow = {
   id: number;
@@ -50,68 +51,71 @@ export type MouvementGroup = {
 const SOURCE_COLUMNS =
   "id, article_id, numero_lot, code_normalise, date_fabrication, date_peremption, date_jour, qte_entree, qte_sortie, chambre, code_pays, note, source_import, mouvement_groupe_id, utilisateur, created_at, articles(nom_article)";
 
-export async function fetchMouvementSourceRows() {
-  // PostgREST plafonne chaque requete a son max-rows interne (~1000) peu
-  // importe le .range() demande - il faut paginer en boucle, sinon la
-  // plupart des mouvements TE/TS et des lots disponibles pour une sortie
-  // sont silencieusement absents.
-  const rows: MouvementSourceRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock")
-      .select(SOURCE_COLUMNS)
-      .order("id", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    const chunk = (data as unknown as MouvementSourceRow[] | null) ?? [];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
-}
-
 const WEB_ONLY_SOURCES = ["web:entree", "web:entree-production", "web:sortie", "web:sortie-commande"];
 
-// Version allegee de fetchMouvementSourceRows, filtree cote base de donnees
-// aux seules lignes "web:*" (celles avec un code TE/TS/"Entree Production").
-// La liste "Mouvements Produit Fini" n'a besoin que de celles-ci, jamais des
-// dizaines de milliers de lignes d'import Excel en masse - le filtre evite
-// de tout rapatrier juste pour les jeter ensuite.
-export async function fetchWebMouvementSourceRows() {
-  const rows: MouvementSourceRow[] = [];
-  let from = 0;
-  const pageSize = 1000;
+// Empreinte d'une liste de lignes lots_stock : nombre de lignes + dernier numero - 2 toutes petites requetes
+// (voir lib/lecteur-valide.ts). `sources` = null : toute la table ; sinon seulement ces source_import.
+async function empreinteLots(sources: string[] | null): Promise<string> {
+  const base = () => supabaseServer.from("lots_stock");
+  const compte = sources
+    ? base().select("id", { count: "exact", head: true }).in("source_import", sources)
+    : base().select("id", { count: "exact", head: true });
+  const dernier = sources
+    ? base().select("id").in("source_import", sources).order("id", { ascending: false }).limit(1)
+    : base().select("id").order("id", { ascending: false }).limit(1);
 
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("lots_stock")
-      .select(SOURCE_COLUMNS)
-      .in("source_import", WEB_ONLY_SOURCES)
-      .order("id", { ascending: true })
-      .range(from, from + pageSize - 1);
+  const [{ count, error: erreurCompte }, { data, error: erreurDernier }] = await Promise.all([compte, dernier]);
+  if (erreurCompte) throw new Error(erreurCompte.message);
+  if (erreurDernier) throw new Error(erreurDernier.message);
 
-    if (error) {
-      throw new Error(error.message);
+  const dernierId = (data as { id: number }[] | null)?.[0]?.id ?? 0;
+  return `${count ?? 0}:${dernierId}`;
+}
+
+// PostgREST plafonne chaque requete a son max-rows interne (~1000) peu importe le .range() demande - il faut
+// lire page par page (tri stable par id), sinon la plupart des mouvements TE/TS et des lots disponibles pour une
+// sortie sont silencieusement absents. 6 pages a la fois au maximum (plus rapide qu'une par une, sans noyer la base).
+async function lireLots(sources: string[] | null): Promise<MouvementSourceRow[]> {
+  return lirePagesAvecLimite<MouvementSourceRow>(
+    () => {
+      const requete = supabaseServer.from("lots_stock").select("id", { count: "exact", head: true });
+      return sources ? requete.in("source_import", sources) : requete;
+    },
+    (debut, fin) => {
+      const requete = supabaseServer.from("lots_stock").select(SOURCE_COLUMNS);
+      return (sources ? requete.in("source_import", sources) : requete)
+        .order("id", { ascending: true })
+        .range(debut, fin) as unknown as PromiseLike<{
+        data: MouvementSourceRow[] | null;
+        error: { message: string } | null;
+      }>;
     }
+  );
+}
 
-    const chunk = (data as unknown as MouvementSourceRow[] | null) ?? [];
-    rows.push(...chunk);
+// Toute la table : les lignes ne sont relues que si elle a change (voir lib/lecteur-valide.ts) ; garde 10 s au plus.
+const lireMouvementsComplets = creerLecteurValide<MouvementSourceRow>({
+  lireEmpreinte: () => empreinteLots(null),
+  lireTout: () => lireLots(null),
+  dureeMaxMs: 10_000,
+});
 
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
+// Version allegee, filtree cote base de donnees aux seules lignes "web:*" (celles avec un code TE/TS/"Entree
+// Production") : la liste "Mouvements Produit Fini" n'a besoin que de celles-ci, jamais des dizaines de milliers
+// de lignes d'import Excel en masse. Meme principe : relue seulement si une ligne web a ete ajoutee/supprimee ;
+// garde 20 s au plus.
+const lireMouvementsWeb = creerLecteurValide<MouvementSourceRow>({
+  lireEmpreinte: () => empreinteLots(WEB_ONLY_SOURCES),
+  lireTout: () => lireLots(WEB_ONLY_SOURCES),
+  dureeMaxMs: 20_000,
+});
 
-  return rows;
+export async function fetchMouvementSourceRows() {
+  return lireMouvementsComplets();
+}
+
+export async function fetchWebMouvementSourceRows() {
+  return lireMouvementsWeb();
 }
 
 function groupKey(row: MouvementSourceRow) {
