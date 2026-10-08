@@ -15,7 +15,14 @@ import {
   markEmballageTermineAction,
   markVracTermineAction,
 } from "../actions";
-import { canDeletePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import {
+  canDeletePageUser,
+  canViewPageUser,
+  canWriteConditionnementParLigneUser,
+  canWritePageUser,
+  getCurrentStockUser,
+  isAdminUser,
+} from "@/lib/stock-auth";
 import { LotCodeCell } from "./lot-code-cell";
 import { SingleDayFilter } from "./single-day-filter";
 import { DeleteProgrammeLigneButton } from "./delete-programme-ligne-button";
@@ -205,6 +212,23 @@ export default async function PlanningDashboardPage({
   // en moins.
   const isAdmin = canEditLotCode;
   const canDeleteLigne = await canDeletePageUser(currentUser, "productionSuiviDashboard");
+
+  // Boutons "Entrer" selon les droits : un chef de ligne (droit "Entree par ligne" seulement) ne voit que
+  // "Par ligne" ; un operateur d'emballage ne voit que l'Entrer de l'Emballage. Un utilisateur qui peut
+  // seulement VOIR un rapport garde son bouton pour le consulter en lecture seule.
+  const [peutVoirFabrication, peutVoirConditionnement, peutVoirEmballage, peutEntrerParLigne, peutEcrireConditionnement] =
+    await Promise.all([
+      canViewPageUser(currentUser, "productionSuiviProductionFabrication"),
+      canViewPageUser(currentUser, "productionSuiviProductionConditionnement"),
+      canViewPageUser(currentUser, "productionSuiviProductionEmballage"),
+      canWriteConditionnementParLigneUser(currentUser),
+      canWritePageUser(currentUser, "productionSuiviProductionConditionnement"),
+    ]);
+  const entreeParLigneSeulement = peutEntrerParLigne && !peutEcrireConditionnement;
+  // "Fin programme" / suppression d'un code : droit d'ecriture du Dashboard (les actions le refusent
+  // sinon) - les boutons ne s'affichent donc plus a ceux qui n'ont que le droit de voir (chef de ligne,
+  // operateur d'emballage).
+  const peutEcrireDashboard = await canWritePageUser(currentUser, "productionSuiviDashboard");
 
   const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
   const articleById = new Map(articles.map((article) => [article.id, article]));
@@ -658,34 +682,38 @@ export default async function PlanningDashboardPage({
                           <RestantBadge restant={row.vracRestant} prevuIsNull={row.vracPrevuIsNull} />
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <Link
-                              href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
-                              className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
-                            >
-                              Entrer
-                            </Link>
-                            <div className="flex flex-col items-start gap-0.5">
+                          {peutVoirFabrication ? (
+                            <div className="flex items-center gap-2">
                               <Link
-                                href={`/production/suivi-production/fabrication/${row.ligne.id}/test-labo?code=${encodeURIComponent(row.code)}`}
-                                className={`rounded-full px-3 py-1.5 text-xs font-semibold text-white ${
-                                  testLaboDoneKeys.has(`${row.ligne.id}::${row.code}`)
-                                    ? "bg-emerald-600"
-                                    : "bg-violet-700"
-                                }`}
+                                href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
+                                className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
                               >
-                                Test labo
+                                Entrer
                               </Link>
-                              {testLaboDoneKeys.get(`${row.ligne.id}::${row.code}`) ? (
-                                <span className="text-[0.65rem] text-slate-500">
-                                  {testLaboDoneKeys.get(`${row.ligne.id}::${row.code}`)}
-                                </span>
-                              ) : null}
+                              <div className="flex flex-col items-start gap-0.5">
+                                <Link
+                                  href={`/production/suivi-production/fabrication/${row.ligne.id}/test-labo?code=${encodeURIComponent(row.code)}`}
+                                  className={`rounded-full px-3 py-1.5 text-xs font-semibold text-white ${
+                                    testLaboDoneKeys.has(`${row.ligne.id}::${row.code}`)
+                                      ? "bg-emerald-600"
+                                      : "bg-violet-700"
+                                  }`}
+                                >
+                                  Test labo
+                                </Link>
+                                {testLaboDoneKeys.get(`${row.ligne.id}::${row.code}`) ? (
+                                  <span className="text-[0.65rem] text-slate-500">
+                                    {testLaboDoneKeys.get(`${row.ligne.id}::${row.code}`)}
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
-                          </div>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3">
-                          <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markVracTermineAction} />
+                          {peutEcrireDashboard ? (
+                            <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markVracTermineAction} />
+                          ) : null}
                         </td>
                         {canDeleteLigne ? (
                           <td className="px-4 py-3">
@@ -776,22 +804,28 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <Link
-                              href={`/production/suivi-production/conditionnement/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
-                              className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
-                            >
-                              Entrer
-                            </Link>
-                            <Link
-                              href={`/production/suivi-production/conditionnement/${row.ligne.id}/par-ligne?code=${encodeURIComponent(row.code)}`}
-                              className="whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800"
-                            >
-                              Par ligne
-                            </Link>
+                            {peutVoirConditionnement && !entreeParLigneSeulement ? (
+                              <Link
+                                href={`/production/suivi-production/conditionnement/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
+                                className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
+                              >
+                                Entrer
+                              </Link>
+                            ) : null}
+                            {peutEntrerParLigne ? (
+                              <Link
+                                href={`/production/suivi-production/conditionnement/${row.ligne.id}/par-ligne?code=${encodeURIComponent(row.code)}`}
+                                className="whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800"
+                              >
+                                Par ligne
+                              </Link>
+                            ) : null}
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markCartonTermineAction} />
+                          {peutEcrireDashboard ? (
+                            <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markCartonTermineAction} />
+                          ) : null}
                         </td>
                         {canDeleteLigne ? (
                           <td className="px-4 py-3">
@@ -861,24 +895,28 @@ export default async function PlanningDashboardPage({
                           <RestantBadge restant={row.emballageRestant} />
                         </td>
                         <td className="px-4 py-3">
-                          <Link
-                            href={`/production/suivi-production/emballage/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
-                            className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
-                          >
-                            Entrer
-                          </Link>
+                          {peutVoirEmballage ? (
+                            <Link
+                              href={`/production/suivi-production/emballage/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
+                              className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
+                            >
+                              Entrer
+                            </Link>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markEmballageTermineAction} />
-                            <form action={deleteCodeProgressAction}>
-                              <input type="hidden" name="ligne_id" value={row.ligne.id} />
-                              <input type="hidden" name="code" value={row.code} />
-                              <DeleteIconButton
-                                label={`Supprimer ${row.code} (revient au Conditionnement)`}
-                              />
-                            </form>
-                          </div>
+                          {peutEcrireDashboard ? (
+                            <div className="flex items-center gap-2">
+                              <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markEmballageTermineAction} />
+                              <form action={deleteCodeProgressAction}>
+                                <input type="hidden" name="ligne_id" value={row.ligne.id} />
+                                <input type="hidden" name="code" value={row.code} />
+                                <DeleteIconButton
+                                  label={`Supprimer ${row.code} (revient au Conditionnement)`}
+                                />
+                              </form>
+                            </div>
+                          ) : null}
                         </td>
                         {canDeleteLigne ? (
                           <td className="px-4 py-3">

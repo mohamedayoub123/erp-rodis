@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canWriteConditionnementParLigneUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/app/production/suivi/data";
@@ -89,7 +89,8 @@ export default async function ConditionnementParLignePage({
   }
 
   const currentStockUser = await getCurrentStockUser();
-  const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
+  // Droit "Entree par ligne" (chef de ligne) OU droit de Conditionnement habituel.
+  const canWrite = await canWriteConditionnementParLigneUser(currentStockUser);
 
   const [{ data: ligneData }, { data: equipeData }, zoneChaineOptions] = await Promise.all([
     supabaseServer
