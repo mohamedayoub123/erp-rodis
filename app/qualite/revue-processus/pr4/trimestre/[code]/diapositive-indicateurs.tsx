@@ -50,18 +50,18 @@ export function CarteIndicateurs({
 }) {
   const colonnes = trimestres.filter((t) => t.trimestre <= trimestre);
   const courant = trimestres.find((t) => t.trimestre === trimestre);
-  const cellule = "border border-slate-500 px-2 py-1.5 align-middle";
+  const cellule = "border border-slate-500 px-3 py-2.5 align-middle";
 
   return (
     <section className="rounded-[1.75rem] border border-black/5 bg-white p-4 shadow-[0_18px_40px_rgba(15,23,42,0.06)] sm:p-6">
-      <h2 className="text-4xl font-light" style={{ color: BLEU_TITRE, fontFamily: POLICE }}>
+      <h2 className="text-5xl font-light" style={{ color: BLEU_TITRE, fontFamily: POLICE }}>
         Indicateur
       </h2>
 
       <div className="mt-5 overflow-x-auto">
-        <table className="w-full min-w-[1000px] border-collapse text-center text-[13px] leading-snug text-slate-900">
+        <table className="w-full min-w-[1100px] border-collapse text-center text-[17px] leading-snug text-slate-900">
           <thead>
-            <tr className="bg-slate-100 font-bold">
+            <tr className="bg-slate-100 text-[18px] font-bold">
               <th className={`${cellule} w-[15%]`}>INDICATEUR</th>
               <th className={`${cellule} w-[19%]`}>MÉTHODE DE CALCUL</th>
               <th className={`${cellule} w-[8%]`}>{annee}</th>
@@ -101,7 +101,7 @@ export function CarteIndicateurs({
                     </td>
                   );
                 })}
-                <td className={`${cellule} text-[12px] text-[#1f4fb5]`}>{ind.planAction}</td>
+                <td className={`${cellule} text-[15px] text-[#1f4fb5]`}>{ind.planAction}</td>
               </tr>
             ))}
             {/* Totaux par trimestre */}
@@ -121,9 +121,10 @@ export function CarteIndicateurs({
       </div>
 
       {courant ? (
-        <div className="mt-6 space-y-1 text-3xl font-light sm:text-4xl" style={{ fontFamily: POLICE }}>
+        <div className="mt-6 space-y-1 text-4xl font-light sm:text-5xl" style={{ fontFamily: POLICE }}>
           <p>
-            Indicateur : <span style={{ color: BLEU_TITRE }}>{pct(courant.pourcentageAtteint)}</span> d&apos;indicateur atteint
+            Indicateur : <span style={{ color: BLEU_TITRE }}>{pct(courant.pourcentageAtteint)}</span>{" "}
+            d&apos;indicateur atteint
           </p>
           <p>
             Kpi ok : <span style={{ color: VERT }}>{courant.complet ? courant.kpiOk : "-"}</span>

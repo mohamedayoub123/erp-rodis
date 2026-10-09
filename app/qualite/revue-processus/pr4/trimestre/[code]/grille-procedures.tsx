@@ -2,11 +2,12 @@ import { BLEU_TITRE, POLICE } from "./diapositive";
 import { Diagramme } from "./diagramme";
 import type { DiagrammeProc } from "./procedures-donnees";
 
-// Schemas de procedures : 3 par ligne sur grand ecran, TOUS A LA MEME HAUTEUR (chaque schema est dessine a la meme
+// Schemas de procedures : 3 puis 4 par ligne sur grand ecran, TOUS A LA MEME HAUTEUR (chaque schema est dessine a la meme
 // hauteur, sa largeur suit sa forme), aussi grands que possible. Sur ecran etroit : un par ligne.
 const MARGE = 16; // marge interieure d'une carte (px)
 const ECART = 16; // ecart entre cartes (px)
-const PAR_LIGNE = 3;
+// 7 schemas : 3 sur la premiere ligne, 4 sur la seconde (tous a la meme hauteur)
+const TAILLES_LIGNES = [3, 4];
 
 function ratio(procedure: DiagrammeProc) {
   return procedure.vue[2] / procedure.vue[3];
@@ -14,7 +15,14 @@ function ratio(procedure: DiagrammeProc) {
 
 export function GrilleProcedures({ procedures }: { procedures: DiagrammeProc[] }) {
   const lignes: DiagrammeProc[][] = [];
-  for (let i = 0; i < procedures.length; i += PAR_LIGNE) lignes.push(procedures.slice(i, i + PAR_LIGNE));
+  let debut = 0;
+  for (const taille of TAILLES_LIGNES) {
+    if (debut >= procedures.length) break;
+    lignes.push(procedures.slice(debut, debut + taille));
+    debut += taille;
+  }
+  // schemas en plus (si on en ajoute un jour) : ligne suivante
+  if (debut < procedures.length) lignes.push(procedures.slice(debut));
 
   // Hauteur commune : la plus grande qui laisse tenir la ligne la plus large dans la largeur disponible
   const hauteurs = lignes.map((ligne) => {
