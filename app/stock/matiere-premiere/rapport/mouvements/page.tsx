@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase-server";
 import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
+import { COUVERTURE_MAX_MOIS, couvertureSelonAnneePassee } from "@/lib/couverture-stock";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -72,6 +73,14 @@ function formatMonthLabel(monthKey: string) {
   return `${month}/${year.slice(2)}`;
 }
 
+// Combien de mois le stock actuel suffit, en suivant les sorties des MEMES MOIS DE L'ANNEE PASSEE (octobre
+// -> octobre de l'an passe, puis novembre...) - voir lib/couverture-stock.ts.
+function formatCouverture(mois: number | null) {
+  if (mois === null) return "Aucune sortie l'an passe";
+  if (mois >= COUVERTURE_MAX_MOIS) return "Plus de 10 ans";
+  return `${mois.toLocaleString("fr-FR", { maximumFractionDigits: 1, minimumFractionDigits: 1 })} mois`;
+}
+
 export default async function RapportMouvementsMpPage({
   searchParams,
 }: {
@@ -83,26 +92,39 @@ export default async function RapportMouvementsMpPage({
   const from = (currentPage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  // Meme piege .limit(1000) que le reste de cette page - un terme de
-  // recherche assez large (ex: une categorie entiere) pouvait depasser le
-  // plafond PostgREST et faire disparaitre une partie des resultats.
-  const matchingArticleIds = articleQ
-    ? (
-        await fetchAllRowsParallel<{ id: number }>(
-          () =>
-            supabaseServer
-              .from("articles_matiere_premiere")
-              .select("id", { count: "exact", head: true })
-              .or(`nom_article.ilike.%${articleQ}%,categorie.ilike.%${articleQ}%,gamme.ilike.%${articleQ}%`),
-          (from, to) =>
-            supabaseServer
-              .from("articles_matiere_premiere")
-              .select("id")
-              .or(`nom_article.ilike.%${articleQ}%,categorie.ilike.%${articleQ}%,gamme.ilike.%${articleQ}%`)
-              .range(from, to)
-        )
-      ).map((row) => row.id)
+  // Tous les articles MP (id, nom, categorie, gamme) : PostgREST plafonne chaque requete a ~1000 lignes, donc
+  // toutes les pages partent en parallele (compte exact d'abord) via fetchAllRowsParallel. Sert aux suggestions
+  // du filtre ET a retrouver les articles qui correspondent a ce qui est tape.
+  const allArticlesData = await fetchAllRowsParallel<ArticleMpRow>(
+    () => supabaseServer.from("articles_matiere_premiere").select("id", { count: "exact", head: true }),
+    (from, to) =>
+      supabaseServer
+        .from("articles_matiere_premiere")
+        .select("id, nom_article, categorie, gamme")
+        .order("nom_article", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
+  );
+
+  // Filtre article : si le texte est EXACTEMENT le nom d'un article (ce qu'on obtient en le choisissant dans la
+  // liste), on ne montre QUE cet article - pas les autres articles dont le nom contient ce texte. Sinon (texte
+  // partiel), tous les articles dont le nom, la categorie ou la gamme contient ce texte.
+  const articleQLower = articleQ.toLowerCase();
+  const articlesExacts = articleQ
+    ? allArticlesData.filter((article) => article.nom_article.trim().toLowerCase() === articleQLower)
     : [];
+  const matchingArticleIds: number[] = !articleQ
+    ? []
+    : articlesExacts.length > 0
+      ? articlesExacts.map((article) => article.id)
+      : allArticlesData
+          .filter((article) =>
+            [article.nom_article, article.categorie, article.gamme].some((valeur) =>
+              (valeur || "").toLowerCase().includes(articleQLower)
+            )
+          )
+          .map((article) => article.id);
+  const matchingArticleIdSet = new Set(matchingArticleIds);
 
   // PostgREST plafonne chaque requete a son max-rows interne (~1000) peu
   // importe le .range() demande - il faut paginer, sinon la plupart des
@@ -150,25 +172,8 @@ export default async function RapportMouvementsMpPage({
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
   const twelveMonthsAgoIso = twelveMonthsAgo.toISOString().slice(0, 10);
 
-  // allArticlesData/sortiesResult/stockActuelRows sont totalement
-  // independants - partis en parallele plutot qu'en cascade.
-  const [allArticlesData, sortiesResult, stockActuelRows] = await Promise.all([
-    // .limit(5000) ne suffisait pas a lui seul : PostgREST plafonne chaque
-    // requete a son max-rows interne (~1000) peu importe le .limit() demande
-    // - les 2/3 des articles (2704 au total) restaient silencieusement
-    // absents (des suggestions ET de la liste elle-meme, qui ne montrait
-    // avant que les articles ayant deja une sortie - demande explicite :
-    // "il affiche pas toute la liste", tous les articles MP apparaissent
-    // desormais, meme sans aucune sortie).
-    fetchAllRowsParallel<ArticleMpRow>(
-      () => supabaseServer.from("articles_matiere_premiere").select("id", { count: "exact", head: true }),
-      (from, to) =>
-        supabaseServer
-          .from("articles_matiere_premiere")
-          .select("id, nom_article, categorie, gamme")
-          .order("nom_article", { ascending: true })
-          .range(from, to)
-    ),
+  // sortiesResult/stockActuelRows sont totalement independants - partis en parallele plutot qu'en cascade.
+  const [sortiesResult, stockActuelRows] = await Promise.all([
     (async (): Promise<{ rows: SortieRow[]; fetchError: { message: string } | null }> => {
       try {
         const rows = await fetchAllRowsParallel<SortieRow>(buildSortiesCountQuery, (from, to) =>
@@ -253,7 +258,11 @@ export default async function RapportMouvementsMpPage({
   }
 
   const monthColumns = [...monthSet].sort().reverse().slice(0, 12).reverse();
-  const allStatsRows = [...statsMap.values()].sort((a, b) => b.sortie_12_mois - a.sortie_12_mois);
+  // Avec un filtre article, seuls les articles qui correspondent sont listes (avant : les 100 premiers articles
+  // de toute la base apparaissaient aussi, vides, sous le bon article).
+  const allStatsRows = [...statsMap.values()]
+    .filter((row) => !articleQ || (row.article_id !== null && matchingArticleIdSet.has(row.article_id)))
+    .sort((a, b) => b.sortie_12_mois - a.sortie_12_mois);
   const pagedRows = allStatsRows.slice(from, to + 1);
   const totalRows = allStatsRows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
@@ -428,6 +437,21 @@ export default async function RapportMouvementsMpPage({
                         Sortie 12 mois :
                         <span className="ml-2 font-bold text-red-900">{row.sortie_12_mois}</span>
                       </div>
+                      <div className="rounded-2xl bg-violet-50 px-4 py-3 text-sm">
+                        Le stock suffit pour :
+                        <span className="ml-2 font-bold text-violet-900">
+                          {formatCouverture(
+                            couvertureSelonAnneePassee({
+                              stock: row.stock_actuel,
+                              sortiesParMois: row.by_month,
+                              aujourdhuiIso: today,
+                            })
+                          )}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-slate-500">
+                          selon les sorties des memes mois de l&apos;annee passee
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -465,6 +489,9 @@ export default async function RapportMouvementsMpPage({
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center font-semibold">Stock actuel</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center font-semibold">Sortie 6 mois</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center font-semibold">Sortie 12 mois</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center font-semibold">
+                      Stock suffit pour (sorties des memes mois de l&apos;an passe)
+                    </th>
                     {monthColumns.map((monthKey) => (
                       <th key={monthKey} className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center font-semibold">
                         {formatMonthLabel(monthKey)}
@@ -482,6 +509,15 @@ export default async function RapportMouvementsMpPage({
                       <td className="px-4 py-3 text-center font-semibold text-emerald-800">{row.stock_actuel}</td>
                       <td className="px-4 py-3 text-center text-orange-800">{row.sortie_6_mois}</td>
                       <td className="px-4 py-3 text-center text-red-800">{row.sortie_12_mois}</td>
+                      <td className="px-4 py-3 text-center font-semibold text-violet-800">
+                        {formatCouverture(
+                          couvertureSelonAnneePassee({
+                            stock: row.stock_actuel,
+                            sortiesParMois: row.by_month,
+                            aujourdhuiIso: today,
+                          })
+                        )}
+                      </td>
                       {monthColumns.map((monthKey) => (
                         <td key={monthKey} className="px-4 py-3 text-center text-slate-700">
                           {Number(row.by_month[monthKey] ?? 0)}
