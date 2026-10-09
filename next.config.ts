@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // pptxgenjs (export PowerPoint) est charge tel quel cote serveur, sans etre re-empaquete.
+  serverExternalPackages: ["pptxgenjs"],
   // Next.js blocks cross-origin dev requests by default - accessing the dev
   // server via the LAN IP (not localhost) needs this, or the JS bundle
   // loads but hydration/interactivity silently fails.

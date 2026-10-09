@@ -39,6 +39,13 @@ export default async function TrimestrePr4Page({ params }: { params: Promise<{ c
 
           <div className="flex items-center gap-3">
             <BackButton href="/qualite/revue-processus/pr4/trimestre" label="Retour trimestres" />
+            <a
+              href={`/qualite/revue-processus/pr4/trimestre/${trimestre.code}/pptx`}
+              download
+              className="rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-violet-500"
+            >
+              Exporter en PowerPoint
+            </a>
             <RefreshButton />
           </div>
         </section>
