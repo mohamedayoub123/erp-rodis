@@ -1,23 +1,46 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  FORMES_ORGANIGRAMME,
-  ORGANIGRAMME_HAUTEUR,
-  ORGANIGRAMME_LARGEUR,
-  SEGMENTS_ORGANIGRAMME,
-  ZONES_ORGANIGRAMME,
-} from "./organigramme-donnees";
+import { FORMES_ORGANIGRAMME, SEGMENTS_ORGANIGRAMME, ZONES_ORGANIGRAMME } from "./organigramme-donnees";
 
 // Organigramme redessine en vectoriel (formes, couleurs et noms de l'organigramme d'origine) : les noms restent
-// nets a n'importe quel zoom. On le deplace en le faisant glisser ; boutons +/- et "Tout voir", un bouton par
-// grande zone (zoom directement dessus) et un mode plein ecran.
-const ZOOM_MIN = 0.5;
+// nets a n'importe quel zoom. Au depart il est affiche EN ENTIER sur toute la largeur, sans defilement. Les boutons
+// +/- et les zones permettent d'agrandir (on le deplace alors en le faisant glisser), "Tout voir" revient a la vue
+// complete ; plein ecran disponible.
+const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 6;
-const ZOOM_DEPART = 2.2;
+const MARGE = 10;
 const NOIR = "#1b1b1b";
 const BLEU = "#4a72c0";
 const POLICE = 'Arial, "Helvetica Neue", Helvetica, sans-serif';
+
+// Cadre serre autour du dessin (le schema d'origine avait de grandes marges vides)
+const BORNES = (() => {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const f of FORMES_ORGANIGRAMME) {
+    x0 = Math.min(x0, f.x);
+    y0 = Math.min(y0, f.y);
+    x1 = Math.max(x1, f.x + f.w);
+    y1 = Math.max(y1, f.y + f.h);
+  }
+  for (const s of SEGMENTS_ORGANIGRAMME) {
+    if (s.o === "h") {
+      x0 = Math.min(x0, s.a);
+      x1 = Math.max(x1, s.b);
+      y0 = Math.min(y0, s.p);
+      y1 = Math.max(y1, s.p);
+    } else {
+      y0 = Math.min(y0, s.a);
+      y1 = Math.max(y1, s.b);
+      x0 = Math.min(x0, s.p);
+      x1 = Math.max(x1, s.p);
+    }
+  }
+  return { x: x0 - MARGE, y: y0 - MARGE, w: x1 - x0 + 2 * MARGE, h: y1 - y0 + 2 * MARGE };
+})();
 
 function limiter(zoom: number) {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
@@ -27,49 +50,57 @@ export function Organigramme() {
   const conteneur = useRef<HTMLDivElement>(null);
   const zone = useRef<HTMLDivElement>(null);
   const glisse = useRef<{ x: number; y: number; gauche: number; haut: number } | null>(null);
-  const [zoom, setZoom] = useState(ZOOM_DEPART);
+  // null = vue complete (ajustee a la largeur, sans defilement)
+  const [zoom, setZoom] = useState<number | null>(null);
+  const [largeurZone, setLargeurZone] = useState(0);
   const [pleinEcran, setPleinEcran] = useState(false);
 
-  // Zoom en gardant le meme point du schema au centre de la fenetre
-  const appliquerZoom = useCallback((nouveau: number, centre?: { x: number; y: number }) => {
-    const fenetre = zone.current;
-    if (!fenetre) return;
-    const z = limiter(nouveau);
-    setZoom((ancien) => {
-      const cx = centre?.x ?? (fenetre.scrollLeft + fenetre.clientWidth / 2) / ancien;
-      const cy = centre?.y ?? (fenetre.scrollTop + fenetre.clientHeight / 2) / ancien;
-      requestAnimationFrame(() => {
-        fenetre.scrollLeft = cx * z - fenetre.clientWidth / 2;
-        fenetre.scrollTop = cy * z - fenetre.clientHeight / 2;
-      });
-      return z;
+  const ajuste = largeurZone > 0 ? largeurZone / BORNES.w : 1;
+  const zoomActuel = zoom ?? ajuste;
+
+  useEffect(() => {
+    const element = zone.current;
+    if (!element) return;
+    const observateur = new ResizeObserver((entrees) => {
+      for (const entree of entrees) setLargeurZone(entree.contentRect.width);
     });
+    observateur.observe(element);
+    return () => observateur.disconnect();
   }, []);
-
-  const toutVoir = useCallback(() => {
-    const fenetre = zone.current;
-    if (!fenetre) return;
-    appliquerZoom(Math.min(fenetre.clientWidth / (ORGANIGRAMME_LARGEUR + 20), fenetre.clientHeight / (ORGANIGRAMME_HAUTEUR + 20)), {
-      x: ORGANIGRAMME_LARGEUR / 2,
-      y: ORGANIGRAMME_HAUTEUR / 2,
-    });
-  }, [appliquerZoom]);
-
-  const allerA = useCallback(
-    (cible: { x: number; y: number; w: number; h: number }) => {
-      const fenetre = zone.current;
-      if (!fenetre) return;
-      const z = Math.min(4, fenetre.clientWidth / (cible.w + 30), fenetre.clientHeight / (cible.h + 30));
-      appliquerZoom(Math.max(1, z), { x: cible.x + cible.w / 2, y: cible.y + cible.h / 2 });
-    },
-    [appliquerZoom]
-  );
 
   useEffect(() => {
     const suivre = () => setPleinEcran(document.fullscreenElement === conteneur.current);
     document.addEventListener("fullscreenchange", suivre);
     return () => document.removeEventListener("fullscreenchange", suivre);
   }, []);
+
+  // Zoom en gardant le meme point du schema au centre de la fenetre
+  const appliquerZoom = useCallback(
+    (nouveau: number, centre?: { x: number; y: number }) => {
+      const fenetre = zone.current;
+      if (!fenetre) return;
+      const z = limiter(nouveau);
+      const cx = centre?.x ?? BORNES.x + (fenetre.scrollLeft + fenetre.clientWidth / 2) / zoomActuel;
+      const cy = centre?.y ?? BORNES.y + (fenetre.scrollTop + fenetre.clientHeight / 2) / zoomActuel;
+      setZoom(z);
+      requestAnimationFrame(() => {
+        fenetre.scrollLeft = (cx - BORNES.x) * z - fenetre.clientWidth / 2;
+        fenetre.scrollTop = (cy - BORNES.y) * z - fenetre.clientHeight / 2;
+      });
+    },
+    [zoomActuel]
+  );
+
+  const allerA = useCallback(
+    (cible: { x: number; y: number; w: number; h: number }) => {
+      const fenetre = zone.current;
+      if (!fenetre) return;
+      const hauteurVue = pleinEcran ? window.innerHeight - 88 : window.innerHeight * 0.78;
+      const z = Math.min(4, fenetre.clientWidth / (cible.w + 30), hauteurVue / (cible.h + 30));
+      appliquerZoom(Math.max(ajuste, z), { x: cible.x + cible.w / 2, y: cible.y + cible.h / 2 });
+    },
+    [appliquerZoom, ajuste, pleinEcran]
+  );
 
   function basculerPleinEcran() {
     const element = conteneur.current;
@@ -80,27 +111,28 @@ export function Organigramme() {
 
   const bouton =
     "rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-violet-300 hover:text-violet-700";
+  const hauteurSvg = BORNES.h * zoomActuel;
+  const limiteHauteur = pleinEcran ? "calc(100vh - 88px)" : "78vh";
 
   return (
-    <div
-      ref={conteneur}
-      className={`flex flex-col gap-3 bg-white ${pleinEcran ? "h-screen p-4" : ""}`}
-    >
+    <div ref={conteneur} className={`flex flex-col gap-3 bg-white ${pleinEcran ? "h-screen p-4" : ""}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className={bouton} onClick={() => appliquerZoom(zoom / 1.25)} aria-label="Reduire">
+        <button type="button" className={bouton} onClick={() => appliquerZoom(zoomActuel / 1.25)} aria-label="Reduire">
           −
         </button>
-        <span className="w-14 text-center text-sm font-semibold text-slate-600">{Math.round(zoom * 100)} %</span>
-        <button type="button" className={bouton} onClick={() => appliquerZoom(zoom * 1.25)} aria-label="Agrandir">
+        <span className="w-14 text-center text-sm font-semibold text-slate-600">
+          {largeurZone > 0 ? `${Math.round(zoomActuel * 100)} %` : ""}
+        </span>
+        <button type="button" className={bouton} onClick={() => appliquerZoom(zoomActuel * 1.25)} aria-label="Agrandir">
           +
         </button>
-        <button type="button" className={bouton} onClick={toutVoir}>
+        <button type="button" className={bouton} onClick={() => setZoom(null)}>
           Tout voir
         </button>
         <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" aria-hidden="true" />
         {ZONES_ORGANIGRAMME.map((z) => (
           <button key={z.nom} type="button" className={bouton} onClick={() => allerA(z)}>
-            {z.nom}
+            Agrandir : {z.nom}
           </button>
         ))}
         <button type="button" className={`${bouton} ml-auto`} onClick={basculerPleinEcran}>
@@ -110,10 +142,10 @@ export function Organigramme() {
 
       <div
         ref={zone}
-        className="cursor-grab overflow-auto rounded-2xl border border-slate-200 bg-white active:cursor-grabbing"
-        style={{ height: pleinEcran ? "calc(100vh - 88px)" : "min(78vh, 900px)", touchAction: "pan-x pan-y" }}
+        className={`overflow-auto rounded-2xl border border-slate-200 bg-white ${zoom === null ? "" : "cursor-grab active:cursor-grabbing"}`}
+        style={zoom === null ? undefined : { height: `min(${hauteurSvg + 2}px, ${limiteHauteur})`, touchAction: "pan-x pan-y" }}
         onPointerDown={(event) => {
-          if (event.pointerType === "touch") return; // au doigt, le defilement natif suffit
+          if (zoom === null || event.pointerType === "touch") return;
           const fenetre = zone.current;
           if (!fenetre) return;
           glisse.current = { x: event.clientX, y: event.clientY, gauche: fenetre.scrollLeft, haut: fenetre.scrollTop };
@@ -134,12 +166,12 @@ export function Organigramme() {
         }}
       >
         <svg
-          viewBox={`0 0 ${ORGANIGRAMME_LARGEUR} ${ORGANIGRAMME_HAUTEUR}`}
-          width={ORGANIGRAMME_LARGEUR * zoom}
-          height={ORGANIGRAMME_HAUTEUR * zoom}
+          viewBox={`${BORNES.x} ${BORNES.y} ${BORNES.w} ${BORNES.h}`}
+          width={zoom === null ? "100%" : BORNES.w * zoom}
+          height={zoom === null ? undefined : BORNES.h * zoom}
           role="img"
           aria-label="Organigramme"
-          style={{ display: "block", fontFamily: POLICE }}
+          style={{ display: "block", height: zoom === null ? "auto" : undefined, fontFamily: POLICE }}
         >
           {/* Connecteurs (derriere les formes) */}
           <g strokeLinecap="butt" fill="none">
@@ -183,14 +215,7 @@ export function Organigramme() {
                 ) : (
                   <rect x={f.x} y={f.y} width={f.w} height={f.h} rx={f.rayon ?? 0} {...style} />
                 )}
-                <text
-                  x={f.centreX}
-                  y={debutY}
-                  textAnchor="middle"
-                  fontSize={f.taille}
-                  fontWeight={700}
-                  fill={f.texteCouleur}
-                >
+                <text x={f.centreX} y={debutY} textAnchor="middle" fontSize={f.taille} fontWeight={700} fill={f.texteCouleur}>
                   {f.lignes.map((ligne, i) => (
                     <tspan key={i} x={f.centreX} dy={i === 0 ? 0 : f.taille * 1.16}>
                       {ligne}
@@ -203,7 +228,7 @@ export function Organigramme() {
         </svg>
       </div>
       <p className="text-xs text-slate-500">
-        Faites glisser le schéma pour le déplacer, ou utilisez les boutons pour agrandir une zone.
+        Tout l&apos;organigramme est visible. Pour lire de plus près : boutons +, − ou « Agrandir » une zone (puis faire glisser le schéma).
       </p>
     </div>
   );
