@@ -1,70 +1,18 @@
-import { supabaseServer } from "@/lib/supabase-server";
+import { lireArticlesMpPourFormulaires } from "@/lib/articles-mp-liste";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { lireSoldesLotsMp } from "@/lib/lot-balances-mp";
 import { SortieMpClient } from "./sortie-client";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 
-async function fetchAllArticlesForSortie() {
-  const rows: { id: number; nom_article: string; unite: string | null }[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
-  // .limit() demande - sans cette boucle, les articles au-dela du 1000e
-  // (tries par nom) etaient invisibles dans le formulaire.
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("articles_matiere_premiere")
-      .select("id, nom_article, unite")
-      .order("nom_article", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (error) break;
-
-    const chunk = (data as { id: number; nom_article: string; unite: string | null }[] | null) ?? [];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
-}
-
-// Solde par article+lot (somme qte_entree - qte_sortie), pour que la Sortie
-// normale propose seulement les lots qui existent reellement en stock, au
-// lieu d'une saisie libre qui peut viser un lot inexistant. Calcule en base
-// (RPC stock_mp_lot_balances) plutot qu'en rapatriant toute la table
-// lots_stock_matiere_premiere (dizaines de milliers de lignes) pour agreger
-// cote Node - cette derniere approche rendait la page tres lente (~12s).
-//
-// Pagine (.range()) - un simple appel RPC sans pagination plafonne
-// silencieusement a 1000 lignes (limite par defaut Supabase/PostgREST),
-// et il y a largement plus de 1000 combinaisons article+lot distinctes -
-// sans ordre garanti sur la fonction SQL, un article+lot pouvait tomber
-// hors des 1000 premieres lignes et disparaitre de la liste : la Sortie le
-// refusait alors comme "aucun lot en stock" alors qu'il existe bel et bien
-// (bug reel confirme : ETUIS SAVON ELIXIR LIGHT 200 GR / "ancien lot",
-// 629171 en stock, refuse par Sortie).
-async function fetchLotBalancesForSortie() {
-  // Lecture partagee et gardee 10 s (voir lib/lot-balances-mp.ts) : cette page relancait toute la
-  // fonction SQL, page par page, a chaque affichage. En cas d'erreur la liste reste vide, comme avant.
-  try {
-    return await lireSoldesLotsMp();
-  } catch {
-    return [];
-  }
-}
-
+// Les soldes par article + lot (fonction SQL stock_mp_lot_balances, la plus lourde de cette page) ne sont plus
+// attendus avant l'affichage : le formulaire s'ouvre tout de suite avec les articles, et les lots arrivent juste
+// apres (voir sortie-client.tsx et chargerLotsSortieMpAction). Ils ne sont recalcules que si le stock a change
+// (voir lib/lot-balances-mp.ts).
 export default async function MouvementsMatierePremiereSortiePage() {
   const currentStockUser = await getCurrentStockUser();
   const canWriteMouvements = await canWritePageUser(currentStockUser, "mouvementsMatierePremiereSortie");
 
-  const [articlesData, lots] = await Promise.all([
-    fetchAllArticlesForSortie(),
-    fetchLotBalancesForSortie(),
-  ]);
+  const articlesData = await lireArticlesMpPourFormulaires();
 
   const articles = articlesData.map((article) => ({
     id: article.id,
@@ -93,7 +41,7 @@ export default async function MouvementsMatierePremiereSortiePage() {
           </div>
         </section>
 
-        <SortieMpClient articles={articles} lots={lots} canWrite={canWriteMouvements} />
+        <SortieMpClient articles={articles} canWrite={canWriteMouvements} />
       </div>
     </main>
   );

@@ -1,36 +1,10 @@
-import { supabaseServer } from "@/lib/supabase-server";
+import { lireArticlesMpPourFormulaires } from "@/lib/articles-mp-liste";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { SortieAdminMpClient } from "./sortie-admin-client";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 
-async function fetchAllArticlesForSortie() {
-  const rows: { id: number; nom_article: string; unite: string | null }[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le
-  // .limit() demande - sans cette boucle, les articles au-dela du 1000e
-  // (tries par nom) etaient invisibles dans le formulaire.
-  while (true) {
-    const { data, error } = await supabaseServer
-      .from("articles_matiere_premiere")
-      .select("id, nom_article, unite")
-      .order("nom_article", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (error) break;
-
-    const chunk = (data as { id: number; nom_article: string; unite: string | null }[] | null) ?? [];
-    rows.push(...chunk);
-
-    if (chunk.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
-}
-
+// Liste des articles : relue seulement si un article a ete ajoute ou supprime (voir lib/articles-mp-liste.ts).
 export default async function MouvementsMatierePremiereSortieAdminPage() {
   const currentStockUser = await getCurrentStockUser();
   const canWriteSortieAdmin = await canWritePageUser(
@@ -38,7 +12,7 @@ export default async function MouvementsMatierePremiereSortieAdminPage() {
     "mouvementsMatierePremiereSortieAdmin"
   );
 
-  const articlesData = await fetchAllArticlesForSortie();
+  const articlesData = await lireArticlesMpPourFormulaires();
 
   const articles = articlesData.map((article) => ({
     id: article.id,

@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { lirePagesAvecLimite } from "@/lib/lecteur-valide";
+import { calculerRotationArticleMp, type LigneMouvementMp, type RotationArticleMp } from "@/lib/rotation-mp-article";
 import { fetchCoutsReelsMpDepotB } from "@/lib/prix-revient";
 import { COMPTE_PERTES_STOCK, COMPTE_STOCK_MP, creerEcriture, supprimerEcriturePourSource } from "@/lib/comptabilite";
 import {
@@ -12,7 +14,7 @@ import {
   type RecettePlastiqueLigne,
 } from "@/app/production-plastique/shared";
 import { logAudit } from "@/lib/audit-log";
-import { invaliderSoldesLotsMp } from "@/lib/lot-balances-mp";
+import { invaliderSoldesLotsMp, lireSoldesLotsMp, type LotBalanceRow } from "@/lib/lot-balances-mp";
 
 // Supprime une ligne de detail puis, si c'etait la derniere ligne de son
 // mouvement (groupe), renvoie vers la liste au lieu de laisser la page
@@ -140,6 +142,74 @@ function revalidateMouvementsMpPages() {
   revalidatePath("/stock/matiere-premiere/stock");
   revalidatePath("/mouvements/matiere-premiere");
   revalidatePath("/dashboard");
+}
+
+// Lectures a la demande pour les ecrans Entree / Sortie MP. Reservees aux utilisateurs qui voient au moins un de
+// ces ecrans. Elles renvoient un message au lieu de lever une exception : en production Next.js masque le texte
+// des exceptions des Server Actions.
+async function peutVoirEcransMouvementsMp(currentUser: string | null, ecrans: ("entree" | "sortie" | "sortieAdmin")[]) {
+  const cles = {
+    entree: "mouvementsMatierePremiereEntree",
+    sortie: "mouvementsMatierePremiereSortie",
+    sortieAdmin: "mouvementsMatierePremiereSortieAdmin",
+  } as const;
+  for (const ecran of ecrans) {
+    if (await canViewPageUser(currentUser, cles[ecran])) return true;
+  }
+  return false;
+}
+
+// Rotation d'un article (par mois et par an) pour la carte affichee sous le champ Article des ecrans Entree et
+// Sortie. Lit seulement les mouvements de CET article (quelques lignes a quelques milliers), jamais toute la table.
+export async function lireRotationArticleMpAction(
+  articleId: number
+): Promise<{ ok: true; rotation: RotationArticleMp } | { ok: false; message: string }> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await peutVoirEcransMouvementsMp(currentUser, ["entree", "sortie", "sortieAdmin"]))) {
+    return { ok: false, message: "Acces refuse." };
+  }
+  if (!Number.isInteger(articleId) || articleId <= 0) {
+    return { ok: false, message: "Article invalide." };
+  }
+
+  try {
+    const lignes = await lirePagesAvecLimite<LigneMouvementMp>(
+      () =>
+        supabaseServer
+          .from("lots_stock_matiere_premiere")
+          .select("id", { count: "exact", head: true })
+          .eq("article_id", articleId),
+      (debut, fin) =>
+        supabaseServer
+          .from("lots_stock_matiere_premiere")
+          .select("qte_entree, qte_sortie, date_jour")
+          .eq("article_id", articleId)
+          .order("id", { ascending: true })
+          .range(debut, fin) as unknown as PromiseLike<{
+          data: LigneMouvementMp[] | null;
+          error: { message: string } | null;
+        }>
+    );
+    return { ok: true, rotation: calculerRotationArticleMp(lignes, new Date().toISOString().slice(0, 10)) };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Rotation indisponible." };
+  }
+}
+
+// Soldes par article + lot pour la Sortie normale, charges APRES l'affichage de la page (avant, la page attendait
+// ce calcul avant de s'ouvrir). Voir lib/lot-balances-mp.ts : relus seulement si le stock a change.
+export async function chargerLotsSortieMpAction(): Promise<
+  { ok: true; lots: LotBalanceRow[] } | { ok: false; message: string }
+> {
+  const currentUser = await getCurrentStockUser();
+  if (!(await peutVoirEcransMouvementsMp(currentUser, ["sortie"]))) {
+    return { ok: false, message: "Acces refuse." };
+  }
+  try {
+    return { ok: true, lots: await lireSoldesLotsMp() };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Lots indisponibles." };
+  }
 }
 
 export async function createEntreeMpBatchAction(formData: FormData) {

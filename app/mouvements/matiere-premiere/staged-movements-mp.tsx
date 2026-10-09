@@ -6,6 +6,11 @@ import { DateJmaInput } from "@/app/_components/date-jma-input";
 import { formatDate } from "@/lib/format-date";
 import { useComboboxNav } from "@/app/_components/use-combobox-nav";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { RotationArticleCarte } from "./rotation-article-mp";
+
+// Liste d'articles proposee : seulement les premiers resultats sont dessines (2 700 boutons a chaque frappe
+// rendaient les ecrans Entree / Sortie lents) ; un message invite a preciser la recherche pour voir la suite.
+const LIMITE_ARTICLES_AFFICHES = 120;
 
 export type ArticleMpOption = {
   id: number;
@@ -64,6 +69,8 @@ export function EntreePanelMp({
   onLotsCreated: React.Dispatch<React.SetStateAction<LotMpOption[]>>;
 }) {
   const [isPending, startTransition] = useTransition();
+  // Augmente apres chaque enregistrement : la carte de rotation de l'article se recalcule (stock a jour).
+  const [versionStock, setVersionStock] = useState(0);
   const [articleInput, setArticleInput] = useState("");
   const [showArticleDropdown, setShowArticleDropdown] = useState(false);
   const [dateReception, setDateReception] = useState("");
@@ -101,7 +108,8 @@ export function EntreePanelMp({
     setShowArticleDropdown(false);
   }
 
-  const articleNav = useComboboxNav(filteredArticles, selectArticle);
+  const articlesAffiches = filteredArticles.slice(0, LIMITE_ARTICLES_AFFICHES);
+  const articleNav = useComboboxNav(articlesAffiches, selectArticle);
 
   function addRow() {
     const qty = Number(quantite.replace(",", "."));
@@ -219,6 +227,7 @@ export function EntreePanelMp({
         ]);
         setRows([]);
         setMessage("Entree enregistree dans le stock matiere premiere.");
+        setVersionStock((v) => v + 1);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'approbation.");
       }
@@ -248,7 +257,7 @@ export function EntreePanelMp({
           />
           {showArticleDropdown && filteredArticles.length > 0 ? (
             <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-              {filteredArticles.map((article, index) => (
+              {articlesAffiches.map((article, index) => (
                 <button
                   key={article.id}
                   type="button"
@@ -261,9 +270,22 @@ export function EntreePanelMp({
                   {article.label}
                 </button>
               ))}
+              {filteredArticles.length > articlesAffiches.length ? (
+                <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
+                  + {filteredArticles.length - articlesAffiches.length} autres articles - continue d&apos;ecrire pour
+                  preciser.
+                </p>
+              ) : null}
             </div>
           ) : null}
         </label>
+
+        <RotationArticleCarte
+          articleId={selectedArticle?.id ?? null}
+          articleLabel={selectedArticle?.label ?? ""}
+          unite={selectedArticle?.unite ?? ""}
+          version={versionStock}
+        />
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="grid gap-2 text-sm font-semibold text-slate-900">
@@ -463,12 +485,19 @@ export function SortiePanelMp({
   articles,
   mode,
   lots = [],
+  lotsEnChargement = false,
+  lotsErreur = "",
 }: {
   articles: ArticleMpOption[];
   mode: "normal" | "admin";
   lots?: LotBalanceMpOption[];
+  // Les lots (soldes par article + lot) arrivent APRES l'ouverture de la page : en attendant, le champ Lot l'indique.
+  lotsEnChargement?: boolean;
+  lotsErreur?: string;
 }) {
   const [isPending, startTransition] = useTransition();
+  // Augmente apres chaque enregistrement : la carte de rotation de l'article se recalcule (stock a jour).
+  const [versionStock, setVersionStock] = useState(0);
   const [articleInput, setArticleInput] = useState("");
   const [showArticleDropdown, setShowArticleDropdown] = useState(false);
   const [showLotDropdown, setShowLotDropdown] = useState(false);
@@ -508,7 +537,8 @@ export function SortiePanelMp({
     setNumeroLot("");
   }
 
-  const articleNav = useComboboxNav(filteredArticles, selectArticle);
+  const articlesAffiches = filteredArticles.slice(0, LIMITE_ARTICLES_AFFICHES);
+  const articleNav = useComboboxNav(articlesAffiches, selectArticle);
 
   // En mode normal, le lot se choisit dans les lots existants de l'article
   // (pas de saisie libre) - en mode admin, "lots" reste vide et le champ
@@ -560,6 +590,16 @@ export function SortiePanelMp({
     // n'existe pas" (bug reel signale : lot qui existe bel et bien, juste
     // mal orthographie/pas choisi dans la liste). Bloque desormais tout de
     // suite, avec un message qui pointe vers la vraie cause.
+    if (mode === "normal" && lotsEnChargement) {
+      setMessage("");
+      setErrorMessage("Les lots se chargent encore - reessaie dans un instant.");
+      return;
+    }
+    if (mode === "normal" && lotsErreur) {
+      setMessage("");
+      setErrorMessage("Les lots n'ont pas pu etre charges (" + lotsErreur + ") - recharge la page.");
+      return;
+    }
     if (mode === "normal") {
       const normalizedInput = numeroLot.trim().toUpperCase();
       const matchesExistingLot = lotsForArticle.some(
@@ -652,6 +692,7 @@ export function SortiePanelMp({
         await createSortieMpBatchAction(formData);
         setRows([]);
         setMessage("Sortie enregistree dans le stock matiere premiere.");
+        setVersionStock((v) => v + 1);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'approbation.");
       }
@@ -694,7 +735,7 @@ export function SortiePanelMp({
             />
             {showArticleDropdown && filteredArticles.length > 0 ? (
               <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-                {filteredArticles.map((article, index) => (
+                {articlesAffiches.map((article, index) => (
                   <button
                     key={article.id}
                     type="button"
@@ -707,6 +748,12 @@ export function SortiePanelMp({
                     {article.label}
                   </button>
                 ))}
+                {filteredArticles.length > articlesAffiches.length ? (
+                  <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
+                    + {filteredArticles.length - articlesAffiches.length} autres articles - continue d&apos;ecrire pour
+                    preciser.
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </label>
@@ -725,7 +772,11 @@ export function SortiePanelMp({
                 onFocus={() => setShowLotDropdown(true)}
                 onBlur={() => setTimeout(() => setShowLotDropdown(false), 150)}
                 placeholder={
-                  selectedArticle ? "Choisis un lot existant (fleches + Entree)" : "Choisis d'abord l'article"
+                  lotsEnChargement
+                    ? "Chargement des lots en cours..."
+                    : selectedArticle
+                      ? "Choisis un lot existant (fleches + Entree)"
+                      : "Choisis d'abord l'article"
                 }
                 disabled={!selectedArticle}
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal outline-none disabled:bg-slate-50 disabled:text-slate-400"
@@ -751,7 +802,11 @@ export function SortiePanelMp({
                   </div>
                 ) : (
                   <div className="absolute left-0 top-full z-50 mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
-                    Aucun lot en stock pour cet article.
+                    {lotsEnChargement
+                      ? "Chargement des lots en cours..."
+                      : lotsErreur
+                        ? "Lots indisponibles : " + lotsErreur
+                        : "Aucun lot en stock pour cet article."}
                   </div>
                 )
               ) : null}
@@ -769,6 +824,13 @@ export function SortiePanelMp({
             </label>
           )}
         </div>
+
+        <RotationArticleCarte
+          articleId={selectedArticle?.id ?? null}
+          articleLabel={selectedArticle?.label ?? ""}
+          unite={selectedArticle?.unite ?? ""}
+          version={versionStock}
+        />
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="grid gap-2 text-sm font-semibold text-slate-900">

@@ -19,7 +19,7 @@ export function creerLecteurValide<T>(options: {
   let cache: { empreinte: string; jusqua: number; lignes: T[] } | null = null;
   let enCours: { empreinte: string; promesse: Promise<T[]> } | null = null;
 
-  return async function lire(): Promise<T[]> {
+  async function lire(): Promise<T[]> {
     const empreinte = await options.lireEmpreinte();
 
     if (cache && cache.empreinte === empreinte && cache.jusqua > Date.now()) return [...cache.lignes];
@@ -36,7 +36,15 @@ export function creerLecteurValide<T>(options: {
       });
     enCours = { empreinte, promesse };
     return [...(await promesse)];
-  };
+  }
+
+  // Oublie la liste gardee (la prochaine lecture repart de la base) - utile apres une modification faite
+  // sur place par cette instance du serveur.
+  return Object.assign(lire, {
+    invalider: () => {
+      cache = null;
+    },
+  });
 }
 
 // Lit toutes les pages d'une requete PostgREST (1000 lignes max par page) avec un nombre LIMITE de pages en
