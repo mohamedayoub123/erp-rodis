@@ -3,6 +3,10 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // pptxgenjs (export PowerPoint) est charge tel quel cote serveur, sans etre re-empaquete.
   serverExternalPackages: ["pptxgenjs"],
+  // La presentation modele (lue sur le disque au moment de l'export) doit etre embarquee avec la fonction Vercel.
+  outputFileTracingIncludes: {
+    "/qualite/revue-processus/pr4/trimestre/*/pptx": ["./assets/pptx/**/*"],
+  },
   // Next.js blocks cross-origin dev requests by default - accessing the dev
   // server via the LAN IP (not localhost) needs this, or the JS bundle
   // loads but hydration/interactivity silently fails.

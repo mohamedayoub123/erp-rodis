@@ -1,311 +1,435 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import JSZip from "jszip";
 import PptxGenJS from "pptxgenjs";
 import type { TrimestrePr4 } from "@/lib/trimestres-pr4";
-import { LOGO_RODIS_PR4 } from "./logo-base64";
-import { ajouterOrganigramme, ajouterProcedure } from "./pptx-diagrammes";
-import { BLEU, HAUTEUR, LARGEUR, POLICE, POLICE_SURE, decor, titre } from "./pptx-commun";
-import { PROCEDURES } from "./procedures-donnees";
 import { INDICATEURS_DIAPO, estDansLaCible, lireIndicateursAnnee } from "./indicateurs-trimestre";
 import { dernierMoisAffiche, lireKpiArretProduction, lireKpiCoutCarton } from "./kpi-donnees";
-import { GROUPES_SWOT } from "./swot-donnees";
+import { lireNcTafPr4, type NcTafPr4 } from "./donnees-nc-taf";
+import {
+  TYPE_CLASSEUR,
+  TYPE_GRAPHIQUE,
+  TYPE_RELATION_GRAPHIQUE,
+  ajouterCadres,
+  ajouterRelation,
+  avecExtension,
+  avecSurcharge,
+  cadresDe,
+  copierGraphique,
+  echapperXml,
+  lireTexte,
+  retirerCadres,
+  retirerImage,
+  retirerRelation,
+  sansSurcharge,
+} from "./pptx-modele";
 
-// PowerPoint du "Rapport de revue de processus PR4" d'un trimestre : memes diapositives que la page de l'ERP
-// (page de garde, objectif, organigramme, procedures, indicateurs, KPI, SWOT, fin), avec de vrais objets PowerPoint
-// (formes, tableaux, graphiques) - donc modifiables.
-const CODE_DOCUMENT = "Code : CCSIQP-FO-031 Version : 1 Date 17/07/2023";
+// PowerPoint du "Rapport de revue de processus PR4" d'un trimestre. On part de la presentation modele du service
+// qualite (assets/pptx/revue-processus-pr4-modele.pptx) : meme theme, memes 12 diapositives, memes images pour
+// l'organigramme, les procedures et le SWOT. Seules les diapositives qui changent chaque trimestre sont remplies :
+//   1  page de garde       -> "2026 / T2"
+//   5  Indicateur          -> tableau des indicateurs (T1 jusqu'au trimestre) + les 3 lignes de resume
+//   6  KPI                 -> graphique temps d'arret / production realisee
+//   7  KPI cout du carton  -> graphique multi-sources
+//   8  TAF et NC           -> tableaux NC et TAF de l'audit AI-n de l'annee
+// Les tableaux et graphiques sont de vrais objets PowerPoint (modifiables), pas des images.
+const CHEMIN_MODELE = path.join(process.cwd(), "assets", "pptx", "revue-processus-pr4-modele.pptx");
 const VERT = "0B9A46";
 const ROUGE = "E00000";
+const POLICE = "Century Gothic";
+const POLICE_TABLEAU = "Calibri";
+const ORANGE = "ED7D31";
+const ORANGE_CLAIR = "F4B183";
+const PECHE = "FBE5D6";
 
-function pourcentage(valeur: number | null) {
-  return valeur === null ? "-" : `${valeur.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+const pct = (valeur: number | null) => (valeur === null ? "" : `${Math.round(valeur)}%`);
+const pctUneDecimale = (valeur: number | null) =>
+  valeur === null ? "-" : `${valeur.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+
+type CelluleTableau = PptxGenJS.TableCell;
+
+// ---------------------------------------------------------------- pieces generees par pptxgenjs
+// Chaque piece est creee sur sa propre diapositive d'une presentation temporaire, puis greffee dans le modele.
+export type Donnees = {
+  trimestre: TrimestrePr4;
+  indicateurs: Awaited<ReturnType<typeof lireIndicateursAnnee>>;
+  arretProduction: Awaited<ReturnType<typeof lireKpiArretProduction>>;
+  coutCarton: Awaited<ReturnType<typeof lireKpiCoutCarton>>;
+  ncTaf: NcTafPr4;
+};
+
+function pieceIndicateurs(slide: PptxGenJS.Slide, { trimestre, indicateurs }: Donnees) {
+  const colonnes = indicateurs.filter((t) => t.trimestre <= trimestre.trimestre);
+  // plus il y a de trimestres, plus il y a de colonnes : on resserre un peu pour que tout tienne au-dessus du resume
+  const compact = colonnes.length >= 3;
+  const entete = { bold: true, fill: { color: "F2F2F2" }, color: "111111", fontSize: compact ? 8 : 8.5, align: "center" as const, valign: "middle" as const };
+  const rangees: CelluleTableau[][] = [
+    [
+      { text: "INDICATEUR", options: entete },
+      { text: "MÉTHODE DE CALCUL", options: entete },
+      { text: String(trimestre.annee), options: entete },
+      { text: "Fréquence de mesure", options: entete },
+      ...colonnes.map((t) => ({ text: `action T${t.trimestre}`, options: entete })),
+      { text: "plan d'action", options: entete },
+    ],
+  ];
+  for (const ind of INDICATEURS_DIAPO) {
+    const fond = ind.fondOrange ? { color: "F8CBAD" } : undefined;
+    const base = { fontSize: compact ? 7 : 7.5, align: "center" as const, valign: "middle" as const, color: "111111", fill: fond };
+    rangees.push([
+      { text: ind.indicateur, options: base },
+      { text: ind.methode, options: base },
+      { text: ind.cibleTexte, options: base },
+      { text: ind.numero === 1 || ind.numero === 3 ? "" : "trimestrielle", options: base },
+      ...colonnes.map((t): CelluleTableau => {
+        const valeur = t.valeurs[ind.numero];
+        if (valeur === null || valeur === undefined) return { text: t.complet ? "-" : "", options: { ...base, color: "999999" } };
+        const atteint = ind.cible ? estDansLaCible(ind.cible, valeur) : null;
+        const texte = valeur.toLocaleString("fr-FR", { minimumFractionDigits: ind.decimales, maximumFractionDigits: ind.decimales });
+        return {
+          text: ind.pourcentage ? `${texte}%` : texte,
+          options: { ...base, bold: true, color: atteint === null ? "111111" : atteint ? VERT : ROUGE },
+        };
+      }),
+      { text: ind.planAction, options: { ...base, fontSize: compact ? 6.5 : 7, color: "1F4FB5" } },
+    ]);
+  }
+  const largeurTotale = 9.95;
+  const largeurQuart = compact && colonnes.length >= 4 ? 0.5 : 0.55;
+  const largeurTexte = colonnes.length >= 4 ? 2.0 : compact ? 2.1 : 2.2;
+  const fixes = largeurTexte * 2 + 0.7 + 0.8 + largeurQuart * colonnes.length;
+  slide.addTable(rangees as PptxGenJS.TableRow[], {
+    x: 0.43,
+    y: 0.8,
+    w: largeurTotale,
+    colW: [largeurTexte, largeurTexte, 0.7, 0.8, ...colonnes.map(() => largeurQuart), Math.max(1.6, largeurTotale - fixes)],
+    margin: [0.03, 0.05, 0.03, 0.05],
+    border: { type: "solid", color: "666666", pt: 0.5 },
+    fontFace: POLICE_TABLEAU,
+    rowH: 0.25,
+  });
+}
+
+function pieceKpiArretProduction(slide: PptxGenJS.Slide, pres: PptxGenJS, { arretProduction }: Donnees) {
+  const labels = arretProduction.categories.map((c) => (c ? `${c[0]} ${c[1]}` : " "));
+  slide.addChart(
+    pres.ChartType.line,
+    [
+      { name: "Temps d'arrêt (%)", labels, values: arretProduction.arret as number[] },
+      { name: "Production réalisée (%)", labels, values: arretProduction.production as number[] },
+    ],
+    {
+      x: 0.25,
+      y: 0.75,
+      w: 10.2,
+      h: 6.55,
+      chartColors: ["4472C4", ORANGE],
+      lineSize: 2.5,
+      lineDataSymbol: "diamond",
+      lineDataSymbolSize: 7,
+      showTitle: true,
+      title: "% TEMPS D'ARRÊT ET PRODUCTION RÉALISÉE",
+      titleFontFace: POLICE,
+      titleFontSize: 16,
+      titleColor: "595959",
+      showLegend: true,
+      legendPos: "t",
+      legendFontFace: POLICE,
+      legendFontSize: 11,
+      legendColor: "595959",
+      valAxisMinVal: 0,
+      valAxisMaxVal: 120,
+      valAxisMajorUnit: 20,
+      valAxisLabelFormatCode: '0"%"',
+      valAxisLabelFontFace: POLICE,
+      valAxisLabelFontSize: 10,
+      valAxisLabelColor: "595959",
+      catAxisLabelFontFace: POLICE,
+      catAxisLabelFontSize: 9,
+      catAxisLabelColor: "595959",
+      showValue: true,
+      dataLabelFormatCode: '0"%"',
+      dataLabelFontFace: POLICE,
+      dataLabelFontSize: 9,
+      dataLabelColor: "595959",
+      dataLabelPosition: "t",
+      displayBlanksAs: "gap",
+      valGridLine: { color: "D9D9D9", size: 0.5 },
+      catGridLine: { color: "D9D9D9", size: 0.5 },
+    } as PptxGenJS.IChartOpts
+  );
+}
+
+function pieceKpiCoutCarton(slide: PptxGenJS.Slide, pres: PptxGenJS, { coutCarton }: Donnees) {
+  const labels = coutCarton.categories.map((c) => `${c[0]} ${c[1]}`);
+  const serie = (nom: string, valeurs: (number | null)[]) => ({ name: nom, labels, values: valeurs as number[] });
+  slide.addChart(
+    pres.ChartType.line,
+    [
+      serie("Coût carton / journalier totale", coutCarton.r1),
+      serie("Coût carton / journalier cosmétique", coutCarton.r2),
+      serie("Coût carton / journalier cosmétique et énergie cosmétique", coutCarton.r3),
+      serie("Coût carton / coût journalier et énergie totale", coutCarton.r4),
+      serie("Coût carton / coût journalier totale, embauches et énergie totale", coutCarton.r5),
+      serie("nb carton fabriqué (÷ 100)", coutCarton.nbCarton),
+      serie("Coût carton / énergie, salaire total et dépenses techniques", coutCarton.r6),
+    ],
+    {
+      x: 0.4,
+      y: 1.0,
+      w: 10.0,
+      h: 6.3,
+      chartColors: ["4A7EBB", "BE4B48", "98B954", "7D60A0", "46AAC5", "F79646", "2C4D75"],
+      lineSize: 2,
+      lineDataSymbolSize: 6,
+      showTitle: true,
+      title: "variation coût de carton par mois",
+      titleFontFace: POLICE,
+      titleFontSize: 14,
+      titleColor: "404040",
+      showLegend: true,
+      legendPos: "b",
+      legendFontFace: POLICE,
+      legendFontSize: 8,
+      legendColor: "595959",
+      valAxisMinVal: 0,
+      valAxisLabelFormatCode: "#,##0",
+      valAxisLabelFontFace: POLICE,
+      valAxisLabelFontSize: 9,
+      catAxisLabelFontFace: POLICE,
+      catAxisLabelFontSize: 8,
+      showValue: true,
+      dataLabelFormatCode: "#,##0.0",
+      dataLabelFontFace: POLICE,
+      dataLabelFontSize: 7,
+      dataLabelPosition: "t",
+      displayBlanksAs: "gap",
+      valGridLine: { color: "E1E1E1", size: 0.5 },
+    } as PptxGenJS.IChartOpts
+  );
+}
+
+// Tableaux NC et TAF : memes couleurs que les tableaux Excel de la presentation (orange, nombres a droite)
+function piecesNcTaf(slide: PptxGenJS.Slide, { ncTaf }: Donnees) {
+  const traits: PptxGenJS.TableCellProps["border"] = [{ type: "none" }, { type: "none" }, { type: "solid", color: ORANGE, pt: 0.75 }, { type: "none" }];
+  const titre = (texte: string, colonnes: number, taille: number): CelluleTableau[] => [
+    { text: texte, options: { colspan: colonnes, bold: true, fill: { color: ORANGE_CLAIR }, color: "000000", fontSize: taille, align: "center", valign: "middle" } },
+  ];
+  const entetes = (libelles: string[], taille: number): CelluleTableau[] =>
+    libelles.map((texte, index) => ({
+      text: texte,
+      options: { bold: true, fill: { color: ORANGE }, color: "FFFFFF", fontSize: taille, align: index === 0 ? "left" : "center", valign: "middle" },
+    }));
+  const corps = (texte: string, index: number, taille: number, gras = false): CelluleTableau => ({
+    text: texte,
+    options: {
+      bold: gras,
+      fontSize: taille,
+      color: "000000",
+      align: index === 0 ? "left" : "right",
+      valign: index === 0 ? "middle" : "bottom",
+      fill: index === 1 ? { color: PECHE } : undefined,
+      border: traits,
+    },
+  });
+  const vide = (texte: string, colonnes: number, taille: number): CelluleTableau[] => [
+    { text: texte, options: { colspan: colonnes, italic: true, color: "7F7F7F", fontSize: taille, align: "center", valign: "middle", border: traits } },
+  ];
+
+  // --- NC
+  const { nc } = ncTaf;
+  const ligneNc = (ligne: (typeof nc)["total"], gras: boolean): CelluleTableau[] =>
+    [
+      ligne.processus,
+      String(ligne.nc),
+      pct(ligne.partPourcent),
+      String(ligne.correction),
+      pct(ligne.correctionPourcent),
+      String(ligne.ac),
+      pct(ligne.acPourcent),
+      String(ligne.acEfficace),
+      pct(ligne.acEfficacePourcent),
+      String(ligne.cloturees),
+      pct(ligne.clotureesPourcent),
+    ].map((texte, index) => corps(texte, index, 8, gras));
+  const rangeesNc: CelluleTableau[][] = [
+    titre(`NC ${ncTaf.audit}`, 11, 10),
+    entetes(
+      ["Processus", "NC Qté", "NC Part en %", "Correction réalisée", "% Correction réalisée", "AC réalisée", "% AC Réalisé", "AC efficace", "%AC efficace", "Nb de NC cloturée", "% de NC cloturée"],
+      7.5
+    ),
+    ...(nc.lignes.length > 0
+      ? [...nc.lignes.map((ligne) => ligneNc(ligne, false)), ligneNc(nc.total, true)]
+      : [vide(`Aucune NC PR4 enregistrée dans l'ERP pour ${ncTaf.audit}`, 11, 8)]),
+  ];
+  slide.addTable(rangeesNc as PptxGenJS.TableRow[], {
+    x: 0.3,
+    y: 1.46,
+    w: 10.0,
+    colW: [2.65, 0.6, 0.7, 0.8, 0.9, 0.65, 0.75, 0.65, 0.75, 0.75, 0.8],
+    fontFace: POLICE_TABLEAU,
+    rowH: 0.3,
+  });
+
+  // --- TAF
+  const { taf } = ncTaf;
+  const ligneTaf = (ligne: (typeof taf)["total"], gras: boolean): CelluleTableau[] =>
+    [
+      ligne.processus,
+      String(ligne.taf),
+      pct(ligne.partPourcent),
+      String(ligne.realisees),
+      pct(ligne.realiseesPourcent),
+      pct(ligne.progressionNonRealisees),
+    ].map((texte, index) => corps(texte, index, 10, gras));
+  const rangeesTaf: CelluleTableau[][] = [
+    titre(`TAF ${ncTaf.audit}`, 6, 12),
+    entetes(["Processus", "TAF Qté", "TAF Part en %", "TAF réalisée", "% TAF réalisée", "% progression TAF non réalisée"], 9),
+    ...(taf.lignes.length > 0
+      ? [...taf.lignes.map((ligne) => ligneTaf(ligne, false)), ligneTaf(taf.total, true)]
+      : [vide(`Aucune TAF PR4 enregistrée dans l'ERP pour ${ncTaf.audit}`, 6, 10)]),
+  ];
+  slide.addTable(rangeesTaf as PptxGenJS.TableRow[], {
+    x: 0.76,
+    y: 4.66,
+    w: 9.6,
+    colW: [3.4, 0.9, 1.2, 1.1, 1.3, 1.7],
+    fontFace: POLICE_TABLEAU,
+    rowH: 0.32,
+  });
+}
+
+async function construirePieces(donnees: Donnees): Promise<JSZip> {
+  const pres = new PptxGenJS();
+  pres.layout = "LAYOUT_WIDE";
+  pieceIndicateurs(pres.addSlide(), donnees); // diapositive 1
+  pieceKpiArretProduction(pres.addSlide(), pres, donnees); // diapositive 2
+  pieceKpiCoutCarton(pres.addSlide(), pres, donnees); // diapositive 3
+  piecesNcTaf(pres.addSlide(), donnees); // diapositive 4
+  const sortie = (await pres.write({ outputType: "nodebuffer" })) as Buffer;
+  return JSZip.loadAsync(sortie);
+}
+
+// ---------------------------------------------------------------- assemblage dans le modele
+const rels = (n: number) => `ppt/slides/_rels/slide${n}.xml.rels`;
+const diapo = (n: number) => `ppt/slides/slide${n}.xml`;
+
+// Supprime une image du modele si plus aucune diapositive ne l'utilise
+async function supprimerImageInutilisee(modele: JSZip, cible: string) {
+  const chemin = `ppt/${cible.replace(/^\.\.\//, "")}`;
+  for (const nom of Object.keys(modele.files)) {
+    if (!nom.endsWith(".rels")) continue;
+    if ((await lireTexte(modele, nom)).includes(`Target="${cible}"`)) return;
+  }
+  modele.remove(chemin);
+}
+
+// Cadres (tableaux / graphiques) d'une diapositive de la presentation temporaire
+async function cadresDeLaPiece(pieces: JSZip, numero: number): Promise<{ cadres: string[]; graphique?: string }> {
+  const cadres = cadresDe(await lireTexte(pieces, `ppt/slides/slide${numero}.xml`));
+  const relations = await lireTexte(pieces, `ppt/slides/_rels/slide${numero}.xml.rels`);
+  // pptxgenjs ecrit la cible en absolu ("/ppt/charts/chart1.xml")
+  const graphique = relations.match(/Target="(?:\.\.|\/ppt)\/charts\/(chart\d+\.xml)"/)?.[1];
+  return { cadres, graphique };
+}
+
+export async function chargerDonnees(trimestre: TrimestrePr4): Promise<Donnees> {
+  const dernierMois = dernierMoisAffiche(trimestre.annee, trimestre.trimestre);
+  const [indicateurs, arretProduction, coutCarton, ncTaf] = await Promise.all([
+    lireIndicateursAnnee(trimestre.annee),
+    lireKpiArretProduction(dernierMois),
+    lireKpiCoutCarton(trimestre.annee, dernierMois),
+    lireNcTafPr4(trimestre.annee, trimestre.trimestre),
+  ]);
+  return { trimestre, indicateurs, arretProduction, coutCarton, ncTaf };
 }
 
 export async function construireRevuePptx(trimestre: TrimestrePr4): Promise<Buffer> {
-  const pres = new PptxGenJS();
-  pres.layout = "LAYOUT_WIDE";
-  pres.title = `Rapport de revue de processus PR4 - ${trimestre.annee} / T${trimestre.trimestre}`;
-  pres.author = "ERP Rodis";
-  pres.company = "Rodis";
-
-  const nouvelleDiapo = (variante: "garde" | "contenu" | "leger" = "contenu") => {
-    const slide = pres.addSlide();
-    slide.background = { color: "FFFFFF" };
-    decor(slide, pres, variante);
-    return slide;
-  };
-
-  // ------------------------------------------------------------ 1. page de garde
-  {
-    const slide = nouvelleDiapo("garde");
-    slide.addImage({ data: LOGO_RODIS_PR4, x: LARGEUR * 0.405, y: HAUTEUR * 0.008, w: LARGEUR * 0.13, h: LARGEUR * 0.13 * (296 / 260) });
-    slide.addText("Rapport de revue de\nprocessus PR4", {
-      x: LARGEUR * 0.17,
-      y: HAUTEUR * 0.37,
-      w: LARGEUR * 0.64,
-      h: HAUTEUR * 0.3,
-      fontFace: POLICE,
-      fontSize: 48,
-      color: BLEU,
-      align: "center",
-      valign: "middle",
-      margin: 0,
-    });
-    slide.addText(`${trimestre.annee} / T${trimestre.trimestre}`, {
-      x: LARGEUR * 0.3,
-      y: HAUTEUR * 0.8,
-      w: LARGEUR * 0.37,
-      h: 0.5,
-      fontFace: POLICE,
-      fontSize: 26,
-      bold: true,
-      color: "7F7F7F",
-      align: "center",
-      margin: 0,
-    });
-    slide.addText(CODE_DOCUMENT, { x: LARGEUR * 0.065, y: HAUTEUR * 0.895, w: 6, h: 0.3, fontFace: POLICE, fontSize: 10, color: "8C8C8C", margin: 0 });
-  }
-
-  // ------------------------------------------------------------ 2. objectif de la presentation
-  {
-    const slide = nouvelleDiapo("contenu");
-    titre(slide, "Objectif de la présentation :", { taille: 40, x: 0.85, w: 11 });
-    slide.addText(["→ Revue du processus PR4", "→ Lié aux exigences ISO 9001, 14001, 22716"].join("\n"), {
-      x: 0.95,
-      y: 3.4,
-      w: 10,
-      h: 1.0,
-      fontFace: POLICE,
-      fontSize: 22,
-      color: "404040",
-      valign: "middle",
-      margin: 0,
-    });
-  }
-
-  // ------------------------------------------------------------ 3. organigramme (ensemble + une diapositive par zone)
-  ajouterOrganigramme(pres, () => nouvelleDiapo("leger"));
-
-  // ------------------------------------------------------------ 4. schemas de procedures
-  for (const procedure of PROCEDURES) {
-    ajouterProcedure(pres, nouvelleDiapo("leger"), procedure);
-  }
-
-  // ------------------------------------------------------------ 5. indicateurs
-  const trimestres = await lireIndicateursAnnee(trimestre.annee);
-  const colonnes = trimestres.filter((t) => t.trimestre <= trimestre.trimestre);
-  const courant = trimestres.find((t) => t.trimestre === trimestre.trimestre);
-  {
-    const slide = nouvelleDiapo("leger");
-    titre(slide, "Indicateur", { taille: 34 });
-    const entete = { bold: true, fill: { color: "F2F2F2" }, color: "111111", fontSize: 9, align: "center" as const, valign: "middle" as const };
-    const rangees: PptxGenJS.TableRow[] = [
-      [
-        { text: "INDICATEUR", options: entete },
-        { text: "MÉTHODE DE CALCUL", options: entete },
-        { text: String(trimestre.annee), options: entete },
-        { text: "Fréquence de mesure", options: entete },
-        ...colonnes.map((t) => ({ text: `action T${t.trimestre}`, options: entete })),
-        { text: "plan d'action", options: entete },
-      ],
-    ];
-    for (const ind of INDICATEURS_DIAPO) {
-      const fond = ind.fondOrange ? { color: "F8CBAD" } : undefined;
-      const base = { fontSize: 7.5, align: "center" as const, valign: "middle" as const, color: "111111", fill: fond };
-      rangees.push([
-        { text: ind.indicateur, options: base },
-        { text: ind.methode, options: base },
-        { text: ind.cibleTexte, options: base },
-        { text: ind.numero === 1 || ind.numero === 3 ? "" : "trimestrielle", options: base },
-        ...colonnes.map((t) => {
-          const valeur = t.valeurs[ind.numero];
-          if (valeur === null || valeur === undefined) return { text: t.complet ? "-" : "", options: { ...base, color: "999999" } };
-          const atteint = ind.cible ? estDansLaCible(ind.cible, valeur) : null;
-          const texte = valeur.toLocaleString("fr-FR", { minimumFractionDigits: ind.decimales, maximumFractionDigits: ind.decimales });
-          return {
-            text: ind.pourcentage ? `${texte}%` : texte,
-            options: { ...base, bold: true, color: atteint === null ? "111111" : atteint ? VERT : ROUGE },
-          };
-        }),
-        { text: ind.planAction, options: { ...base, fontSize: 7, color: "1F4FB5" } },
-      ]);
-    }
-    rangees.push([
-      { text: "KPI atteints / KPI avec cible (indicateurs sans cible non comptés)", options: { bold: true, fontSize: 8, fill: { color: "F7F7F7" }, align: "left", valign: "middle", colspan: 4 } },
-      ...colonnes.map((t) => ({ text: t.complet ? `${t.kpiOk} / ${t.kpiTotal}` : "", options: { bold: true, fontSize: 8, fill: { color: "F7F7F7" }, align: "center" as const, valign: "middle" as const } })),
-      { text: "", options: { fill: { color: "F7F7F7" } } },
-    ]);
-    const largeurQuart = 0.8;
-    const fixes = 2.0 + 2.5 + 1.0 + 0.9 + largeurQuart * colonnes.length;
-    slide.addTable(rangees, {
-      x: 0.35,
-      y: 1.0,
-      w: LARGEUR - 0.7,
-      colW: [2.0, 2.5, 1.0, 0.9, ...colonnes.map(() => largeurQuart), Math.max(2, LARGEUR - 0.7 - fixes)],
-      border: { type: "solid", color: "666666", pt: 0.5 },
-      fontFace: POLICE_SURE,
-      autoPage: true,
-      autoPageRepeatHeader: true,
-      newSlideStartY: 0.5,
-      rowH: 0.3,
-    });
-  }
-  if (courant) {
-    const slide = nouvelleDiapo("leger");
-    titre(slide, "Indicateur", { taille: 34 });
-    slide.addText(
-      [
-        { text: "Indicateur : ", options: { color: "111111" } },
-        { text: pourcentage(courant.pourcentageAtteint), options: { color: BLEU } },
-        { text: " d'indicateur atteint", options: { color: "111111", breakLine: true } },
-        { text: "Kpi ok : ", options: { color: "111111" } },
-        { text: courant.complet ? String(courant.kpiOk) : "-", options: { color: VERT, breakLine: true } },
-        { text: "Kpi totale : ", options: { color: "111111" } },
-        { text: courant.complet ? String(courant.kpiTotal) : "-", options: { color: BLEU } },
-      ],
-      { x: 0.8, y: 2.0, w: 11, h: 3.4, fontFace: POLICE, fontSize: 40, valign: "middle", margin: 0 }
-    );
-    if (!courant.complet) {
-      slide.addText(`Les chiffres de T${courant.trimestre} ${trimestre.annee} apparaissent quand le trimestre est terminé.`, {
-        x: 0.8, y: 5.6, w: 11, h: 0.5, fontFace: POLICE_SURE, fontSize: 14, color: "666666", margin: 0,
-      });
-    }
-  }
-
-  // ------------------------------------------------------------ 6. KPI : temps d'arret et production realisee
-  const dernierMois = dernierMoisAffiche(trimestre.annee, trimestre.trimestre);
-  {
-    const donnees = await lireKpiArretProduction(dernierMois);
-    const slide = nouvelleDiapo("leger");
-    titre(slide, "KPI", { taille: 36, w: 3 });
-    slide.addText("% TEMPS D'ARRÊT ET PRODUCTION RÉALISÉE", { x: 3.2, y: 0.3, w: 9.5, h: 0.6, fontFace: POLICE, fontSize: 22, bold: true, color: "404040", align: "center", margin: 0 });
-    const labels = donnees.categories.map((c) => (c ? `${c[0]} ${c[1]}` : " "));
-    slide.addChart(
-      pres.ChartType.line,
-      [
-        { name: "Production réalisée (%)", labels, values: donnees.production as number[] },
-        { name: "Temps d'arrêt (%)", labels, values: donnees.arret as number[] },
-      ],
-      {
-        x: 0.4, y: 1.0, w: LARGEUR - 0.8, h: HAUTEUR - 1.3,
-        chartColors: ["ED7D31", "4472C4"],
-        lineSize: 3,
-        lineDataSymbolSize: 8,
-        showLegend: true,
-        legendPos: "t",
-        legendFontSize: 12,
-        valAxisMinVal: 0,
-        valAxisMaxVal: 120,
-        valAxisMajorUnit: 20,
-        valAxisLabelFormatCode: '0"%"',
-        valAxisLabelFontSize: 11,
-        catAxisLabelFontSize: 10,
-        showValue: true,
-        dataLabelFormatCode: '0"%"',
-        dataLabelFontSize: 10,
-        dataLabelFontBold: true,
-        dataLabelColor: "6F6F6F",
-        dataLabelPosition: "t",
-        displayBlanksAs: "gap",
-        valGridLine: { color: "E1E1E1", size: 0.5 },
-      } as PptxGenJS.IChartOpts
-    );
-  }
-
-  // ------------------------------------------------------------ 7. KPI : cout du carton
-  {
-    const donnees = await lireKpiCoutCarton(trimestre.annee, dernierMois);
-    const slide = nouvelleDiapo("leger");
-    slide.addText("KPI – Analyse comparative du coût du carton (multi-sources)", { x: 0.5, y: 0.2, w: LARGEUR - 1, h: 0.6, fontFace: POLICE, fontSize: 24, color: "111111", align: "center", margin: 0 });
-    slide.addText("variation coût de carton par mois", { x: 0.5, y: 0.8, w: LARGEUR - 1, h: 0.4, fontFace: POLICE, fontSize: 16, bold: true, color: "404040", align: "center", margin: 0 });
-    const labels = donnees.categories.map((c) => `${c[0]} ${c[1]}`);
-    const serie = (nom: string, valeurs: (number | null)[]) => ({ name: nom, labels, values: valeurs as number[] });
-    slide.addChart(
-      pres.ChartType.line,
-      [
-        serie("Coût carton / journalier totale", donnees.r1),
-        serie("Coût carton / journalier cosmétique", donnees.r2),
-        serie("Coût carton / journalier cosmétique et énergie cosmétique", donnees.r3),
-        serie("Coût carton / coût journalier et énergie totale", donnees.r4),
-        serie("Coût carton / coût journalier totale, embauches et énergie totale", donnees.r5),
-        serie("nb carton fabriqué (÷ 100)", donnees.nbCarton),
-        serie("Coût carton / énergie, salaire total et dépenses techniques", donnees.r6),
-      ],
-      {
-        x: 0.4, y: 1.3, w: LARGEUR - 0.8, h: HAUTEUR - 1.6,
-        chartColors: ["4A7EBB", "BE4B48", "98B954", "7D60A0", "46AAC5", "F79646", "2C4D75"],
-        lineSize: 2.5,
-        lineDataSymbolSize: 7,
-        showLegend: true,
-        legendPos: "b",
-        legendFontSize: 10,
-        valAxisMinVal: 0,
-        valAxisLabelFormatCode: "#,##0",
-        valAxisLabelFontSize: 10,
-        catAxisLabelFontSize: 10,
-        showValue: true,
-        dataLabelFormatCode: "#,##0.0",
-        dataLabelFontSize: 8,
-        dataLabelFontBold: true,
-        dataLabelPosition: "t",
-        displayBlanksAs: "gap",
-        valGridLine: { color: "E1E1E1", size: 0.5 },
-      } as PptxGenJS.IChartOpts
-    );
-  }
-
-  // ------------------------------------------------------------ 8. SWOT (3 diapositives, comme l original)
-  {
-    const entete = { bold: true, fill: { color: "808080" }, color: "FFFFFF", fontSize: 10, align: "center" as const, valign: "middle" as const };
-    const ligneEntete: PptxGenJS.TableRow = [
-      { text: "#", options: entete },
-      { text: "SWOT", options: entete },
-      { text: "Theme", options: entete },
-      { text: "Description", options: entete },
-      { text: "Objectif :", options: entete },
-      { text: "Actions à mettre en place :", options: entete },
-      { text: "Outils :", options: entete },
-    ];
-    const lignesGroupe = (groupe: (typeof GROUPES_SWOT)[number]): PptxGenJS.TableRow[] =>
-      groupe.lignes.map((ligne, index) => {
-        const base = { fontSize: 7.5, align: "center" as const, valign: "middle" as const, color: "111111", fill: { color: groupe.fond.replace("#", "").toUpperCase() } };
-        return [
-          { text: String(ligne.numero), options: { ...base, bold: true } },
-          ...(index === 0 ? [{ text: groupe.libelle.join(" "), options: { ...base, bold: Boolean(groupe.libelleGras), rowspan: groupe.lignes.length } }] : []),
-          { text: ligne.theme, options: { ...base, bold: Boolean(ligne.themeGras) } },
-          { text: ligne.description, options: base },
-          { text: ligne.objectif, options: base },
-          { text: ligne.actions.join("\n"), options: base },
-          { text: ligne.outils.join("\n"), options: base },
-        ];
-      });
-    const parDiapo: { titre: boolean; cles: string[] }[] = [
-      { titre: true, cles: ["forces", "faiblesses"] },
-      { titre: false, cles: ["menaces"] },
-      { titre: false, cles: ["opportunites"] },
-    ];
-    for (const diapo of parDiapo) {
-      const slide = nouvelleDiapo("leger");
-      if (diapo.titre) slide.addText("SWOT", { x: 0.5, y: 0.1, w: LARGEUR - 1, h: 0.8, fontFace: POLICE, fontSize: 40, color: BLEU, align: "center", margin: 0 });
-      const rangees = [ligneEntete, ...GROUPES_SWOT.filter((g) => diapo.cles.includes(g.cle)).flatMap(lignesGroupe)];
-      slide.addTable(rangees, {
-        x: 0.3,
-        y: diapo.titre ? 1.0 : 0.4,
-        w: LARGEUR - 0.6,
-        colW: [0.35, 0.85, 1.9, 2.8, 1.6, 3.4, 2.1],
-        border: { type: "solid", color: "000000", pt: 0.5 },
-        fontFace: POLICE_SURE,
-        rowH: 0.3,
-      });
-    }
-  }
-
-  // ------------------------------------------------------------ 9. fin
-  {
-    const slide = nouvelleDiapo("contenu");
-    slide.addText("Fin de la presentation", { x: 0.5, y: 0.3, w: 8, h: 0.5, fontFace: POLICE, fontSize: 22, color: "111111", margin: 0 });
-    slide.addText("▶  Merci de votre attention", { x: 0.75, y: 1.8, w: 9, h: 0.6, fontFace: POLICE, fontSize: 24, color: "404040", margin: 0 });
-    slide.addText("▶  Realise par:\n      Ayoub Mohamed", { x: 0.75, y: 5.6, w: 9, h: 1.2, fontFace: POLICE, fontSize: 24, color: "404040", margin: 0, valign: "top" });
-  }
-
-  const sortie = await pres.write({ outputType: "nodebuffer" });
-  return sortie as Buffer;
+  return assemblerRevuePptx(await chargerDonnees(trimestre));
 }
+
+export async function assemblerRevuePptx(donnees: Donnees): Promise<Buffer> {
+  const { trimestre, indicateurs } = donnees;
+  const modele = await JSZip.loadAsync(await readFile(CHEMIN_MODELE));
+  const pieces = await construirePieces(donnees);
+  let types = await lireTexte(modele, "[Content_Types].xml");
+
+  // ---- 1. page de garde : trimestre
+  {
+    const xml = await lireTexte(modele, diapo(1));
+    const nouveau = xml.replace(/<a:t>\d{4} \/ T\d<\/a:t>/, `<a:t>${trimestre.annee} / T${trimestre.trimestre}</a:t>`);
+    if (nouveau === xml && !xml.includes(`${trimestre.annee} / T${trimestre.trimestre}`)) throw new Error("Trimestre de la page de garde introuvable dans le modele.");
+    modele.file(diapo(1), nouveau);
+  }
+
+  // ---- 5. Indicateur : tableau + resume
+  {
+    const { cadres } = await cadresDeLaPiece(pieces, 1);
+    const sansImage = retirerImage(await lireTexte(modele, diapo(5)), "Picture 3");
+    const relations = retirerRelation(await lireTexte(modele, rels(5)), sansImage.relation);
+    modele.file(rels(5), relations.rels);
+    await supprimerImageInutilisee(modele, relations.cible);
+
+    const courant = indicateurs.find((t) => t.trimestre === trimestre.trimestre);
+    const lignes = [
+      `Indicateur : ${courant?.complet ? pctUneDecimale(courant.pourcentageAtteint) : "-"} d’indicateur atteint`,
+      `Kpi ok : ${courant?.complet ? courant.kpiOk : "-"}`,
+      `Kpi totale : ${courant?.complet ? courant.kpiTotal : "-"}`,
+    ];
+    const paragraphes = lignes.map((ligne) => `<a:p><a:r><a:rPr lang="fr-FR" dirty="0"/><a:t>${echapperXml(ligne)}</a:t></a:r></a:p>`).join("");
+    const avecTexte = sansImage.xml.replace(/(name="TextBox 4"[\s\S]*?<a:lstStyle\/>)[\s\S]*?(<\/p:txBody>)/, `$1${paragraphes}$2`);
+    if (avecTexte === sansImage.xml) throw new Error("Zone de texte du resume des indicateurs introuvable dans le modele.");
+    modele.file(diapo(5), ajouterCadres(avecTexte, cadres, 100));
+  }
+
+  // ---- 6. KPI : temps d'arret et production realisee (remplace le graphique du modele, lie a un classeur du poste)
+  {
+    const { cadres, graphique } = await cadresDeLaPiece(pieces, 2);
+    if (!graphique) throw new Error("Graphique KPI non genere.");
+    for (const ancien of ["ppt/charts/style1.xml", "ppt/charts/colors1.xml"]) {
+      modele.remove(ancien);
+      types = sansSurcharge(types, `/${ancien}`);
+    }
+    await copierGraphique(pieces, modele, graphique, "chart1.xml");
+    const xml = retirerCadres(await lireTexte(modele, diapo(6)));
+    modele.file(diapo(6), ajouterCadres(xml, cadres.map((c) => c.replace(/r:id="rId\d+"/, 'r:id="rId2"')), 100));
+  }
+
+  // ---- 7. KPI : cout du carton (le graphique remplace l'image)
+  {
+    const { cadres, graphique } = await cadresDeLaPiece(pieces, 3);
+    if (!graphique) throw new Error("Graphique du cout du carton non genere.");
+    await copierGraphique(pieces, modele, graphique, "chart2.xml");
+    types = avecSurcharge(types, "/ppt/charts/chart2.xml", TYPE_GRAPHIQUE);
+    const sansImage = retirerImage(await lireTexte(modele, diapo(7)), "Picture 2");
+    const relations = retirerRelation(await lireTexte(modele, rels(7)), sansImage.relation);
+    modele.file(rels(7), ajouterRelation(relations.rels, "rId20", TYPE_RELATION_GRAPHIQUE, "../charts/chart2.xml"));
+    await supprimerImageInutilisee(modele, relations.cible);
+    modele.file(diapo(7), ajouterCadres(sansImage.xml, cadres.map((c) => c.replace(/r:id="rId\d+"/, 'r:id="rId20"')), 100));
+  }
+
+  // ---- 8. TAF et NC : les deux tableaux remplacent les deux images
+  {
+    const { cadres } = await cadresDeLaPiece(pieces, 4);
+    let xml = await lireTexte(modele, diapo(8));
+    let relations = await lireTexte(modele, rels(8));
+    const cibles: string[] = [];
+    for (const nom of ["Picture 5", "Picture 8"]) {
+      const retiree = retirerImage(xml, nom);
+      xml = retiree.xml;
+      const sans = retirerRelation(relations, retiree.relation);
+      relations = sans.rels;
+      cibles.push(sans.cible);
+    }
+    modele.file(rels(8), relations);
+    for (const cible of cibles) await supprimerImageInutilisee(modele, cible);
+    modele.file(diapo(8), ajouterCadres(xml, cadres, 100));
+  }
+
+  types = avecExtension(types, "xlsx", TYPE_CLASSEUR);
+  modele.file("[Content_Types].xml", types);
+
+  const sortie = await modele.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+  return sortie;
+}
+
