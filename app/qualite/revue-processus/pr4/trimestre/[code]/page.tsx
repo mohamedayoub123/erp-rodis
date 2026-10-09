@@ -18,7 +18,7 @@ export default async function TrimestrePr4Page({ params }: { params: Promise<{ c
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f0ff_0%,#faf8ff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
-      <div className="mx-auto w-full max-w-6xl space-y-6">
+      <div className="mx-auto w-full space-y-6">
         <section className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">Revue Processus</p>
