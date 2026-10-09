@@ -14,6 +14,7 @@ import { lireArticlesPfListe, type ArticlePfListe } from "@/lib/articles-pf-list
 import { fetchLotsInDepotBatch, type ArticleType } from "../stock-lots";
 import {
   approveTransferOrderAction,
+  augmenterQuantitesDemandeesAction,
   copyTransferOrderAction,
   deleteTransferOrderAction,
   deleteTransferOrderLigneAction,
@@ -24,6 +25,7 @@ import {
 } from "../actions";
 import { TransferOrderLignesEditor } from "../lignes-editor";
 import { TransferOrderLignesEditorEnAttente } from "../lignes-editor-en-attente";
+import { AugmenterQuantitesTo } from "../augmenter-quantites";
 import { urlPhotoTransferOrder } from "@/lib/transfer-order-photo";
 import { fetchFluxInfo } from "../flux";
 import { FluxSection } from "../flux-section";
@@ -171,6 +173,25 @@ export default async function TransferOrderDetailPage({
     const list = lotsByLigneId.get(lot.transfer_order_ligne_id) ?? [];
     list.push(lot);
     lotsByLigneId.set(lot.transfer_order_ligne_id, list);
+  }
+
+  // Deja livre par ligne (Transfer Invoice valides) - pour l'augmentation de la quantite demandee d'un TO deja traite
+  const peutAugmenter = canEdit && transferOrder.statut !== "en_attente";
+  const livreParLigne = new Map<number, number>();
+  if (peutAugmenter) {
+    const idsTiValides = invoiceOrders.filter((io) => io.statut === "valide").map((io) => io.id);
+    if (idsTiValides.length > 0) {
+      const { data: livraisonsData } = await supabaseServer
+        .from("invoice_order_lignes")
+        .select("transfer_order_ligne_id, quantite")
+        .in("invoice_order_id", idsTiValides);
+      for (const livraison of (livraisonsData ?? []) as { transfer_order_ligne_id: number; quantite: number }[]) {
+        livreParLigne.set(
+          livraison.transfer_order_ligne_id,
+          (livreParLigne.get(livraison.transfer_order_ligne_id) ?? 0) + Number(livraison.quantite ?? 0)
+        );
+      }
+    }
   }
 
   // TO1.2026, TO2.2026... fige a la creation (colonne numero) - stable.
@@ -349,6 +370,20 @@ export default async function TransferOrderDetailPage({
             depotSourceNom={depotNomById.get(transferOrder.depot_source_id) ?? "au depot source"}
           />
         )}
+
+        {peutAugmenter ? (
+          <AugmenterQuantitesTo
+            transferOrderId={transferOrderId}
+            lignes={lignesEnrichies.map((ligne) => ({
+              id: ligne.id,
+              nom: ligne.nom,
+              articleType: ligne.article_type,
+              demandee: Number(ligne.quantite_demandee ?? 0),
+              livree: livreParLigne.get(ligne.id) ?? 0,
+            }))}
+            action={augmenterQuantitesDemandeesAction}
+          />
+        ) : null}
       </div>
     </main>
   );

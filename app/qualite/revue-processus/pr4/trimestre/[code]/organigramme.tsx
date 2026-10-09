@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FORMES_ORGANIGRAMME, SEGMENTS_ORGANIGRAMME, ZONES_ORGANIGRAMME } from "./organigramme-donnees";
+import { FORMES_ORGANIGRAMME, LIENS_ORGANIGRAMME, ZONES_ORGANIGRAMME } from "./organigramme-donnees";
 
 // Organigramme redessine en vectoriel (formes, couleurs et noms de l'organigramme d'origine) : les noms restent
 // nets a n'importe quel zoom. Au depart il est affiche EN ENTIER sur toute la largeur, sans defilement. Les boutons
@@ -26,17 +26,12 @@ const BORNES = (() => {
     x1 = Math.max(x1, f.x + f.w);
     y1 = Math.max(y1, f.y + f.h);
   }
-  for (const s of SEGMENTS_ORGANIGRAMME) {
-    if (s.o === "h") {
-      x0 = Math.min(x0, s.a);
-      x1 = Math.max(x1, s.b);
-      y0 = Math.min(y0, s.p);
-      y1 = Math.max(y1, s.p);
-    } else {
-      y0 = Math.min(y0, s.a);
-      y1 = Math.max(y1, s.b);
-      x0 = Math.min(x0, s.p);
-      x1 = Math.max(x1, s.p);
+  for (const lien of LIENS_ORGANIGRAMME) {
+    for (const [x, y] of lien.pts) {
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      y0 = Math.min(y0, y);
+      y1 = Math.max(y1, y);
     }
   }
   return { x: x0 - MARGE, y: y0 - MARGE, w: x1 - x0 + 2 * MARGE, h: y1 - y0 + 2 * MARGE };
@@ -173,27 +168,29 @@ export function Organigramme() {
           aria-label="Organigramme"
           style={{ display: "block", height: zoom === null ? "auto" : undefined, fontFamily: POLICE }}
         >
-          {/* Connecteurs (derriere les formes) */}
-          <g strokeLinecap="butt" fill="none">
-            {SEGMENTS_ORGANIGRAMME.map((s, i) => {
-              const couleur = s.c === "noir" ? NOIR : BLEU;
-              const tracer = s.o === "v" ? { x1: s.p, y1: s.a, x2: s.p, y2: s.b } : { x1: s.a, y1: s.p, x2: s.b, y2: s.p };
-              return <line key={i} {...tracer} stroke={couleur} strokeWidth={1.3} />;
-            })}
-          </g>
-          <g>
-            {SEGMENTS_ORGANIGRAMME.flatMap((s, i) => {
-              const couleur = s.c === "noir" ? NOIR : BLEU;
-              const fleches: React.ReactNode[] = [];
-              if (s.o === "v") {
-                if (s.fb) fleches.push(<polygon key={`${i}b`} points={`${s.p - 3.2},${s.b - 3} ${s.p + 3.2},${s.b - 3} ${s.p},${s.b + 3.5}`} fill={couleur} />);
-                if (s.fa) fleches.push(<polygon key={`${i}a`} points={`${s.p - 3.2},${s.a + 3} ${s.p + 3.2},${s.a + 3} ${s.p},${s.a - 3.5}`} fill={couleur} />);
-              } else {
-                if (s.fb) fleches.push(<polygon key={`${i}b`} points={`${s.b - 3},${s.p - 3.2} ${s.b - 3},${s.p + 3.2} ${s.b + 3.5},${s.p}`} fill={couleur} />);
-                if (s.fa) fleches.push(<polygon key={`${i}a`} points={`${s.a + 3},${s.p - 3.2} ${s.a + 3},${s.p + 3.2} ${s.a - 3.5},${s.p}`} fill={couleur} />);
-              }
-              return fleches;
-            })}
+          <defs>
+            {[
+              ["noir", NOIR],
+              ["bleu", BLEU],
+            ].map(([nom, couleur]) => (
+              <marker key={nom} id={`fleche-org-${nom}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+                <path d="M0,0 L10,5 L0,10 z" fill={couleur} />
+              </marker>
+            ))}
+          </defs>
+
+          {/* Liaisons (derriere les formes) : une fleche sur chaque case enfant */}
+          <g fill="none" strokeLinejoin="round">
+            {LIENS_ORGANIGRAMME.map((lien, i) => (
+              <polyline
+                key={i}
+                points={lien.pts.map((p) => p.join(",")).join(" ")}
+                stroke={lien.couleur === "noir" ? NOIR : BLEU}
+                strokeWidth={1.4}
+                strokeDasharray={lien.tirets ? "6 4" : undefined}
+                markerEnd={lien.fleche ? `url(#fleche-org-${lien.couleur})` : undefined}
+              />
+            ))}
           </g>
 
           {/* Formes + noms */}

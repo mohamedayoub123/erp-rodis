@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { type ArticleType, fetchLotsInDepot, totalAvailable, allocateFefo } from "./stock-lots";
+import { type ArticleType, type DepotLot, fetchLotsInDepot, totalAvailable, allocateFefo } from "./stock-lots";
 import { deleteInvoiceOrder } from "../invoice-order/actions";
 import { logAudit } from "@/lib/audit-log";
 import { fetchTransferOrderLabel } from "@/lib/depot-labels";
@@ -648,6 +648,186 @@ export async function deleteTransferOrderLigneAction(formData: FormData) {
   });
 
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
+}
+
+// Augmenter la quantite demandee de lignes d'un Transfer Order DEJA traite (approuve, partiellement fini ou poste) -
+// demande explicite : "modifier la quantite demandee meme si le TO est termine, mais jamais diminuer ce qui est deja
+// transforme en Transfer Invoice, seulement augmenter". La quantite EN PLUS est reservee tout de suite sur le stock
+// disponible du depot source (lot le plus proche de l'expiration en premier, deduction faite des autres reservations
+// ET de ce qui est deja reserve par ce TO) ; si le stock ne suffit pas, rien n'est enregistre. Le reste a livrer
+// part ensuite dans un nouveau Transfer Invoice ("Poster") : un TO "Poste" dont tous les Transfer Invoice sont
+// valides repasse "Partiellement fini" ; s'il reste un Transfer Invoice en attente, le statut ne bouge pas (la
+// validation de ce Transfer Invoice laissera de toute facon le supplement sur le TO).
+export async function augmenterQuantitesDemandeesAction(formData: FormData) {
+  await requireWriteAccess();
+
+  const transferOrderId = Number(formData.get("transfer_order_id") || "0");
+  if (!transferOrderId) {
+    throw new Error("Transfer Order invalide.");
+  }
+
+  // Meme regle que les autres enregistrements de cette page : un throw depuis une Server Action voit son message
+  // efface en production - on le capte et on redirige avec le vrai message en avertissement.
+  try {
+    await augmenterQuantitesDemandeesCore(formData, transferOrderId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur pendant l'enregistrement.";
+    redirect(`/depots/transfer-order/${transferOrderId}?avertissement=${encodeURIComponent(message)}`);
+  }
+
+  revalidatePath(`/depots/transfer-order/${transferOrderId}`);
+  revalidatePath("/depots/transfer-order");
+  redirect(`/depots/transfer-order/${transferOrderId}`);
+}
+
+async function augmenterQuantitesDemandeesCore(formData: FormData, transferOrderId: number) {
+  const { data: transferOrderData, error: transferOrderError } = await supabaseServer
+    .from("transfer_orders")
+    .select("id, depot_source_id, statut")
+    .eq("id", transferOrderId)
+    .maybeSingle();
+  if (transferOrderError || !transferOrderData) {
+    throw new Error("Transfer Order introuvable.");
+  }
+  const transferOrder = transferOrderData as { id: number; depot_source_id: number; statut: string };
+  if (transferOrder.statut === "en_attente") {
+    throw new Error('Ce Transfer Order est encore "En attente" : modifiez ses lignes avec le bouton "Modifier".');
+  }
+
+  const ligneIds = formData.getAll("ligne_id").map((v) => Number(v || "0"));
+  const nouvelles = formData.getAll("nouvelle_quantite").map((v) => Number(String(v || "0").replace(",", ".")));
+
+  const { data: lignesData, error: lignesError } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("id, transfer_order_id, article_type, article_id, quantite_demandee")
+    .eq("transfer_order_id", transferOrderId);
+  if (lignesError) {
+    throw new Error(lignesError.message);
+  }
+  const ligneParId = new Map(
+    (
+      (lignesData ?? []) as {
+        id: number;
+        article_type: ArticleType;
+        article_id: number;
+        quantite_demandee: number;
+      }[]
+    ).map((l) => [l.id, l])
+  );
+
+  // 1. Verifications (aucune ecriture tant que tout n'est pas valide)
+  const changements: { ligneId: number; articleType: ArticleType; articleId: number; actuelle: number; nouvelle: number; delta: number }[] = [];
+  ligneIds.forEach((ligneId, index) => {
+    const ligne = ligneParId.get(ligneId);
+    const nouvelle = nouvelles[index];
+    if (!ligne || !Number.isFinite(nouvelle)) return;
+    const actuelle = Number(ligne.quantite_demandee ?? 0);
+    if (nouvelle < actuelle - 1e-9) {
+      throw new Error(
+        `Impossible de diminuer la quantite demandee d'une ligne d'un Transfer Order deja traite (demande actuelle : ${actuelle.toLocaleString("fr-FR")}). Seule l'augmentation est possible.`
+      );
+    }
+    const delta = Math.round((nouvelle - actuelle) * 1000) / 1000;
+    if (delta > 1e-9) {
+      changements.push({ ligneId, articleType: ligne.article_type, articleId: ligne.article_id, actuelle, nouvelle, delta });
+    }
+  });
+  if (changements.length === 0) {
+    throw new Error("Aucune quantite augmentee : saisissez une quantite plus grande que la quantite demandee actuelle.");
+  }
+
+  // 2. Repartition FEFO du supplement sur le stock disponible (net de TOUTES les reservations, y compris celles de
+  // ce TO : le supplement ne doit pas reprendre ce qui lui est deja reserve).
+  const lotsParArticle = new Map<string, DepotLot[]>();
+  const repartitions: { ligneId: number; allocations: { numero_lot: string; quantite: number }[] }[] = [];
+  for (const changement of changements) {
+    const cle = `${changement.articleType}::${changement.articleId}`;
+    let lots = lotsParArticle.get(cle);
+    if (!lots) {
+      lots = (await fetchLotsInDepot(changement.articleType, changement.articleId, transferOrder.depot_source_id)).map((l) => ({ ...l }));
+      lotsParArticle.set(cle, lots);
+    }
+    const { allocations, covered } = allocateFefo(lots, changement.delta);
+    if (!covered) {
+      const table = changement.articleType === "MP" ? "articles_matiere_premiere" : "articles";
+      const { data: article } = await supabaseServer.from(table).select("nom_article").eq("id", changement.articleId).maybeSingle();
+      const nom = (article as { nom_article: string } | null)?.nom_article ?? `#${changement.articleId}`;
+      throw new Error(
+        `Stock insuffisant pour "${nom}" : il manque de quoi ajouter ${changement.delta.toLocaleString("fr-FR")} (disponible dans le depot source : ${totalAvailable(lots).toLocaleString("fr-FR")}).`
+      );
+    }
+    for (const allocation of allocations) {
+      const lot = lots.find((l) => l.numeroLot === allocation.numero_lot);
+      if (lot) lot.solde -= allocation.quantite;
+    }
+    repartitions.push({ ligneId: changement.ligneId, allocations });
+  }
+
+  // 3. Ecriture : reservations (on ajoute au lot deja reserve s'il existe) puis nouvelle quantite demandee
+  for (const [index, changement] of changements.entries()) {
+    const { data: existantesData, error: existantesError } = await supabaseServer
+      .from("transfer_order_ligne_lots")
+      .select("id, numero_lot, quantite")
+      .eq("transfer_order_ligne_id", changement.ligneId);
+    if (existantesError) throw new Error(existantesError.message);
+    const existantes = (existantesData ?? []) as { id: number; numero_lot: string | null; quantite: number }[];
+
+    for (const allocation of repartitions[index].allocations) {
+      const existante = existantes.find((e) => (e.numero_lot ?? "") === allocation.numero_lot);
+      if (existante) {
+        const { error } = await supabaseServer
+          .from("transfer_order_ligne_lots")
+          .update({ quantite: Math.round((Number(existante.quantite ?? 0) + allocation.quantite) * 1000) / 1000 })
+          .eq("id", existante.id);
+        if (error) throw new Error(error.message);
+        existante.quantite = Number(existante.quantite ?? 0) + allocation.quantite;
+      } else {
+        const { error } = await supabaseServer.from("transfer_order_ligne_lots").insert({
+          transfer_order_ligne_id: changement.ligneId,
+          numero_lot: allocation.numero_lot || null,
+          quantite: allocation.quantite,
+        });
+        if (error) throw new Error(error.message);
+      }
+    }
+
+    const { error: ligneError } = await supabaseServer
+      .from("transfer_order_lignes")
+      .update({ quantite_demandee: changement.nouvelle })
+      .eq("id", changement.ligneId);
+    if (ligneError) throw new Error(ligneError.message);
+  }
+
+  // 4. Statut : un TO "Poste" dont tous les Transfer Invoice sont valides a de nouveau du reste a livrer
+  let nouveauStatut = transferOrder.statut;
+  if (transferOrder.statut === "poste") {
+    const { data: enAttenteData, error: enAttenteError } = await supabaseServer
+      .from("invoice_orders")
+      .select("id")
+      .eq("transfer_order_id", transferOrderId)
+      .neq("statut", "valide")
+      .limit(1);
+    if (enAttenteError) throw new Error(enAttenteError.message);
+    if (((enAttenteData ?? []) as { id: number }[]).length === 0) {
+      const { error: statutError } = await supabaseServer
+        .from("transfer_orders")
+        .update({ statut: "partiellement_fini" })
+        .eq("id", transferOrderId);
+      if (statutError) throw new Error(statutError.message);
+      nouveauStatut = "partiellement_fini";
+    }
+  }
+
+  const label = await fetchTransferOrderLabel(transferOrderId);
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: "TransferOrder",
+    action: "modification",
+    cible: label,
+    resume: `Transfer Order ${label} : quantite demandee augmentee sur ${changements.length} ligne(s)`,
+    avant: { statut: transferOrder.statut, lignes: changements.map((c) => ({ ligne: c.ligneId, quantite_demandee: c.actuelle })) },
+    apres: { statut: nouveauStatut, lignes: changements.map((c) => ({ ligne: c.ligneId, quantite_demandee: c.nouvelle })) },
+  });
 }
 
 export async function updateAllLigneLotsAction(formData: FormData) {
