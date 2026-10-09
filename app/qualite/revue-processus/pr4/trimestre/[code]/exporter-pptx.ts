@@ -3,8 +3,9 @@ import path from "node:path";
 import JSZip from "jszip";
 import PptxGenJS from "pptxgenjs";
 import type { TrimestrePr4 } from "@/lib/trimestres-pr4";
-import { INDICATEURS_DIAPO, estDansLaCible, lireIndicateursAnnee } from "./indicateurs-trimestre";
-import { dernierMoisAffiche, lireKpiArretProduction, lireKpiCoutCarton } from "./kpi-donnees";
+import { INDICATEURS_DIAPO, estDansLaCible, type lireIndicateursAnnee } from "./indicateurs-trimestre";
+import { chargerRapportComplet } from "./donnees-rapport";
+import type { lireKpiArretProduction, lireKpiCoutCarton } from "./kpi-donnees";
 import {
   TYPE_CLASSEUR,
   TYPE_GRAPHIQUE,
@@ -236,13 +237,9 @@ async function cadresDeLaPiece(pieces: JSZip, numero: number): Promise<{ cadres:
   return { cadres, graphique };
 }
 
+// Chiffres du rapport : ceux figes si le rapport a ete fige, sinon ceux de l'ERP en direct
 export async function chargerDonnees(trimestre: TrimestrePr4): Promise<Donnees> {
-  const dernierMois = dernierMoisAffiche(trimestre.annee, trimestre.trimestre);
-  const [indicateurs, arretProduction, coutCarton] = await Promise.all([
-    lireIndicateursAnnee(trimestre.annee),
-    lireKpiArretProduction(dernierMois),
-    lireKpiCoutCarton(trimestre.annee, dernierMois),
-  ]);
+  const { indicateurs, arretProduction, coutCarton } = await chargerRapportComplet(trimestre);
   return { trimestre, indicateurs, arretProduction, coutCarton };
 }
 

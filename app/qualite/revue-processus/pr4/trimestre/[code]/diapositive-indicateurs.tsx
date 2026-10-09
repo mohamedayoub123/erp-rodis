@@ -1,8 +1,9 @@
+import { BandeauFiabilite } from "./bandeau-fiabilite";
 import { BLEU_TITRE, POLICE } from "./diapositive";
+import { chargerRapport, type RapportCharge } from "./donnees-rapport";
 import {
   INDICATEURS_DIAPO,
   estDansLaCible,
-  lireIndicateursAnnee,
   type IndicateurDiapo,
   type TrimestreIndicateurs,
 } from "./indicateurs-trimestre";
@@ -25,28 +26,29 @@ function formater(valeur: number, indicateur: IndicateurDiapo) {
 const pct = (valeur: number | null) =>
   valeur === null ? "-" : `${valeur.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 
-export async function DiapositiveIndicateursPr4({ annee, trimestre }: { annee: number; trimestre: number }) {
-  let trimestres: TrimestreIndicateurs[];
-  try {
-    trimestres = await lireIndicateursAnnee(annee);
-  } catch {
+export async function DiapositiveIndicateursPr4({ code, annee, trimestre }: { code: string; annee: number; trimestre: number }) {
+  const rapport = await chargerRapport(code);
+  const trimestres = rapport.donnees.indicateurs;
+  if (!trimestres) {
     return (
       <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 text-sm text-slate-600 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
         Impossible de calculer les indicateurs pour le moment. Rechargez la page dans un instant.
       </section>
     );
   }
-  return <CarteIndicateurs annee={annee} trimestre={trimestre} trimestres={trimestres} />;
+  return <CarteIndicateurs annee={annee} trimestre={trimestre} trimestres={trimestres} rapport={rapport} />;
 }
 
 export function CarteIndicateurs({
   annee,
   trimestre,
   trimestres,
+  rapport,
 }: {
   annee: number;
   trimestre: number;
   trimestres: TrimestreIndicateurs[];
+  rapport?: Pick<RapportCharge, "fige" | "calculeLe">;
 }) {
   const colonnes = trimestres.filter((t) => t.trimestre <= trimestre);
   const courant = trimestres.find((t) => t.trimestre === trimestre);
@@ -138,6 +140,13 @@ export function CarteIndicateurs({
             </p>
           ) : null}
         </div>
+      ) : null}
+      {rapport ? (
+        <BandeauFiabilite
+          source="ERP (tableau PR4 - Indicateurs : production, test labo, arrêts, déchets, formation, livraison, coût)"
+          rapport={rapport}
+          alertes={courant && !courant.complet ? [`T${courant.trimestre} ${annee} pas terminé : chiffres à la fin du trimestre`] : []}
+        />
       ) : null}
     </section>
   );

@@ -1,5 +1,6 @@
 import { calculerCartonMensuel } from "@/app/production/rapport/carton-mensuel/calcul";
 import { calculerGrapheCharges } from "@/app/charges/graphe-donnees";
+import { supabaseServer } from "@/lib/supabase-server";
 import { moisPr4 } from "./indicateurs-trimestre";
 
 // Donnees des diapositives KPI du rapport de revue de processus.
@@ -62,8 +63,28 @@ export function dernierMoisAffiche(annee: number, trimestre: number) {
 }
 
 // ---------------------------------------------------------------- % temps d'arret et production realisee
+// Origine du chiffre "production realisee" d'un mois : saisie dans l'ERP (prioritaire), graphique d'origine (mois
+// d'avant l'ERP), ou rapport Carton Mensuel (% de programme fait).
+export type SourceProduction = "saisie" | "historique" | "erp";
+
+// Production realisee saisie a la main (table pr4_production_realisee). Jamais gardee en memoire : une saisie doit
+// apparaitre tout de suite. Table absente (SQL pas encore execute) : "disponible: false", le graphique marche quand meme.
+export async function lireProductionSaisie(): Promise<{ disponible: boolean; parMois: Map<string, number> }> {
+  const { data, error } = await supabaseServer.from("pr4_production_realisee").select("annee, mois, pourcentage");
+  if (error) return { disponible: false, parMois: new Map() };
+  const parMois = new Map<string, number>();
+  for (const ligne of (data ?? []) as { annee: number; mois: number; pourcentage: number | string }[]) {
+    parMois.set(`${ligne.annee}-${String(ligne.mois).padStart(2, "0")}`, Number(ligne.pourcentage));
+  }
+  return { disponible: true, parMois };
+}
+
 export async function lireKpiArretProduction(dernierMois: string) {
-  const [{ monthRows }, cartonMensuel] = await Promise.all([moisPr4(), memoire("carton-mensuel", () => calculerCartonMensuel())]);
+  const [{ monthRows }, cartonMensuel, saisie] = await Promise.all([
+    moisPr4(),
+    memoire("carton-mensuel", () => calculerCartonMensuel()),
+    lireProductionSaisie(),
+  ]);
   const arretParMois = new Map(monthRows.map((row) => [row.mois, row.pctArret]));
   const programmeFaitParMois = new Map(cartonMensuel.map((row) => [row.mois, row.pct]));
 
@@ -81,10 +102,30 @@ export async function lireKpiArretProduction(dernierMois: string) {
   });
   const production = mois.map((cle) => {
     if (!cle || cle > dernierMois) return null;
+    if (saisie.parMois.has(cle)) return saisie.parMois.get(cle) ?? null;
     if (cle in PRODUCTION_REALISEE_HISTORIQUE) return PRODUCTION_REALISEE_HISTORIQUE[cle];
     return programmeFaitParMois.get(cle) ?? null;
   });
-  return { categories, arret, production };
+  const sourcesProduction = mois.map((cle): SourceProduction | null => {
+    if (!cle || cle > dernierMois) return null;
+    if (saisie.parMois.has(cle)) return "saisie";
+    if (cle in PRODUCTION_REALISEE_HISTORIQUE) return "historique";
+    return programmeFaitParMois.has(cle) ? "erp" : null;
+  });
+  // Mois affiches mais sans chiffre : a saisir (production) ou a signaler (arret)
+  const mesMois = mois.filter((cle): cle is string => Boolean(cle) && (cle as string) <= dernierMois);
+  const manquantsProduction = mesMois.filter((cle) => production[mois.indexOf(cle)] === null);
+  const manquantsArret = mesMois.filter((cle) => arret[mois.indexOf(cle)] === null);
+  return {
+    categories,
+    arret,
+    production,
+    mois,
+    sourcesProduction,
+    saisieDisponible: saisie.disponible,
+    manquantsProduction,
+    manquantsArret,
+  };
 }
 
 // ---------------------------------------------------------------- cout du carton (multi-sources)
