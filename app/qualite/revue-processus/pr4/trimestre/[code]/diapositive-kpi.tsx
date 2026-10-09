@@ -8,7 +8,7 @@ import { SaisieProduction, type MoisSaisissable } from "./saisie-production";
 
 // Diapositives "KPI" : (1) % temps d'arret et production realisee, de janvier 2025 au mois en cours (un espace entre
 // 2025 et 2026) ; (2) analyse comparative du cout du carton, mois par mois. Comme pour le tableau, on ne montre que
-// les mois jusqu'a la fin du trimestre de la page ouverte. Les chiffres viennent du rapport (en direct, ou figes).
+// les mois jusqu'a la fin du trimestre de la page ouverte.
 const BLEU = "#4472c4";
 const ORANGE = "#ed7d31";
 const carte =
@@ -30,7 +30,7 @@ export async function DiapositiveKpiArretProduction({ code }: { code: string }) 
   if (!donnees) return <Indisponible />;
 
   const utilisateur = await getCurrentStockUser();
-  const peutSaisir = !rapport.fige && (await canWritePageUser(utilisateur, "qualiteRevueProcessus"));
+  const peutSaisir = await canWritePageUser(utilisateur, "qualiteRevueProcessus");
 
   // Mois a proposer a la saisie : ceux sans chiffre, et ceux deja saisis (pour les corriger)
   const saisissables: MoisSaisissable[] = donnees.mois.flatMap((cle, index) => {
@@ -79,7 +79,7 @@ export async function DiapositiveKpiArretProduction({ code }: { code: string }) 
       {peutSaisir && !donnees.saisieDisponible ? (
         <p data-hors-diapo className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           Pour saisir la production réalisée d&apos;un mois, exécutez d&apos;abord le SQL{" "}
-          <code className="rounded bg-white px-1.5 py-0.5 text-xs">scripts/sql/create_pr4_revue_production_et_figee.sql</code> dans
+          <code className="rounded bg-white px-1.5 py-0.5 text-xs">scripts/sql/create_pr4_production_realisee.sql</code> dans
           Supabase (SQL Editor).
         </p>
       ) : null}

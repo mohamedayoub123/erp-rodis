@@ -48,7 +48,7 @@ export function CarteIndicateurs({
   annee: number;
   trimestre: number;
   trimestres: TrimestreIndicateurs[];
-  rapport?: Pick<RapportCharge, "fige" | "calculeLe">;
+  rapport?: Pick<RapportCharge, "calculeLe">;
 }) {
   const colonnes = trimestres.filter((t) => t.trimestre <= trimestre);
   const courant = trimestres.find((t) => t.trimestre === trimestre);

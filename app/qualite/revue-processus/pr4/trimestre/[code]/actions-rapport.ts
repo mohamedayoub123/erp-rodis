@@ -1,16 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { trouverTrimestrePr4 } from "@/lib/trimestres-pr4";
-import { figerRapport, lireRapportFige, rouvrirRapport } from "./donnees-rapport";
 
-// Actions de la page d'un trimestre : saisir la production realisee d'un mois, figer / rouvrir le rapport.
-// Meme droit que la page : qualiteRevueProcessus (ecriture ; la reouverture demande le droit de suppression).
+// Action de la page d'un trimestre : saisir la production realisee d'un mois. Meme droit que la page :
+// qualiteRevueProcessus (ecriture).
 const PAGE = "qualiteRevueProcessus";
-const adresse = (code: string) => `/qualite/revue-processus/pr4/trimestre/${code}`;
 
 export type EtatSaisie = { ok: boolean; message: string } | null;
 
@@ -23,11 +20,7 @@ export async function enregistrerProductionRealiseeAction(_etat: EtatSaisie, for
   }
 
   const code = String(formData.get("code") || "");
-  const trimestre = trouverTrimestrePr4(code);
-  if (!trimestre) return { ok: false, message: "Trimestre introuvable." };
-  if ((await lireRapportFige(code)).fige) {
-    return { ok: false, message: "Ce rapport est fige : rouvrez-le pour modifier un chiffre." };
-  }
+  if (!trouverTrimestrePr4(code)) return { ok: false, message: "Trimestre introuvable." };
 
   const mois = String(formData.get("mois") || "");
   const lu = mois.match(/^(\d{4})-(\d{2})$/);
@@ -53,46 +46,11 @@ export async function enregistrerProductionRealiseeAction(_etat: EtatSaisie, for
     return {
       ok: false,
       message: /does not exist|schema cache/i.test(error.message)
-        ? "La table de saisie n'existe pas encore : executez d'abord le SQL create_pr4_revue_production_et_figee.sql dans Supabase."
+        ? "La table de saisie n'existe pas encore : executez d'abord le SQL create_pr4_production_realisee.sql dans Supabase."
         : `Enregistrement impossible : ${error.message}`,
     };
   }
 
-  revalidatePath(adresse(code));
+  revalidatePath(`/qualite/revue-processus/pr4/trimestre/${code}`);
   return { ok: true, message: `${pourcentage.toLocaleString("fr-FR")}% enregistre pour ${mois}.` };
-}
-
-async function lireTrimestreDuFormulaire(formData: FormData) {
-  const code = String(formData.get("code") || "");
-  const trimestre = trouverTrimestrePr4(code);
-  if (!trimestre) redirect("/qualite/revue-processus/pr4/trimestre");
-  return trimestre;
-}
-
-export async function figerRapportAction(formData: FormData) {
-  const trimestre = await lireTrimestreDuFormulaire(formData);
-  const utilisateur = await getCurrentStockUser();
-  let erreur = "";
-  try {
-    if (!(await canWritePageUser(utilisateur, PAGE))) throw new Error("Vous n'avez pas le droit de figer ce rapport.");
-    await figerRapport(trimestre, utilisateur);
-  } catch (e) {
-    erreur = e instanceof Error ? e.message : "Impossible de figer le rapport.";
-  }
-  revalidatePath(adresse(trimestre.code));
-  redirect(erreur ? `${adresse(trimestre.code)}?erreur=${encodeURIComponent(erreur)}` : `${adresse(trimestre.code)}?fige=1`);
-}
-
-export async function rouvrirRapportAction(formData: FormData) {
-  const trimestre = await lireTrimestreDuFormulaire(formData);
-  const utilisateur = await getCurrentStockUser();
-  let erreur = "";
-  try {
-    if (!(await canDeletePageUser(utilisateur, PAGE))) throw new Error("Vous n'avez pas le droit de rouvrir un rapport fige.");
-    await rouvrirRapport(trimestre);
-  } catch (e) {
-    erreur = e instanceof Error ? e.message : "Impossible de rouvrir le rapport.";
-  }
-  revalidatePath(adresse(trimestre.code));
-  redirect(erreur ? `${adresse(trimestre.code)}?erreur=${encodeURIComponent(erreur)}` : `${adresse(trimestre.code)}?rouvert=1`);
 }

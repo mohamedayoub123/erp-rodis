@@ -17,10 +17,8 @@ import { DiapositiveFin } from "./diapositive-fin";
 import { PROCEDURES } from "./procedures-donnees";
 
 // Page d'un trimestre de la Revue Processus PR4 (ex: PR4 T1 2026 = janvier a mars 2026). Meme droit que la page
-// /qualite/revue-processus (qualiteRevueProcessus). En haut : l'en-tete (statut Brouillon / Valide, boutons Diaporama,
-// PowerPoint, Figer le rapport) et 4 cartes de resume ; puis le sommaire a gauche et les diapositives en 6 parties.
-type Parametres = { erreur?: string; fige?: string; rouvert?: string };
-
+// /qualite/revue-processus (qualiteRevueProcessus). En haut : l'en-tete (boutons Diaporama et PowerPoint) et 4 cartes
+// de resume ; puis le sommaire a gauche et les diapositives en 6 parties.
 const carteVide =
   "rounded-[1.75rem] border border-black/5 bg-white p-6 text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]";
 
@@ -39,27 +37,18 @@ function Partie({ id, children }: { id: IdPartie; children: ReactNode }) {
 
 const Diapo = ({ children }: { children: ReactNode }) => <div data-diapo>{children}</div>;
 
-export default async function TrimestrePr4Page({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ code: string }>;
-  searchParams: Promise<Parametres>;
-}) {
+export default async function TrimestrePr4Page({ params }: { params: Promise<{ code: string }> }) {
   noStore();
   const { code } = await params;
-  const { erreur, fige, rouvert } = await searchParams;
   const trimestre = trouverTrimestrePr4(code);
   if (!trimestre) {
     notFound();
   }
 
-  const message = fige ? "Rapport figé : les chiffres ne bougent plus." : rouvert ? "Rapport rouvert : les chiffres sont de nouveau ceux de l'ERP en direct." : undefined;
-
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f5f0ff_0%,#faf8ff_50%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
-        <EnTeteRapport trimestre={trimestre} erreur={erreur} message={message} />
+        <EnTeteRapport trimestre={trimestre} />
 
         <Suspense fallback={<CartesResumeChargement />}>
           <CartesResume code={trimestre.code} trimestre={trimestre.trimestre} />

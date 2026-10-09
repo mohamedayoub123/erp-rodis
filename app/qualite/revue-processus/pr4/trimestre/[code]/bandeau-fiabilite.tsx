@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { RapportCharge } from "./donnees-rapport";
 
-// Bandeau sous une diapositive de chiffres : d'ou viennent les chiffres, quand ils ont ete calcules (ou figes) et
+// Bandeau sous une diapositive de chiffres : d'ou viennent les chiffres, quand ils ont ete calcules et
 // les alertes (ex : "juin 2026 sans chiffre"). Visible sur la page, jamais dans le diaporama ni le PowerPoint.
 export function jourHeure(iso: string) {
   return new Date(iso).toLocaleString("fr-FR", {
@@ -20,7 +20,7 @@ export function BandeauFiabilite({
   alertes = [],
 }: {
   source: string;
-  rapport: Pick<RapportCharge, "fige" | "calculeLe">;
+  rapport: Pick<RapportCharge, "calculeLe">;
   alertes?: ReactNode[];
 }) {
   return (
@@ -31,14 +31,7 @@ export function BandeauFiabilite({
       <span>
         <strong className="font-semibold text-slate-700">Source :</strong> {source}
       </span>
-      {rapport.fige ? (
-        <span className="font-semibold text-emerald-700">
-          Chiffres figés le {jourHeure(rapport.fige.le)}
-          {rapport.fige.par ? ` par ${rapport.fige.par}` : ""}
-        </span>
-      ) : (
-        <span>Calculé le {jourHeure(rapport.calculeLe)} (brouillon : se met à jour à chaque ouverture)</span>
-      )}
+      <span>Calculé le {jourHeure(rapport.calculeLe)} (se met à jour à chaque ouverture de la page)</span>
       {alertes.map((alerte, index) => (
         <span key={index} className="font-semibold text-amber-700">
           ⚠ {alerte}

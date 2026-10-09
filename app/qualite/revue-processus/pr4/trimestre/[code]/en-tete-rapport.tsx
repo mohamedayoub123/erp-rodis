@@ -1,35 +1,14 @@
 import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
-import { ConfirmSubmitButton } from "@/app/_components/confirm-submit-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { listerTrimestresPr4, type TrimestrePr4 } from "@/lib/trimestres-pr4";
-import { figerRapportAction, rouvrirRapportAction } from "./actions-rapport";
-import { jourHeure } from "./bandeau-fiabilite";
 import { BoutonDiaporama } from "./diaporama";
-import { lireRapportFige } from "./donnees-rapport";
 
-// En-tete de la page d'un trimestre : titre, statut (Brouillon / Valide), trimestres en onglets, boutons Diaporama,
-// PowerPoint, Figer / Rouvrir le rapport.
-const PAGE = "qualiteRevueProcessus";
-const bouton = "rounded-full px-5 py-2 text-sm font-semibold transition";
-
-export async function EnTeteRapport({
-  trimestre,
-  erreur,
-  message,
-}: {
-  trimestre: TrimestrePr4;
-  erreur?: string;
-  message?: string;
-}) {
+// En-tete de la page d'un trimestre : titre, trimestres en onglets, boutons Diaporama et PowerPoint.
+export async function EnTeteRapport({ trimestre }: { trimestre: TrimestrePr4 }) {
   const utilisateur = await getCurrentStockUser();
-  const [lecture, peutEcrire, peutRouvrir] = await Promise.all([
-    lireRapportFige(trimestre.code),
-    canWritePageUser(utilisateur, PAGE),
-    canDeletePageUser(utilisateur, PAGE),
-  ]);
-  const { fige } = lecture;
+  const peutEcrire = await canWritePageUser(utilisateur, "qualiteRevueProcessus");
   const autres = listerTrimestresPr4();
 
   return (
@@ -42,18 +21,6 @@ export async function EnTeteRapport({
             {trimestre.periode}
             {trimestre.enCours ? " (trimestre en cours)" : ""}
           </p>
-          <p className="mt-2">
-            {fige ? (
-              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
-                Validé · chiffres figés le {jourHeure(fige.le)}
-                {fige.par ? ` par ${fige.par}` : ""}
-              </span>
-            ) : (
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                Brouillon · chiffres en direct
-              </span>
-            )}
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -62,34 +29,10 @@ export async function EnTeteRapport({
           <a
             href={`/qualite/revue-processus/pr4/trimestre/${trimestre.code}/pptx`}
             download
-            className={`${bouton} bg-violet-600 text-white hover:bg-violet-500`}
+            className="rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-violet-500"
           >
             Exporter en PowerPoint
           </a>
-          {peutEcrire && !fige ? (
-            <form action={figerRapportAction}>
-              <input type="hidden" name="code" value={trimestre.code} />
-              <ConfirmSubmitButton
-                pendingLabel="Blocage..."
-                confirmMessage={`Figer le rapport ${trimestre.libelle} ? Les chiffres ne bougeront plus (page et PowerPoint), même si vous corrigez l'ERP ensuite, jusqu'à ce que vous le rouvriez.`}
-                className={`${bouton} border border-emerald-300 bg-emerald-50 text-emerald-800 hover:border-emerald-500 disabled:opacity-60`}
-              >
-                Figer le rapport
-              </ConfirmSubmitButton>
-            </form>
-          ) : null}
-          {peutRouvrir && fige ? (
-            <form action={rouvrirRapportAction}>
-              <input type="hidden" name="code" value={trimestre.code} />
-              <ConfirmSubmitButton
-                pendingLabel="Réouverture..."
-                confirmMessage={`Rouvrir le rapport ${trimestre.libelle} ? Les chiffres redeviennent ceux de l'ERP en direct.`}
-                className={`${bouton} border border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-500 disabled:opacity-60`}
-              >
-                Rouvrir le rapport
-              </ConfirmSubmitButton>
-            </form>
-          ) : null}
           <RefreshButton />
         </div>
       </div>
@@ -111,13 +54,11 @@ export async function EnTeteRapport({
         ))}
       </div>
 
-      {erreur ? <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">{erreur}</p> : null}
-      {message ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{message}</p> : null}
-      {peutEcrire && !lecture.disponible ? (
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          Pour figer le rapport et saisir la production réalisée d&apos;un mois, exécutez d&apos;abord le SQL{" "}
-          <code className="rounded bg-white px-1.5 py-0.5 text-xs">scripts/sql/create_pr4_revue_production_et_figee.sql</code> dans
-          Supabase (SQL Editor).
+      {peutEcrire ? (
+        <p className="text-xs text-slate-500">
+          Pour saisir la production réalisée d&apos;un mois (graphique KPI), le SQL{" "}
+          <code className="rounded bg-slate-100 px-1.5 py-0.5">scripts/sql/create_pr4_production_realisee.sql</code> doit avoir été
+          exécuté dans Supabase.
         </p>
       ) : null}
     </section>
