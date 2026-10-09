@@ -29,7 +29,7 @@ export default async function TrimestrePr4Page({ params }: { params: Promise<{ c
           </div>
 
           <div className="flex items-center gap-3">
-            <BackButton href="/qualite/revue-processus" label="Retour revue processus" />
+            <BackButton href="/qualite/revue-processus/pr4/trimestre" label="Retour trimestres" />
             <RefreshButton />
           </div>
         </section>
