@@ -4,10 +4,11 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { trouverTrimestrePr4 } from "@/lib/trimestres-pr4";
 import { PageDeGardePr4 } from "./page-de-garde";
+import { DiapositiveObjectifPr4 } from "./diapositive-objectif";
 
 // Page d'un trimestre de la Revue Processus PR4 (ex: PR4 T1 2026 = janvier a mars 2026). Meme droit que la page
 // /qualite/revue-processus (qualiteRevueProcessus). En tete : la page de garde du rapport (annee / trimestre
-// de la page ouverte) ; le contenu du trimestre sera ajoute en dessous.
+// de la page ouverte), puis ses diapositives ; la suite sera ajoutee en dessous.
 export default async function TrimestrePr4Page({ params }: { params: Promise<{ code: string }> }) {
   noStore();
   const { code } = await params;
@@ -35,9 +36,10 @@ export default async function TrimestrePr4Page({ params }: { params: Promise<{ c
         </section>
 
         <PageDeGardePr4 trimestre={trimestre} />
+        <DiapositiveObjectifPr4 />
 
         <section className="rounded-[1.75rem] border border-dashed border-violet-200 bg-white/70 px-6 py-10 text-center text-sm text-slate-500">
-          Contenu a venir : les elements de {trimestre.libelle} seront ajoutes ici.
+          Contenu a venir : les autres pages de {trimestre.libelle} seront ajoutees ici.
         </section>
       </div>
     </main>
