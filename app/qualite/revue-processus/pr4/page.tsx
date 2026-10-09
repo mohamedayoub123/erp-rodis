@@ -20,6 +20,12 @@ const TILES = [
     icon: "\u{1F393}",
     description: "Plan de formation cosmetique par annee : type, equipe, mois planifie et suivi realise/rate.",
   },
+  {
+    label: "Revue Processus par trimestre",
+    href: "/qualite/revue-processus/pr4/trimestre",
+    icon: "\u{1F4C5}",
+    description: "Rapport de revue PR4 de chaque trimestre (T1, T2, T3, T4) : un nouveau apparait tout seul tous les 3 mois.",
+  },
 ];
 
 export default function Pr4HubPage() {

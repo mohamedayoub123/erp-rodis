@@ -13,12 +13,6 @@ const TILES = [
     icon: "\u{1F4C8}",
     description: "Tableau des 13 indicateurs (production, qualite, energie) par mois, cible et calcul automatique.",
   },
-  {
-    label: "Revue Processus par trimestre",
-    href: "/qualite/revue-processus/pr4/trimestre",
-    icon: "\u{1F4C5}",
-    description: "Rapport de revue PR4 de chaque trimestre (T1, T2, T3, T4) : un nouveau apparait tout seul tous les 3 mois.",
-  },
 ];
 
 export default function RevueProcessusPage() {

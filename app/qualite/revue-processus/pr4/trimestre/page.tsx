@@ -27,7 +27,7 @@ export default function RevueProcessusParTrimestrePage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <BackButton href="/qualite/revue-processus" label="Retour revue processus" />
+              <BackButton href="/qualite/revue-processus/pr4" label="Retour PR4" />
               <RefreshButton />
             </div>
           </div>
