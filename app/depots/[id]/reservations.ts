@@ -41,7 +41,7 @@ export function ajouterSource(cible: SourcesParArticleLot, articleId: number, nu
 
 // Lit des lignes par paquets d'identifiants (adresses courtes, et chaque paquet reste tres en dessous du
 // plafond de 1000 lignes par requete de la base).
-async function lireParPaquets<T>(
+export async function lireParPaquets<T>(
   ids: number[],
   lireUnPaquet: (paquet: number[]) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
   taille = 150

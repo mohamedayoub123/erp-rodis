@@ -1,4 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
+import { lireParPaquets } from "../[id]/reservations";
 import { fetchPlCodeByGroupeId, fetchPdRefsBySourceGroupeId } from "@/lib/programme-numbering";
 import type { ArticleType } from "./stock-lots";
 import { buildMouvementInfoByRowId, fetchWebMouvementSourceRows, traceProduitFiniPourCode } from "@/app/mouvements/shared";
@@ -41,11 +42,58 @@ export type FluxInfo = {
   destinations: FluxDestinationLigne[];
 };
 
-async function fetchNomArticle(articleType: ArticleType, articleId: number): Promise<string> {
-  const table = articleType === "MP" ? "articles_matiere_premiere" : "articles";
-  const { data } = await supabaseServer.from(table).select("nom_article").eq("id", articleId).maybeSingle();
-  return (data as { nom_article: string } | null)?.nom_article ?? `#${articleId}`;
+// Noms de plusieurs matieres premieres en UNE lecture. Comme avant, une erreur de lecture n'interrompt pas la
+// page : l'article s'affiche alors sous la forme "#id".
+async function fetchNomsArticlesMp(articleIds: number[]): Promise<Map<number, string>> {
+  const noms = new Map<number, string>();
+  try {
+    const lignes = await lireParPaquets<{ id: number; nom_article: string }>(articleIds, (paquet) =>
+      supabaseServer.from("articles_matiere_premiere").select("id, nom_article").in("id", paquet)
+    );
+    for (const ligne of lignes) noms.set(ligne.id, ligne.nom_article);
+  } catch {
+    // noms laisses vides -> "#id"
+  }
+  return noms;
 }
+
+type ReserveProduction = {
+  id: number;
+  production_code_termine_id: number;
+  article_mp_id: number;
+  numero_lot: string | null;
+};
+
+// Reservations de production de ces matieres premieres dans le depot de destination (par pages de 1000, ordre
+// stable). "lots" limite la lecture aux numeros de lot concernes (null = pas de limite, quand un lot est vide).
+// Comme avant, une erreur de lecture n'interrompt pas la page (on garde ce qui a deja ete lu).
+async function lireReservesProduction(
+  articleIds: number[],
+  lots: string[] | null,
+  depotId: number
+): Promise<ReserveProduction[]> {
+  const reserves: ReserveProduction[] = [];
+  for (let i = 0; i < articleIds.length; i += 100) {
+    const paquetArticles = articleIds.slice(i, i + 100);
+    for (let debut = 0; ; debut += 1000) {
+      let requete = supabaseServer
+        .from("production_mp_reserve")
+        .select("id, production_code_termine_id, article_mp_id, numero_lot")
+        .in("article_mp_id", paquetArticles)
+        .eq("depot_id", depotId);
+      if (lots) requete = requete.in("numero_lot", lots);
+      const { data, error } = await requete.order("id", { ascending: true }).range(debut, debut + 999);
+      if (error) return reserves;
+      const page = (data ?? []) as ReserveProduction[];
+      reserves.push(...page);
+      if (page.length < 1000) break;
+    }
+  }
+  return reserves;
+}
+
+const SANS_LOT = "\u0000sans-lot";
+const cleReserve = (articleId: number, numeroLot: string | null) => `${articleId}::${numeroLot === null ? SANS_LOT : numeroLot}`;
 
 // D'ou vient ce Transfer Order (programme qui l'a genere automatiquement
 // via "Creer les Transfer Order" sur Verifier Stock, ou saisi a la main -
@@ -201,48 +249,66 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
   const webRows = needsTrace ? await fetchWebMouvementSourceRows() : [];
   const mouvementInfoByRowId = needsTrace ? await buildMouvementInfoByRowId(webRows) : new Map();
 
-  const destinations: FluxDestinationLigne[] = [];
+  const cles = [...quantiteParCle.values()];
+  const idsArticles = [...new Set(cles.map(({ cle }) => cle.articleId))];
+  const unLotVide = cles.some(({ cle }) => cle.numeroLot === null);
+  const lotsConcernes = [...new Set(cles.map(({ cle }) => cle.numeroLot).filter((lot): lot is string => lot !== null))];
 
-  for (const { cle, quantite } of quantiteParCle.values()) {
-    const nomArticle = await fetchNomArticle(cle.articleType, cle.articleId);
+  // 1. noms + reservations de production de tous les articles, en meme temps
+  const [nomsArticles, reservesProduction] =
+    cles.length === 0
+      ? [new Map<number, string>(), [] as ReserveProduction[]]
+      : await Promise.all([
+          fetchNomsArticlesMp(idsArticles),
+          lireReservesProduction(idsArticles, unLotVide ? null : lotsConcernes, to.depot_destination_id),
+        ]);
+  const reservesParCle = new Map<string, ReserveProduction[]>();
+  for (const reserve of reservesProduction) {
+    const cle = cleReserve(reserve.article_mp_id, reserve.numero_lot);
+    const liste = reservesParCle.get(cle) ?? [];
+    liste.push(reserve);
+    reservesParCle.set(cle, liste);
+  }
 
-    let reserveQuery = supabaseServer
-      .from("production_mp_reserve")
-      .select("id, production_code_termine_id")
-      .eq("article_mp_id", cle.articleId)
-      .eq("depot_id", to.depot_destination_id);
-    reserveQuery = cle.numeroLot === null ? reserveQuery.is("numero_lot", null) : reserveQuery.eq("numero_lot", cle.numeroLot);
-    const { data: reserveData } = await reserveQuery;
-    const reserves = (reserveData ?? []) as { id: number; production_code_termine_id: number }[];
+  // 2. leurs codes de production termines, puis 3. leurs lignes de programme (une lecture chacun)
+  const idsTermine = [
+    ...new Set(
+      cles.flatMap(({ cle }) =>
+        (reservesParCle.get(cleReserve(cle.articleId, cle.numeroLot)) ?? []).map((reserve) => reserve.production_code_termine_id)
+      )
+    ),
+  ].sort((a, b) => a - b);
+  let termineRows: { id: number; programme_ligne_id: number; code: string }[] = [];
+  let plRows: { id: number; groupe_id: number | null; produit: string | null; article_id: number | null }[] = [];
+  try {
+    termineRows = await lireParPaquets(idsTermine, (paquet) =>
+      supabaseServer.from("production_code_termine").select("id, programme_ligne_id, code").in("id", paquet).order("id", { ascending: true })
+    );
+    plRows = await lireParPaquets(
+      [...new Set(termineRows.map((termine) => termine.programme_ligne_id))],
+      (paquet) => supabaseServer.from("programme_lignes").select("id, groupe_id, produit, article_id").in("id", paquet)
+    );
+  } catch {
+    // comme avant : sans ces lectures, les consommateurs restent simplement vides
+  }
+  termineRows.sort((a, b) => a.id - b.id);
+  const plById = new Map(plRows.map((p) => [p.id, p]));
 
-    let consommateurs: FluxConsommateur[] = [];
+  const destinations: FluxDestinationLigne[] = cles.map(({ cle, quantite }) => {
+    const reserves = reservesParCle.get(cleReserve(cle.articleId, cle.numeroLot)) ?? [];
+    const consommateurs: FluxConsommateur[] = [];
     if (reserves.length > 0) {
-      const { data: termineData } = await supabaseServer
-        .from("production_code_termine")
-        .select("id, programme_ligne_id, code")
-        .in(
-          "id",
-          reserves.map((r) => r.production_code_termine_id)
-        );
-      const termineRows = (termineData ?? []) as { id: number; programme_ligne_id: number; code: string }[];
-
-      const plIds = [...new Set(termineRows.map((t) => t.programme_ligne_id))];
-      const { data: plData } = await supabaseServer
-        .from("programme_lignes")
-        .select("id, groupe_id, produit, article_id")
-        .in("id", plIds.length > 0 ? plIds : [0]);
-      const plRows = (plData ?? []) as { id: number; groupe_id: number | null; produit: string | null; article_id: number | null }[];
-      const plById = new Map(plRows.map((p) => [p.id, p]));
-
+      const idsDeCetteLigne = new Set(reserves.map((reserve) => reserve.production_code_termine_id));
       const seenCodes = new Set<string>();
-      for (const t of termineRows) {
-        if (seenCodes.has(t.code)) continue;
-        seenCodes.add(t.code);
-        const pl = plById.get(t.programme_ligne_id);
-        const { entreeProduction, sorties } = traceProduitFiniPourCode(webRows, mouvementInfoByRowId, pl?.article_id, t.code);
+      for (const termine of termineRows) {
+        if (!idsDeCetteLigne.has(termine.id)) continue;
+        if (seenCodes.has(termine.code)) continue;
+        seenCodes.add(termine.code);
+        const pl = plById.get(termine.programme_ligne_id);
+        const { entreeProduction, sorties } = traceProduitFiniPourCode(webRows, mouvementInfoByRowId, pl?.article_id, termine.code);
 
         consommateurs.push({
-          code: t.code,
+          code: termine.code,
           produit: pl?.produit ?? null,
           href: pl?.groupe_id ? `/historique-programme/${pl.groupe_id}` : `/production/suivi/dashboard`,
           entreeProduction,
@@ -251,13 +317,13 @@ export async function fetchFluxInfo(transferOrderId: number): Promise<FluxInfo |
       }
     }
 
-    destinations.push({
-      articleNom: nomArticle,
+    return {
+      articleNom: nomsArticles.get(cle.articleId) ?? `#${cle.articleId}`,
       numeroLot: cle.numeroLot,
       quantite,
       consommateurs,
-    });
-  }
+    };
+  });
 
   return { origine, tis, destinations };
 }

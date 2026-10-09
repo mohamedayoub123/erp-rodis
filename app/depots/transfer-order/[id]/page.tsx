@@ -9,8 +9,9 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { RemarqueField } from "@/app/_components/remarque-field";
 import { formatDate } from "@/lib/format-date";
-import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
-import { fetchLotsInDepot, type ArticleType } from "../stock-lots";
+import { lireArticlesMpPourFormulaires, type ArticleMpListe } from "@/lib/articles-mp-liste";
+import { lireArticlesPfListe, type ArticlePfListe } from "@/lib/articles-pf-liste";
+import { fetchLotsInDepotBatch, type ArticleType } from "../stock-lots";
 import {
   approveTransferOrderAction,
   copyTransferOrderAction,
@@ -26,23 +27,6 @@ import { TransferOrderLignesEditorEnAttente } from "../lignes-editor-en-attente"
 import { urlPhotoTransferOrder } from "@/lib/transfer-order-photo";
 import { fetchFluxInfo } from "../flux";
 import { FluxSection } from "../flux-section";
-
-// Toutes les pages d'un coup, en parallele (une page apres l'autre devenait tres lent quand la base ralentit)
-async function fetchAllArticles<T>(table: string, select: string) {
-  try {
-    return await fetchAllRowsParallel<T>(
-      () => supabaseServer.from(table).select("id", { count: "exact", head: true }),
-      (from, to) =>
-        supabaseServer
-          .from(table)
-          .select(select)
-          .order("id", { ascending: true })
-          .range(from, to) as unknown as PromiseLike<{ data: T[] | null; error: { message: string } | null }>
-    );
-  } catch {
-    return [] as T[];
-  }
-}
 
 type TransferOrderRow = {
   id: number;
@@ -66,10 +50,16 @@ const STATUT_LABELS: Record<string, string> = {
   poste: "Poste",
 };
 
-async function fetchNomArticle(articleType: ArticleType, articleId: number): Promise<string> {
+// Noms de plusieurs articles du meme type en UNE requete (au lieu d'une requete par ligne).
+async function fetchNomsArticles(articleType: ArticleType, articleIds: number[]): Promise<Map<number, string>> {
+  const noms = new Map<number, string>();
+  const ids = [...new Set(articleIds)];
+  if (ids.length === 0) return noms;
   const table = articleType === "MP" ? "articles_matiere_premiere" : "articles";
-  const { data } = await supabaseServer.from(table).select("nom_article").eq("id", articleId).maybeSingle();
-  return (data as { nom_article: string } | null)?.nom_article ?? `#${articleId}`;
+  const { data, error } = await supabaseServer.from(table).select("id, nom_article").in("id", ids);
+  if (error) throw new Error(error.message);
+  for (const row of (data ?? []) as { id: number; nom_article: string }[]) noms.set(row.id, row.nom_article);
+  return noms;
 }
 
 export default async function TransferOrderDetailPage({
@@ -119,8 +109,8 @@ export default async function TransferOrderDetailPage({
       .select("id, statut, date_jour, created_at, numero")
       .eq("transfer_order_id", transferOrderId)
       .order("created_at", { ascending: true }),
-    fetchAllArticles<{ id: number; nom_article: string }>("articles_matiere_premiere", "id, nom_article"),
-    fetchAllArticles<{ id: number; nom_article: string }>("articles", "id, nom_article"),
+    canEdit ? lireArticlesMpPourFormulaires() : Promise.resolve([] as ArticleMpListe[]),
+    canEdit ? lireArticlesPfListe() : Promise.resolve([] as ArticlePfListe[]),
     urlPhotoTransferOrder(transferOrderId),
     fetchFluxInfo(transferOrderId),
   ]);
@@ -159,13 +149,22 @@ export default async function TransferOrderDetailPage({
     invoiceOrderCodeById.set(io.id, `TI.${io.date_jour.slice(0, 4)}.${io.numero ?? io.id}`);
   }
 
-  const { data: ligneLotsData } = await supabaseServer
-    .from("transfer_order_ligne_lots")
-    .select("transfer_order_ligne_id, numero_lot, quantite")
-    .in(
-      "transfer_order_ligne_id",
-      lignes.map((ligne) => ligne.id)
-    );
+  const idsArticles = (type: ArticleType) => [
+    ...new Set(lignes.filter((ligne) => ligne.article_type === type).map((ligne) => ligne.article_id)),
+  ];
+  const [{ data: ligneLotsData }, nomsMp, nomsPf, lotsDisponiblesMp, lotsDisponiblesPf] = await Promise.all([
+    supabaseServer
+      .from("transfer_order_ligne_lots")
+      .select("transfer_order_ligne_id, numero_lot, quantite")
+      .in(
+        "transfer_order_ligne_id",
+        lignes.map((ligne) => ligne.id)
+      ),
+    fetchNomsArticles("MP", idsArticles("MP")),
+    fetchNomsArticles("PF", idsArticles("PF")),
+    fetchLotsInDepotBatch("MP", idsArticles("MP"), transferOrder.depot_source_id, transferOrder.id),
+    fetchLotsInDepotBatch("PF", idsArticles("PF"), transferOrder.depot_source_id, transferOrder.id),
+  ]);
   const ligneLots = (ligneLotsData ?? []) as LigneLotRow[];
   const lotsByLigneId = new Map<number, LigneLotRow[]>();
   for (const lot of ligneLots) {
@@ -177,12 +176,10 @@ export default async function TransferOrderDetailPage({
   // TO1.2026, TO2.2026... fige a la creation (colonne numero) - stable.
   const code = `TO.${transferOrder.date_jour.slice(0, 4)}.${transferOrder.numero ?? transferOrder.id}`;
 
-  const lignesEnrichies = await Promise.all(
-    lignes.map(async (ligne) => {
-      const [nom, lotsDisponiblesBruts] = await Promise.all([
-        fetchNomArticle(ligne.article_type, ligne.article_id),
-        fetchLotsInDepot(ligne.article_type, ligne.article_id, transferOrder.depot_source_id, transferOrder.id),
-      ]);
+  const lignesEnrichies = lignes.map((ligne) => {
+      const estMp = ligne.article_type === "MP";
+      const nom = (estMp ? nomsMp : nomsPf).get(ligne.article_id) ?? `#${ligne.article_id}`;
+      const lotsDisponiblesBruts = (estMp ? lotsDisponiblesMp : lotsDisponiblesPf).get(ligne.article_id) ?? [];
       // Les lots deja choisis sur cette ligne (transfer_order_ligne_lots)
       // doivent TOUJOURS rester des options du menu, meme si
       // fetchLotsInDepot ne les retrouve plus (solde net tombe a 0/negatif
@@ -206,8 +203,7 @@ export default async function TransferOrderDetailPage({
         }
       }
       return { ...ligne, nom, lotsDisponibles };
-    })
-  );
+  });
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">

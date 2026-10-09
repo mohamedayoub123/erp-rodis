@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { fetchReservedByLot, type ArticleType } from "./transfer-order/stock-lots";
 import { fetchCoutsReelsMpDepotB } from "@/lib/prix-revient";
 import { COMPTE_PERTES_STOCK, COMPTE_STOCK_MP, creerEcriture } from "@/lib/comptabilite";
@@ -246,6 +246,12 @@ export async function syncDepotStockToReserveAction(formData: FormData) {
 
   if (!(await canWritePageUser(currentUser, "depots"))) {
     throw new Error("Cet utilisateur ne peut pas modifier le stock des depots.");
+  }
+
+  // Remet a 0 tout ce qui n'est pas reserve : reserve aux administrateurs (le bouton n'est affiche qu'a eux,
+  // mais on verifie aussi ici pour qu'un appel direct ne passe pas).
+  if (!isAdminUser(currentUser)) {
+    throw new Error("Seul un administrateur peut mettre tout le stock egal au reserve.");
   }
 
   const depotId = Number(formData.get("depot_id") || "0");

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { LotStockCell } from "./lot-stock-cell";
@@ -17,84 +17,13 @@ import {
 } from "./reservations";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { lireArticlesMpPourFormulaires } from "@/lib/articles-mp-liste";
+import { lireArticlesPfListe } from "@/lib/articles-pf-liste";
+import { lireStockDepot } from "./stock-depot";
 
 type DepotRow = { id: number; nom: string };
-type ArticlePfRow = { id: number; nom_article: string; nature: string | null; depot_id: number | null };
-type ArticleMpRow = { id: number; nom_article: string; unite: string | null; depot_id: number | null };
-type LotRow = {
-  article_id: number | null;
-  numero_lot: string | null;
-  qte_entree: number;
-  qte_sortie: number;
-  depot_id: number | null;
-  note: string | null;
-};
-
-async function fetchAll<T>(table: string, select: string) {
-  const rows: T[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer.from(table).select(select).range(from, from + pageSize - 1);
-    if (error) return { rows, error };
-    rows.push(...((data ?? []) as T[]));
-    if ((data ?? []).length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
-}
-
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
-}
-
-type LotBalance = { articleId: number; numeroLot: string; solde: number };
-
-// Solde par article ET par numero de lot DANS CE DEPOT precis - un lot dont
-// depot_id est encore vide (jamais transfere) est considere dans le depot
-// par DEFAUT de son article (voir articles.depot_id) - un article MP par
-// defaut "Depot E" peut donc quand meme avoir du stock affiche ici sur un
-// AUTRE depot, une fois qu'un Transfer Order/Transfer Invoice valide l'a
-// deplace.
-function computeSoldeByArticleLot(
-  lots: LotRow[],
-  depotIdByArticleId: Map<number, number | null>,
-  depotId: number
-): LotBalance[] {
-  const map = new Map<string, LotBalance>();
-  for (const lot of lots) {
-    if (!lot.article_id) continue;
-    const effectiveDepotId = lot.depot_id ?? depotIdByArticleId.get(lot.article_id) ?? null;
-    if (effectiveDepotId !== depotId) continue;
-    const numeroLot = (lot.numero_lot || "").trim();
-    const key = `${lot.article_id}::${numeroLot}`;
-    const existing = map.get(key);
-    const delta = Number(lot.qte_entree ?? 0) - Number(lot.qte_sortie ?? 0);
-    if (existing) {
-      existing.solde += delta;
-    } else {
-      map.set(key, { articleId: lot.article_id, numeroLot, solde: delta });
-    }
-  }
-  return [...map.values()];
-}
-
-// Statut qualite d'un lot de vrac (Conforme / A recuperer), derive de la
-// note posee au credit par crediterVracFabrique (voir app/production/
-// suivi-production/actions.ts) - "A detruire" ne credite JAMAIS le stock
-// (production_destruction_history a la place), donc un lot detruit
-// n'apparait structurellement jamais ici et ne peut pas etre choisi dans
-// le picker "Code vrac recupere" de la Fabrication.
-function deriveVracStatusByLot(lots: LotRow[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const lot of lots) {
-    if (!lot.article_id || !lot.note?.startsWith("Fabrication vrac")) continue;
-    const key = `${lot.article_id}::${(lot.numero_lot || "").trim()}`;
-    map.set(key, lot.note.includes("A recuperer") ? "A recuperer" : "Conforme");
-  }
-  return map;
 }
 
 // Petit bouton deroulant "Reserve ou ?" : liste des Transfer Orders / codes de production qui reservent cette ligne.
@@ -140,19 +69,18 @@ export default async function DepotDetailPage({
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "depots");
+  // "Mettre tout le stock = Reserve" remet a 0 tout ce qui n'est pas reserve : reserve aux admins.
+  const peutAlignerSurReserve = canEdit && isAdminUser(currentUser);
 
-  const [
-    { data: depotData },
-    { rows: articlesPf },
-    { rows: articlesMp },
-    { rows: lotsPf },
-    { rows: lotsMp },
-  ] = await Promise.all([
+  // Stock par lot de CE depot : calcule par la base (quelques centaines de lignes) au lieu de telecharger les
+  // 90 000 mouvements a chaque ouverture / filtre. Articles : listes gardees en memoire (relues seulement si
+  // un article est ajoute ou supprime). Reservations : lues en meme temps.
+  const [{ data: depotData }, stockDepot, articlesPf, articlesMp, reservations] = await Promise.all([
     supabaseServer.from("depots").select("id, nom").eq("id", depotId).maybeSingle(),
-    fetchAll<ArticlePfRow>("articles", "id, nom_article, nature, depot_id"),
-    fetchAll<ArticleMpRow>("articles_matiere_premiere", "id, nom_article, unite, depot_id"),
-    fetchAll<LotRow>("lots_stock", "article_id, numero_lot, qte_entree, qte_sortie, depot_id, note"),
-    fetchAll<LotRow>("lots_stock_matiere_premiere", "article_id, numero_lot, qte_entree, qte_sortie, depot_id, note"),
+    lireStockDepot(depotId),
+    lireArticlesPfListe(),
+    lireArticlesMpPourFormulaires(),
+    fetchReservedByLotForDepot(depotId),
   ]);
 
   const depot = depotData as DepotRow | null;
@@ -162,18 +90,15 @@ export default async function DepotDetailPage({
 
   const articlePfById = new Map(articlesPf.map((a) => [a.id, a]));
   const articleMpById = new Map(articlesMp.map((a) => [a.id, a]));
-  const articlesPfOptions = articlesPf
-    .map((a) => ({ id: a.id, label: a.nom_article }))
-    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
-  const articlesMpOptions = articlesMp
-    .map((a) => ({ id: a.id, label: a.nom_article }))
-    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
-  const depotIdByArticlePfId = new Map(articlesPf.map((a) => [a.id, a.depot_id]));
-  const depotIdByArticleMpId = new Map(articlesMp.map((a) => [a.id, a.depot_id]));
+  // Listes du formulaire "Corriger le stock" : seulement pour ceux qui peuvent modifier
+  const versOptions = (articles: { id: number; nom_article: string }[]) =>
+    articles
+      .map((a) => ({ id: a.id, label: a.nom_article }))
+      .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+  const articlesPfOptions = canEdit ? versOptions(articlesPf) : [];
+  const articlesMpOptions = canEdit ? versOptions(articlesMp) : [];
 
-  const soldePfByLot = computeSoldeByArticleLot(lotsPf, depotIdByArticlePfId, depotId);
-  const soldeMpByLot = computeSoldeByArticleLot(lotsMp, depotIdByArticleMpId, depotId);
-  const vracStatusByLot = deriveVracStatusByLot(lotsPf);
+  const { soldePf: soldePfByLot, soldeMp: soldeMpByLot, vracStatusByLot } = stockDepot;
 
   // Deja reserve par un Transfer Order approuve (PF et MP), PAR NUMERO DE
   // LOT precis - a deduire du solde reel de ce meme lot pour afficher ce
@@ -184,7 +109,7 @@ export default async function DepotDetailPage({
     mp: reservedMpTransferByLotByArticle,
     sourcesPf,
     sourcesMp,
-  } = await fetchReservedByLotForDepot(depotId);
+  } = reservations;
 
   // En plus des Transfer Order, une MP peut aussi etre reservee par une
   // validation Salle de pesage/conditionnement (production_mp_reserve, avec
@@ -361,7 +286,7 @@ export default async function DepotDetailPage({
           </div>
         </section>
 
-        {canEdit ? (
+        {peutAlignerSurReserve ? (
           <section className="rounded-[1.75rem] border border-amber-200 bg-amber-50/60 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <p className="text-sm font-semibold text-amber-900">
               Aligner automatiquement tout le stock de ce depot sur ce qui est deja reserve

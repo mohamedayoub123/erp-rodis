@@ -1,6 +1,7 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { convertirEnFcfa } from "@/lib/prix-devise";
 import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
+import { lireParPaquets } from "../[id]/reservations";
 
 export type ArticleType = "MP" | "PF";
 
@@ -135,35 +136,23 @@ export async function fetchReservedTotalsByDepot(
   return map;
 }
 
-// Solde par numero_lot pour un article, dans UN depot precis - un lot dont
-// depot_id est encore vide (jamais transfere) est considere dans le depot
-// par DEFAUT de l'article (voir articles.depot_id), pas invisible partout.
-// Le solde est deja net de ce qui est reserve par un AUTRE Transfer Order
-// approuve sur ce meme lot (voir fetchReservedByLot) - jamais deux Transfer
-// Order ne peuvent se disputer le meme stock. Trie FEFO : date d'expiration
-// la plus proche en premier pour la MP (seule a avoir cette colonne) ; a
-// defaut (PF), date de fabrication la plus ancienne en premier ; sans
-// aucune date, ordre alphabetique du numero de lot.
-export async function fetchLotsInDepot(
-  articleType: ArticleType,
-  articleId: number,
+type LigneMouvementLot = {
+  numero_lot: string | null;
+  qte_entree: number;
+  qte_sortie: number;
+  depot_id: number | null;
+  [key: string]: unknown;
+};
+
+// Regroupe les mouvements d'UN article par numero de lot, dans UN depot : solde net des reservations d'autres
+// Transfer Orders, date et prix du lot, tri FEFO. Partage par fetchLotsInDepot et fetchLotsInDepotBatch.
+function regrouperLotsDepot(
+  rows: LigneMouvementLot[],
+  dateField: string,
+  defaultDepotId: number | null,
   depotId: number,
-  excludeTransferOrderId?: number
-): Promise<DepotLot[]> {
-  const table = stockTableFor(articleType);
-  const dateField = articleType === "MP" ? "date_expiration" : "date_fabrication";
-  const prixFields = articleType === "MP" ? ", prix_unitaire, devise, taux_change, n_doss_erp, n_doss_4d" : "";
-
-  const [rows, defaultDepotId, reservedByLot] = await Promise.all([
-    fetchAllRows<{ numero_lot: string | null; qte_entree: number; qte_sortie: number; depot_id: number | null; [key: string]: unknown }>(
-      table,
-      `numero_lot, qte_entree, qte_sortie, depot_id, ${dateField}${prixFields}`,
-      articleId
-    ),
-    fetchArticleDefaultDepotId(articleType, articleId),
-    fetchReservedByLot(articleType, articleId, depotId, excludeTransferOrderId),
-  ]);
-
+  reservedByLot: Map<string, number>
+): DepotLot[] {
   const byLot = new Map<string, DepotLot>();
   for (const row of rows) {
     const effectiveDepotId = row.depot_id ?? defaultDepotId;
@@ -205,6 +194,185 @@ export async function fetchLotsInDepot(
       if (b.dateTri) return 1;
       return a.numeroLot.localeCompare(b.numeroLot, "fr", { sensitivity: "base" });
     });
+}
+
+// Solde par numero_lot pour un article, dans UN depot precis - un lot dont
+// depot_id est encore vide (jamais transfere) est considere dans le depot
+// par DEFAUT de l'article (voir articles.depot_id), pas invisible partout.
+// Le solde est deja net de ce qui est reserve par un AUTRE Transfer Order
+// approuve sur ce meme lot (voir fetchReservedByLot) - jamais deux Transfer
+// Order ne peuvent se disputer le meme stock. Trie FEFO : date d'expiration
+// la plus proche en premier pour la MP (seule a avoir cette colonne) ; a
+// defaut (PF), date de fabrication la plus ancienne en premier ; sans
+// aucune date, ordre alphabetique du numero de lot.
+export async function fetchLotsInDepot(
+  articleType: ArticleType,
+  articleId: number,
+  depotId: number,
+  excludeTransferOrderId?: number
+): Promise<DepotLot[]> {
+  const table = stockTableFor(articleType);
+  const dateField = articleType === "MP" ? "date_expiration" : "date_fabrication";
+  const prixFields = articleType === "MP" ? ", prix_unitaire, devise, taux_change, n_doss_erp, n_doss_4d" : "";
+
+  const [rows, defaultDepotId, reservedByLot] = await Promise.all([
+    fetchAllRows<{ numero_lot: string | null; qte_entree: number; qte_sortie: number; depot_id: number | null; [key: string]: unknown }>(
+      table,
+      `numero_lot, qte_entree, qte_sortie, depot_id, ${dateField}${prixFields}`,
+      articleId
+    ),
+    fetchArticleDefaultDepotId(articleType, articleId),
+    fetchReservedByLot(articleType, articleId, depotId, excludeTransferOrderId),
+  ]);
+
+  return regrouperLotsDepot(rows, dateField, defaultDepotId, depotId, reservedByLot);
+}
+
+type ReservationActive = {
+  transferOrderId: number;
+  depotSourceId: number;
+  articleType: ArticleType;
+  articleId: number;
+  numeroLot: string | null;
+  quantite: number;
+};
+
+// Toutes les reservations Transfer Order encore actives (quantite restante > 0 : environ 250 sur toute la base),
+// en quelques lectures courtes - on part des lots reserves puis on remonte vers leurs lignes et leurs Transfer
+// Orders (jamais de lecture de tous les Transfer Orders, plafonnee a 1000 lignes par la base).
+async function lireReservationsActives(): Promise<ReservationActive[]> {
+  const lots: { transfer_order_ligne_id: number; numero_lot: string | null; quantite: number }[] = [];
+  for (let debut = 0; ; debut += 1000) {
+    const { data, error } = await supabaseServer
+      .from("transfer_order_ligne_lots")
+      .select("id, transfer_order_ligne_id, numero_lot, quantite")
+      .gt("quantite", 0)
+      .order("id", { ascending: true })
+      .range(debut, debut + 999);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as typeof lots;
+    lots.push(...page);
+    if (page.length < 1000) break;
+  }
+  if (lots.length === 0) return [];
+
+  const lignes = await lireParPaquets<{ id: number; transfer_order_id: number; article_type: string; article_id: number }>(
+    [...new Set(lots.map((lot) => lot.transfer_order_ligne_id))],
+    (paquet) => supabaseServer.from("transfer_order_lignes").select("id, transfer_order_id, article_type, article_id").in("id", paquet)
+  );
+  const transferOrders = await lireParPaquets<{ id: number; depot_source_id: number }>(
+    [...new Set(lignes.map((ligne) => ligne.transfer_order_id))],
+    (paquet) => supabaseServer.from("transfer_orders").select("id, depot_source_id").in("id", paquet)
+  );
+  const depotSourceParTo = new Map(transferOrders.map((t) => [t.id, t.depot_source_id]));
+  const ligneParId = new Map(lignes.map((l) => [l.id, l]));
+
+  const resultat: ReservationActive[] = [];
+  for (const lot of lots) {
+    const ligne = ligneParId.get(lot.transfer_order_ligne_id);
+    const depotSourceId = ligne ? depotSourceParTo.get(ligne.transfer_order_id) : undefined;
+    if (!ligne || !depotSourceId) continue;
+    resultat.push({
+      transferOrderId: ligne.transfer_order_id,
+      depotSourceId,
+      articleType: ligne.article_type === "MP" ? "MP" : "PF",
+      articleId: ligne.article_id,
+      numeroLot: lot.numero_lot,
+      quantite: Number(lot.quantite ?? 0),
+    });
+  }
+  return resultat;
+}
+
+// Meme resultat que fetchLotsInDepot, pour PLUSIEURS articles du meme type en une fois : mouvements lus en une
+// requete groupee (au lieu d'une par article), depots par defaut en une requete, reservations actives lues une
+// seule fois. Les articles sans lot disponible n'ont pas d'entree dans le resultat.
+export async function fetchLotsInDepotBatch(
+  articleType: ArticleType,
+  articleIds: number[],
+  depotId: number,
+  excludeTransferOrderId?: number
+): Promise<Map<number, DepotLot[]>> {
+  const resultat = new Map<number, DepotLot[]>();
+  const ids = [...new Set(articleIds)];
+  if (ids.length === 0) return resultat;
+
+  // Peu d'articles : les lectures article par article (en parallele) sont plus courtes que le chemin groupe,
+  // qui doit d'abord remonter toutes les reservations actives.
+  if (ids.length <= 4) {
+    const lotsParArticle = await Promise.all(
+      ids.map((id) => fetchLotsInDepot(articleType, id, depotId, excludeTransferOrderId))
+    );
+    ids.forEach((id, index) => {
+      if (lotsParArticle[index].length > 0) resultat.set(id, lotsParArticle[index]);
+    });
+    return resultat;
+  }
+
+  const table = stockTableFor(articleType);
+  const tableArticles = articleType === "MP" ? "articles_matiere_premiere" : "articles";
+  const dateField = articleType === "MP" ? "date_expiration" : "date_fabrication";
+  const prixFields = articleType === "MP" ? ", prix_unitaire, devise, taux_change, n_doss_erp, n_doss_4d" : "";
+  const colonnes = `article_id, numero_lot, qte_entree, qte_sortie, depot_id, ${dateField}${prixFields}`;
+
+  type LigneMouvementArticle = LigneMouvementLot & { article_id: number };
+  const paquetsIds: number[][] = [];
+  for (let i = 0; i < ids.length; i += 100) paquetsIds.push(ids.slice(i, i + 100));
+
+  const [mouvementsParPaquet, articlesDefaut, reservations] = await Promise.all([
+    Promise.all(
+      paquetsIds.map((paquet) =>
+        fetchAllRowsParallel<LigneMouvementArticle>(
+          () =>
+            supabaseServer.from(table).select("id", { count: "exact", head: true }).in("article_id", paquet) as unknown as PromiseLike<{
+              count: number | null;
+              error: { message: string } | null;
+            }>,
+          (from, to) =>
+            supabaseServer
+              .from(table)
+              .select(colonnes)
+              .in("article_id", paquet)
+              .order("id", { ascending: true })
+              .range(from, to) as unknown as PromiseLike<{ data: LigneMouvementArticle[] | null; error: { message: string } | null }>
+        )
+      )
+    ),
+    lireParPaquets<{ id: number; depot_id: number | null }>(ids, (paquet) =>
+      supabaseServer.from(tableArticles).select("id, depot_id").in("id", paquet)
+    ),
+    lireReservationsActives(),
+  ]);
+
+  const mouvementsParArticle = new Map<number, LigneMouvementArticle[]>();
+  for (const ligne of mouvementsParPaquet.flat()) {
+    const liste = mouvementsParArticle.get(ligne.article_id) ?? [];
+    liste.push(ligne);
+    mouvementsParArticle.set(ligne.article_id, liste);
+  }
+  const depotDefautParArticle = new Map(articlesDefaut.map((a) => [a.id, a.depot_id]));
+
+  const reserveParArticle = new Map<number, Map<string, number>>();
+  for (const r of reservations) {
+    if (r.articleType !== articleType || r.depotSourceId !== depotId) continue;
+    if (excludeTransferOrderId && r.transferOrderId === excludeTransferOrderId) continue;
+    const parLot = reserveParArticle.get(r.articleId) ?? new Map<string, number>();
+    const cle = r.numeroLot || "";
+    parLot.set(cle, (parLot.get(cle) ?? 0) + r.quantite);
+    reserveParArticle.set(r.articleId, parLot);
+  }
+
+  for (const id of ids) {
+    const lots = regrouperLotsDepot(
+      mouvementsParArticle.get(id) ?? [],
+      dateField,
+      depotDefautParArticle.get(id) ?? null,
+      depotId,
+      reserveParArticle.get(id) ?? new Map<string, number>()
+    );
+    if (lots.length > 0) resultat.set(id, lots);
+  }
+  return resultat;
 }
 
 // Meme regroupement par lot que fetchLotsInDepot, mais TOUS depots

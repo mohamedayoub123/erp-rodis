@@ -7,6 +7,9 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { formatDate } from "@/lib/format-date";
+import { lirePagesAvecLimite } from "@/lib/lecteur-valide";
+import { lireArticlesMpPourFormulaires, type ArticleMpListe } from "@/lib/articles-mp-liste";
+import { lireArticlesPfListe, type ArticlePfListe } from "@/lib/articles-pf-liste";
 import { createTransferOrderAction, deleteTransferOrderAction } from "./actions";
 import { TransferOrderLinesForm } from "./transfer-order-lines-form";
 
@@ -25,21 +28,21 @@ type TransferOrderRow = {
 };
 type InvoiceOrderRow = { id: number; transfer_order_id: number; numero: number | null; date_jour: string };
 
-async function fetchAll<T>(table: string, select: string) {
-  const rows: T[] = [];
-  let from = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabaseServer.from(table).select(select).range(from, from + pageSize - 1);
-    if (error) return { rows, error };
-    rows.push(...((data ?? []) as T[]));
-    if ((data ?? []).length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { rows, error: null };
+// Pages de 1000 lignes lues 6 par 6 (au lieu d'une par une), dans un ordre stable.
+async function lireTable<T>(table: string, colonnes: string): Promise<T[]> {
+  return lirePagesAvecLimite<T>(
+    () => supabaseServer.from(table).select("id", { count: "exact", head: true }),
+    (debut, fin) =>
+      supabaseServer.from(table).select(colonnes).order("id", { ascending: true }).range(debut, fin) as unknown as PromiseLike<{
+        data: T[] | null;
+        error: { message: string } | null;
+      }>
+  );
 }
+
+// Nombre de Transfer Orders affiches d'emblee (le reste avec "Voir tout") : la liste complete (~1 900 lignes)
+// pesait plusieurs Mo a chaque ouverture / filtre.
+const LIMITE_LIGNES = 150;
 
 // Code TO1.2026, TO2.2026... fige a la creation (colonne numero) - stable
 // pour toujours, une suppression ne decale plus les numeros des autres.
@@ -80,6 +83,7 @@ type SearchParams = Promise<{
   numeroTi?: string;
   remarque?: string;
   avertissement?: string;
+  tout?: string;
 }>;
 
 export default async function TransferOrderListPage({ searchParams }: { searchParams: SearchParams }) {
@@ -91,27 +95,34 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
   const numeroTiFilter = (params.numeroTi || "").trim().toLowerCase();
   const remarqueFilter = (params.remarque || "").trim().toLowerCase();
   const avertissement = params.avertissement || "";
+  const toutAfficher = params.tout === "1";
 
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "depots");
   const canDelete = await canDeletePageUser(currentUser, "depots");
 
-  const [
-    { rows: depots },
-    { rows: transferOrders, error },
-    { rows: invoiceOrders },
-    { rows: articlesMpRows },
-    { rows: articlesPfRows },
-  ] = await Promise.all([
-    fetchAll<DepotRow>("depots", "id, nom"),
-    fetchAll<TransferOrderRow>(
+  // Tout part en meme temps. Les articles ne servent qu'au formulaire "Nouveau Transfer Order" ; les Transfer
+  // Invoice ne servent qu'au filtre "Numero TI".
+  const [depots, resultatTransferOrders, invoiceOrders, articlesMpListe, articlesPfListe] = await Promise.all([
+    lireTable<DepotRow>("depots", "id, nom"),
+    lireTable<TransferOrderRow>(
       "transfer_orders",
       "id, depot_source_id, depot_destination_id, statut, date_jour, created_at, numero, remarque, type_mp, cree_par"
+    ).then(
+      (rows) => ({ rows, error: null as { message: string } | null }),
+      (e: unknown) => ({
+        rows: [] as TransferOrderRow[],
+        error: { message: e instanceof Error ? e.message : "Lecture des Transfer Orders impossible." },
+      })
     ),
-    fetchAll<InvoiceOrderRow>("invoice_orders", "id, transfer_order_id, numero, date_jour"),
-    fetchAll<{ id: number; nom_article: string }>("articles_matiere_premiere", "id, nom_article"),
-    fetchAll<{ id: number; nom_article: string }>("articles", "id, nom_article"),
+    numeroTiFilter
+      ? lireTable<InvoiceOrderRow>("invoice_orders", "id, transfer_order_id, numero, date_jour")
+      : Promise.resolve([] as InvoiceOrderRow[]),
+    canEdit ? lireArticlesMpPourFormulaires() : Promise.resolve([] as ArticleMpListe[]),
+    canEdit ? lireArticlesPfListe() : Promise.resolve([] as ArticlePfListe[]),
   ]);
+  const transferOrders = resultatTransferOrders.rows;
+  const error = resultatTransferOrders.error;
 
   const depotNomById = new Map(depots.map((d) => [d.id, d.nom]));
   const codeById = computeCodes(transferOrders);
@@ -133,12 +144,25 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
     depotSourceFilter || depotDestinationFilter || numeroToFilter || numeroTiFilter || remarqueFilter
   );
 
-  const articlesMp = articlesMpRows
-    .map((a) => ({ id: a.id, label: a.nom_article }))
-    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
-  const articlesPf = articlesPfRows
-    .map((a) => ({ id: a.id, label: a.nom_article }))
-    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+  const versOptions = (articles: { id: number; nom_article: string }[]) =>
+    articles
+      .map((a) => ({ id: a.id, label: a.nom_article }))
+      .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
+  const articlesMp = versOptions(articlesMpListe);
+  const articlesPf = versOptions(articlesPfListe);
+
+  const lignesAffichees = toutAfficher ? sortedTransferOrders : sortedTransferOrders.slice(0, LIMITE_LIGNES);
+  const nbMasquees = sortedTransferOrders.length - lignesAffichees.length;
+  const hrefVoirTout = (() => {
+    const query = new URLSearchParams();
+    if (params.depotSource) query.set("depotSource", params.depotSource);
+    if (params.depotDestination) query.set("depotDestination", params.depotDestination);
+    if (params.numeroTo) query.set("numeroTo", params.numeroTo);
+    if (params.numeroTi) query.set("numeroTi", params.numeroTi);
+    if (params.remarque) query.set("remarque", params.remarque);
+    query.set("tout", "1");
+    return `/depots/transfer-order?${query.toString()}`;
+  })();
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -321,7 +345,7 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedTransferOrders.map((row) => (
+                  {lignesAffichees.map((row) => (
                     <tr key={row.id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-semibold text-slate-900">
                         <Link href={`/depots/transfer-order/${row.id}`} className="text-sky-700 underline">
@@ -367,6 +391,19 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
               </table>
             </div>
           )}
+          {nbMasquees > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-4 text-sm text-slate-600">
+              <span>
+                {lignesAffichees.length} Transfer Orders affiches sur {sortedTransferOrders.length} (les plus recents).
+              </span>
+              <Link
+                href={hrefVoirTout}
+                className="rounded-full bg-sky-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-sky-500"
+              >
+                Voir tout ({sortedTransferOrders.length})
+              </Link>
+            </div>
+          ) : null}
         </section>
       </div>
     </main>
