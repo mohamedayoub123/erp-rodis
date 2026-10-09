@@ -5,7 +5,6 @@ import PptxGenJS from "pptxgenjs";
 import type { TrimestrePr4 } from "@/lib/trimestres-pr4";
 import { INDICATEURS_DIAPO, estDansLaCible, lireIndicateursAnnee } from "./indicateurs-trimestre";
 import { dernierMoisAffiche, lireKpiArretProduction, lireKpiCoutCarton } from "./kpi-donnees";
-import { lireNcTafPr4, type NcTafPr4 } from "./donnees-nc-taf";
 import {
   TYPE_CLASSEUR,
   TYPE_GRAPHIQUE,
@@ -31,7 +30,6 @@ import {
 //   5  Indicateur          -> tableau des indicateurs (T1 jusqu'au trimestre) + les 3 lignes de resume
 //   6  KPI                 -> graphique temps d'arret / production realisee
 //   7  KPI cout du carton  -> graphique multi-sources
-//   8  TAF et NC           -> tableaux NC et TAF de l'audit AI-n de l'annee
 // Les tableaux et graphiques sont de vrais objets PowerPoint (modifiables), pas des images.
 const CHEMIN_MODELE = path.join(process.cwd(), "assets", "pptx", "revue-processus-pr4-modele.pptx");
 const VERT = "0B9A46";
@@ -39,10 +37,7 @@ const ROUGE = "E00000";
 const POLICE = "Century Gothic";
 const POLICE_TABLEAU = "Calibri";
 const ORANGE = "ED7D31";
-const ORANGE_CLAIR = "F4B183";
-const PECHE = "FBE5D6";
 
-const pct = (valeur: number | null) => (valeur === null ? "" : `${Math.round(valeur)}%`);
 const pctUneDecimale = (valeur: number | null) =>
   valeur === null ? "-" : `${valeur.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 
@@ -55,7 +50,6 @@ export type Donnees = {
   indicateurs: Awaited<ReturnType<typeof lireIndicateursAnnee>>;
   arretProduction: Awaited<ReturnType<typeof lireKpiArretProduction>>;
   coutCarton: Awaited<ReturnType<typeof lireKpiCoutCarton>>;
-  ncTaf: NcTafPr4;
 };
 
 function pieceIndicateurs(slide: PptxGenJS.Slide, { trimestre, indicateurs }: Donnees) {
@@ -209,103 +203,12 @@ function pieceKpiCoutCarton(slide: PptxGenJS.Slide, pres: PptxGenJS, { coutCarto
   );
 }
 
-// Tableaux NC et TAF : memes couleurs que les tableaux Excel de la presentation (orange, nombres a droite)
-function piecesNcTaf(slide: PptxGenJS.Slide, { ncTaf }: Donnees) {
-  const traits: PptxGenJS.TableCellProps["border"] = [{ type: "none" }, { type: "none" }, { type: "solid", color: ORANGE, pt: 0.75 }, { type: "none" }];
-  const titre = (texte: string, colonnes: number, taille: number): CelluleTableau[] => [
-    { text: texte, options: { colspan: colonnes, bold: true, fill: { color: ORANGE_CLAIR }, color: "000000", fontSize: taille, align: "center", valign: "middle" } },
-  ];
-  const entetes = (libelles: string[], taille: number): CelluleTableau[] =>
-    libelles.map((texte, index) => ({
-      text: texte,
-      options: { bold: true, fill: { color: ORANGE }, color: "FFFFFF", fontSize: taille, align: index === 0 ? "left" : "center", valign: "middle" },
-    }));
-  const corps = (texte: string, index: number, taille: number, gras = false): CelluleTableau => ({
-    text: texte,
-    options: {
-      bold: gras,
-      fontSize: taille,
-      color: "000000",
-      align: index === 0 ? "left" : "right",
-      valign: index === 0 ? "middle" : "bottom",
-      fill: index === 1 ? { color: PECHE } : undefined,
-      border: traits,
-    },
-  });
-  const vide = (texte: string, colonnes: number, taille: number): CelluleTableau[] => [
-    { text: texte, options: { colspan: colonnes, italic: true, color: "7F7F7F", fontSize: taille, align: "center", valign: "middle", border: traits } },
-  ];
-
-  // --- NC
-  const { nc } = ncTaf;
-  const ligneNc = (ligne: (typeof nc)["total"], gras: boolean): CelluleTableau[] =>
-    [
-      ligne.processus,
-      String(ligne.nc),
-      pct(ligne.partPourcent),
-      String(ligne.correction),
-      pct(ligne.correctionPourcent),
-      String(ligne.ac),
-      pct(ligne.acPourcent),
-      String(ligne.acEfficace),
-      pct(ligne.acEfficacePourcent),
-      String(ligne.cloturees),
-      pct(ligne.clotureesPourcent),
-    ].map((texte, index) => corps(texte, index, 8, gras));
-  const rangeesNc: CelluleTableau[][] = [
-    titre(`NC ${ncTaf.audit}`, 11, 10),
-    entetes(
-      ["Processus", "NC Qté", "NC Part en %", "Correction réalisée", "% Correction réalisée", "AC réalisée", "% AC Réalisé", "AC efficace", "%AC efficace", "Nb de NC cloturée", "% de NC cloturée"],
-      7.5
-    ),
-    ...(nc.lignes.length > 0
-      ? [...nc.lignes.map((ligne) => ligneNc(ligne, false)), ligneNc(nc.total, true)]
-      : [vide(`Aucune NC PR4 enregistrée dans l'ERP pour ${ncTaf.audit}`, 11, 8)]),
-  ];
-  slide.addTable(rangeesNc as PptxGenJS.TableRow[], {
-    x: 0.3,
-    y: 1.46,
-    w: 10.0,
-    colW: [2.65, 0.6, 0.7, 0.8, 0.9, 0.65, 0.75, 0.65, 0.75, 0.75, 0.8],
-    fontFace: POLICE_TABLEAU,
-    rowH: 0.3,
-  });
-
-  // --- TAF
-  const { taf } = ncTaf;
-  const ligneTaf = (ligne: (typeof taf)["total"], gras: boolean): CelluleTableau[] =>
-    [
-      ligne.processus,
-      String(ligne.taf),
-      pct(ligne.partPourcent),
-      String(ligne.realisees),
-      pct(ligne.realiseesPourcent),
-      pct(ligne.progressionNonRealisees),
-    ].map((texte, index) => corps(texte, index, 10, gras));
-  const rangeesTaf: CelluleTableau[][] = [
-    titre(`TAF ${ncTaf.audit}`, 6, 12),
-    entetes(["Processus", "TAF Qté", "TAF Part en %", "TAF réalisée", "% TAF réalisée", "% progression TAF non réalisée"], 9),
-    ...(taf.lignes.length > 0
-      ? [...taf.lignes.map((ligne) => ligneTaf(ligne, false)), ligneTaf(taf.total, true)]
-      : [vide(`Aucune TAF PR4 enregistrée dans l'ERP pour ${ncTaf.audit}`, 6, 10)]),
-  ];
-  slide.addTable(rangeesTaf as PptxGenJS.TableRow[], {
-    x: 0.76,
-    y: 4.66,
-    w: 9.6,
-    colW: [3.4, 0.9, 1.2, 1.1, 1.3, 1.7],
-    fontFace: POLICE_TABLEAU,
-    rowH: 0.32,
-  });
-}
-
 async function construirePieces(donnees: Donnees): Promise<JSZip> {
   const pres = new PptxGenJS();
   pres.layout = "LAYOUT_WIDE";
   pieceIndicateurs(pres.addSlide(), donnees); // diapositive 1
   pieceKpiArretProduction(pres.addSlide(), pres, donnees); // diapositive 2
   pieceKpiCoutCarton(pres.addSlide(), pres, donnees); // diapositive 3
-  piecesNcTaf(pres.addSlide(), donnees); // diapositive 4
   const sortie = (await pres.write({ outputType: "nodebuffer" })) as Buffer;
   return JSZip.loadAsync(sortie);
 }
@@ -335,13 +238,12 @@ async function cadresDeLaPiece(pieces: JSZip, numero: number): Promise<{ cadres:
 
 export async function chargerDonnees(trimestre: TrimestrePr4): Promise<Donnees> {
   const dernierMois = dernierMoisAffiche(trimestre.annee, trimestre.trimestre);
-  const [indicateurs, arretProduction, coutCarton, ncTaf] = await Promise.all([
+  const [indicateurs, arretProduction, coutCarton] = await Promise.all([
     lireIndicateursAnnee(trimestre.annee),
     lireKpiArretProduction(dernierMois),
     lireKpiCoutCarton(trimestre.annee, dernierMois),
-    lireNcTafPr4(trimestre.annee, trimestre.trimestre),
   ]);
-  return { trimestre, indicateurs, arretProduction, coutCarton, ncTaf };
+  return { trimestre, indicateurs, arretProduction, coutCarton };
 }
 
 export async function construireRevuePptx(trimestre: TrimestrePr4): Promise<Buffer> {
@@ -406,24 +308,6 @@ export async function assemblerRevuePptx(donnees: Donnees): Promise<Buffer> {
     modele.file(rels(7), ajouterRelation(relations.rels, "rId20", TYPE_RELATION_GRAPHIQUE, "../charts/chart2.xml"));
     await supprimerImageInutilisee(modele, relations.cible);
     modele.file(diapo(7), ajouterCadres(sansImage.xml, cadres.map((c) => c.replace(/r:id="rId\d+"/, 'r:id="rId20"')), 100));
-  }
-
-  // ---- 8. TAF et NC : les deux tableaux remplacent les deux images
-  {
-    const { cadres } = await cadresDeLaPiece(pieces, 4);
-    let xml = await lireTexte(modele, diapo(8));
-    let relations = await lireTexte(modele, rels(8));
-    const cibles: string[] = [];
-    for (const nom of ["Picture 5", "Picture 8"]) {
-      const retiree = retirerImage(xml, nom);
-      xml = retiree.xml;
-      const sans = retirerRelation(relations, retiree.relation);
-      relations = sans.rels;
-      cibles.push(sans.cible);
-    }
-    modele.file(rels(8), relations);
-    for (const cible of cibles) await supprimerImageInutilisee(modele, cible);
-    modele.file(diapo(8), ajouterCadres(xml, cadres, 100));
   }
 
   types = avecExtension(types, "xlsx", TYPE_CLASSEUR);
