@@ -9,6 +9,8 @@ import { LotStockCell } from "./lot-stock-cell";
 import { DepotStockBatchForm } from "./stock-batch-form";
 import { SyncStockButton } from "./sync-stock-button";
 import { syncDepotStockToReserveAction } from "../actions";
+import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
+import { matchesArticleSearch } from "@/lib/article-search";
 
 type DepotRow = { id: number; nom: string };
 type ArticlePfRow = { id: number; nom_article: string; nature: string | null; depot_id: number | null };
@@ -244,12 +246,15 @@ export default async function DepotDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ reserve?: string }>;
+  searchParams: Promise<{ reserve?: string; article?: string }>;
 }) {
   noStore();
   const { id } = await params;
+  const parametres = await searchParams;
   // ?reserve=1 : n'afficher que les articles/lots reserves (le reste du stock reste compte pour l'alignement)
-  const seulementReserves = (await searchParams).reserve === "1";
+  const seulementReserves = parametres.reserve === "1";
+  // ?article=... : n'afficher que cet article (voir plus bas)
+  const articleFiltre = (parametres.article || "").trim();
   const depotId = Number(id);
   if (!depotId) {
     notFound();
@@ -418,8 +423,31 @@ export default async function DepotDetailPage({
   // ci-dessus garde toujours toutes les lignes (stockPf / stockMp complets).
   const nbReservesPf = stockPf.filter((row) => row.reserve > 1e-6).length;
   const nbReservesMp = stockMp.filter((row) => row.reserve > 1e-6).length;
-  const stockPfAffiche = seulementReserves ? stockPf.filter((row) => row.reserve > 1e-6) : stockPf;
-  const stockMpAffiche = seulementReserves ? stockMp.filter((row) => row.reserve > 1e-6) : stockMp;
+  // Filtre article : si le texte est EXACTEMENT le nom d'un article (choisi dans la liste), seulement cet article ;
+  // sinon recherche tolerante (tous les mots, sans tenir compte des accents / majuscules).
+  const articleFiltreMinuscule = articleFiltre.toLowerCase();
+  const nomExactTrouve =
+    articleFiltre !== "" &&
+    [...stockPf, ...stockMp].some((row) => row.nom.trim().toLowerCase() === articleFiltreMinuscule);
+  const correspondAuFiltreArticle = (nom: string) =>
+    articleFiltre === "" ||
+    (nomExactTrouve ? nom.trim().toLowerCase() === articleFiltreMinuscule : matchesArticleSearch(nom, articleFiltre));
+  const stockPfAffiche = stockPf.filter(
+    (row) => (!seulementReserves || row.reserve > 1e-6) && correspondAuFiltreArticle(row.nom)
+  );
+  const stockMpAffiche = stockMp.filter(
+    (row) => (!seulementReserves || row.reserve > 1e-6) && correspondAuFiltreArticle(row.nom)
+  );
+  const optionsArticles = [...new Set([...stockPf, ...stockMp].map((row) => row.nom))]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
+  const hrefFiltres = (reserve: boolean, avecArticle = true) => {
+    const query = new URLSearchParams();
+    if (reserve) query.set("reserve", "1");
+    if (avecArticle && articleFiltre) query.set("article", articleFiltre);
+    const texte = query.toString();
+    return `/depots/${depotId}${texte ? `?${texte}` : ""}`;
+  };
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -499,28 +527,54 @@ export default async function DepotDetailPage({
           </details>
         ) : null}
 
-        <section className="flex flex-wrap items-center gap-3 rounded-[1.75rem] border border-black/5 bg-white p-4 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <p className="text-sm font-semibold text-slate-700">Afficher :</p>
-          <Link
-            href={`/depots/${depotId}`}
-            className={`rounded-full px-4 py-2 text-sm font-semibold ${
-              seulementReserves ? "border border-slate-200 text-slate-700" : "bg-slate-950 text-white"
-            }`}
-          >
-            Tout le stock
-          </Link>
-          <Link
-            href={`/depots/${depotId}?reserve=1`}
-            className={`rounded-full px-4 py-2 text-sm font-semibold ${
-              seulementReserves ? "bg-amber-600 text-white" : "border border-amber-200 bg-amber-50 text-amber-800"
-            }`}
-          >
-            Seulement les articles reserves ({nbReservesPf + nbReservesMp})
-          </Link>
-          <p className="text-xs text-slate-500">
-            Clique sur &laquo; Reserve ou ? &raquo; dans la colonne Reserve pour voir quel Transfer Order ou quel
-            code de production reserve la ligne.
-          </p>
+        <section className="space-y-3 rounded-[1.75rem] border border-black/5 bg-white p-4 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+          <form className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+            {seulementReserves ? <input type="hidden" name="reserve" value="1" /> : null}
+            <SearchableFilterInput
+              name="article"
+              defaultValue={articleFiltre}
+              options={optionsArticles}
+              placeholder="Filtrer par article..."
+            />
+            <button
+              type="submit"
+              className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Filtrer
+            </button>
+            {articleFiltre ? (
+              <Link
+                href={hrefFiltres(seulementReserves, false)}
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
+              >
+                Effacer
+              </Link>
+            ) : null}
+          </form>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm font-semibold text-slate-700">Afficher :</p>
+            <Link
+              href={hrefFiltres(false)}
+              className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                seulementReserves ? "border border-slate-200 text-slate-700" : "bg-slate-950 text-white"
+              }`}
+            >
+              Tout le stock
+            </Link>
+            <Link
+              href={hrefFiltres(true)}
+              className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                seulementReserves ? "bg-amber-600 text-white" : "border border-amber-200 bg-amber-50 text-amber-800"
+              }`}
+            >
+              Seulement les articles reserves ({nbReservesPf + nbReservesMp})
+            </Link>
+            <p className="text-xs text-slate-500">
+              Clique sur &laquo; Reserve ou ? &raquo; dans la colonne Reserve pour voir quel Transfer Order ou quel
+              code de production reserve la ligne.
+            </p>
+          </div>
         </section>
 
         <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
@@ -530,7 +584,11 @@ export default async function DepotDetailPage({
           {stockPf.length === 0 ? (
             <p className="px-6 py-6 text-sm text-slate-500">Aucun stock produit fini dans ce depot.</p>
           ) : stockPfAffiche.length === 0 ? (
-            <p className="px-6 py-6 text-sm text-slate-500">Aucun article produit fini reserve dans ce depot.</p>
+            <p className="px-6 py-6 text-sm text-slate-500">
+              {articleFiltre || seulementReserves
+                ? "Aucun article produit fini ne correspond a ce filtre dans ce depot."
+                : "Aucun article produit fini dans ce depot."}
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -601,7 +659,11 @@ export default async function DepotDetailPage({
           {stockMp.length === 0 ? (
             <p className="px-6 py-6 text-sm text-slate-500">Aucun stock matiere premiere dans ce depot.</p>
           ) : stockMpAffiche.length === 0 ? (
-            <p className="px-6 py-6 text-sm text-slate-500">Aucune matiere premiere reservee dans ce depot.</p>
+            <p className="px-6 py-6 text-sm text-slate-500">
+              {articleFiltre || seulementReserves
+                ? "Aucune matiere premiere ne correspond a ce filtre dans ce depot."
+                : "Aucune matiere premiere dans ce depot."}
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
