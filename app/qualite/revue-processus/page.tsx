@@ -8,7 +8,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 // de pageKey separee par revue pour l'instant.
 const TILES = [
   {
-    label: "PR4 - Indicateurs Cosmetique",
+    label: "PR4 Gérer la fabrication des produits cosmétique, le stockage et l'expédition des PF",
     href: "/qualite/revue-processus/pr4",
     icon: "\u{1F4C8}",
     description: "Tableau des 13 indicateurs (production, qualite, energie) par mois, cible et calcul automatique.",
