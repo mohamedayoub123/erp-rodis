@@ -9,6 +9,12 @@ import { LotStockCell } from "./lot-stock-cell";
 import { DepotStockBatchForm } from "./stock-batch-form";
 import { SyncStockButton } from "./sync-stock-button";
 import { syncDepotStockToReserveAction } from "../actions";
+import {
+  ETAPE_PRODUCTION_LIBELLE,
+  ajouterSource,
+  fetchReservedByLotForDepot,
+  type SourceReservation,
+} from "./reservations";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 
@@ -89,134 +95,6 @@ function deriveVracStatusByLot(lots: LotRow[]): Map<string, string> {
     map.set(key, lot.note.includes("A recuperer") ? "A recuperer" : "Conforme");
   }
   return map;
-}
-
-// D'ou vient une reservation : un Transfer Order approuve (TO) ou une validation Salle de pesage /
-// conditionnement de la production. Sert au detail "Reserve ou ?" de chaque ligne.
-type SourceReservation = {
-  type: "TO" | "PRODUCTION";
-  code: string;
-  detail: string;
-  href: string;
-  quantite: number;
-};
-type SourcesParArticleLot = Map<number, Map<string, SourceReservation[]>>;
-
-const STATUT_TO_LIBELLE: Record<string, string> = {
-  en_attente: "en attente",
-  approuve: "approuve",
-  partiellement_fini: "partiellement livre",
-  poste: "poste",
-};
-const ETAPE_PRODUCTION_LIBELLE: Record<string, string> = {
-  pesage: "Salle de pesage",
-  salle_conditionnement: "Salle de conditionnement",
-  vrac: "Fabrication",
-  carton: "Conditionnement",
-  emballage: "Emballage",
-};
-
-function ajouterSource(cible: SourcesParArticleLot, articleId: number, numeroLot: string, source: SourceReservation) {
-  const parLot = cible.get(articleId) ?? new Map<string, SourceReservation[]>();
-  const liste = parLot.get(numeroLot) ?? [];
-  const existante = liste.find((s) => s.type === source.type && s.code === source.code);
-  if (existante) existante.quantite += source.quantite;
-  else liste.push({ ...source });
-  parLot.set(numeroLot, liste);
-  cible.set(articleId, parLot);
-}
-
-// Reservation Transfer Order deja promise sur ce depot, par article puis
-// par numero de lot - remplace un fetchReservedByLot appele UNE FOIS PAR
-// ARTICLE distinct du depot (3 requetes chacun, page tres lente des que le
-// depot a beaucoup d'articles) par une seule serie de requetes partant du
-// DEPOT (transfer_orders de ce depot -> leurs lignes -> leurs lots), quel
-// que soit le nombre d'articles concernes. Renvoie aussi, pour chaque
-// article + lot, QUELS Transfer Orders le reservent (code, depot de
-// destination, statut) pour le detail "Reserve ou ?".
-async function fetchReservedByLotForDepot(depotId: number): Promise<{
-  pf: Map<number, Map<string, number>>;
-  mp: Map<number, Map<string, number>>;
-  sourcesPf: SourcesParArticleLot;
-  sourcesMp: SourcesParArticleLot;
-}> {
-  const pf = new Map<number, Map<string, number>>();
-  const mp = new Map<number, Map<string, number>>();
-  const sourcesPf: SourcesParArticleLot = new Map();
-  const sourcesMp: SourcesParArticleLot = new Map();
-  const vide = { pf, mp, sourcesPf, sourcesMp };
-
-  const [{ data: transferOrdersData }, { data: depotsData }] = await Promise.all([
-    supabaseServer
-      .from("transfer_orders")
-      .select("id, numero, date_jour, statut, depot_destination_id")
-      .eq("depot_source_id", depotId),
-    supabaseServer.from("depots").select("id, nom"),
-  ]);
-  const transferOrders = (transferOrdersData ?? []) as {
-    id: number;
-    numero: number | null;
-    date_jour: string;
-    statut: string;
-    depot_destination_id: number;
-  }[];
-  if (transferOrders.length === 0) return vide;
-  const transferOrderById = new Map(transferOrders.map((t) => [t.id, t]));
-  const depotNomById = new Map(((depotsData ?? []) as DepotRow[]).map((d) => [d.id, d.nom]));
-
-  const { data: lignesData } = await supabaseServer
-    .from("transfer_order_lignes")
-    .select("id, transfer_order_id, article_type, article_id")
-    .in(
-      "transfer_order_id",
-      transferOrders.map((t) => t.id)
-    );
-  const lignes = (lignesData ?? []) as {
-    id: number;
-    transfer_order_id: number;
-    article_type: string;
-    article_id: number;
-  }[];
-  if (lignes.length === 0) return vide;
-
-  const ligneById = new Map(lignes.map((l) => [l.id, l]));
-  const { data: ligneLotsData } = await supabaseServer
-    .from("transfer_order_ligne_lots")
-    .select("transfer_order_ligne_id, numero_lot, quantite")
-    .in(
-      "transfer_order_ligne_id",
-      lignes.map((l) => l.id)
-    );
-
-  for (const row of (ligneLotsData ?? []) as {
-    transfer_order_ligne_id: number;
-    numero_lot: string | null;
-    quantite: number;
-  }[]) {
-    const ligne = ligneById.get(row.transfer_order_ligne_id);
-    if (!ligne) continue;
-    const target = ligne.article_type === "MP" ? mp : pf;
-    const byLot = target.get(ligne.article_id) ?? new Map<string, number>();
-    const key = row.numero_lot || "";
-    const quantite = Number(row.quantite ?? 0);
-    byLot.set(key, (byLot.get(key) ?? 0) + quantite);
-    target.set(ligne.article_id, byLot);
-
-    const transferOrder = transferOrderById.get(ligne.transfer_order_id);
-    if (transferOrder && quantite > 1e-9) {
-      ajouterSource(ligne.article_type === "MP" ? sourcesMp : sourcesPf, ligne.article_id, key, {
-        type: "TO",
-        code: `TO.${transferOrder.date_jour.slice(0, 4)}.${transferOrder.numero ?? transferOrder.id}`,
-        detail: `vers ${depotNomById.get(transferOrder.depot_destination_id) ?? "un autre depot"} (${
-          STATUT_TO_LIBELLE[transferOrder.statut] ?? transferOrder.statut
-        })`,
-        href: `/depots/transfer-order/${transferOrder.id}`,
-        quantite,
-      });
-    }
-  }
-
-  return vide;
 }
 
 // Petit bouton deroulant "Reserve ou ?" : liste des Transfer Orders / codes de production qui reservent cette ligne.
@@ -319,7 +197,7 @@ export default async function DepotDetailPage({
       .from("production_mp_reserve")
       .select("production_code_termine_id, article_mp_id, numero_lot, quantite")
       .eq("depot_id", depotId)
-      .in("article_mp_id", mpArticleIds);
+      .gt("quantite", 0);
     const reservesProduction = (reserveData ?? []) as {
       production_code_termine_id: number;
       article_mp_id: number;
