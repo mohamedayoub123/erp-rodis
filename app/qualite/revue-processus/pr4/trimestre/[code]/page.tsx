@@ -26,7 +26,7 @@ const carteVide =
 function Partie({ id, children }: { id: IdPartie; children: ReactNode }) {
   const partie = PARTIES.find((p) => p.id === id);
   return (
-    <section id={id} data-partie className="scroll-mt-4 space-y-4">
+    <section id={id} data-partie className="scroll-mt-[calc(var(--haut-entete,0px)+1rem)] space-y-4">
       <h2 data-hors-diapo className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
         {PARTIES.findIndex((p) => p.id === id) + 1}. {partie?.libelle}
       </h2>
