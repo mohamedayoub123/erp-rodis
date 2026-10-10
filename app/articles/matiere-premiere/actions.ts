@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { contenanceMpDisponible, lireContenance } from "@/lib/contenance-mp";
+import { conditionnementMpDisponible, contenanceMpDisponible, lireConditionnement, lireContenance } from "@/lib/contenance-mp";
 
 function normalizeArticle(value: string) {
   return value.replace(/ /g, "").trim().toUpperCase();
@@ -40,15 +40,28 @@ async function requireDeleteAccess() {
   }
 }
 
-// Contenance habituelle de l'article (25 pour un sac de 25 kg) : facultative ici, demandee a chaque reception d'import.
-// Ignoree tant que le SQL add_contenance_mp.sql n'est pas execute.
-async function lireContenanceArticle(formData: FormData): Promise<{ contenance: number } | { contenance: null } | Record<string, never>> {
-  if (!(await contenanceMpDisponible())) return {};
+// Contenance habituelle de l'article : nombre en kg + type (Sac, Fut, Barrique), facultatifs ici (ils sont demandes a
+// chaque reception d'import). Les deux vont ensemble : tous les deux remplis, ou tous les deux vides. Chaque partie est
+// ignoree tant que son SQL (add_contenance_mp.sql, add_conditionnement_mp.sql) n'est pas execute.
+async function lireContenanceArticle(formData: FormData): Promise<Record<string, number | string | null>> {
+  const [avecContenance, avecType] = await Promise.all([contenanceMpDisponible(), conditionnementMpDisponible()]);
+  const champs: Record<string, number | string | null> = {};
+  if (!avecContenance) return champs;
+
   const contenance = lireContenance(formData.get("contenance"));
   if (contenance !== null && contenance <= 0) {
-    throw new Error("La contenance doit etre superieure a 0 (ex : 25 pour un sac de 25 kg).");
+    throw new Error("La contenance doit etre superieure a 0 (en kg, ex : 25).");
   }
-  return { contenance };
+  champs.contenance = contenance;
+
+  if (avecType) {
+    const conditionnement = lireConditionnement(formData.get("conditionnement"));
+    if ((contenance !== null) !== (conditionnement !== null)) {
+      throw new Error("Renseigne la contenance (en kg) ET le type (Sac, Fut, Barrique), ou laisse les deux vides.");
+    }
+    champs.conditionnement = conditionnement;
+  }
+  return champs;
 }
 
 function revalidateArticlesMpPages() {

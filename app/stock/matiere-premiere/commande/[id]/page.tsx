@@ -18,7 +18,8 @@ import {
 } from "../actions";
 import { statutBcBadgeClass, type StatutBc } from "../../bc/constants";
 import { convertirEnFcfa } from "@/lib/prix-devise";
-import { contenanceMpDisponible, formaterContenance } from "@/lib/contenance-mp";
+import { conditionnementMpDisponible, contenanceMpDisponible, formaterContenance } from "@/lib/contenance-mp";
+import { ChampsContenance } from "@/app/_components/champs-contenance";
 
 type ImportRow = {
   id: number;
@@ -30,6 +31,7 @@ type ImportRow = {
   date_import: string | null;
   lot_stock_id: number | null;
   contenance?: number | null;
+  conditionnement?: string | null;
 };
 
 type BcLigneRow = {
@@ -53,13 +55,13 @@ function formatFcfa(prix: number | null) {
   return `${prix.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} FCFA`;
 }
 
-async function fetchImportsForDossier(nDoss4d: string | null, nDossErp: string | null, avecContenance: boolean) {
+async function fetchImportsForDossier(nDoss4d: string | null, nDossErp: string | null, avecContenance: boolean, avecType: boolean) {
   let query = supabaseServer
     .from("bons_commande_mp_imports")
     .select(
       `id, bc_ligne_id, quantite_importee, numero_lot, date_fabrication, date_expiration, date_import, lot_stock_id${
         avecContenance ? ", contenance" : ""
-      }`
+      }${avecType ? ", conditionnement" : ""}`
     )
     .order("date_import", { ascending: false });
 
@@ -82,21 +84,21 @@ async function fetchBcLignes(ligneIds: number[]) {
   return (data ?? []) as BcLigneRow[];
 }
 
-type ArticleContenance = { unite: string | null; contenance: number | null };
+type ArticleContenance = { contenance: number | null; conditionnement: string | null };
 
-// Unite et contenance habituelle de chaque article du dossier (proposee dans le formulaire de reception)
-async function fetchContenancesArticles(articleIds: number[]) {
+// Contenance habituelle (nombre en kg + type) de chaque article du dossier, proposee dans le formulaire de reception
+async function fetchContenancesArticles(articleIds: number[], avecType: boolean) {
   if (articleIds.length === 0) return new Map<number, ArticleContenance>();
 
   const { data } = await supabaseServer
     .from("articles_matiere_premiere")
-    .select("id, unite, contenance")
+    .select(avecType ? "id, contenance, conditionnement" : "id, contenance")
     .in("id", articleIds);
 
   return new Map(
-    ((data ?? []) as (ArticleContenance & { id: number })[]).map((row) => [
+    ((data ?? []) as unknown as (Partial<ArticleContenance> & { id: number })[]).map((row) => [
       row.id,
-      { unite: row.unite, contenance: row.contenance },
+      { contenance: row.contenance ?? null, conditionnement: row.conditionnement ?? null },
     ])
   );
 }
@@ -136,8 +138,8 @@ export default async function ImportMpDossierPage({
   const canDelete = await canDeletePageUser(currentUser, "commandeMp");
   const canVoirPrix = await canVoirPrixUser(currentUser);
 
-  const avecContenance = await contenanceMpDisponible();
-  const { rows, error } = await fetchImportsForDossier(nDoss4d, nDossErp, avecContenance);
+  const [avecContenance, avecType] = await Promise.all([contenanceMpDisponible(), conditionnementMpDisponible()]);
+  const { rows, error } = await fetchImportsForDossier(nDoss4d, nDossErp, avecContenance, avecType);
 
   if (!error && rows.length === 0) {
     notFound();
@@ -146,7 +148,7 @@ export default async function ImportMpDossierPage({
   const bcLignes = await fetchBcLignes([...new Set(rows.map((row) => row.bc_ligne_id))]);
   const ligneById = new Map(bcLignes.map((ligne) => [ligne.id, ligne]));
   const articleIds = [...new Set(bcLignes.map((ligne) => ligne.article_id).filter((id): id is number => id !== null))];
-  const articlesById = avecContenance ? await fetchContenancesArticles(articleIds) : new Map<number, ArticleContenance>();
+  const articlesById = avecContenance ? await fetchContenancesArticles(articleIds, avecType) : new Map<number, ArticleContenance>();
   const lotIds = rows.map((row) => row.lot_stock_id).filter((lotId): lotId is number => lotId !== null);
   const lotDataById = await fetchLotPrices(lotIds);
 
@@ -325,18 +327,16 @@ export default async function ImportMpDossierPage({
                                         />
                                       </label>
                                       {avecContenance ? (
-                                        <label className="grid gap-1 text-xs text-slate-500">
-                                          Contenance de ce lot ({articlesById.get(ligne.article_id ?? -1)?.unite || "unite"}) - ex : 25 pour un sac de 25 kg
-                                          <input
-                                            type="number"
-                                            step="0.001"
-                                            min="0.001"
-                                            name="contenance"
-                                            defaultValue={articlesById.get(ligne.article_id ?? -1)?.contenance ?? undefined}
-                                            className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
-                                            required
+                                        <div className="grid gap-1 text-xs text-slate-500">
+                                          Contenance de ce lot (en kg){avecType ? " et type" : ""}
+                                          <ChampsContenance
+                                            contenance={articlesById.get(ligne.article_id ?? -1)?.contenance}
+                                            conditionnement={articlesById.get(ligne.article_id ?? -1)?.conditionnement}
+                                            avecType={avecType}
+                                            requis
+                                            classeChamp="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                           />
-                                        </label>
+                                        </div>
                                       ) : null}
                                       <label className="grid gap-1 text-xs text-slate-500">
                                         Fournisseur
@@ -489,7 +489,7 @@ export default async function ImportMpDossierPage({
                           <td className="px-4 py-3 text-slate-600">{row.numero_lot || "-"}</td>
                           {avecContenance ? (
                             <td className="px-4 py-3 text-slate-600">
-                              {formaterContenance(row.contenance, articlesById.get(ligne?.article_id ?? -1)?.unite)}
+                              {formaterContenance(row.contenance, row.conditionnement)}
                             </td>
                           ) : null}
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_fabrication)}</td>

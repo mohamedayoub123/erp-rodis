@@ -4,7 +4,8 @@ import { createArticleMpAction } from "../actions";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SubmitButton } from "@/app/_components/submit-button";
-import { contenanceMpDisponible } from "@/lib/contenance-mp";
+import { conditionnementMpDisponible, contenanceMpDisponible } from "@/lib/contenance-mp";
+import { ChampsContenance } from "@/app/_components/champs-contenance";
 
 export default async function NouvelArticleMpPage() {
   const [currentStockUser, depotsResult] = await Promise.all([
@@ -12,7 +13,7 @@ export default async function NouvelArticleMpPage() {
     supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
   ]);
   const canWriteArticles = await canWritePageUser(currentStockUser, "articlesMatierePremiereNouvelle");
-  const avecContenance = await contenanceMpDisponible();
+  const [avecContenance, avecType] = await Promise.all([contenanceMpDisponible(), conditionnementMpDisponible()]);
   const depots = ((depotsResult.data ?? []) as { id: number; nom: string }[]).map((d) => ({
     id: d.id,
     label: d.nom,
@@ -72,13 +73,9 @@ export default async function NouvelArticleMpPage() {
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
               />
               {avecContenance ? (
-                <input
-                  type="number"
-                  step="0.001"
-                  min="0"
-                  name="contenance"
-                  placeholder="Contenance (ex : 25 pour un sac de 25 kg)"
-                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                <ChampsContenance
+                  avecType={avecType}
+                  classeChamp="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                 />
               ) : null}
               <input

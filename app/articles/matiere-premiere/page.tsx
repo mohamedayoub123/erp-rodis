@@ -10,7 +10,8 @@ import { SubmitButton } from "@/app/_components/submit-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { matchesArticleSearch } from "@/lib/article-search";
-import { SQL_CONTENANCE, contenanceMpDisponible, formaterContenance } from "@/lib/contenance-mp";
+import { SQL_CONDITIONNEMENT, SQL_CONTENANCE, conditionnementMpDisponible, contenanceMpDisponible, formaterContenance } from "@/lib/contenance-mp";
+import { ChampsContenance } from "@/app/_components/champs-contenance";
 
 const EXPORT_COLUMNS = [
   { label: "Article", key: "nom_article" },
@@ -39,6 +40,7 @@ type ArticleMpRow = {
   max_stock: number | null;
   depot_id: number | null;
   contenance?: number | null;
+  conditionnement?: string | null;
 };
 
 const ARTICLES_MP_COLUMNS =
@@ -49,9 +51,9 @@ const ARTICLES_MP_COLUMNS =
 // pages, mais elles peuvent etre demandees EN PARALLELE (une seule attente
 // reseau au lieu d'une boucle sequentielle qui attend chaque page l'une
 // apres l'autre), meme motif que Stock MP/PF avant leur passage en RPC.
-async function fetchAllArticlesMp(avecContenance: boolean) {
+async function fetchAllArticlesMp(avecContenance: boolean, avecType: boolean) {
   const pageSize = 1000;
-  const colonnes = avecContenance ? `${ARTICLES_MP_COLUMNS}, contenance` : ARTICLES_MP_COLUMNS;
+  const colonnes = `${ARTICLES_MP_COLUMNS}${avecContenance ? ", contenance" : ""}${avecType ? ", conditionnement" : ""}`;
 
   const { count, error: countError } = await supabaseServer
     .from("articles_matiere_premiere")
@@ -110,9 +112,9 @@ export default async function ArticlesMatierePremierePage({
   const from = (currentPage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const avecContenance = await contenanceMpDisponible();
+  const [avecContenance, avecType] = await Promise.all([contenanceMpDisponible(), conditionnementMpDisponible()]);
   const [{ rows: allArticles, error: fetchError }, depotsResult] = await Promise.all([
-    fetchAllArticlesMp(avecContenance),
+    fetchAllArticlesMp(avecContenance, avecType),
     supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
   ]);
   const depots = ((depotsResult.data ?? []) as { id: number; nom: string }[]).map((d) => ({
@@ -170,7 +172,11 @@ export default async function ArticlesMatierePremierePage({
             <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
             <ExportExcelButton
               rows={filteredArticles}
-              columns={avecContenance ? [...EXPORT_COLUMNS, { label: "Contenance", key: "contenance" }] : EXPORT_COLUMNS}
+              columns={[
+                ...EXPORT_COLUMNS,
+                ...(avecContenance ? [{ label: "Contenance (kg)", key: "contenance" }] : []),
+                ...(avecType ? [{ label: "Type de contenance", key: "conditionnement" }] : []),
+              ]}
               filename={`articles-matiere-premiere-${new Date().toISOString().slice(0, 10)}.xlsx`}
             />
             <RefreshButton />
@@ -185,10 +191,11 @@ export default async function ArticlesMatierePremierePage({
           </div>
         </div>
 
-        {!avecContenance && canEditArticles ? (
+        {(!avecContenance || !avecType) && canEditArticles ? (
           <p className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
-            Pour saisir la contenance des articles (sac de 25 kg, fût...), exécutez d&apos;abord le SQL{" "}
-            <code className="rounded bg-white px-1.5 py-0.5 text-xs">{SQL_CONTENANCE}</code> dans Supabase (SQL Editor).
+            Pour saisir la contenance des articles (Sac, Fût, Barrique, en kg), exécutez d&apos;abord le SQL{" "}
+            <code className="rounded bg-white px-1.5 py-0.5 text-xs">{avecContenance ? SQL_CONDITIONNEMENT : SQL_CONTENANCE}</code>{" "}
+            dans Supabase (SQL Editor).
           </p>
         ) : null}
 
@@ -263,7 +270,7 @@ export default async function ArticlesMatierePremierePage({
                         <td className="px-6 py-4 text-slate-600">{article.sous_famille || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.unite || "-"}</td>
                         {avecContenance ? (
-                          <td className="px-6 py-4 text-slate-600">{formaterContenance(article.contenance, article.unite)}</td>
+                          <td className="px-6 py-4 text-slate-600">{formaterContenance(article.contenance, article.conditionnement)}</td>
                         ) : null}
                         <td className="px-6 py-4 text-slate-600">{article.gamme || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.gamme_statistique || "-"}</td>
@@ -311,14 +318,11 @@ export default async function ArticlesMatierePremierePage({
                                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                                 />
                                 {avecContenance ? (
-                                  <input
-                                    type="number"
-                                    step="0.001"
-                                    min="0"
-                                    name="contenance"
-                                    defaultValue={article.contenance ?? ""}
-                                    placeholder="Contenance (ex : 25 pour un sac de 25 kg)"
-                                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                                  <ChampsContenance
+                                    contenance={article.contenance}
+                                    conditionnement={article.conditionnement}
+                                    avecType={avecType}
+                                    classeChamp="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                                   />
                                 ) : null}
                                 <input

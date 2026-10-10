@@ -16,7 +16,7 @@ import {
   supprimerEcriturePourSource,
 } from "@/lib/comptabilite";
 import { recalculerEcrituresDependantes } from "@/lib/ecriture-recompute";
-import { contenanceMpDisponible, lireContenance } from "@/lib/contenance-mp";
+import { conditionnementMpDisponible, contenanceMpDisponible, lireConditionnement, lireContenance } from "@/lib/contenance-mp";
 
 // Sources d'ecritures comptables generees par une Reception (voir plus bas,
 // createReceptionMpAction) - reprises ici pour effacer les ecritures liees
@@ -219,11 +219,12 @@ export async function updateLotPrixAction(formData: FormData) {
 // et le Stock Alert MP ne bougeraient jamais suite a une reception.
 export async function createReceptionMpAction(formData: FormData) {
   const currentUser = await requireEditAccess();
-  // Contenance du lot recu (25 pour un sac de 25 kg) : obligatoire avec le numero de lot, car un meme article peut
-  // arriver avec une contenance differente d'un lot a l'autre. Pas demandee tant que le SQL add_contenance_mp.sql
-  // n'est pas execute.
-  const avecContenance = await contenanceMpDisponible();
+  // Contenance du lot recu (en kg) et son type (Sac, Fut, Barrique) : obligatoires avec le numero de lot, car un meme
+  // article peut arriver avec une contenance differente d'un lot a l'autre. Chaque partie n'est demandee qu'une fois son
+  // SQL execute (add_contenance_mp.sql, add_conditionnement_mp.sql).
+  const [avecContenance, avecType] = await Promise.all([contenanceMpDisponible(), conditionnementMpDisponible()]);
   const contenance = lireContenance(formData.get("contenance"));
+  const conditionnement = lireConditionnement(formData.get("conditionnement"));
 
   const bcLigneId = Number(String(formData.get("bc_ligne_id") || "0"));
   const quantiteRaw = String(formData.get("quantite_importee") || "").trim().replace(",", ".");
@@ -257,11 +258,15 @@ export async function createReceptionMpAction(formData: FormData) {
   }
 
   if (avecContenance && (contenance === null || contenance <= 0)) {
-    throw new Error(
-      "La contenance du lot est obligatoire pour receptionner (ex : 25 pour un sac de 25 kg, 200 pour un fut de 200 kg)."
-    );
+    throw new Error("La contenance du lot (en kg) est obligatoire pour receptionner (ex : 25 pour un sac de 25 kg).");
   }
-  const champContenance = avecContenance ? { contenance } : {};
+  if (avecType && conditionnement === null) {
+    throw new Error("Le type de contenance du lot est obligatoire pour receptionner : choisis Sac, Fut ou Barrique.");
+  }
+  const champContenance = {
+    ...(avecContenance ? { contenance } : {}),
+    ...(avecType ? { conditionnement } : {}),
+  };
 
   if (!dateFabrication) {
     throw new Error("La date de fabrication est obligatoire pour receptionner.");
