@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import type { AuditRow } from "../audit-table";
+import { saisiParDisponible } from "../saisi-par";
 
 const TABLE = "qualite_nc_confidentiel";
 const BUCKET = "qualite-audit-fichiers";
@@ -228,7 +229,9 @@ export async function saveNcConfidentielBatchAction(
   // created_at reste gere par la base (colonne existante, jamais ecrasee
   // par une valeur re-soumise depuis l'affichage) - retire de tous les
   // objets avant ecriture, insertion comme mise a jour.
-  const toInsert = rows.filter((r) => r.id === null).map(({ id, created_at, ...rest }) => rest);
+  const saisiPar = (await saisiParDisponible()) ? { saisi_par: currentUser } : {};
+  // saisi_par est retire des lignes envoyees par le navigateur (colonne d'affichage) : pose par le serveur seulement
+  const toInsert = rows.filter((r) => r.id === null).map(({ id, created_at, saisi_par, ...rest }) => rest);
 
   if (toUpdate.length > 0) {
     const ids = toUpdate.map((r) => r.id as number);
@@ -239,7 +242,7 @@ export async function saveNcConfidentielBatchAction(
     const existingById = new Map(((existingRows ?? []) as AncienEtat[]).map((r) => [r.id, r]));
 
     const payload = toUpdate.map((r) => {
-      const { created_at, ...rest } = r;
+      const { created_at, saisi_par, ...rest } = r;
       const ancien = existingById.get(r.id as number);
 
       const dateCorrection = calculerDateRealisation(
@@ -280,6 +283,7 @@ export async function saveNcConfidentielBatchAction(
   if (toInsert.length > 0) {
     const payload = toInsert.map((r) => ({
       ...r,
+      ...saisiPar,
       date_realisation_correction: estValeur(r, "statut_correction", "REALISEE") ? todayIso : null,
       date_realisation_ac: estValeur(r, "statut_ac", "REALISEE") ? todayIso : null,
       date_realisation: estValeur(r, "statut_cloture", "CLOTUREE") ? todayIso : null,
@@ -346,6 +350,8 @@ export async function createNcConfidentielAction(formData: FormData): Promise<vo
 
   const audit = parseOptionalText(formData, "audit");
   const numero = await genererProchainNumero(audit ?? "");
+  // "Saisi par" : toujours l'utilisateur connecte, pose par le serveur (jamais envoye par le navigateur)
+  const saisiPar = (await saisiParDisponible()) ? { saisi_par: currentUser } : {};
 
   const { error } = await supabaseServer.from(TABLE).insert({
     audit,
@@ -366,6 +372,7 @@ export async function createNcConfidentielAction(formData: FormData): Promise<vo
     statut_correction: "EN ATTENTE",
     statut_ac: "EN ATTENTE",
     statut_cloture: "EN COURS",
+    ...saisiPar,
   });
 
   if (error) {

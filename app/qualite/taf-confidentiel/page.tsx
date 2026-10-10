@@ -54,6 +54,8 @@ const ENTRY_COLUMN_SOURCE: Record<string, string> = { correction: "correction_en
 // tape a la main (voir computeTxProgression, actions.ts).
 const COLUMNS: AuditColumn[] = [
   { key: "created_at", label: "Date", readOnly: true },
+  // readOnly : l'utilisateur qui a cree la ligne, pose par le serveur (voir saisi-par.ts)
+  { key: "saisi_par", label: "Saisi par", readOnly: true },
   { key: "audit", label: "Audit" },
   { key: "numero", label: "n°" },
   { key: "constat", label: "Constat", long: true, readOnly: true },

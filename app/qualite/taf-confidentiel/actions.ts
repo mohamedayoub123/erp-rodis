@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import type { AuditRow } from "../audit-table";
+import { saisiParDisponible } from "../saisi-par";
 
 const TABLE = "qualite_taf_confidentiel";
 const BUCKET = "qualite-audit-fichiers";
@@ -92,6 +93,8 @@ export async function createTafConfidentielAction(formData: FormData): Promise<v
     throw new Error("Cet utilisateur ne peut pas ajouter de TAF.");
   }
 
+  // "Saisi par" : toujours l'utilisateur connecte, pose par le serveur (jamais envoye par le navigateur)
+  const saisiPar = (await saisiParDisponible()) ? { saisi_par: currentUser } : {};
   const { error } = await supabaseServer.from(TABLE).insert({
     audit: parseOptionalText(formData, "audit"),
     constat: parseOptionalText(formData, "constat"),
@@ -107,6 +110,7 @@ export async function createTafConfidentielAction(formData: FormData): Promise<v
     // premiere sauvegarde depuis la page detail.
     statut: "PAS D'ACTION",
     tx_progression: "0%",
+    ...saisiPar,
   });
 
   if (error) {
@@ -130,7 +134,9 @@ export async function saveTafConfidentielBatchAction(
   // created_at reste gere par la base (colonne existante, jamais ecrasee
   // par une valeur re-soumise depuis l'affichage) - retire de tous les
   // objets avant ecriture, insertion comme mise a jour.
-  const toInsert = rows.filter((r) => r.id === null).map(({ id, created_at, ...rest }) => rest);
+  const saisiPar = (await saisiParDisponible()) ? { saisi_par: currentUser } : {};
+  // saisi_par est retire des lignes envoyees par le navigateur (colonne d'affichage) : pose par le serveur seulement
+  const toInsert = rows.filter((r) => r.id === null).map(({ id, created_at, saisi_par, ...rest }) => rest);
 
   if (toUpdate.length > 0) {
     const ids = toUpdate.map((r) => r.id as number);
@@ -150,7 +156,7 @@ export async function saveTafConfidentielBatchAction(
     );
 
     const payload = toUpdate.map((r) => {
-      const { created_at, ...rest } = r;
+      const { created_at, saisi_par, ...rest } = r;
       const ancien = existingById.get(r.id as number);
       const correctionEntries = ancien?.correction_entries ?? [];
       const statut = computeStatutTaf(r, correctionEntries);
@@ -183,6 +189,7 @@ export async function saveTafConfidentielBatchAction(
       const statut = computeStatutTaf(r, []);
       return {
         ...r,
+        ...saisiPar,
         statut,
         tx_progression: computeTxProgression(r),
         date_realisation: statut === "CLOTUREE" ? todayIso : null,

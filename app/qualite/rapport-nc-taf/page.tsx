@@ -65,12 +65,15 @@ function estReporte(value: string | null): boolean {
 // "audit" contient parfois des annotations libres collees au chiffre
 // ("1\nANNULEE", "3\nTransfere en 2026 dans la AI-1-2026-TAF-038") - seul
 // le chiffre en tete designe le A1/A2/A3/A4 reel, le reste est une note.
-function parsePeriode(audit: string | null): string {
+// Quand la colonne Audit vaut "audite interne" (sans chiffre), le numero de
+// l'audit est lu dans le numero de la ligne ("AI-2-2026-NC-016" -> A2).
+function parsePeriode(audit: string | null, numero: string | null = null): string {
   const raw = String(audit || "").trim();
   if (estReporte(raw)) return "Reportee N+1";
-  if (!raw) return "Non classe";
   const m = raw.match(/^(\d+)/);
-  return m ? `A${m[1]}` : "Non classe";
+  if (m) return `A${m[1]}`;
+  const parNumero = String(numero || "").match(/^AI[-.](\d+)[-.]\d{4}/i);
+  return parNumero ? `A${parNumero[1]}` : "Non classe";
 }
 
 // Groupe par la valeur EXACTE de processus_concerne (meme convention que le
@@ -199,7 +202,7 @@ export default async function RapportNcTafPage() {
 
   for (const row of ncRows) {
     const annee = parseAnnee(row.numero);
-    const periode = parsePeriode(row.audit);
+    const periode = parsePeriode(row.audit, row.numero);
     const processus = parseProcessus(row.processus_concerne);
     const correctionRealisee = row.statut_correction === "REALISEE";
     const acRealisee = row.statut_ac === "REALISEE";
@@ -217,7 +220,7 @@ export default async function RapportNcTafPage() {
 
   for (const row of tafRows) {
     const annee = parseAnnee(row.numero);
-    const periode = parsePeriode(row.audit);
+    const periode = parsePeriode(row.audit, row.numero);
     const processus = parseProcessus(row.processus_concerne);
     const estRealisee = row.statut === "CLOTUREE";
 

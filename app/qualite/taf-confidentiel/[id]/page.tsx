@@ -27,6 +27,7 @@ type TafRow = {
   service_concerne: string | null;
   statut: string | null;
   created_at: string | null;
+  saisi_par?: string | null;
   date_realisation: string | null;
   qui: string | null;
   delais: string | null;
@@ -91,6 +92,7 @@ export default async function TafConfidentielDetailPage({ params }: { params: Pa
             <p>Service : <span className="font-semibold text-slate-700">{row.service_concerne || "-"}</span></p>
             <p>Statut : <StatutBadge valeur={row.statut} /></p>
             <p>Date : <span className="font-semibold text-slate-700">{row.created_at ? formatDate(row.created_at) : "-"}</span></p>
+            <p>Saisi par : <span className="font-semibold text-slate-700">{row.saisi_par || "-"}</span></p>
             <p>Date de realisation : <span className="font-semibold text-slate-700">{row.date_realisation ? formatDate(row.date_realisation) : "-"}</span></p>
           </div>
         </section>

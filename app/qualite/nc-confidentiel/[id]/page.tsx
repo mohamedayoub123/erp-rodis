@@ -30,6 +30,7 @@ type NcRow = {
   statut_ac: string | null;
   statut_cloture: string | null;
   created_at: string | null;
+  saisi_par?: string | null;
   date_realisation_correction: string | null;
   date_realisation_ac: string | null;
   date_realisation: string | null;
@@ -106,6 +107,7 @@ export default async function NcConfidentielDetailPage({ params }: { params: Par
             <p>Statut AC : <StatutBadge valeur={row.statut_ac} /></p>
             <p>Statut cloture : <StatutBadge valeur={row.statut_cloture} /></p>
             <p>Date : <span className="font-semibold text-slate-700">{row.created_at ? formatDate(row.created_at) : "-"}</span></p>
+            <p>Saisi par : <span className="font-semibold text-slate-700">{row.saisi_par || "-"}</span></p>
             <p>Date correction réalisée : <span className="font-semibold text-slate-700">{row.date_realisation_correction ? formatDate(row.date_realisation_correction) : "-"}</span></p>
             <p>Date AC réalisée : <span className="font-semibold text-slate-700">{row.date_realisation_ac ? formatDate(row.date_realisation_ac) : "-"}</span></p>
             <p>Date de clôture : <span className="font-semibold text-slate-700">{row.date_realisation ? formatDate(row.date_realisation) : "-"}</span></p>
