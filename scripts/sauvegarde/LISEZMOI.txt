@@ -1,0 +1,23 @@
+SAUVEGARDE DE L'ERP SUR CET ORDINATEUR
+=======================================
+
+Chaque soir a 20h (tache planifiee Windows "Sauvegarde ERP Rodis"), l'ordinateur copie :
+  - TOUTES les donnees de l'ERP : un fichier .json par table (80 tables)
+  - TOUS les fichiers joints : pieces jointes des NC / TAF et photos des Transfer Order
+
+Ou sont les copies : Documents\Sauvegardes ERP
+  donnees-AAAA-MM-JJ\       copie complete des donnees de ce jour (les 14 derniers jours sont gardes)
+  fichiers\                 les fichiers joints (une seule copie, completee chaque soir, rien n'est supprime)
+  derniere-sauvegarde.txt   "OK" ou "ERREUR" + resume de la derniere sauvegarde
+  journal.txt               historique de toutes les sauvegardes
+
+Si l'ordinateur est eteint a 20h, la sauvegarde se lance toute seule a son prochain demarrage.
+Lancer a la main : double-clic sur scripts\sauvegarde\lancer-sauvegarde.bat
+Ne fait que LIRE l'ERP : rien n'est modifie ni supprime dans l'ERP.
+
+ATTENTION : ces copies contiennent toutes les donnees de l'entreprise (y compris les mots de passe chiffres des
+utilisateurs). Gardez ce dossier prive. Pour une securite en plus, copiez-le de temps en temps sur un disque externe
+ou dans un espace en ligne prive.
+
+Changer l'heure : Planificateur de taches Windows > "Sauvegarde ERP Rodis" > Declencheurs.
+Les copies automatiques de Supabase (7 jours, menu Database > Backups) restent en place en plus de celle-ci.
