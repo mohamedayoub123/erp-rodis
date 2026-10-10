@@ -5,18 +5,35 @@ export type LotRepartition = { numeroLot: string; solde: number };
 
 export type Allocation = { numeroLot: string; quantite: number };
 
-// Pas d'arrondi au millieme : des quantites comme 0,0007 (colorant) doivent rester exactes. Seul le bruit des calculs
-// flottants (6e decimale) est supprime.
+// Regle des arrondis : SEULS les articles de conditionnement cosmetique et plastique sont arrondis (au millieme) ; tous les
+// autres articles (bases, colorants, matieres premieres...) gardent EXACTEMENT leur chiffre (0,0007 reste 0,0007).
+export const CATEGORIES_ARRONDIES = ["ARTICLE DE CONDITIONNEMENT COSMETIQUE", "ARTICLE DE CONDITIONNEMENT PLASTIQUE"];
+
+export function estCategorieArrondie(categorie: string | null | undefined): boolean {
+  const texte = String(categorie ?? "")
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+  return CATEGORIES_ARRONDIES.includes(texte);
+}
+
+// Chiffre exact : seul le bruit des calculs flottants (6e decimale) est supprime.
 export const arrondiQuantite = (valeur: number) => Math.round(valeur * 1e6) / 1e6;
+
+// Quantite d'un article : arrondie au millieme si c'est un article de conditionnement (cosmetique / plastique), exacte sinon.
+export const arrondiSelonArticle = (valeur: number, arrondir: boolean) =>
+  arrondir ? Math.round(valeur * 1000) / 1000 : arrondiQuantite(valeur);
 
 // Repartit [aTransferer] : d'abord sur les lots choisis (dans l'ordre), puis, pour le reste, sur les autres lots dans
 // l'ordre de la liste (deja trie du plus proche de l'expiration au plus lointain). [manque] > 0 = stock insuffisant.
 export function repartirQuantite(
   lots: LotRepartition[],
   lotsChoisis: string[],
-  aTransferer: number
+  aTransferer: number,
+  arrondir = false
 ): { allocations: Allocation[]; manque: number } {
-  let reste = arrondiQuantite(Math.max(0, aTransferer));
+  let reste = arrondiSelonArticle(Math.max(0, aTransferer), arrondir);
   const soldes = new Map(lots.map((lot) => [lot.numeroLot, Math.max(0, lot.solde)]));
   const allocations: Allocation[] = [];
 
@@ -24,10 +41,11 @@ export function repartirQuantite(
     if (reste <= 1e-9) return;
     const disponible = soldes.get(numeroLot) ?? 0;
     const pris = Math.min(disponible, reste);
-    if (pris > 1e-9) {
-      allocations.push({ numeroLot, quantite: arrondiQuantite(pris) });
-      soldes.set(numeroLot, disponible - pris);
-      reste = arrondiQuantite(reste - pris);
+    const quantite = arrondiSelonArticle(pris, arrondir);
+    if (quantite > 1e-9) {
+      allocations.push({ numeroLot, quantite });
+      soldes.set(numeroLot, disponible - quantite);
+      reste = arrondiQuantite(reste - quantite);
     }
   };
 
@@ -45,6 +63,8 @@ export type EntreeLigne = {
   articleType: string;
   articleId: number;
   nom: string;
+  // article de conditionnement cosmetique / plastique : ses quantites sont arrondies au millieme (les autres restent exactes)
+  arrondir: boolean;
   // quantite demandee enregistree / nouvelle quantite demandee saisie
   actuelle: number;
   nouvelle: number;
@@ -71,13 +91,12 @@ export function planifierLignes(entrees: EntreeLigne[], lotsParArticle: Map<stri
   const plan: LignePlanifiee[] = [];
 
   for (const ligne of entrees) {
-    if (!Number.isFinite(ligne.nouvelle) || ligne.nouvelle <= 0) {
+    const nouvelle = Number.isFinite(ligne.nouvelle) ? arrondiSelonArticle(ligne.nouvelle, ligne.arrondir) : ligne.nouvelle;
+    if (!Number.isFinite(nouvelle) || nouvelle <= 0) {
       throw new Error(`"${ligne.nom}" : la quantite demandee doit etre superieure a 0 (ou coche "Supprimer" pour retirer la ligne).`);
     }
-    if (ligne.nouvelle < ligne.livre - 1e-9) {
-      throw new Error(
-        `"${ligne.nom}" : impossible de demander moins que ce qui est deja livre (${formatNombre(ligne.livre)}).`
-      );
+    if (nouvelle < ligne.livre - 1e-9) {
+      throw new Error(`"${ligne.nom}" : impossible de demander moins que ce qui est deja livre (${formatNombre(ligne.livre)}).`);
     }
 
     const cle = `${ligne.articleType}::${ligne.articleId}`;
@@ -87,8 +106,8 @@ export function planifierLignes(entrees: EntreeLigne[], lotsParArticle: Map<stri
       soldesRestants.set(cle, lots);
     }
 
-    const aTransferer = arrondiQuantite(ligne.nouvelle - ligne.livre);
-    const { allocations, manque } = repartirQuantite(lots, ligne.lotsChoisis, aTransferer);
+    const aTransferer = arrondiSelonArticle(nouvelle - ligne.livre, ligne.arrondir);
+    const { allocations, manque } = repartirQuantite(lots, ligne.lotsChoisis, aTransferer, ligne.arrondir);
     if (manque > 0) {
       const disponible = lots.reduce((somme, lot) => somme + Math.max(0, lot.solde), 0);
       throw new Error(
@@ -102,8 +121,8 @@ export function planifierLignes(entrees: EntreeLigne[], lotsParArticle: Map<stri
 
     plan.push({
       ligneId: ligne.id,
-      nouvelle: ligne.nouvelle,
-      demandeChangee: Math.abs(ligne.nouvelle - ligne.actuelle) > 1e-9,
+      nouvelle,
+      demandeChangee: Math.abs(nouvelle - ligne.actuelle) > 1e-9,
       allocations,
     });
   }

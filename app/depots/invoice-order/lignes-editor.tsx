@@ -158,7 +158,7 @@ export function InvoiceOrderLignesEditor({
                       <td className="px-6 py-4 text-slate-600">
                         {(
                           ligne.lotsDisponibles.find((disp) => disp.numeroLot === (ligne.numero_lot ?? ""))?.solde ?? 0
-                        ).toLocaleString("fr-FR")}
+                        ).toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
                       </td>
                       <td className="px-6 py-4">
                         {canEditLignes ? (
@@ -176,7 +176,7 @@ export function InvoiceOrderLignesEditor({
                             />
                           </>
                         ) : (
-                          ligne.quantite.toLocaleString("fr-FR")
+                          ligne.quantite.toLocaleString("fr-FR", { maximumFractionDigits: 6 })
                         )}
                       </td>
                       {canDeleteAnyLigne ? (
@@ -203,7 +203,7 @@ export function InvoiceOrderLignesEditor({
                     <td className="px-6 py-4"></td>
                     <td className="px-6 py-4"></td>
                     <td className="px-6 py-4"></td>
-                    <td className="px-6 py-4 font-bold text-slate-900">{totalQuantite.toLocaleString("fr-FR")}</td>
+                    <td className="px-6 py-4 font-bold text-slate-900">{totalQuantite.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}</td>
                     {canDeleteAnyLigne ? <td className="px-6 py-4"></td> : null}
                   </tr>
                 ) : null}

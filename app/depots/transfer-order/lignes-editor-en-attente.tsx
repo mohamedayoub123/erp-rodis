@@ -106,13 +106,13 @@ export function TransferOrderLignesEditorEnAttente({
               {lignes.map((ligne) => (
                 <tr key={ligne.id} className="border-t border-slate-100">
                   <td className="px-6 py-4 font-medium text-slate-900">{ligne.nom}</td>
-                  <td className="px-6 py-4 text-slate-600">{ligne.quantite_demandee.toLocaleString("fr-FR")}</td>
-                  <td className="px-6 py-4 text-slate-600">{ligne.disponible.toLocaleString("fr-FR")}</td>
+                  <td className="px-6 py-4 text-slate-600">{ligne.quantite_demandee.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}</td>
+                  <td className="px-6 py-4 text-slate-600">{ligne.disponible.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}</td>
                 </tr>
               ))}
               <tr className="border-t-2 border-slate-200 bg-slate-50">
                 <td className="px-6 py-4 font-bold text-slate-900">Total</td>
-                <td className="px-6 py-4 font-bold text-slate-900">{totalQuantite.toLocaleString("fr-FR")}</td>
+                <td className="px-6 py-4 font-bold text-slate-900">{totalQuantite.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}</td>
                 <td className="px-6 py-4"></td>
               </tr>
             </tbody>

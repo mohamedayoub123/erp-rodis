@@ -2,11 +2,14 @@
 
 import { useRef } from "react";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { arrondiSelonArticle } from "./repartition";
 
 export type VerifierStockRow = {
   id: number;
   nom: string;
   unite: string;
+  // article de conditionnement cosmetique / plastique : quantites arrondies au millieme (les autres restent exactes)
+  arrondir?: boolean;
   besoin: number;
   stock: number;
   disponibleDepotB: number | null;
@@ -45,7 +48,7 @@ export function VerifierStockTable({
       const input = inputRefs.current[row.id];
       if (!input || row.disponibleDepotB === null) continue;
       const nouveauBesoin = Math.max(0, row.besoin - row.disponibleDepotB);
-      input.value = String(Math.round(nouveauBesoin * 1000) / 1000);
+      input.value = String(arrondiSelonArticle(nouveauBesoin, Boolean(row.arrondir)));
     }
   }
 

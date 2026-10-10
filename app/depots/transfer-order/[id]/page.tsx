@@ -11,7 +11,7 @@ import { RemarqueField } from "@/app/_components/remarque-field";
 import { formatDate } from "@/lib/format-date";
 import { lireArticlesMpPourFormulaires, type ArticleMpListe } from "@/lib/articles-mp-liste";
 import { lireArticlesPfListe, type ArticlePfListe } from "@/lib/articles-pf-liste";
-import { fetchLotsInDepotBatch, type ArticleType } from "../stock-lots";
+import { fetchArticlesArrondis, fetchLotsInDepotBatch, type ArticleType } from "../stock-lots";
 import {
   approveTransferOrderAction,
   augmenterQuantitesDemandeesAction,
@@ -154,7 +154,7 @@ export default async function TransferOrderDetailPage({
   const idsArticles = (type: ArticleType) => [
     ...new Set(lignes.filter((ligne) => ligne.article_type === type).map((ligne) => ligne.article_id)),
   ];
-  const [{ data: ligneLotsData }, nomsMp, nomsPf, lotsDisponiblesMp, lotsDisponiblesPf] = await Promise.all([
+  const [{ data: ligneLotsData }, nomsMp, nomsPf, lotsDisponiblesMp, lotsDisponiblesPf, articlesArrondis] = await Promise.all([
     supabaseServer
       .from("transfer_order_ligne_lots")
       .select("transfer_order_ligne_id, numero_lot, quantite")
@@ -166,6 +166,7 @@ export default async function TransferOrderDetailPage({
     fetchNomsArticles("PF", idsArticles("PF")),
     fetchLotsInDepotBatch("MP", idsArticles("MP"), transferOrder.depot_source_id, transferOrder.id),
     fetchLotsInDepotBatch("PF", idsArticles("PF"), transferOrder.depot_source_id, transferOrder.id),
+    fetchArticlesArrondis(lignes),
   ]);
   const ligneLots = (ligneLotsData ?? []) as LigneLotRow[];
   const lotsByLigneId = new Map<number, LigneLotRow[]>();
@@ -361,6 +362,7 @@ export default async function TransferOrderDetailPage({
               article_id: ligne.article_id,
               quantite_demandee: ligne.quantite_demandee,
               livre: livreParLigne.get(ligne.id) ?? 0,
+              arrondir: articlesArrondis.has(`${ligne.article_type}::${ligne.article_id}`),
               lotsDisponibles: ligne.lotsDisponibles,
             }))}
             lotsByLigneId={Object.fromEntries(

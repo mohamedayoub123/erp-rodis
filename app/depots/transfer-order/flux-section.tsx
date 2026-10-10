@@ -133,7 +133,7 @@ export function FluxSection({
                           <Link href={s.href} className="font-semibold text-sky-700 underline">
                             {s.label}
                           </Link>
-                          ) - {s.quantite.toLocaleString("fr-FR")}
+                          ) - {s.quantite.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
                           {s.proforma ? ` - proforma ${s.proforma}` : s.livrePour ? ` - ${s.livrePour}` : ""}
                         </li>
                       ))}

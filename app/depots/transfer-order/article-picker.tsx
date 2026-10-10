@@ -111,7 +111,7 @@ export function TransferArticlePicker({
           <span className="text-slate-400">Chargement...</span>
         ) : totalDisponible !== null && totalDisponible > 0 ? (
           <span className="font-semibold text-slate-700">
-            Disponible : {totalDisponible.toLocaleString("fr-FR")}
+            Disponible : {totalDisponible.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
           </span>
         ) : (
           <span className="font-semibold text-red-700">Aucun stock</span>

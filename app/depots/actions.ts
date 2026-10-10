@@ -200,7 +200,7 @@ export async function updateDepotLotStockAction(formData: FormData) {
 
   if (nouvelleQuantite < reserve - 1e-6) {
     throw new Error(
-      `Impossible de descendre sous ${reserve.toLocaleString("fr-FR")} : deja reserve par ailleurs sur ce lot.`
+      `Impossible de descendre sous ${reserve.toLocaleString("fr-FR", { maximumFractionDigits: 6 })} : deja reserve par ailleurs sur ce lot.`
     );
   }
 
@@ -361,7 +361,7 @@ export async function updateDepotStockBatchAction(formData: FormData) {
 
     if (ligne.nouvelleQuantite < reserve - 1e-6) {
       throw new Error(
-        `Lot ${ligne.numeroLot} : impossible de descendre sous ${reserve.toLocaleString("fr-FR")}, deja reserve par ailleurs.`
+        `Lot ${ligne.numeroLot} : impossible de descendre sous ${reserve.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}, deja reserve par ailleurs.`
       );
     }
 

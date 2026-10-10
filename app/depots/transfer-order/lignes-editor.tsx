@@ -38,6 +38,8 @@ type LigneRow = {
   quantite_demandee: number;
   // deja livre (Transfer Invoice valides) : la quantite demandee ne peut pas descendre en dessous
   livre: number;
+  // article de conditionnement cosmetique / plastique : quantites arrondies au millieme (les autres restent exactes)
+  arrondir: boolean;
   lotsDisponibles: { numeroLot: string; solde: number }[];
 };
 
@@ -129,7 +131,7 @@ export function TransferOrderLignesEditor({
                     <tr key={`${ligne.id}-${index}`} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{index === 0 ? ligne.nom : ""}</td>
                       <td className="px-6 py-4 text-slate-600">
-                        {index === 0 ? ligne.quantite_demandee.toLocaleString("fr-FR") : ""}
+                        {index === 0 ? ligne.quantite_demandee.toLocaleString("fr-FR", { maximumFractionDigits: 6 }) : ""}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{lot.numero_lot || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">
@@ -137,13 +139,13 @@ export function TransferOrderLignesEditor({
                           disponible === undefined ? (
                             "-"
                           ) : (
-                            disponible.toLocaleString("fr-FR")
+                            disponible.toLocaleString("fr-FR", { maximumFractionDigits: 6 })
                           )
                         ) : ligne.lotsDisponibles.length > 0 ? (
                           <div className="flex flex-col gap-0.5">
                             {ligne.lotsDisponibles.map((disp) => (
                               <span key={disp.numeroLot}>
-                                {disp.numeroLot || "(sans numero)"} : {disp.solde.toLocaleString("fr-FR")}
+                                {disp.numeroLot || "(sans numero)"} : {disp.solde.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
                               </span>
                             ))}
                           </div>
@@ -151,7 +153,7 @@ export function TransferOrderLignesEditor({
                           "Aucun lot disponible"
                         )}
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{lot.quantite.toLocaleString("fr-FR")}</td>
+                      <td className="px-6 py-4 text-slate-600">{lot.quantite.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}</td>
                       {canEditLignes ? (
                         <td className="px-6 py-4">
                           {index === 0 ? (
@@ -169,7 +171,7 @@ export function TransferOrderLignesEditor({
               <tr className="border-t-2 border-slate-200 bg-slate-50">
                 <td className="px-6 py-4 font-bold text-slate-900">Total</td>
                 <td className="px-6 py-4 font-bold text-slate-900">
-                  {lignes.reduce((sum, ligne) => sum + ligne.quantite_demandee, 0).toLocaleString("fr-FR")}
+                  {lignes.reduce((sum, ligne) => sum + ligne.quantite_demandee, 0).toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
                 </td>
                 <td className="px-6 py-4"></td>
                 <td className="px-6 py-4"></td>
@@ -180,7 +182,7 @@ export function TransferOrderLignesEditor({
                         sum + (lotsByLigneId[ligne.id] ?? []).reduce((s, lot) => s + lot.quantite, 0),
                       0
                     )
-                    .toLocaleString("fr-FR")}
+                    .toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
                 </td>
                 {canEditLignes ? <td className="px-6 py-4"></td> : null}
               </tr>
@@ -250,7 +252,7 @@ export function TransferOrderLignesEditor({
                 const apercu =
                   estSupprimee || articleChange || !demandeValide
                     ? null
-                    : repartirQuantite(ligne.lotsDisponibles, lotDeLaRangee.filter(Boolean), aTransferer);
+                    : repartirQuantite(ligne.lotsDisponibles, lotDeLaRangee.filter(Boolean), aTransferer, ligne.arrondir);
                 const quantiteParLot = new Map((apercu?.allocations ?? []).map((allocation) => [allocation.numeroLot, allocation.quantite]));
                 const dejaAffiche = new Set<string>();
                 const lotsAutomatiques = (apercu?.allocations ?? []).filter((allocation) => !lotDeLaRangee.includes(allocation.numeroLot));
@@ -357,7 +359,7 @@ export function TransferOrderLignesEditor({
                         />
                       </td>
                       <td className="px-6 py-4 text-slate-600">
-                        {(ligne.lotsDisponibles.find((disp) => disp.numeroLot === (lotRangee || ""))?.solde ?? 0).toLocaleString("fr-FR")}
+                        {(ligne.lotsDisponibles.find((disp) => disp.numeroLot === (lotRangee || ""))?.solde ?? 0).toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
                       </td>
                       <td className="px-6 py-4 font-semibold text-slate-900">{quantiteAffichee}</td>
                       <td className="px-6 py-4">
@@ -387,7 +389,7 @@ export function TransferOrderLignesEditor({
                       {allocation.numeroLot || "(sans numero)"} <span className="text-slate-400">(ajoute automatiquement)</span>
                     </td>
                     <td className="px-6 py-3 text-slate-600">
-                      {(ligne.lotsDisponibles.find((disp) => disp.numeroLot === allocation.numeroLot)?.solde ?? 0).toLocaleString("fr-FR")}
+                      {(ligne.lotsDisponibles.find((disp) => disp.numeroLot === allocation.numeroLot)?.solde ?? 0).toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
                     </td>
                     <td className="px-6 py-3 font-semibold text-slate-900">{nombre(allocation.quantite)}</td>
                     <td className="px-6 py-3"></td>

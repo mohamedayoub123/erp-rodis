@@ -7,6 +7,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { stockTableFor, type ArticleType } from "../transfer-order/stock-lots";
 import { logAudit } from "@/lib/audit-log";
 import { fetchInvoiceOrderLabel } from "@/lib/depot-labels";
+import { arrondiQuantite } from "../transfer-order/repartition";
 
 async function requireWriteAccess() {
   const currentUser = await getCurrentStockUser();
@@ -98,7 +99,7 @@ export async function updateInvoiceOrderLignesAction(formData: FormData) {
     } else {
       toUpdate.push({
         id: row.id,
-        quantite: Math.round(clamped * 1000) / 1000,
+        quantite: arrondiQuantite(clamped),
         numeroLot: row.numeroLot,
         ancienNumeroLot: current.numero_lot,
         transferOrderLigneId: current.transfer_order_ligne_id,
@@ -909,7 +910,7 @@ export async function validateInvoiceOrder(invoiceOrderId: number, currentUser: 
   for (const ligneLot of ligneLots) {
     const key = `${ligneLot.transfer_order_ligne_id}::${ligneLot.numero_lot ?? ""}`;
     const livre = shippedByKey.get(key) ?? 0;
-    const reste = Math.round((ligneLot.quantite - livre) * 1000) / 1000;
+    const reste = arrondiQuantite(ligneLot.quantite - livre);
 
     if (reste > 1e-6) {
       resteSurLeTo = true;
@@ -948,7 +949,7 @@ export async function validateInvoiceOrder(invoiceOrderId: number, currentUser: 
     module: "InvoiceOrder",
     action: "modification",
     cible: tiCode,
-    resume: `Transfer Invoice ${tiCode} valide - stock transfere de ${depotSourceNom} vers ${depotDestinationNom} (${invoiceLignes.length} ligne(s), ${totalLivre.toLocaleString("fr-FR")} au total)`,
+    resume: `Transfer Invoice ${tiCode} valide - stock transfere de ${depotSourceNom} vers ${depotDestinationNom} (${invoiceLignes.length} ligne(s), ${totalLivre.toLocaleString("fr-FR", { maximumFractionDigits: 6 })} au total)`,
     avant: { statut: invoiceOrder.statut },
     apres: { statut: "valide" },
   });

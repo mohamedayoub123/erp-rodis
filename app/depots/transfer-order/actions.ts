@@ -5,8 +5,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { type ArticleType, type DepotLot, fetchLotsInDepot, totalAvailable, allocateFefo } from "./stock-lots";
-import { planifierLignes, type EntreeLigne } from "./repartition";
+import { type ArticleType, type DepotLot, fetchArticlesArrondis, fetchLotsInDepot, totalAvailable, allocateFefo } from "./stock-lots";
+import { arrondiSelonArticle, planifierLignes, type EntreeLigne } from "./repartition";
 import { deleteInvoiceOrder } from "../invoice-order/actions";
 import { logAudit } from "@/lib/audit-log";
 import { fetchTransferOrderLabel } from "@/lib/depot-labels";
@@ -99,7 +99,7 @@ export async function createTransferOrder(params: {
     const disponible = totalAvailable(lotsParLigne[index]);
     if (ligne.quantiteDemandee > disponible + 1e-6) {
       throw new Error(
-        `Stock insuffisant dans le depot source pour un des articles - disponible : ${disponible.toLocaleString("fr-FR")}.`
+        `Stock insuffisant dans le depot source pour un des articles - disponible : ${disponible.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}.`
       );
     }
   }
@@ -320,6 +320,7 @@ export async function approveTransferOrder(transferOrderId: number): Promise<voi
     throw new Error(clearError.message);
   }
 
+  const arrondis = await fetchArticlesArrondis(lignes);
   for (const ligne of lignes) {
     const lots = await fetchLotsInDepot(
       ligne.article_type,
@@ -327,7 +328,7 @@ export async function approveTransferOrder(transferOrderId: number): Promise<voi
       transferOrder.depot_source_id,
       transferOrderId
     );
-    const { allocations } = allocateFefo(lots, ligne.quantite_demandee);
+    const { allocations } = allocateFefo(lots, ligne.quantite_demandee, arrondis.has(`${ligne.article_type}::${ligne.article_id}`));
 
     if (allocations.length === 0) continue;
 
@@ -447,7 +448,7 @@ export async function updateTransferOrderLignesEnAttenteAction(formData: FormDat
     const disponible = totalAvailable(lots);
     if (ligne.quantiteDemandee > disponible + 1e-6) {
       throw new Error(
-        `Stock insuffisant dans le depot source pour un des articles - disponible : ${disponible.toLocaleString("fr-FR")}.`
+        `Stock insuffisant dans le depot source pour un des articles - disponible : ${disponible.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}.`
       );
     }
   }
@@ -716,6 +717,9 @@ async function augmenterQuantitesDemandeesCore(formData: FormData, transferOrder
     ).map((l) => [l.id, l])
   );
 
+  const arrondis = await fetchArticlesArrondis([...ligneParId.values()]);
+  const arrondirLigne = (type: ArticleType, id: number) => arrondis.has(`${type}::${id}`);
+
   // 1. Verifications (aucune ecriture tant que tout n'est pas valide)
   const changements: { ligneId: number; articleType: ArticleType; articleId: number; actuelle: number; nouvelle: number; delta: number }[] = [];
   ligneIds.forEach((ligneId, index) => {
@@ -725,10 +729,10 @@ async function augmenterQuantitesDemandeesCore(formData: FormData, transferOrder
     const actuelle = Number(ligne.quantite_demandee ?? 0);
     if (nouvelle < actuelle - 1e-9) {
       throw new Error(
-        `Impossible de diminuer la quantite demandee d'une ligne d'un Transfer Order deja traite (demande actuelle : ${actuelle.toLocaleString("fr-FR")}). Seule l'augmentation est possible.`
+        `Impossible de diminuer la quantite demandee d'une ligne d'un Transfer Order deja traite (demande actuelle : ${actuelle.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}). Seule l'augmentation est possible.`
       );
     }
-    const delta = Math.round((nouvelle - actuelle) * 1000) / 1000;
+    const delta = arrondiSelonArticle(nouvelle - actuelle, arrondirLigne(ligne.article_type, ligne.article_id));
     if (delta > 1e-9) {
       changements.push({ ligneId, articleType: ligne.article_type, articleId: ligne.article_id, actuelle, nouvelle, delta });
     }
@@ -748,13 +752,13 @@ async function augmenterQuantitesDemandeesCore(formData: FormData, transferOrder
       lots = (await fetchLotsInDepot(changement.articleType, changement.articleId, transferOrder.depot_source_id)).map((l) => ({ ...l }));
       lotsParArticle.set(cle, lots);
     }
-    const { allocations, covered } = allocateFefo(lots, changement.delta);
+    const { allocations, covered } = allocateFefo(lots, changement.delta, arrondirLigne(changement.articleType, changement.articleId));
     if (!covered) {
       const table = changement.articleType === "MP" ? "articles_matiere_premiere" : "articles";
       const { data: article } = await supabaseServer.from(table).select("nom_article").eq("id", changement.articleId).maybeSingle();
       const nom = (article as { nom_article: string } | null)?.nom_article ?? `#${changement.articleId}`;
       throw new Error(
-        `Stock insuffisant pour "${nom}" : il manque de quoi ajouter ${changement.delta.toLocaleString("fr-FR")} (disponible dans le depot source : ${totalAvailable(lots).toLocaleString("fr-FR")}).`
+        `Stock insuffisant pour "${nom}" : il manque de quoi ajouter ${changement.delta.toLocaleString("fr-FR", { maximumFractionDigits: 6 })} (disponible dans le depot source : ${totalAvailable(lots).toLocaleString("fr-FR", { maximumFractionDigits: 6 })}).`
       );
     }
     for (const allocation of allocations) {
@@ -778,7 +782,12 @@ async function augmenterQuantitesDemandeesCore(formData: FormData, transferOrder
       if (existante) {
         const { error } = await supabaseServer
           .from("transfer_order_ligne_lots")
-          .update({ quantite: Math.round((Number(existante.quantite ?? 0) + allocation.quantite) * 1000) / 1000 })
+          .update({
+            quantite: arrondiSelonArticle(
+              Number(existante.quantite ?? 0) + allocation.quantite,
+              arrondirLigne(changement.articleType, changement.articleId)
+            ),
+          })
           .eq("id", existante.id);
         if (error) throw new Error(error.message);
         existante.quantite = Number(existante.quantite ?? 0) + allocation.quantite;
@@ -957,6 +966,7 @@ async function updateAllLigneLotsCore(formData: FormData, transferOrderId: numbe
       lotsParArticle.set(cle, lots.map((lot) => ({ numeroLot: lot.numeroLot, solde: lot.solde })));
     }
 
+    const arrondis = await fetchArticlesArrondis(lignes);
     const entrees: EntreeLigne[] = lignes.map((ligne) => {
       const cle = `${ligne.article_type}::${ligne.article_id}`;
       const actuelle = Number(ligne.quantite_demandee ?? 0);
@@ -965,6 +975,7 @@ async function updateAllLigneLotsCore(formData: FormData, transferOrderId: numbe
         articleType: ligne.article_type,
         articleId: ligne.article_id,
         nom: nomsParCle.get(cle) ?? `#${ligne.article_id}`,
+        arrondir: arrondis.has(cle),
         actuelle,
         nouvelle: nouvelleDemandeParLigne.get(ligne.id) ?? actuelle,
         livre: livreParLigne.get(ligne.id) ?? 0,

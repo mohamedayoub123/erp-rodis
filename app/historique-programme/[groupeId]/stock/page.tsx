@@ -8,6 +8,7 @@ import { fetchPlCodeByGroupeId } from "@/lib/programme-numbering";
 import { fetchTotalStockInDepot } from "@/app/depots/transfer-order/stock-lots";
 import { VerifierStockTable } from "@/app/depots/transfer-order/verifier-stock-table";
 import { autoCreateTransferOrdersFromProgrammeLigneAction } from "./actions";
+import { estCategorieArrondie } from "@/app/depots/transfer-order/repartition";
 
 type ProgrammeLigneRow = {
   article_id: number | null;
@@ -36,6 +37,7 @@ type ArticleMpRow = {
   id: number;
   nom_article: string;
   unite: string | null;
+  categorie: string | null;
 };
 
 type MouvementRow = {
@@ -195,7 +197,7 @@ export default async function HistoriqueProgrammeVerifierStockPage({
 
   const [{ data: articlesMpData, error: articlesMpError }, { rows: mouvements, error: mouvementsError }] =
     await Promise.all([
-      supabaseServer.from("articles_matiere_premiere").select("id, nom_article, unite").in("id", mpIds),
+      supabaseServer.from("articles_matiere_premiere").select("id, nom_article, unite, categorie").in("id", mpIds),
       mpIds.length > 0
         ? fetchAll<MouvementRow>("lots_stock_matiere_premiere", "article_id, qte_entree, qte_sortie")
         : Promise.resolve({ rows: [] as MouvementRow[], error: null }),
@@ -239,15 +241,22 @@ export default async function HistoriqueProgrammeVerifierStockPage({
   );
 
   const rows = mpIds
-    .map((mpId) => ({
-      id: mpId,
-      nom: articleMpById.get(mpId)?.nom_article ?? `#${mpId}`,
-      unite: articleMpById.get(mpId)?.unite ?? "-",
-      besoin: round(besoinParMp.get(mpId) ?? 0),
-      stock: round(stockParMp.get(mpId) ?? 0),
-      disponibleDepotB: depotBId ? round(disponibleDepotBParMp.get(mpId) ?? 0) : null,
-      disponibleDepotE: depotEId ? round(disponibleDepotEParMp.get(mpId) ?? 0) : null,
-    }))
+    .map((mpId) => {
+      // Seuls les articles de conditionnement (cosmetique / plastique) sont arrondis au millieme ; les autres gardent
+      // leur chiffre exact (un colorant a 0,0007 ne devient pas 0,001).
+      const arrondir = estCategorieArrondie(articleMpById.get(mpId)?.categorie);
+      const decimales = arrondir ? 3 : 6;
+      return {
+        id: mpId,
+        nom: articleMpById.get(mpId)?.nom_article ?? `#${mpId}`,
+        unite: articleMpById.get(mpId)?.unite ?? "-",
+        arrondir,
+        besoin: round(besoinParMp.get(mpId) ?? 0, decimales),
+        stock: round(stockParMp.get(mpId) ?? 0, decimales),
+        disponibleDepotB: depotBId ? round(disponibleDepotBParMp.get(mpId) ?? 0, decimales) : null,
+        disponibleDepotE: depotEId ? round(disponibleDepotEParMp.get(mpId) ?? 0, decimales) : null,
+      };
+    })
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
   // "Creer les Transfer Order" bloque si ce programme est deja entierement

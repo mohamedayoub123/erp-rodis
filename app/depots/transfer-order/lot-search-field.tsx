@@ -63,7 +63,7 @@ export function LotSearchField({
               onClick={() => selectLot(lot.numeroLot)}
               className="block w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
             >
-              {lot.numeroLot || "(sans numero)"} - disponible : {lot.solde.toLocaleString("fr-FR")}
+              {lot.numeroLot || "(sans numero)"} - disponible : {lot.solde.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
             </button>
           ))}
         </div>
@@ -78,7 +78,7 @@ export function LotSearchField({
             ? "Aucun lot disponible"
             : lots.map((lot) => (
                 <span key={lot.numeroLot} className={lot.numeroLot === value ? "font-semibold text-slate-700" : ""}>
-                  {lot.numeroLot || "(sans numero)"} : {lot.solde.toLocaleString("fr-FR")}
+                  {lot.numeroLot || "(sans numero)"} : {lot.solde.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
                 </span>
               ))}
         </div>

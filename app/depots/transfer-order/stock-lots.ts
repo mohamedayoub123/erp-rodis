@@ -2,6 +2,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { convertirEnFcfa } from "@/lib/prix-devise";
 import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
 import { lireParPaquets } from "../[id]/reservations";
+import { arrondiSelonArticle, estCategorieArrondie } from "./repartition";
 
 export type ArticleType = "MP" | "PF";
 
@@ -574,7 +575,9 @@ export async function fetchTotalStockInDepot(
 // d'expiration/fabrication la plus proche.
 export function allocateFefo(
   lots: DepotLot[],
-  quantite: number
+  quantite: number,
+  // article de conditionnement cosmetique / plastique : ses quantites sont arrondies au millieme ; les autres restent exactes
+  arrondir = false
 ): { allocations: { numero_lot: string; quantite: number }[]; covered: boolean } {
   const allocations: { numero_lot: string; quantite: number }[] = [];
   let remaining = quantite;
@@ -583,10 +586,23 @@ export function allocateFefo(
     if (remaining <= 1e-9) break;
     const take = Math.min(lot.solde, remaining);
     if (take > 1e-9) {
-      allocations.push({ numero_lot: lot.numeroLot, quantite: Math.round(take * 1000) / 1000 });
+      allocations.push({ numero_lot: lot.numeroLot, quantite: arrondiSelonArticle(take, arrondir) });
       remaining -= take;
     }
   }
 
   return { allocations, covered: remaining <= 1e-6 };
+}
+
+// Cles "MP::12" des articles de conditionnement cosmetique / plastique parmi ces lignes : ce sont les SEULS dont les
+// quantites sont arrondies (au millieme) ; tous les autres articles gardent exactement leur chiffre (voir repartition.ts).
+export async function fetchArticlesArrondis(lignes: { article_type: ArticleType; article_id: number }[]): Promise<Set<string>> {
+  const ids = [...new Set(lignes.filter((ligne) => ligne.article_type === "MP").map((ligne) => ligne.article_id))];
+  const arrondis = new Set<string>();
+  if (ids.length === 0) return arrondis;
+  const { data } = await supabaseServer.from("articles_matiere_premiere").select("id, categorie").in("id", ids);
+  for (const article of (data ?? []) as { id: number; categorie: string | null }[]) {
+    if (estCategorieArrondie(article.categorie)) arrondis.add(`MP::${article.id}`);
+  }
+  return arrondis;
 }
