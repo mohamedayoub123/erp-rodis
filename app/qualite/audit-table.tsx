@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { statusColorClasses } from "./statut-couleur";
 
 // readOnly : jamais modifiable par PERSONNE, meme felicite/l'admin - a la
 // difference de restrictedColumnKeys (plus bas sur AuditTable) qui reste
@@ -14,20 +15,8 @@ export type AuditRow = { id: number | null; [columnKey: string]: string | number
 
 export type AttachmentFile = { name: string; path: string };
 
-// Couleur des statuts (colonnes select) : vert = realise/cloture, orange =
-// en cours, rouge = non realise/pas d'action. Les autres valeurs (vide,
-// "NOUVELLE NC OUVERTE ANNEE N+1"...) restent neutres.
-const STATUS_DONE = new Set(["REALISEE", "CLOTUREE"]);
-const STATUS_EN_COURS = new Set(["EN COURS"]);
-const STATUS_BLOQUE = new Set(["NON REALISEE", "PAS D'ACTION"]);
-
-function statusColorClasses(value: string | number | null | undefined): string {
-  const key = String(value ?? "").trim().toUpperCase();
-  if (STATUS_DONE.has(key)) return "border-emerald-300 bg-emerald-50 text-emerald-800";
-  if (STATUS_EN_COURS.has(key)) return "border-amber-300 bg-amber-50 text-amber-800";
-  if (STATUS_BLOQUE.has(key)) return "border-red-300 bg-red-50 text-red-800";
-  return "border-slate-200 bg-white text-slate-700";
-}
+// Couleur des statuts (colonnes select) : vert = realise/cloture, orange = en cours, rouge = en attente / pas d'action /
+// non realise - voir statut-couleur.ts (partage avec les pages de detail).
 
 const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "avif"]);
 

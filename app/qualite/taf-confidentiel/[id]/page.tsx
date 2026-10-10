@@ -5,6 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { canViewPageUser, canWritePageUser, getCurrentStockUser, getNcTafProcessusAutorisesUser } from "@/lib/stock-auth";
 import { formatDate } from "../../../production/suivi/data";
+import { StatutBadge } from "../../statut-badge";
 import {
   updateTafConfidentielDetailAction,
   addTafCorrectionEntryAction,
@@ -88,7 +89,7 @@ export default async function TafConfidentielDetailPage({ params }: { params: Pa
           <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500 sm:grid-cols-3 lg:grid-cols-5">
             <p>Processus : <span className="font-semibold text-slate-700">{row.processus_concerne || "-"}</span></p>
             <p>Service : <span className="font-semibold text-slate-700">{row.service_concerne || "-"}</span></p>
-            <p>Statut : <span className="font-semibold text-slate-700">{row.statut || "-"}</span></p>
+            <p>Statut : <StatutBadge valeur={row.statut} /></p>
             <p>Date : <span className="font-semibold text-slate-700">{row.created_at ? formatDate(row.created_at) : "-"}</span></p>
             <p>Date de realisation : <span className="font-semibold text-slate-700">{row.date_realisation ? formatDate(row.date_realisation) : "-"}</span></p>
           </div>

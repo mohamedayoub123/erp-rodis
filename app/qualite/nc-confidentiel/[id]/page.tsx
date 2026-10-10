@@ -5,6 +5,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { canViewPageUser, canWritePageUser, getCurrentStockUser, getNcTafProcessusAutorisesUser } from "@/lib/stock-auth";
 import { formatDate } from "../../../production/suivi/data";
+import { StatutBadge } from "../../statut-badge";
 import {
   updateNcConfidentielDetailAction,
   addNcEntryAction,
@@ -101,9 +102,9 @@ export default async function NcConfidentielDetailPage({ params }: { params: Par
             <p>Classe : <span className="font-semibold text-slate-700">{row.classe || "-"}</span></p>
             <p>Processus : <span className="font-semibold text-slate-700">{row.processus_concerne || "-"}</span></p>
             <p>Service : <span className="font-semibold text-slate-700">{row.service_concerne || "-"}</span></p>
-            <p>Statut correction : <span className="font-semibold text-slate-700">{row.statut_correction || "-"}</span></p>
-            <p>Statut AC : <span className="font-semibold text-slate-700">{row.statut_ac || "-"}</span></p>
-            <p>Statut cloture : <span className="font-semibold text-slate-700">{row.statut_cloture || "-"}</span></p>
+            <p>Statut correction : <StatutBadge valeur={row.statut_correction} /></p>
+            <p>Statut AC : <StatutBadge valeur={row.statut_ac} /></p>
+            <p>Statut cloture : <StatutBadge valeur={row.statut_cloture} /></p>
             <p>Date : <span className="font-semibold text-slate-700">{row.created_at ? formatDate(row.created_at) : "-"}</span></p>
             <p>Date correction réalisée : <span className="font-semibold text-slate-700">{row.date_realisation_correction ? formatDate(row.date_realisation_correction) : "-"}</span></p>
             <p>Date AC réalisée : <span className="font-semibold text-slate-700">{row.date_realisation_ac ? formatDate(row.date_realisation_ac) : "-"}</span></p>
