@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { type ArticleType, type DepotLot, fetchLotsInDepot, totalAvailable, allocateFefo } from "./stock-lots";
+import { planifierLignes, type EntreeLigne } from "./repartition";
 import { deleteInvoiceOrder } from "../invoice-order/actions";
 import { logAudit } from "@/lib/audit-log";
 import { fetchTransferOrderLabel } from "@/lib/depot-labels";
@@ -865,131 +866,142 @@ export async function updateAllLigneLotsAction(formData: FormData) {
   }
 }
 
+// Enregistrement du mode "Modifier" d'un Transfer Order approuve / partiellement fini : l'utilisateur change la quantite
+// DEMANDEE (et/ou l'article, le lot prefere, les suppressions) ; la quantite a transferer par lot n'est JAMAIS saisie, elle
+// se recalcule toute seule = quantite demandee - deja livre, repartie d'abord sur le(s) lot(s) choisi(s) puis sur les autres
+// lots (le plus proche de l'expiration en premier) - voir repartition.ts, meme calcul que l'apercu a l'ecran. La quantite
+// demandee ne peut pas descendre sous ce qui est deja livre. Rien n'est ecrit tant que tout n'est pas valide (stock suffisant).
 async function updateAllLigneLotsCore(formData: FormData, transferOrderId: number, depotSourceId: number) {
   const deletedLigneIds = await deleteFlaggedLignes(formData);
   await applyArticleChanges(formData, deletedLigneIds);
 
+  // Lots choisis par ligne (dans l'ordre de saisie) : seulement une preference
+  const lotsChoisisParLigne = new Map<number, string[]>();
   const ligneIdsRaw = formData.getAll("ligne_id");
   const numeroLots = formData.getAll("numero_lot");
-  const quantites = formData.getAll("quantite");
+  ligneIdsRaw.forEach((raw, index) => {
+    const ligneId = Number(raw || "0");
+    if (ligneId <= 0 || deletedLigneIds.has(ligneId)) return;
+    const liste = lotsChoisisParLigne.get(ligneId) ?? [];
+    const numeroLot = String(numeroLots[index] ?? "").trim();
+    if (numeroLot) liste.push(numeroLot);
+    lotsChoisisParLigne.set(ligneId, liste);
+  });
 
-  // Filtre APRES avoir associe chaque ligne_id a son numero_lot/quantite par
-  // index (formData.getAll renvoie 3 tableaux paralleles) - filtrer
-  // ligneIdsRaw seul avant de zipper aurait decale ces index et associe le
-  // lot/quantite d'une ligne a une autre.
-  const rows = ligneIdsRaw
-    .map((ligneIdRaw, index) => ({
-      ligneId: Number(ligneIdRaw || "0"),
-      numeroLot: String(numeroLots[index] || "").trim() || null,
-      quantite: Number(String(quantites[index] || "0").replace(",", ".")),
-    }))
-    .filter((row) => !deletedLigneIds.has(row.ligneId));
+  // Nouvelle quantite demandee par ligne (champ vide = inchangee)
+  const nouvelleDemandeParLigne = new Map<number, number>();
+  const demandeIds = formData.getAll("demande_ligne_id");
+  const demandes = formData.getAll("nouvelle_demande");
+  demandeIds.forEach((raw, index) => {
+    const ligneId = Number(raw || "0");
+    const texte = String(demandes[index] ?? "").trim().replace(",", ".");
+    if (ligneId <= 0 || deletedLigneIds.has(ligneId) || texte === "") return;
+    nouvelleDemandeParLigne.set(ligneId, Number(texte));
+  });
 
-  const ligneIds = [...new Set(rows.map((r) => r.ligneId).filter((id) => id > 0))];
-  // Rien a faire ici (lot/quantite) ne veut pas forcement dire rien a faire
-  // du tout - une suppression ou un changement d'article seul (deja
-  // enregistres au-dessus) doit quand meme revalider la page normalement,
-  // pas repartir en erreur.
+  const ligneIds = [...new Set([...lotsChoisisParLigne.keys(), ...nouvelleDemandeParLigne.keys()])];
+  // Rien a faire ici ne veut pas forcement dire rien a faire du tout - une suppression ou un changement d'article seul
+  // (deja enregistres au-dessus) doit quand meme revalider la page normalement.
+  const changementsDemande: { ligne: number; avant: number; apres: number }[] = [];
   if (ligneIds.length > 0) {
     const { data: lignesData, error: lignesError } = await supabaseServer
       .from("transfer_order_lignes")
       .select("id, article_type, article_id, quantite_demandee")
-      .in("id", ligneIds);
+      .eq("transfer_order_id", transferOrderId)
+      .in("id", ligneIds)
+      .order("id", { ascending: true });
+    if (lignesError) throw new Error(lignesError.message);
+    const lignes = (lignesData ?? []) as { id: number; article_type: ArticleType; article_id: number; quantite_demandee: number }[];
 
-    if (lignesError) {
-      throw new Error(lignesError.message);
-    }
-
-    const ligneById = new Map(
-      (
-        (lignesData ?? []) as {
-          id: number;
-          article_type: ArticleType;
-          article_id: number;
-          quantite_demandee: number;
-        }[]
-      ).map((l) => [l.id, l])
-    );
-
-    const lotsCache = new Map<string, Awaited<ReturnType<typeof fetchLotsInDepot>>>();
-    // Solde restant PENDANT cet enregistrement (decremente au fur et a
-    // mesure) - sans ca, 2 lignes de lot du meme article/lot voyaient
-    // chacune le solde COMPLET independamment et pouvaient toutes les 2
-    // etre acceptees, faisant depasser le total transfere au-dela de ce qui
-    // existe vraiment.
-    const remainingByCacheKeyAndLot = new Map<string, number>();
-    // Total deja alloue pour CETTE ligne PENDANT cet enregistrement - jamais
-    // depasser quantite_demandee, meme si l'utilisateur a change le lot
-    // d'une ligne existante sans retirer/ajuster une autre ligne de lot
-    // restee sur l'ancien total (bug remonte par l'utilisateur : demande
-    // 300, code change, 2 lignes de lot pour le meme lot totalisant plus
-    // que 300).
-    const allocatedByLigneId = new Map<number, number>();
-    const allocations: typeof rows = [];
-
-    for (const row of rows) {
-      if (row.ligneId <= 0 || row.quantite <= 0) continue;
-      const ligne = ligneById.get(row.ligneId);
-      if (!ligne) continue;
-
-      const cacheKey = `${ligne.article_type}::${ligne.article_id}`;
-      let lots = lotsCache.get(cacheKey);
-      if (!lots) {
-        lots = await fetchLotsInDepot(ligne.article_type, ligne.article_id, depotSourceId, transferOrderId);
-        lotsCache.set(cacheKey, lots);
-      }
-
-      const remainingKey = `${cacheKey}::${row.numeroLot ?? ""}`;
-      if (!remainingByCacheKeyAndLot.has(remainingKey)) {
-        const disponible = lots.find((l) => l.numeroLot === (row.numeroLot ?? ""))?.solde ?? 0;
-        remainingByCacheKeyAndLot.set(remainingKey, disponible);
-      }
-      const remainingInLot = remainingByCacheKeyAndLot.get(remainingKey) ?? 0;
-
-      // Stock insuffisant sur ce lot precis : rejette tout l'enregistrement
-      // avec un message clair - demande explicite ("il faut pas accepter,
-      // msg que le stock est insuffisant, il faut pas que je puisse faire
-      // stock negatif"). Avant ce correctif, la quantite etait simplement
-      // reduite en silence au stock reellement disponible (Math.min), sans
-      // aucun message - l'utilisateur ne savait jamais que sa saisie avait
-      // ete tronquee.
-      if (row.quantite > remainingInLot + 1e-6) {
-        throw new Error(
-          `Stock insuffisant pour le lot "${row.numeroLot || "-"}" - disponible : ${remainingInLot.toLocaleString("fr-FR")}.`
+    // Deja livre par ligne (Transfer Invoice valides)
+    const livreParLigne = new Map<number, number>();
+    const { data: tiValides, error: tiError } = await supabaseServer
+      .from("invoice_orders")
+      .select("id")
+      .eq("transfer_order_id", transferOrderId)
+      .eq("statut", "valide");
+    if (tiError) throw new Error(tiError.message);
+    const idsTiValides = ((tiValides ?? []) as { id: number }[]).map((ti) => ti.id);
+    if (idsTiValides.length > 0) {
+      const { data: livraisons, error: livraisonsError } = await supabaseServer
+        .from("invoice_order_lignes")
+        .select("transfer_order_ligne_id, quantite")
+        .in("invoice_order_id", idsTiValides);
+      if (livraisonsError) throw new Error(livraisonsError.message);
+      for (const livraison of (livraisons ?? []) as { transfer_order_ligne_id: number; quantite: number }[]) {
+        livreParLigne.set(
+          livraison.transfer_order_ligne_id,
+          (livreParLigne.get(livraison.transfer_order_ligne_id) ?? 0) + Number(livraison.quantite ?? 0)
         );
       }
-
-      const dejaAlloue = allocatedByLigneId.get(row.ligneId) ?? 0;
-      const restantSurDemande = Math.max(0, ligne.quantite_demandee - dejaAlloue);
-
-      const quantite = Math.round(Math.min(row.quantite, remainingInLot, restantSurDemande) * 1000) / 1000;
-      if (quantite <= 0) continue;
-
-      remainingByCacheKeyAndLot.set(remainingKey, remainingInLot - quantite);
-      allocatedByLigneId.set(row.ligneId, dejaAlloue + quantite);
-      allocations.push({ ...row, quantite });
     }
 
-    const { error: deleteError } = await supabaseServer
-      .from("transfer_order_ligne_lots")
-      .delete()
-      .in("transfer_order_ligne_id", ligneIds);
-
-    if (deleteError) {
-      throw new Error(deleteError.message);
+    // Noms des articles (pour les messages) et lots du depot source (net des autres reservations, hors ce TO)
+    const nomsParCle = new Map<string, string>();
+    for (const type of ["MP", "PF"] as const) {
+      const ids = [...new Set(lignes.filter((l) => l.article_type === type).map((l) => l.article_id))];
+      if (ids.length === 0) continue;
+      const { data: articles } = await supabaseServer
+        .from(type === "MP" ? "articles_matiere_premiere" : "articles")
+        .select("id, nom_article")
+        .in("id", ids);
+      for (const article of (articles ?? []) as { id: number; nom_article: string }[]) {
+        nomsParCle.set(`${type}::${article.id}`, article.nom_article);
+      }
+    }
+    const lotsParArticle = new Map<string, { numeroLot: string; solde: number }[]>();
+    for (const ligne of lignes) {
+      const cle = `${ligne.article_type}::${ligne.article_id}`;
+      if (lotsParArticle.has(cle)) continue;
+      const lots = await fetchLotsInDepot(ligne.article_type, ligne.article_id, depotSourceId, transferOrderId);
+      lotsParArticle.set(cle, lots.map((lot) => ({ numeroLot: lot.numeroLot, solde: lot.solde })));
     }
 
-    if (allocations.length > 0) {
-      const { error: insertError } = await supabaseServer.from("transfer_order_ligne_lots").insert(
-        allocations.map((r) => ({
-          transfer_order_ligne_id: r.ligneId,
-          numero_lot: r.numeroLot,
-          quantite: r.quantite,
-        }))
-      );
+    const entrees: EntreeLigne[] = lignes.map((ligne) => {
+      const cle = `${ligne.article_type}::${ligne.article_id}`;
+      const actuelle = Number(ligne.quantite_demandee ?? 0);
+      return {
+        id: ligne.id,
+        articleType: ligne.article_type,
+        articleId: ligne.article_id,
+        nom: nomsParCle.get(cle) ?? `#${ligne.article_id}`,
+        actuelle,
+        nouvelle: nouvelleDemandeParLigne.get(ligne.id) ?? actuelle,
+        livre: livreParLigne.get(ligne.id) ?? 0,
+        lotsChoisis: lotsChoisisParLigne.get(ligne.id) ?? [],
+      };
+    });
 
-      if (insertError) {
-        throw new Error(insertError.message);
+    // 1. Calcul et verifications (aucune ecriture tant que tout n'est pas valide)
+    const plan = planifierLignes(entrees, lotsParArticle);
+
+    // 2. Ecriture : lots de chaque ligne remplaces, puis nouvelle quantite demandee
+    for (const ligne of plan) {
+      const { error: deleteError } = await supabaseServer
+        .from("transfer_order_ligne_lots")
+        .delete()
+        .eq("transfer_order_ligne_id", ligne.ligneId);
+      if (deleteError) throw new Error(deleteError.message);
+
+      if (ligne.allocations.length > 0) {
+        const { error: insertError } = await supabaseServer.from("transfer_order_ligne_lots").insert(
+          ligne.allocations.map((allocation) => ({
+            transfer_order_ligne_id: ligne.ligneId,
+            numero_lot: allocation.numeroLot === "" ? null : allocation.numeroLot,
+            quantite: allocation.quantite,
+          }))
+        );
+        if (insertError) throw new Error(insertError.message);
+      }
+
+      if (ligne.demandeChangee) {
+        const { error: demandeError } = await supabaseServer
+          .from("transfer_order_lignes")
+          .update({ quantite_demandee: ligne.nouvelle })
+          .eq("id", ligne.ligneId);
+        if (demandeError) throw new Error(demandeError.message);
+        const avant = entrees.find((e) => e.id === ligne.ligneId)?.actuelle ?? 0;
+        changementsDemande.push({ ligne: ligne.ligneId, avant, apres: ligne.nouvelle });
       }
     }
   }
@@ -1000,10 +1012,17 @@ async function updateAllLigneLotsCore(formData: FormData, transferOrderId: numbe
     module: "TransferOrder",
     action: "modification",
     cible: label,
-    resume: `Transfer Order ${label} modifie (lignes/lots)${deletedLigneIds.size > 0 ? ` - ${deletedLigneIds.size} ligne(s) supprimee(s)` : ""}`,
+    resume: `Transfer Order ${label} modifie (lignes/lots)${deletedLigneIds.size > 0 ? ` - ${deletedLigneIds.size} ligne(s) supprimee(s)` : ""}${changementsDemande.length > 0 ? ` - quantite demandee modifiee sur ${changementsDemande.length} ligne(s)` : ""}`,
+    ...(changementsDemande.length > 0
+      ? {
+          avant: { lignes: changementsDemande.map((c) => ({ ligne: c.ligne, quantite_demandee: c.avant })) },
+          apres: { lignes: changementsDemande.map((c) => ({ ligne: c.ligne, quantite_demandee: c.apres })) },
+        }
+      : {}),
   });
 
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
+  revalidatePath("/depots/transfer-order");
 }
 
 // Cree un Transfer Invoice a partir de ce Transfer Order (approuve, ou

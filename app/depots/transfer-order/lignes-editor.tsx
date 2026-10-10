@@ -7,6 +7,7 @@ import { SubmitButton } from "@/app/_components/submit-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { LotSearchField } from "./lot-search-field";
 import type { ArticleType } from "./stock-lots";
+import { repartirQuantite } from "./repartition";
 
 type LotChoisi = { numero_lot: string | null; quantite: number };
 
@@ -35,8 +36,12 @@ type LigneRow = {
   article_type: ArticleType;
   article_id: number;
   quantite_demandee: number;
+  // deja livre (Transfer Invoice valides) : la quantite demandee ne peut pas descendre en dessous
+  livre: number;
   lotsDisponibles: { numeroLot: string; solde: number }[];
 };
+
+const nombre = (valeur: number) => valeur.toLocaleString("fr-FR", { maximumFractionDigits: 6 });
 
 // Cadenas par defaut (aucun champ modifiable tant qu'on n'a pas clique
 // "Modifier") - avant, la quantite a transferer et le lot etaient TOUJOURS
@@ -68,19 +73,10 @@ export function TransferOrderLignesEditor({
   const [isEditing, setIsEditing] = useState(false);
   const [supprimees, setSupprimees] = useState<Set<number>>(new Set());
   const [articleChoisi, setArticleChoisi] = useState<Record<number, { type: ArticleType; id: number | null }>>({});
-  const quantiteInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-
-  // Remplit "Quantite a transferer" avec le disponible du lot choisi (jamais
-  // plus que la Demande) des qu'on choisit/change un lot - avant, choisir un
-  // lot ne touchait pas la quantite, restee a 0 par defaut : "Enregistrer"
-  // n'avait alors rien a transferer et la ligne repartait vide sans message
-  // d'erreur (bug remonte par l'utilisateur, cas reel Flacon Kinder/Capsule).
-  function remplirQuantiteAutomatique(rowKey: string, ligne: LigneRow, numeroLot: string) {
-    const input = quantiteInputRefs.current[rowKey];
-    if (!input) return;
-    const disponible = ligne.lotsDisponibles.find((disp) => disp.numeroLot === numeroLot)?.solde ?? 0;
-    input.value = String(Math.round(Math.min(disponible, ligne.quantite_demandee) * 1000) / 1000);
-  }
+  // Quantite demandee tapee par ligne (texte) et lot choisi par ligne de lot : servent a l'apercu en direct de la quantite
+  // a transferer, qui se recalcule toute seule quand on change la quantite demandee (voir repartition.ts).
+  const [demandes, setDemandes] = useState<Record<number, string>>({});
+  const [lotsChoisis, setLotsChoisis] = useState<Record<string, string>>({});
 
   function toggleSupprimer(ligneId: number) {
     setSupprimees((prev) => {
@@ -97,8 +93,8 @@ export function TransferOrderLignesEditor({
         {canEditLignes ? (
           <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
             <p className="text-sm text-slate-500">
-              Verrouille - clique &quot;Modifier&quot; pour changer l&apos;article, le lot, la
-              quantite, ou supprimer une ligne.
+              Verrouille - clique &quot;Modifier&quot; pour changer l&apos;article, la quantite
+              demandee, le lot, ou supprimer une ligne.
             </p>
             <button
               type="button"
@@ -203,7 +199,8 @@ export function TransferOrderLignesEditor({
 
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold text-amber-700">
-            Mode modification - change l&apos;article, le lot, la quantite, ou coche "Supprimer".
+            Mode modification - change la quantite DEMANDEE : la quantite a transferer se recalcule toute seule. Tu peux aussi
+            changer l&apos;article, le lot prefere, ou cocher &quot;Supprimer&quot;.
           </p>
           <div className="flex gap-3">
             <button
@@ -227,10 +224,10 @@ export function TransferOrderLignesEditor({
             <thead className="bg-slate-50 text-slate-500">
               <tr>
                 <th className="px-6 py-4 font-semibold">Article</th>
-                <th className="px-6 py-4 font-semibold">Demande</th>
+                <th className="px-6 py-4 font-semibold">Quantite demandee</th>
                 <th className="px-6 py-4 font-semibold">Numero de lot</th>
                 <th className="px-6 py-4 font-semibold">Disponible {depotSourceNom}</th>
-                <th className="px-6 py-4 font-semibold">Quantite a transferer</th>
+                <th className="px-6 py-4 font-semibold">Quantite a transferer (automatique)</th>
                 <th className="px-6 py-4 font-semibold">Supprimer</th>
               </tr>
             </thead>
@@ -241,114 +238,176 @@ export function TransferOrderLignesEditor({
                 const lots = lotsByLigneId[ligne.id] ?? [];
                 const rows = lots.length > 0 ? lots : [{ numero_lot: null, quantite: 0 }];
 
-                return rows.map((lot, index) => (
-                  <tr
-                    key={`${ligne.id}-${index}`}
-                    className={`border-t border-slate-100 ${estSupprimee ? "opacity-40" : ""}`}
-                  >
-                    <td className="px-6 py-4 font-medium text-slate-900">
-                      {index === 0 ? (
-                        <div className="flex min-w-[16rem] flex-col gap-1.5">
-                          <div className="flex gap-3 text-xs font-semibold text-slate-500">
-                            <label className="flex items-center gap-1.5">
-                              <input
-                                type="radio"
-                                name={`article_type_choice_${ligne.id}`}
-                                checked={(choix?.type ?? ligne.article_type) === "MP"}
-                                disabled={estSupprimee}
-                                onChange={() =>
-                                  setArticleChoisi((prev) => ({
-                                    ...prev,
-                                    [ligne.id]: { type: "MP", id: null },
-                                  }))
-                                }
-                              />
-                              MP
-                            </label>
-                            <label className="flex items-center gap-1.5">
-                              <input
-                                type="radio"
-                                name={`article_type_choice_${ligne.id}`}
-                                checked={(choix?.type ?? ligne.article_type) === "PF"}
-                                disabled={estSupprimee}
-                                onChange={() =>
-                                  setArticleChoisi((prev) => ({
-                                    ...prev,
-                                    [ligne.id]: { type: "PF", id: null },
-                                  }))
-                                }
-                              />
-                              PF
-                            </label>
+                // Apercu : a transferer = demande - deja livre, repartie sur les lots (memes regles que le serveur)
+                const texteDemande = demandes[ligne.id] ?? String(ligne.quantite_demandee);
+                const demande = Number(texteDemande.replace(",", "."));
+                const demandeValide = texteDemande.trim() !== "" && Number.isFinite(demande) && demande > 0;
+                const aTransferer = demandeValide ? Math.max(0, demande - ligne.livre) : 0;
+                const lotDeLaRangee = rows.map((lot, position) => lotsChoisis[`${ligne.id}-${position}`] ?? lot.numero_lot ?? "");
+                const articleChange = Boolean(
+                  choix && (choix.type !== ligne.article_type || (choix.id !== null && choix.id !== ligne.article_id))
+                );
+                const apercu =
+                  estSupprimee || articleChange || !demandeValide
+                    ? null
+                    : repartirQuantite(ligne.lotsDisponibles, lotDeLaRangee.filter(Boolean), aTransferer);
+                const quantiteParLot = new Map((apercu?.allocations ?? []).map((allocation) => [allocation.numeroLot, allocation.quantite]));
+                const dejaAffiche = new Set<string>();
+                const lotsAutomatiques = (apercu?.allocations ?? []).filter((allocation) => !lotDeLaRangee.includes(allocation.numeroLot));
+
+                const lignesJsx = rows.map((lot, index) => {
+                  const lotRangee = lotDeLaRangee[index];
+                  let quantiteAffichee: string;
+                  if (articleChange) quantiteAffichee = "calculee a l'enregistrement";
+                  else if (!demandeValide) quantiteAffichee = "-";
+                  else if (lotRangee && !dejaAffiche.has(lotRangee)) {
+                    dejaAffiche.add(lotRangee);
+                    quantiteAffichee = nombre(quantiteParLot.get(lotRangee) ?? 0);
+                  } else quantiteAffichee = "-";
+
+                  return (
+                    <tr
+                      key={`${ligne.id}-${index}`}
+                      className={`border-t border-slate-100 ${estSupprimee ? "opacity-40" : ""}`}
+                    >
+                      <td className="px-6 py-4 font-medium text-slate-900">
+                        {index === 0 ? (
+                          <div className="flex min-w-[16rem] flex-col gap-1.5">
+                            <div className="flex gap-3 text-xs font-semibold text-slate-500">
+                              <label className="flex items-center gap-1.5">
+                                <input
+                                  type="radio"
+                                  name={`article_type_choice_${ligne.id}`}
+                                  checked={(choix?.type ?? ligne.article_type) === "MP"}
+                                  disabled={estSupprimee}
+                                  onChange={() =>
+                                    setArticleChoisi((prev) => ({
+                                      ...prev,
+                                      [ligne.id]: { type: "MP", id: null },
+                                    }))
+                                  }
+                                />
+                                MP
+                              </label>
+                              <label className="flex items-center gap-1.5">
+                                <input
+                                  type="radio"
+                                  name={`article_type_choice_${ligne.id}`}
+                                  checked={(choix?.type ?? ligne.article_type) === "PF"}
+                                  disabled={estSupprimee}
+                                  onChange={() =>
+                                    setArticleChoisi((prev) => ({
+                                      ...prev,
+                                      [ligne.id]: { type: "PF", id: null },
+                                    }))
+                                  }
+                                />
+                                PF
+                              </label>
+                            </div>
+                            <input type="hidden" name="article_change_ligne_id" value={ligne.id} />
+                            <input type="hidden" name="new_article_type" value={choix?.type ?? ligne.article_type} />
+                            <ProduitPickerField
+                              key={`${ligne.id}-${choix?.type ?? ligne.article_type}`}
+                              articles={(choix?.type ?? ligne.article_type) === "MP" ? articlesMp : articlesPf}
+                              defaultValue={choix ? "" : ligne.nom}
+                              defaultArticleId={choix ? choix.id : ligne.article_id}
+                              hiddenName="new_article_id"
+                              textName={`produit_${ligne.id}`}
+                              onSelect={(id) =>
+                                setArticleChoisi((prev) => ({
+                                  ...prev,
+                                  [ligne.id]: { type: prev[ligne.id]?.type ?? ligne.article_type, id },
+                                }))
+                              }
+                            />
                           </div>
-                          <input type="hidden" name="article_change_ligne_id" value={ligne.id} />
-                          <input type="hidden" name="new_article_type" value={choix?.type ?? ligne.article_type} />
-                          <ProduitPickerField
-                            key={`${ligne.id}-${choix?.type ?? ligne.article_type}`}
-                            articles={(choix?.type ?? ligne.article_type) === "MP" ? articlesMp : articlesPf}
-                            defaultValue={choix ? "" : ligne.nom}
-                            defaultArticleId={choix ? choix.id : ligne.article_id}
-                            hiddenName="new_article_id"
-                            textName={`produit_${ligne.id}`}
-                            onSelect={(id) =>
-                              setArticleChoisi((prev) => ({
-                                ...prev,
-                                [ligne.id]: { type: prev[ligne.id]?.type ?? ligne.article_type, id },
-                              }))
-                            }
-                          />
-                        </div>
-                      ) : null}
+                        ) : null}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {index === 0 ? (
+                          <div>
+                            <input type="hidden" name="demande_ligne_id" value={ligne.id} />
+                            <input
+                              type="number"
+                              name="nouvelle_demande"
+                              step="any"
+                              min={ligne.livre}
+                              value={texteDemande}
+                              onChange={(event) => setDemandes((prev) => ({ ...prev, [ligne.id]: event.target.value }))}
+                              disabled={estSupprimee}
+                              required
+                              aria-label={`Quantite demandee de ${ligne.nom}`}
+                              className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-400 disabled:bg-slate-50"
+                            />
+                            {ligne.livre > 0 ? (
+                              <p className="mt-1 text-[11px] text-slate-500">Deja livre : {nombre(ligne.livre)}</p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-6 py-4">
+                        <input type="hidden" name="ligne_id" value={ligne.id} />
+                        <LotSearchField
+                          name="numero_lot"
+                          defaultValue={lot.numero_lot ?? ""}
+                          lots={ligne.lotsDisponibles}
+                          disabled={estSupprimee}
+                          onChange={(numeroLot) => setLotsChoisis((prev) => ({ ...prev, [`${ligne.id}-${index}`]: numeroLot }))}
+                        />
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {(ligne.lotsDisponibles.find((disp) => disp.numeroLot === (lotRangee || ""))?.solde ?? 0).toLocaleString("fr-FR")}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-slate-900">{quantiteAffichee}</td>
+                      <td className="px-6 py-4">
+                        {index === 0 ? (
+                          <label className="flex items-center gap-1.5 text-xs font-semibold text-red-700">
+                            <input
+                              type="checkbox"
+                              name="supprimer_ligne_id"
+                              value={ligne.id}
+                              checked={estSupprimee}
+                              onChange={() => toggleSupprimer(ligne.id)}
+                            />
+                            Supprimer
+                          </label>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                });
+
+                // Lots pris automatiquement en plus (le plus proche de l'expiration) quand le lot choisi ne suffit pas
+                const lignesAutomatiques = lotsAutomatiques.map((allocation) => (
+                  <tr key={`${ligne.id}-auto-${allocation.numeroLot}`} className="border-t border-slate-100 bg-sky-50/40">
+                    <td className="px-6 py-3"></td>
+                    <td className="px-6 py-3"></td>
+                    <td className="px-6 py-3 text-xs text-slate-600">
+                      {allocation.numeroLot || "(sans numero)"} <span className="text-slate-400">(ajoute automatiquement)</span>
                     </td>
-                    <td className="px-6 py-4 text-slate-600">
-                      {index === 0 ? ligne.quantite_demandee.toLocaleString("fr-FR") : ""}
+                    <td className="px-6 py-3 text-slate-600">
+                      {(ligne.lotsDisponibles.find((disp) => disp.numeroLot === allocation.numeroLot)?.solde ?? 0).toLocaleString("fr-FR")}
                     </td>
-                    <td className="px-6 py-4">
-                      <input type="hidden" name="ligne_id" value={ligne.id} />
-                      <LotSearchField
-                        name="numero_lot"
-                        defaultValue={lot.numero_lot ?? ""}
-                        lots={ligne.lotsDisponibles}
-                        disabled={estSupprimee}
-                        onChange={(numeroLot) => remplirQuantiteAutomatique(`${ligne.id}-${index}`, ligne, numeroLot)}
-                      />
-                    </td>
-                    <td className="px-6 py-4 text-slate-600">
-                      {(
-                        ligne.lotsDisponibles.find((disp) => disp.numeroLot === (lot.numero_lot || ""))?.solde ?? 0
-                      ).toLocaleString("fr-FR")}
-                    </td>
-                    <td className="px-6 py-4">
-                      <input
-                        type="number"
-                        step="0.001"
-                        min="0"
-                        max={ligne.lotsDisponibles.find((disp) => disp.numeroLot === (lot.numero_lot || ""))?.solde}
-                        name="quantite"
-                        defaultValue={lot.quantite ?? 0}
-                        disabled={estSupprimee}
-                        ref={(el) => {
-                          quantiteInputRefs.current[`${ligne.id}-${index}`] = el;
-                        }}
-                        className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
-                      />
-                    </td>
-                    <td className="px-6 py-4">
-                      {index === 0 ? (
-                        <label className="flex items-center gap-1.5 text-xs font-semibold text-red-700">
-                          <input
-                            type="checkbox"
-                            name="supprimer_ligne_id"
-                            value={ligne.id}
-                            checked={estSupprimee}
-                            onChange={() => toggleSupprimer(ligne.id)}
-                          />
-                          Supprimer
-                        </label>
-                      ) : null}
-                    </td>
+                    <td className="px-6 py-3 font-semibold text-slate-900">{nombre(allocation.quantite)}</td>
+                    <td className="px-6 py-3"></td>
                   </tr>
                 ));
+
+                const lignesManque =
+                  apercu && apercu.manque > 0
+                    ? [
+                        <tr key={`${ligne.id}-manque`} className="border-t border-slate-100">
+                          <td className="px-6 py-3 text-sm font-semibold text-red-700" colSpan={6}>
+                            Stock insuffisant pour {ligne.nom} : il manque {nombre(apercu.manque)} (disponible {depotSourceNom} :{" "}
+                            {nombre(ligne.lotsDisponibles.reduce((somme, lot) => somme + Math.max(0, lot.solde), 0))}). Baisse la
+                            quantite demandee.
+                          </td>
+                        </tr>,
+                      ]
+                    : [];
+
+                return [...lignesJsx, ...lignesAutomatiques, ...lignesManque];
               })}
             </tbody>
           </table>

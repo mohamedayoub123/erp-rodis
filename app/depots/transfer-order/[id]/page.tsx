@@ -175,10 +175,13 @@ export default async function TransferOrderDetailPage({
     lotsByLigneId.set(lot.transfer_order_ligne_id, list);
   }
 
-  // Deja livre par ligne (Transfer Invoice valides) - pour l'augmentation de la quantite demandee d'un TO deja traite
-  const peutAugmenter = canEdit && transferOrder.statut !== "en_attente";
+  // Deja livre par ligne (Transfer Invoice valides) : la quantite demandee ne peut pas descendre en dessous (mode
+  // Modifier d'un TO approuve / partiellement fini, et augmentation d'un TO deja poste)
+  // Un TO "Poste" garde le petit formulaire "Augmenter la quantite demandee" (le mode Modifier est verrouille) ; avant, la
+  // quantite demandee se change directement dans "Modifier".
+  const peutAugmenter = canEdit && transferOrder.statut === "poste";
   const livreParLigne = new Map<number, number>();
-  if (peutAugmenter) {
+  if (canEdit && transferOrder.statut !== "en_attente") {
     const idsTiValides = invoiceOrders.filter((io) => io.statut === "valide").map((io) => io.id);
     if (idsTiValides.length > 0) {
       const { data: livraisonsData } = await supabaseServer
@@ -357,6 +360,7 @@ export default async function TransferOrderDetailPage({
               article_type: ligne.article_type,
               article_id: ligne.article_id,
               quantite_demandee: ligne.quantite_demandee,
+              livre: livreParLigne.get(ligne.id) ?? 0,
               lotsDisponibles: ligne.lotsDisponibles,
             }))}
             lotsByLigneId={Object.fromEntries(
