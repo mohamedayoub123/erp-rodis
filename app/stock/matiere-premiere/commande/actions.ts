@@ -16,6 +16,7 @@ import {
   supprimerEcriturePourSource,
 } from "@/lib/comptabilite";
 import { recalculerEcrituresDependantes } from "@/lib/ecriture-recompute";
+import { contenanceMpDisponible, lireContenance } from "@/lib/contenance-mp";
 
 // Sources d'ecritures comptables generees par une Reception (voir plus bas,
 // createReceptionMpAction) - reprises ici pour effacer les ecritures liees
@@ -218,6 +219,11 @@ export async function updateLotPrixAction(formData: FormData) {
 // et le Stock Alert MP ne bougeraient jamais suite a une reception.
 export async function createReceptionMpAction(formData: FormData) {
   const currentUser = await requireEditAccess();
+  // Contenance du lot recu (25 pour un sac de 25 kg) : obligatoire avec le numero de lot, car un meme article peut
+  // arriver avec une contenance differente d'un lot a l'autre. Pas demandee tant que le SQL add_contenance_mp.sql
+  // n'est pas execute.
+  const avecContenance = await contenanceMpDisponible();
+  const contenance = lireContenance(formData.get("contenance"));
 
   const bcLigneId = Number(String(formData.get("bc_ligne_id") || "0"));
   const quantiteRaw = String(formData.get("quantite_importee") || "").trim().replace(",", ".");
@@ -249,6 +255,13 @@ export async function createReceptionMpAction(formData: FormData) {
   if (!numeroLot) {
     throw new Error("Le numero de lot est obligatoire pour receptionner.");
   }
+
+  if (avecContenance && (contenance === null || contenance <= 0)) {
+    throw new Error(
+      "La contenance du lot est obligatoire pour receptionner (ex : 25 pour un sac de 25 kg, 200 pour un fut de 200 kg)."
+    );
+  }
+  const champContenance = avecContenance ? { contenance } : {};
 
   if (!dateFabrication) {
     throw new Error("La date de fabrication est obligatoire pour receptionner.");
@@ -365,6 +378,7 @@ export async function createReceptionMpAction(formData: FormData) {
           quantite_importee: quantiteImportee,
           n_doss_4d_import: nDoss4dImport,
           n_doss_erp_import: nDossErpImport,
+          ...champContenance,
           numero_lot: numeroLot,
           date_fabrication: dateFabrication,
           date_expiration: dateExpiration,
@@ -391,6 +405,7 @@ export async function createReceptionMpAction(formData: FormData) {
         quantite_importee: quantiteImportee,
         n_doss_4d_import: nDoss4dImport,
         n_doss_erp_import: nDossErpImport,
+        ...champContenance,
         numero_lot: numeroLot,
         date_fabrication: dateFabrication,
         date_expiration: dateExpiration,
@@ -410,6 +425,7 @@ export async function createReceptionMpAction(formData: FormData) {
           quantite_importee: quantiteImportee,
           n_doss_4d_import: nDoss4dImport,
           n_doss_erp_import: nDossErpImport,
+          ...champContenance,
           numero_lot: numeroLot,
           date_fabrication: dateFabrication,
           date_expiration: dateExpiration,
@@ -447,6 +463,7 @@ export async function createReceptionMpAction(formData: FormData) {
         fournisseur,
         n_doss_erp: nDossErpImport,
         n_doss_4d: nDoss4dImport,
+        ...champContenance,
         utilisateur: currentUser,
         // Tag distinct de l'entree manuelle ("web:entree-mp") pour pouvoir
         // afficher la provenance (Manuel / Import) sur Mouvements MP - reste

@@ -10,6 +10,7 @@ import { SubmitButton } from "@/app/_components/submit-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { SQL_CONTENANCE, contenanceMpDisponible, formaterContenance } from "@/lib/contenance-mp";
 
 const EXPORT_COLUMNS = [
   { label: "Article", key: "nom_article" },
@@ -37,6 +38,7 @@ type ArticleMpRow = {
   min_stock: number | null;
   max_stock: number | null;
   depot_id: number | null;
+  contenance?: number | null;
 };
 
 const ARTICLES_MP_COLUMNS =
@@ -47,8 +49,9 @@ const ARTICLES_MP_COLUMNS =
 // pages, mais elles peuvent etre demandees EN PARALLELE (une seule attente
 // reseau au lieu d'une boucle sequentielle qui attend chaque page l'une
 // apres l'autre), meme motif que Stock MP/PF avant leur passage en RPC.
-async function fetchAllArticlesMp() {
+async function fetchAllArticlesMp(avecContenance: boolean) {
   const pageSize = 1000;
+  const colonnes = avecContenance ? `${ARTICLES_MP_COLUMNS}, contenance` : ARTICLES_MP_COLUMNS;
 
   const { count, error: countError } = await supabaseServer
     .from("articles_matiere_premiere")
@@ -65,7 +68,7 @@ async function fetchAllArticlesMp() {
       const from = index * pageSize;
       return supabaseServer
         .from("articles_matiere_premiere")
-        .select(ARTICLES_MP_COLUMNS)
+        .select(colonnes)
         .order("nom_article", { ascending: true })
         .range(from, from + pageSize - 1);
     })
@@ -107,8 +110,9 @@ export default async function ArticlesMatierePremierePage({
   const from = (currentPage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
+  const avecContenance = await contenanceMpDisponible();
   const [{ rows: allArticles, error: fetchError }, depotsResult] = await Promise.all([
-    fetchAllArticlesMp(),
+    fetchAllArticlesMp(avecContenance),
     supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
   ]);
   const depots = ((depotsResult.data ?? []) as { id: number; nom: string }[]).map((d) => ({
@@ -166,7 +170,7 @@ export default async function ArticlesMatierePremierePage({
             <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
             <ExportExcelButton
               rows={filteredArticles}
-              columns={EXPORT_COLUMNS}
+              columns={avecContenance ? [...EXPORT_COLUMNS, { label: "Contenance", key: "contenance" }] : EXPORT_COLUMNS}
               filename={`articles-matiere-premiere-${new Date().toISOString().slice(0, 10)}.xlsx`}
             />
             <RefreshButton />
@@ -180,6 +184,13 @@ export default async function ArticlesMatierePremierePage({
             ) : null}
           </div>
         </div>
+
+        {!avecContenance && canEditArticles ? (
+          <p className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
+            Pour saisir la contenance des articles (sac de 25 kg, fût...), exécutez d&apos;abord le SQL{" "}
+            <code className="rounded bg-white px-1.5 py-0.5 text-xs">{SQL_CONTENANCE}</code> dans Supabase (SQL Editor).
+          </p>
+        ) : null}
 
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 border-b border-slate-100 p-6 md:grid-cols-4">
@@ -229,6 +240,9 @@ export default async function ArticlesMatierePremierePage({
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Sous Famille</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
+                      {avecContenance ? (
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Contenance</th>
+                      ) : null}
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme Statistique</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Utilisation</th>
@@ -248,6 +262,9 @@ export default async function ArticlesMatierePremierePage({
                         <td className="px-6 py-4 text-slate-600">{article.categorie || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.sous_famille || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.unite || "-"}</td>
+                        {avecContenance ? (
+                          <td className="px-6 py-4 text-slate-600">{formaterContenance(article.contenance, article.unite)}</td>
+                        ) : null}
                         <td className="px-6 py-4 text-slate-600">{article.gamme || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.gamme_statistique || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.utilisation || "-"}</td>
@@ -293,6 +310,17 @@ export default async function ArticlesMatierePremierePage({
                                   placeholder="Unite"
                                   className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                                 />
+                                {avecContenance ? (
+                                  <input
+                                    type="number"
+                                    step="0.001"
+                                    min="0"
+                                    name="contenance"
+                                    defaultValue={article.contenance ?? ""}
+                                    placeholder="Contenance (ex : 25 pour un sac de 25 kg)"
+                                    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
+                                  />
+                                ) : null}
                                 <input
                                   type="text"
                                   name="gamme"

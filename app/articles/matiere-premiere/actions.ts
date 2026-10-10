@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { contenanceMpDisponible, lireContenance } from "@/lib/contenance-mp";
 
 function normalizeArticle(value: string) {
   return value.replace(/ /g, "").trim().toUpperCase();
@@ -39,6 +40,17 @@ async function requireDeleteAccess() {
   }
 }
 
+// Contenance habituelle de l'article (25 pour un sac de 25 kg) : facultative ici, demandee a chaque reception d'import.
+// Ignoree tant que le SQL add_contenance_mp.sql n'est pas execute.
+async function lireContenanceArticle(formData: FormData): Promise<{ contenance: number } | { contenance: null } | Record<string, never>> {
+  if (!(await contenanceMpDisponible())) return {};
+  const contenance = lireContenance(formData.get("contenance"));
+  if (contenance !== null && contenance <= 0) {
+    throw new Error("La contenance doit etre superieure a 0 (ex : 25 pour un sac de 25 kg).");
+  }
+  return { contenance };
+}
+
 function revalidateArticlesMpPages() {
   revalidatePath("/articles/matiere-premiere");
   revalidatePath("/stock/matiere-premiere");
@@ -59,6 +71,7 @@ export async function createArticleMpAction(formData: FormData) {
   const maxStock = parseOptionalNumber(formData, "max_stock");
   const depotIdRaw = String(formData.get("depot_id") || "").trim();
   const depotId = depotIdRaw ? Number(depotIdRaw) : null;
+  const contenance = await lireContenanceArticle(formData);
 
   if (!nomArticle) {
     throw new Error("Le nom de l'article est obligatoire.");
@@ -89,6 +102,7 @@ export async function createArticleMpAction(formData: FormData) {
       min_stock: minStock,
       max_stock: maxStock,
       depot_id: depotId,
+      ...contenance,
     },
   ]);
 
@@ -143,6 +157,7 @@ export async function updateArticleMpAction(formData: FormData) {
   const maxStock = parseOptionalNumber(formData, "max_stock");
   const depotIdRaw = String(formData.get("depot_id") || "").trim();
   const depotId = depotIdRaw ? Number(depotIdRaw) : null;
+  const contenance = await lireContenanceArticle(formData);
 
   if (!articleId || !nomArticle) {
     throw new Error("Article invalide.");
@@ -175,6 +190,7 @@ export async function updateArticleMpAction(formData: FormData) {
       min_stock: minStock,
       max_stock: maxStock,
       depot_id: depotId,
+      ...contenance,
     })
     .eq("id", articleId);
 
