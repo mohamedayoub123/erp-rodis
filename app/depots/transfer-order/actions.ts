@@ -586,6 +586,34 @@ async function applyArticleChanges(formData: FormData, skipIds: Set<number>) {
   }
 }
 
+// Un Transfer Order "Partiellement fini" dont il ne reste plus rien a transferer (plus aucune quantite reservee en attente
+// sur ses lignes : par exemple apres avoir supprime la seule ligne pas encore livree, ou ramene la demande a ce qui est deja
+// livre) est TERMINE : statut "Poste", comme apres la validation du dernier Transfer Invoice (voir invoice-order/actions.ts).
+// Rend vrai si le statut vient de passer a "Poste".
+async function terminerSiPlusRienATransferer(transferOrderId: number): Promise<boolean> {
+  const { data: transferOrderData } = await supabaseServer
+    .from("transfer_orders")
+    .select("statut")
+    .eq("id", transferOrderId)
+    .maybeSingle();
+  if ((transferOrderData as { statut: string } | null)?.statut !== "partiellement_fini") return false;
+
+  const { data: lignesData } = await supabaseServer.from("transfer_order_lignes").select("id").eq("transfer_order_id", transferOrderId);
+  const ligneIds = ((lignesData ?? []) as { id: number }[]).map((ligne) => ligne.id);
+  if (ligneIds.length === 0) return false;
+
+  const { data: lotsData, error: lotsError } = await supabaseServer
+    .from("transfer_order_ligne_lots")
+    .select("quantite")
+    .in("transfer_order_ligne_id", ligneIds);
+  if (lotsError) throw new Error(lotsError.message);
+  if (((lotsData ?? []) as { quantite: number }[]).some((lot) => Number(lot.quantite ?? 0) > 1e-6)) return false;
+
+  const { error } = await supabaseServer.from("transfer_orders").update({ statut: "poste" }).eq("id", transferOrderId);
+  if (error) throw new Error(error.message);
+  return true;
+}
+
 // Supprime UNE SEULE ligne d'un Transfer Order "Approuve"/"Partiellement
 // fini", en un clic depuis le tableau verrouille - jamais besoin d'ouvrir
 // "Modifier" juste pour ca (demande explicite : meme bouton simple qu'au
@@ -640,16 +668,18 @@ export async function deleteTransferOrderLigneAction(formData: FormData) {
     redirect(`/depots/transfer-order/${transferOrderId}?avertissement=${encodeURIComponent(message)}`);
   }
 
+  const termine = await terminerSiPlusRienATransferer(transferOrderId);
   const label = await fetchTransferOrderLabel(transferOrderId);
   await logAudit({
     utilisateur: await getCurrentStockUser(),
     module: "TransferOrder",
     action: "modification",
     cible: label,
-    resume: `Transfer Order ${label} : 1 ligne supprimee`,
+    resume: `Transfer Order ${label} : 1 ligne supprimee${termine ? " - statut passe a Poste (plus rien a transferer)" : ""}`,
   });
 
   revalidatePath(`/depots/transfer-order/${transferOrderId}`);
+  revalidatePath("/depots/transfer-order");
 }
 
 // Augmenter la quantite demandee de lignes d'un Transfer Order DEJA traite (approuve, partiellement fini ou poste) -
@@ -1017,13 +1047,14 @@ async function updateAllLigneLotsCore(formData: FormData, transferOrderId: numbe
     }
   }
 
+  const termine = await terminerSiPlusRienATransferer(transferOrderId);
   const label = await fetchTransferOrderLabel(transferOrderId);
   await logAudit({
     utilisateur: await getCurrentStockUser(),
     module: "TransferOrder",
     action: "modification",
     cible: label,
-    resume: `Transfer Order ${label} modifie (lignes/lots)${deletedLigneIds.size > 0 ? ` - ${deletedLigneIds.size} ligne(s) supprimee(s)` : ""}${changementsDemande.length > 0 ? ` - quantite demandee modifiee sur ${changementsDemande.length} ligne(s)` : ""}`,
+    resume: `Transfer Order ${label} modifie (lignes/lots)${deletedLigneIds.size > 0 ? ` - ${deletedLigneIds.size} ligne(s) supprimee(s)` : ""}${changementsDemande.length > 0 ? ` - quantite demandee modifiee sur ${changementsDemande.length} ligne(s)` : ""}${termine ? " - statut passe a Poste (plus rien a transferer)" : ""}`,
     ...(changementsDemande.length > 0
       ? {
           avant: { lignes: changementsDemande.map((c) => ({ ligne: c.ligne, quantite_demandee: c.avant })) },
