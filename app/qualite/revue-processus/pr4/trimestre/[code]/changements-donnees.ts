@@ -1,11 +1,17 @@
 // Fiche "Changements et impacts sur le processus" de la Revue Processus PR4, telle que recue dans le fichier
 // Fiche_changements_PR4.xlsx (textes repris sans retouche, sauf la colonne "origine" : texte tel qu'ecrit par
-// l'utilisateur dans sa version corrigee de la fiche). Une fiche par trimestre, cle = code du trimestre
-// ("2026-T3") : un trimestre sans fiche affiche "Aucun changement enregistre".
+// l'utilisateur dans sa version corrigee de la fiche). Une fiche par trimestre, cle = code du trimestre ("2026-T3").
 //
-// Pour ajouter ou modifier un changement : completer la liste "changements" de la fiche du trimestre. Le statut suit
-// Planifie > En cours > Realise > Verifie efficace (un changement n'est "Verifie efficace" qu'apres la preuve notee dans
-// "verification").
+// LE REGISTRE EST CUMULATIF : chaque trimestre suivant reprend automatiquement les changements deja enregistres (marques
+// "Deja presente en T3 2026" sur la page) et y ajoute ceux de sa propre fiche (marques "Nouveau"). Un trimestre avant la
+// premiere fiche affiche "Aucun changement enregistre". Pas besoin de creer la fiche d'un nouveau trimestre pour qu'il
+// reprenne les changements precedents.
+//
+// Pour AJOUTER un changement au trimestre N : ajouter (ou completer) la fiche "AAAA-Tn" avec le changement dans
+// "changements" (numero = suite de la numerotation : 5, 6...). Pour FAIRE EVOLUER un changement deja enregistre (ex : statut
+// "Verifie efficace", commentaire, echeance) : l'ecrire dans "misesAJour" de la fiche du trimestre ou ca change - les
+// trimestres precedents gardent l'etat qu'ils avaient. Le statut suit Planifie > En cours > Realise > Verifie efficace (un
+// changement n'est "Verifie efficace" qu'apres la preuve notee dans "verification").
 
 export type NiveauImpact = "Faible" | "Moyen" | "Élevé";
 export type StatutChangement = "Planifié" | "En cours" | "Réalisé" | "Vérifié efficace";
@@ -40,7 +46,10 @@ export type FicheChangements = {
   dateRevue: string | null;
   // Conclusion du pilote sur la maitrise des changements ("" = pas encore redigee)
   conclusion: string;
+  // Changements enregistres CE trimestre-la (les suivants les reprennent automatiquement)
   changements: Changement[];
+  // Evolution, a partir de ce trimestre, de changements deja enregistres plus tot (statut, commentaire, echeance...)
+  misesAJour?: ({ numero: number } & Partial<Omit<Changement, "numero">>)[];
 };
 
 export const FICHES_CHANGEMENTS: Record<string, FicheChangements> = {
@@ -134,3 +143,45 @@ export const FICHES_CHANGEMENTS: Record<string, FicheChangements> = {
     ]
   },
 };
+
+export type ChangementAffiche = Changement & {
+  // code du trimestre ou le changement a ete enregistre ("2026-T3")
+  trimestreOrigine: string;
+};
+
+export type FicheAffichee = Omit<FicheChangements, "changements" | "misesAJour"> & {
+  changements: ChangementAffiche[];
+};
+
+// "2026-T3" -> "T3 2026"
+export const libelleTrimestre = (code: string) => `${code.slice(5)} ${code.slice(0, 4)}`;
+
+// Fiche affichee pour un trimestre : tous les changements enregistres jusque-la (reprises, dans l'etat qu'ils avaient a ce
+// trimestre) + ceux enregistres ce trimestre. null avant la toute premiere fiche. Les codes "AAAA-Tn" se comparent
+// directement comme du texte.
+export function ficheDuTrimestre(code: string): FicheAffichee | null {
+  const codes = Object.keys(FICHES_CHANGEMENTS).sort();
+  if (codes.length === 0 || code < codes[0]) return null;
+
+  const jusquIci = codes.filter((c) => c <= code);
+  const changements: ChangementAffiche[] = [];
+  for (const c of jusquIci) {
+    const fiche = FICHES_CHANGEMENTS[c];
+    for (const miseAJour of fiche.misesAJour ?? []) {
+      const cible = changements.find((existant) => existant.numero === miseAJour.numero);
+      if (cible) Object.assign(cible, miseAJour);
+    }
+    for (const changement of fiche.changements) changements.push({ ...changement, trimestreOrigine: c });
+  }
+
+  const propre = FICHES_CHANGEMENTS[code];
+  const derniere = FICHES_CHANGEMENTS[jusquIci[jusquIci.length - 1]];
+  return {
+    processus: derniere.processus,
+    pilote: derniere.pilote,
+    periode: propre ? propre.periode : libelleTrimestre(code),
+    dateRevue: propre ? propre.dateRevue : null,
+    conclusion: propre ? propre.conclusion : "",
+    changements,
+  };
+}

@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { BLEU_TITRE, POLICE } from "./diapositive";
 import {
-  FICHES_CHANGEMENTS,
-  type Changement,
+  ficheDuTrimestre,
+  libelleTrimestre,
+  type ChangementAffiche,
   type NiveauImpact,
   type StatutChangement,
 } from "./changements-donnees";
@@ -10,7 +11,8 @@ import {
 // Diapositive "Changements" : la fiche "Changements et impacts sur le processus" du trimestre (donnees dans
 // changements-donnees.ts). Comme le demande le guide de la fiche, la diapositive reprend le nombre de changements, ceux a
 // impact eleve, ceux en cours et la conclusion du pilote ; la fiche detaillee (tous les champs) se deplie sous la
-// diapositive, sur la page seulement (jamais dans le diaporama).
+// diapositive, sur la page seulement (jamais dans le diaporama). Le registre est cumulatif : chaque trimestre reprend les
+// changements des trimestres precedents ("Deja presente en T3 2026") et y ajoute les siens ("Nouveau").
 const carte =
   "rounded-[1.75rem] border border-black/5 bg-white p-4 shadow-[0_18px_40px_rgba(15,23,42,0.06)] sm:p-6";
 
@@ -42,6 +44,23 @@ const PastilleNiveau = ({ niveau }: { niveau: NiveauImpact }) => <Pastille style
 const PastilleStatut = ({ statut }: { statut: StatutChangement }) => (
   <Pastille style={STATUT_STYLE[statut]}>{statut === "Vérifié efficace" ? `✓ ${statut}` : statut}</Pastille>
 );
+
+// "Deja presente en T3 2026" pour un changement repris d'un trimestre precedent, "Nouveau" pour un changement de ce
+// trimestre (affiche seulement quand le trimestre reprend aussi des changements, sinon tout serait "Nouveau").
+function Marque({ changement, code, avecReprises }: { changement: ChangementAffiche; code: string; avecReprises: boolean }) {
+  if (changement.trimestreOrigine === code) {
+    return avecReprises ? (
+      <span className="inline-block whitespace-nowrap rounded-full bg-emerald-100 px-2 py-0.5 text-[0.7rem] font-semibold text-emerald-800">
+        Nouveau
+      </span>
+    ) : null;
+  }
+  return (
+    <span className="inline-block whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[0.7rem] font-semibold text-slate-600">
+      ↩ Déjà présenté en {libelleTrimestre(changement.trimestreOrigine)}
+    </span>
+  );
+}
 
 function Tuile({ titre, valeur, ton }: { titre: string; valeur: number; ton: "neutre" | "alerte" | "encours" | "bon" }) {
   const bordure =
@@ -93,7 +112,7 @@ const Liste = ({ elements, numerotee = false }: { elements: string[]; numerotee?
     </ul>
   );
 
-function FicheDetaillee({ changement }: { changement: Changement }) {
+function FicheDetaillee({ changement, code, avecReprises }: { changement: ChangementAffiche; code: string; avecReprises: boolean }) {
   return (
     <details className="group rounded-2xl border border-slate-200 bg-white">
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
@@ -101,7 +120,10 @@ function FicheDetaillee({ changement }: { changement: Changement }) {
           ▸
         </span>
         <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-bold text-violet-800">N° {changement.numero}</span>
-        <span className="min-w-[14rem] flex-1 text-sm font-semibold text-slate-900">{changement.description}</span>
+        <span className="min-w-[14rem] flex-1 text-sm font-semibold text-slate-900">
+          {changement.description}{" "}
+          <Marque changement={changement} code={code} avecReprises={avecReprises} />
+        </span>
         <PastilleNiveau niveau={changement.niveau} />
         <PastilleStatut statut={changement.statut} />
       </summary>
@@ -135,7 +157,7 @@ const entete = "px-3 py-2 text-left font-semibold";
 const cellule = "px-3 py-3 align-top";
 
 export function DiapositiveChangements({ code, libelle }: { code: string; libelle: string }) {
-  const fiche = FICHES_CHANGEMENTS[code];
+  const fiche = ficheDuTrimestre(code);
 
   const titre = (
     <>
@@ -160,7 +182,9 @@ export function DiapositiveChangements({ code, libelle }: { code: string; libell
   }
 
   const { changements } = fiche;
-  const compter = (condition: (changement: Changement) => boolean) => changements.filter(condition).length;
+  const compter = (condition: (changement: ChangementAffiche) => boolean) => changements.filter(condition).length;
+  const nouveaux = compter((c) => c.trimestreOrigine === code);
+  const avecReprises = nouveaux < changements.length;
   const revue = jourFr(fiche.dateRevue);
   const conclusionVide = fiche.conclusion.trim() === "";
 
@@ -190,8 +214,9 @@ export function DiapositiveChangements({ code, libelle }: { code: string; libell
           </div>
         </dl>
 
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        <div className={`mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 ${avecReprises ? "xl:grid-cols-6" : "xl:grid-cols-5"}`}>
           <Tuile titre="Changements enregistrés" valeur={changements.length} ton="neutre" />
+          {avecReprises ? <Tuile titre="Dont nouveaux ce trimestre" valeur={nouveaux} ton="bon" /> : null}
           <Tuile titre="Dont impact élevé" valeur={compter((c) => c.niveau === "Élevé")} ton="alerte" />
           <Tuile titre="Dont en cours" valeur={compter((c) => c.statut === "En cours")} ton="encours" />
           <Tuile titre="Réalisés, pas encore vérifiés" valeur={compter((c) => c.statut === "Réalisé")} ton="neutre" />
@@ -217,7 +242,12 @@ export function DiapositiveChangements({ code, libelle }: { code: string; libell
                 <tr key={changement.numero} className="border-t border-slate-100">
                   <td className={`${cellule} font-bold tabular-nums`}>{changement.numero}</td>
                   <td className={`${cellule} text-slate-600`}>{changement.type}</td>
-                  <td className={`${cellule} min-w-[16rem] font-medium text-slate-900`}>{changement.description}</td>
+                  <td className={`${cellule} min-w-[16rem] font-medium text-slate-900`}>
+                    {changement.description}
+                    <div className="mt-1 empty:hidden">
+                      <Marque changement={changement} code={code} avecReprises={avecReprises} />
+                    </div>
+                  </td>
                   <td className={`${cellule} whitespace-nowrap tabular-nums`}>{jourFr(changement.dateEffective) || "—"}</td>
                   <td className={`${cellule} min-w-[12rem] text-slate-600`}>{changement.etapes}</td>
                   <td className={cellule}>
@@ -260,7 +290,7 @@ export function DiapositiveChangements({ code, libelle }: { code: string; libell
         <p className="mt-1 text-sm text-slate-600">Cliquez sur un changement pour voir tous les champs de la fiche.</p>
         <div className="mt-4 space-y-3">
           {changements.map((changement) => (
-            <FicheDetaillee key={changement.numero} changement={changement} />
+            <FicheDetaillee key={changement.numero} changement={changement} code={code} avecReprises={avecReprises} />
           ))}
         </div>
       </section>
