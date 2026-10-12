@@ -1,5 +1,6 @@
 // Fiche "Changements et impacts sur le processus" de la Revue Processus PR4, telle que recue dans le fichier
-// Fiche_changements_PR4.xlsx (textes repris sans retouche). Une fiche par trimestre, cle = code du trimestre
+// Fiche_changements_PR4.xlsx (textes repris sans retouche, sauf la colonne "origine" : texte tel qu'ecrit par
+// l'utilisateur dans sa version corrigee de la fiche). Une fiche par trimestre, cle = code du trimestre
 // ("2026-T2") : un trimestre sans fiche affiche "Aucun changement enregistre".
 //
 // Pour ajouter ou modifier un changement : completer la liste "changements" de la fiche du trimestre. Le statut suit
@@ -54,7 +55,7 @@ export const FICHES_CHANGEMENTS: Record<string, FicheChangements> = {
         numero: 1,
         type: "Système d'information",
         description: "Remplacement de tous les fichiers Excel par un ERP interne pour la production, le stock MP et le stock PF",
-        origine: "Direction d'exploitation",
+        origine: "directeur technique et directeur production cosmetique",
         dateEffective: "2026-08-01",
         etapes: "Vérification stock PF, OF/OC, programme de fabrication, pesage, réception et stockage PF, préparation commandes",
         impact: "Qualité : traçabilité des lots et des stocks en temps réel, moins d'erreurs de saisie. Délai : information disponible immédiatement, plus de consolidation manuelle. Efficacité jugée très positive depuis août 2026.",
@@ -74,7 +75,7 @@ export const FICHES_CHANGEMENTS: Record<string, FicheChangements> = {
         numero: 2,
         type: "Nouvelle machine / équipement",
         description: "Réception d'une nouvelle machine d'emballage (il y a 4 mois)",
-        origine: "Direction d'exploitation",
+        origine: "Direction General",
         dateEffective: "2026-06-01",
         etapes: "Conditionnement, ramassage PF, palettisation",
         impact: "Délai : amélioration de la cadence d'emballage. Limite : la capacité ne couvre pas toute la production, une partie reste en manuel.",
@@ -94,7 +95,7 @@ export const FICHES_CHANGEMENTS: Record<string, FicheChangements> = {
         numero: 3,
         type: "Nouvelle machine / équipement",
         description: "Tunnel à vapeur reçu, non encore installé, en attente de la machine automatique de conditionnement prévue en février 2027",
-        origine: "Direction d'exploitation",
+        origine: "auditeur",
         dateEffective: "2027-02-01",
         etapes: "Conditionnement (remplissage, bouchage, sleeve/étiquetage), ramassage PF",
         impact: "Hygiène : suppression de l'utilisation d'eau dans des seaux (risque de contamination). Qualité et sécurité : moins de contact manuel avec le produit. Coût : réduction de la main-d'œuvre sur la ligne. Réglementaire : amélioration de la conformité ISO 22716 §4 et §5.",
@@ -114,7 +115,7 @@ export const FICHES_CHANGEMENTS: Record<string, FicheChangements> = {
         numero: 4,
         type: "Système d'information",
         description: "Installation de tablettes (iPad) sur toutes les chaînes de conditionnement pour la saisie en ligne – démarrage avec 1 tablette aujourd'hui",
-        origine: "Direction d'exploitation",
+        origine: "directeur technique et directeur production cosmetique",
         dateEffective: "2026-10-12",
         etapes: "Conditionnement (suivi de production, contrôles en cours), libération, remontée des données vers l'ERP",
         impact: "Qualité : suppression des erreurs de recopie ; données saisies à la source par chaque ligne. Délai : fin de la collecte papier par une seule personne qui ne finissait pas à temps ; information disponible immédiatement. Efficacité : suppression des retards de saisie.",
