@@ -20,3 +20,15 @@ export function statusColorClasses(valeur: string | number | null | undefined): 
   if (ROUGE.has(cle)) return "border-red-300 bg-red-50 text-red-800";
   return "border-slate-200 bg-white text-slate-700";
 }
+
+// Meme regroupement que les couleurs ci-dessus, en categories : "fait" = vert (realisee / cloturee), "en_cours" =
+// orange, "rouge" = en attente / pas d'action / non realisee, "autre" = vide ou valeur libre (neutre).
+export type CategorieStatut = "fait" | "en_cours" | "rouge" | "autre";
+
+export function categorieStatut(valeur: string | number | null | undefined): CategorieStatut {
+  const cle = normaliser(valeur);
+  if (FAIT.has(cle)) return "fait";
+  if (EN_COURS.has(cle)) return "en_cours";
+  if (ROUGE.has(cle)) return "rouge";
+  return "autre";
+}

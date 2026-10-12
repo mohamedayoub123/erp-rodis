@@ -12,6 +12,7 @@ import { DiapositiveOrganigrammePr4 } from "./diapositive-organigramme";
 import { GrilleProcedures } from "./grille-procedures";
 import { DiapositiveIndicateursPr4 } from "./diapositive-indicateurs";
 import { DiapositiveKpiArretProduction, DiapositiveKpiCoutCarton } from "./diapositive-kpi";
+import { DiapositiveNcTafPr4 } from "./diapositive-nc-taf";
 import { DiapositiveSwot } from "./diapositive-swot";
 import { DiapositiveFin } from "./diapositive-fin";
 import { PROCEDURES } from "./procedures-donnees";
@@ -93,6 +94,11 @@ export default async function TrimestrePr4Page({ params }: { params: Promise<{ c
               <Diapo>
                 <Suspense fallback={<section className={carteVide}>Calcul du graphique du coût du carton en cours...</section>}>
                   <DiapositiveKpiCoutCarton code={trimestre.code} />
+                </Suspense>
+              </Diapo>
+              <Diapo>
+                <Suspense fallback={<section className={carteVide}>Calcul de l&apos;analyse des NC et TAF en cours...</section>}>
+                  <DiapositiveNcTafPr4 annee={trimestre.annee} />
                 </Suspense>
               </Diapo>
             </Partie>
