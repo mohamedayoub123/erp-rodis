@@ -1,11 +1,13 @@
-import { CONDITIONNEMENTS } from "@/lib/contenance-mp";
+import { CONDITIONNEMENTS, uniteContenance } from "@/lib/contenance-mp";
 
-// Contenance (nombre, TOUJOURS en kg) et, a cote, le type dans une liste fixe : Sac, Fut, Barrique. Meme composant pour
+// Contenance (nombre) et, a cote, le type dans une liste fixe : Sac, Fut, Barrique, Carton. Le nombre est en kg, ou en
+// PIECES pour un article compte a la piece (cartons, articles de conditionnement : unite pcs). Meme composant pour
 // l'article et pour la reception d'un import. Les champs envoyes sont "contenance" et "conditionnement".
 export function ChampsContenance({
   contenance,
   conditionnement,
   avecType,
+  unite,
   requis = false,
   classeChamp,
 }: {
@@ -13,9 +15,13 @@ export function ChampsContenance({
   conditionnement?: string | null;
   // faux tant que le SQL add_conditionnement_mp.sql n'est pas execute : seul le nombre est demande
   avecType: boolean;
+  // unite de l'article (ex : "pcs", "kg"). Non fournie (nouvel article, unite pas encore choisie) : "kg ou pieces".
+  unite?: string | null;
   requis?: boolean;
   classeChamp: string;
 }) {
+  const libelleUnite = unite === undefined ? "kg ou pièces" : uniteContenance(unite);
+  const exemple = unite !== undefined && uniteContenance(unite) === "pièces" ? "1000" : "25";
   return (
     <div className={`grid gap-2 ${avecType ? "grid-cols-2" : "grid-cols-1"}`}>
       <input
@@ -24,8 +30,8 @@ export function ChampsContenance({
         min="0.001"
         name="contenance"
         defaultValue={contenance ?? undefined}
-        placeholder="kg (ex : 25)"
-        aria-label="Contenance en kg"
+        placeholder={`${libelleUnite} (ex : ${exemple})`}
+        aria-label={`Contenance en ${libelleUnite}`}
         required={requis}
         className={classeChamp}
       />
@@ -33,7 +39,7 @@ export function ChampsContenance({
         <select
           name="conditionnement"
           defaultValue={conditionnement ?? ""}
-          aria-label="Type : sac, fut ou barrique"
+          aria-label="Type : sac, fût, barrique ou carton"
           required={requis}
           className={classeChamp}
         >

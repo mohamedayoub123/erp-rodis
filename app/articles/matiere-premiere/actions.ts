@@ -40,7 +40,8 @@ async function requireDeleteAccess() {
   }
 }
 
-// Contenance habituelle de l'article : nombre en kg + type (Sac, Fut, Barrique), facultatifs ici (ils sont demandes a
+// Contenance habituelle de l'article : nombre (kg, ou pieces pour un article compte a la piece) + type (Sac, Fut,
+// Barrique, Carton), facultatifs ici (ils sont demandes a
 // chaque reception d'import). Les deux vont ensemble : tous les deux remplis, ou tous les deux vides. Chaque partie est
 // ignoree tant que son SQL (add_contenance_mp.sql, add_conditionnement_mp.sql) n'est pas execute.
 async function lireContenanceArticle(formData: FormData): Promise<Record<string, number | string | null>> {
@@ -50,14 +51,14 @@ async function lireContenanceArticle(formData: FormData): Promise<Record<string,
 
   const contenance = lireContenance(formData.get("contenance"));
   if (contenance !== null && contenance <= 0) {
-    throw new Error("La contenance doit etre superieure a 0 (en kg, ex : 25).");
+    throw new Error("La contenance doit etre superieure a 0 (ex : 25 kg, ou 1000 pieces).");
   }
   champs.contenance = contenance;
 
   if (avecType) {
     const conditionnement = lireConditionnement(formData.get("conditionnement"));
     if ((contenance !== null) !== (conditionnement !== null)) {
-      throw new Error("Renseigne la contenance (en kg) ET le type (Sac, Fut, Barrique), ou laisse les deux vides.");
+      throw new Error("Renseigne la contenance (kg ou pieces) ET le type (Sac, Fut, Barrique, Carton), ou laisse les deux vides.");
     }
     champs.conditionnement = conditionnement;
   }

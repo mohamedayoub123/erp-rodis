@@ -18,7 +18,7 @@ import {
 } from "../actions";
 import { statutBcBadgeClass, type StatutBc } from "../../bc/constants";
 import { convertirEnFcfa } from "@/lib/prix-devise";
-import { conditionnementMpDisponible, contenanceMpDisponible, formaterContenance } from "@/lib/contenance-mp";
+import { conditionnementMpDisponible, contenanceMpDisponible, formaterContenance, uniteContenance } from "@/lib/contenance-mp";
 import { ChampsContenance } from "@/app/_components/champs-contenance";
 
 type ImportRow = {
@@ -84,21 +84,22 @@ async function fetchBcLignes(ligneIds: number[]) {
   return (data ?? []) as BcLigneRow[];
 }
 
-type ArticleContenance = { contenance: number | null; conditionnement: string | null };
+type ArticleContenance = { contenance: number | null; conditionnement: string | null; unite: string | null };
 
-// Contenance habituelle (nombre en kg + type) de chaque article du dossier, proposee dans le formulaire de reception
+// Contenance habituelle (nombre en kg ou en pieces + type) de chaque article du dossier, proposee dans le formulaire de
+// reception ; l'unite de l'article (pcs -> pieces) decide de l'unite de la contenance
 async function fetchContenancesArticles(articleIds: number[], avecType: boolean) {
   if (articleIds.length === 0) return new Map<number, ArticleContenance>();
 
   const { data } = await supabaseServer
     .from("articles_matiere_premiere")
-    .select(avecType ? "id, contenance, conditionnement" : "id, contenance")
+    .select(avecType ? "id, unite, contenance, conditionnement" : "id, unite, contenance")
     .in("id", articleIds);
 
   return new Map(
     ((data ?? []) as unknown as (Partial<ArticleContenance> & { id: number })[]).map((row) => [
       row.id,
-      { contenance: row.contenance ?? null, conditionnement: row.conditionnement ?? null },
+      { contenance: row.contenance ?? null, conditionnement: row.conditionnement ?? null, unite: row.unite ?? null },
     ])
   );
 }
@@ -328,10 +329,11 @@ export default async function ImportMpDossierPage({
                                       </label>
                                       {avecContenance ? (
                                         <div className="grid gap-1 text-xs text-slate-500">
-                                          Contenance de ce lot (en kg){avecType ? " et type" : ""}
+                                          Contenance de ce lot (en {uniteContenance(articlesById.get(ligne.article_id ?? -1)?.unite)}){avecType ? " et type" : ""}
                                           <ChampsContenance
                                             contenance={articlesById.get(ligne.article_id ?? -1)?.contenance}
                                             conditionnement={articlesById.get(ligne.article_id ?? -1)?.conditionnement}
+                                            unite={articlesById.get(ligne.article_id ?? -1)?.unite ?? null}
                                             avecType={avecType}
                                             requis
                                             classeChamp="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
@@ -489,7 +491,7 @@ export default async function ImportMpDossierPage({
                           <td className="px-4 py-3 text-slate-600">{row.numero_lot || "-"}</td>
                           {avecContenance ? (
                             <td className="px-4 py-3 text-slate-600">
-                              {formaterContenance(row.contenance, row.conditionnement)}
+                              {formaterContenance(row.contenance, row.conditionnement, articlesById.get(ligne?.article_id ?? -1)?.unite)}
                             </td>
                           ) : null}
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_fabrication)}</td>

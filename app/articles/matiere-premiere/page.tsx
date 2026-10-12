@@ -174,7 +174,7 @@ export default async function ArticlesMatierePremierePage({
               rows={filteredArticles}
               columns={[
                 ...EXPORT_COLUMNS,
-                ...(avecContenance ? [{ label: "Contenance (kg)", key: "contenance" }] : []),
+                ...(avecContenance ? [{ label: "Contenance (kg ou pièces)", key: "contenance" }] : []),
                 ...(avecType ? [{ label: "Type de contenance", key: "conditionnement" }] : []),
               ]}
               filename={`articles-matiere-premiere-${new Date().toISOString().slice(0, 10)}.xlsx`}
@@ -270,7 +270,7 @@ export default async function ArticlesMatierePremierePage({
                         <td className="px-6 py-4 text-slate-600">{article.sous_famille || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.unite || "-"}</td>
                         {avecContenance ? (
-                          <td className="px-6 py-4 text-slate-600">{formaterContenance(article.contenance, article.conditionnement)}</td>
+                          <td className="px-6 py-4 text-slate-600">{formaterContenance(article.contenance, article.conditionnement, article.unite)}</td>
                         ) : null}
                         <td className="px-6 py-4 text-slate-600">{article.gamme || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.gamme_statistique || "-"}</td>
@@ -321,6 +321,7 @@ export default async function ArticlesMatierePremierePage({
                                   <ChampsContenance
                                     contenance={article.contenance}
                                     conditionnement={article.conditionnement}
+                                    unite={article.unite}
                                     avecType={avecType}
                                     classeChamp="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
                                   />

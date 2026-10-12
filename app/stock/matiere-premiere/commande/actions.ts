@@ -219,7 +219,8 @@ export async function updateLotPrixAction(formData: FormData) {
 // et le Stock Alert MP ne bougeraient jamais suite a une reception.
 export async function createReceptionMpAction(formData: FormData) {
   const currentUser = await requireEditAccess();
-  // Contenance du lot recu (en kg) et son type (Sac, Fut, Barrique) : obligatoires avec le numero de lot, car un meme
+  // Contenance du lot recu (en kg, ou en pieces pour un article compte a la piece) et son type (Sac, Fut, Barrique,
+  // Carton) : obligatoires avec le numero de lot, car un meme
   // article peut arriver avec une contenance differente d'un lot a l'autre. Chaque partie n'est demandee qu'une fois son
   // SQL execute (add_contenance_mp.sql, add_conditionnement_mp.sql).
   const [avecContenance, avecType] = await Promise.all([contenanceMpDisponible(), conditionnementMpDisponible()]);
@@ -258,10 +259,10 @@ export async function createReceptionMpAction(formData: FormData) {
   }
 
   if (avecContenance && (contenance === null || contenance <= 0)) {
-    throw new Error("La contenance du lot (en kg) est obligatoire pour receptionner (ex : 25 pour un sac de 25 kg).");
+    throw new Error("La contenance du lot est obligatoire pour receptionner (ex : 25 kg pour un sac de 25 kg, ou 1000 pieces pour un carton de 1000 pieces).");
   }
   if (avecType && conditionnement === null) {
-    throw new Error("Le type de contenance du lot est obligatoire pour receptionner : choisis Sac, Fut ou Barrique.");
+    throw new Error("Le type de contenance du lot est obligatoire pour receptionner : choisis Sac, Fut, Barrique ou Carton.");
   }
   const champContenance = {
     ...(avecContenance ? { contenance } : {}),
