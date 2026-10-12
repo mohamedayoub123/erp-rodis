@@ -76,13 +76,6 @@ export async function DiapositiveKpiArretProduction({ code }: { code: string }) 
       {peutSaisir && donnees.saisieDisponible ? (
         <SaisieProduction code={code} mois={saisissables} ouvert={donnees.manquantsProduction.length > 0} />
       ) : null}
-      {peutSaisir && !donnees.saisieDisponible ? (
-        <p data-hors-diapo className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Pour saisir la production réalisée d&apos;un mois, exécutez d&apos;abord le SQL{" "}
-          <code className="rounded bg-white px-1.5 py-0.5 text-xs">scripts/sql/create_pr4_production_realisee.sql</code> dans
-          Supabase (SQL Editor).
-        </p>
-      ) : null}
     </section>
   );
 }

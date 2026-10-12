@@ -42,6 +42,15 @@ const PRODUCTION_REALISEE_HISTORIQUE: Record<string, number> = {
   "2026-03": 95,
   "2026-04": 96,
   "2026-05": 91,
+  // Juin et juillet 2026 : chiffres donnes par l'utilisateur (le 12/10/2026) - l'ERP de production n'existait pas encore
+  "2026-06": 98,
+  "2026-07": 89,
+};
+
+// Temps d'arret (%) d'un mois que ni l'ERP ni la saisie manuelle des indicateurs ne donnent (juillet 2026 : chiffre
+// donne par l'utilisateur le 12/10/2026). Sert seulement au graphique KPI : jamais utilise quand un chiffre existe deja.
+const ARRET_COMPLEMENT: Record<string, number> = {
+  "2026-07": 12,
 };
 
 // Le calcul lit beaucoup de donnees : garde 60 s, partage entre les pages ouvertes dans la foulee
@@ -98,7 +107,8 @@ export async function lireKpiArretProduction(dernierMois: string) {
   const arret = mois.map((cle) => {
     if (!cle || cle > dernierMois) return null;
     const v = arretParMois.get(cle);
-    return v === null || v === undefined ? null : v;
+    if (v !== null && v !== undefined) return v;
+    return cle in ARRET_COMPLEMENT ? ARRET_COMPLEMENT[cle] : null;
   });
   const production = mois.map((cle) => {
     if (!cle || cle > dernierMois) return null;
