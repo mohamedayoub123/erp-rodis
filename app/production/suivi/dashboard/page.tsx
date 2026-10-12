@@ -15,8 +15,9 @@ import {
   markEmballageTermineAction,
   markVracTermineAction,
 } from "../actions";
-import { canDeletePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { LotCodeCell } from "./lot-code-cell";
+import { ValideParSelect } from "./valide-par-select";
 import { SingleDayFilter } from "./single-day-filter";
 import { DeleteProgrammeLigneButton } from "./delete-programme-ligne-button";
 import { computeProduitParCode, formatDate, pdLabelsForNumeroLot, type ProgrammeLigneRow } from "../data";
@@ -191,6 +192,7 @@ export default async function PlanningDashboardPage({
     terminatedCodes,
     lignesAvecReserveEnAttente,
     testLaboDoneKeys,
+    testLaboValideParKeys,
     pdLabelByCode,
     articles,
   } = dashboardData;
@@ -205,6 +207,8 @@ export default async function PlanningDashboardPage({
   // en moins.
   const isAdmin = canEditLotCode;
   const canDeleteLigne = await canDeletePageUser(currentUser, "productionSuiviDashboard");
+  // Colonne "Valide par" du Test labo : meme droit que la saisie du Test labo
+  const canEditValidePar = await canWritePageUser(currentUser, "productionSuiviProductionTestLabo");
 
   const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
   const articleById = new Map(articles.map((article) => [article.id, article]));
@@ -624,6 +628,7 @@ export default async function PlanningDashboardPage({
                     <th className="px-4 py-3 font-semibold">PD</th>
                     <th className="px-4 py-3 font-semibold">Restant</th>
                     <th className="px-4 py-3 font-semibold">Rapport</th>
+                    <th className="px-4 py-3 font-semibold">Validé par</th>
                     <th className="px-4 py-3 font-semibold">Action</th>
                     {canDeleteLigne ? <th className="px-4 py-3 font-semibold">Suppr.</th> : null}
                   </tr>
@@ -631,7 +636,7 @@ export default async function PlanningDashboardPage({
                 <tbody>
                   {vracRows.length === 0 ? (
                     <tr>
-                      <td colSpan={canDeleteLigne ? 10 : 9} className="px-4 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={canDeleteLigne ? 11 : 10} className="px-4 py-6 text-center text-sm text-slate-500">
                         {hasFilters
                           ? "Aucun resultat pour ce filtre."
                           : "Rien en cours (tout est termine ou vide)."}
@@ -683,6 +688,25 @@ export default async function PlanningDashboardPage({
                               ) : null}
                             </div>
                           </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {testLaboDoneKeys.has(`${row.ligne.id}::${row.code}`) ? (
+                            canEditValidePar ? (
+                              <ValideParSelect
+                                ligneId={row.ligne.id}
+                                code={row.code}
+                                valeur={testLaboValideParKeys.get(`${row.ligne.id}::${row.code}`) ?? ""}
+                              />
+                            ) : (
+                              <span className="text-xs font-semibold text-slate-700">
+                                {testLaboValideParKeys.get(`${row.ligne.id}::${row.code}`) || "-"}
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-xs text-slate-400" title="Saisissez d'abord le Test labo">
+                              -
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markVracTermineAction} />

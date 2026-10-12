@@ -16,6 +16,12 @@
 --     -> "carton", seulement si une reservation a encore quantite > 0
 --
 -- Ne modifie AUCUNE donnee - lecture seule.
+--
+-- Colonne "Valide par" du Test labo (Dashboard > Fabrication) : la colonne valide_par_test_labo est ajoutee ici
+-- (sans effet si elle existe deja) et renvoyee avec chaque test labo (cle "valide_par").
+alter table public.production_rapports
+  add column if not exists valide_par_test_labo text;
+
 create or replace function public.dashboard_production_data()
 returns jsonb
 language sql
@@ -106,11 +112,13 @@ as $$
     ), '[]'::jsonb),
     'test_labo', coalesce((
       select jsonb_agg(jsonb_build_object(
-        'programme_ligne_id', t.programme_ligne_id, 'code', t.code, 'utilisateur', t.utilisateur
+        'programme_ligne_id', t.programme_ligne_id, 'code', t.code, 'utilisateur', t.utilisateur,
+        'valide_par', t.valide_par
       ))
       from (
         select distinct on (programme_ligne_id, coalesce(code, ''))
-               programme_ligne_id, coalesce(code, '') as code, utilisateur_test_labo as utilisateur
+               programme_ligne_id, coalesce(code, '') as code, utilisateur_test_labo as utilisateur,
+               valide_par_test_labo as valide_par
         from public.production_rapports
         where programme_ligne_id in (select id from active)
           and utilisateur_test_labo is not null

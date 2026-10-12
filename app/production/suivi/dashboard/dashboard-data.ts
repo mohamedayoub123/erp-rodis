@@ -19,7 +19,8 @@ type RpcPayload = {
   emballage: EntryTotal[];
   code_termine: { programme_ligne_id: number; code: string; stage: CodeTermineStage }[];
   reserves_en_attente: { programme_ligne_id: number; code: string; stage: "vrac" | "carton" }[];
-  test_labo: { programme_ligne_id: number; code: string; utilisateur: string | null }[];
+  // valide_par : colonne ajoutee par scripts/sql/create_dashboard_production_data.sql (absente tant que ce SQL n'est pas lance)
+  test_labo: { programme_ligne_id: number; code: string; utilisateur: string | null; valide_par?: string | null }[];
   pd_par_code: Record<string, string>;
   articles: ArticleOption[];
 };
@@ -33,6 +34,8 @@ export type DashboardData = {
   lignesAvecReserveEnAttente: Set<string>;
   // "ligneId::code" -> nom de qui a saisi le Test labo (affiche a cote du bouton).
   testLaboDoneKeys: Map<string, string>;
+  // "ligneId::code" -> nom choisi dans la colonne "Valide par" du Test labo (absent = personne choisie).
+  testLaboValideParKeys: Map<string, string>;
   pdLabelByCode: Map<string, string>;
   articles: ArticleOption[];
 };
@@ -56,6 +59,11 @@ function groupByLigne(entries: EntryTotal[]): Map<number, EntryTotal[]> {
 const DUREE_CACHE_DASHBOARD_MS = 5_000;
 let resultatDashboard: { jusqua: number; data: unknown } | null = null;
 let appelDashboardEnCours: Promise<{ data: unknown; error: { message: string } | null }> | null = null;
+
+// Apres un changement fait depuis le Dashboard (ex : "Valide par"), le resultat garde 5 s ne doit pas etre reaffiche.
+export function viderCacheDashboard() {
+  resultatDashboard = null;
+}
 
 async function lireDashboardRpc(): Promise<{ data: unknown; error: { message: string } | null }> {
   if (resultatDashboard && resultatDashboard.jusqua > Date.now()) return { data: resultatDashboard.data, error: null };
@@ -130,6 +138,11 @@ export async function fetchDashboardData(): Promise<{ data: DashboardData | null
       ),
       testLaboDoneKeys: new Map(
         payload.test_labo.map((row) => [`${row.programme_ligne_id}::${row.code}`, row.utilisateur ?? ""] as [string, string])
+      ),
+      testLaboValideParKeys: new Map(
+        payload.test_labo
+          .filter((row) => row.valide_par)
+          .map((row) => [`${row.programme_ligne_id}::${row.code}`, String(row.valide_par)] as [string, string])
       ),
       pdLabelByCode: new Map(Object.entries(payload.pd_par_code)),
       articles: payload.articles,
