@@ -1,7 +1,7 @@
 // Fiche "Changements et impacts sur le processus" de la Revue Processus PR4, telle que recue dans le fichier
 // Fiche_changements_PR4.xlsx (textes repris sans retouche, sauf la colonne "origine" : texte tel qu'ecrit par
 // l'utilisateur dans sa version corrigee de la fiche). Une fiche par trimestre, cle = code du trimestre
-// ("2026-T2") : un trimestre sans fiche affiche "Aucun changement enregistre".
+// ("2026-T3") : un trimestre sans fiche affiche "Aucun changement enregistre".
 //
 // Pour ajouter ou modifier un changement : completer la liste "changements" de la fiche du trimestre. Le statut suit
 // Planifie > En cours > Realise > Verifie efficace (un changement n'est "Verifie efficace" qu'apres la preuve notee dans
@@ -44,9 +44,9 @@ export type FicheChangements = {
 };
 
 export const FICHES_CHANGEMENTS: Record<string, FicheChangements> = {
-  "2026-T2": {
+  "2026-T3": {
     processus: "PR4 – Gérer la fabrication des produits cosmétiques, le stockage et l'expédition des PF",
-    periode: "T2 2026 (revue du 12/10/2026)",
+    periode: "T3 2026 (revue du 12/10/2026)",
     pilote: "Direction d'exploitation",
     dateRevue: "2026-10-12",
     conclusion: "",
