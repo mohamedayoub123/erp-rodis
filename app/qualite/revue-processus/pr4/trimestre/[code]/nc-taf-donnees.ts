@@ -84,7 +84,21 @@ function rangAudit(audit: string): number {
   return m ? Number(m[1]) : 1000 + (audit === "Reportée N+1" ? 0 : 1);
 }
 
-const estPr4 = (processus: string | null) => /^PR4\b/i.test(String(processus ?? "").trim());
+// Seul ce processus est compte (jamais les autres processus, meme s'ils commencent aussi par "PR4") : comparaison sur
+// le libelle complet, sans tenir compte des majuscules, des accents ni des espaces en trop.
+export const PROCESSUS_PR4 = "PR4 Gérer la fabrication des produits cosmétique, le stockage et l'expédition des PF";
+
+function normaliserProcessus(valeur: string | null): string {
+  return String(valeur ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[’`]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+const estPr4 = (processus: string | null) => normaliserProcessus(processus) === normaliserProcessus(PROCESSUS_PR4);
 
 // L'utilisateur a-t-il le droit de voir les NC / TAF du processus PR4 ?
 export const peutVoirNcTafPr4 = (processusAutorises: string[] | "all") =>

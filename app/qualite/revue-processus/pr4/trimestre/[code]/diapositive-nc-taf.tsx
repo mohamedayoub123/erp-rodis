@@ -1,7 +1,7 @@
 import { getCurrentStockUser, getNcTafProcessusAutorisesUser } from "@/lib/stock-auth";
 import { BandeauFiabilite } from "./bandeau-fiabilite";
 import { BLEU_TITRE, POLICE } from "./diapositive";
-import { lireSuiviNcTafPr4, peutVoirNcTafPr4, type Compte, type CompteNc } from "./nc-taf-donnees";
+import { PROCESSUS_PR4, lireSuiviNcTafPr4, peutVoirNcTafPr4, type Compte, type CompteNc } from "./nc-taf-donnees";
 
 // Diapositive "NC et TAF" : combien de NC et de TAF le processus PR4 a en <annee du trimestre> et combien sont
 // terminees, au total puis par audit. NC et TAF restent separes (jamais un total ni un % "NC + TAF"). Les chiffres
@@ -171,7 +171,7 @@ export async function DiapositiveNcTafPr4({ annee }: { annee: number }) {
       )}
 
       <BandeauFiabilite
-        source="ERP (Qualité : NC et TAF du processus PR4), situation à ce jour pour l'année en cours du rapport"
+        source={`ERP (Qualité : NC et TAF du processus « ${PROCESSUS_PR4} » uniquement, les autres processus ne sont pas comptés), situation à ce jour pour l'année du rapport`}
         rapport={{ calculeLe: new Date().toISOString() }}
         alertes={
           suivi.ncAcheveesNonCloturees > 0
