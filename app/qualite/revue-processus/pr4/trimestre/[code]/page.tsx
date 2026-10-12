@@ -13,13 +13,14 @@ import { GrilleProcedures } from "./grille-procedures";
 import { DiapositiveIndicateursPr4 } from "./diapositive-indicateurs";
 import { DiapositiveKpiArretProduction, DiapositiveKpiCoutCarton } from "./diapositive-kpi";
 import { DiapositiveNcTafPr4 } from "./diapositive-nc-taf";
+import { DiapositiveChangements } from "./diapositive-changements";
 import { DiapositiveSwot } from "./diapositive-swot";
 import { DiapositiveFin } from "./diapositive-fin";
 import { PROCEDURES } from "./procedures-donnees";
 
 // Page d'un trimestre de la Revue Processus PR4 (ex: PR4 T1 2026 = janvier a mars 2026). Meme droit que la page
 // /qualite/revue-processus (qualiteRevueProcessus). En haut : l'en-tete (boutons Diaporama et PowerPoint) et 4 cartes
-// de resume ; puis le sommaire a gauche et les diapositives en 6 parties.
+// de resume ; puis le sommaire a gauche et les diapositives en 7 parties.
 const carteVide =
   "rounded-[1.75rem] border border-black/5 bg-white p-6 text-sm text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]";
 
@@ -100,6 +101,12 @@ export default async function TrimestrePr4Page({ params }: { params: Promise<{ c
                 <Suspense fallback={<section className={carteVide}>Calcul de l&apos;analyse des NC et TAF en cours...</section>}>
                   <DiapositiveNcTafPr4 annee={trimestre.annee} />
                 </Suspense>
+              </Diapo>
+            </Partie>
+
+            <Partie id="changements">
+              <Diapo>
+                <DiapositiveChangements code={trimestre.code} libelle={trimestre.libelle} />
               </Diapo>
             </Partie>
 
