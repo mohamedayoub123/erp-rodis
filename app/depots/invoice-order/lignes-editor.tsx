@@ -64,8 +64,9 @@ export function InvoiceOrderLignesEditor({
   canDeleteLigneApprouvee: boolean;
   updateAction: (formData: FormData) => void | Promise<void>;
   validateAction: (formData: FormData) => void | Promise<void>;
-  deleteLigneAction: (formData: FormData) => void | Promise<void>;
-  deleteLigneApprouveeAction: (formData: FormData) => void | Promise<void>;
+  // Le bouton Supprimer de chaque ligne lie l'identifiant de la ligne a l'action (.bind) : action(ligneId, formData)
+  deleteLigneAction: (ligneId: number, formData: FormData) => void | Promise<void>;
+  deleteLigneApprouveeAction: (ligneId: number, formData: FormData) => void | Promise<void>;
   depotSourceNom: string;
 }) {
   const [isDirty, setIsDirty] = useState(false);
@@ -187,10 +188,8 @@ export function InvoiceOrderLignesEditor({
                                 ? "Supprimer cette ligne"
                                 : "Supprimer cette ligne (annule et restitue le stock deja livre)"
                             }
-                            formAction={canEditLignes ? deleteLigneAction : deleteLigneApprouveeAction}
+                            formAction={(canEditLignes ? deleteLigneAction : deleteLigneApprouveeAction).bind(null, ligne.id)}
                             formNoValidate
-                            name="delete_invoice_order_ligne_id"
-                            value={ligne.id}
                           />
                         </td>
                       ) : null}

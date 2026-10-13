@@ -155,10 +155,12 @@ export async function updateInvoiceOrderLignesAction(formData: FormData) {
 // ligne) - equivalent a la mettre a 0 dans "Enregistrer", mais en un clic.
 // Le montant efface redevient disponible sur le Transfer Order a la
 // validation.
-export async function deleteInvoiceOrderLigneAction(formData: FormData) {
+// ligneIdLiee : identifiant de la ligne, lie au bouton par .bind(null, ligne.id) (voir lignes-editor.tsx) - un bouton dont
+// formAction est une fonction perd son attribut name/value, l'identifiant ne passait donc plus par le formulaire.
+export async function deleteInvoiceOrderLigneAction(ligneIdLiee: number, formData?: FormData) {
   await requireWriteAccess();
 
-  const invoiceOrderLigneId = Number(formData.get("delete_invoice_order_ligne_id") || "0");
+  const invoiceOrderLigneId = Number(ligneIdLiee || formData?.get("delete_invoice_order_ligne_id") || "0");
   if (!invoiceOrderLigneId) {
     throw new Error("Ligne invalide.");
   }
@@ -367,12 +369,12 @@ async function deleteInvoiceOrderLigneApprouvee(
 // que deleteInvoiceOrderAction : un throw direct depuis une Server Action
 // liee a un <form> natif voit son message efface en production, capture ici
 // et redirige avec le vrai message en avertissement.
-export async function deleteInvoiceOrderLigneApprouveeAction(formData: FormData) {
+export async function deleteInvoiceOrderLigneApprouveeAction(ligneIdLiee: number, formData?: FormData) {
   if (!(await canDeletePageUser(await getCurrentStockUser(), "depots"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer une ligne d'un Transfer Invoice approuve.");
   }
 
-  const invoiceOrderLigneId = Number(formData.get("delete_invoice_order_ligne_id") || "0");
+  const invoiceOrderLigneId = Number(ligneIdLiee || formData?.get("delete_invoice_order_ligne_id") || "0");
   if (!invoiceOrderLigneId) {
     throw new Error("Ligne invalide.");
   }
