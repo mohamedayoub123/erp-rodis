@@ -97,6 +97,8 @@ export type CodeFluxTestLabo = {
 
 export type CodeFlux = {
   code: string;
+  // "MB" de la PL : le champ "Programme" de la ligne de programme (ex : "MB5371/AYOUB"), tel que saisi sur le Programme par ligne
+  mb: string | null;
   pl: CodeFluxRef | null;
   pds: CodeFluxRef[];
   produit: string | null;
@@ -458,10 +460,19 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
   const programmeLigneId = termineRows[0].programme_ligne_id;
   const { data: plData } = await supabaseServer
     .from("programme_lignes")
-    .select("id, groupe_id, produit, article_id")
+    .select("id, groupe_id, produit, article_id, programe")
     .eq("id", programmeLigneId)
     .maybeSingle();
-  const pl = plData as { id: number; groupe_id: number | null; produit: string | null; article_id: number | null } | null;
+  const pl = plData as {
+    id: number;
+    groupe_id: number | null;
+    produit: string | null;
+    article_id: number | null;
+    programe: string | null;
+  } | null;
+
+  // MB de la PL = champ libre "Programme" de la ligne (ex : "MB5371/AYOUB") ; vide = pas de MB
+  const mb = pl?.programe?.trim() ? pl.programe.trim() : null;
 
   const plRef: CodeFluxRef | null =
     pl?.groupe_id != null
@@ -544,6 +555,7 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
 
   return {
     code,
+    mb,
     pl: plRef,
     pds,
     produit: pl?.produit ?? null,

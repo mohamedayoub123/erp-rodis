@@ -225,7 +225,15 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
         ) : null}
       </div>
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">MB</p>
+          {flux.mb ? (
+            <p className="mt-1 text-sm font-semibold text-slate-900">{flux.mb}</p>
+          ) : (
+            <p className="mt-1 text-sm text-slate-500">-</p>
+          )}
+        </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Programme (PL)</p>
           {flux.pl ? (
