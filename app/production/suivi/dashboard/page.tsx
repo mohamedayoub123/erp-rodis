@@ -214,6 +214,12 @@ export default async function PlanningDashboardPage({
   const nbColonnes = [dash.fabrication, dash.conditionnement, dash.emballage].filter(Boolean).length;
   const classeColonnes = nbColonnes >= 3 ? "xl:grid-cols-3" : nbColonnes === 2 ? "xl:grid-cols-2" : "xl:grid-cols-1";
   const colSpanFabrication = (canDeleteLigne ? 11 : 10) - (dash.testLabo ? 0 : 1);
+  // Bouton Entrer de Fabrication et de Conditionnement : bleu quand le Test labo du code est fait, ROUGE sinon (Fabrication
+  // ne peut pas commencer sans Test labo, et Conditionnement suit la couleur de Fabrication).
+  const testLaboFait = (ligneId: number, code: string) => testLaboDoneKeys.has(`${ligneId}::${code}`);
+  const classeEntrer = (ligneId: number, code: string) =>
+    `rounded-full px-3 py-1.5 text-xs font-semibold text-white ${testLaboFait(ligneId, code) ? "bg-sky-700" : "bg-red-600"}`;
+  const titreEntrer = (ligneId: number, code: string) => (testLaboFait(ligneId, code) ? undefined : "Test labo pas encore fait");
 
   const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
   const articleById = new Map(articles.map((article) => [article.id, article]));
@@ -676,7 +682,8 @@ export default async function PlanningDashboardPage({
                             {dash.entrer ? (
                             <Link
                               href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
-                              className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
+                              title={titreEntrer(row.ligne.id, row.code)}
+                              className={classeEntrer(row.ligne.id, row.code)}
                             >
                               Entrer
                             </Link>
@@ -822,7 +829,8 @@ export default async function PlanningDashboardPage({
                             {dash.entrer ? (
                             <Link
                               href={`/production/suivi-production/conditionnement/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
-                              className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
+                              title={titreEntrer(row.ligne.id, row.code)}
+                              className={classeEntrer(row.ligne.id, row.code)}
                             >
                               Entrer
                             </Link>
