@@ -468,6 +468,8 @@ export default async function PlanningDashboardPage({
 
   const totalEmballagePrevu = emballageRows.reduce((sum, row) => sum + row.emballagePrevu, 0);
   const totalEmballageProduit = emballageRows.reduce((sum, row) => sum + row.emballageProduit, 0);
+  // Total des cartons qui restent a emballer dans la colonne (la somme des "Reste n" de tous les codes affiches)
+  const totalEmballageRestant = emballageRows.reduce((sum, row) => sum + Math.max(0, row.emballageRestant), 0);
 
   const toutAffiche = new Set(
     (params.tout || "")
@@ -882,7 +884,8 @@ export default async function PlanningDashboardPage({
                 </Link>
                 ) : null}
               </div>
-              <p className="text-xs text-slate-500">
+              <p className="text-right text-xs text-slate-500">
+                <span className="block text-sm font-bold text-slate-900">{Math.round(totalEmballageRestant)} cartons a emballer</span>
                 {Math.round(totalEmballageProduit)} / {Math.round(totalEmballagePrevu)} produit
               </p>
             </div>
@@ -954,6 +957,17 @@ export default async function PlanningDashboardPage({
                     ))
                   )}
                 </tbody>
+                {emballageRows.length > 0 ? (
+                  <tfoot className="sticky bottom-0 bg-slate-50 text-slate-900">
+                    <tr className="border-t border-slate-200 font-bold">
+                      <td colSpan={3} className="px-4 py-3">
+                        Total ({emballageRows.length} codes)
+                      </td>
+                      <td className="px-4 py-3">{Math.round(totalEmballageRestant)} cartons</td>
+                      <td colSpan={canDeleteLigne ? 3 : 2}></td>
+                    </tr>
+                  </tfoot>
+                ) : null}
               </table>
             </div>
             <TronquePar affiche={emballageRowsAffichees.length} total={emballageRows.length} href={hrefVoirTout("emballage")} />
