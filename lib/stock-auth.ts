@@ -14,6 +14,49 @@ const LOGIN_LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
 
 export type PagePermissions = Record<string, { view: boolean; write: boolean; delete: boolean }>;
 
+// Dashboard Production : qui voit quoi. Reglages a part du droit de page (productionSuiviDashboard) - la personne a
+// acces au Dashboard, et ces cases decident des parties qu'elle voit : les 3 colonnes (Fabrication, Conditionnement,
+// Emballage), les boutons "Test labo", "Entrer", "Par ligne" et "+" (nouvelle fiche hors programme), et les 2 salles
+// (Salle de pesage = salle de fabrication, Salle de conditionnement). Defaut pour un utilisateur qui n'a rien de stocke : colonnes et boutons
+// visibles (comme avant), salles reservees aux admins (comme avant). Un admin voit tout, toujours.
+export const DASHBOARD_PRODUCTION_CLES = [
+  "fabrication",
+  "conditionnement",
+  "emballage",
+  "testLabo",
+  "entrer",
+  "entrerParLigne",
+  "ajouterFiche",
+  "sallePesage",
+  "salleConditionnement",
+] as const;
+
+export type DashboardProductionCle = (typeof DASHBOARD_PRODUCTION_CLES)[number];
+export type DashboardProductionPermissions = Record<DashboardProductionCle, boolean>;
+
+function dashboardProductionParDefaut(isAdmin: boolean): DashboardProductionPermissions {
+  return {
+    fabrication: true,
+    conditionnement: true,
+    emballage: true,
+    testLabo: true,
+    entrer: true,
+    entrerParLigne: true,
+    ajouterFiche: true,
+    sallePesage: isAdmin,
+    salleConditionnement: isAdmin,
+  };
+}
+
+function lireDashboardProduction(source: unknown, isAdmin: boolean): DashboardProductionPermissions {
+  const defauts = dashboardProductionParDefaut(isAdmin);
+  if (isAdmin) return Object.fromEntries(DASHBOARD_PRODUCTION_CLES.map((cle) => [cle, true])) as DashboardProductionPermissions;
+  const stocke = (source && typeof source === "object" ? source : {}) as Record<string, unknown>;
+  return Object.fromEntries(
+    DASHBOARD_PRODUCTION_CLES.map((cle) => [cle, typeof stocke[cle] === "boolean" ? stocke[cle] : defauts[cle]])
+  ) as DashboardProductionPermissions;
+}
+
 export type StockPermissions = {
   pages: PagePermissions;
   // Commandes a deja un niveau de detail plus fin que "voir/modifier" pour
@@ -57,6 +100,8 @@ export type StockPermissions = {
   // utilisateurs coches ici peuvent le changer - demande explicite (empeche
   // n'importe qui d'ecraser un code deja valide par erreur).
   qualiteLabOverwriteLot: boolean;
+  // Dashboard Production : ce que la personne voit (voir DASHBOARD_PRODUCTION_CLES)
+  dashboardProduction: DashboardProductionPermissions;
 };
 
 // Forme stockee cote base : peut etre l'ancien format (module) ou le
@@ -168,6 +213,7 @@ function getDefaultPermissions(username: string): StockPermissions {
     inventairePfRegulariser: isAdmin,
     ncTafProcessus: [],
     qualiteLabOverwriteLot: isAdmin,
+    dashboardProduction: dashboardProductionParDefaut(isAdmin),
   };
 }
 
@@ -325,6 +371,7 @@ function normalizeUserRecord(
       : typeof source.qualiteLabOverwriteLot === "boolean"
         ? source.qualiteLabOverwriteLot
         : defaults.qualiteLabOverwriteLot,
+    dashboardProduction: lireDashboardProduction((source as { dashboardProduction?: unknown }).dashboardProduction, isAdmin),
   };
 
   return {
@@ -723,6 +770,12 @@ export async function canQualiteLabOverwriteLotUser(username: string | null | un
   return permissions.qualiteLabOverwriteLot;
 }
 
+// Ce que l'utilisateur voit dans le Dashboard Production (colonnes, boutons, salles) - voir DASHBOARD_PRODUCTION_CLES.
+export async function getDashboardProductionUser(username: string | null | undefined) {
+  const permissions = await getUserPermissions(username);
+  return permissions.dashboardProduction;
+}
+
 // "all" pour un admin (voit tout sans etre liste explicitement, comme les
 // autres droits transverses) - sinon la liste exacte des "Processus
 // concerne" autorises pour ce compte (vide = aucune ligne NC/TAF visible).
@@ -872,6 +925,7 @@ export async function updateUserPermissions(
     inventairePfRegulariser: boolean;
     ncTafProcessus: string[];
     qualiteLabOverwriteLot: boolean;
+    dashboardProduction: DashboardProductionPermissions;
   }
 ) {
   const normalized = username.trim().toLowerCase();
@@ -906,6 +960,7 @@ export async function updateUserPermissions(
     inventairePfRegulariser: !!nextPermissions.inventairePfRegulariser,
     ncTafProcessus: Array.isArray(nextPermissions.ncTafProcessus) ? nextPermissions.ncTafProcessus : [],
     qualiteLabOverwriteLot: !!nextPermissions.qualiteLabOverwriteLot,
+    dashboardProduction: lireDashboardProduction(nextPermissions.dashboardProduction, false),
   };
 
   await writeUsers(users);

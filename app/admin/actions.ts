@@ -18,6 +18,8 @@ import {
   isAdminUser,
   resetStockUserPassword,
   updateUserPermissions,
+  DASHBOARD_PRODUCTION_CLES,
+  type DashboardProductionPermissions,
   type PagePermissions,
 } from "@/lib/stock-auth";
 import { PAGE_REGISTRY } from "@/lib/page-registry";
@@ -237,6 +239,10 @@ export async function updateUserPermissionsAction(formData: FormData) {
     inventairePfRegulariser: readPermissionFlag(formData, "inventairePfRegulariser"),
     ncTafProcessus: formData.getAll("nc_taf_processus").map((v) => String(v).trim()).filter(Boolean),
     qualiteLabOverwriteLot: readPermissionFlag(formData, "qualiteLabOverwriteLot"),
+    // Dashboard Production : une case par partie (colonnes, boutons, salles), nommees dashboard__<cle>
+    dashboardProduction: Object.fromEntries(
+      DASHBOARD_PRODUCTION_CLES.map((cle) => [cle, readPermissionFlag(formData, `dashboard__${cle}`)])
+    ) as DashboardProductionPermissions,
   };
 
   const updated = await updateUserPermissions(username, nextPermissions);

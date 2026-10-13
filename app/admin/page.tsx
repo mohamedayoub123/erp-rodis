@@ -10,7 +10,21 @@ import {
   getUserPermissions,
   isAdminUser,
   listStockUsers,
+  type DashboardProductionCle,
 } from "@/lib/stock-auth";
+
+// Dashboard Production : ce que chaque personne voit (cases de l'ecran Admin, dans l'ordre d'affichage)
+const DASHBOARD_PRODUCTION_CASES: { cle: DashboardProductionCle; libelle: string }[] = [
+  { cle: "fabrication", libelle: "Fabrication (colonne)" },
+  { cle: "conditionnement", libelle: "Conditionnement (colonne)" },
+  { cle: "emballage", libelle: "Emballage (colonne)" },
+  { cle: "testLabo", libelle: "Bouton Test labo" },
+  { cle: "entrer", libelle: "Boutons Entrer" },
+  { cle: "entrerParLigne", libelle: "Bouton Entrer par ligne (Conditionnement)" },
+  { cle: "ajouterFiche", libelle: "Boutons + (nouvelle fiche Fabrication / Conditionnement / Emballage)" },
+  { cle: "sallePesage", libelle: "Salle de pesage (salle fabrication)" },
+  { cle: "salleConditionnement", libelle: "Salle de conditionnement" },
+];
 import {
   ADMIN_SECTION_LABELS,
   ADMIN_SECTION_ORDER,
@@ -860,6 +874,29 @@ export default async function AdminPage({
                             className="h-4 w-4 rounded border-slate-300"
                           />
                         </div>
+
+                        <details className="group rounded-2xl border border-amber-200 bg-amber-50/40">
+                          <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800">
+                            <span className="flex-1">Dashboard Production - ce que la personne voit</span>
+                            <span aria-hidden="true" className="text-slate-400 transition-transform group-open:rotate-90">
+                              &#9656;
+                            </span>
+                          </summary>
+                          <div className="grid gap-2 border-t border-amber-200 p-3 sm:grid-cols-2">
+                            {DASHBOARD_PRODUCTION_CASES.map(({ cle, libelle }) => (
+                              <label key={cle} className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2 text-xs text-slate-700">
+                                {libelle}
+                                <input
+                                  type="checkbox"
+                                  name={`dashboard__${cle}`}
+                                  defaultChecked={user.permissions.dashboardProduction[cle]}
+                                  disabled={user.isAdmin}
+                                  className="h-4 w-4 rounded border-slate-300"
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        </details>
 
                         {distinctProcessus.length > 0 ? (
                           <details className="group rounded-2xl border border-amber-200 bg-amber-50/40">

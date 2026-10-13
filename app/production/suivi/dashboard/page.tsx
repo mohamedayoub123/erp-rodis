@@ -15,7 +15,7 @@ import {
   markEmballageTermineAction,
   markVracTermineAction,
 } from "../actions";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser, getDashboardProductionUser, isAdminUser } from "@/lib/stock-auth";
 import { LotCodeCell } from "./lot-code-cell";
 import { ValideParSelect } from "./valide-par-select";
 import { SingleDayFilter } from "./single-day-filter";
@@ -209,6 +209,11 @@ export default async function PlanningDashboardPage({
   const canDeleteLigne = await canDeletePageUser(currentUser, "productionSuiviDashboard");
   // Colonne "Valide par" du Test labo : meme droit que la saisie du Test labo
   const canEditValidePar = await canWritePageUser(currentUser, "productionSuiviProductionTestLabo");
+  // Ce que la personne voit du Dashboard (cases de l'ecran Admin > permissions de l'utilisateur) : colonnes, boutons, salles
+  const dash = await getDashboardProductionUser(currentUser);
+  const nbColonnes = [dash.fabrication, dash.conditionnement, dash.emballage].filter(Boolean).length;
+  const classeColonnes = nbColonnes >= 3 ? "xl:grid-cols-3" : nbColonnes === 2 ? "xl:grid-cols-2" : "xl:grid-cols-1";
+  const colSpanFabrication = (canDeleteLigne ? 11 : 10) - (dash.testLabo ? 0 : 1);
 
   const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
   const articleById = new Map(articles.map((article) => [article.id, article]));
@@ -589,11 +594,14 @@ export default async function PlanningDashboardPage({
           </form>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-3">
+        {nbColonnes > 0 ? (
+        <section className={`grid gap-6 ${classeColonnes}`}>
+          {dash.fabrication ? (
           <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-slate-900">Fabrication</h2>
+                {dash.ajouterFiche ? (
                 <Link
                   href="/production/suivi-production/fabrication/nouveau"
                   title="Nouvelle fiche Fabrication (sans programme dispatche)"
@@ -601,6 +609,7 @@ export default async function PlanningDashboardPage({
                 >
                   +
                 </Link>
+                ) : null}
               </div>
               <div className="flex items-center gap-3">
                 <p className="text-xs text-slate-500">
@@ -628,7 +637,7 @@ export default async function PlanningDashboardPage({
                     <th className="px-4 py-3 font-semibold">PD</th>
                     <th className="px-4 py-3 font-semibold">Restant</th>
                     <th className="px-4 py-3 font-semibold">Rapport</th>
-                    <th className="px-4 py-3 font-semibold">Validé par</th>
+                    {dash.testLabo ? <th className="px-4 py-3 font-semibold">Validé par</th> : null}
                     <th className="px-4 py-3 font-semibold">Action</th>
                     {canDeleteLigne ? <th className="px-4 py-3 font-semibold">Suppr.</th> : null}
                   </tr>
@@ -636,7 +645,7 @@ export default async function PlanningDashboardPage({
                 <tbody>
                   {vracRows.length === 0 ? (
                     <tr>
-                      <td colSpan={canDeleteLigne ? 11 : 10} className="px-4 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={colSpanFabrication} className="px-4 py-6 text-center text-sm text-slate-500">
                         {hasFilters
                           ? "Aucun resultat pour ce filtre."
                           : "Rien en cours (tout est termine ou vide)."}
@@ -664,12 +673,15 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
+                            {dash.entrer ? (
                             <Link
                               href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
                               className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
                             >
                               Entrer
                             </Link>
+                            ) : null}
+                            {dash.testLabo ? (
                             <div className="flex flex-col items-start gap-0.5">
                               <Link
                                 href={`/production/suivi-production/fabrication/${row.ligne.id}/test-labo?code=${encodeURIComponent(row.code)}`}
@@ -687,8 +699,10 @@ export default async function PlanningDashboardPage({
                                 </span>
                               ) : null}
                             </div>
+                            ) : null}
                           </div>
                         </td>
+                        {dash.testLabo ? (
                         <td className="px-4 py-3">
                           {testLaboDoneKeys.has(`${row.ligne.id}::${row.code}`) ? (
                             canEditValidePar ? (
@@ -708,6 +722,7 @@ export default async function PlanningDashboardPage({
                             </span>
                           )}
                         </td>
+                        ) : null}
                         <td className="px-4 py-3">
                           <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markVracTermineAction} />
                         </td>
@@ -728,11 +743,14 @@ export default async function PlanningDashboardPage({
             </div>
             <TronquePar affiche={vracRowsAffichees.length} total={vracRows.length} href={hrefVoirTout("vrac")} />
           </div>
+          ) : null}
 
+          {dash.conditionnement ? (
           <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-slate-900">Conditionnement</h2>
+                {dash.ajouterFiche ? (
                 <Link
                   href="/production/suivi-production/conditionnement/nouveau"
                   title="Nouvelle fiche Conditionnement (sans programme dispatche)"
@@ -740,6 +758,7 @@ export default async function PlanningDashboardPage({
                 >
                   +
                 </Link>
+                ) : null}
               </div>
               <div className="flex items-center gap-3">
                 <p className="text-xs text-slate-500">
@@ -800,18 +819,22 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
+                            {dash.entrer ? (
                             <Link
                               href={`/production/suivi-production/conditionnement/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
                               className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
                             >
                               Entrer
                             </Link>
+                            ) : null}
+                            {dash.entrerParLigne ? (
                             <Link
                               href={`/production/suivi-production/conditionnement/${row.ligne.id}/par-ligne?code=${encodeURIComponent(row.code)}`}
                               className="whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800"
                             >
                               Par ligne
                             </Link>
+                            ) : null}
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -834,11 +857,14 @@ export default async function PlanningDashboardPage({
             </div>
             <TronquePar affiche={cartonRowsAffichees.length} total={cartonRows.length} href={hrefVoirTout("carton")} />
           </div>
+          ) : null}
 
+          {dash.emballage ? (
           <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-slate-900">Emballage</h2>
+                {dash.ajouterFiche ? (
                 <Link
                   href="/production/suivi-production/emballage/nouveau"
                   title="Nouvelle fiche Emballage (sans programme dispatche)"
@@ -846,6 +872,7 @@ export default async function PlanningDashboardPage({
                 >
                   +
                 </Link>
+                ) : null}
               </div>
               <p className="text-xs text-slate-500">
                 {Math.round(totalEmballageProduit)} / {Math.round(totalEmballagePrevu)} produit
@@ -885,12 +912,14 @@ export default async function PlanningDashboardPage({
                           <RestantBadge restant={row.emballageRestant} />
                         </td>
                         <td className="px-4 py-3">
+                          {dash.entrer ? (
                           <Link
                             href={`/production/suivi-production/emballage/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
                             className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white"
                           >
                             Entrer
                           </Link>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
@@ -921,10 +950,13 @@ export default async function PlanningDashboardPage({
             </div>
             <TronquePar affiche={emballageRowsAffichees.length} total={emballageRows.length} href={hrefVoirTout("emballage")} />
           </div>
+          ) : null}
         </section>
+        ) : null}
 
-        {isAdmin ? (
+        {dash.sallePesage || dash.salleConditionnement ? (
           <section className="grid gap-6 xl:grid-cols-2">
+            {dash.sallePesage ? (
             <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
               <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
                 <h2 className="text-lg font-bold text-slate-900">Salle de pesage</h2>
@@ -978,7 +1010,9 @@ export default async function PlanningDashboardPage({
               </div>
               <TronquePar affiche={pesageRowsAffichees.length} total={pesageRows.length} href={hrefVoirTout("pesage")} />
             </div>
+            ) : null}
 
+            {dash.salleConditionnement ? (
             <div className="rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
               <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
                 <h2 className="text-lg font-bold text-slate-900">Salle de conditionnement</h2>
@@ -1032,6 +1066,7 @@ export default async function PlanningDashboardPage({
               </div>
               <TronquePar affiche={conditionnementRowsAffichees.length} total={conditionnementRows.length} href={hrefVoirTout("salle_cond")} />
             </div>
+            ) : null}
           </section>
         ) : null}
       </div>

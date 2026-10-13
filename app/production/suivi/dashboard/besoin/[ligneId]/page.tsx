@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { canWritePageUser, getCurrentStockUser, getDashboardProductionUser, isAdminUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
@@ -42,15 +42,17 @@ export default async function BesoinBatchPage({
 }) {
   noStore();
   const currentUser = await getCurrentStockUser();
-  if (!isAdminUser(currentUser)) {
-    notFound();
-  }
 
   const { ligneId } = await params;
   const ligneIdNumber = Number(ligneId);
   const { code: codeParam, stage: stageParam, qt: qtParam, erreur } = await searchParams;
   const code = (codeParam || "").trim();
   const stage: "vrac" | "carton" = stageParam === "carton" ? "carton" : "vrac";
+  // Admin, ou case "Salle de pesage" / "Salle de conditionnement" cochee dans Admin > permissions de l'utilisateur
+  const dash = await getDashboardProductionUser(currentUser);
+  if (!isAdminUser(currentUser) && !(stage === "carton" ? dash.salleConditionnement : dash.sallePesage)) {
+    notFound();
+  }
   // Un nombre de carton n'a jamais de virgule - certaines lignes decoupees
   // avant cette regle ont encore un qt_carton fractionnaire en base (ex:
   // 312.5), toujours arrondi au SUPERIEUR ici pour que le besoin en

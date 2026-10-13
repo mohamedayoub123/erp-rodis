@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { getCurrentStockUser, getDashboardProductionUser, isAdminUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
@@ -96,12 +96,14 @@ export default async function ValidationsHistoriquePage({
 }) {
   noStore();
   const currentUser = await getCurrentStockUser();
-  if (!isAdminUser(currentUser)) {
-    notFound();
-  }
 
   const { stage: stageParam } = await params;
   if (stageParam !== "pesage" && stageParam !== "conditionnement") {
+    notFound();
+  }
+  // Admin, ou case "Salle de pesage" / "Salle de conditionnement" cochee dans Admin > permissions de l'utilisateur
+  const dash = await getDashboardProductionUser(currentUser);
+  if (!isAdminUser(currentUser) && !(stageParam === "pesage" ? dash.sallePesage : dash.salleConditionnement)) {
     notFound();
   }
   const storedStage = stageParam === "pesage" ? "pesage" : "salle_conditionnement";

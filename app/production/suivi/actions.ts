@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser, getDashboardProductionUser, isAdminUser } from "@/lib/stock-auth";
 import { fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
 import { logAudit } from "@/lib/audit-log";
 import { supprimerToutesTracesProductionPourLigne } from "../suivi-production/actions";
@@ -406,6 +406,12 @@ export async function validerBatchAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
   const besoinStage = String(formData.get("stage") || "") === "carton" ? "carton" : "vrac";
   const storedStage: CodeTermineStage = besoinStage === "carton" ? "salle_conditionnement" : "pesage";
+
+  // Admin, ou case "Salle de pesage" / "Salle de conditionnement" cochee dans Admin > permissions de l'utilisateur
+  const droitsDashboard = await getDashboardProductionUser(currentUser);
+  if (!isAdminUser(currentUser) && !(besoinStage === "carton" ? droitsDashboard.salleConditionnement : droitsDashboard.sallePesage)) {
+    throw new Error("Cet utilisateur ne peut pas valider dans cette salle.");
+  }
 
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();
