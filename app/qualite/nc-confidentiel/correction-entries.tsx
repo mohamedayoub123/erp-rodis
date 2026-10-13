@@ -297,7 +297,10 @@ function EntryRow({
   function handleView(path: string, name: string) {
     setError("");
     setPendingViewUrl(null);
-    const win = window.open("", "_blank", "noopener,noreferrer");
+    // PAS de "noopener" dans les options : il fait renvoyer null a window.open meme quand l'onglet s'ouvre (onglet vide jamais
+    // redirige + faux message "bloque"). Le lien avec cette page est coupe a la main juste apres.
+    const win = window.open("", "_blank");
+    if (win) win.opener = null;
     startTransition(async () => {
       const result = await getFileUrlAction(path);
       if (!result.ok || !result.url) {

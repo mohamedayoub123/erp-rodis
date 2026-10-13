@@ -190,7 +190,10 @@ function AttachmentsCell({
     // redirige une fois l'URL signee recuperee - sinon un "window.open"
     // appele APRES un await est bloque silencieusement par le navigateur
     // (bloqueur de popup), meme si l'action vient bien d'un vrai clic.
-    const win = window.open("", "_blank", "noopener,noreferrer");
+    // PAS de "noopener" dans les options : il fait renvoyer null a window.open meme quand l'onglet s'ouvre (onglet vide jamais
+    // redirige + faux message "bloque"). Le lien avec cette page est coupe a la main juste apres.
+    const win = window.open("", "_blank");
+    if (win) win.opener = null;
     startTransition(async () => {
       const result = await getFileUrlAction(path);
       if (!result.ok || !result.url) {
