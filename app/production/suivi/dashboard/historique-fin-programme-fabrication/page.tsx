@@ -9,6 +9,7 @@ import { formatDate } from "@/lib/format-date";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { buildPdLabelByCode, pdLabelsForNumeroLot } from "../../data";
+import { lireQuantitesParCode, type LigneQuantites } from "../quantites-fin-programme";
 import { unmarkVracTermineAction } from "../../actions";
 
 type CodeTermineRow = {
@@ -19,8 +20,7 @@ type CodeTermineRow = {
   utilisateur: string | null;
 };
 
-type LigneRow = {
-  id: number;
+type LigneRow = LigneQuantites & {
   zone: string | null;
   chaine: string | null;
   produit: string | null;
@@ -60,7 +60,7 @@ async function fetchLignesByIds(ids: number[]): Promise<LigneRow[]> {
   while (true) {
     const { data, error } = await supabaseServer
       .from("programme_lignes")
-      .select("id, zone, chaine, produit, date_jour")
+      .select("id, zone, chaine, produit, date_jour, numero_lot, numero_lot_detail, vrac_a_fabriquer, qt_carton")
       .in("id", ids)
       .range(from, from + pageSize - 1);
 
@@ -103,6 +103,8 @@ export default async function HistoriqueFinProgrammeFabricationPage({
   const ligneIds = [...new Set(termineRows.map((r) => r.programme_ligne_id))];
   const lignes = await fetchLignesByIds(ligneIds);
   const ligneById = new Map(lignes.map((l) => [l.id, l]));
+  // Quantite prevue et FAITE de chaque code (ce qui avait ete saisi quand le Fin programme a ete clique)
+  const quantites = await lireQuantitesParCode("vrac", lignes);
 
   const rows = termineRows
     .map((row) => {
@@ -114,6 +116,8 @@ export default async function HistoriqueFinProgrammeFabricationPage({
         date: row.termine_date,
         utilisateur: row.utilisateur,
         pdLabel: pdLabelsForNumeroLot(row.code, pdLabelByCode),
+        prevu: quantites.get(`${row.programme_ligne_id}::${row.code}`)?.prevu ?? null,
+        fait: quantites.get(`${row.programme_ligne_id}::${row.code}`)?.fait ?? 0,
         zone: ligne?.zone ?? "-",
         chaine: ligne?.chaine ?? "-",
         produit: ligne?.produit ?? "-",
@@ -172,6 +176,8 @@ export default async function HistoriqueFinProgrammeFabricationPage({
                     <th className="px-6 py-4 font-semibold">Produit</th>
                     <th className="px-6 py-4 font-semibold">Code</th>
                     <th className="px-6 py-4 font-semibold">PD</th>
+                    <th className="px-6 py-4 font-semibold">Prevu (kg)</th>
+                    <th className="px-6 py-4 font-semibold">Fait (kg)</th>
                     <th className="px-6 py-4 font-semibold">Termine par</th>
                     <th className="px-6 py-4 font-semibold">Action</th>
                   </tr>
@@ -188,6 +194,12 @@ export default async function HistoriqueFinProgrammeFabricationPage({
                       <td className="px-6 py-4 text-slate-600">{row.produit}</td>
                       <td className="px-6 py-4 text-slate-700">{row.code}</td>
                       <td className="px-6 py-4 text-slate-700">{row.pdLabel}</td>
+                      <td className="px-6 py-4 tabular-nums text-slate-600">{row.prevu === null ? "-" : Math.round(row.prevu * 100) / 100}</td>
+                      <td
+                        className={`px-6 py-4 font-semibold tabular-nums ${row.prevu !== null && row.fait + 1e-9 < row.prevu ? "text-amber-700" : "text-emerald-700"}`}
+                      >
+                        {Math.round(row.fait * 100) / 100}
+                      </td>
                       <td className="px-6 py-4 text-slate-700">{row.utilisateur || "?"}</td>
                       <td className="px-6 py-4">
                         <form action={unmarkVracTermineAction}>
