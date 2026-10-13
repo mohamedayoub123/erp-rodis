@@ -10,7 +10,7 @@
 -- dashboard/page.tsx + data.ts) :
 --   * lignes : exclu_rapports = false, programme_termine faux/NULL,
 --     confirme_production = true, triees date_jour desc puis created_at desc
---   * PD : rang des groupes par date de premiere sauvegarde (PD1, PD2...),
+--   * PD : numero permanent du groupe (le meme que l'Historique Programme Dispatcher),
 --     le dernier groupe enregistre gagne si un code apparait dans plusieurs
 --   * reservations MP en attente : stage pesage -> "vrac", salle_conditionnement
 --     -> "carton", seulement si une reservation a encore quantite > 0
@@ -40,9 +40,13 @@ as $$
     where groupe_id is not null
     group by groupe_id
   ),
+  -- Numero PD = le numero PERMANENT de la page Historique Programme Dispatcher (table document_numeros, jamais
+  -- reattribue). Avant, le rang par date etait recalcule ici : des qu'un PD etait supprime, tous les suivants se
+  -- decalaient d'un cran (le PD89 de l'Historique s'affichait PD88 au Dashboard).
   pd_rang as (
-    select groupe_id, 'PD' || (row_number() over (order by premier, groupe_id))::text as label
-    from pd_groupes
+    select g.groupe_id, 'PD' || coalesce(dn.numero::text, '-' || g.groupe_id::text) as label
+    from pd_groupes g
+    left join public.document_numeros dn on dn.kind = 'PD' and dn.ref_id = g.groupe_id
   ),
   pd_codes as (
     select distinct on (h.code) h.code, r.label
