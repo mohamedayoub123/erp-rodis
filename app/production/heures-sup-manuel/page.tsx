@@ -17,6 +17,7 @@ type EntreeRow = {
   nb_journaliers: number;
   nb_heures: number;
   remarque: string | null;
+  cree_par: string | null;
   heures_sup_activites: ActiviteRow | ActiviteRow[] | null;
 };
 
@@ -53,7 +54,7 @@ export default async function HeuresSupManuelPage({ searchParams }: { searchPara
     supabaseServer.from("heures_sup_activites").select("id, nom").order("nom", { ascending: true }),
     supabaseServer
       .from("heures_sup_manuel")
-      .select("id, date_jour, nb_journaliers, nb_heures, remarque, heures_sup_activites(id, nom)")
+      .select("id, date_jour, nb_journaliers, nb_heures, remarque, cree_par, heures_sup_activites(id, nom)")
       .gte("date_jour", dateFrom)
       .lte("date_jour", dateTo)
       .order("date_jour", { ascending: false })
@@ -72,6 +73,7 @@ export default async function HeuresSupManuelPage({ searchParams }: { searchPara
       nbJournaliers: Number(row.nb_journaliers),
       nbHeures: Number(row.nb_heures),
       remarque: row.remarque,
+      creePar: row.cree_par,
       samedi,
       totalHeures,
     };
@@ -241,6 +243,7 @@ export default async function HeuresSupManuelPage({ searchParams }: { searchPara
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Total heures</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Jour sup</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Remarque</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Saisi par</th>
                     {canDelete ? <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold"></th> : null}
                   </tr>
                 </thead>
@@ -262,6 +265,7 @@ export default async function HeuresSupManuelPage({ searchParams }: { searchPara
                         )}
                       </td>
                       <td className="px-4 py-3 text-slate-600">{entree.remarque || "-"}</td>
+                      <td className="px-4 py-3 font-medium text-slate-700">{entree.creePar || "-"}</td>
                       {canDelete ? (
                         <td className="px-4 py-3">
                           <form action={deleteHeureSupManuelAction}>
