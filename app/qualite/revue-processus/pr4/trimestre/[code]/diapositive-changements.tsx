@@ -67,7 +67,7 @@ function Tuile({ titre, valeur, ton }: { titre: string; valeur: number; ton: "ne
     ton === "alerte" ? "border-l-red-500" : ton === "encours" ? "border-l-orange-500" : ton === "bon" ? "border-l-emerald-500" : "border-l-violet-500";
   return (
     <div className={`rounded-2xl border border-slate-200 border-l-4 bg-white px-4 py-3 ${bordure}`}>
-      <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">{titre}</p>
+      <p className="text-xs font-bold uppercase tracking-[0.1em] text-violet-800">{titre}</p>
       <p className="mt-1 text-4xl font-black tracking-tight text-slate-900">{valeur}</p>
     </div>
   );
@@ -91,7 +91,7 @@ const elementsSepares = (texte: string): string[] =>
 function Champ({ titre, children }: { titre: string; children: ReactNode }) {
   return (
     <div>
-      <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">{titre}</p>
+      <p className="text-xs font-bold uppercase tracking-[0.1em] text-violet-800">{titre}</p>
       <div className="mt-1 text-sm leading-relaxed text-slate-800">{children}</div>
     </div>
   );
@@ -153,7 +153,7 @@ function FicheDetaillee({ changement, code, avecReprises }: { changement: Change
   );
 }
 
-const entete = "px-3 py-2 text-left font-semibold";
+const entete = "px-3 py-2 text-left font-bold";
 const cellule = "px-3 py-3 align-top";
 
 export function DiapositiveChangements({ code, libelle }: { code: string; libelle: string }) {
@@ -195,21 +195,21 @@ export function DiapositiveChangements({ code, libelle }: { code: string; libell
 
         <dl className="mt-5 flex flex-wrap gap-x-8 gap-y-2 text-sm text-slate-700">
           <div className="min-w-[16rem] flex-1">
-            <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Processus</dt>
+            <dt className="text-xs font-bold uppercase tracking-[0.1em] text-violet-800">Processus</dt>
             <dd>{fiche.processus}</dd>
           </div>
           <div>
-            <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Période</dt>
+            <dt className="text-xs font-bold uppercase tracking-[0.1em] text-violet-800">Période</dt>
             <dd>{fiche.periode}</dd>
           </div>
           {revue && !fiche.periode.includes(revue) ? (
             <div>
-              <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Date de revue</dt>
+              <dt className="text-xs font-bold uppercase tracking-[0.1em] text-violet-800">Date de revue</dt>
               <dd>{revue}</dd>
             </div>
           ) : null}
           <div>
-            <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Pilote</dt>
+            <dt className="text-xs font-bold uppercase tracking-[0.1em] text-violet-800">Pilote</dt>
             <dd>{fiche.pilote}</dd>
           </div>
         </dl>
@@ -225,7 +225,7 @@ export function DiapositiveChangements({ code, libelle }: { code: string; libell
 
         <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200">
           <table className="min-w-[56rem] w-full text-sm text-slate-800">
-            <thead className="bg-slate-50 text-slate-600">
+            <thead className="bg-violet-50 text-violet-900">
               <tr>
                 <th className={entete}>N°</th>
                 <th className={entete}>Type</th>
@@ -268,7 +268,7 @@ export function DiapositiveChangements({ code, libelle }: { code: string; libell
           data-hors-diapo={conclusionVide ? "" : undefined}
           className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
+          <p className="text-xs font-bold uppercase tracking-[0.1em] text-violet-800">
             Conclusion du pilote sur la maîtrise des changements
           </p>
           {conclusionVide ? (
