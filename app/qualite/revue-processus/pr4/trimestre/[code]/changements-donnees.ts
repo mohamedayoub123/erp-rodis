@@ -56,7 +56,7 @@ export const FICHES_CHANGEMENTS: Record<string, FicheChangements> = {
   "2026-T3": {
     processus: "PR4 – Gérer la fabrication des produits cosmétiques, le stockage et l'expédition des PF",
     periode: "T3 2026 (revue du 12/10/2026)",
-    pilote: "Direction d'exploitation",
+    pilote: "directeur production cosmetique",
     dateRevue: "2026-10-12",
     conclusion: "",
     changements: [
