@@ -361,6 +361,17 @@ export default async function PlanningDashboardPage({
       const emballagePrevu = cartonProduit;
       const emballageProduit = emballageProduitByCode.get(code) ?? 0;
 
+      // Fiche "+" Emballage : ligne creee a la main, sans quantite prevue, qui n'a QUE des entrees Emballage. Elle n'a rien a
+      // faire en Fabrication / Conditionnement (ni dans les salles de pesage / conditionnement) : jamais listee ici, sinon elle y
+      // apparaissait en "Quantite non definie". Elle ne figure pas non plus dans la colonne Emballage (rien a emballer : 0 carton produit).
+      const ficheEmballageSeulement =
+        (vracPrevuIsNullByCode.get(code) ?? false) &&
+        (cartonPrevuIsNullByCode.get(code) ?? false) &&
+        !vracEntriesForLigne.some((entry) => entry.code === code) &&
+        !cartonEntriesForLigne.some((entry) => entry.code === code) &&
+        emballageEntriesForLigne.some((entry) => entry.code === code);
+      if (ficheEmballageSeulement) continue;
+
       codeRows.push({
         ligne,
         pdLabel: pdLabelsForNumeroLot(code, pdLabelByCode),
