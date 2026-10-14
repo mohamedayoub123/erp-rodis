@@ -42,14 +42,16 @@ type TafRow = {
 const inputClass = "w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
 
 type Params = Promise<{ id: string }>;
+type SearchParams = Promise<{ erreur?: string }>;
 
 // Page dediee plein ecran pour remplir le suivi (Qui/Delais/Commentaire/
 // T1-T4) d'un TAF existant - demande explicite, meme principe que
 // /qualite/nc-confidentiel/[id]. L'edition en ligne sur le tableau reste
 // disponible en plus, cette page ne la remplace pas.
-export default async function TafConfidentielDetailPage({ params }: { params: Params }) {
+export default async function TafConfidentielDetailPage({ params, searchParams }: { params: Params; searchParams: SearchParams }) {
   noStore();
   const { id: idParam } = await params;
+  const { erreur } = await searchParams;
   const id = Number(idParam);
   if (!id) notFound();
 
@@ -96,6 +98,10 @@ export default async function TafConfidentielDetailPage({ params }: { params: Pa
             <p>Date de realisation : <span className="font-semibold text-slate-700">{row.date_realisation ? formatDate(row.date_realisation) : "-"}</span></p>
           </div>
         </section>
+
+        {erreur ? (
+          <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">{erreur}</div>
+        ) : null}
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <form action={updateTafConfidentielDetailAction} className="grid gap-5 sm:grid-cols-2">

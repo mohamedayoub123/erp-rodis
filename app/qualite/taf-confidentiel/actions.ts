@@ -218,6 +218,14 @@ export async function saveTafConfidentielBatchAction(
 // plus bas).
 const DETAIL_FIELD_KEYS = ["qui", "delais", "commentaire", "t1", "t2", "t3", "t4"] as const;
 
+// La colonne Correction (correction_entries) est creee par scripts/sql/add_correction_entries_taf.sql : tant que ce SQL n'a pas ete
+// lance dans Supabase, toute ecriture de Correction echoue - message clair a la place de la page d'erreur generique.
+function messageErreurTaf(message: string): string {
+  return /correction_entries/.test(message)
+    ? "La colonne Correction n'existe pas encore dans la base : lance le SQL add_correction_entries_taf.sql dans Supabase. Rien n'a ete enregistre."
+    : message;
+}
+
 export async function updateTafConfidentielDetailAction(formData: FormData): Promise<void> {
   const currentUser = await getCurrentStockUser();
   if (!(await canWritePageUser(currentUser, "qualiteTafConfidentiel"))) {
@@ -287,7 +295,8 @@ export async function updateTafConfidentielDetailAction(formData: FormData): Pro
   const { error } = await supabaseServer.from(TABLE).update(updatePayload).eq("id", id);
 
   if (error) {
-    throw new Error(error.message);
+    // Retour sur la page du TAF avec le vrai message (un throw d'une Server Action donne la page "Une erreur s'est produite")
+    redirect(`/qualite/taf-confidentiel/${id}?erreur=${encodeURIComponent(messageErreurTaf(error.message))}`);
   }
 
   revalidatePath("/qualite/taf-confidentiel");
@@ -477,7 +486,7 @@ async function saveTafCorrectionEntriesAndRecomputeStatut(
     .eq("id", tafId);
 
   if (error) {
-    return { ok: false, message: error.message };
+    return { ok: false, message: messageErreurTaf(error.message) };
   }
 
   revalidatePath("/qualite/taf-confidentiel");
