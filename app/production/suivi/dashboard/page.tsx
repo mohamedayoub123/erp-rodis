@@ -214,7 +214,7 @@ export default async function PlanningDashboardPage({
   const dash = await getDashboardProductionUser(currentUser);
   const nbColonnes = [dash.fabrication, dash.conditionnement, dash.emballage].filter(Boolean).length;
   const classeColonnes = nbColonnes >= 3 ? "xl:grid-cols-3" : nbColonnes === 2 ? "xl:grid-cols-2" : "xl:grid-cols-1";
-  const colSpanFabrication = (canDeleteLigne ? 11 : 10) - (dash.testLabo ? 0 : 1);
+  const colSpanFabrication = canDeleteLigne ? 10 : 9;
   // Bouton Entrer de Fabrication et de Conditionnement : bleu quand le Test labo du code est fait, ROUGE sinon (Fabrication
   // ne peut pas commencer sans Test labo, et Conditionnement suit la couleur de Fabrication).
   const testLaboFait = (ligneId: number, code: string) => testLaboDoneKeys.has(`${ligneId}::${code}`);
@@ -646,7 +646,6 @@ export default async function PlanningDashboardPage({
                     <th className="px-4 py-3 font-semibold">PD</th>
                     <th className="px-4 py-3 font-semibold">Restant</th>
                     <th className="px-4 py-3 font-semibold">Rapport</th>
-                    {dash.testLabo ? <th className="px-4 py-3 font-semibold">Validé par</th> : null}
                     <th className="px-4 py-3 font-semibold">Action</th>
                     {canDeleteLigne ? <th className="px-4 py-3 font-semibold">Suppr.</th> : null}
                   </tr>
@@ -681,7 +680,7 @@ export default async function PlanningDashboardPage({
                           <RestantBadge restant={row.vracRestant} prevuIsNull={row.vracPrevuIsNull} />
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-start gap-2">
                             {dash.entrer ? (
                             <Link
                               href={`/production/suivi-production/fabrication/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
@@ -708,31 +707,26 @@ export default async function PlanningDashboardPage({
                                   {testLaboDoneKeys.get(`${row.ligne.id}::${row.code}`)}
                                 </span>
                               ) : null}
+                              {testLaboDoneKeys.has(`${row.ligne.id}::${row.code}`) ? (
+                                canEditValidePar ? (
+                                  <div className="mt-1 flex flex-col items-start gap-0.5">
+                                    <span className="text-[0.65rem] font-semibold text-slate-400">Validé par</span>
+                                    <ValideParSelect
+                                      ligneId={row.ligne.id}
+                                      code={row.code}
+                                      valeur={testLaboValideParKeys.get(`${row.ligne.id}::${row.code}`) ?? ""}
+                                    />
+                                  </div>
+                                ) : testLaboValideParKeys.get(`${row.ligne.id}::${row.code}`) ? (
+                                  <span className="mt-1 text-[0.65rem] font-semibold text-slate-700">
+                                    Validé par {testLaboValideParKeys.get(`${row.ligne.id}::${row.code}`)}
+                                  </span>
+                                ) : null
+                              ) : null}
                             </div>
                             ) : null}
                           </div>
                         </td>
-                        {dash.testLabo ? (
-                        <td className="px-4 py-3">
-                          {testLaboDoneKeys.has(`${row.ligne.id}::${row.code}`) ? (
-                            canEditValidePar ? (
-                              <ValideParSelect
-                                ligneId={row.ligne.id}
-                                code={row.code}
-                                valeur={testLaboValideParKeys.get(`${row.ligne.id}::${row.code}`) ?? ""}
-                              />
-                            ) : (
-                              <span className="text-xs font-semibold text-slate-700">
-                                {testLaboValideParKeys.get(`${row.ligne.id}::${row.code}`) || "-"}
-                              </span>
-                            )
-                          ) : (
-                            <span className="text-xs text-slate-400" title="Saisissez d'abord le Test labo">
-                              -
-                            </span>
-                          )}
-                        </td>
-                        ) : null}
                         <td className="px-4 py-3">
                           {dash.finProgramme ? (
                           <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markVracTermineAction} />
