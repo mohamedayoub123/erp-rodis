@@ -897,10 +897,20 @@ export default async function PlanningDashboardPage({
                 </Link>
                 ) : null}
               </div>
-              <p className="text-right text-xs text-slate-500">
-                <span className="block text-sm font-bold text-slate-900">{Math.round(totalEmballageRestant)} cartons a emballer</span>
-                {Math.round(totalEmballageProduit)} / {Math.round(totalEmballagePrevu)} produit
-              </p>
+              <div className="flex flex-col items-end gap-1">
+                <p className="text-right text-xs text-slate-500">
+                  <span className="block text-sm font-bold text-slate-900">{Math.round(totalEmballageRestant)} cartons a emballer</span>
+                  {Math.round(totalEmballageProduit)} / {Math.round(totalEmballagePrevu)} produit
+                </p>
+                {isAdmin ? (
+                  <Link
+                    href="/production/suivi/dashboard/historique-fin-programme-emballage"
+                    className="text-xs font-semibold text-sky-700 underline"
+                  >
+                    Historique Fin programme
+                  </Link>
+                ) : null}
+              </div>
             </div>
             <div className="max-h-[70vh] overflow-y-auto">
               <table className="w-full text-left text-sm">

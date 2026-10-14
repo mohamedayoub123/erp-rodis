@@ -41,23 +41,37 @@ async function lireEntrees(table: string, ligneIds: number[]): Promise<EntreeRow
 }
 
 // Cle du resultat : "ligneId::code"
+// Emballage : "prevu" = cartons produits en Conditionnement pour ce code (ce qu'il y a a emballer), "fait" = cartons emballes.
 export async function lireQuantitesParCode(
-  stage: "vrac" | "carton",
+  stage: "vrac" | "carton" | "emballage",
   lignes: LigneQuantites[]
 ): Promise<Map<string, QuantiteCode>> {
   const resultat = new Map<string, QuantiteCode>();
   if (lignes.length === 0) return resultat;
 
-  const entrees = await lireEntrees(
-    stage === "vrac" ? "production_vrac_entries" : "production_carton_entries",
-    lignes.map((ligne) => ligne.id)
-  );
-  const entreesParLigne = new Map<number, { code: string; quantite: number }[]>();
-  for (const entree of entrees) {
-    const liste = entreesParLigne.get(entree.programme_ligne_id) ?? [];
-    liste.push({ code: entree.code ?? "", quantite: Number(entree.quantite ?? 0) });
-    entreesParLigne.set(entree.programme_ligne_id, liste);
-  }
+  const ids = lignes.map((ligne) => ligne.id);
+  const regrouper = (entrees: EntreeRow[]) => {
+    const parLigne = new Map<number, { code: string; quantite: number }[]>();
+    for (const entree of entrees) {
+      const liste = parLigne.get(entree.programme_ligne_id) ?? [];
+      liste.push({ code: entree.code ?? "", quantite: Number(entree.quantite ?? 0) });
+      parLigne.set(entree.programme_ligne_id, liste);
+    }
+    return parLigne;
+  };
+  const [entrees, entreesCartonBrutes] = await Promise.all([
+    lireEntrees(
+      stage === "vrac"
+        ? "production_vrac_entries"
+        : stage === "carton"
+          ? "production_carton_entries"
+          : "production_emballage_entries",
+      ids
+    ),
+    stage === "emballage" ? lireEntrees("production_carton_entries", ids) : Promise.resolve([] as EntreeRow[]),
+  ]);
+  const entreesParLigne = regrouper(entrees);
+  const entreesCartonParLigne = regrouper(entreesCartonBrutes);
 
   for (const ligne of lignes) {
     const codesBruts = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
@@ -70,6 +84,15 @@ export async function lireQuantitesParCode(
       for (const part of detail) prevuParCode.set(part.code, (stage === "vrac" ? part.qt_vrac : part.qt_carton) ?? null);
     } else {
       for (const code of codes) prevuParCode.set(code, (stage === "vrac" ? ligne.vrac_a_fabriquer : ligne.qt_carton) ?? null);
+    }
+    if (stage === "emballage") {
+      // A emballer = cartons reellement produits (meme calcul que le Dashboard : emballagePrevu = cartonProduit)
+      const cartonProduitParCode = computeProduitParCode(
+        entreesCartonParLigne.get(ligne.id) ?? [],
+        codes,
+        (code) => prevuParCode.get(code) ?? 0
+      );
+      for (const code of codes) prevuParCode.set(code, cartonProduitParCode.get(code) ?? 0);
     }
 
     const faitParCode = computeProduitParCode(entreesParLigne.get(ligne.id) ?? [], codes, (code) => prevuParCode.get(code) ?? 0);

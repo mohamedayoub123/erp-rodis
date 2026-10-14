@@ -372,6 +372,36 @@ export async function unmarkVracTermineAction(formData: FormData) {
   revalidateSuiviPages();
 }
 
+// Meme principe qu'unmarkCartonTermineAction ci-dessus, pour la colonne
+// Emballage (stage "emballage").
+export async function unmarkEmballageTermineAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+
+  if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
+    throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
+  }
+
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+
+  if (!ligneId || !code) {
+    throw new Error("Ligne ou code invalide.");
+  }
+
+  const { error } = await supabaseServer
+    .from("production_code_termine")
+    .delete()
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", "emballage");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateSuiviPages();
+}
+
 // Lots reellement disponibles pour une MP dans un depot, pour la Salle de
 // pesage/conditionnement - solde net des Transfer Orders en cours (deja
 // fait par fetchLotsInDepot) ET des reservations Salle de pesage/
