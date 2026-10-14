@@ -417,7 +417,7 @@ export function FabricationForm({
           Vrac fabrique = somme automatique des poids des 4 cuves. Ce qui est enregistre ici est
           retire de ce qu&apos;il reste a faire (visible dans le Dashboard). &quot;Qt a
           recuperer&quot; est la quantite de vrac recuperee dans le stock du Depot B (choisis son
-          &quot;Code vrac recupere&quot; dans la liste du vrac qui existe deja dans Depot B) : elle
+          &quot;Code vrac recupere&quot; dans la liste du module Vrac a recuperer) : elle
           s&apos;AJOUTE au vrac de ce code et est retiree du stock du Depot B.
         </p>
         <div className="grid gap-4 md:grid-cols-3">

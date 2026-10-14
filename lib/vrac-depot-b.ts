@@ -1,10 +1,12 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { lireStockDepot } from "@/app/depots/[id]/stock-depot";
+import { SOURCE_VRAC_A_RECUPERER } from "@/lib/vrac-a-recuperer";
 
 export type VracDepotB = { numeroLot: string; solde: number; libelle: string; articleId: number };
 
-// Tous les lots de VRAC qui existent deja au Depot B (solde > 0), quel que soit le produit : sert au champ "Code vrac recupere"
-// de la Fabrication (liste a choisir, seuls ces codes sont acceptes). Un article "vrac" = l'article vrac d'un produit fini.
+// Les lots de VRAC du Depot B (solde > 0) enregistres dans le module "Vrac a recuperer", quel que soit le produit : sert au champ
+// "Code vrac recupere" de la Fabrication (liste a choisir, seuls ces codes sont acceptes). Un article "vrac" = l'article vrac d'un
+// produit fini. Tout autre vrac au Depot B (ex : ancien vrac "mis de cote" par la Fabrication) n'est plus propose.
 // Un code present sur plusieurs articles n'apparait qu'une fois (celui au plus gros solde).
 export async function fetchVracDepotB(): Promise<VracDepotB[]> {
   const parCode = new Map<string, VracDepotB>();
@@ -22,8 +24,25 @@ export async function fetchVracDepotBParArticle(): Promise<VracDepotB[]> {
   const depotBId = (depotB as { id: number } | null)?.id ?? null;
   if (!depotBId) return [];
 
+  // Lots (article + code) enregistres par le module Vrac a recuperer
+  const lotsModule = new Set<string>();
+  for (let debut = 0; ; debut += 1000) {
+    const { data } = await supabaseServer
+      .from("lots_stock")
+      .select("article_id, numero_lot")
+      .eq("source_import", SOURCE_VRAC_A_RECUPERER)
+      .eq("depot_id", depotBId)
+      .range(debut, debut + 999);
+    const page = (data ?? []) as { article_id: number; numero_lot: string | null }[];
+    for (const ligne of page) lotsModule.add(`${ligne.article_id}::${(ligne.numero_lot ?? "").trim()}`);
+    if (page.length < 1000) break;
+  }
+  if (lotsModule.size === 0) return [];
+
   const stock = await lireStockDepot(depotBId);
-  const lots = stock.soldePf.filter((lot) => lot.solde > 1e-9 && lot.numeroLot);
+  const lots = stock.soldePf.filter(
+    (lot) => lot.solde > 1e-9 && lot.numeroLot && lotsModule.has(`${lot.articleId}::${lot.numeroLot}`)
+  );
   if (lots.length === 0) return [];
 
   const idsStock = [...new Set(lots.map((lot) => lot.articleId))];

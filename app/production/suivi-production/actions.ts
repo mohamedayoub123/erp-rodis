@@ -1131,12 +1131,11 @@ export async function saveFabricationRapportAction(formData: FormData) {
       qt_vrac_recupere: number | null;
       code_vrac_recupere: string | null;
     } | null;
-    // Le vrac "mis de cote" (qt_a_recuperer, retire du vrac envoye au Conditionnement) n'est plus saisi : une fiche DEJA
-    // enregistree garde sa quantite (et son mouvement Depot B), une nouvelle fiche n'en a pas. Le champ "Qt a recuperer" du
-    // formulaire est desormais la quantite RECUPEREE dans le vrac du Depot B (qt_vrac_recupere) : elle s'AJOUTE au vrac.
-    const qtARecuperer = formData.has("qt_a_recuperer")
-      ? (parseOptionalNumber(formData, "qt_a_recuperer") ?? 0)
-      : Number(rapportExistant?.qt_a_recuperer ?? 0);
+    // Le vrac "mis de cote" (qt_a_recuperer : retire du vrac envoye au Conditionnement et credite au Depot B) n'existe plus : le
+    // Depot B ne contient que le vrac du module "Vrac a recuperer". Le champ "Qt a recuperer" du formulaire est la quantite
+    // RECUPEREE dans ce vrac (qt_vrac_recupere) : elle s'AJOUTE au vrac et est retiree du stock du lot choisi. Un ancien mouvement
+    // "mis de cote" de cette fiche est supprime a l'enregistrement (voir plus bas).
+    const qtARecupererExistante = Number(rapportExistant?.qt_a_recuperer ?? 0);
     const qtVracRecupereExistante = Number(rapportExistant?.qt_vrac_recupere ?? 0);
     const qtVracRecupere = formData.has("qt_vrac_recupere")
       ? (parseOptionalNumber(formData, "qt_vrac_recupere") ?? 0)
@@ -1157,18 +1156,15 @@ export async function saveFabricationRapportAction(formData: FormData) {
         : [];
     if (codeVracChange && lotsCandidats.length === 0) {
       throw new Error(
-        `Code vrac recupere "${codeVracRecupere}" introuvable dans le vrac du Depot B : choisis un code de la liste.`
+        `Code vrac recupere "${codeVracRecupere}" introuvable dans le module Vrac a recuperer (ou son stock est a 0) : choisis un code de la liste.`
       );
     }
 
-    if (qtARecuperer < 0 || qtVracRecupere < 0) {
+    if (qtVracRecupere < 0) {
       throw new Error("Qt a recuperer invalide.");
     }
     if (qtVracRecupere > 0 && !codeVracRecupere) {
-      throw new Error("Choisis le Code vrac recupere (liste du vrac du Depot B) pour la Qt a recuperer.");
-    }
-    if (qtARecuperer > (vracFabrique ?? 0)) {
-      throw new Error("Qt a recuperer ne peut pas depasser le vrac fabrique.");
+      throw new Error("Choisis le Code vrac recupere (liste du module Vrac a recuperer) pour la Qt a recuperer.");
     }
 
     // Article vrac de cette ligne + Depot B - necessaires des que du vrac
@@ -1179,7 +1175,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     // vrai mouvement de stock).
     let vracArticleId: number | null = null;
     let depotBId: number | null = null;
-    if (qtARecuperer > 0 || qtVracRecupereExistante > 0 || (qtVracRecupere > 0 && codeVracRecupere)) {
+    if (qtARecupererExistante > 0 || qtVracRecupereExistante > 0 || (qtVracRecupere > 0 && codeVracRecupere)) {
       [vracArticleId, depotBId] = await Promise.all([resolveVracArticleIdForLigne(ligneId), fetchDepotBId()]);
       if (!vracArticleId || !depotBId) {
         throw new Error(
@@ -1202,9 +1198,10 @@ export async function saveFabricationRapportAction(formData: FormData) {
     }
 
     // Article et code EXACT du lot dont on retire la quantite (a defaut de lot connu : article de la ligne, code tel que saisi)
+    // Aucun lot du module trouve (ex : ancien code deja enregistre dont le stock est a 0) : pas de mouvement de stock
     const lotSource = lotsCandidats.find((lot) => lot.articleId === vracArticleId) ?? lotsCandidats[0] ?? null;
-    const articleSourceRecuperee = lotSource?.articleId ?? vracArticleId;
-    const codeSourceRecupere = lotSource?.numeroLot ?? codeVracRecupere;
+    const articleSourceRecuperee = lotSource?.articleId ?? null;
+    const codeSourceRecupere = lotSource?.numeroLot ?? null;
 
     const dateJourDepotB = dateFabricationConditionnement || new Date().toISOString().slice(0, 10);
     // lots_stock.date_fabrication est NOT NULL (confirme en base) - une
@@ -1235,21 +1232,6 @@ export async function saveFabricationRapportAction(formData: FormData) {
     }
 
     const depotBInserts: Record<string, unknown>[] = [];
-    if (qtARecuperer > 0 && vracArticleId && depotBId) {
-      depotBInserts.push({
-        article_id: vracArticleId,
-        depot_id: depotBId,
-        date_jour: dateJourDepotB,
-        numero_lot: code,
-        code_normalise: code.toUpperCase(),
-        date_fabrication: dateJourDepotB,
-        qte_entree: qtARecuperer,
-        qte_sortie: 0,
-        source_import: "web:fabrication-recuperation",
-        note: noteVracMisDeCote(ligneId, code),
-        utilisateur: currentUser,
-      });
-    }
     if (qtVracRecupere > 0 && codeSourceRecupere && articleSourceRecuperee && depotBId) {
       depotBInserts.push({
         article_id: articleSourceRecuperee,
@@ -1279,7 +1261,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     // ce qui a ete physiquement fabrique (utilise tel quel par l'ecriture
     // comptable plus bas : la MP a ete consommee pour TOUT le vrac,
     // mis de cote ou non).
-    const vracEnvoyeConditionnement = Math.max(0, (vracFabrique ?? 0) - qtARecuperer) + qtVracRecupere;
+    const vracEnvoyeConditionnement = Math.max(0, vracFabrique ?? 0) + qtVracRecupere;
 
     // upsertRapport (production_rapports) et la suppression de l'ancienne
     // entree vrac ne dependent pas l'une de l'autre - lancees en parallele.
@@ -1302,7 +1284,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
         temps_fin_test: parseOptionalText(formData, "temps_fin_test"),
         temps_vidange: parseOptionalText(formData, "temps_vidange"),
         vrac_fabrique: vracFabrique,
-        qt_a_recuperer: qtARecuperer || null,
+        qt_a_recuperer: null,
         qt_vrac_recupere: qtVracRecupere,
         code_vrac_recupere: lotSource?.numeroLot ?? codeVracRecupere,
         fabrication_arret_absence_air: parseOptionalNumber(formData, "fabrication_arret_absence_air"),
