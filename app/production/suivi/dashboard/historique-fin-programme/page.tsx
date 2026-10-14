@@ -88,7 +88,13 @@ function libelleUtilisateur(utilisateur: string | null) {
 }
 
 function EcartCell({ ecart }: { ecart: number | null }) {
-  if (ecart === null) return <td className="px-6 py-4 text-slate-400">-</td>;
+  if (ecart === null) {
+    return (
+      <td className="px-6 py-4 text-slate-400" title="Pas de quantite prevue : pas d'ecart a calculer">
+        -
+      </td>
+    );
+  }
   const valeur = Math.round(ecart * 100) / 100;
   if (valeur === 0) return <td className="px-6 py-4 font-semibold tabular-nums text-emerald-700">0</td>;
   const gros = Math.abs(valeur) > SEUIL_FIN_PROGRAMME_CARTONS;
@@ -287,7 +293,18 @@ export default async function HistoriqueFinProgrammePage({ searchParams }: { sea
                       <td className="px-6 py-4 text-slate-600">{row.produit}</td>
                       <td className="px-6 py-4 text-slate-700">{row.code}</td>
                       <td className="px-6 py-4 text-slate-700">{row.pdLabel}</td>
-                      <td className="px-6 py-4 tabular-nums text-slate-600">{row.prevu === null ? "-" : Math.round(row.prevu * 100) / 100}</td>
+                      <td className="px-6 py-4 tabular-nums text-slate-600">
+                        {row.prevu === null ? (
+                          <span
+                            title="Aucune quantite prevue pour ce code (fiche creee avec le bouton + ou ligne sans quantite carton) : pas d'ecart a calculer"
+                            className="text-xs italic text-slate-400"
+                          >
+                            Pas de prevu
+                          </span>
+                        ) : (
+                          Math.round(row.prevu * 100) / 100
+                        )}
+                      </td>
                       <td
                         className={`px-6 py-4 font-semibold tabular-nums ${row.prevu !== null && row.fait + 1e-9 < row.prevu ? "text-amber-700" : "text-emerald-700"}`}
                       >
