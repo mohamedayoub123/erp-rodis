@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   NB_CASIERS_MAX,
   NB_RELEVES,
@@ -34,6 +34,10 @@ export function ParLigneProduction({
   apresCasiers?: React.ReactNode;
 }) {
   const [casiers, setCasiers] = useState<Set<number>>(new Set());
+  // Casiers marques d'un POINT (clic long) : simple repere visuel, sans effet sur le calcul ni sur l'enregistrement.
+  const [points, setPoints] = useState<Set<number>>(new Set());
+  const minuteurClicLong = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clicLongFait = useRef<number | null>(null);
   const [piecesParCasier, setPiecesParCasier] = useState("");
   const [cadence, setCadence] = useState<string[]>(() => Array(NB_RELEVES).fill(""));
   const [poids, setPoids] = useState<string[]>(() => Array(NB_RELEVES).fill(""));
@@ -45,6 +49,29 @@ export function ParLigneProduction({
       else suivant.add(numero);
       return suivant;
     });
+  }
+
+  function basculerPoint(numero: number) {
+    setPoints((courant) => {
+      const suivant = new Set(courant);
+      if (suivant.has(numero)) suivant.delete(numero);
+      else suivant.add(numero);
+      return suivant;
+    });
+  }
+
+  function demarrerClicLong(numero: number) {
+    arreterClicLong();
+    clicLongFait.current = null;
+    minuteurClicLong.current = setTimeout(() => {
+      clicLongFait.current = numero;
+      basculerPoint(numero);
+    }, 500);
+  }
+
+  function arreterClicLong() {
+    if (minuteurClicLong.current) clearTimeout(minuteurClicLong.current);
+    minuteurClicLong.current = null;
   }
 
   function changerReleve(
@@ -74,6 +101,9 @@ export function ParLigneProduction({
           Chaque fois qu&apos;un casier sort de la ligne, coche son numero (de 1 a {NB_CASIERS_MAX}). Le nombre de
           cartons se calcule tout seul : casiers coches x pieces par casier / pieces par carton
           {piecesParCarton ? ` (${formater(piecesParCarton)} pieces par carton pour cet article)` : ""}.
+          {" "}
+          <strong>Clic long</strong> sur un casier : ajoute ou retire un <strong>point</strong> sur le carre (simple repere,
+          ne change rien au calcul).
         </p>
 
         <div className="mb-4 grid gap-4 md:grid-cols-3">
@@ -107,10 +137,24 @@ export function ParLigneProduction({
         <div className="flex flex-wrap gap-2" role="group" aria-label="Casiers sortis">
           {Array.from({ length: NB_CASIERS_MAX }, (_, index) => index + 1).map((numero) => {
             const coche = casiers.has(numero);
+            const pointe = points.has(numero);
             return (
               <label
                 key={numero}
-                className={`flex h-11 w-11 cursor-pointer select-none items-center justify-center rounded-xl border text-sm font-semibold transition focus-within:ring-2 focus-within:ring-sky-400 ${
+                title={pointe ? `Casier ${numero} - point (clic long pour retirer)` : `Casier ${numero} (clic long : ajouter un point)`}
+                onPointerDown={() => demarrerClicLong(numero)}
+                onPointerUp={arreterClicLong}
+                onPointerLeave={arreterClicLong}
+                onPointerCancel={arreterClicLong}
+                onContextMenu={(event) => event.preventDefault()}
+                // Apres un clic long, le relachement ne doit PAS cocher / decocher le casier
+                onClickCapture={(event) => {
+                  if (clicLongFait.current === numero) {
+                    event.preventDefault();
+                    clicLongFait.current = null;
+                  }
+                }}
+                className={`relative flex h-11 w-11 cursor-pointer select-none items-center justify-center rounded-xl border text-sm font-semibold transition [-webkit-touch-callout:none] focus-within:ring-2 focus-within:ring-sky-400 ${
                   coche
                     ? "border-sky-700 bg-sky-700 text-white"
                     : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -125,6 +169,12 @@ export function ParLigneProduction({
                   className="sr-only"
                 />
                 {numero}
+                {pointe ? (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-white"
+                  />
+                ) : null}
               </label>
             );
           })}
