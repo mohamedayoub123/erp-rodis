@@ -1119,17 +1119,24 @@ export async function saveFabricationRapportAction(formData: FormData) {
 
     const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
     const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
-    const qtARecuperer = parseOptionalNumber(formData, "qt_a_recuperer") ?? 0;
     const codeVracRecupere = parseOptionalText(formData, "code_vrac_recupere");
-    // "Qt vrac recupere" n'est plus saisie (champ supprime du formulaire) : une fiche DEJA enregistree garde sa quantite
-    // (et son mouvement Depot B) tant que le code reste renseigne ; une nouvelle fiche n'a aucune quantite recuperee.
     const { data: rapportExistantData } = await supabaseServer
       .from("production_rapports")
-      .select("qt_vrac_recupere, code_vrac_recupere")
+      .select("qt_a_recuperer, qt_vrac_recupere, code_vrac_recupere")
       .eq("programme_ligne_id", ligneId)
       .eq("code", code)
       .maybeSingle();
-    const rapportExistant = rapportExistantData as { qt_vrac_recupere: number | null; code_vrac_recupere: string | null } | null;
+    const rapportExistant = rapportExistantData as {
+      qt_a_recuperer: number | null;
+      qt_vrac_recupere: number | null;
+      code_vrac_recupere: string | null;
+    } | null;
+    // Le vrac "mis de cote" (qt_a_recuperer, retire du vrac envoye au Conditionnement) n'est plus saisi : une fiche DEJA
+    // enregistree garde sa quantite (et son mouvement Depot B), une nouvelle fiche n'en a pas. Le champ "Qt a recuperer" du
+    // formulaire est desormais la quantite RECUPEREE dans le vrac du Depot B (qt_vrac_recupere) : elle s'AJOUTE au vrac.
+    const qtARecuperer = formData.has("qt_a_recuperer")
+      ? (parseOptionalNumber(formData, "qt_a_recuperer") ?? 0)
+      : Number(rapportExistant?.qt_a_recuperer ?? 0);
     const qtVracRecupereExistante = Number(rapportExistant?.qt_vrac_recupere ?? 0);
     const qtVracRecupere = formData.has("qt_vrac_recupere")
       ? (parseOptionalNumber(formData, "qt_vrac_recupere") ?? 0)
@@ -1149,8 +1156,11 @@ export async function saveFabricationRapportAction(formData: FormData) {
       }
     }
 
-    if (qtARecuperer < 0) {
+    if (qtARecuperer < 0 || qtVracRecupere < 0) {
       throw new Error("Qt a recuperer invalide.");
+    }
+    if (qtVracRecupere > 0 && !codeVracRecupere) {
+      throw new Error("Choisis le Code vrac recupere (liste du vrac du Depot B) pour la Qt a recuperer.");
     }
     if (qtARecuperer > (vracFabrique ?? 0)) {
       throw new Error("Qt a recuperer ne peut pas depasser le vrac fabrique.");

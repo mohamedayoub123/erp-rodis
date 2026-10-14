@@ -416,10 +416,9 @@ export function FabricationForm({
         <p className="mb-3 text-xs text-slate-500">
           Vrac fabrique = somme automatique des poids des 4 cuves. Ce qui est enregistre ici est
           retire de ce qu&apos;il reste a faire (visible dans le Dashboard). &quot;Qt a
-          recuperer&quot; est une partie de ce vrac mise de cote au lieu d&apos;etre envoyee au
-          Conditionnement - elle reste en stock vrac dans Depot B, recuperable plus tard en choisissant son
-          &quot;Code vrac recupere&quot; (liste du vrac qui existe deja dans Depot B) sur une
-          prochaine fabrication.
+          recuperer&quot; est la quantite de vrac recuperee dans le stock du Depot B (choisis son
+          &quot;Code vrac recupere&quot; dans la liste du vrac qui existe deja dans Depot B) : elle
+          s&apos;AJOUTE au vrac de ce code et est retiree du stock du Depot B.
         </p>
         <div className="grid gap-4 md:grid-cols-3">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
@@ -439,9 +438,8 @@ export function FabricationForm({
               type="number"
               step="0.01"
               min="0"
-              max={vracTotal}
-              name="qt_a_recuperer"
-              defaultValue={rapport?.qt_a_recuperer ?? "0"}
+              name="qt_vrac_recupere"
+              defaultValue={rapport?.qt_vrac_recupere ?? "0"}
               required
               className={inputClass}
             />
