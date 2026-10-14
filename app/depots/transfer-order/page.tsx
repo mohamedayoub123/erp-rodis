@@ -11,6 +11,7 @@ import { lirePagesAvecLimite } from "@/lib/lecteur-valide";
 import { lireArticlesMpPourFormulaires, type ArticleMpListe } from "@/lib/articles-mp-liste";
 import { lireArticlesPfListe, type ArticlePfListe } from "@/lib/articles-pf-liste";
 import { createTransferOrderAction, deleteTransferOrderAction } from "./actions";
+import { terminerLesTransferOrdersSansReste } from "@/lib/transfer-order-statut";
 import { TransferOrderLinesForm } from "./transfer-order-lines-form";
 
 type DepotRow = { id: number; nom: string };
@@ -88,6 +89,8 @@ type SearchParams = Promise<{
 
 export default async function TransferOrderListPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
+  // Filet de securite : un TO "Partiellement fini" sans plus rien a transferer passe a "Poste" (termine)
+  await terminerLesTransferOrdersSansReste();
   const params = await searchParams;
   const depotSourceFilter = params.depotSource || "";
   const depotDestinationFilter = params.depotDestination || "";

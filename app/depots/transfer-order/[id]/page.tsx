@@ -24,6 +24,7 @@ import {
   updateTransferOrderRemarqueAction,
 } from "../actions";
 import { TransferOrderLignesEditor } from "../lignes-editor";
+import { terminerSiPlusRienATransferer } from "@/lib/transfer-order-statut";
 import { TransferOrderLignesEditorEnAttente } from "../lignes-editor-en-attente";
 import { AugmenterQuantitesTo } from "../augmenter-quantites";
 import { urlPhotoTransferOrder } from "@/lib/transfer-order-photo";
@@ -75,6 +76,8 @@ export default async function TransferOrderDetailPage({
   const { id } = await params;
   const { avertissement } = await searchParams;
   const transferOrderId = Number(id);
+  // Filet de securite : un TO "Partiellement fini" sans plus rien a transferer passe a "Poste" (termine)
+  if (transferOrderId) await terminerSiPlusRienATransferer(transferOrderId).catch(() => false);
   if (!transferOrderId) {
     notFound();
   }
