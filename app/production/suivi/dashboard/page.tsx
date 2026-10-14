@@ -98,6 +98,9 @@ type CodeRow = {
   emballagePrevu: number;
   emballageProduit: number;
   emballageRestant: number;
+  // Fiche "+" (Conditionnement ou Emballage) : ligne creee a la main, sans quantite prevue, sans AUCUNE entree Fabrication - elle va
+  // directement en colonne Emballage et n'a rien a faire en Fabrication / Conditionnement / salles de pesage et de conditionnement.
+  ficheDirecteEmballage: boolean;
 };
 
 type SearchParams = Promise<{
@@ -361,16 +364,16 @@ export default async function PlanningDashboardPage({
       const emballagePrevu = cartonProduit;
       const emballageProduit = emballageProduitByCode.get(code) ?? 0;
 
-      // Fiche "+" Emballage : ligne creee a la main, sans quantite prevue, qui n'a QUE des entrees Emballage. Elle n'a rien a
-      // faire en Fabrication / Conditionnement (ni dans les salles de pesage / conditionnement) : jamais listee ici, sinon elle y
-      // apparaissait en "Quantite non definie". Elle ne figure pas non plus dans la colonne Emballage (rien a emballer : 0 carton produit).
-      const ficheEmballageSeulement =
+      // Fiche "+" Conditionnement / Emballage : ligne creee a la main (aucune quantite prevue) qui n'a AUCUNE entree Fabrication mais deja
+      // des entrees Conditionnement ou Emballage. Une fiche "+" Emballage n'a rien a emballer ici (0 carton produit) ; une fiche "+"
+      // Conditionnement a ses cartons deja saisis : ils sont a emballer directement. Dans les 2 cas, elle ne reste ni en Fabrication
+      // ni en Conditionnement (ni dans les salles de pesage / conditionnement), ou elle apparaissait en "Quantite non definie".
+      const ficheDirecteEmballage =
         (vracPrevuIsNullByCode.get(code) ?? false) &&
         (cartonPrevuIsNullByCode.get(code) ?? false) &&
         !vracEntriesForLigne.some((entry) => entry.code === code) &&
-        !cartonEntriesForLigne.some((entry) => entry.code === code) &&
-        emballageEntriesForLigne.some((entry) => entry.code === code);
-      if (ficheEmballageSeulement) continue;
+        (cartonEntriesForLigne.some((entry) => entry.code === code) ||
+          emballageEntriesForLigne.some((entry) => entry.code === code));
 
       codeRows.push({
         ligne,
@@ -388,6 +391,7 @@ export default async function PlanningDashboardPage({
         emballagePrevu,
         emballageProduit,
         emballageRestant: emballagePrevu - emballageProduit,
+        ficheDirecteEmballage,
       });
     }
   }
@@ -402,6 +406,7 @@ export default async function PlanningDashboardPage({
   const vracRows = codeRows
     .filter(
       (row) =>
+        !row.ficheDirecteEmballage &&
         !isCodeTerminated(row.ligne.id, row.code, "vrac", row.codeCount, row.ligne.vrac_termine) &&
         (row.vracRestant >= 1 ||
           row.vracPrevuIsNull ||
@@ -411,6 +416,7 @@ export default async function PlanningDashboardPage({
   const cartonRows = codeRows
     .filter(
       (row) =>
+        !row.ficheDirecteEmballage &&
         !isCodeTerminated(row.ligne.id, row.code, "carton", row.codeCount, row.ligne.carton_termine) &&
         (row.cartonRestant >= 1 ||
           row.cartonPrevuIsNull ||
@@ -440,6 +446,7 @@ export default async function PlanningDashboardPage({
   const pesageRows = codeRows
     .filter(
       (row) =>
+        !row.ficheDirecteEmballage &&
         (row.vracPrevu > 0 || row.vracPrevuIsNull) &&
         !isCodeTerminated(row.ligne.id, row.code, "pesage", row.codeCount, false)
     )
@@ -463,6 +470,7 @@ export default async function PlanningDashboardPage({
   const conditionnementRows = codeRows
     .filter(
       (row) =>
+        !row.ficheDirecteEmballage &&
         (row.cartonPrevu > 0 || row.cartonPrevuIsNull) &&
         !isCodeTerminated(row.ligne.id, row.code, "salle_conditionnement", row.codeCount, false)
     )
