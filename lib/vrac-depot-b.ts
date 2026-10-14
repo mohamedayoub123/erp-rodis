@@ -1,11 +1,23 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { lireStockDepot } from "@/app/depots/[id]/stock-depot";
 
-export type VracDepotB = { numeroLot: string; solde: number; libelle: string };
+export type VracDepotB = { numeroLot: string; solde: number; libelle: string; articleId: number };
 
 // Tous les lots de VRAC qui existent deja au Depot B (solde > 0), quel que soit le produit : sert au champ "Code vrac recupere"
 // de la Fabrication (liste a choisir, seuls ces codes sont acceptes). Un article "vrac" = l'article vrac d'un produit fini.
+// Un code present sur plusieurs articles n'apparait qu'une fois (celui au plus gros solde).
 export async function fetchVracDepotB(): Promise<VracDepotB[]> {
+  const parCode = new Map<string, VracDepotB>();
+  for (const lot of await fetchVracDepotBParArticle()) {
+    const cle = lot.numeroLot.toUpperCase();
+    const existant = parCode.get(cle);
+    if (!existant || lot.solde > existant.solde) parCode.set(cle, lot);
+  }
+  return [...parCode.values()].sort((a, b) => a.numeroLot.localeCompare(b.numeroLot));
+}
+
+// Meme liste, une entree par (article, code) : l'action serveur s'en sert pour debiter le stock de l'article qui POSSEDE le lot choisi.
+export async function fetchVracDepotBParArticle(): Promise<VracDepotB[]> {
   const { data: depotB } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
   const depotBId = (depotB as { id: number } | null)?.id ?? null;
   if (!depotBId) return [];
@@ -38,12 +50,13 @@ export async function fetchVracDepotB(): Promise<VracDepotB[]> {
     }
   }
 
-  const parCode = new Map<string, VracDepotB>();
-  for (const lot of lots) {
-    if (!idsVrac.has(lot.articleId)) continue;
-    const cle = lot.numeroLot.toUpperCase();
-    if (parCode.has(cle)) continue;
-    parCode.set(cle, { numeroLot: lot.numeroLot, solde: lot.solde, libelle: nomParArticle.get(lot.articleId) || "" });
-  }
-  return [...parCode.values()].sort((a, b) => a.numeroLot.localeCompare(b.numeroLot));
+  return lots
+    .filter((lot) => idsVrac.has(lot.articleId))
+    .map((lot) => ({
+      numeroLot: lot.numeroLot,
+      solde: lot.solde,
+      libelle: nomParArticle.get(lot.articleId) || "",
+      articleId: lot.articleId,
+    }))
+    .sort((a, b) => a.numeroLot.localeCompare(b.numeroLot));
 }

@@ -6,7 +6,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { MAX_CARTONS_FICHE_PLUS, MAX_FICHES_PLUS_PAR_CODE } from "@/lib/limites-saisie-production";
 import { logAudit } from "@/lib/audit-log";
-import { fetchVracDepotB } from "@/lib/vrac-depot-b";
+import { fetchVracDepotBParArticle } from "@/lib/vrac-depot-b";
 import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-article";
 import { calculerCartonsCasiers, lireCasiersCoches, lireReleves, moyenne } from "@/lib/conditionnement-par-ligne";
 import {
@@ -1144,16 +1144,21 @@ export async function saveFabricationRapportAction(formData: FormData) {
         ? qtVracRecupereExistante
         : 0;
     // Le code recupere doit exister dans le vrac du Depot B (le code deja enregistre sur cette fiche reste accepte)
-    if (
-      codeVracRecupere &&
-      codeVracRecupere.trim().toLowerCase() !== (rapportExistant?.code_vrac_recupere || "").trim().toLowerCase()
-    ) {
-      const existants = await fetchVracDepotB();
-      if (!existants.some((lot) => lot.numeroLot.trim().toLowerCase() === codeVracRecupere.trim().toLowerCase())) {
-        throw new Error(
-          `Code vrac recupere "${codeVracRecupere}" introuvable dans le vrac du Depot B : choisis un code de la liste.`
-        );
-      }
+    const codeVracChange =
+      !!codeVracRecupere &&
+      codeVracRecupere.trim().toLowerCase() !== (rapportExistant?.code_vrac_recupere || "").trim().toLowerCase();
+    // Lots du Depot B portant ce code, du plus gros solde au plus petit : le stock debite est celui du lot CHOISI, pas
+    // forcement celui de l'article de cette ligne (le vrac recupere peut venir d'un autre produit).
+    const lotsCandidats =
+      codeVracRecupere && (codeVracChange || qtVracRecupere > 0)
+        ? (await fetchVracDepotBParArticle())
+            .filter((lot) => lot.numeroLot.trim().toLowerCase() === codeVracRecupere.trim().toLowerCase())
+            .sort((a, b) => b.solde - a.solde)
+        : [];
+    if (codeVracChange && lotsCandidats.length === 0) {
+      throw new Error(
+        `Code vrac recupere "${codeVracRecupere}" introuvable dans le vrac du Depot B : choisis un code de la liste.`
+      );
     }
 
     if (qtARecuperer < 0 || qtVracRecupere < 0) {
@@ -1196,6 +1201,11 @@ export async function saveFabricationRapportAction(formData: FormData) {
       }
     }
 
+    // Article et code EXACT du lot dont on retire la quantite (a defaut de lot connu : article de la ligne, code tel que saisi)
+    const lotSource = lotsCandidats.find((lot) => lot.articleId === vracArticleId) ?? lotsCandidats[0] ?? null;
+    const articleSourceRecuperee = lotSource?.articleId ?? vracArticleId;
+    const codeSourceRecupere = lotSource?.numeroLot ?? codeVracRecupere;
+
     const dateJourDepotB = dateFabricationConditionnement || new Date().toISOString().slice(0, 10);
     // lots_stock.date_fabrication est NOT NULL (confirme en base) - une
     // sortie de recuperation doit donc en porter une elle aussi, meme si
@@ -1203,13 +1213,13 @@ export async function saveFabricationRapportAction(formData: FormData) {
     // de fabrication du vrac qu'on preleve), avec repli sur la date de
     // cette fabrication si jamais introuvable.
     let dateFabricationSourceRecuperee: string | null = dateJourDepotB;
-    if (qtVracRecupere > 0 && codeVracRecupere && vracArticleId && depotBId) {
+    if (qtVracRecupere > 0 && codeSourceRecupere && articleSourceRecuperee && depotBId) {
       const { data: soldeRows, error: soldeError } = await supabaseServer
         .from("lots_stock")
         .select("qte_entree, qte_sortie, date_fabrication")
-        .eq("article_id", vracArticleId)
+        .eq("article_id", articleSourceRecuperee)
         .eq("depot_id", depotBId)
-        .eq("numero_lot", codeVracRecupere);
+        .eq("numero_lot", codeSourceRecupere);
       if (soldeError) {
         throw new Error(soldeError.message);
       }
@@ -1240,13 +1250,13 @@ export async function saveFabricationRapportAction(formData: FormData) {
         utilisateur: currentUser,
       });
     }
-    if (qtVracRecupere > 0 && codeVracRecupere && vracArticleId && depotBId) {
+    if (qtVracRecupere > 0 && codeSourceRecupere && articleSourceRecuperee && depotBId) {
       depotBInserts.push({
-        article_id: vracArticleId,
+        article_id: articleSourceRecuperee,
         depot_id: depotBId,
         date_jour: dateJourDepotB,
-        numero_lot: codeVracRecupere,
-        code_normalise: codeVracRecupere.toUpperCase(),
+        numero_lot: codeSourceRecupere,
+        code_normalise: codeSourceRecupere.toUpperCase(),
         date_fabrication: dateFabricationSourceRecuperee,
         qte_entree: 0,
         qte_sortie: qtVracRecupere,
@@ -1294,7 +1304,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
         vrac_fabrique: vracFabrique,
         qt_a_recuperer: qtARecuperer || null,
         qt_vrac_recupere: qtVracRecupere,
-        code_vrac_recupere: codeVracRecupere,
+        code_vrac_recupere: lotSource?.numeroLot ?? codeVracRecupere,
         fabrication_arret_absence_air: parseOptionalNumber(formData, "fabrication_arret_absence_air"),
         fabrication_arret_absence_vapeur: parseOptionalNumber(formData, "fabrication_arret_absence_vapeur"),
         fabrication_arret_attente_aspiration_aqueuse: parseOptionalNumber(
