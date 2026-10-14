@@ -1,7 +1,8 @@
-// Limites de saisie reservees aux admins (mayoub / ayoub) : au-dela, seul un admin peut enregistrer.
+// Limites de saisie du bouton "+" (nouvelle fiche hors programme) du Dashboard, Conditionnement ET Emballage.
+// Seuls les admins (mayoub / ayoub) peuvent depasser.
 
-// "+" de l'Emballage (nouvelle fiche hors programme) : nombre maximum de cartons emballes pour un utilisateur normal.
-export const MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME = 6;
+// Nombre maximum de cartons pour UNE fiche "+".
+export const MAX_CARTONS_FICHE_PLUS = 6;
 
-// "+" de l'Emballage : nombre maximum de fiches Emballage pour un MEME code (N de lot) pour un utilisateur normal.
-export const MAX_FICHES_EMBALLAGE_PAR_CODE_HORS_PROGRAMME = 2;
+// Nombre maximum de fiches "+" pour un MEME code (N de lot), par etape (Conditionnement / Emballage), tous utilisateurs confondus.
+export const MAX_FICHES_PLUS_PAR_CODE = 2;

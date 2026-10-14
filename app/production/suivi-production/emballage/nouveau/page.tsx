@@ -1,10 +1,7 @@
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
-import {
-  MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME,
-  MAX_FICHES_EMBALLAGE_PAR_CODE_HORS_PROGRAMME,
-} from "@/lib/limites-saisie-production";
+import { MAX_CARTONS_FICHE_PLUS, MAX_FICHES_PLUS_PAR_CODE } from "@/lib/limites-saisie-production";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
@@ -264,8 +261,8 @@ export default async function NouvelleFicheEmballagePage({
                   {estAdmin ? null : (
                     <>
                       {" "}
-                      <strong>Maximum {MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME} cartons</strong> par fiche, et{" "}
-                      <strong>{MAX_FICHES_EMBALLAGE_PAR_CODE_HORS_PROGRAMME} fiches maximum pour un meme code</strong> :
+                      <strong>Maximum {MAX_CARTONS_FICHE_PLUS} cartons</strong> par fiche, et{" "}
+                      <strong>{MAX_FICHES_PLUS_PAR_CODE} fiches + maximum pour un meme code</strong> :
                       au-dela, seul Mayoub peut enregistrer.
                     </>
                   )}
@@ -276,7 +273,7 @@ export default async function NouvelleFicheEmballagePage({
                     type="number"
                     step="0.01"
                     name="quantite"
-                    max={estAdmin ? undefined : MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME}
+                    max={estAdmin ? undefined : MAX_CARTONS_FICHE_PLUS}
                     defaultValue="0"
                     required
                     className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"

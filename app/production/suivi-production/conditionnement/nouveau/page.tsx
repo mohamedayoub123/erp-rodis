@@ -1,6 +1,7 @@
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { MAX_CARTONS_FICHE_PLUS, MAX_FICHES_PLUS_PAR_CODE } from "@/lib/limites-saisie-production";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
@@ -64,6 +65,7 @@ export default async function NouvelleFicheConditionnementPage({
 
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
+  const estAdmin = isAdminUser(currentStockUser);
   const articles = await fetchAllArticles();
   const zoneChaineOptions = await fetchConditionnementZoneChaineOptions();
 
@@ -203,6 +205,14 @@ export default async function NouvelleFicheConditionnementPage({
                 <p className="mb-3 text-xs text-slate-500">
                   Ce qui est saisi ici est retire de ce qu&apos;il reste a faire (visible dans le
                   Dashboard).
+                  {estAdmin ? null : (
+                    <>
+                      {" "}
+                      <strong>Maximum {MAX_CARTONS_FICHE_PLUS} cartons</strong> par fiche, et{" "}
+                      <strong>{MAX_FICHES_PLUS_PAR_CODE} fiches + maximum pour un meme code</strong> : au-dela, seul
+                      Mayoub peut enregistrer.
+                    </>
+                  )}
                 </p>
                 <div className="grid gap-4 md:grid-cols-3">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
@@ -211,6 +221,7 @@ export default async function NouvelleFicheConditionnementPage({
                       type="number"
                       step="0.01"
                       name="qt_fabriquer"
+                      max={estAdmin ? undefined : MAX_CARTONS_FICHE_PLUS}
                       defaultValue="0"
                       required
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"

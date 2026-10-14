@@ -4,10 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
-import {
-  MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME,
-  MAX_FICHES_EMBALLAGE_PAR_CODE_HORS_PROGRAMME,
-} from "@/lib/limites-saisie-production";
+import { MAX_CARTONS_FICHE_PLUS, MAX_FICHES_PLUS_PAR_CODE } from "@/lib/limites-saisie-production";
+import { logAudit } from "@/lib/audit-log";
 import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-article";
 import { calculerCartonsCasiers, lireCasiersCoches, lireReleves, moyenne } from "@/lib/conditionnement-par-ligne";
 import {
@@ -1808,6 +1806,8 @@ async function createManualEntryLigne(
 // lue et affichee par cette page.
 export async function createManualConditionnementEntryAction(formData: FormData) {
   try {
+    // Controle AVANT la creation de la ligne (sinon une ligne vide resterait apres le refus).
+    await verifierLimitesFichePlus(formData, "Conditionnement", "qt_fabriquer");
     const { id, numeroLot } = await createManualEntryLigne(
       formData,
       "productionSuiviProductionConditionnement",
@@ -1817,7 +1817,8 @@ export async function createManualConditionnementEntryAction(formData: FormData)
     formData.set("code", numeroLot);
     return await saveConditionnementRapportAction(formData);
   } catch (error) {
-    if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) {
+    if (estRedirectionNext(error)) {
+      await noterFichePlus(formData, "Conditionnement", "qt_fabriquer", error);
       throw error;
     }
     const message = error instanceof Error ? error.message : "Erreur inconnue pendant la creation.";
@@ -1827,29 +1828,8 @@ export async function createManualConditionnementEntryAction(formData: FormData)
 
 export async function createManualEmballageEntryAction(formData: FormData) {
   try {
-    // "+" Emballage : au-dela de MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME cartons, seul un admin peut enregistrer.
     // Controle AVANT la creation de la ligne (sinon une ligne vide resterait apres le refus).
-    const quantiteSaisie = Number(String(formData.get("quantite") || "0").replace(",", "."));
-    if (quantiteSaisie > MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME && !isAdminUser(await getCurrentStockUser())) {
-      throw new Error(
-        `Maximum ${MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME} cartons pour une nouvelle fiche Emballage (tu as saisi ${quantiteSaisie}). ` +
-          "Au-dela, seul Mayoub peut enregistrer."
-      );
-    }
-    // Meme code (N de lot) : au plus MAX_FICHES_EMBALLAGE_PAR_CODE_HORS_PROGRAMME fiches Emballage pour un utilisateur normal.
-    const numeroLotSaisi = String(formData.get("numero_lot") || "").trim();
-    if (numeroLotSaisi && !isAdminUser(await getCurrentStockUser())) {
-      const { count } = await supabaseServer
-        .from("production_emballage_entries")
-        .select("id", { count: "exact", head: true })
-        .eq("code", numeroLotSaisi);
-      if ((count ?? 0) >= MAX_FICHES_EMBALLAGE_PAR_CODE_HORS_PROGRAMME) {
-        throw new Error(
-          `Le code ${numeroLotSaisi} a deja ${count} fiches Emballage : maximum ${MAX_FICHES_EMBALLAGE_PAR_CODE_HORS_PROGRAMME} fois pour un meme code. ` +
-            "Au-dela, seul Mayoub peut en ajouter."
-        );
-      }
-    }
+    await verifierLimitesFichePlus(formData, "Emballage", "quantite");
     const { id, numeroLot } = await createManualEntryLigne(
       formData,
       "productionSuiviProductionEmballage",
@@ -1859,12 +1839,73 @@ export async function createManualEmballageEntryAction(formData: FormData) {
     formData.set("code", numeroLot);
     return await saveEmballageRapportAction(formData);
   } catch (error) {
-    if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) {
+    if (estRedirectionNext(error)) {
+      await noterFichePlus(formData, "Emballage", "quantite", error);
       throw error;
     }
     const message = error instanceof Error ? error.message : "Erreur inconnue pendant la creation.";
     redirect(`/production/suivi-production/emballage/nouveau?erreur=${encodeURIComponent(message)}`);
   }
+}
+
+type EtapeFichePlus = "Emballage" | "Conditionnement";
+
+function estRedirectionNext(error: unknown): error is { digest: string } {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "digest" in error &&
+    String((error as { digest: unknown }).digest).startsWith("NEXT_REDIRECT")
+  );
+}
+
+function nombreSaisi(formData: FormData, champ: string) {
+  return Number(String(formData.get(champ) || "0").replace(",", "."));
+}
+
+// "+" Conditionnement / Emballage : au plus MAX_CARTONS_FICHE_PLUS cartons par fiche et MAX_FICHES_PLUS_PAR_CODE fiches "+" pour un
+// meme code (comptees dans le journal d'audit, module "Fiche + <etape>" - voir noterFichePlus). Seul un admin peut depasser.
+async function verifierLimitesFichePlus(formData: FormData, etape: EtapeFichePlus, champCartons: string) {
+  if (isAdminUser(await getCurrentStockUser())) return;
+
+  const cartons = nombreSaisi(formData, champCartons);
+  if (cartons > MAX_CARTONS_FICHE_PLUS) {
+    throw new Error(
+      `Maximum ${MAX_CARTONS_FICHE_PLUS} cartons par fiche ${etape} avec le bouton + (tu as saisi ${cartons}). Au-dela, seul Mayoub peut enregistrer.`
+    );
+  }
+
+  const code = String(formData.get("numero_lot") || "").trim();
+  if (!code) return;
+  const { count } = await supabaseServer
+    .from("audit_log")
+    .select("id", { count: "exact", head: true })
+    .eq("module", `Fiche + ${etape}`)
+    .eq("action", "creation")
+    .eq("cible", code);
+  if ((count ?? 0) >= MAX_FICHES_PLUS_PAR_CODE) {
+    throw new Error(
+      `Le code ${code} a deja ${count} fiches ${etape} faites avec le bouton + : maximum ${MAX_FICHES_PLUS_PAR_CODE} fois pour un meme code. ` +
+        "Au-dela, seul Mayoub peut en ajouter."
+    );
+  }
+}
+
+// Enregistre l'usage du "+" (pour le comptage par code) une fois la fiche reellement enregistree : la Server Action se termine
+// par une redirection - vers le dashboard si tout s'est bien passe, vers la page avec "erreur=" sinon (rien n'est alors enregistre).
+async function noterFichePlus(formData: FormData, etape: EtapeFichePlus, champCartons: string, redirection: { digest: string }) {
+  if (redirection.digest.includes("erreur=")) return;
+  const cartons = nombreSaisi(formData, champCartons);
+  const code = String(formData.get("code") || formData.get("numero_lot") || "").trim();
+  if (!code || !(cartons > 0)) return;
+  await logAudit({
+    utilisateur: await getCurrentStockUser(),
+    module: `Fiche + ${etape}`,
+    action: "creation",
+    cible: code,
+    resume: `Nouvelle fiche + ${etape} - code ${code} - ${cartons} cartons`,
+    apres: { code, cartons, ligne_id: formData.get("ligne_id") },
+  });
 }
 
 export async function createManualFabricationEntryAction(formData: FormData) {
