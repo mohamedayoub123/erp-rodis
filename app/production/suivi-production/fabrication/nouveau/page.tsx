@@ -12,7 +12,7 @@ import { SubmitButton } from "@/app/_components/submit-button";
 import { MachineAndTypeFields } from "../../machine-and-type-fields";
 import { fetchMachinesByType } from "@/lib/machines-by-type";
 import { fetchVracDepotB } from "@/lib/vrac-depot-b";
-import { LotSearchField } from "@/app/depots/transfer-order/lot-search-field";
+import { VracRecupereFields } from "../vrac-recupere-fields";
 
 const ARRET_CAUSES = [
   { field: "fabrication_arret_absence_air", label: "Absence d'air" },
@@ -402,22 +402,10 @@ export default async function NouvelleFicheFabricationPage({
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Qt a recuperer
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      name="qt_vrac_recupere"
-                      defaultValue="0"
-                      required
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Code vrac recupere
-                    <LotSearchField name="code_vrac_recupere" defaultValue="" lots={vracRecupereLots} strict compact />
-                  </label>
+                  <VracRecupereFields
+                    lots={vracRecupereLots}
+                    classeChamp="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                  />
                 </div>
               </div>
 

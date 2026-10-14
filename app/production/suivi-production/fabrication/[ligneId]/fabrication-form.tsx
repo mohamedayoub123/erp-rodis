@@ -16,7 +16,7 @@ import {
   parseTimeValue,
   renderTimeState,
 } from "@/app/_components/time-text-input";
-import { LotSearchField } from "@/app/depots/transfer-order/lot-search-field";
+import { VracRecupereFields } from "../vrac-recupere-fields";
 import { MachineSelectField } from "../../machine-select-field";
 import { TYPE_PRODUIT_OPTIONS } from "../../../machines/type-produit-options";
 
@@ -418,7 +418,7 @@ export function FabricationForm({
           retire de ce qu&apos;il reste a faire (visible dans le Dashboard). &quot;Qt a
           recuperer&quot; est la quantite de vrac recuperee dans le stock du Depot B (choisis son
           &quot;Code vrac recupere&quot; dans la liste du module Vrac a recuperer) : elle
-          s&apos;AJOUTE au vrac de ce code et est retiree du stock du Depot B.
+          s&apos;AJOUTE au vrac de ce code et est retiree du stock du Depot B (maximum : le stock du lot choisi).
         </p>
         <div className="grid gap-4 md:grid-cols-3">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
@@ -432,28 +432,13 @@ export function FabricationForm({
               className={`${inputClass} bg-slate-50 text-slate-600`}
             />
           </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Qt a recuperer
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              name="qt_vrac_recupere"
-              defaultValue={rapport?.qt_vrac_recupere ?? "0"}
-              required
-              className={inputClass}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Code vrac recupere
-            <LotSearchField
-              name="code_vrac_recupere"
-              defaultValue={rapport?.code_vrac_recupere || ""}
-              lots={vracRecupereLots}
-              strict
-              compact
-            />
-          </label>
+          <VracRecupereFields
+            lots={vracRecupereLots}
+            codeInitial={rapport?.code_vrac_recupere || ""}
+            quantiteInitiale={rapport?.qt_vrac_recupere ?? "0"}
+            dejaPris={Number(rapport?.qt_vrac_recupere ?? 0)}
+            classeChamp={inputClass}
+          />
         </div>
       </div>
 

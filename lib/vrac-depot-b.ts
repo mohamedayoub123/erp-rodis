@@ -19,7 +19,7 @@ export async function fetchVracDepotB(): Promise<VracDepotB[]> {
 }
 
 // Meme liste, une entree par (article, code) : l'action serveur s'en sert pour debiter le stock de l'article qui POSSEDE le lot choisi.
-export async function fetchVracDepotBParArticle(): Promise<VracDepotB[]> {
+export async function fetchVracDepotBParArticle(options?: { inclureStockNul?: boolean }): Promise<VracDepotB[]> {
   const { data: depotB } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
   const depotBId = (depotB as { id: number } | null)?.id ?? null;
   if (!depotBId) return [];
@@ -40,8 +40,10 @@ export async function fetchVracDepotBParArticle(): Promise<VracDepotB[]> {
   if (lotsModule.size === 0) return [];
 
   const stock = await lireStockDepot(depotBId);
+  // Par defaut seuls les lots avec du stock (un lot a 0 n'est ni visible ni choisissable) ; inclureStockNul : verifications serveur
   const lots = stock.soldePf.filter(
-    (lot) => lot.solde > 1e-9 && lot.numeroLot && lotsModule.has(`${lot.articleId}::${lot.numeroLot}`)
+    (lot) =>
+      (options?.inclureStockNul || lot.solde > 1e-9) && lot.numeroLot && lotsModule.has(`${lot.articleId}::${lot.numeroLot}`)
   );
   if (lots.length === 0) return [];
 

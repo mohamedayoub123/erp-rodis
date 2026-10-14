@@ -1150,13 +1150,15 @@ export async function saveFabricationRapportAction(formData: FormData) {
     // forcement celui de l'article de cette ligne (le vrac recupere peut venir d'un autre produit).
     const lotsCandidats =
       codeVracRecupere && (codeVracChange || qtVracRecupere > 0)
-        ? (await fetchVracDepotBParArticle())
+        ? (await fetchVracDepotBParArticle({ inclureStockNul: true }))
             .filter((lot) => lot.numeroLot.trim().toLowerCase() === codeVracRecupere.trim().toLowerCase())
             .sort((a, b) => b.solde - a.solde)
         : [];
-    if (codeVracChange && lotsCandidats.length === 0) {
+    const lotSource = lotsCandidats[0] ?? null;
+    // Un NOUVEAU code doit avoir du stock : un lot a 0 n'est ni visible ni choisissable
+    if (codeVracChange && !lotsCandidats.some((lot) => lot.solde > 1e-9)) {
       throw new Error(
-        `Code vrac recupere "${codeVracRecupere}" introuvable dans le module Vrac a recuperer (ou son stock est a 0) : choisis un code de la liste.`
+        `Code vrac recupere "${codeVracRecupere}" introuvable dans le module Vrac a recuperer ou son stock est a 0 : choisis un code de la liste.`
       );
     }
 
@@ -1165,6 +1167,29 @@ export async function saveFabricationRapportAction(formData: FormData) {
     }
     if (qtVracRecupere > 0 && !codeVracRecupere) {
       throw new Error("Choisis le Code vrac recupere (liste du module Vrac a recuperer) pour la Qt a recuperer.");
+    }
+    // La quantite recuperee ne peut pas depasser le stock du lot (en plus de ce que cette fiche en avait deja pris : son ancien
+    // mouvement est remplace a l'enregistrement). Verifie AVANT toute ecriture.
+    if (qtVracRecupere > 0 && codeVracRecupere) {
+      if (!lotSource) {
+        // Ancien code hors module deja enregistre sur cette fiche : on ne peut pas en recuperer davantage
+        if (codeVracChange || qtVracRecupere > qtVracRecupereExistante + 1e-6) {
+          throw new Error(
+            `Code vrac recupere "${codeVracRecupere}" introuvable dans le module Vrac a recuperer : choisis un code de la liste.`
+          );
+        }
+      } else {
+        const dejaPris =
+          lotSource.numeroLot.trim().toLowerCase() === (rapportExistant?.code_vrac_recupere || "").trim().toLowerCase()
+            ? qtVracRecupereExistante
+            : 0;
+        const disponible = Math.round((lotSource.solde + dejaPris) * 1000) / 1000;
+        if (qtVracRecupere > disponible + 1e-6) {
+          throw new Error(
+            `Stock insuffisant pour le lot ${lotSource.numeroLot} : disponible ${disponible} kg, demande ${qtVracRecupere} kg.`
+          );
+        }
+      }
     }
 
     // Article vrac de cette ligne + Depot B - necessaires des que du vrac
@@ -1198,8 +1223,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     }
 
     // Article et code EXACT du lot dont on retire la quantite (a defaut de lot connu : article de la ligne, code tel que saisi)
-    // Aucun lot du module trouve (ex : ancien code deja enregistre dont le stock est a 0) : pas de mouvement de stock
-    const lotSource = lotsCandidats.find((lot) => lot.articleId === vracArticleId) ?? lotsCandidats[0] ?? null;
+    // Aucun lot du module trouve (ancien code hors module deja enregistre) : pas de mouvement de stock
     const articleSourceRecuperee = lotSource?.articleId ?? null;
     const codeSourceRecupere = lotSource?.numeroLot ?? null;
 
