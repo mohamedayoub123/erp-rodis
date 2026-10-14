@@ -19,6 +19,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser, getDashboardP
 import { LotCodeCell } from "./lot-code-cell";
 import { ValideParSelect } from "./valide-par-select";
 import { SingleDayFilter } from "./single-day-filter";
+import { SEUIL_FIN_PROGRAMME_CARTONS } from "./quantites-fin-programme";
 import { DeleteProgrammeLigneButton } from "./delete-programme-ligne-button";
 import { computeProduitParCode, formatDate, pdLabelsForNumeroLot, type ProgrammeLigneRow } from "../data";
 import { fetchDashboardData, type CodeTermineStage } from "./dashboard-data";
@@ -856,7 +857,16 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3">
                           {dash.finProgramme ? (
-                          <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markCartonTermineAction} />
+                            !isAdmin && !row.cartonPrevuIsNull && Math.abs(row.cartonRestant) > SEUIL_FIN_PROGRAMME_CARTONS ? (
+                              <span
+                                title={`Ecart de plus de ${SEUIL_FIN_PROGRAMME_CARTONS} cartons : seul Mayoub peut faire Fin programme`}
+                                className="text-xs font-semibold text-slate-400"
+                              >
+                                Ecart &gt; {SEUIL_FIN_PROGRAMME_CARTONS} : Mayoub
+                              </span>
+                            ) : (
+                              <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markCartonTermineAction} />
+                            )
                           ) : null}
                         </td>
                         {canDeleteLigne ? (

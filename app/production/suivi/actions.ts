@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit-log";
 import { supprimerToutesTracesProductionPourLigne } from "../suivi-production/actions";
 import { estValideurTestLabo } from "@/lib/valideurs-test-labo";
 import { viderCacheDashboard } from "./dashboard/dashboard-data";
+import { lireQuantitesParCode, SEUIL_FIN_PROGRAMME_CARTONS, type LigneQuantites } from "./dashboard/quantites-fin-programme";
 
 function revalidateSuiviPages() {
   revalidatePath("/production/suivi");
@@ -269,8 +270,41 @@ export async function markVracTermineAction(formData: FormData) {
 // (voir commentaire sur releaseRemainingMpReserve) : elle reste visible sur
 // /production/retours-conditionnement jusqu'a ce que l'utilisateur y cree
 // le retour, qui la remet a 0 a ce moment-la seulement.
+// Plus de SEUIL_FIN_PROGRAMME_CARTONS cartons d'ecart entre le prevu et le fait : seul un admin peut terminer le code a la main
+// (ecart inconnu = prevu non renseigne : pas de blocage, rien a comparer).
+async function verifierEcartFinProgrammeCartons(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+  if (isAdminUser(currentUser)) return;
+
+  const ligneId = Number(String(formData.get("ligne_id") || "0"));
+  const code = String(formData.get("code") || "").trim();
+  if (!ligneId || !code) return;
+
+  const { data } = await supabaseServer
+    .from("programme_lignes")
+    .select("id, numero_lot, numero_lot_detail, vrac_a_fabriquer, qt_carton")
+    .eq("id", ligneId)
+    .maybeSingle();
+  if (!data) return;
+
+  const quantite = (await lireQuantitesParCode("carton", [data as LigneQuantites])).get(`${ligneId}::${code}`);
+  if (!quantite || quantite.prevu === null) return;
+
+  const ecart = quantite.prevu - quantite.fait;
+  if (Math.abs(ecart) > SEUIL_FIN_PROGRAMME_CARTONS) {
+    const arrondi = (valeur: number) => Math.round(valeur * 100) / 100;
+    throw new Error(
+      `Fin programme impossible pour ${code} : ecart de ${arrondi(Math.abs(ecart))} cartons (prevu ${arrondi(quantite.prevu)}, fait ${arrondi(quantite.fait)}), ` +
+        `plus de ${SEUIL_FIN_PROGRAMME_CARTONS} cartons. Seul Mayoub peut terminer ce code a la main.`
+    );
+  }
+}
+
 export async function markCartonTermineAction(formData: FormData) {
-  await withAvertissementRedirect(() => markCodeTermine(formData, "carton").then(() => undefined));
+  await withAvertissementRedirect(async () => {
+    await verifierEcartFinProgrammeCartons(formData);
+    await markCodeTermine(formData, "carton");
+  });
 }
 
 // Annule un "Fin programme" Conditionnement clique par erreur - supprime

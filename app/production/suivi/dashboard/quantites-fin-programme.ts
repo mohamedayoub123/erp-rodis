@@ -14,6 +14,10 @@ export type LigneQuantites = {
 
 export type QuantiteCode = { prevu: number | null; fait: number };
 
+// Fin programme Conditionnement : au-dela de cet ecart (en cartons, prevu - fait, dans un sens ou dans l'autre),
+// seul un admin (mayoub / ayoub) peut terminer le code a la main.
+export const SEUIL_FIN_PROGRAMME_CARTONS = 10;
+
 type EntreeRow = { programme_ligne_id: number; code: string | null; quantite: number | string | null };
 
 async function lireEntrees(table: string, ligneIds: number[]): Promise<EntreeRow[]> {
