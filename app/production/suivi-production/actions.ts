@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME } from "@/lib/limites-saisie-production";
 import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-article";
 import { calculerCartonsCasiers, lireCasiersCoches, lireReleves, moyenne } from "@/lib/conditionnement-par-ligne";
 import {
@@ -1823,6 +1824,15 @@ export async function createManualConditionnementEntryAction(formData: FormData)
 
 export async function createManualEmballageEntryAction(formData: FormData) {
   try {
+    // "+" Emballage : au-dela de MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME cartons, seul un admin peut enregistrer.
+    // Controle AVANT la creation de la ligne (sinon une ligne vide resterait apres le refus).
+    const quantiteSaisie = Number(String(formData.get("quantite") || "0").replace(",", "."));
+    if (quantiteSaisie > MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME && !isAdminUser(await getCurrentStockUser())) {
+      throw new Error(
+        `Maximum ${MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME} cartons pour une nouvelle fiche Emballage (tu as saisi ${quantiteSaisie}). ` +
+          "Au-dela, seul Mayoub peut enregistrer."
+      );
+    }
     const { id, numeroLot } = await createManualEntryLigne(
       formData,
       "productionSuiviProductionEmballage",

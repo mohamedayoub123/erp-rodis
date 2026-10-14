@@ -1,6 +1,7 @@
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME } from "@/lib/limites-saisie-production";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
@@ -58,6 +59,7 @@ export default async function NouvelleFicheEmballagePage({
 
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionEmballage");
+  const estAdmin = isAdminUser(currentStockUser);
   const articles = await fetchAllArticles();
   const zoneChaineOptions = await fetchConditionnementZoneChaineOptions();
   const machines = await fetchMachinesByType("Embalage");
@@ -256,6 +258,13 @@ export default async function NouvelleFicheEmballagePage({
                 <p className="mb-3 text-xs text-slate-500">
                   Ce qui est saisi ici est retire de ce qui reste a emballer (visible dans le
                   Dashboard).
+                  {estAdmin ? null : (
+                    <>
+                      {" "}
+                      <strong>Maximum {MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME} cartons</strong> : au-dela, seul Mayoub peut
+                      enregistrer.
+                    </>
+                  )}
                 </p>
                 <label className="grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
                   Qt emballee
@@ -263,6 +272,7 @@ export default async function NouvelleFicheEmballagePage({
                     type="number"
                     step="0.01"
                     name="quantite"
+                    max={estAdmin ? undefined : MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME}
                     defaultValue="0"
                     required
                     className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
