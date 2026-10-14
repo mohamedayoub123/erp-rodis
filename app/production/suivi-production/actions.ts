@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
-import { MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME } from "@/lib/limites-saisie-production";
+import {
+  MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME,
+  MAX_FICHES_EMBALLAGE_PAR_CODE_HORS_PROGRAMME,
+} from "@/lib/limites-saisie-production";
 import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-article";
 import { calculerCartonsCasiers, lireCasiersCoches, lireReleves, moyenne } from "@/lib/conditionnement-par-ligne";
 import {
@@ -1832,6 +1835,20 @@ export async function createManualEmballageEntryAction(formData: FormData) {
         `Maximum ${MAX_CARTONS_EMBALLAGE_HORS_PROGRAMME} cartons pour une nouvelle fiche Emballage (tu as saisi ${quantiteSaisie}). ` +
           "Au-dela, seul Mayoub peut enregistrer."
       );
+    }
+    // Meme code (N de lot) : au plus MAX_FICHES_EMBALLAGE_PAR_CODE_HORS_PROGRAMME fiches Emballage pour un utilisateur normal.
+    const numeroLotSaisi = String(formData.get("numero_lot") || "").trim();
+    if (numeroLotSaisi && !isAdminUser(await getCurrentStockUser())) {
+      const { count } = await supabaseServer
+        .from("production_emballage_entries")
+        .select("id", { count: "exact", head: true })
+        .eq("code", numeroLotSaisi);
+      if ((count ?? 0) >= MAX_FICHES_EMBALLAGE_PAR_CODE_HORS_PROGRAMME) {
+        throw new Error(
+          `Le code ${numeroLotSaisi} a deja ${count} fiches Emballage : maximum ${MAX_FICHES_EMBALLAGE_PAR_CODE_HORS_PROGRAMME} fois pour un meme code. ` +
+            "Au-dela, seul Mayoub peut en ajouter."
+        );
+      }
     }
     const { id, numeroLot } = await createManualEntryLigne(
       formData,
