@@ -28,8 +28,11 @@ function formater(valeur: number) {
 export function ParLigneProduction({
   piecesParCarton,
   apresCasiers,
+  estAdmin = false,
 }: {
   piecesParCarton: number | null;
+  // Admin (mayoub / ayoub) : seul a pouvoir retirer un casier verrouille (coche + point).
+  estAdmin?: boolean;
   // Affiche juste apres le comptage des casiers (ex: Temps arret batch), avant Cadence et Poids.
   apresCasiers?: React.ReactNode;
 }) {
@@ -38,11 +41,26 @@ export function ParLigneProduction({
   const [points, setPoints] = useState<Set<number>>(new Set());
   const minuteurClicLong = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clicLongFait = useRef<number | null>(null);
+  const [avertissement, setAvertissement] = useState<string | null>(null);
   const [piecesParCasier, setPiecesParCasier] = useState("");
   const [cadence, setCadence] = useState<string[]>(() => Array(NB_RELEVES).fill(""));
   const [poids, setPoids] = useState<string[]>(() => Array(NB_RELEVES).fill(""));
 
+  // Casier COCHE + POINT = verrouille : impossible a decocher / a depointer, sauf pour l'admin.
+  function verrouille(numero: number) {
+    return !estAdmin && casiers.has(numero) && points.has(numero);
+  }
+
+  function refuserVerrou(numero: number) {
+    setAvertissement(`Casier ${numero} verrouille (coche + point) : seul Mayoub peut le retirer.`);
+  }
+
   function basculerCasier(numero: number) {
+    if (verrouille(numero)) {
+      refuserVerrou(numero);
+      return;
+    }
+    setAvertissement(null);
     setCasiers((courant) => {
       const suivant = new Set(courant);
       if (suivant.has(numero)) suivant.delete(numero);
@@ -63,8 +81,14 @@ export function ParLigneProduction({
   function demarrerClicLong(numero: number) {
     arreterClicLong();
     clicLongFait.current = null;
+    const bloque = verrouille(numero);
     minuteurClicLong.current = setTimeout(() => {
       clicLongFait.current = numero;
+      if (bloque) {
+        refuserVerrou(numero);
+        return;
+      }
+      setAvertissement(null);
       basculerPoint(numero);
     }, 500);
   }
@@ -103,8 +127,13 @@ export function ParLigneProduction({
           {piecesParCarton ? ` (${formater(piecesParCarton)} pieces par carton pour cet article)` : ""}.
           {" "}
           <strong>Clic long</strong> sur un casier : ajoute ou retire un <strong>point</strong> sur le carre (simple repere,
-          ne change rien au calcul).
+          ne change rien au calcul). Un casier <strong>coche avec un point</strong> est verrouille : seul Mayoub peut le retirer.
         </p>
+        {avertissement ? (
+          <p role="alert" className="mb-3 rounded-2xl bg-red-50 px-4 py-3 text-xs font-semibold text-red-700">
+            {avertissement}
+          </p>
+        ) : null}
 
         <div className="mb-4 grid gap-4 md:grid-cols-3">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
@@ -138,10 +167,17 @@ export function ParLigneProduction({
           {Array.from({ length: NB_CASIERS_MAX }, (_, index) => index + 1).map((numero) => {
             const coche = casiers.has(numero);
             const pointe = points.has(numero);
+            const bloque = verrouille(numero);
             return (
               <label
                 key={numero}
-                title={pointe ? `Casier ${numero} - point (clic long pour retirer)` : `Casier ${numero} (clic long : ajouter un point)`}
+                title={
+                  bloque
+                    ? `Casier ${numero} verrouille (coche + point) - seul Mayoub peut le retirer`
+                    : pointe
+                      ? `Casier ${numero} - point (clic long pour retirer)`
+                      : `Casier ${numero} (clic long : ajouter un point)`
+                }
                 onPointerDown={() => demarrerClicLong(numero)}
                 onPointerUp={arreterClicLong}
                 onPointerLeave={arreterClicLong}
@@ -154,7 +190,7 @@ export function ParLigneProduction({
                     clicLongFait.current = null;
                   }
                 }}
-                className={`relative flex h-11 w-11 cursor-pointer select-none items-center justify-center rounded-xl border text-sm font-semibold transition [-webkit-touch-callout:none] focus-within:ring-2 focus-within:ring-sky-400 ${
+                className={`relative flex h-11 w-11 ${bloque ? "cursor-not-allowed" : "cursor-pointer"} select-none items-center justify-center rounded-xl border text-sm font-semibold transition [-webkit-touch-callout:none] focus-within:ring-2 focus-within:ring-sky-400 ${
                   coche
                     ? "border-sky-700 bg-sky-700 text-white"
                     : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/app/production/suivi/data";
@@ -253,6 +253,7 @@ export default async function ConditionnementParLignePage({
                 </p>
                 <ParLigneProduction
                   piecesParCarton={piecesParCarton}
+                  estAdmin={isAdminUser(currentStockUser)}
                   apresCasiers={
                     <div className="grid gap-4 md:grid-cols-3">
                       <label className="grid gap-1 text-xs font-semibold text-slate-500">
