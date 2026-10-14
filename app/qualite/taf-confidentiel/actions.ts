@@ -245,7 +245,27 @@ export async function updateTafConfidentielDetailAction(formData: FormData): Pro
     correction_entries: CorrectionEntry[] | null;
   } | null;
 
-  const statut = computeStatutTaf(payload, ancien?.correction_entries ?? []);
+  // Texte de correction laisse dans le formulaire : nouvelle entree tapee (`nouvelle_correction`) et/ou entree existante ouverte en
+  // modification (`correction_texte_<id>`) - sans ca, le bouton Enregistrer du bas ignorait ce qui etait ecrit dans Correction
+  // (seul "+ Ajouter une entree" / le petit "Enregistrer" de l'entree le sauvegardaient).
+  const entrees: CorrectionEntry[] = (ancien?.correction_entries ?? []).map((entry) => ({ ...entry }));
+  let entreesChangees = false;
+  for (const [cle, valeur] of formData.entries()) {
+    if (!cle.startsWith("correction_texte_")) continue;
+    const texte = String(valeur ?? "").trim();
+    const entree = entrees.find((e) => e.id === cle.slice("correction_texte_".length));
+    if (entree && texte && texte !== entree.texte) {
+      entree.texte = texte;
+      entreesChangees = true;
+    }
+  }
+  const nouvelleCorrection = parseOptionalText(formData, "nouvelle_correction");
+  if (nouvelleCorrection) {
+    entrees.push({ id: randomUUID(), texte: nouvelleCorrection, date: new Date().toISOString().slice(0, 10), fichiers: [] });
+    entreesChangees = true;
+  }
+
+  const statut = computeStatutTaf(payload, entrees);
   const ancienCloture = String(ancien?.statut ?? "").trim().toUpperCase() === "CLOTUREE";
   const todayIso = new Date().toISOString().slice(0, 10);
   const dateRealisation = calculerDateRealisation(
@@ -255,12 +275,13 @@ export async function updateTafConfidentielDetailAction(formData: FormData): Pro
     todayIso
   );
 
-  const updatePayload: Record<string, string | null> = {
+  const updatePayload: Record<string, string | null | CorrectionEntry[]> = {
     ...payload,
     statut,
     tx_progression: computeTxProgression(payload),
     date_realisation: dateRealisation,
     updated_at: new Date().toISOString(),
+    ...(entreesChangees ? { correction_entries: entrees } : {}),
   };
 
   const { error } = await supabaseServer.from(TABLE).update(updatePayload).eq("id", id);

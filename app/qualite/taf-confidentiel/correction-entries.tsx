@@ -109,6 +109,8 @@ export function TafCorrectionEntries({
       {canWrite && allowEdit ? (
         <div className="grid gap-2 rounded-2xl border border-dashed border-slate-200 p-3">
           <textarea
+            // Sur la page detail, ce champ fait partie du formulaire : le bouton "Enregistrer" du bas l'ajoute aussi comme entree
+            name="nouvelle_correction"
             value={nouveauTexte}
             onChange={(e) => setNouveauTexte(e.target.value)}
             rows={3}
@@ -312,6 +314,8 @@ function EntryRow({
               {canWrite && allowEdit ? (
                 <>
                   <textarea
+                    // Idem : une entree en cours de modification est aussi enregistree par le bouton "Enregistrer" du bas
+                    name={`correction_texte_${entry.id}`}
                     value={editTexte}
                     onChange={(e) => setEditTexte(e.target.value)}
                     rows={4}
