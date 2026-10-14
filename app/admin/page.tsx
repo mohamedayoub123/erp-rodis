@@ -22,6 +22,7 @@ const DASHBOARD_PRODUCTION_CASES: { cle: DashboardProductionCle; libelle: string
   { cle: "entrer", libelle: "Boutons Entrer" },
   { cle: "entrerParLigne", libelle: "Bouton Entrer par ligne (Conditionnement)" },
   { cle: "ajouterFiche", libelle: "Boutons + (nouvelle fiche Fabrication / Conditionnement / Emballage)" },
+  { cle: "finProgramme", libelle: "Boutons Fin programme (Fabrication / Conditionnement / Emballage)" },
   { cle: "sallePesage", libelle: "Salle de pesage (salle fabrication)" },
   { cle: "salleConditionnement", libelle: "Salle de conditionnement" },
 ];

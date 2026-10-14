@@ -97,6 +97,10 @@ async function markCodeTermine(formData: FormData, stage: CodeTermineStage): Pro
   if (!(await canWritePageUser(currentUser, "productionSuiviDashboard"))) {
     throw new Error("Cet utilisateur ne peut pas modifier le suivi production.");
   }
+  // Case "Boutons Fin programme" de Admin > permissions de l'utilisateur (Dashboard Production > ce que la personne voit)
+  if (!(await getDashboardProductionUser(currentUser)).finProgramme) {
+    throw new Error("Cet utilisateur ne peut pas faire de Fin programme.");
+  }
 
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();

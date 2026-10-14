@@ -733,7 +733,9 @@ export default async function PlanningDashboardPage({
                         </td>
                         ) : null}
                         <td className="px-4 py-3">
+                          {dash.finProgramme ? (
                           <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markVracTermineAction} />
+                          ) : null}
                         </td>
                         {canDeleteLigne ? (
                           <td className="px-4 py-3">
@@ -840,7 +842,12 @@ export default async function PlanningDashboardPage({
                             {dash.entrerParLigne ? (
                             <Link
                               href={`/production/suivi-production/conditionnement/${row.ligne.id}/par-ligne?code=${encodeURIComponent(row.code)}`}
-                              className="whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800"
+                              title={titreEntrer(row.ligne.id, row.code)}
+                              className={
+                                testLaboFait(row.ligne.id, row.code)
+                                  ? "whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800"
+                                  : "whitespace-nowrap rounded-full bg-red-600 px-3 py-1.5 text-xs font-semibold text-white"
+                              }
                             >
                               Par ligne
                             </Link>
@@ -848,7 +855,9 @@ export default async function PlanningDashboardPage({
                           </div>
                         </td>
                         <td className="px-4 py-3">
+                          {dash.finProgramme ? (
                           <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markCartonTermineAction} />
+                          ) : null}
                         </td>
                         {canDeleteLigne ? (
                           <td className="px-4 py-3">
@@ -934,7 +943,9 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
+                            {dash.finProgramme ? (
                             <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markEmballageTermineAction} />
+                            ) : null}
                             <form action={deleteCodeProgressAction}>
                               <input type="hidden" name="ligne_id" value={row.ligne.id} />
                               <input type="hidden" name="code" value={row.code} />

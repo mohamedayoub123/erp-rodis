@@ -16,7 +16,7 @@ export type PagePermissions = Record<string, { view: boolean; write: boolean; de
 
 // Dashboard Production : qui voit quoi. Reglages a part du droit de page (productionSuiviDashboard) - la personne a
 // acces au Dashboard, et ces cases decident des parties qu'elle voit : les 3 colonnes (Fabrication, Conditionnement,
-// Emballage), les boutons "Test labo", "Entrer", "Par ligne" et "+" (nouvelle fiche hors programme), et les 2 salles
+// Emballage), les boutons "Test labo", "Entrer", "Par ligne", "+" (nouvelle fiche hors programme) et "Fin programme", et les 2 salles
 // (Salle de pesage = salle de fabrication, Salle de conditionnement). Defaut pour un utilisateur qui n'a rien de stocke : colonnes et boutons
 // visibles (comme avant), salles reservees aux admins (comme avant). Un admin voit tout, toujours.
 export const DASHBOARD_PRODUCTION_CLES = [
@@ -27,6 +27,7 @@ export const DASHBOARD_PRODUCTION_CLES = [
   "entrer",
   "entrerParLigne",
   "ajouterFiche",
+  "finProgramme",
   "sallePesage",
   "salleConditionnement",
 ] as const;
@@ -43,6 +44,7 @@ function dashboardProductionParDefaut(isAdmin: boolean): DashboardProductionPerm
     entrer: true,
     entrerParLigne: true,
     ajouterFiche: true,
+    finProgramme: true,
     sallePesage: isAdmin,
     salleConditionnement: isAdmin,
   };
