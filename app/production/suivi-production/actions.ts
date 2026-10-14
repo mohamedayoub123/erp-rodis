@@ -6,6 +6,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { MAX_CARTONS_FICHE_PLUS, MAX_FICHES_PLUS_PAR_CODE } from "@/lib/limites-saisie-production";
 import { logAudit } from "@/lib/audit-log";
+import { fetchVracDepotB } from "@/lib/vrac-depot-b";
 import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-article";
 import { calculerCartonsCasiers, lireCasiersCoches, lireReleves, moyenne } from "@/lib/conditionnement-par-ligne";
 import {
@@ -1119,8 +1120,34 @@ export async function saveFabricationRapportAction(formData: FormData) {
     const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
     const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
     const qtARecuperer = parseOptionalNumber(formData, "qt_a_recuperer") ?? 0;
-    const qtVracRecupere = parseOptionalNumber(formData, "qt_vrac_recupere") ?? 0;
     const codeVracRecupere = parseOptionalText(formData, "code_vrac_recupere");
+    // "Qt vrac recupere" n'est plus saisie (champ supprime du formulaire) : une fiche DEJA enregistree garde sa quantite
+    // (et son mouvement Depot B) tant que le code reste renseigne ; une nouvelle fiche n'a aucune quantite recuperee.
+    const { data: rapportExistantData } = await supabaseServer
+      .from("production_rapports")
+      .select("qt_vrac_recupere, code_vrac_recupere")
+      .eq("programme_ligne_id", ligneId)
+      .eq("code", code)
+      .maybeSingle();
+    const rapportExistant = rapportExistantData as { qt_vrac_recupere: number | null; code_vrac_recupere: string | null } | null;
+    const qtVracRecupereExistante = Number(rapportExistant?.qt_vrac_recupere ?? 0);
+    const qtVracRecupere = formData.has("qt_vrac_recupere")
+      ? (parseOptionalNumber(formData, "qt_vrac_recupere") ?? 0)
+      : codeVracRecupere
+        ? qtVracRecupereExistante
+        : 0;
+    // Le code recupere doit exister dans le vrac du Depot B (le code deja enregistre sur cette fiche reste accepte)
+    if (
+      codeVracRecupere &&
+      codeVracRecupere.trim().toLowerCase() !== (rapportExistant?.code_vrac_recupere || "").trim().toLowerCase()
+    ) {
+      const existants = await fetchVracDepotB();
+      if (!existants.some((lot) => lot.numeroLot.trim().toLowerCase() === codeVracRecupere.trim().toLowerCase())) {
+        throw new Error(
+          `Code vrac recupere "${codeVracRecupere}" introuvable dans le vrac du Depot B : choisis un code de la liste.`
+        );
+      }
+    }
 
     if (qtARecuperer < 0) {
       throw new Error("Qt a recuperer invalide.");
@@ -1137,7 +1164,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     // vrai mouvement de stock).
     let vracArticleId: number | null = null;
     let depotBId: number | null = null;
-    if (qtARecuperer > 0 || (qtVracRecupere > 0 && codeVracRecupere)) {
+    if (qtARecuperer > 0 || qtVracRecupereExistante > 0 || (qtVracRecupere > 0 && codeVracRecupere)) {
       [vracArticleId, depotBId] = await Promise.all([resolveVracArticleIdForLigne(ligneId), fetchDepotBId()]);
       if (!vracArticleId || !depotBId) {
         throw new Error(
@@ -1256,7 +1283,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
         temps_vidange: parseOptionalText(formData, "temps_vidange"),
         vrac_fabrique: vracFabrique,
         qt_a_recuperer: qtARecuperer || null,
-        qt_vrac_recupere: parseOptionalNumber(formData, "qt_vrac_recupere"),
+        qt_vrac_recupere: qtVracRecupere,
         code_vrac_recupere: codeVracRecupere,
         fabrication_arret_absence_air: parseOptionalNumber(formData, "fabrication_arret_absence_air"),
         fabrication_arret_absence_vapeur: parseOptionalNumber(formData, "fabrication_arret_absence_vapeur"),

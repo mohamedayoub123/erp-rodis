@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // Meme motif que SearchableFilterInput (app/_components/searchable-filter-input.tsx)
 // mais pour choisir un NUMERO DE LOT : contrairement a un article, la
@@ -13,21 +13,38 @@ export function LotSearchField({
   lots,
   onChange,
   disabled,
+  strict,
+  compact,
 }: {
   name: string;
   defaultValue: string;
-  lots: { numeroLot: string; solde: number }[];
+  lots: { numeroLot: string; solde: number; libelle?: string }[];
   onChange?: (value: string) => void;
   disabled?: boolean;
+  // strict : seul un code de la liste est accepte (le code deja enregistre reste valable) - le formulaire ne part pas sinon
+  strict?: boolean;
+  // compact : pas de liste permanente sous le champ (la liste deroulante suffit, utile quand il y a beaucoup de lots)
+  compact?: boolean;
 }) {
   const [value, setValue] = useState(defaultValue);
   const [showDropdown, setShowDropdown] = useState(false);
+  const champ = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!strict || !champ.current) return;
+    const saisi = value.trim().toLowerCase();
+    const valide =
+      !saisi ||
+      saisi === defaultValue.trim().toLowerCase() ||
+      lots.some((lot) => lot.numeroLot.trim().toLowerCase() === saisi);
+    champ.current.setCustomValidity(valide ? "" : "Choisis un code qui existe dans la liste.");
+  }, [strict, value, defaultValue, lots]);
 
   const filtered = useMemo(() => {
     const query = value.trim().toLowerCase();
-    if (!query) return lots.slice(0, 50);
+    if (!query) return lots.slice(0, compact ? 500 : 50);
     return lots.filter((lot) => lot.numeroLot.toLowerCase().includes(query));
-  }, [value, lots]);
+  }, [value, lots, compact]);
 
   function selectLot(numeroLot: string) {
     setValue(numeroLot);
@@ -38,6 +55,7 @@ export function LotSearchField({
   return (
     <div className="relative">
       <input
+        ref={champ}
         type="text"
         name={name}
         autoComplete="off"
@@ -63,7 +81,8 @@ export function LotSearchField({
               onClick={() => selectLot(lot.numeroLot)}
               className="block w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
             >
-              {lot.numeroLot || "(sans numero)"} - disponible : {lot.solde.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
+              {lot.numeroLot || "(sans numero)"} - {lot.libelle ? `${lot.libelle} - ` : ""}disponible :{" "}
+              {lot.solde.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
             </button>
           ))}
         </div>
@@ -72,7 +91,7 @@ export function LotSearchField({
       ferme des qu'on clique ailleurs) - pour toujours voir d'un coup d'oeil
       le stock de TOUS les lots de cet article, meme une fois un lot deja
       choisi. */}
-      {!disabled ? (
+      {!disabled && (!compact || lots.length === 0) ? (
         <div className="mt-1 flex flex-col gap-0.5 text-xs text-slate-500">
           {lots.length === 0
             ? "Aucun lot disponible"

@@ -1,0 +1,49 @@
+import { supabaseServer } from "@/lib/supabase-server";
+import { lireStockDepot } from "@/app/depots/[id]/stock-depot";
+
+export type VracDepotB = { numeroLot: string; solde: number; libelle: string };
+
+// Tous les lots de VRAC qui existent deja au Depot B (solde > 0), quel que soit le produit : sert au champ "Code vrac recupere"
+// de la Fabrication (liste a choisir, seuls ces codes sont acceptes). Un article "vrac" = l'article vrac d'un produit fini.
+export async function fetchVracDepotB(): Promise<VracDepotB[]> {
+  const { data: depotB } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
+  const depotBId = (depotB as { id: number } | null)?.id ?? null;
+  if (!depotBId) return [];
+
+  const stock = await lireStockDepot(depotBId);
+  const lots = stock.soldePf.filter((lot) => lot.solde > 1e-9 && lot.numeroLot);
+  if (lots.length === 0) return [];
+
+  const idsStock = [...new Set(lots.map((lot) => lot.articleId))];
+  const idsVrac = new Set<number>();
+  for (let debut = 0; debut < idsStock.length; debut += 150) {
+    const { data } = await supabaseServer
+      .from("articles")
+      .select("vrac_article_id")
+      .in("vrac_article_id", idsStock.slice(debut, debut + 150));
+    for (const ligne of (data ?? []) as { vrac_article_id: number | null }[]) {
+      if (ligne.vrac_article_id) idsVrac.add(ligne.vrac_article_id);
+    }
+  }
+
+  const nomParArticle = new Map<number, string>();
+  const idsVracListe = [...idsVrac];
+  for (let debut = 0; debut < idsVracListe.length; debut += 150) {
+    const { data } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article")
+      .in("id", idsVracListe.slice(debut, debut + 150));
+    for (const ligne of (data ?? []) as { id: number; nom_article: string | null }[]) {
+      nomParArticle.set(ligne.id, ligne.nom_article || "");
+    }
+  }
+
+  const parCode = new Map<string, VracDepotB>();
+  for (const lot of lots) {
+    if (!idsVrac.has(lot.articleId)) continue;
+    const cle = lot.numeroLot.toUpperCase();
+    if (parCode.has(cle)) continue;
+    parCode.set(cle, { numeroLot: lot.numeroLot, solde: lot.solde, libelle: nomParArticle.get(lot.articleId) || "" });
+  }
+  return [...parCode.values()].sort((a, b) => a.numeroLot.localeCompare(b.numeroLot));
+}

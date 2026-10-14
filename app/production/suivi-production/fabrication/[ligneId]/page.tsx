@@ -10,7 +10,7 @@ import { formatDateTime } from "@/lib/format-date";
 import { vracLabelFromName } from "@/lib/gamme-families";
 import { FabricationForm } from "./fabrication-form";
 import { messageSiTestLaboInvalide } from "../../actions";
-import { fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
+import { fetchVracDepotB } from "@/lib/vrac-depot-b";
 import { fetchMachinesByType } from "@/lib/machines-by-type";
 
 type LigneInfo = {
@@ -127,26 +127,9 @@ export default async function RapportFabricationPage({
 
   const erreurTestLabo = await messageSiTestLaboInvalide(ligne.id, code);
 
-  // Lots de vrac deja au Depot B (ex: credites via Test labo "A recuperer")
-  // pour l'article vrac de cette ligne - le "Code vrac recupere" doit venir
-  // de la, jamais tape librement, pour que la quantite mixee dans un
-  // nouveau batch puisse etre reellement deduite du bon lot.
-  let vracRecupereLots: { numeroLot: string; solde: number }[] = [];
-  if (ligne.article_id) {
-    const { data: articleData } = await supabaseServer
-      .from("articles")
-      .select("vrac_article_id")
-      .eq("id", ligne.article_id)
-      .maybeSingle();
-    const vracArticleId = (articleData as { vrac_article_id: number | null } | null)?.vrac_article_id ?? null;
-
-    const { data: depotBData } = await supabaseServer.from("depots").select("id").ilike("nom", "Depot B").maybeSingle();
-    const depotBId = (depotBData as { id: number } | null)?.id ?? null;
-
-    if (vracArticleId && depotBId) {
-      vracRecupereLots = await fetchLotsInDepot("PF", vracArticleId, depotBId);
-    }
-  }
+  // Tous les lots de vrac deja au Depot B (credites via "Qt a recuperer" ou Test labo "A recuperer") : le "Code vrac recupere"
+  // se choisit dans cette liste, un code qui n'existe pas n'est pas accepte.
+  const vracRecupereLots = await fetchVracDepotB();
 
   const machines = await fetchMachinesByType("Fabrication");
 

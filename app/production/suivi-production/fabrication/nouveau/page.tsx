@@ -11,6 +11,8 @@ import { TempsField } from "../[ligneId]/fabrication-form";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { MachineAndTypeFields } from "../../machine-and-type-fields";
 import { fetchMachinesByType } from "@/lib/machines-by-type";
+import { fetchVracDepotB } from "@/lib/vrac-depot-b";
+import { LotSearchField } from "@/app/depots/transfer-order/lot-search-field";
 
 const ARRET_CAUSES = [
   { field: "fabrication_arret_absence_air", label: "Absence d'air" },
@@ -67,6 +69,7 @@ export default async function NouvelleFicheFabricationPage({
   const articles = await fetchAllArticles();
   const zoneChaineOptions = await fetchConditionnementZoneChaineOptions();
   const machines = await fetchMachinesByType("Fabrication");
+  const vracRecupereLots = await fetchVracDepotB();
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -387,7 +390,7 @@ export default async function NouvelleFicheFabricationPage({
                   lieu d&apos;etre envoyee au Conditionnement - elle reste en stock vrac dans
                   Depot B.
                 </p>
-                <div className="grid gap-4 md:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-3">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Vrac fabrique
                     <input
@@ -412,24 +415,8 @@ export default async function NouvelleFicheFabricationPage({
                     />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
-                    Qt vrac recupere
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="qt_vrac_recupere"
-                      defaultValue="0"
-                      required
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Code vrac recupere
-                    <input
-                      type="text"
-                      name="code_vrac_recupere"
-                      required
-                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                    />
+                    <LotSearchField name="code_vrac_recupere" defaultValue="" lots={vracRecupereLots} strict compact />
                   </label>
                 </div>
               </div>

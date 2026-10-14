@@ -148,7 +148,7 @@ export function FabricationForm({
   ligneId: number;
   code: string;
   rapport: RapportInfo | null;
-  vracRecupereLots: { numeroLot: string; solde: number }[];
+  vracRecupereLots: { numeroLot: string; solde: number; libelle?: string }[];
   machines: { nom: string; typeProduit: string[] }[];
   ligneDateJour: string;
 }) {
@@ -417,11 +417,11 @@ export function FabricationForm({
           Vrac fabrique = somme automatique des poids des 4 cuves. Ce qui est enregistre ici est
           retire de ce qu&apos;il reste a faire (visible dans le Dashboard). &quot;Qt a
           recuperer&quot; est une partie de ce vrac mise de cote au lieu d&apos;etre envoyee au
-          Conditionnement - elle reste en stock vrac dans Depot B, recuperable plus tard via
-          &quot;Qt vrac recupere&quot;/&quot;Code vrac recupere&quot; sur une prochaine
-          fabrication.
+          Conditionnement - elle reste en stock vrac dans Depot B, recuperable plus tard en choisissant son
+          &quot;Code vrac recupere&quot; (liste du vrac qui existe deja dans Depot B) sur une
+          prochaine fabrication.
         </p>
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-3">
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Vrac fabrique (auto)
             <input
@@ -447,22 +447,13 @@ export function FabricationForm({
             />
           </label>
           <label className="grid gap-1 text-xs font-semibold text-slate-500">
-            Qt vrac recupere
-            <input
-              type="number"
-              step="0.01"
-              name="qt_vrac_recupere"
-              defaultValue={rapport?.qt_vrac_recupere ?? "0"}
-              required
-              className={inputClass}
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-semibold text-slate-500">
             Code vrac recupere
             <LotSearchField
               name="code_vrac_recupere"
               defaultValue={rapport?.code_vrac_recupere || ""}
               lots={vracRecupereLots}
+              strict
+              compact
             />
           </label>
         </div>
