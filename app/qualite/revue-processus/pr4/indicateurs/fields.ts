@@ -12,8 +12,8 @@ export const MANUEL_FIELDS = [
   { key: "test_labo_sous_derogation", label: "Dont sous derogation", group: "5/6 - Test Labo" },
   { key: "vrac_fabrique_kg", label: "Vrac fabrique (kg)", group: "7 - Balance matiere" },
   { key: "carton_fabrique_kg", label: "Carton fabrique (kg)", group: "7 - Balance matiere" },
-  { key: "arret_minutes", label: "Temps arret (min)", group: "8 - Taux d'arret" },
-  { key: "travail_minutes", label: "Temps travail (min)", group: "8 - Taux d'arret" },
+  { key: "arret_minutes", label: "Temps arret (h)", group: "8 - Taux d'arret" },
+  { key: "travail_minutes", label: "Temps travail (h)", group: "8 - Taux d'arret" },
   { key: "pieces_fabriquees", label: "Pieces fabriquees", group: "10 - Dechets" },
   { key: "dechet_pieces", label: "Dechets (pieces)", group: "10 - Dechets" },
   { key: "prix_carton", label: "Prix de revient 1 carton (FCFA)", group: "13 - Cout" },
@@ -26,6 +26,9 @@ export const MANUEL_FIELDS = [
 ] as const;
 
 export type FieldKey = (typeof MANUEL_FIELDS)[number]["key"];
+
+// Ces champs sont saisis et affiches en HEURES mais restent stockes en MINUTES en base (colonnes arret_minutes / travail_minutes).
+export const CHAMPS_EN_HEURES: ReadonlySet<string> = new Set(["arret_minutes", "travail_minutes"]);
 
 export type ManuelRow = {
   id: number;

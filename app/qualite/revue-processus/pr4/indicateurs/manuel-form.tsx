@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { savePr4ManuelAction } from "./actions";
-import { MANUEL_FIELDS, MOIS_NOMS, type ManuelRow } from "./fields";
+import { CHAMPS_EN_HEURES, MANUEL_FIELDS, MOIS_NOMS, type ManuelRow } from "./fields";
 
 const GROUPS = [
   "1/2 - Production",
@@ -29,10 +29,12 @@ function defaultValueFor(
   computed: Partial<Record<(typeof MANUEL_FIELDS)[number]["key"], number>> | undefined,
   key: (typeof MANUEL_FIELDS)[number]["key"]
 ) {
+  // Temps d'arret / de travail : stockes en minutes, saisis en heures
+  const versSaisie = (valeur: number) => (CHAMPS_EN_HEURES.has(key) ? valeur / 60 : valeur);
   const existingValue = existing?.[key];
-  if (existingValue !== null && existingValue !== undefined) return String(existingValue);
+  if (existingValue !== null && existingValue !== undefined) return String(Math.round(versSaisie(Number(existingValue)) * 100) / 100);
   const computedValue = computed?.[key];
-  if (computedValue !== null && computedValue !== undefined) return String(Math.round(computedValue * 100) / 100);
+  if (computedValue !== null && computedValue !== undefined) return String(Math.round(versSaisie(computedValue) * 100) / 100);
   return "";
 }
 

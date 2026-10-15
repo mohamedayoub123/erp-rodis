@@ -50,6 +50,12 @@ export function fmt(value: number | null, decimals = 0) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
 }
 
+// Minutes -> heures (1 decimale) : le temps d'arret / de travail des indicateurs s'affiche en heures
+export function fmtHeures(minutes: number | null) {
+  if (minutes === null || minutes === undefined || Number.isNaN(minutes)) return "-";
+  return fmt(minutes / 60, 1);
+}
+
 export function fmtPct(value: number | null, decimals = 1) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   return `${value.toLocaleString("fr-FR", { maximumFractionDigits: decimals, minimumFractionDigits: decimals })}%`;

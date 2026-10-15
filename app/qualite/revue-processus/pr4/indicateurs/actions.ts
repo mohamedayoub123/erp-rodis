@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { MANUEL_FIELDS } from "./fields";
+import { CHAMPS_EN_HEURES, MANUEL_FIELDS } from "./fields";
 
 function toNumberOrNull(value: FormDataEntryValue | null) {
   const trimmed = String(value ?? "").trim().replace(",", ".");
@@ -28,7 +28,9 @@ export async function savePr4ManuelAction(formData: FormData) {
 
   const payload: Record<string, unknown> = { annee, mois, utilisateur: currentUser, date_saisie: new Date().toISOString() };
   for (const field of MANUEL_FIELDS) {
-    payload[field.key] = toNumberOrNull(formData.get(field.key));
+    const valeur = toNumberOrNull(formData.get(field.key));
+    // Temps d'arret / de travail saisis en heures -> stockes en minutes
+    payload[field.key] = valeur !== null && CHAMPS_EN_HEURES.has(field.key) ? Math.round(valeur * 60) : valeur;
   }
 
   const { error } = await supabaseServer.from("pr4_indicateurs_manuel").upsert(payload, { onConflict: "annee,mois" });

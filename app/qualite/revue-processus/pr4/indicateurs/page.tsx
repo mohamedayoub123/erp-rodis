@@ -5,7 +5,7 @@ import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { Pr4ManuelForm } from "./manuel-form";
 import { MANUEL_FIELDS } from "./fields";
-import { chargerMoisPr4, fmt, fmtPct } from "./calculs";
+import { chargerMoisPr4, fmt, fmtHeures, fmtPct } from "./calculs";
 
 const EXPORT_COLUMNS = [
   { label: "Mois", key: "moisLabel" },
@@ -19,8 +19,8 @@ const EXPORT_COLUMNS = [
   { label: "7 - Vrac commande (kg)", key: "vracFabriqueKgLabel" },
   { label: "7 - Carton fabrique (kg)", key: "cartonFabriqueKgLabel" },
   { label: "7 - % ecart balance matiere (cible -0,5% a +0,5%)", key: "pctEcartLabel" },
-  { label: "8 - Temps arret (min)", key: "arretMinutes" },
-  { label: "8 - Temps travail (min)", key: "travailMinutes" },
+  { label: "8 - Temps arret (h)", key: "arretHeures" },
+  { label: "8 - Temps travail (h)", key: "travailHeures" },
   { label: "8 - % taux arret (cible < 5%)", key: "pctArretLabel" },
   { label: "10 - Pieces fabriquees", key: "piecesLabel" },
   { label: "10 - Dechets (pieces)", key: "dechetLabel" },
@@ -51,7 +51,12 @@ export default async function Pr4Page() {
   // ExportExcelButton attend des valeurs scalaires - isManuel (objet) n'a
   // pas sa place dans l'export, seules les colonnes listees dans
   // EXPORT_COLUMNS comptent de toute facon.
-  const exportRows = monthRows.map(({ isManuel: _isManuel, ...row }) => row);
+  const exportRows = monthRows.map(({ isManuel: _isManuel, ...row }) => ({
+    ...row,
+    // Temps d'arret / de travail exportes en HEURES (les minutes restent la valeur de calcul)
+    arretHeures: Math.round((row.arretMinutes / 60) * 100) / 100,
+    travailHeures: Math.round((row.travailMinutes / 60) * 100) / 100,
+  }));
 
   // Valeurs ACTUELLEMENT affichees (auto ou deja manuel) par mois, pour
   // pre-remplir le formulaire "Saisir un mois ancien" au lieu de le montrer
@@ -205,8 +210,8 @@ export default async function Pr4Page() {
       headlineValue: (r) => r.pctArret,
       isPercent: true,
       subRows: [
-        { label: "Temps d'arret (min)", getValue: (r) => fmt(r.arretMinutes) },
-        { label: "Temps de travail (min)", getValue: (r) => fmt(r.travailMinutes) },
+        { label: "Temps d'arret (h)", getValue: (r) => fmtHeures(r.arretMinutes) },
+        { label: "Temps de travail (h)", getValue: (r) => fmtHeures(r.travailMinutes) },
         { label: "% de perte en temps", getValue: (r) => r.pctArretLabel },
       ],
     },
