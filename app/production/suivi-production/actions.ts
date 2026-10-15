@@ -376,6 +376,31 @@ async function upsertRapport(ligneId: number, code: string, fields: Record<strin
   }
 }
 
+// De NOUVEAUX cartons de Conditionnement sur un code dont l'Emballage avait deja ete termine ("Fin programme" Emballage) doivent
+// revenir a emballer : sans ca, le code restait cache en Emballage pour toujours (cas reel BCA0021 : Fin programme Emballage le
+// 10/10, puis 3 cartons de Conditionnement le 15/10 qui n'arrivaient jamais en Emballage). Meme effet que "Ramener" dans
+// Historique Fin programme Emballage : supprime seulement la ligne production_code_termine (stage "emballage") de ce code - cette
+// etape n'a aucune reservation MP (elles sont sur pesage / salle_conditionnement). Les cartons sont deja enregistres a ce stade :
+// un echec ici ne doit pas faire echouer la saisie (le code se ramene aussi a la main depuis l'historique).
+async function rouvrirEmballageSiTermine(ligneId: number, code: string, currentUser: string | null) {
+  const { data, error } = await supabaseServer
+    .from("production_code_termine")
+    .delete()
+    .eq("programme_ligne_id", ligneId)
+    .eq("code", code)
+    .eq("stage", "emballage")
+    .select("id");
+  if (error || !data || data.length === 0) return;
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "SuiviProduction",
+    action: "modification",
+    cible: code,
+    resume: `Emballage rouvert pour ${code} (ligne ${ligneId}) : nouveaux cartons de Conditionnement saisis apres la Fin programme Emballage`,
+  });
+}
+
 // Supprime une ligne du tableau "Suivi Production" - une ligne peut
 // regrouper jusqu'a 3 entrees (fabrication/conditionnement/emballage,
 // chacune de sa propre date), toutes supprimees d'un seul coup avec ce
@@ -839,6 +864,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
 
     if (!modeCorrection && qtFabriquer && qtFabriquer > 0 && !dejaCompteIdentique) {
       await consommerCartonProportionnel(ligneId, code, qtFabriquer, currentUser);
+      await rouvrirEmballageSiTermine(ligneId, code, currentUser);
     }
 
     revalidateRapportPages();
@@ -988,6 +1014,7 @@ export async function saveConditionnementParLigneAction(formData: FormData) {
     }
 
     await consommerCartonProportionnel(ligneId, code, qtFabriquer, currentUser);
+    await rouvrirEmballageSiTermine(ligneId, code, currentUser);
 
     revalidateRapportPages();
     redirect("/production/suivi/dashboard");
