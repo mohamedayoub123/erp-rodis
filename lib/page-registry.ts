@@ -782,6 +782,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     adminGroup: "Rapport",
   },
   {
+    key: "productionRapportConditionnementMensuel",
+    module: "Production",
+    label: "Rapport Conditionnement Mensuel",
+    pathPrefixes: ["/production/rapport/conditionnement-mensuel"],
+    hasWrite: false,
+    adminGroup: "Rapport",
+  },
+  {
     key: "productionRapportCartonGamme",
     module: "Production",
     label: "Rapport Carton par Gamme",

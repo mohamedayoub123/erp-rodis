@@ -48,6 +48,13 @@ const TILES = [
     description: "Par mois : carton commande vs fabrique, et le % de programmes termines.",
   },
   {
+    label: "Conditionnement Mensuel",
+    href: "/production/rapport/conditionnement-mensuel",
+    pageKey: "productionRapportConditionnementMensuel",
+    icon: "🏭",
+    description: "Par mois : machines demarrees, heures et jours travailles, total cartons et total kg produits.",
+  },
+  {
     label: "Carton par Gamme",
     href: "/production/rapport/carton-gamme",
     pageKey: "productionRapportCartonGamme",
