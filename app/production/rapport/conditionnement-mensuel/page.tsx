@@ -9,7 +9,9 @@ import { calculerConditionnementMensuel } from "./calcul";
 // travailles, le total de cartons et le total de kg produits (voir calcul.ts pour les definitions exactes).
 const EXPORT_COLUMNS = [
   { label: "Mois", key: "moisLabel" },
-  { label: "Machines demarrees", key: "machines" },
+  { label: "Machines demarrees (total des jours du mois)", key: "machinesJours" },
+  { label: "Machines differentes", key: "machines" },
+  { label: "Moyenne de machines par jour", key: "machinesParJourMoyen" },
   { label: "Jours travailles", key: "jours" },
   { label: "Heures travaillees", key: "heures" },
   { label: "Dont arrets (heures)", key: "heuresArrets" },
@@ -33,7 +35,9 @@ export default async function RapportConditionnementMensuelPage() {
 
   const exportRows = [...lignes, { ...total, mois: "TOTAL", moisLabel: "TOTAL" }].map((ligne) => ({
     moisLabel: ligne.moisLabel,
+    machinesJours: ligne.machinesJours,
     machines: ligne.machines,
+    machinesParJourMoyen: Math.round(ligne.machinesParJourMoyen * 10) / 10,
     jours: ligne.jours,
     heures: enHeures(ligne.minutesTravaillees),
     heuresArrets: enHeures(ligne.minutesArrets),
@@ -84,7 +88,7 @@ export default async function RapportConditionnementMensuelPage() {
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Mois</th>
                     <th className="sticky top-0 z-10 bg-sky-50 px-4 py-3 font-semibold text-sky-800">
                       Machines demarrees
-                      <span className="block text-xs font-normal text-sky-700">sur {nbMachinesConditionnement} machines</span>
+                      <span className="block text-xs font-normal text-sky-700">total des jours du mois</span>
                     </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Jours travailles</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">
@@ -115,7 +119,12 @@ export default async function RapportConditionnementMensuelPage() {
                           </span>
                         ) : null}
                       </td>
-                      <td className="bg-sky-50/30 px-4 py-3 font-semibold tabular-nums text-sky-900">{ligne.machines}</td>
+                      <td className="bg-sky-50/30 px-4 py-3 tabular-nums text-sky-900">
+                        <span className="font-semibold">{nombre(ligne.machinesJours)}</span>
+                        <span className="block text-xs font-normal text-sky-700">
+                          {ligne.machines} differentes sur {nbMachinesConditionnement} - moy. {nombre(ligne.machinesParJourMoyen, 1)} par jour
+                        </span>
+                      </td>
                       <td className="px-4 py-3 tabular-nums text-slate-700">{ligne.jours}</td>
                       <td className="px-4 py-3 tabular-nums text-slate-700" title={`${nombre(enHeures(ligne.minutesTravaillees), 2)} h`}>
                         {formatMinutes(ligne.minutesTravaillees)}
@@ -141,8 +150,8 @@ export default async function RapportConditionnementMensuelPage() {
                 <tfoot>
                   <tr className="bg-slate-900 text-white">
                     <td className="px-4 py-3 font-bold">TOTAL</td>
-                    <td className="px-4 py-3 font-bold tabular-nums" title="Machines differentes, tous mois confondus">
-                      {total.machines}
+                    <td className="px-4 py-3 font-bold tabular-nums" title="Somme des machines de tous les jours travailles">
+                      {nombre(total.machinesJours)}
                     </td>
                     <td className="px-4 py-3 font-bold tabular-nums">{total.jours}</td>
                     <td className="px-4 py-3 font-bold tabular-nums">{formatMinutes(total.minutesTravaillees)}</td>
@@ -159,7 +168,10 @@ export default async function RapportConditionnementMensuelPage() {
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 text-xs leading-6 text-slate-500 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
           <p className="font-semibold text-slate-700">Comment c&apos;est calcule</p>
           <ul className="mt-1 list-disc pl-5">
-            <li>Machine demarree : une machine (zone + chaine) qui a produit au moins une fois dans le mois.</li>
+            <li>
+              Machines demarrees : le total des machines de tous les jours du mois - pour chaque jour travaille, on compte les
+              machines (zone + chaine) qui ont produit ce jour-la, puis on additionne (ex : 30 machines pendant 10 jours = 300).
+            </li>
             <li>Jour travaille : un jour ou au moins une machine a produit.</li>
             <li>
               Heures travaillees : somme des durees entre le demarrage du lot et l&apos;arret du batch de chaque saisie, toutes

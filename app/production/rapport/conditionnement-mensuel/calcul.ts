@@ -3,7 +3,9 @@ import { fetchMachinesConditionnement } from "@/lib/machines-conditionnement";
 import { hhmmDiffMinutes } from "@/lib/suivi-tirage-time";
 
 // Rapport Conditionnement mensuel : une ligne par mois (date de la saisie Conditionnement, production_carton_entries).
-//  - machines demarrees : nombre de machines (zone + chaine) qui ont produit ou tourne au moins une fois dans le mois ;
+//  - machines demarrees : TOTAL des machines de tous les jours du mois = somme, pour chaque jour travaille, du nombre de machines
+//    (zone + chaine) qui ont produit ce jour-la (ex : 30 machines pendant 10 jours = 300) ; on garde aussi le nombre de machines
+//    differentes du mois et la moyenne par jour ;
 //  - jours travailles : nombre de jours differents avec une production ;
 //  - heures : somme des durees "demarrage du lot -> arret du batch" de chaque saisie (cumul de toutes les machines), dont les
 //    arrets declares (minutes) ;
@@ -38,7 +40,9 @@ type EntreeCarton = {
 export type LigneMois = {
   mois: string; // AAAA-MM
   moisLabel: string;
-  machines: number;
+  machinesJours: number; // total des machines de tous les jours du mois
+  machines: number; // machines differentes du mois
+  machinesParJourMoyen: number;
   jours: number;
   minutesTravaillees: number;
   minutesArrets: number;
@@ -131,6 +135,7 @@ export async function calculerConditionnementMensuel(): Promise<RapportCondition
 
   type Accumulateur = {
     machines: Set<string>;
+    machinesParJour: Map<string, Set<string>>;
     jours: Set<string>;
     minutesTravaillees: number;
     minutesArrets: number;
@@ -140,6 +145,7 @@ export async function calculerConditionnementMensuel(): Promise<RapportCondition
   };
   const nouveau = (): Accumulateur => ({
     machines: new Set(),
+    machinesParJour: new Map(),
     jours: new Set(),
     minutesTravaillees: 0,
     minutesArrets: 0,
@@ -169,6 +175,9 @@ export async function calculerConditionnementMensuel(): Promise<RapportCondition
     const machine = `${entree.zone ?? "-"}::${entree.chaine ?? "-"}`;
     for (const cumul of [parMois.get(cle) ?? (parMois.set(cle, nouveau()), parMois.get(cle)!), global]) {
       cumul.machines.add(machine);
+      const duJour = cumul.machinesParJour.get(jour) ?? new Set<string>();
+      duJour.add(machine);
+      cumul.machinesParJour.set(jour, duJour);
       if (cartons > 0 || minutes > 0) cumul.jours.add(jour);
       cumul.minutesTravaillees += minutes;
       cumul.minutesArrets += arrets;
@@ -178,15 +187,20 @@ export async function calculerConditionnementMensuel(): Promise<RapportCondition
     }
   }
 
-  const versLigne = (cumul: Accumulateur) => ({
-    machines: cumul.machines.size,
-    jours: cumul.jours.size,
-    minutesTravaillees: cumul.minutesTravaillees,
-    minutesArrets: cumul.minutesArrets,
-    cartons: cumul.cartons,
-    kg: cumul.kg,
-    cartonsSansKg: cumul.cartonsSansKg,
-  });
+  const versLigne = (cumul: Accumulateur) => {
+    const machinesJours = [...cumul.machinesParJour.values()].reduce((somme, jour) => somme + jour.size, 0);
+    return {
+      machinesJours,
+      machines: cumul.machines.size,
+      machinesParJourMoyen: cumul.jours.size > 0 ? machinesJours / cumul.jours.size : 0,
+      jours: cumul.jours.size,
+      minutesTravaillees: cumul.minutesTravaillees,
+      minutesArrets: cumul.minutesArrets,
+      cartons: cumul.cartons,
+      kg: cumul.kg,
+      cartonsSansKg: cumul.cartonsSansKg,
+    };
+  };
 
   const lignes = [...parMois.entries()]
     .sort(([a], [b]) => b.localeCompare(a))
