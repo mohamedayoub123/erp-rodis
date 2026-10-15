@@ -337,30 +337,8 @@ export function buildDispatcherDraftRows(
       }
     }
 
-    let openLot: Lot | null = null;
-
-    for (const item of leftovers) {
-      let remainingForRow = item.amount;
-
-      while (remainingForRow > EPSILON) {
-        if (!openLot) {
-          openLot = { contributions: [], total: 0 };
-          lots.push(openLot);
-        }
-
-        const spaceLeft = Math.round((maxVal - openLot.total) * 100) / 100;
-
-        if (remainingForRow <= spaceLeft + EPSILON) {
-          openLot.contributions.push({ entry: item.entry, amount: remainingForRow });
-          openLot.total = Math.round((openLot.total + remainingForRow) * 100) / 100;
-          remainingForRow = 0;
-          if (openLot.total >= maxVal - EPSILON) openLot = null;
-          continue;
-        }
-
-        openLot = null;
-      }
-    }
+    // Reliquats : le moins de lots possible, jamais fractionnes (voir rangerReliquatsEnLots)
+    lots.push(...rangerReliquatsEnLots(leftovers, maxVal, EPSILON));
 
     // Un lot peut rester en dessous du minimum viable - lui emprunter le
     // manque au lot voisin (suivant, sinon precedent) plutot que de le
@@ -409,4 +387,63 @@ export function buildDispatcherDraftRows(
   }
 
   return draftRows;
+}
+
+// Range les reliquats (un par chaine : ce qui reste apres les lots pleins, toujours < max) dans des lots d'au plus maxVal, SANS
+// jamais fractionner un reliquat entre 2 lots. Deux rangements sont essayes et celui qui donne le MOINS de lots l'emporte (a
+// egalite : l'ordre d'arrivee des chaines, comme avant) :
+//  1. dans l'ordre des chaines : un reliquat qui ne rentre pas dans le lot en cours le ferme et en ouvre un nouveau ;
+//  2. les plus gros d'abord (chaque reliquat va dans le premier lot ou il rentre) - c'est lui qui regroupe deux reliquats separes
+//     par un gros reliquat intermediaire. Ex (max 3000) : 1500 (chaine 4) + 2900 (chaine 5) + 1500 (chaine 6) -> 2 lots
+//     [1500 + 1500] et [2900] au lieu de 3 lots 1500 / 2900 / 1500 (le 2900 de la chaine 5 empechait les 2 x 1500 de se rejoindre).
+export type ReliquatAPlacer<T> = { entry: T; amount: number };
+export type LotDeReliquats<T> = { contributions: { entry: T; amount: number }[]; total: number };
+
+export function rangerReliquatsEnLots<T>(
+  leftovers: ReliquatAPlacer<T>[],
+  maxVal: number,
+  epsilon = 1e-6
+): LotDeReliquats<T>[] {
+  const arrondir = (valeur: number) => Math.round(valeur * 100) / 100;
+
+  const dansLOrdre: LotDeReliquats<T>[] = [];
+  let ouvert: LotDeReliquats<T> | null = null;
+  for (const item of leftovers) {
+    if (!ouvert || item.amount > arrondir(maxVal - ouvert.total) + epsilon) {
+      ouvert = { contributions: [], total: 0 };
+      dansLOrdre.push(ouvert);
+    }
+    ouvert.contributions.push({ entry: item.entry, amount: item.amount });
+    ouvert.total = arrondir(ouvert.total + item.amount);
+    if (ouvert.total >= maxVal - epsilon) ouvert = null;
+  }
+
+  type LotTri = LotDeReliquats<T> & { premier: number };
+  const lesPlusGrosD = leftovers
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => b.item.amount - a.item.amount || a.index - b.index);
+  const lotsTries: LotTri[] = [];
+  const indexDansLot = new Map<LotTri, { entry: T; amount: number; index: number }[]>();
+  for (const { item, index } of lesPlusGrosD) {
+    let lot = lotsTries.find((candidat) => item.amount <= arrondir(maxVal - candidat.total) + epsilon);
+    if (!lot) {
+      lot = { contributions: [], total: 0, premier: index };
+      lotsTries.push(lot);
+      indexDansLot.set(lot, []);
+    }
+    indexDansLot.get(lot)!.push({ entry: item.entry, amount: item.amount, index });
+    lot.total = arrondir(lot.total + item.amount);
+    lot.premier = Math.min(lot.premier, index);
+  }
+  for (const lot of lotsTries) {
+    lot.contributions = indexDansLot
+      .get(lot)!
+      .sort((a, b) => a.index - b.index)
+      .map(({ entry, amount }) => ({ entry, amount }));
+  }
+  lotsTries.sort((a, b) => a.premier - b.premier);
+
+  return lotsTries.length < dansLOrdre.length
+    ? lotsTries.map(({ contributions, total }) => ({ contributions, total }))
+    : dansLOrdre;
 }

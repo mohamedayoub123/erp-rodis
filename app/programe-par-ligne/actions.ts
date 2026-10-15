@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { computeArticleFamilyKey, extractTrailingNumber, incrementCode } from "@/lib/article-code-family";
-import { computeQtCarton } from "@/lib/dispatcher-shared";
+import { computeQtCarton, rangerReliquatsEnLots } from "@/lib/dispatcher-shared";
 import { fetchConditionnementZoneChaineOptions } from "@/lib/machines-conditionnement";
 import { HEURES_PAR_JOUR, findCapaciteFabrication, type MachineCapacite } from "@/lib/machine-capacite";
 import { logAudit } from "@/lib/audit-log";
@@ -495,36 +495,9 @@ function buildDispatcherDraftRows(
       }
     }
 
-    let openLot: Lot | null = null;
-
-    for (const item of leftovers) {
-      let remainingForRow = item.amount;
-
-      while (remainingForRow > EPSILON) {
-        if (!openLot) {
-          openLot = { contributions: [], total: 0 };
-          lots.push(openLot);
-        }
-
-        const spaceLeft = Math.round((maxVal - openLot.total) * 100) / 100;
-
-        if (remainingForRow <= spaceLeft + EPSILON) {
-          // Tout le reliquat tient dans le lot ouvert : garde entier.
-          openLot.contributions.push({ entry: item.entry, amount: remainingForRow });
-          openLot.total = Math.round((openLot.total + remainingForRow) * 100) / 100;
-          remainingForRow = 0;
-          if (openLot.total >= maxVal - EPSILON) openLot = null;
-          continue;
-        }
-
-        // Ne rentre pas dans le lot deja entame : ferme tel quel (jamais
-        // fractionne pour le completer), le reliquat suivant ouvrira le lot
-        // suivant. Impossible ici qu'un reliquat depasse le max a lui seul
-        // (deja extrait en lots pleins ci-dessus), donc pas besoin du cas
-        // "lot vide mais ne rentre pas quand meme".
-        openLot = null;
-      }
-    }
+    // Reliquats : le moins de lots possible, jamais fractionnes (voir rangerReliquatsEnLots dans lib/dispatcher-shared.ts) -
+    // ex : 1500 (chaine 4) + 2900 (chaine 5) + 1500 (chaine 6) donnent 2 lots [1500 + 1500] et [2900], pas 3.
+    lots.push(...rangerReliquatsEnLots(leftovers, maxVal, EPSILON));
 
     // Un lot peut rester en dessous du minimum viable - lui emprunter le
     // manque au lot voisin (suivant, sinon precedent) plutot que de le
