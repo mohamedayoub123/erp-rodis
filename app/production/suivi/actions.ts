@@ -275,6 +275,8 @@ export async function markVracTermineAction(formData: FormData) {
 async function verifierEcartFinProgrammeCartons(formData: FormData) {
   const currentUser = await getCurrentStockUser();
   if (isAdminUser(currentUser)) return;
+  // Case "Fin programme SANS limite" cochee pour cette personne dans Admin > permissions
+  if ((await getDashboardProductionUser(currentUser)).finProgrammeSansLimite) return;
 
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   const code = String(formData.get("code") || "").trim();

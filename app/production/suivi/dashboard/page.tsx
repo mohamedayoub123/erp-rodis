@@ -870,7 +870,10 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3">
                           {dash.finProgramme ? (
-                            !isAdmin && !row.cartonPrevuIsNull && Math.abs(row.cartonRestant) > SEUIL_FIN_PROGRAMME_CARTONS ? (
+                            !isAdmin &&
+                            !dash.finProgrammeSansLimite &&
+                            !row.cartonPrevuIsNull &&
+                            Math.abs(row.cartonRestant) > SEUIL_FIN_PROGRAMME_CARTONS ? (
                               <span
                                 title={`Ecart de plus de ${SEUIL_FIN_PROGRAMME_CARTONS} cartons : seul Mayoub peut faire Fin programme`}
                                 className="text-xs font-semibold text-slate-400"

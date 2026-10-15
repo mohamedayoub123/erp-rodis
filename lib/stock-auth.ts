@@ -28,6 +28,7 @@ export const DASHBOARD_PRODUCTION_CLES = [
   "entrerParLigne",
   "ajouterFiche",
   "finProgramme",
+  "finProgrammeSansLimite",
   "sallePesage",
   "salleConditionnement",
 ] as const;
@@ -45,6 +46,8 @@ function dashboardProductionParDefaut(isAdmin: boolean): DashboardProductionPerm
     entrerParLigne: true,
     ajouterFiche: true,
     finProgramme: true,
+    // Fin programme Conditionnement au-dela de 10 cartons d'ecart : reserve aux admins sauf si la case est cochee pour la personne
+    finProgrammeSansLimite: isAdmin,
     sallePesage: isAdmin,
     salleConditionnement: isAdmin,
   };
