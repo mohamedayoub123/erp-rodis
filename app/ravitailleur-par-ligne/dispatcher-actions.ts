@@ -169,11 +169,15 @@ export async function saveProgrammeDispatcherSnapshotAction(formData: FormData) 
 
   // Ce Save confirme officiellement les programmes source pour le suivi de
   // production - ils deviennent visibles sur le Dashboard/Calendrier
-  // seulement a partir de maintenant (voir confirme_production).
+  // seulement a partir de maintenant (voir confirme_production). Il les
+  // remet aussi dans les rapports/Dashboard (exclu_rapports = false) : supprimer
+  // un PD depuis l'historique exclut ses lignes sans production, et
+  // re-enregistrer le meme programme juste apres (ex : PD98 supprime puis PD99)
+  // les laissait invisibles.
   if (sourceGroupeIds.length > 0) {
     const { error: confirmError } = await supabaseServer
       .from("programme_lignes")
-      .update({ confirme_production: true })
+      .update({ confirme_production: true, exclu_rapports: false })
       .in("groupe_id", sourceGroupeIds);
 
     if (confirmError) {
@@ -262,7 +266,7 @@ export async function saveAllZonesDispatcherSnapshotAction() {
   if (sourceGroupeIds.length > 0) {
     const { error: confirmError } = await supabaseServer
       .from("programme_lignes")
-      .update({ confirme_production: true })
+      .update({ confirme_production: true, exclu_rapports: false })
       .in("groupe_id", sourceGroupeIds);
 
     if (confirmError) {
