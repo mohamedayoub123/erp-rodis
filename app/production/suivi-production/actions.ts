@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { MAX_CARTONS_FICHE_PLUS, MAX_FICHES_PLUS_PAR_CODE } from "@/lib/limites-saisie-production";
+import { estValideurTestLabo } from "@/lib/valideurs-test-labo";
 import { logAudit } from "@/lib/audit-log";
 import { fetchVracDepotBParArticle } from "@/lib/vrac-depot-b";
 import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-article";
@@ -1449,7 +1450,16 @@ export async function saveTestLaboAction(formData: FormData) {
     );
   }
 
+  // "Valide par" : liste fermee VALIDEURS_TEST_LABO (vide = personne). Champ absent du formulaire = valeur actuelle conservee.
+  const valideParChoisi = String(formData.get("valide_par_test_labo") ?? "").trim();
+  if (valideParChoisi !== "" && !estValideurTestLabo(valideParChoisi)) {
+    redirect(
+      `/production/suivi-production/fabrication/${ligneId}/test-labo?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent("Valide par : choisis un nom de la liste.")}`
+    );
+  }
+
   const testLaboFields = {
+    ...(formData.has("valide_par_test_labo") ? { valide_par_test_labo: valideParChoisi || null } : {}),
     ph,
     densite,
     viscosite,

@@ -7,6 +7,7 @@ import { fetchAvailableLotsAction } from "@/app/depots/transfer-order/actions";
 import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { TimeTextInput } from "@/app/_components/time-text-input";
+import { VALIDEURS_TEST_LABO } from "@/lib/valideurs-test-labo";
 
 type RapportInfo = {
   ph: number | null;
@@ -28,6 +29,7 @@ type RapportInfo = {
   heure_prise_echantillon: string | null;
   heure_debut_analyse: string | null;
   heure_fin_analyse: string | null;
+  valide_par_test_labo?: string | null;
 };
 
 type SpecInfo = {
@@ -382,6 +384,28 @@ export function TestLaboForm({
               </>
             ) : null}
           </div>
+        </div>
+
+        <div>
+          <h2 className="mb-1 text-lg font-bold text-slate-900">Valide par</h2>
+          <p className="mb-3 text-xs text-slate-500">Choisis la personne qui valide ce test labo.</p>
+          <select
+            name="valide_par_test_labo"
+            defaultValue={rapport?.valide_par_test_labo || ""}
+            className={`w-full max-w-sm ${inputClass}`}
+          >
+            <option value="">Choisir...</option>
+            {[
+              ...VALIDEURS_TEST_LABO,
+              ...(rapport?.valide_par_test_labo && !(VALIDEURS_TEST_LABO as readonly string[]).includes(rapport.valide_par_test_labo)
+                ? [rapport.valide_par_test_labo]
+                : []),
+            ].map((nom) => (
+              <option key={nom} value={nom}>
+                {nom}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>

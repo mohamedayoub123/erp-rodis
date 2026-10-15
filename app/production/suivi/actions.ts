@@ -7,8 +7,6 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser, getDashboardP
 import { fetchLotsInDepot } from "@/app/depots/transfer-order/stock-lots";
 import { logAudit } from "@/lib/audit-log";
 import { supprimerToutesTracesProductionPourLigne } from "../suivi-production/actions";
-import { estValideurTestLabo } from "@/lib/valideurs-test-labo";
-import { viderCacheDashboard } from "./dashboard/dashboard-data";
 import { lireQuantitesParCode, SEUIL_FIN_PROGRAMME_CARTONS, type LigneQuantites } from "./dashboard/quantites-fin-programme";
 
 function revalidateSuiviPages() {
@@ -871,56 +869,3 @@ export async function renameLotCodeAction(formData: FormData) {
   await cascadeRenameProductionCode(oldCode, newCode);
 }
 
-// Colonne "Valide par" du Test labo (Dashboard > Fabrication) : choisit qui a valide le test labo de ce lot, dans la
-// liste fermee VALIDEURS_TEST_LABO ("" = effacer le choix). Meme droit que la saisie du Test labo. Un meme lot (code)
-// peut se trouver sur plusieurs lignes de programme (redispatche) mais n'a qu'un seul vrai test labo : le choix est donc
-// applique a toutes les lignes de ce code, comme les resultats du test (voir saveTestLaboAction). Retourne
-// { ok:false, message } au lieu de "throw" (Next reduit le message d'un throw au texte generique en production).
-export async function enregistrerValideParTestLaboAction(
-  ligneId: number,
-  code: string,
-  nom: string
-): Promise<{ ok: boolean; message?: string }> {
-  const currentUser = await getCurrentStockUser();
-
-  if (!(await canWritePageUser(currentUser, "productionSuiviProductionTestLabo"))) {
-    return { ok: false, message: "Cet utilisateur ne peut pas choisir qui a valide le test labo." };
-  }
-
-  const nomChoisi = String(nom ?? "").trim();
-  if (nomChoisi !== "" && !estValideurTestLabo(nomChoisi)) {
-    return { ok: false, message: "Nom non autorise : choisissez un nom de la liste." };
-  }
-
-  const id = Number(ligneId);
-  if (!Number.isInteger(id) || id <= 0) {
-    return { ok: false, message: "Ligne invalide." };
-  }
-  const codeLot = String(code ?? "").trim();
-
-  const miseAJour = supabaseServer.from("production_rapports").update({ valide_par_test_labo: nomChoisi || null });
-  const { data, error } = await (
-    codeLot ? miseAJour.eq("code", codeLot) : miseAJour.eq("programme_ligne_id", id).or("code.is.null,code.eq.")
-  )
-    .not("utilisateur_test_labo", "is", null)
-    .select("id");
-
-  if (error) {
-    if (/valide_par_test_labo/i.test(error.message)) {
-      return {
-        ok: false,
-        message:
-          "La colonne n'existe pas encore dans la base : lancez scripts/sql/create_dashboard_production_data.sql dans Supabase (SQL Editor).",
-      };
-    }
-    return { ok: false, message: error.message };
-  }
-
-  if (!data || data.length === 0) {
-    return { ok: false, message: "Aucun test labo enregistre pour ce lot : saisissez d'abord le Test labo." };
-  }
-
-  viderCacheDashboard();
-  revalidatePath("/production/suivi/dashboard");
-  return { ok: true };
-}

@@ -15,9 +15,8 @@ import {
   markEmballageTermineAction,
   markVracTermineAction,
 } from "../actions";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser, getDashboardProductionUser, isAdminUser } from "@/lib/stock-auth";
+import { canDeletePageUser, getCurrentStockUser, getDashboardProductionUser, isAdminUser } from "@/lib/stock-auth";
 import { LotCodeCell } from "./lot-code-cell";
-import { ValideParSelect } from "./valide-par-select";
 import { SingleDayFilter } from "./single-day-filter";
 import { SEUIL_FIN_PROGRAMME_CARTONS } from "./quantites-fin-programme";
 import { DeleteProgrammeLigneButton } from "./delete-programme-ligne-button";
@@ -196,7 +195,6 @@ export default async function PlanningDashboardPage({
     terminatedCodes,
     lignesAvecReserveEnAttente,
     testLaboDoneKeys,
-    testLaboValideParKeys,
     pdLabelByCode,
     articles,
   } = dashboardData;
@@ -211,8 +209,6 @@ export default async function PlanningDashboardPage({
   // en moins.
   const isAdmin = canEditLotCode;
   const canDeleteLigne = await canDeletePageUser(currentUser, "productionSuiviDashboard");
-  // Colonne "Valide par" du Test labo : meme droit que la saisie du Test labo
-  const canEditValidePar = await canWritePageUser(currentUser, "productionSuiviProductionTestLabo");
   // Ce que la personne voit du Dashboard (cases de l'ecran Admin > permissions de l'utilisateur) : colonnes, boutons, salles
   const dash = await getDashboardProductionUser(currentUser);
   const nbColonnes = [dash.fabrication, dash.conditionnement, dash.emballage].filter(Boolean).length;
@@ -725,22 +721,6 @@ export default async function PlanningDashboardPage({
                                 <span className="text-[0.65rem] text-slate-500">
                                   {testLaboDoneKeys.get(`${row.ligne.id}::${row.code}`)}
                                 </span>
-                              ) : null}
-                              {testLaboDoneKeys.has(`${row.ligne.id}::${row.code}`) ? (
-                                canEditValidePar ? (
-                                  <div className="mt-1 flex flex-col items-start gap-0.5">
-                                    <span className="text-[0.65rem] font-semibold text-slate-400">Validé par</span>
-                                    <ValideParSelect
-                                      ligneId={row.ligne.id}
-                                      code={row.code}
-                                      valeur={testLaboValideParKeys.get(`${row.ligne.id}::${row.code}`) ?? ""}
-                                    />
-                                  </div>
-                                ) : testLaboValideParKeys.get(`${row.ligne.id}::${row.code}`) ? (
-                                  <span className="mt-1 text-[0.65rem] font-semibold text-slate-700">
-                                    Validé par {testLaboValideParKeys.get(`${row.ligne.id}::${row.code}`)}
-                                  </span>
-                                ) : null
                               ) : null}
                             </div>
                             ) : null}

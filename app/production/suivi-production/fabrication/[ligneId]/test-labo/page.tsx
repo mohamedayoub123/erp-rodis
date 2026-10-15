@@ -41,6 +41,7 @@ type RapportInfo = {
   heure_debut_analyse: string | null;
   heure_fin_analyse: string | null;
   utilisateur_test_labo: string | null;
+  valide_par_test_labo: string | null;
 };
 
 type SpecInfo = {
@@ -64,7 +65,7 @@ type SpecInfo = {
 };
 
 const RAPPORT_FIELDS =
-  "ph, densite, viscosite, degre_alcool, stabilite, couleur, temperature_test, odeur, taux_humidite, pression_atmospherique, texture, remarque, disposition_qualite, sous_derogation, motif_derogation, nom_labo, date_prise_echantillon, heure_prise_echantillon, heure_debut_analyse, heure_fin_analyse, utilisateur_test_labo";
+  "ph, densite, viscosite, degre_alcool, stabilite, couleur, temperature_test, odeur, taux_humidite, pression_atmospherique, texture, remarque, disposition_qualite, sous_derogation, motif_derogation, nom_labo, date_prise_echantillon, heure_prise_echantillon, heure_debut_analyse, heure_fin_analyse, utilisateur_test_labo, valide_par_test_labo";
 
 type SearchParams = Promise<{ code?: string; erreur?: string; enregistre?: string; ajuste?: string }>;
 
