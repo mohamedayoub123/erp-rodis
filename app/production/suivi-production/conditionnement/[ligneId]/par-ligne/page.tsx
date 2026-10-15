@@ -12,6 +12,7 @@ import { LigneZoneChaineEditor } from "../zone-chaine-editor";
 import { ModeSaisieSwitch } from "../../mode-switch";
 import { DatesFabricationPeremption } from "../../dates-fabrication-peremption";
 import { ParLigneProduction } from "./par-ligne-production";
+import { ArretsParCause } from "./arrets-par-cause";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { TimeTextInputMaintenant } from "@/app/_components/time-text-input-maintenant";
 
@@ -280,16 +281,10 @@ export default async function ConditionnementParLignePage({
               <div>
                 <h2 className="mb-1 text-lg font-bold text-slate-900">Arret</h2>
                 <p className="mb-3 text-xs text-slate-500">
-                  Temps d&apos;arret (en minutes) pour chaque cause concernee - 0 si pas concerne.
+                  Temps d&apos;arret (en minutes) pour chaque cause : une cellule par arret (6 au maximum), le total de la cause
+                  se calcule tout seul (cellule bleue). Laisse vide si pas concerne.
                 </p>
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {ARRET_CAUSES.map((cause) => (
-                    <label key={cause.field} className="grid gap-1 text-xs font-semibold text-slate-500">
-                      {cause.label}
-                      <input type="number" step="1" min="0" name={cause.field} defaultValue="0" required className={CHAMP} />
-                    </label>
-                  ))}
-                </div>
+                <ArretsParCause causes={ARRET_CAUSES} classeChamp={CHAMP} />
               </div>
 
               <div>
