@@ -6,6 +6,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
 import { MAX_CARTONS_FICHE_PLUS, MAX_FICHES_PLUS_PAR_CODE } from "@/lib/limites-saisie-production";
 import { estValideurTestLabo } from "@/lib/valideurs-test-labo";
+import { verifierNomsConditionnement } from "@/lib/noms-conditionnement";
 import { logAudit } from "@/lib/audit-log";
 import { fetchVracDepotBParArticle } from "@/lib/vrac-depot-b";
 import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-article";
@@ -678,6 +679,9 @@ export async function saveConditionnementRapportAction(formData: FormData) {
       throw new Error("Ligne invalide.");
     }
 
+    // Chef de zone / chef de ligne : seulement des noms de la liste (Production > Noms Conditionnement), quand elle n'est pas vide
+    await verifierNomsConditionnement(formData);
+
     const erreurConditionnement = await messageSiConditionnementInvalide(ligneId, code);
     if (erreurConditionnement) {
       redirect(
@@ -871,6 +875,9 @@ export async function saveConditionnementParLigneAction(formData: FormData) {
     if (!ligneId) {
       throw new Error("Ligne invalide.");
     }
+
+    // Chef de zone / chef de ligne : seulement des noms de la liste (Production > Noms Conditionnement), quand elle n'est pas vide
+    await verifierNomsConditionnement(formData);
 
     const erreurConditionnement = await messageSiConditionnementInvalide(ligneId, code);
     if (erreurConditionnement) {
@@ -1871,6 +1878,7 @@ export async function createManualConditionnementEntryAction(formData: FormData)
   try {
     // Controle AVANT la creation de la ligne (sinon une ligne vide resterait apres le refus).
     await verifierLimitesFichePlus(formData, "Conditionnement", "qt_fabriquer");
+    await verifierNomsConditionnement(formData);
     const { id, numeroLot } = await createManualEntryLigne(
       formData,
       "productionSuiviProductionConditionnement",

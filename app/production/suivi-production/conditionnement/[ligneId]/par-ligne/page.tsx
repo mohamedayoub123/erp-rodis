@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { ChoixNomField } from "../../choix-nom-field";
+import { CLE_PAGE_NOMS_CONDITIONNEMENT, URL_PAGE_NOMS_CONDITIONNEMENT, lireNomsConditionnement } from "@/lib/noms-conditionnement";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/app/production/suivi/data";
@@ -91,6 +93,11 @@ export default async function ConditionnementParLignePage({
 
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
+  const [nomsConditionnement, peutGererNoms] = await Promise.all([
+    lireNomsConditionnement(),
+    canWritePageUser(currentStockUser, CLE_PAGE_NOMS_CONDITIONNEMENT),
+  ]);
+  const lienGererNoms = peutGererNoms ? URL_PAGE_NOMS_CONDITIONNEMENT : undefined;
 
   const [{ data: ligneData }, { data: equipeData }, zoneChaineOptions] = await Promise.all([
     supabaseServer
@@ -207,11 +214,25 @@ export default async function ConditionnementParLignePage({
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Nom chef de zone
-                    <input type="text" name="chef_zone" defaultValue={equipe?.chef_zone || ""} required className={CHAMP} />
+                    <ChoixNomField
+                      name="chef_zone"
+                      noms={nomsConditionnement.chef_zone}
+                      defaultValue={equipe?.chef_zone || ""}
+                      required
+                      lienGerer={lienGererNoms}
+                      className={CHAMP}
+                    />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Nom chef de ligne
-                    <input type="text" name="chef_ligne" defaultValue={equipe?.chef_ligne || ""} required className={CHAMP} />
+                    <ChoixNomField
+                      name="chef_ligne"
+                      noms={nomsConditionnement.chef_ligne}
+                      defaultValue={equipe?.chef_ligne || ""}
+                      required
+                      lienGerer={lienGererNoms}
+                      className={CHAMP}
+                    />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Nom ravitailleur

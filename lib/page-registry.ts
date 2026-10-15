@@ -583,6 +583,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     adminGroup: "Suivi Production",
   },
   {
+    key: "productionNomsConditionnement",
+    module: "Production",
+    label: "Noms Chef de zone / Chef de ligne (Conditionnement)",
+    pathPrefixes: ["/production/noms-conditionnement"],
+    adminGroup: "Suivi Production",
+  },
+  {
     key: "productionSuiviProductionEmballage",
     module: "Production",
     label: "Rapport Emballage",

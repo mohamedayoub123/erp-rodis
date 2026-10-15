@@ -1,6 +1,8 @@
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser, isAdminUser } from "@/lib/stock-auth";
+import { ChoixNomField } from "../choix-nom-field";
+import { CLE_PAGE_NOMS_CONDITIONNEMENT, URL_PAGE_NOMS_CONDITIONNEMENT, lireNomsConditionnement } from "@/lib/noms-conditionnement";
 import { MAX_CARTONS_FICHE_PLUS, MAX_FICHES_PLUS_PAR_CODE } from "@/lib/limites-saisie-production";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
@@ -65,6 +67,11 @@ export default async function NouvelleFicheConditionnementPage({
 
   const currentStockUser = await getCurrentStockUser();
   const canWrite = await canWritePageUser(currentStockUser, "productionSuiviProductionConditionnement");
+  const [nomsConditionnement, peutGererNoms] = await Promise.all([
+    lireNomsConditionnement(),
+    canWritePageUser(currentStockUser, CLE_PAGE_NOMS_CONDITIONNEMENT),
+  ]);
+  const lienGererNoms = peutGererNoms ? URL_PAGE_NOMS_CONDITIONNEMENT : undefined;
   const estAdmin = isAdminUser(currentStockUser);
   const articles = await fetchAllArticles();
   const zoneChaineOptions = await fetchConditionnementZoneChaineOptions();
@@ -151,19 +158,21 @@ export default async function NouvelleFicheConditionnementPage({
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Nom chef de zone
-                    <input
-                      type="text"
+                    <ChoixNomField
                       name="chef_zone"
+                      noms={nomsConditionnement.chef_zone}
                       required
+                      lienGerer={lienGererNoms}
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Nom chef de ligne
-                    <input
-                      type="text"
+                    <ChoixNomField
                       name="chef_ligne"
+                      noms={nomsConditionnement.chef_ligne}
                       required
+                      lienGerer={lienGererNoms}
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
