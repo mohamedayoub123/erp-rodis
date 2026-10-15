@@ -143,6 +143,11 @@ export const navItems: NavItem[] = [
         label: "Heures Sup Manuel",
         pageKey: "productionHeuresSupManuel",
       },
+      {
+        href: "/production/noms-conditionnement",
+        label: "Noms Conditionnement",
+        pageKey: "productionNomsConditionnement",
+      },
     ],
   },
   {

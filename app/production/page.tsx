@@ -116,6 +116,13 @@ const TILES = [
     icon: "\u{1F6E2}\u{FE0F}",
     description: "Enregistre les articles vrac avec le code du vrac a recuperer : ils entrent dans le Depot B et deviennent utilisables en Fabrication.",
   },
+  {
+    label: "Noms Conditionnement",
+    href: "/production/noms-conditionnement",
+    pageKey: "productionNomsConditionnement",
+    icon: "👤",
+    description: "Liste des chefs de zone et des chefs de ligne : on les choisit dans Entrer et Entrer par ligne.",
+  },
 ] as const;
 
 export default async function ProductionPage() {
