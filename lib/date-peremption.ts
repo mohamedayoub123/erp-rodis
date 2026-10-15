@@ -1,10 +1,11 @@
 // Date de peremption automatique du Conditionnement (Entree simple ET Entree par ligne) :
-// date de fabrication + 3 ans, sauf gel douche / savon / huile / serum / pommade : + 5 ans.
+// date de fabrication + 3 ans, sauf gel douche / savon / huile / serum / pommade / hydratant / parfum (parfume, pafum) : + 5 ans.
 // Le type vient du champ "type_article" de la fiche Article Produit Fini.
 // Aucun import serveur ici : ce fichier est aussi charge cote navigateur (apercu en direct), mais l'action
 // serveur recalcule toujours la date elle-meme - la valeur affichee ne peut jamais etre modifiee.
 
-const TYPES_CINQ_ANS = new Set(["gel douche", "savon", "huile", "serum", "pommade"]);
+// "pafum" = faute de frappe presente sur 2 fiches article, gardee pour qu'elles comptent aussi 5 ans.
+const TYPES_CINQ_ANS = new Set(["gel douche", "savon", "huile", "serum", "pommade", "hydratant", "parfum", "parfume", "pafum"]);
 
 function normaliserType(type: string | null | undefined) {
   return (type || "")
