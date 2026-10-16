@@ -205,7 +205,9 @@ export default async function SuiviConteneursPage({ searchParams }: { searchPara
                             {LIBELLE_PHASE[etat.phase]}
                           </span>
                         ) : (
-                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Recherche en cours</span>
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                            {configure ? "Recherche en cours" : "En attente de la cle"}
+                          </span>
                         )}
                         {peutModifier ? (
                           <form action={supprimerConteneurSuiviAction} className="no-print">

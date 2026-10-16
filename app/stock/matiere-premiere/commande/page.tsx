@@ -274,7 +274,8 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
 
   // Conteneurs affiches dont le suivi doit etre mis a jour : le composant ActualisationAuto s'en charge sans clic
   const lignesSuiviAffichees = groups.flatMap((group) => suiviParDossier.get(dossierKey(group.nDoss4d, group.nDossErp)) ?? []);
-  const idsAActualiser = suiviConfigure()
+  const suiviActif = suiviConfigure();
+  const idsAActualiser = suiviActif
     ? lignesSuiviAffichees.filter((ligne) => doitActualiser(ligne, false)).map((ligne) => ligne.id)
     : [];
   const suiviEnAttente = lignesSuiviAffichees.some((ligne) => !ligne.etat);
@@ -606,7 +607,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                                     </span>
                                   ) : (
                                     <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700">
-                                      Recherche en cours
+                                      {suiviActif ? "Recherche en cours" : "En attente de la cle"}
                                     </span>
                                   )}
                                   {canEdit ? (
