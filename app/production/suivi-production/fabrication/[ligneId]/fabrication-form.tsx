@@ -17,6 +17,7 @@ import {
   renderTimeState,
 } from "@/app/_components/time-text-input";
 import { VracRecupereFields } from "../vrac-recupere-fields";
+import { fusionnerRecuperations, lireRecuperations } from "@/lib/vrac-recuperations";
 import { MachineSelectField } from "../../machine-select-field";
 import { TYPE_PRODUIT_OPTIONS } from "../../../machines/type-produit-options";
 
@@ -434,9 +435,9 @@ export function FabricationForm({
           </label>
           <VracRecupereFields
             lots={vracRecupereLots}
-            codeInitial={rapport?.code_vrac_recupere || ""}
-            quantiteInitiale={rapport?.qt_vrac_recupere ?? "0"}
-            dejaPris={Number(rapport?.qt_vrac_recupere ?? 0)}
+            recuperationsInitiales={fusionnerRecuperations(
+              lireRecuperations(rapport?.code_vrac_recupere, rapport?.qt_vrac_recupere)
+            )}
             classeChamp={inputClass}
           />
         </div>

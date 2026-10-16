@@ -9,6 +9,12 @@ import { estValideurTestLabo } from "@/lib/valideurs-test-labo";
 import { verifierNomsConditionnement } from "@/lib/noms-conditionnement";
 import { logAudit } from "@/lib/audit-log";
 import { fetchVracDepotBParArticle } from "@/lib/vrac-depot-b";
+import {
+  encoderRecuperations,
+  fusionnerRecuperations,
+  lireRecuperations,
+  lireRecuperationsFormulaire,
+} from "@/lib/vrac-recuperations";
 import { resolveVracArticleId, resolveVracArticleIdForLigne } from "@/lib/vrac-article";
 import { calculerCartonsCasiers, lireCasiersCoches, lireReleves, moyenne } from "@/lib/conditionnement-par-ligne";
 import {
@@ -1154,7 +1160,6 @@ export async function saveFabricationRapportAction(formData: FormData) {
 
     const vracFabrique = parseOptionalNumber(formData, "vrac_fabrique");
     const dateFabricationConditionnement = parseOptionalText(formData, "date_fabrication_conditionnement");
-    const codeVracRecupere = parseOptionalText(formData, "code_vrac_recupere");
     const { data: rapportExistantData } = await supabaseServer
       .from("production_rapports")
       .select("qt_a_recuperer, qt_vrac_recupere, code_vrac_recupere")
@@ -1171,57 +1176,60 @@ export async function saveFabricationRapportAction(formData: FormData) {
     // RECUPEREE dans ce vrac (qt_vrac_recupere) : elle s'AJOUTE au vrac et est retiree du stock du lot choisi. Un ancien mouvement
     // "mis de cote" de cette fiche est supprime a l'enregistrement (voir plus bas).
     const qtARecupererExistante = Number(rapportExistant?.qt_a_recuperer ?? 0);
-    const qtVracRecupereExistante = Number(rapportExistant?.qt_vrac_recupere ?? 0);
-    const qtVracRecupere = formData.has("qt_vrac_recupere")
-      ? (parseOptionalNumber(formData, "qt_vrac_recupere") ?? 0)
-      : codeVracRecupere
-        ? qtVracRecupereExistante
-        : 0;
-    // Le code recupere doit exister dans le vrac du Depot B (le code deja enregistre sur cette fiche reste accepte)
-    const codeVracChange =
-      !!codeVracRecupere &&
-      codeVracRecupere.trim().toLowerCase() !== (rapportExistant?.code_vrac_recupere || "").trim().toLowerCase();
-    // Lots du Depot B portant ce code, du plus gros solde au plus petit : le stock debite est celui du lot CHOISI, pas
-    // forcement celui de l'article de cette ligne (le vrac recupere peut venir d'un autre produit).
-    const lotsCandidats =
-      codeVracRecupere && (codeVracChange || qtVracRecupere > 0)
-        ? (await fetchVracDepotBParArticle({ inclureStockNul: true }))
-            .filter((lot) => lot.numeroLot.trim().toLowerCase() === codeVracRecupere.trim().toLowerCase())
-            .sort((a, b) => b.solde - a.solde)
-        : [];
-    const lotSource = lotsCandidats[0] ?? null;
-    // Un NOUVEAU code doit avoir du stock : un lot a 0 n'est ni visible ni choisissable
-    if (codeVracChange && !lotsCandidats.some((lot) => lot.solde > 1e-9)) {
-      throw new Error(
-        `Code vrac recupere "${codeVracRecupere}" introuvable dans le module Vrac a recuperer ou son stock est a 0 : choisis un code de la liste.`
-      );
-    }
 
-    if (qtVracRecupere < 0) {
-      throw new Error("Qt a recuperer invalide.");
+    // Une fiche peut recuperer le vrac de PLUSIEURS codes (voir lib/vrac-recuperations.ts) : ce qu'elle avait deja pris, puis ce que
+    // le formulaire demande maintenant. Un formulaire qui n'envoie pas ces champs ne change pas les recuperations existantes.
+    const recuperationsExistantes = fusionnerRecuperations(
+      lireRecuperations(rapportExistant?.code_vrac_recupere, rapportExistant?.qt_vrac_recupere)
+    );
+    const dejaPrisParCode = new Map(recuperationsExistantes.map((element) => [element.code.trim().toLowerCase(), element.quantite]));
+    const qtVracRecupereExistante = recuperationsExistantes.reduce((somme, element) => somme + element.quantite, 0);
+    const saisies = formData.has("qt_vrac_recupere") ? lireRecuperationsFormulaire(formData) : recuperationsExistantes;
+    for (const saisie of saisies) {
+      if (!Number.isFinite(saisie.quantite) || saisie.quantite < 0) {
+        throw new Error("Qt a recuperer invalide.");
+      }
+      if (saisie.quantite > 0 && !saisie.code) {
+        throw new Error("Choisis le Code vrac recupere (liste du module Vrac a recuperer) pour la Qt a recuperer.");
+      }
     }
-    if (qtVracRecupere > 0 && !codeVracRecupere) {
-      throw new Error("Choisis le Code vrac recupere (liste du module Vrac a recuperer) pour la Qt a recuperer.");
-    }
-    // La quantite recuperee ne peut pas depasser le stock du lot (en plus de ce que cette fiche en avait deja pris : son ancien
-    // mouvement est remplace a l'enregistrement). Verifie AVANT toute ecriture.
-    if (qtVracRecupere > 0 && codeVracRecupere) {
+    const demandees = fusionnerRecuperations(saisies);
+
+    // Lots du Depot B portant chaque code, du plus gros solde au plus petit : le stock debite est celui du lot CHOISI, pas
+    // forcement celui de l'article de cette ligne (le vrac recupere peut venir d'un autre produit).
+    const lotsDepotB = demandees.length > 0 ? await fetchVracDepotBParArticle({ inclureStockNul: true }) : [];
+    const lotSourceParCode = new Map<string, (typeof lotsDepotB)[number] | null>();
+    for (const demande of demandees) {
+      const cle = demande.code.toLowerCase();
+      const candidats = lotsDepotB
+        .filter((lot) => lot.numeroLot.trim().toLowerCase() === cle)
+        .sort((a, b) => b.solde - a.solde);
+      const lotSource = candidats[0] ?? null;
+      lotSourceParCode.set(cle, lotSource);
+
+      // Le code deja enregistre sur cette fiche reste accepte ; un NOUVEAU code doit avoir du stock : un lot a 0 n'est ni visible
+      // ni choisissable
+      const dejaPris = dejaPrisParCode.get(cle) ?? 0;
+      const codeChange = !dejaPrisParCode.has(cle);
+      if (codeChange && !candidats.some((lot) => lot.solde > 1e-9)) {
+        throw new Error(
+          `Code vrac recupere "${demande.code}" introuvable dans le module Vrac a recuperer ou son stock est a 0 : choisis un code de la liste.`
+        );
+      }
+      // La quantite recuperee ne peut pas depasser le stock du lot (en plus de ce que cette fiche en avait deja pris : son ancien
+      // mouvement est remplace a l'enregistrement). Verifie AVANT toute ecriture.
       if (!lotSource) {
         // Ancien code hors module deja enregistre sur cette fiche : on ne peut pas en recuperer davantage
-        if (codeVracChange || qtVracRecupere > qtVracRecupereExistante + 1e-6) {
+        if (codeChange || demande.quantite > dejaPris + 1e-6) {
           throw new Error(
-            `Code vrac recupere "${codeVracRecupere}" introuvable dans le module Vrac a recuperer : choisis un code de la liste.`
+            `Code vrac recupere "${demande.code}" introuvable dans le module Vrac a recuperer : choisis un code de la liste.`
           );
         }
       } else {
-        const dejaPris =
-          lotSource.numeroLot.trim().toLowerCase() === (rapportExistant?.code_vrac_recupere || "").trim().toLowerCase()
-            ? qtVracRecupereExistante
-            : 0;
         const disponible = Math.round((lotSource.solde + dejaPris) * 1000) / 1000;
-        if (qtVracRecupere > disponible + 1e-6) {
+        if (demande.quantite > disponible + 1e-6) {
           throw new Error(
-            `Stock insuffisant pour le lot ${lotSource.numeroLot} : disponible ${disponible} kg, demande ${qtVracRecupere} kg.`
+            `Stock insuffisant pour le lot ${lotSource.numeroLot} : disponible ${disponible} kg, demande ${demande.quantite} kg.`
           );
         }
       }
@@ -1235,7 +1243,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     // vrai mouvement de stock).
     let vracArticleId: number | null = null;
     let depotBId: number | null = null;
-    if (qtARecupererExistante > 0 || qtVracRecupereExistante > 0 || (qtVracRecupere > 0 && codeVracRecupere)) {
+    if (qtARecupererExistante > 0 || qtVracRecupereExistante > 0 || demandees.length > 0) {
       [vracArticleId, depotBId] = await Promise.all([resolveVracArticleIdForLigne(ligneId), fetchDepotBId()]);
       if (!vracArticleId || !depotBId) {
         throw new Error(
@@ -1257,25 +1265,25 @@ export async function saveFabricationRapportAction(formData: FormData) {
       }
     }
 
-    // Article et code EXACT du lot dont on retire la quantite (a defaut de lot connu : article de la ligne, code tel que saisi)
-    // Aucun lot du module trouve (ancien code hors module deja enregistre) : pas de mouvement de stock
-    const articleSourceRecuperee = lotSource?.articleId ?? null;
-    const codeSourceRecupere = lotSource?.numeroLot ?? null;
-
     const dateJourDepotB = dateFabricationConditionnement || new Date().toISOString().slice(0, 10);
-    // lots_stock.date_fabrication est NOT NULL (confirme en base) - une
-    // sortie de recuperation doit donc en porter une elle aussi, meme si
-    // elle ne "fabrique" rien : reprend celle du lot source (la vraie date
-    // de fabrication du vrac qu'on preleve), avec repli sur la date de
-    // cette fabrication si jamais introuvable.
-    let dateFabricationSourceRecuperee: string | null = dateJourDepotB;
-    if (qtVracRecupere > 0 && codeSourceRecupere && articleSourceRecuperee && depotBId) {
+    // Une sortie du Depot B par code recupere (article et code EXACT du lot dont on retire la quantite). Aucun lot du module trouve
+    // (ancien code hors module deja enregistre) : pas de mouvement de stock.
+    const depotBInserts: Record<string, unknown>[] = [];
+    for (const demande of demandees) {
+      const lotSource = lotSourceParCode.get(demande.code.toLowerCase()) ?? null;
+      if (!lotSource || !depotBId) continue;
+
+      // lots_stock.date_fabrication est NOT NULL (confirme en base) - une
+      // sortie de recuperation doit donc en porter une elle aussi, meme si
+      // elle ne "fabrique" rien : reprend celle du lot source (la vraie date
+      // de fabrication du vrac qu'on preleve), avec repli sur la date de
+      // cette fabrication si jamais introuvable.
       const { data: soldeRows, error: soldeError } = await supabaseServer
         .from("lots_stock")
         .select("qte_entree, qte_sortie, date_fabrication")
-        .eq("article_id", articleSourceRecuperee)
+        .eq("article_id", lotSource.articleId)
         .eq("depot_id", depotBId)
-        .eq("numero_lot", codeSourceRecupere);
+        .eq("numero_lot", lotSource.numeroLot);
       if (soldeError) {
         throw new Error(soldeError.message);
       }
@@ -1287,20 +1295,16 @@ export async function saveFabricationRapportAction(formData: FormData) {
       const sourceDate = (soldeRows ?? []).find(
         (row) => Number(row.qte_entree ?? 0) > 0 && row.date_fabrication
       )?.date_fabrication as string | undefined;
-      dateFabricationSourceRecuperee = sourceDate || dateJourDepotB;
-    }
 
-    const depotBInserts: Record<string, unknown>[] = [];
-    if (qtVracRecupere > 0 && codeSourceRecupere && articleSourceRecuperee && depotBId) {
       depotBInserts.push({
-        article_id: articleSourceRecuperee,
+        article_id: lotSource.articleId,
         depot_id: depotBId,
         date_jour: dateJourDepotB,
-        numero_lot: codeSourceRecupere,
-        code_normalise: codeSourceRecupere.toUpperCase(),
-        date_fabrication: dateFabricationSourceRecuperee,
+        numero_lot: lotSource.numeroLot,
+        code_normalise: lotSource.numeroLot.toUpperCase(),
+        date_fabrication: sourceDate || dateJourDepotB,
         qte_entree: 0,
-        qte_sortie: qtVracRecupere,
+        qte_sortie: demande.quantite,
         source_import: "web:fabrication-recuperation",
         note: noteVracRecuperation(ligneId, code),
         utilisateur: currentUser,
@@ -1313,6 +1317,14 @@ export async function saveFabricationRapportAction(formData: FormData) {
       }
     }
 
+    // Ce qu'on enregistre sur la fiche : un seul code = comme avant ; plusieurs = "CODE1 (qt) + CODE2 (qt)" et le total
+    const recuperationsEnregistrees = encoderRecuperations(
+      demandees.map((demande) => ({
+        code: lotSourceParCode.get(demande.code.toLowerCase())?.numeroLot ?? demande.code,
+        quantite: demande.quantite,
+      }))
+    );
+
     // Ce qui part reellement au Conditionnement pour CE code : le vrac
     // fabrique moins ce qui est mis de cote (reste en Depot B), plus ce qui
     // est recupere d'un autre code - jamais le vrac_fabrique brut. Le champ
@@ -1320,7 +1332,7 @@ export async function saveFabricationRapportAction(formData: FormData) {
     // ce qui a ete physiquement fabrique (utilise tel quel par l'ecriture
     // comptable plus bas : la MP a ete consommee pour TOUT le vrac,
     // mis de cote ou non).
-    const vracEnvoyeConditionnement = Math.max(0, vracFabrique ?? 0) + qtVracRecupere;
+    const vracEnvoyeConditionnement = Math.max(0, vracFabrique ?? 0) + recuperationsEnregistrees.total;
 
     // upsertRapport (production_rapports) et la suppression de l'ancienne
     // entree vrac ne dependent pas l'une de l'autre - lancees en parallele.
@@ -1344,8 +1356,8 @@ export async function saveFabricationRapportAction(formData: FormData) {
         temps_vidange: parseOptionalText(formData, "temps_vidange"),
         vrac_fabrique: vracFabrique,
         qt_a_recuperer: null,
-        qt_vrac_recupere: qtVracRecupere,
-        code_vrac_recupere: lotSource?.numeroLot ?? codeVracRecupere,
+        qt_vrac_recupere: recuperationsEnregistrees.total,
+        code_vrac_recupere: recuperationsEnregistrees.code,
         fabrication_arret_absence_air: parseOptionalNumber(formData, "fabrication_arret_absence_air"),
         fabrication_arret_absence_vapeur: parseOptionalNumber(formData, "fabrication_arret_absence_vapeur"),
         fabrication_arret_attente_aspiration_aqueuse: parseOptionalNumber(

@@ -1,4 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
+import { lireRecuperations } from "@/lib/vrac-recuperations";
 import {
   fetchCoutsReelsMpDepotB,
   computeRecetteCost,
@@ -816,14 +817,22 @@ async function computeCoutTransfereRecuperation(
   rapportsPertinents: RapportCoutRow[],
   vracArticleId: number
 ): Promise<{ qtRecupereTotal: number; coutTransfereTotal: number; incertaines: LigneIncertaine[] }> {
-  const recuperations = rapportsPertinents.filter(
-    (r) => r.qt_vrac_recupere && r.qt_vrac_recupere > 0 && r.code_vrac_recupere
+  // Une fiche peut recuperer le vrac de PLUSIEURS codes (voir lib/vrac-recuperations.ts) : une ligne par code recupere
+  const recuperations = rapportsPertinents.flatMap((r) =>
+    lireRecuperations(r.code_vrac_recupere, r.qt_vrac_recupere)
+      .filter((recuperation) => recuperation.quantite > 0)
+      .map((recuperation) => ({
+        programme_ligne_id: r.programme_ligne_id,
+        code: r.code,
+        codeSource: recuperation.code,
+        quantite: recuperation.quantite,
+      }))
   );
   if (recuperations.length === 0) {
     return { qtRecupereTotal: 0, coutTransfereTotal: 0, incertaines: [] };
   }
 
-  const codesSource = [...new Set(recuperations.map((r) => r.code_vrac_recupere as string))];
+  const codesSource = [...new Set(recuperations.map((r) => r.codeSource))];
   const { data: sourcesData } = await supabaseServer
     .from("production_rapports")
     .select("code, vrac_fabrique")
@@ -838,8 +847,8 @@ async function computeCoutTransfereRecuperation(
   const coutParKgCache = new Map<string, number | null>();
 
   for (const r of recuperations) {
-    const qt = Number(r.qt_vrac_recupere ?? 0);
-    const codeSource = r.code_vrac_recupere as string;
+    const qt = r.quantite;
+    const codeSource = r.codeSource;
     qtRecupereTotal += qt;
 
     let coutParKgSource = coutParKgCache.get(codeSource);
