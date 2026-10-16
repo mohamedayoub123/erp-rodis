@@ -106,5 +106,5 @@ export function CarteConteneurs({ marqueurs }: { marqueurs: MarqueurConteneur[] 
     };
   }, [marqueurs]);
 
-  return <div ref={conteneur} className="relative z-0 h-[26rem] w-full overflow-hidden rounded-[1.5rem] border border-slate-200" />;
+  return <div ref={conteneur} className="relative z-0 h-[34rem] w-full overflow-hidden rounded-[1.5rem] border border-slate-200" />;
 }
