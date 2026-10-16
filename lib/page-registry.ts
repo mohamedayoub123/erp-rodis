@@ -585,7 +585,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "productionNomsConditionnement",
     module: "Production",
-    label: "Noms Chef de zone / Chef de ligne (Conditionnement)",
+    label: "Noms Chef de zone / Chef de ligne / Ravitailleur (Conditionnement)",
     pathPrefixes: ["/production/noms-conditionnement"],
     adminGroup: "Suivi Production",
   },

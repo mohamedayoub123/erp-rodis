@@ -221,6 +221,34 @@ export default async function PlanningDashboardPage({
     `rounded-full px-3 py-1.5 text-xs font-semibold text-white ${testLaboFait(ligneId, code) ? "bg-sky-700" : "bg-red-600"}`;
   const titreEntrer = (ligneId: number, code: string) => (testLaboFait(ligneId, code) ? undefined : "Test labo pas encore fait");
 
+  // Boutons Entrer et Par ligne du Conditionnement : ROUGE = Test labo pas fait ; JAUNE = Test labo fait mais Entrer Fabrication pas
+  // encore fait (le Conditionnement serait refuse) ; BLEU = les deux sont faits. Une ligne qui ne vient pas d'un programme (fiche +
+  // manuelle, groupe_id vide) n'attend pas de Fabrication, comme le controle du serveur (messageSiConditionnementInvalide).
+  const fabricationEntree = (ligneId: number, code: string) =>
+    (vracByLigne.get(ligneId) ?? []).some((entry) => entry.code === code);
+  const etatEntrerConditionnement = (ligne: { id: number; groupe_id: number | null }, code: string): "rouge" | "jaune" | "bleu" => {
+    if (!testLaboFait(ligne.id, code)) return "rouge";
+    if (Boolean(ligne.groupe_id) && !fabricationEntree(ligne.id, code)) return "jaune";
+    return "bleu";
+  };
+  const classeEntrerConditionnement = (ligne: { id: number; groupe_id: number | null }, code: string) => {
+    const etat = etatEntrerConditionnement(ligne, code);
+    if (etat === "jaune") return "rounded-full bg-yellow-400 px-3 py-1.5 text-xs font-semibold text-slate-900";
+    return `rounded-full px-3 py-1.5 text-xs font-semibold text-white ${etat === "rouge" ? "bg-red-600" : "bg-sky-700"}`;
+  };
+  const classeParLigne = (ligne: { id: number; groupe_id: number | null }, code: string) => {
+    const etat = etatEntrerConditionnement(ligne, code);
+    if (etat === "rouge") return "whitespace-nowrap rounded-full bg-red-600 px-3 py-1.5 text-xs font-semibold text-white";
+    if (etat === "jaune") return "whitespace-nowrap rounded-full bg-yellow-400 px-3 py-1.5 text-xs font-semibold text-slate-900";
+    return "whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800";
+  };
+  const titreEntrerConditionnement = (ligne: { id: number; groupe_id: number | null }, code: string) => {
+    const etat = etatEntrerConditionnement(ligne, code);
+    if (etat === "rouge") return "Test labo pas encore fait";
+    if (etat === "jaune") return "Entrer Fabrication pas encore fait";
+    return undefined;
+  };
+
   const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
   const articleById = new Map(articles.map((article) => [article.id, article]));
   const distinctGammes = [...new Set(articles.map((article) => article.gamme).filter(Boolean))].sort(
@@ -827,8 +855,8 @@ export default async function PlanningDashboardPage({
                             {dash.entrer ? (
                             <Link
                               href={`/production/suivi-production/conditionnement/${row.ligne.id}?code=${encodeURIComponent(row.code)}`}
-                              title={titreEntrer(row.ligne.id, row.code)}
-                              className={classeEntrer(row.ligne.id, row.code)}
+                              title={titreEntrerConditionnement(row.ligne, row.code)}
+                              className={classeEntrerConditionnement(row.ligne, row.code)}
                             >
                               Entrer
                             </Link>
@@ -836,12 +864,8 @@ export default async function PlanningDashboardPage({
                             {dash.entrerParLigne ? (
                             <Link
                               href={`/production/suivi-production/conditionnement/${row.ligne.id}/par-ligne?code=${encodeURIComponent(row.code)}`}
-                              title={titreEntrer(row.ligne.id, row.code)}
-                              className={
-                                testLaboFait(row.ligne.id, row.code)
-                                  ? "whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800"
-                                  : "whitespace-nowrap rounded-full bg-red-600 px-3 py-1.5 text-xs font-semibold text-white"
-                              }
+                              title={titreEntrerConditionnement(row.ligne, row.code)}
+                              className={classeParLigne(row.ligne, row.code)}
                             >
                               Par ligne
                             </Link>

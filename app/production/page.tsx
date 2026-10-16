@@ -121,7 +121,7 @@ const TILES = [
     href: "/production/noms-conditionnement",
     pageKey: "productionNomsConditionnement",
     icon: "👤",
-    description: "Liste des chefs de zone et des chefs de ligne : on les choisit dans Entrer et Entrer par ligne.",
+    description: "Liste des chefs de zone, chefs de ligne et ravitailleurs : on les choisit dans Entrer et Entrer par ligne.",
   },
 ] as const;
 

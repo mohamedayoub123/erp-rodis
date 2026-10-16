@@ -236,7 +236,14 @@ export default async function ConditionnementParLignePage({
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Nom ravitailleur
-                    <input type="text" name="ravitailleur" defaultValue={equipe?.ravitailleur || ""} required className={CHAMP} />
+                    <ChoixNomField
+                      name="ravitailleur"
+                      noms={nomsConditionnement.ravitailleur}
+                      defaultValue={equipe?.ravitailleur || ""}
+                      required
+                      lienGerer={lienGererNoms}
+                      className={CHAMP}
+                    />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Nom tireur

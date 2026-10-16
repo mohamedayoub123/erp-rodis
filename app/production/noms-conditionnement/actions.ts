@@ -27,6 +27,9 @@ function lireType(valeur: FormDataEntryValue | null): TypeNomConditionnement | n
   return (TYPES_NOM_CONDITIONNEMENT as readonly string[]).includes(texte) ? (texte as TypeNomConditionnement) : null;
 }
 
+const MESSAGE_LISTE_RAVITAILLEUR_ABSENTE =
+  "La liste Ravitailleur n'est pas encore activee : lance le SQL add_ravitailleur_conditionnement_noms.sql dans Supabase (SQL Editor).";
+
 const MESSAGE_TABLE_ABSENTE =
   "La table des noms n'existe pas encore : lance le SQL create_conditionnement_noms.sql dans Supabase (SQL Editor).";
 
@@ -45,6 +48,7 @@ export async function ajouterNomConditionnementAction(formData: FormData) {
   const { error } = await supabaseServer.from("conditionnement_noms").insert({ type, nom, cree_par: utilisateur });
   if (error) {
     if (error.code === "23505") retour({ erreur: `"${nom}" est deja dans la liste ${LIBELLE_TYPE_NOM[type]}.` });
+    if (error.code === "23514" && type === "ravitailleur") retour({ erreur: MESSAGE_LISTE_RAVITAILLEUR_ABSENTE });
     if (/conditionnement_noms|does not exist|schema cache/i.test(error.message)) retour({ erreur: MESSAGE_TABLE_ABSENTE });
     retour({ erreur: error.message });
   }

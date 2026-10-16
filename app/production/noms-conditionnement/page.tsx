@@ -20,21 +20,22 @@ type SearchParams = Promise<{ erreur?: string; ok?: string }>;
 
 const LIMITE_SUGGESTIONS = 40;
 
-// Noms deja tapes a la main dans les saisies Conditionnement (chef de zone / chef de ligne), avec le nombre de saisies - sert a
+// Noms deja tapes a la main dans les saisies Conditionnement (chef de zone / chef de ligne / ravitailleur), avec le nombre de saisies - sert a
 // proposer de les ajouter d'un clic aux listes plutot que de tout retaper.
 async function lireNomsDejaSaisis(): Promise<Record<TypeNomConditionnement, Map<string, { nom: string; nb: number }>>> {
   const resultat: Record<TypeNomConditionnement, Map<string, { nom: string; nb: number }>> = {
     chef_zone: new Map(),
     chef_ligne: new Map(),
+    ravitailleur: new Map(),
   };
   for (let debut = 0; ; debut += 1000) {
     const { data, error } = await supabaseServer
       .from("production_carton_entries")
-      .select("chef_zone, chef_ligne")
+      .select("chef_zone, chef_ligne, ravitailleur")
       .order("id", { ascending: true })
       .range(debut, debut + 999);
     if (error) break;
-    const page = (data ?? []) as { chef_zone: string | null; chef_ligne: string | null }[];
+    const page = (data ?? []) as { chef_zone: string | null; chef_ligne: string | null; ravitailleur: string | null }[];
     for (const ligne of page) {
       for (const type of TYPES_NOM_CONDITIONNEMENT) {
         const nom = nettoyerNom(String(ligne[type] ?? ""));
@@ -79,9 +80,9 @@ export default async function NomsConditionnementPage({ searchParams }: { search
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Noms Conditionnement</h1>
               <p className="mt-2 max-w-3xl text-sm text-slate-600">
-                Les noms des chefs de zone et des chefs de ligne. Ils apparaissent en liste de choix dans Entrer, Entrer par ligne
-                et la fiche + du Conditionnement : on ne peut choisir que dans la liste. Tant qu&apos;une liste est vide, la saisie
-                reste libre.
+                Les noms des chefs de zone, des chefs de ligne et des ravitailleurs. Ils apparaissent en liste de choix dans Entrer,
+                Entrer par ligne et la fiche + du Conditionnement : on ne peut choisir que dans la liste. Tant qu&apos;une liste est
+                vide, la saisie reste libre.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -100,11 +101,11 @@ export default async function NomsConditionnementPage({ searchParams }: { search
         {!tableDisponible ? (
           <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-semibold text-amber-900">
             La table des noms n&apos;existe pas encore : lance le SQL <span className="font-mono">create_conditionnement_noms.sql</span>{" "}
-            dans Supabase (SQL Editor). En attendant, la saisie du chef de zone et du chef de ligne reste libre.
+            dans Supabase (SQL Editor). En attendant, la saisie du chef de zone, du chef de ligne et du ravitailleur reste libre.
           </div>
         ) : null}
 
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
           {TYPES_NOM_CONDITIONNEMENT.map((type) => {
             const noms = lignes.filter((ligne) => ligne.type === type);
             const connus = new Set(noms.map((ligne) => ligne.nom.toLowerCase()));
