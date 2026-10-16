@@ -157,7 +157,7 @@ export function resumerEtat(etat: EtatSuivi | null): string {
 
 // ------------------------------------------------------------------ appels a l'API Terminal49
 
-type ReponseApi = { statut: number; json: unknown };
+type ReponseApi = { statut: number; json: unknown; detail: string | null };
 type JsonObjet = Record<string, unknown>;
 
 function objet(valeur: unknown): JsonObjet {
@@ -178,7 +178,7 @@ function nombre(valeur: unknown): number | null {
 
 async function appelApi(chemin: string, options: { methode?: "GET" | "POST"; corps?: unknown } = {}): Promise<ReponseApi> {
   const cle = lireCleApi();
-  if (!cle) return { statut: 0, json: null };
+  if (!cle) return { statut: 0, json: null, detail: null };
   try {
     const reponse = await fetch(`${URL_API}${chemin}`, {
       method: options.methode ?? "GET",
@@ -197,16 +197,26 @@ async function appelApi(chemin: string, options: { methode?: "GET" | "POST"; cor
     } catch {
       json = null;
     }
-    return { statut: reponse.status, json };
+    return { statut: reponse.status, json, detail: detailReponse(json) };
   } catch {
-    return { statut: 0, json: null };
+    return { statut: 0, json: null, detail: null };
   }
 }
 
-function messageErreurHttp(statut: number): string | null {
+// Explication renvoyee par le service dans sa reponse d'erreur (jamais la cle) : aide a comprendre un refus.
+function detailReponse(json: unknown): string | null {
+  const racine = objet(json);
+  const erreurs = Array.isArray(racine.errors) ? (racine.errors as unknown[]) : [];
+  const premiere = objet(erreurs[0]);
+  const texteErreur = texte(premiere.detail) ?? texte(premiere.title) ?? texte(racine.error) ?? texte(racine.message);
+  return texteErreur ? texteErreur.slice(0, 200) : null;
+}
+
+function messageErreurHttp(statut: number, detail: string | null = null): string | null {
+  const precision = detail ? ` Reponse du service : "${detail}".` : "";
   if (statut === 0) return "Le service de suivi ne repond pas pour le moment (reessaie dans quelques minutes).";
-  if (statut === 401) return "Cle API refusee par le service de suivi : verifie TERMINAL49_API_KEY.";
-  if (statut === 403) return "Ton abonnement du service de suivi n'autorise pas cette operation.";
+  if (statut === 401) return `Cle API refusee par le service de suivi : verifie TERMINAL49_API_KEY.${precision}`;
+  if (statut === 403) return `Ton abonnement du service de suivi n'autorise pas cette operation.${precision}`;
   if (statut === 429) return "Trop de demandes envoyees au service de suivi : reessaie dans une minute.";
   if (statut >= 500) return "Le service de suivi a un probleme temporaire (reessaie plus tard).";
   return null;
@@ -242,7 +252,7 @@ export async function creerDemandeSuivi(params: {
   reference: string | null;
 }): Promise<ResultatDemande> {
   const parBl = Boolean(params.numeroBl);
-  const { statut, json } = await appelApi("/tracking_requests", {
+  const { statut, json, detail } = await appelApi("/tracking_requests", {
     methode: "POST",
     corps: {
       data: {
@@ -265,7 +275,7 @@ export async function creerDemandeSuivi(params: {
     if (doublon) return { ok: true, demandeId: null, doublon: true, message: null };
     return { ok: false, demandeId: null, doublon: false, message: traduireDetail(detail) };
   }
-  return { ok: false, demandeId: null, doublon: false, message: messageErreurHttp(statut) ?? `Erreur du service de suivi (${statut}).` };
+  return { ok: false, demandeId: null, doublon: false, message: messageErreurHttp(statut, detail) ?? `Erreur du service de suivi (${statut}).` };
 }
 
 const MESSAGE_RAISON_ECHEC: Record<string, string> = {
@@ -299,11 +309,11 @@ export type ResultatRecherche = {
 // Cherche l'expedition (creee par le service quelques minutes apres la demande) et construit l'etat a afficher.
 export async function chercherExpedition(params: { numeroConteneur: string; numeroBl: string | null }): Promise<ResultatRecherche> {
   const requete = params.numeroBl || params.numeroConteneur;
-  const { statut, json } = await appelApi(
+  const { statut, json, detail } = await appelApi(
     `/shipments?filter[q]=${encodeURIComponent(requete)}&include=containers,port_of_lading,port_of_discharge&page[size]=10`
   );
   if (statut !== 200) {
-    return { expeditionId: null, etat: null, erreur: messageErreurHttp(statut) ?? `Erreur du service de suivi (${statut}).` };
+    return { expeditionId: null, etat: null, erreur: messageErreurHttp(statut, detail) ?? `Erreur du service de suivi (${statut}).` };
   }
 
   const racine = objet(json);
