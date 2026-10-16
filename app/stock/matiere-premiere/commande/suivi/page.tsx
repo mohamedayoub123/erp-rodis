@@ -9,6 +9,7 @@ import { formatDate, formatDateTime } from "@/lib/format-date";
 import {
   CLE_PAGE_SUIVI_CONTENEURS,
   LIBELLE_PHASE,
+  PREFIXE_MESSAGE_PLAN,
   URL_PAGE_IMPORT_MP,
   URL_PAGE_SUIVI_CONTENEURS,
   classePhase,
@@ -56,6 +57,7 @@ export default async function SuiviConteneursPage({ searchParams }: { searchPara
   const configure = suiviConfigure();
   const idsAffiches = lignes.map((ligne) => ligne.id);
   // Le service de suivi refuse la cle : on decrit la cle enregistree (longueur, defauts de copie), jamais sa valeur
+  const planInsuffisant = lignes.some((ligne) => ligne.message?.startsWith(PREFIXE_MESSAGE_PLAN));
   const diagnosticCle = lignes.some((ligne) => ligne.message?.startsWith("Cle API refusee")) ? diagnosticCleApi() : null;
   const enAttente = lignes.some((ligne) => !ligne.etat);
 
@@ -119,6 +121,24 @@ export default async function SuiviConteneursPage({ searchParams }: { searchPara
           <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-semibold text-amber-900">
             Le suivi automatique n&apos;est pas encore active : la cle du service de suivi (<span className="font-mono">TERMINAL49_API_KEY</span>) n&apos;est
             pas configuree. Les numeros de conteneur sont enregistres, le suivi demarrera des que la cle sera ajoutee.
+          </div>
+        ) : null}
+
+        {planInsuffisant ? (
+          <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm text-amber-900">
+            <p className="font-semibold">Plan gratuit Terminal49 : le suivi ne peut pas etre relu dans l&apos;ERP.</p>
+            <p className="mt-1">
+              La cle est valable et les conteneurs sont bien envoyes au service : leur suivi (navire, carte, arrivee prevue) se voit dans ton
+              espace{" "}
+              <a href="https://app.terminal49.com" target="_blank" rel="noopener noreferrer" className="font-semibold underline">
+                app.terminal49.com
+              </a>
+              . Pour l&apos;avoir directement ici, il faut passer au paiement a l&apos;usage dans{" "}
+              <a href="https://app.terminal49.com/settings/billing" target="_blank" rel="noopener noreferrer" className="font-semibold underline">
+                Settings &gt; Billing
+              </a>{" "}
+              : l&apos;ERP se met alors a jour tout seul, sans rien changer d&apos;autre.
+            </p>
           </div>
         ) : null}
 

@@ -5,6 +5,7 @@ import {
   chercherExpedition,
   creerDemandeSuivi,
   lireEchecDemande,
+  PREFIXE_MESSAGE_PLAN,
   suiviConfigure,
   type EtatSuivi,
 } from "@/lib/suivi-conteneur";
@@ -57,6 +58,8 @@ export function doitActualiser(ligne: LigneSuivi, forcer: boolean, maintenant: D
   const age = maintenant.getTime() - new Date(ligne.derniere_maj).getTime();
   if (forcer) return age >= DELAI_FORCE_MINIMUM_MS;
   if (ligne.etat?.phase === "sorti_port") return false;
+  // Plan gratuit : le refus ne change pas tant que l'abonnement ne change pas - on ne reinterroge que toutes les 6 heures
+  if (!ligne.etat && ligne.message?.startsWith(PREFIXE_MESSAGE_PLAN)) return age >= 6 * HEURE_MS;
   return age >= (ligne.etat ? DELAI_ACTUALISATION_MS : DELAI_RECHERCHE_MS);
 }
 

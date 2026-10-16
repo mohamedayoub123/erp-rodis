@@ -212,7 +212,13 @@ function detailReponse(json: unknown): string | null {
   return texteErreur ? texteErreur.slice(0, 200) : null;
 }
 
+// Le plan gratuit de Terminal49 permet d'ENVOYER des conteneurs a suivre mais pas de relire leur suivi par l'API (reponse 401/403
+// "...require a paid plan") : ce n'est pas un probleme de cle, le message doit le dire.
+export const PREFIXE_MESSAGE_PLAN = "Abonnement du service de suivi insuffisant";
+export const MESSAGE_PLAN_GRATUIT = `${PREFIXE_MESSAGE_PLAN} : le plan gratuit permet d'envoyer les conteneurs au service, mais pas d'en relire le suivi dans l'ERP.`;
+
 function messageErreurHttp(statut: number, detail: string | null = null): string | null {
+  if ((statut === 401 || statut === 403) && detail && /paid plan/i.test(detail)) return MESSAGE_PLAN_GRATUIT;
   const precision = detail ? ` Reponse du service : "${detail}".` : "";
   if (statut === 0) return "Le service de suivi ne repond pas pour le moment (reessaie dans quelques minutes).";
   if (statut === 401) return `Cle API refusee par le service de suivi : verifie TERMINAL49_API_KEY.${precision}`;
