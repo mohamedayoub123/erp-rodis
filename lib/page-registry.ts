@@ -311,6 +311,13 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     adminGroup: "Import (Matiere Premiere)",
   },
   {
+    key: "stockMatierePremiereSuiviConteneurs",
+    module: "Stock",
+    label: "Suivi conteneurs Import MP (carte, navire, arrivee prevue)",
+    pathPrefixes: ["/stock/matiere-premiere/commande/suivi"],
+    adminGroup: "Import (Matiere Premiere)",
+  },
+  {
     key: "commandeBcMp",
     module: "Stock",
     label: "Commande MP - BC (liste + modifier)",

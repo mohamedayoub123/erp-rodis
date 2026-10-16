@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
-import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canViewPageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
@@ -15,6 +15,18 @@ import { matchesArticleSearch } from "@/lib/article-search";
 import { encodeDossierId } from "./dossier-id";
 import { deleteDossierImportsAction, updateDossierMpStatutAction } from "./actions";
 import { STATUT_DOSSIER_MP_OPTIONS, statutDossierMpBadgeClass } from "./constants";
+import {
+  CLE_PAGE_SUIVI_CONTENEURS,
+  LIBELLE_PHASE,
+  URL_PAGE_IMPORT_MP,
+  URL_PAGE_SUIVI_CONTENEURS,
+  classePhase,
+  resumerEtat,
+  suiviConfigure,
+} from "@/lib/suivi-conteneur";
+import { doitActualiser, lireLignesSuivi, type LigneSuivi } from "@/lib/suivi-conteneur-db";
+import { enregistrerConteneursDossierAction, supprimerConteneurSuiviAction } from "./suivi/actions";
+import { ActualisationAuto } from "./suivi/actualisation-auto";
 
 type ImportRow = {
   id: number;
@@ -144,6 +156,9 @@ type SearchParams = Promise<{
   doss_4d?: string;
   date_debut?: string;
   date_fin?: string;
+  erreur?: string;
+  ok?: string;
+  avertissement?: string;
 }>;
 
 export default async function CommandeMpPage({ searchParams }: { searchParams: SearchParams }) {
@@ -172,12 +187,32 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
   const currentUser = await getCurrentStockUser();
   const canEdit = await canWritePageUser(currentUser, "commandeMp");
   const canDelete = await canDeletePageUser(currentUser, "commandeMp");
+  const canViewSuivi = await canViewPageUser(currentUser, CLE_PAGE_SUIVI_CONTENEURS);
 
-  const [{ rows, error }, { rows: statutRows }, bcLigneRows] = await Promise.all([
+  const [{ rows, error }, { rows: statutRows }, bcLigneRows, suivi] = await Promise.all([
     fetchAllImports(),
     fetchAllDossierStatuts(),
     fetchAllBcLigneInfo(),
+    lireLignesSuivi(),
   ]);
+
+  // Conteneurs suivis, regroupes par dossier (meme cle que les groupes ci-dessous)
+  const suiviParDossier = new Map<string, LigneSuivi[]>();
+  for (const ligne of suivi.lignes) {
+    const cle = dossierKey(ligne.n_doss_4d, ligne.n_doss_erp);
+    const liste = suiviParDossier.get(cle) ?? [];
+    liste.push(ligne);
+    suiviParDossier.set(cle, liste);
+  }
+
+  // Retour sur la meme liste (filtres conserves) apres un ajout / retrait de conteneur
+  const paramsRetour = new URLSearchParams();
+  for (const statut of statutFilter) paramsRetour.append("statut", statut);
+  for (const cle of ["article", "code", "doss_erp", "doss_4d", "date_debut", "date_fin"] as const) {
+    const valeur = params[cle];
+    if (valeur) paramsRetour.set(cle, valeur);
+  }
+  const urlRetour = `${URL_PAGE_IMPORT_MP}${paramsRetour.toString() ? `?${paramsRetour.toString()}` : ""}`;
 
   const bcLigneById = new Map(bcLigneRows.map((row) => [row.id, row]));
 
@@ -237,6 +272,13 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
     })
     .sort((a, b) => doss4dSortValue(b.nDoss4d) - doss4dSortValue(a.nDoss4d));
 
+  // Conteneurs affiches dont le suivi doit etre mis a jour : le composant ActualisationAuto s'en charge sans clic
+  const lignesSuiviAffichees = groups.flatMap((group) => suiviParDossier.get(dossierKey(group.nDoss4d, group.nDossErp)) ?? []);
+  const idsAActualiser = suiviConfigure()
+    ? lignesSuiviAffichees.filter((ligne) => doitActualiser(ligne, false)).map((ligne) => ligne.id)
+    : [];
+  const suiviEnAttente = lignesSuiviAffichees.some((ligne) => !ligne.etat);
+
   const articleOptions = [
     ...new Set(
       bcLigneRows
@@ -282,6 +324,14 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
             >
               Prix des lots
             </Link>
+            {canViewSuivi ? (
+              <Link
+                href={URL_PAGE_SUIVI_CONTENEURS}
+                className="rounded-full border border-sky-200 bg-sky-50 px-5 py-2 text-sm font-semibold text-sky-800 transition hover:bg-sky-100"
+              >
+                Suivi conteneurs (carte)
+              </Link>
+            ) : null}
             {groups.length > 0 ? (
               <>
                 <SimplePrintButton label="Imprimer la liste" />
@@ -290,6 +340,22 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
             ) : null}
           </div>
         </div>
+
+        {params.erreur ? (
+          <div className="no-print rounded-[1.75rem] border border-red-200 bg-red-50 px-6 py-4 text-sm font-semibold text-red-700">{params.erreur}</div>
+        ) : null}
+        {params.ok ? (
+          <div className="no-print rounded-[1.75rem] border border-emerald-200 bg-emerald-50 px-6 py-4 text-sm font-semibold text-emerald-800">{params.ok}</div>
+        ) : null}
+        {params.avertissement ? (
+          <div className="no-print rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-semibold text-amber-900">{params.avertissement}</div>
+        ) : null}
+        {canEdit && !suivi.tableDisponible ? (
+          <div className="no-print rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-semibold text-amber-900">
+            Suivi des conteneurs pas encore active : lance le SQL <span className="font-mono">create_suivi_conteneurs_import.sql</span> dans
+            Supabase (SQL Editor).
+          </div>
+        ) : null}
 
         <section className="no-print rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-3">
@@ -395,6 +461,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Date recente</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Statut</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Date prevue reception</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Conteneurs (suivi)</th>
                     {canEdit || canDelete ? (
                       <th className="no-print sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Action</th>
                     ) : null}
@@ -408,6 +475,8 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                     // modification a ce stade, on evite juste d'afficher un
                     // formulaire qui echouerait.
                     const dossierIsLocked = group.statut === STATUT_DOSSIER_MP_OPTIONS[STATUT_DOSSIER_MP_OPTIONS.length - 1];
+                    const conteneurs = suiviParDossier.get(dossierKey(group.nDoss4d, group.nDossErp)) ?? [];
+                    const dossierNomme = Boolean(group.nDoss4d || group.nDossErp);
 
                     return (
                       <tr key={dossierId} className="border-t border-slate-100">
@@ -525,6 +594,81 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
                             <span className="text-slate-600">{formatDate(group.datePrevueReception)}</span>
                           )}
                         </td>
+                        <td className="px-6 py-4 align-top">
+                          <div className="grid min-w-[17rem] gap-2">
+                            {conteneurs.map((ligne) => (
+                              <div key={ligne.id} className="rounded-2xl bg-slate-50 px-3 py-2 text-xs">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-mono font-semibold text-slate-900">{ligne.numero_conteneur}</span>
+                                  {ligne.etat ? (
+                                    <span className={`rounded-full px-2 py-0.5 font-semibold ${classePhase(ligne.etat.phase)}`}>
+                                      {LIBELLE_PHASE[ligne.etat.phase]}
+                                    </span>
+                                  ) : (
+                                    <span className="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700">
+                                      Recherche en cours
+                                    </span>
+                                  )}
+                                  {canEdit ? (
+                                    <form action={supprimerConteneurSuiviAction} className="no-print ml-auto">
+                                      <input type="hidden" name="id" value={ligne.id} />
+                                      <input type="hidden" name="retour" value={urlRetour} />
+                                      <button type="submit" title="Retirer ce conteneur" className="font-semibold text-slate-400 hover:text-red-600">
+                                        x
+                                      </button>
+                                    </form>
+                                  ) : null}
+                                </div>
+                                {ligne.etat ? (
+                                  <p className="mt-1 text-slate-600">
+                                    {resumerEtat(ligne.etat)}
+                                    {ligne.etat.navire ? ` - ${ligne.etat.navire}` : ""}
+                                  </p>
+                                ) : ligne.message ? (
+                                  <p className="mt-1 text-slate-500">{ligne.message}</p>
+                                ) : null}
+                              </div>
+                            ))}
+                            {canEdit && suivi.tableDisponible && dossierNomme ? (
+                              <form action={enregistrerConteneursDossierAction} className="no-print grid gap-1.5">
+                                <input type="hidden" name="n_doss_4d" value={group.nDoss4d ?? ""} />
+                                <input type="hidden" name="n_doss_erp" value={group.nDossErp ?? ""} />
+                                <input type="hidden" name="retour" value={urlRetour} />
+                                <input
+                                  type="text"
+                                  name="numeros"
+                                  required
+                                  placeholder="N° conteneur (MSCU1234567)"
+                                  autoComplete="off"
+                                  className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs uppercase outline-none"
+                                />
+                                <div className="flex gap-1.5">
+                                  <input
+                                    type="text"
+                                    name="numero_bl"
+                                    placeholder="N° BL (facultatif)"
+                                    autoComplete="off"
+                                    className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-1.5 text-xs uppercase outline-none"
+                                  />
+                                  <SubmitButton
+                                    pendingLabel="..."
+                                    className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800"
+                                  >
+                                    Suivre
+                                  </SubmitButton>
+                                </div>
+                              </form>
+                            ) : null}
+                            {canViewSuivi && conteneurs.length > 0 ? (
+                              <Link
+                                href={`${URL_PAGE_SUIVI_CONTENEURS}?dossier=${dossierId}`}
+                                className="no-print text-xs font-semibold text-sky-700 underline"
+                              >
+                                Voir la carte
+                              </Link>
+                            ) : null}
+                          </div>
+                        </td>
                         {canDelete ? (
                           <td className="no-print px-6 py-4">
                             <form action={deleteDossierImportsAction}>
@@ -542,6 +686,7 @@ export default async function CommandeMpPage({ searchParams }: { searchParams: S
             </div>
           )}
         </section>
+        {idsAActualiser.length > 0 ? <ActualisationAuto ids={idsAActualiser} enAttente={suiviEnAttente} /> : null}
       </div>
     </main>
   );
