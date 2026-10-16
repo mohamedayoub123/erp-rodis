@@ -12,6 +12,7 @@ import {
   URL_PAGE_IMPORT_MP,
   URL_PAGE_SUIVI_CONTENEURS,
   classePhase,
+  diagnosticCleApi,
   suiviConfigure,
   type EtatSuivi,
 } from "@/lib/suivi-conteneur";
@@ -54,6 +55,8 @@ export default async function SuiviConteneursPage({ searchParams }: { searchPara
 
   const configure = suiviConfigure();
   const idsAffiches = lignes.map((ligne) => ligne.id);
+  // Le service de suivi refuse la cle : on decrit la cle enregistree (longueur, defauts de copie), jamais sa valeur
+  const diagnosticCle = lignes.some((ligne) => ligne.message?.startsWith("Cle API refusee")) ? diagnosticCleApi() : null;
   const enAttente = lignes.some((ligne) => !ligne.etat);
 
   const marqueurs: MarqueurConteneur[] = lignes
@@ -116,6 +119,17 @@ export default async function SuiviConteneursPage({ searchParams }: { searchPara
           <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-semibold text-amber-900">
             Le suivi automatique n&apos;est pas encore active : la cle du service de suivi (<span className="font-mono">TERMINAL49_API_KEY</span>) n&apos;est
             pas configuree. Les numeros de conteneur sont enregistres, le suivi demarrera des que la cle sera ajoutee.
+          </div>
+        ) : null}
+
+        {diagnosticCle ? (
+          <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm text-amber-900">
+            <p className="font-semibold">Le service de suivi refuse la cle API.</p>
+            <p className="mt-1">{diagnosticCle}</p>
+            <p className="mt-1">
+              Cree une nouvelle cle sur app.terminal49.com/developers/api-keys (cle API, pas une cle &quot;publishable&quot;), copie-la avec le
+              bouton de copie, puis remplace la valeur de TERMINAL49_API_KEY dans Vercel (Settings, Environment Variables) et redeploie.
+            </p>
           </div>
         ) : null}
 

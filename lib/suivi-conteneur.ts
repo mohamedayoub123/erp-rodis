@@ -15,8 +15,33 @@ export const CLE_PAGE_SUIVI_CONTENEURS = "stockMatierePremiereSuiviConteneurs";
 export const URL_PAGE_SUIVI_CONTENEURS = "/stock/matiere-premiere/commande/suivi";
 export const URL_PAGE_IMPORT_MP = "/stock/matiere-premiere/commande";
 
+// Cle lue dans l'environnement, nettoyee des erreurs de copier-coller les plus courantes : espaces, guillemets autour, mot "Token "
+// (ou "Bearer ") colle devant la cle, ponctuation a la fin. Une cle Terminal49 ne contient jamais ces caracteres.
+export function lireCleApi(): string | null {
+  let cle = (process.env.TERMINAL49_API_KEY ?? "").trim();
+  cle = cle.replace(/^["'`]+|["'`]+$/g, "").trim();
+  cle = cle.replace(/^(token|bearer)\s+/i, "").trim();
+  cle = cle.replace(/[.,;:]+$/, "");
+  return cle || null;
+}
+
+// Description de la cle SANS jamais la reveler : longueur et problemes de copier-coller reperes (affichee quand le service refuse la cle).
+export function diagnosticCleApi(): string | null {
+  const brute = process.env.TERMINAL49_API_KEY ?? "";
+  if (!brute.trim()) return null;
+  const nettoyee = lireCleApi() ?? "";
+  const problemes: string[] = [];
+  if (/^\s|\s$/.test(brute)) problemes.push("espace ou retour a la ligne autour de la cle (retire automatiquement)");
+  if (/^["'`]|["'`]$/.test(brute.trim())) problemes.push("guillemets autour de la cle (retires automatiquement)");
+  if (/^(token|bearer)\s/i.test(brute.trim().replace(/^["'`]+/, ""))) problemes.push("mot Token / Bearer colle devant la cle (retire automatiquement)");
+  if (/[.,;:]$/.test(brute.trim().replace(/["'`]+$/, ""))) problemes.push("ponctuation a la fin de la cle (retiree automatiquement)");
+  if (/\s/.test(nettoyee)) problemes.push("espace AU MILIEU de la cle : la cle a ete coupee ou mal copiee");
+  if (nettoyee.length < 16) problemes.push("cle tres courte : elle semble incomplete");
+  return `La cle enregistree dans Vercel fait ${nettoyee.length} caracteres${problemes.length ? ` - a corriger : ${problemes.join(" ; ")}` : " et ne montre aucun defaut de copie visible"}.`;
+}
+
 export function suiviConfigure(): boolean {
-  return Boolean(process.env.TERMINAL49_API_KEY?.trim());
+  return lireCleApi() !== null;
 }
 
 // ------------------------------------------------------------------ numeros de conteneur
@@ -152,7 +177,7 @@ function nombre(valeur: unknown): number | null {
 }
 
 async function appelApi(chemin: string, options: { methode?: "GET" | "POST"; corps?: unknown } = {}): Promise<ReponseApi> {
-  const cle = process.env.TERMINAL49_API_KEY?.trim();
+  const cle = lireCleApi();
   if (!cle) return { statut: 0, json: null };
   try {
     const reponse = await fetch(`${URL_API}${chemin}`, {
