@@ -59,14 +59,6 @@ export async function ajouterVracARecupererAction(date: string, lignes: LigneVra
       }
     }
 
-    // Le meme article + code deux fois dans la saisie ferait entrer le vrac en double
-    const vus = new Set<string>();
-    for (const l of propres) {
-      const cle = `${l.articleId}|${l.code.toUpperCase()}`;
-      if (vus.has(cle)) return { ok: false, message: `Le code ${l.code} est saisi deux fois pour le meme article.` };
-      vus.add(cle);
-    }
-
     const articleIds = [...new Set(propres.map((l) => l.articleId))];
     const [{ data: articlesData, error: articlesError }, depotBId] = await Promise.all([
       supabaseServer.from("articles").select("id, nom_article, nature").in("id", articleIds),
@@ -86,10 +78,9 @@ export async function ajouterVracARecupererAction(date: string, lignes: LigneVra
       }
     }
 
-    // Ce code existe deja dans le Depot B ? Une entree existante (vrac mis de
-    // cote en Fabrication, ou deja enregistre ici) ferait compter le stock deux
-    // fois. Des sorties seules (recuperation faite avant l'entree) sont normales :
-    // on garde alors l'ecriture exacte du code deja utilisee.
+    // Un MEME code peut etre enregistre plusieurs fois (demande explicite : un nouveau fut du meme code, ou un stock deja a zero /
+    // negatif a recompleter) : chaque saisie s'ajoute au stock du code. On garde l'ecriture exacte du code deja utilisee, pour que
+    // le stock reste regroupe sous un seul code, et on previent apres l'enregistrement quand le code existait deja.
     const codesMajuscules = [...new Set(propres.map((l) => l.code.toUpperCase()))];
     const { data: existantsData, error: existantsError } = await supabaseServer
       .from("lots_stock")
@@ -113,17 +104,16 @@ export async function ajouterVracARecupererAction(date: string, lignes: LigneVra
       if (Number(e.qte_entree ?? 0) > 0) dejaEntres.add(cle);
     }
 
+    // Stock AVANT cet enregistrement des codes deja presents (pour le message d'information)
     const soldes = dejaEntres.size > 0 ? await lireSoldesDepotB(depotBId, articleIds) : new Map<string, number>();
+    const dejaPresents: string[] = [];
     for (const l of propres) {
       const cle = `${l.articleId}|${l.code.toUpperCase()}`;
-      if (dejaEntres.has(cle)) {
-        const numeroLot = ecritureExistante.get(cle) ?? l.code;
-        const solde = soldes.get(`${l.articleId}|${numeroLot}`) ?? 0;
-        return {
-          ok: false,
-          message: `Le code ${numeroLot} de ${articles.get(l.articleId)?.nom_article ?? "cet article"} est deja dans le Depot B (stock ${formaterQuantiteVrac(solde)}). Il ne faut pas l'enregistrer une deuxieme fois.`,
-        };
-      }
+      if (!dejaEntres.has(cle)) continue;
+      const numeroLot = ecritureExistante.get(cle) ?? l.code;
+      const solde = soldes.get(`${l.articleId}|${numeroLot}`) ?? 0;
+      const texte = `${numeroLot} (stock avant : ${formaterQuantiteVrac(solde)} kg)`;
+      if (!dejaPresents.includes(texte)) dejaPresents.push(texte);
     }
 
     const lots = propres.map((l) => {
@@ -161,7 +151,11 @@ export async function ajouterVracARecupererAction(date: string, lignes: LigneVra
     const pluriel = lots.length > 1;
     return {
       ok: true,
-      message: `${lots.length} lot${pluriel ? "s" : ""} entre${pluriel ? "s" : ""} dans le Depot B (${formaterQuantiteVrac(total)} kg). ${pluriel ? "Ils sont maintenant proposes" : "Il est maintenant propose"} dans "Code vrac recupere" du rapport Fabrication.`,
+      message:
+        `${lots.length} lot${pluriel ? "s" : ""} entre${pluriel ? "s" : ""} dans le Depot B (${formaterQuantiteVrac(total)} kg). ${pluriel ? "Ils sont maintenant proposes" : "Il est maintenant propose"} dans "Code vrac recupere" du rapport Fabrication.` +
+        (dejaPresents.length > 0
+          ? ` Ce code existait deja, la quantite s'ajoute a son stock : ${dejaPresents.join(" ; ")}.`
+          : ""),
     };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Enregistrement impossible." };
