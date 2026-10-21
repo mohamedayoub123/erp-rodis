@@ -282,7 +282,9 @@ export function splitLigneIntoDisplayRows<
     return {
       ...ligne,
       displayCode: entry.code || "-",
-      displayQuantite: entry[quantityField],
+      // Un code sans quantite propre vaut 0 : null voudrait dire "reprendre le total de la ligne" (affichage combine, voir plus haut),
+      // ce qui ferait compter la ligne entiere une 2eme fois pour ce code.
+      displayQuantite: entry[quantityField] ?? 0,
       displayRestant: batchQuantite - consumed,
     };
   });
@@ -405,7 +407,13 @@ export function pdLabelsForNumeroLot(
   return labels.length > 0 ? labels.join(", ") : "-";
 }
 
-export type CodeTermineRow = { programme_ligne_id: number; code: string; stage: "vrac" | "carton" | "emballage" };
+export type CodeTermineRow = {
+  programme_ligne_id: number;
+  code: string;
+  stage: "vrac" | "carton" | "emballage";
+  utilisateur?: string | null;
+  termine_date?: string | null;
+};
 
 export async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeTermineRow[]> {
   if (ligneIds.length === 0) return [];
@@ -417,7 +425,7 @@ export async function fetchAllCodeTermineRows(ligneIds: number[]): Promise<CodeT
   while (true) {
     const { data, error } = await supabaseServer
       .from("production_code_termine")
-      .select("programme_ligne_id, code, stage")
+      .select("programme_ligne_id, code, stage, utilisateur, termine_date")
       .in("programme_ligne_id", ligneIds)
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);

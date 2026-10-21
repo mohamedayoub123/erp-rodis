@@ -89,6 +89,13 @@ export default async function RapportCartonPage({ searchParams }: { searchParams
 
   const cartonByLigne = groupCartonEntriesByLigne(cartonEntries);
 
+  // Qui a termine chaque code a la main ("Fin programme" Conditionnement du Dashboard) et quand
+  const finCartonParCode = new Map(
+    codeTermineRows
+      .filter((row) => row.stage === "carton")
+      .map((row) => [`${row.programme_ligne_id}::${row.code}`, row] as const)
+  );
+
   function ligneOwnCodes(ligne: ProgrammeLigneRow): string[] {
     return splitLigneIntoDisplayRows(ligne, "qt_vrac", 0).map((split) => split.displayCode);
   }
@@ -131,8 +138,20 @@ export default async function RapportCartonPage({ searchParams }: { searchParams
             ? "En cours"
             : "Pas commence";
 
+      // "Termine" tout seul (quantite atteinte) n'a pas de responsable ; "Termine Manuel" = bouton "Fin programme" : on montre qui l'a
+      // clique et quand (les anciennes fins generales de ligne n'enregistraient pas la personne).
+      let termineePar = "-";
+      if (cartonManuel && !cartonNaturel) {
+        const fin = finCartonParCode.get(`${ligne.id}::${code}`);
+        const quand = fin?.termine_date ?? ligne.carton_termine_date ?? ligne.programme_termine_date;
+        termineePar = fin
+          ? `${fin.utilisateur || "personne inconnue"}${quand ? ` - ${formatDate(String(quand).slice(0, 10))}` : ""}`
+          : `Fin programme de la ligne${quand ? ` - ${formatDate(String(quand).slice(0, 10))}` : ""} (personne non enregistree)`;
+      }
+
       return {
         statut,
+        termineePar,
         id: ligne.id,
         key: `${ligne.id}::${code}`,
         date: ligne.date_jour,
@@ -319,6 +338,7 @@ export default async function RapportCartonPage({ searchParams }: { searchParams
                       Carton fabrique
                     </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Ecart</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Termine par</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -338,6 +358,7 @@ export default async function RapportCartonPage({ searchParams }: { searchParams
                         {Math.round(row.cartonFabrique)}
                       </td>
                       <EcartCell value={row.cartonDiff} />
+                      <td className="px-4 py-3 text-slate-600">{row.termineePar}</td>
                     </tr>
                   ))}
                 </tbody>
