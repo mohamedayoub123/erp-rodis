@@ -9,8 +9,8 @@ import { DeleteIconButton } from "@/app/_components/delete-icon-button";
 import { SimplePrintButton } from "@/app/_components/simple-print-button";
 import { formatDateTime } from "@/lib/format-date";
 import { fetchPdCodeByGroupeId, fetchPlCodeByGroupeId } from "@/lib/programme-numbering";
-import { buildCodeFluxContext, fetchCodeFlux } from "@/lib/production-code-flux";
-import { CodeFluxCard } from "@/app/_components/code-flux-card";
+import { lireCodeDocument } from "@/lib/document-numbers";
+import { FluxALaDemande } from "./flux-a-la-demande";
 
 type HistoryRow = {
   id: number;
@@ -49,13 +49,17 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
     notFound();
   }
 
-  const { data } = await supabaseServer
-    .from("programme_dispatcher_history")
-    .select(
-      "id, groupe_id, source_groupe_id, zone, chaine, produit, code, qt_carton, qt_vrac, date_jour, created_at, cree_par"
-    )
-    .eq("groupe_id", groupeIdNumber)
-    .order("id", { ascending: true });
+  // Lignes de la PD et numero PD en meme temps (2 lectures ciblees, au lieu de recalculer les numeros de TOUTES les PD)
+  const [{ data }, pdCodeRapide] = await Promise.all([
+    supabaseServer
+      .from("programme_dispatcher_history")
+      .select(
+        "id, groupe_id, source_groupe_id, zone, chaine, produit, code, qt_carton, qt_vrac, date_jour, created_at, cree_par"
+      )
+      .eq("groupe_id", groupeIdNumber)
+      .order("id", { ascending: true }),
+    lireCodeDocument("PD", groupeIdNumber),
+  ]);
 
   const rows = (data ?? []) as HistoryRow[];
 
@@ -63,25 +67,19 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
     notFound();
   }
 
-  // PD1/PD2/PD3... n'est pas stocke - meme calcul que la page liste (voir
-  // lib/programme-numbering.ts), pour ne plus jamais afficher un numero
-  // different entre les 2 pages pour le meme groupe.
-  const [pdCodeByGroupeId, plCodeByGroupeId] = await Promise.all([
-    fetchPdCodeByGroupeId(),
-    fetchPlCodeByGroupeId(),
-  ]);
-  const code = pdCodeByGroupeId.get(groupeIdNumber) ?? `PD-${groupeIdNumber}`;
+  // Les numeros PD / PL sont permanents (table document_numeros, voir lib/document-numbers.ts) : on lit directement celui de CE groupe.
+  // Seul un groupe pas encore numerote retombe sur le calcul complet (lib/programme-numbering.ts, qui lui en attribue un) - meme
+  // numero que la page liste dans tous les cas.
+  const code = pdCodeRapide ?? (await fetchPdCodeByGroupeId()).get(groupeIdNumber) ?? `PD-${groupeIdNumber}`;
   const sourceGroupeId = rows.find((row) => row.source_groupe_id !== null)?.source_groupe_id ?? null;
-  const plCode = sourceGroupeId !== null ? plCodeByGroupeId.get(sourceGroupeId) ?? null : null;
+  let plCode: string | null = null;
+  if (sourceGroupeId !== null) {
+    plCode = (await lireCodeDocument("PL", sourceGroupeId)) ?? (await fetchPlCodeByGroupeId()).get(sourceGroupeId) ?? null;
+  }
   const dateJour = rows[0]?.date_jour;
 
-  // Flux complet (meme calcul que le Flux TO/TI et le Rapport "Flux par
-  // Code") pour chaque code distinct de ce groupe PD.
+  // Le Flux complet (calcul lourd) ne se charge qu'a l'ouverture du bloc, voir flux-a-la-demande.tsx
   const codes = [...new Set(rows.map((r) => (r.code || "").trim()).filter(Boolean))];
-  const codeFluxContext = codes.length > 0 ? await buildCodeFluxContext() : null;
-  const codeFluxList = codeFluxContext
-    ? (await Promise.all(codes.map((c) => fetchCodeFlux(c, codeFluxContext)))).filter((f) => f !== null)
-    : [];
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -161,18 +159,7 @@ export default async function HistoriqueProgrammeDispatcherDetailPage({
           </div>
         </section>
 
-        {codeFluxList.length > 0 ? (
-          <details className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-            <summary className="cursor-pointer px-6 py-4 text-sm font-bold text-slate-900">
-              Flux - matiere premiere et produit fini par code
-            </summary>
-            <div className="space-y-3 border-t border-slate-100 px-6 py-4">
-              {codeFluxList.map((flux) => (
-                <CodeFluxCard key={flux.code} flux={flux} />
-              ))}
-            </div>
-          </details>
-        ) : null}
+        {codes.length > 0 ? <FluxALaDemande groupeId={groupeIdNumber} nbCodes={codes.length} /> : null}
       </div>
     </main>
   );

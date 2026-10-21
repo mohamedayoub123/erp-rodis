@@ -72,6 +72,21 @@ export async function lireNumeros(kind: DocKind): Promise<Map<number, DocNumber>
   return versMap(await appelerRpc<RpcNumeroRow[]>("document_lire_numeros", { p_kind: kind }));
 }
 
+// Code d'UN seul document (ex. "PD12") : une lecture ciblee (quelques millisecondes) au lieu de relire et recalculer les numeros de tous
+// les documents. Null quand ce document n'a pas encore de numero (l'appelant retombe alors sur le calcul complet, qui en attribue un).
+export async function lireCodeDocument(kind: DocKind, refId: number): Promise<string | null> {
+  const { data, error } = await supabaseServer
+    .from("document_numeros")
+    .select("annee, numero")
+    .eq("kind", kind)
+    .eq("ref_id", refId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const ligne = data as { annee: number | null; numero: number | null };
+  if (ligne.numero === null || ligne.numero === undefined) return null;
+  return formatDocCode(kind, { annee: Number(ligne.annee ?? 0), numero: Number(ligne.numero) });
+}
+
 // Renvoie le numero de chaque document de `items`. Les documents pas encore
 // numerotes en recoivent un NOUVEAU, dans l'ordre fourni (ordre de creation),
 // a la suite des numeros existants. Les numeros deja attribues ne changent
