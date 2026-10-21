@@ -130,7 +130,6 @@ export default async function ConditionnementParLignePage({
   const { piecesParCarton } = infosArticle;
   // Chaque Enregistrer est une NOUVELLE fournee : date de fabrication = aujourd'hui (jour, mois, annee
   // remplis automatiquement, modifiables).
-  const aujourdhui = new Date().toISOString().slice(0, 10);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -268,7 +267,7 @@ export default async function ConditionnementParLignePage({
                     <TimeTextInputMaintenant name="temps_demarage_lot" required className={CHAMP} />
                   </label>
                   <DatesFabricationPeremption
-                    defaultFabrication={aujourdhui}
+                    defaultFabrication=""
                     dureeAns={infosArticle.dureeConservationAns}
                   />
                 </div>

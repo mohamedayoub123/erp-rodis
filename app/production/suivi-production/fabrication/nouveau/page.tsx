@@ -156,7 +156,7 @@ export default async function NouvelleFicheFabricationPage({
                 </p>
                 <label className="grid max-w-xs gap-1 text-xs font-semibold text-slate-500">
                   Date fabrication
-                  <DateJmaFormField name="date_fabrication_conditionnement" required />
+                  <DateJmaFormField name="date_fabrication_conditionnement" required anneeFixe />
                 </label>
               </div>
 

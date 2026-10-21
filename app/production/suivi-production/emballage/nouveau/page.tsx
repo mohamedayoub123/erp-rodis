@@ -150,7 +150,7 @@ export default async function NouvelleFicheEmballagePage({
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Date emballage
-                    <DateJmaFormField name="date_emballage" required />
+                    <DateJmaFormField name="date_emballage" required anneeFixe />
                   </label>
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
                     Date d&apos;expiration

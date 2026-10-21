@@ -310,6 +310,7 @@ export function TestLaboForm({
               <DateJmaFormField
                 name="date_prise_echantillon"
                 defaultValue={rapport?.date_prise_echantillon}
+                anneeFixe
               />
             </label>
             <label className="grid gap-1 text-xs font-semibold text-slate-500">

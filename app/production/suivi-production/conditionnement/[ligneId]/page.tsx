@@ -188,10 +188,9 @@ export default async function RapportConditionnementPage({
   // Date de fabrication : nouvelle fournee = aujourd'hui (jour, mois et annee remplis automatiquement,
   // modifiables) ; correction d'une fournee deja saisie = la date de CETTE fournee, pour ne jamais la
   // reecrire par erreur avec la date du jour.
-  const aujourdhui = new Date().toISOString().slice(0, 10);
   const dateFabricationParDefaut = derniereFournee
-    ? derniereFournee.date_jour?.slice(0, 10) || rapport?.date_fabrication_conditionnement || aujourdhui
-    : aujourdhui;
+    ? derniereFournee.date_jour?.slice(0, 10) || rapport?.date_fabrication_conditionnement || ""
+    : "";
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">

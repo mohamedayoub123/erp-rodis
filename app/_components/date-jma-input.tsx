@@ -51,6 +51,34 @@ function splitIso(value: string) {
   return { year, month, day };
 }
 
+// Saisie "annee fixee" (Entrer Fabrication / Conditionnement / Emballage / Test labo) : l'annee est celle d'aujourd'hui et ne se tape plus,
+// le mois est celui d'aujourd'hui (modifiable), seul le jour se tape - fini les dates en 2027 ou 2029 par faute de frappe.
+function anneeCourante() {
+  return String(new Date().getFullYear());
+}
+
+function moisCourant() {
+  return String(new Date().getMonth() + 1).padStart(2, "0");
+}
+
+function joursDuMois(year: string, month: string) {
+  const annee = Number(year);
+  const mois = Number(month);
+  return annee && mois ? new Date(annee, mois, 0).getDate() : 31;
+}
+
+// Jour / mois / annee de depart : une date deja enregistree est reprise telle quelle ; sinon mois et annee du jour (jour vide).
+function departAnneeFixe(value: string) {
+  const parts = splitIso(value);
+  return { day: parts.day, month: parts.month || moisCourant(), year: parts.year || anneeCourante() };
+}
+
+// Annees proposees quand une date DEJA enregistree n'est pas de l'annee en cours (ex: 2027 par erreur) : on peut la ramener a l'annee
+// en cours, mais jamais choisir une autre annee. Un seul choix = annee affichee sans liste.
+function anneesAutorisees(anneeDepart: string) {
+  return [...new Set([anneeDepart, anneeCourante()].filter(Boolean))].sort();
+}
+
 function combine(day: string, month: string, year: string) {
   return day && month && year
     ? `${year.padStart(4, "0")}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`
@@ -67,6 +95,7 @@ function DateJmaFields({
   onMonth,
   onYear,
   required,
+  anneesFixes,
 }: {
   day: string;
   month: string;
@@ -75,13 +104,15 @@ function DateJmaFields({
   onMonth: (value: string) => void;
   onYear: (value: string) => void;
   required?: boolean;
+  // Defini = annee fixee : une seule valeur = simple affichage, 2 valeurs = liste limitee a ces 2 annees (correction d'une ancienne date)
+  anneesFixes?: string[];
 }) {
   return (
     <div className="flex gap-2">
       <input
         type="number"
         min="1"
-        max="31"
+        max={anneesFixes ? joursDuMois(year, month) : 31}
         placeholder="JJ"
         value={day}
         onChange={(event) => onDay(event.target.value)}
@@ -101,19 +132,28 @@ function DateJmaFields({
           </option>
         ))}
       </select>
-      <select
-        value={year}
-        onChange={(event) => onYear(event.target.value)}
-        required={required}
-        className={`w-24 ${fieldClass}`}
-      >
-        <option value="">AAAA</option>
-        {ANNEE_OPTIONS.map((anneeValue) => (
-          <option key={anneeValue} value={anneeValue}>
-            {anneeValue}
-          </option>
-        ))}
-      </select>
+      {anneesFixes && anneesFixes.length <= 1 ? (
+        <span
+          title="L'annee est fixee a l'annee en cours"
+          className="flex w-24 items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 px-3 py-3 text-sm font-semibold text-slate-700"
+        >
+          {year}
+        </span>
+      ) : (
+        <select
+          value={year}
+          onChange={(event) => onYear(event.target.value)}
+          required={required}
+          className={`w-24 ${fieldClass}`}
+        >
+          {anneesFixes ? null : <option value="">AAAA</option>}
+          {(anneesFixes ?? ANNEE_OPTIONS).map((anneeValue) => (
+            <option key={anneeValue} value={anneeValue}>
+              {anneeValue}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }
@@ -131,14 +171,19 @@ export function DateJmaInput({
   value,
   onChange,
   required,
+  anneeFixe,
 }: {
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
+  // Annee en cours non modifiable, mois en cours par defaut (modifiable), on tape seulement le jour
+  anneeFixe?: boolean;
 }) {
-  const [day, setDay] = useState(() => splitIso(value).day);
-  const [month, setMonth] = useState(() => splitIso(value).month);
-  const [year, setYear] = useState(() => splitIso(value).year);
+  const depart = (valeur: string) => (anneeFixe ? departAnneeFixe(valeur) : splitIso(valeur));
+  const [day, setDay] = useState(() => depart(value).day);
+  const [month, setMonth] = useState(() => depart(value).month);
+  const [year, setYear] = useState(() => depart(value).year);
+  const [anneesFixes] = useState(() => (anneeFixe ? anneesAutorisees(depart(value).year) : undefined));
 
   // Resynchronise l'etat local si `value` change depuis l'exterieur (ex:
   // remise a zero du formulaire apres "Valider entree") - "adjusting state
@@ -148,7 +193,7 @@ export function DateJmaInput({
   const [lastValue, setLastValue] = useState(value);
   if (lastValue !== value) {
     setLastValue(value);
-    const next = splitIso(value);
+    const next = depart(value);
     if (next.day !== day) setDay(next.day);
     if (next.month !== month) setMonth(next.month);
     if (next.year !== year) setYear(next.year);
@@ -172,6 +217,7 @@ export function DateJmaInput({
         onChange(combine(day, month, next));
       }}
       required={required}
+      anneesFixes={anneesFixes}
     />
   );
 }
@@ -182,12 +228,16 @@ export function DateJmaFormField({
   name,
   defaultValue,
   required,
+  anneeFixe,
 }: {
   name: string;
   defaultValue?: string | null;
   required?: boolean;
+  // Annee en cours non modifiable, mois en cours par defaut (modifiable), on tape seulement le jour
+  anneeFixe?: boolean;
 }) {
-  const initial = splitIso(defaultValue || "");
+  const initial = anneeFixe ? departAnneeFixe(defaultValue || "") : splitIso(defaultValue || "");
+  const [anneesFixes] = useState(() => (anneeFixe ? anneesAutorisees(initial.year) : undefined));
   const [day, setDay] = useState(initial.day);
   const [month, setMonth] = useState(initial.month);
   const [year, setYear] = useState(initial.year);
@@ -204,6 +254,7 @@ export function DateJmaFormField({
         onMonth={setMonth}
         onYear={setYear}
         required={required}
+        anneesFixes={anneesFixes}
       />
     </div>
   );

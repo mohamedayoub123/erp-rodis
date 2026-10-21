@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { saveFabricationRapportAction } from "../../actions";
 import { DateJmaFormField, MOIS_OPTIONS } from "@/app/_components/date-jma-input";
-import { smartEntryDateDefault } from "@/lib/smart-entry-date-default";
 import { SubmitButton } from "@/app/_components/submit-button";
 import {
   combineTempsJourMois,
@@ -190,8 +189,9 @@ export function FabricationForm({
           Date fabrication
           <DateJmaFormField
             name="date_fabrication_conditionnement"
-            defaultValue={smartEntryDateDefault(rapport?.date_fabrication_conditionnement, ligneDateJour)}
+            defaultValue={rapport?.date_fabrication_conditionnement}
             required
+            anneeFixe
           />
         </label>
       </div>

@@ -30,9 +30,9 @@ export function DatesFabricationPeremption({
       <div className="grid gap-1 text-xs font-semibold text-slate-500">
         Date de fabrication
         <span className="font-normal normal-case text-slate-500">
-          Remplie automatiquement - tu peux la changer.
+          Annee en cours fixee, mois en cours (modifiable) : tape seulement le jour.
         </span>
-        <DateJmaInput value={fabrication} onChange={setFabrication} required />
+        <DateJmaInput value={fabrication} onChange={setFabrication} required anneeFixe />
         <input type="hidden" name="date_fabrication_conditionnement" value={fabrication} />
       </div>
       <div className="grid gap-1 text-xs font-semibold text-slate-500">

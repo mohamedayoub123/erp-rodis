@@ -262,7 +262,7 @@ export default async function NouvelleFicheConditionnementPage({
                 </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <DatesFabricationPeremption
-                    defaultFabrication={new Date().toISOString().slice(0, 10)}
+                    defaultFabrication=""
                     dureeAns={null}
                   />
                 </div>
