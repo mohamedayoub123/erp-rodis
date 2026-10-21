@@ -136,7 +136,19 @@ type SearchParams = Promise<{
   gamme_statistique?: string;
   niveau?: string;
   tout?: string;
+  tri?: string;
+  ordre?: string;
 }>;
+
+// Tri du tableau : par defaut la rotation (du plus rapide au plus lent) ; on peut aussi classer par QUANTITE (stock actuel ou
+// consommation), du plus grand au plus petit (ou l'inverse).
+type CleTri = "rotation" | "stock" | "conso12" | "conso1";
+const TRIS: { cle: CleTri; label: string }[] = [
+  { cle: "rotation", label: "Rotation" },
+  { cle: "stock", label: "Stock actuel (quantite)" },
+  { cle: "conso12", label: "Consommation 12 mois (quantite)" },
+  { cle: "conso1", label: "Consommation dernier mois (quantite)" },
+];
 
 // Les ~1800 articles rendaient ~7,6 Mo de HTML a chaque ouverture : le tableau
 // montre les plus forts de la liste triee, "Voir tout" affiche le reste (le
@@ -150,7 +162,10 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   const categorieFilter = (params.categorie || "").trim().toLowerCase();
   const gammeStatistiqueFilter = (params.gamme_statistique || "").trim().toLowerCase();
   const niveauFilter = (params.niveau || "").trim().toUpperCase() as NiveauRotation | "";
-  const hasFilters = Boolean(articleFilter || categorieFilter || gammeStatistiqueFilter || niveauFilter);
+  const triParam = (params.tri || "").trim();
+  const tri: CleTri = TRIS.some((option) => option.cle === triParam) ? (triParam as CleTri) : "rotation";
+  const ordre: "desc" | "asc" = params.ordre === "asc" ? "asc" : "desc";
+  const hasFilters = Boolean(articleFilter || categorieFilter || gammeStatistiqueFilter || niveauFilter || params.tri || params.ordre);
 
   // Stock actuel = somme entree-sortie de tous les mouvements de l'article
   // (meme calcul que Stock Actuel MP / Stock Alert MP). Consommation 12 mois
@@ -223,7 +238,24 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
       (row) => !gammeStatistiqueFilter || (row.gamme_statistique || "").toLowerCase().includes(gammeStatistiqueFilter)
     )
     .filter((row) => !niveauFilter || row.niveau === niveauFilter)
-    .sort((a, b) => (b.rotation ?? -1) - (a.rotation ?? -1));
+    .sort((a, b) => {
+      const valeur = (row: RotationRow): number | null =>
+        tri === "stock"
+          ? row.stock_actuel
+          : tri === "conso12"
+            ? row.consommation_12_mois
+            : tri === "conso1"
+              ? row.consommation_par_mois
+              : row.rotation;
+      const va = valeur(a);
+      const vb = valeur(b);
+      // Sans valeur (rotation non calculable) : toujours a la fin, quel que soit l'ordre
+      if (va === null && vb === null) return a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" });
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      const ecart = ordre === "desc" ? vb - va : va - vb;
+      return ecart !== 0 ? ecart : a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" });
+    });
 
   const articleOptions = [...new Set(articles.map((article) => article.nom_article))].map(
     (label, index) => ({ id: index, label })
@@ -237,15 +269,24 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
     .map((label, index) => ({ id: index, label }));
 
+  const triParDefaut = tri === "rotation" && ordre === "desc";
+  const baseParams = (extra: Record<string, string>) =>
+    new URLSearchParams({
+      ...(articleFilter ? { article: articleFilter } : {}),
+      ...(categorieFilter ? { categorie: categorieFilter } : {}),
+      ...(gammeStatistiqueFilter ? { gamme_statistique: gammeStatistiqueFilter } : {}),
+      ...(niveauFilter ? { niveau: niveauFilter } : {}),
+      ...(triParDefaut ? {} : { tri, ordre }),
+      ...extra,
+    }).toString();
+  // En-tete cliquable : 1er clic = du plus grand au plus petit, re-clic sur la meme colonne = ordre inverse
+  const hrefTri = (cle: CleTri) =>
+    `/stock/matiere-premiere/rotation?${baseParams({ tri: cle, ordre: tri === cle && ordre === "desc" ? "asc" : "desc" })}`;
+  const fleche = (cle: CleTri) => (tri === cle ? (ordre === "desc" ? " ↓" : " ↑") : "");
+
   const toutAffiche = params.tout === "1";
   const rotationRowsAffichees = toutAffiche ? rotationRows : rotationRows.slice(0, LIMITE_LIGNES);
-  const hrefVoirTout = `/stock/matiere-premiere/rotation?${new URLSearchParams({
-    ...(articleFilter ? { article: articleFilter } : {}),
-    ...(categorieFilter ? { categorie: categorieFilter } : {}),
-    ...(gammeStatistiqueFilter ? { gamme_statistique: gammeStatistiqueFilter } : {}),
-    ...(niveauFilter ? { niveau: niveauFilter } : {}),
-    tout: "1",
-  }).toString()}`;
+  const hrefVoirTout = `/stock/matiere-premiere/rotation?${baseParams({ tout: "1" })}`;
 
   const exportColumns = [
     { label: "Article", key: "article" },
@@ -294,7 +335,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
               dans l&apos;annee). Jours de couverture = a la vitesse actuelle, combien de jours le
               stock restant tiendrait. Niveau : Forte (4x/an ou plus), Moyenne (1 a 4x/an), Faible
               (moins d&apos;1x/an mais au moins une sortie), Dormant (aucune sortie du tout sur les
-              12 derniers mois). Trie du plus rapide au plus lent.
+              12 derniers mois). Tri par defaut : du plus rapide au plus lent ; avec &laquo; Trier par &raquo; (ou en cliquant sur une colonne) on classe par quantite, du plus grand au plus petit.
             </p>
           </div>
 
@@ -314,12 +355,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
             {(["FORTE", "MOYENNE", "FAIBLE", "DORMANT"] as NiveauRotation[]).map((item) => (
               <a
                 key={item}
-                href={`/stock/matiere-premiere/rotation?${new URLSearchParams({
-                  ...(articleFilter ? { article: articleFilter } : {}),
-                  ...(categorieFilter ? { categorie: categorieFilter } : {}),
-                  ...(gammeStatistiqueFilter ? { gamme_statistique: gammeStatistiqueFilter } : {}),
-                  niveau: niveauFilter === item ? "" : item,
-                }).toString()}`}
+                href={`/stock/matiere-premiere/rotation?${baseParams({ niveau: niveauFilter === item ? "" : item })}`}
                 className={`rounded-full px-4 py-2 text-sm font-semibold transition hover:opacity-90 ${
                   niveauFilter === item ? "ring-2 ring-slate-900" : ""
                 } ${niveauBadgeClasses(item)}`}
@@ -349,7 +385,32 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
               placeholder="Gamme statistique..."
             />
             <input type="hidden" name="niveau" value={niveauFilter} />
-            <div className="flex gap-3">
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Trier par
+              <select
+                name="tri"
+                defaultValue={tri}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              >
+                {TRIS.map((option) => (
+                  <option key={option.cle} value={option.cle}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Ordre
+              <select
+                name="ordre"
+                defaultValue={ordre}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              >
+                <option value="desc">Du plus grand au plus petit</option>
+                <option value="asc">Du plus petit au plus grand</option>
+              </select>
+            </label>
+            <div className="flex items-end gap-3">
               <button
                 type="submit"
                 className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
@@ -388,12 +449,20 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme statistique</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock actuel</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                      <a href={hrefTri("stock")} className="underline decoration-dotted">Stock actuel{fleche("stock")}</a>
+                    </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock il y a 12 mois</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock moyen (12 mois)</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation (12 mois)</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation (dernier mois)</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Rotation</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                      <a href={hrefTri("conso12")} className="underline decoration-dotted">Consommation (12 mois){fleche("conso12")}</a>
+                    </th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                      <a href={hrefTri("conso1")} className="underline decoration-dotted">Consommation (dernier mois){fleche("conso1")}</a>
+                    </th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                      <a href={hrefTri("rotation")} className="underline decoration-dotted">Rotation{fleche("rotation")}</a>
+                    </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Niveau</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Jours de couverture</th>
                   </tr>
