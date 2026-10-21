@@ -437,6 +437,37 @@ async function fetchProductionParCode(
 // l'entree stock et la sortie/proforma du produit fini viennent de
 // traceProduitFiniPourCode (meme fonction que le Flux TO/TI, jamais
 // dupliquee).
+// Un code n'a une ligne production_code_termine qu'apres un "Besoin valide" (salles de pesage / conditionnement) ou un "Fin programme".
+// Avant, et sans l'un ni l'autre, il a pourtant tout son flux (programme, PD, vrac, cartons, emballage, test labo, stock) : on le
+// retrouve alors par sa ligne de programme (le code est dans numero_lot) ou, a defaut, par ses saisies de production.
+async function retrouverLigneDuCode(codeSaisi: string): Promise<{ code: string; programmeLigneId: number } | null> {
+  const motif = codeSaisi.replace(/[%_\\]/g, (caractere) => "\\" + caractere);
+  const minuscule = codeSaisi.toLowerCase();
+
+  const { data: lignesData } = await supabaseServer
+    .from("programme_lignes")
+    .select("id, groupe_id, numero_lot")
+    .ilike("numero_lot", `%${motif}%`)
+    .order("id", { ascending: true })
+    .limit(50);
+  const lignes = ((lignesData ?? []) as { id: number; groupe_id: number | null; numero_lot: string | null }[])
+    .map((ligne) => ({
+      ligne,
+      code: (ligne.numero_lot ?? "").split(",").map((morceau) => morceau.trim()).find((morceau) => morceau.toLowerCase() === minuscule) ?? null,
+    }))
+    .filter((element): element is { ligne: { id: number; groupe_id: number | null; numero_lot: string | null }; code: string } => element.code !== null)
+    // La ligne du vrai programme (rattachee a un groupe PL) avant une fiche "+" du meme code
+    .sort((a, b) => Number(b.ligne.groupe_id !== null) - Number(a.ligne.groupe_id !== null) || a.ligne.id - b.ligne.id);
+  if (lignes.length > 0) return { code: lignes[0].code, programmeLigneId: lignes[0].ligne.id };
+
+  for (const table of ["production_rapports", "production_carton_entries", "production_emballage_entries", "production_vrac_entries"]) {
+    const { data } = await supabaseServer.from(table).select("programme_ligne_id, code").ilike("code", motif).order("id", { ascending: true }).limit(1);
+    const ligne = ((data ?? []) as { programme_ligne_id: number; code: string }[])[0];
+    if (ligne) return { code: ligne.code, programmeLigneId: ligne.programme_ligne_id };
+  }
+  return null;
+}
+
 export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Promise<CodeFlux | null> {
   const codeSaisi = codeRaw.trim();
   if (!codeSaisi) return null;
@@ -449,15 +480,22 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
     .select("id, programme_ligne_id, code")
     .ilike("code", codeSaisi);
   const termineRows = (termineData ?? []) as { id: number; programme_ligne_id: number; code: string }[];
-  if (termineRows.length === 0) return null;
 
   // Le vrai code stocke (casse exacte) - reutilise pour l'affichage et pour
   // matcher lots_stock.numero_lot plus bas (traceProduitFiniPourCode fait
   // deja sa propre comparaison insensible a la casse, mais autant retrouver
   // le libelle exact plutot que celui tape par l'utilisateur).
-  const code = termineRows[0].code;
-
-  const programmeLigneId = termineRows[0].programme_ligne_id;
+  let code: string;
+  let programmeLigneId: number;
+  if (termineRows.length > 0) {
+    code = termineRows[0].code;
+    programmeLigneId = termineRows[0].programme_ligne_id;
+  } else {
+    const trouve = await retrouverLigneDuCode(codeSaisi);
+    if (!trouve) return null;
+    code = trouve.code;
+    programmeLigneId = trouve.programmeLigneId;
+  }
   const { data: plData } = await supabaseServer
     .from("programme_lignes")
     .select("id, groupe_id, produit, article_id, programe")
@@ -486,13 +524,17 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
         }))
       : [];
 
-  const { data: reserveData } = await supabaseServer
-    .from("production_mp_reserve")
-    .select("article_mp_id, depot_id, numero_lot, quantite_initiale")
-    .in(
-      "production_code_termine_id",
-      termineRows.map((t) => t.id)
-    );
+  // Les reservations de matiere premiere sont rattachees a une ligne "code termine" : sans elle, pas de matiere reservee a montrer
+  const { data: reserveData } =
+    termineRows.length > 0
+      ? await supabaseServer
+          .from("production_mp_reserve")
+          .select("article_mp_id, depot_id, numero_lot, quantite_initiale")
+          .in(
+            "production_code_termine_id",
+            termineRows.map((t) => t.id)
+          )
+      : { data: [] };
   const reserves = (reserveData ?? []) as {
     article_mp_id: number;
     depot_id: number;
