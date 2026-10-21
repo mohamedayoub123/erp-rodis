@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
+import { fetchAllRowsFirstPageCount } from "@/lib/fetch-all-rows-parallel";
 import { hhmmDiffMinutes, ddmmHhmmToInterval } from "@/lib/suivi-tirage-time";
 
 // Regle actee avec l'utilisateur (demande explicite) : par FOURNEE/rapport
@@ -104,7 +104,22 @@ function classerManuel(dureeMinutes: number, estSamedi: boolean) {
   return { normalesMinutes: 0, supMinutes: dureeMinutes, joursSupMinutes: 0 };
 }
 
+// Type d'article (clarifiant, gel douche...) lu dans la MEME requete : saisie -> ligne de programme -> article. Selon le client, une
+// relation "vers un seul" arrive comme objet ; on accepte aussi un tableau a 1 element.
+type LigneArticleType = {
+  articles: { type_article: string | null } | { type_article: string | null }[] | null;
+} | null;
+type LigneArticleTypeOuListe = LigneArticleType | LigneArticleType[];
+
+function typeArticleDe(valeur: LigneArticleTypeOuListe | undefined): string | null {
+  const ligne = Array.isArray(valeur) ? (valeur[0] ?? null) : (valeur ?? null);
+  if (!ligne) return null;
+  const article = Array.isArray(ligne.articles) ? (ligne.articles[0] ?? null) : ligne.articles;
+  return article?.type_article ?? null;
+}
+
 type CartonRow = {
+  programme_lignes?: LigneArticleTypeOuListe;
   code: string;
   programme_ligne_id: number | null;
   date_jour: string;
@@ -115,6 +130,7 @@ type CartonRow = {
 };
 
 type EmballageRow = {
+  programme_lignes?: LigneArticleTypeOuListe;
   code: string;
   programme_ligne_id: number | null;
   date_jour: string;
@@ -125,6 +141,7 @@ type EmballageRow = {
 };
 
 type RapportRow = {
+  programme_lignes?: LigneArticleTypeOuListe;
   code: string;
   programme_ligne_id: number | null;
   machine: string | null;
@@ -151,126 +168,69 @@ export async function fetchBlocsHeuresSup(periode: {
   dateFrom: string;
   dateTo: string;
 }): Promise<BlocHeuresSup[]> {
+  // Une seule vague de requetes en parallele (1 aller-retour pour un mois normal) : chaque source demande sa 1re page AVEC le compte, et le
+  // type d'article arrive dans la meme requete (saisie -> ligne de programme -> article) au lieu de 2 recherches supplementaires apres coup.
+  // Tri sur la date PUIS l'id : un tri sur la seule date (non unique) peut doubler ou sauter des lignes d'une page a l'autre.
+  const TYPE_ARTICLE = "programme_lignes(articles(type_article))";
   const [cartonRows, emballageRows, rapportRows, manuelRows] = await Promise.all([
-    fetchAllRowsParallel<CartonRow>(
-      () =>
-        supabaseServer
-          .from("production_carton_entries")
-          .select("id", { count: "exact", head: true })
-          .gte("date_jour", periode.dateFrom)
-          .lte("date_jour", periode.dateTo),
-      (from, to) =>
-        supabaseServer
-          .from("production_carton_entries")
-          .select(
-            "code, programme_ligne_id, date_jour, chaine, temps_demarage_lot, temps_arret_batch, nb_journaliers_conditionnement"
-          )
-          .gte("date_jour", periode.dateFrom)
-          .lte("date_jour", periode.dateTo)
-          .order("date_jour", { ascending: true })
-          .range(from, to)
+    fetchAllRowsFirstPageCount<CartonRow>((from, to, avecCompte) =>
+      supabaseServer
+        .from("production_carton_entries")
+        .select(
+          `code, programme_ligne_id, date_jour, chaine, temps_demarage_lot, temps_arret_batch, nb_journaliers_conditionnement, ${TYPE_ARTICLE}`,
+          avecCompte ? { count: "exact" } : undefined
+        )
+        .gte("date_jour", periode.dateFrom)
+        .lte("date_jour", periode.dateTo)
+        .order("date_jour", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
     ),
-    fetchAllRowsParallel<EmballageRow>(
-      () =>
-        supabaseServer
-          .from("production_emballage_entries")
-          .select("id", { count: "exact", head: true })
-          .gte("date_jour", periode.dateFrom)
-          .lte("date_jour", periode.dateTo),
-      (from, to) =>
-        supabaseServer
-          .from("production_emballage_entries")
-          .select(
-            "code, programme_ligne_id, date_jour, emballage_machine, emballage_temps_demarrer, emballage_temps_arret, nb_journaliers_emballage"
-          )
-          .gte("date_jour", periode.dateFrom)
-          .lte("date_jour", periode.dateTo)
-          .order("date_jour", { ascending: true })
-          .range(from, to)
+    fetchAllRowsFirstPageCount<EmballageRow>((from, to, avecCompte) =>
+      supabaseServer
+        .from("production_emballage_entries")
+        .select(
+          `code, programme_ligne_id, date_jour, emballage_machine, emballage_temps_demarrer, emballage_temps_arret, nb_journaliers_emballage, ${TYPE_ARTICLE}`,
+          avecCompte ? { count: "exact" } : undefined
+        )
+        .gte("date_jour", periode.dateFrom)
+        .lte("date_jour", periode.dateTo)
+        .order("date_jour", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
     ),
     // date_fabrication_conditionnement sert deja d'ancre pour interpreter
     // temps_debut_preparation/temps_vidange (format "JJ/MM HH:MM" sans annee)
     // partout ailleurs dans le moteur de cout (lib/cout-production-reel.ts) -
     // meme convention reprise ici pour filtrer la periode et determiner le
     // vrai jour calendaire (donc si c'est un samedi).
-    fetchAllRowsParallel<RapportRow>(
-      () =>
-        supabaseServer
-          .from("production_rapports")
-          .select("id", { count: "exact", head: true })
-          .gte("date_fabrication_conditionnement", periode.dateFrom)
-          .lte("date_fabrication_conditionnement", periode.dateTo),
-      (from, to) =>
-        supabaseServer
-          .from("production_rapports")
-          .select(
-            "code, programme_ligne_id, machine, temps_debut_preparation, temps_vidange, nb_journaliers_fabrication, date_fabrication_conditionnement"
-          )
-          .gte("date_fabrication_conditionnement", periode.dateFrom)
-          .lte("date_fabrication_conditionnement", periode.dateTo)
-          .order("date_fabrication_conditionnement", { ascending: true })
-          .range(from, to)
+    fetchAllRowsFirstPageCount<RapportRow>((from, to, avecCompte) =>
+      supabaseServer
+        .from("production_rapports")
+        .select(
+          `code, programme_ligne_id, machine, temps_debut_preparation, temps_vidange, nb_journaliers_fabrication, date_fabrication_conditionnement, ${TYPE_ARTICLE}`,
+          avecCompte ? { count: "exact" } : undefined
+        )
+        .gte("date_fabrication_conditionnement", periode.dateFrom)
+        .lte("date_fabrication_conditionnement", periode.dateTo)
+        .order("date_fabrication_conditionnement", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
     ),
     // Heures Sup Manuel (app/production/heures-sup-manuel) : demande explicite
     // de fusionner ces lignes dans ce meme rapport, plutot que de les laisser
     // separees.
-    fetchAllRowsParallel<ManuelRow>(
-      () =>
-        supabaseServer
-          .from("heures_sup_manuel")
-          .select("id", { count: "exact", head: true })
-          .gte("date_jour", periode.dateFrom)
-          .lte("date_jour", periode.dateTo),
-      (from, to) =>
-        supabaseServer
-          .from("heures_sup_manuel")
-          .select("date_jour, nb_journaliers, nb_heures, heures_sup_activites(id, nom)")
-          .gte("date_jour", periode.dateFrom)
-          .lte("date_jour", periode.dateTo)
-          .order("date_jour", { ascending: true })
-          .range(from, to)
+    fetchAllRowsFirstPageCount<ManuelRow>((from, to, avecCompte) =>
+      supabaseServer
+        .from("heures_sup_manuel")
+        .select("date_jour, nb_journaliers, nb_heures, heures_sup_activites(id, nom)", avecCompte ? { count: "exact" } : undefined)
+        .gte("date_jour", periode.dateFrom)
+        .lte("date_jour", periode.dateTo)
+        .order("date_jour", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
     ),
   ]);
-
-  // Type de produit (clarifiant, gel douche, hydratant...) affiche a cote du
-  // code pour clarifier de quel article il s'agit. Le code texte seul
-  // (production_carton_entries.code etc.) NE PEUT PAS servir de cle vers
-  // articles.code_auto/code_manu : ce sont des codes de PRODUCTION incrementes
-  // a chaque nouveau lot (voir lib/article-code-family.ts), alors que
-  // articles.code_auto/code_manu ne garde que le code courant/le plus recent
-  // - verifie sur donnees reelles, a peine 10% des codes historiques
-  // matchaient encore. Le vrai lien stable est programme_ligne_id ->
-  // programme_lignes.article_id -> articles.type_article.
-  const ligneIds = [
-    ...new Set(
-      [...cartonRows, ...emballageRows, ...rapportRows]
-        .map((r) => r.programme_ligne_id)
-        .filter((id): id is number => id != null)
-    ),
-  ];
-  const articleIdParLigneId = new Map<number, number>();
-  for (let i = 0; i < ligneIds.length; i += 1000) {
-    const chunk = ligneIds.slice(i, i + 1000);
-    const { data } = await supabaseServer.from("programme_lignes").select("id, article_id").in("id", chunk);
-    for (const row of (data ?? []) as { id: number; article_id: number | null }[]) {
-      if (row.article_id != null) articleIdParLigneId.set(row.id, row.article_id);
-    }
-  }
-  const articleIds = [...new Set(articleIdParLigneId.values())];
-  const typeArticleParArticleId = new Map<number, string | null>();
-  for (let i = 0; i < articleIds.length; i += 1000) {
-    const chunk = articleIds.slice(i, i + 1000);
-    const { data } = await supabaseServer.from("articles").select("id, type_article").in("id", chunk);
-    for (const row of (data ?? []) as { id: number; type_article: string | null }[]) {
-      typeArticleParArticleId.set(row.id, row.type_article);
-    }
-  }
-  function resolveTypeArticle(ligneId: number | null): string | null {
-    if (ligneId == null) return null;
-    const articleId = articleIdParLigneId.get(ligneId);
-    if (articleId == null) return null;
-    return typeArticleParArticleId.get(articleId) ?? null;
-  }
 
   const blocs: BlocHeuresSup[] = [];
 
@@ -283,7 +243,7 @@ export async function fetchBlocsHeuresSup(periode: {
       source: "conditionnement",
       chaine: row.chaine || "-",
       code: row.code,
-      typeArticle: resolveTypeArticle(row.programme_ligne_id),
+      typeArticle: typeArticleDe(row.programme_lignes),
       dateJour: row.date_jour,
       debutLabel: row.temps_demarage_lot,
       finLabel: row.temps_arret_batch,
@@ -303,7 +263,7 @@ export async function fetchBlocsHeuresSup(periode: {
       source: "emballage",
       chaine: row.emballage_machine || "-",
       code: row.code,
-      typeArticle: resolveTypeArticle(row.programme_ligne_id),
+      typeArticle: typeArticleDe(row.programme_lignes),
       dateJour: row.date_jour,
       debutLabel: row.emballage_temps_demarrer,
       finLabel: row.emballage_temps_arret,
@@ -349,7 +309,7 @@ export async function fetchBlocsHeuresSup(periode: {
       source: "fabrication",
       chaine: row.machine || "-",
       code: row.code,
-      typeArticle: resolveTypeArticle(row.programme_ligne_id),
+      typeArticle: typeArticleDe(row.programme_lignes),
       dateJour: row.date_fabrication_conditionnement,
       debutLabel: row.temps_debut_preparation,
       finLabel: row.temps_vidange,
