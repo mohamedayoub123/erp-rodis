@@ -95,8 +95,27 @@ export type CodeFluxTestLabo = {
   remarque: string | null;
 };
 
+// Avancement d'un code, meme sans "Fin programme" : ce qui est prevu, ce qui est fait et ce qu'il reste - par etape.
+export type CodeFluxStatut = "Pas commence" | "En cours" | "Termine" | "Termine manuel";
+
+export type CodeFluxEtape = {
+  // Prevu (vrac en kg ; cartons pour Conditionnement ; cartons conditionnes pour Emballage), null = pas de quantite prevue
+  prevu: number | null;
+  fait: number;
+  reste: number | null;
+  statut: CodeFluxStatut;
+};
+
+export type CodeFluxAvancement = {
+  statut: "Pas commence" | "En cours" | "Termine";
+  vrac: CodeFluxEtape;
+  conditionnement: CodeFluxEtape;
+  emballage: CodeFluxEtape;
+};
+
 export type CodeFlux = {
   code: string;
+  avancement: CodeFluxAvancement;
   // "MB" de la PL : le champ "Programme" de la ligne de programme (ex : "MB5371/AYOUB"), tel que saisi sur le Programme par ligne
   mb: string | null;
   pl: CodeFluxRef | null;
@@ -468,6 +487,73 @@ async function retrouverLigneDuCode(codeSaisi: string): Promise<{ code: string; 
   return null;
 }
 
+function sommeQuantites(entrees: { quantite: number }[]): number {
+  return Math.round(entrees.reduce((somme, entree) => somme + Number(entree.quantite ?? 0), 0) * 100) / 100;
+}
+
+// Prevu / fait / reste de chaque etape d'un code, et son statut general (En cours des que quelque chose est fait et que tout n'est pas
+// termine). Meme regles que le rapport Ecarts : une etape est "Termine" quand la quantite prevue est atteinte, "Termine manuel" quand
+// "Fin programme" a ete clique, "En cours" des qu'il y a eu une saisie. Fonctionne sans aucune ligne "code termine".
+function calculerAvancement(
+  code: string,
+  pl: {
+    numero_lot: string | null;
+    numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
+    qt_carton: number | null;
+    vrac_a_fabriquer: number | null;
+    programme_termine: boolean | null;
+    vrac_termine: boolean | null;
+    carton_termine: boolean | null;
+    emballage_termine: boolean | null;
+  } | null,
+  production: CodeFluxProduction,
+  etapesTerminees: Set<string>
+): CodeFluxAvancement {
+  const codesLigne = (pl?.numero_lot ?? "").split(",").map((morceau) => morceau.trim()).filter(Boolean);
+  const detail = pl?.numero_lot_detail ?? [];
+  const partCode =
+    codesLigne.length > 1 && detail.length === codesLigne.length
+      ? detail.find((entree) => (entree.code ?? "").toLowerCase() === code.toLowerCase()) ?? null
+      : null;
+  const vracPrevu = partCode ? partCode.qt_vrac : (pl?.vrac_a_fabriquer ?? null);
+  const cartonPrevu = partCode ? partCode.qt_carton : (pl?.qt_carton ?? null);
+
+  const vracFait = sommeQuantites(production.fabrication);
+  const cartonFait = sommeQuantites(production.conditionnement);
+  const emballageFait = sommeQuantites(production.emballage);
+
+  const etape = (prevu: number | null, fait: number, manuel: boolean, natureAtteinte: boolean): CodeFluxEtape => {
+    const statut: CodeFluxStatut = natureAtteinte ? "Termine" : manuel ? "Termine manuel" : fait > 0 ? "En cours" : "Pas commence";
+    return { prevu, fait, reste: prevu !== null ? Math.round((prevu - fait) * 100) / 100 : null, statut };
+  };
+
+  const fin = Boolean(pl?.programme_termine);
+  const vrac = etape(vracPrevu, vracFait, fin || Boolean(pl?.vrac_termine) || etapesTerminees.has("vrac"), vracPrevu !== null && vracPrevu > 0 && vracFait >= vracPrevu);
+  const conditionnement = etape(
+    cartonPrevu,
+    cartonFait,
+    fin || Boolean(pl?.carton_termine) || etapesTerminees.has("carton"),
+    cartonPrevu !== null && cartonPrevu > 0 && cartonFait >= cartonPrevu
+  );
+  // Emballage : ce qui est a emballer = ce qui a ete conditionne
+  const emballage = etape(
+    cartonFait,
+    emballageFait,
+    fin || Boolean(pl?.emballage_termine) || etapesTerminees.has("emballage"),
+    cartonFait > 0 && emballageFait >= cartonFait
+  );
+
+  const etapes = [vrac, conditionnement, emballage];
+  const tousTermines = etapes.every((e) => e.statut === "Termine" || e.statut === "Termine manuel");
+  const commence = vracFait > 0 || cartonFait > 0 || emballageFait > 0;
+  return {
+    statut: tousTermines && commence ? "Termine" : commence ? "En cours" : "Pas commence",
+    vrac,
+    conditionnement,
+    emballage,
+  };
+}
+
 export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Promise<CodeFlux | null> {
   const codeSaisi = codeRaw.trim();
   if (!codeSaisi) return null;
@@ -477,9 +563,9 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
   // meme principe que matchesCode() dans lib/cout-production-reel.ts.
   const { data: termineData } = await supabaseServer
     .from("production_code_termine")
-    .select("id, programme_ligne_id, code")
+    .select("id, programme_ligne_id, code, stage")
     .ilike("code", codeSaisi);
-  const termineRows = (termineData ?? []) as { id: number; programme_ligne_id: number; code: string }[];
+  const termineRows = (termineData ?? []) as { id: number; programme_ligne_id: number; code: string; stage: string }[];
 
   // Le vrai code stocke (casse exacte) - reutilise pour l'affichage et pour
   // matcher lots_stock.numero_lot plus bas (traceProduitFiniPourCode fait
@@ -498,7 +584,9 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
   }
   const { data: plData } = await supabaseServer
     .from("programme_lignes")
-    .select("id, groupe_id, produit, article_id, programe")
+    .select(
+      "id, groupe_id, produit, article_id, programe, numero_lot, numero_lot_detail, qt_carton, vrac_a_fabriquer, programme_termine, vrac_termine, carton_termine, emballage_termine"
+    )
     .eq("id", programmeLigneId)
     .maybeSingle();
   const pl = plData as {
@@ -507,6 +595,14 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
     produit: string | null;
     article_id: number | null;
     programe: string | null;
+    numero_lot: string | null;
+    numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
+    qt_carton: number | null;
+    vrac_a_fabriquer: number | null;
+    programme_termine: boolean | null;
+    vrac_termine: boolean | null;
+    carton_termine: boolean | null;
+    emballage_termine: boolean | null;
   } | null;
 
   // MB de la PL = champ libre "Programme" de la ligne (ex : "MB5371/AYOUB") ; vide = pas de MB
@@ -595,8 +691,11 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
   const { entreeProduction, sorties } = traceProduitFiniPourCode(ctx.webRows, ctx.mouvementInfoByRowId, pl?.article_id, code);
   const { production, datePeremption, testLabo } = await fetchProductionParCode(code);
 
+  const avancement = calculerAvancement(code, pl, production, new Set(termineRows.map((ligne) => ligne.stage)));
+
   return {
     code,
+    avancement,
     mb,
     pl: plRef,
     pds,

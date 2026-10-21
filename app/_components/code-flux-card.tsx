@@ -1,5 +1,12 @@
 import Link from "next/link";
-import type { CodeFlux, CodeFluxMpSource, CodeFluxStageEntry, CodeFluxTestLabo } from "@/lib/production-code-flux";
+import type {
+  CodeFlux,
+  CodeFluxEtape,
+  CodeFluxMpSource,
+  CodeFluxStageEntry,
+  CodeFluxStatut,
+  CodeFluxTestLabo,
+} from "@/lib/production-code-flux";
 import { formatDate } from "@/lib/format-date";
 
 // Meme libelle que Historique Test Labo/Rapport Test Labo (app/qualite/...)
@@ -212,17 +219,66 @@ function StageEntries({
 // deja livre) - partagee entre le Rapport "Flux par Code", la page PL
 // (Historique programme) et la page PD (Historique Programme Dispatcher),
 // pour ne jamais desynchroniser 3 affichages du meme calcul.
+function classeStatut(statut: CodeFluxStatut | "Pas commence" | "En cours" | "Termine") {
+  if (statut === "Termine") return "bg-emerald-100 text-emerald-800";
+  if (statut === "Termine manuel") return "bg-violet-100 text-violet-800";
+  if (statut === "En cours") return "bg-amber-100 text-amber-800";
+  return "bg-slate-200 text-slate-600";
+}
+
+function formaterNombre(valeur: number) {
+  return (Math.round(valeur * 100) / 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+}
+
+// Une etape de l'avancement : fait / prevu, ce qu'il reste, et son etat - visible meme si "Fin programme" n'a pas ete clique.
+function EtapeAvancement({ titre, etape, unite, resteLibelle }: { titre: string; etape: CodeFluxEtape; unite: string; resteLibelle: string }) {
+  return (
+    <div className="rounded-xl bg-white px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{titre}</p>
+        <span className={`rounded-full px-2 py-0.5 text-[0.65rem] font-semibold ${classeStatut(etape.statut)}`}>{etape.statut}</span>
+      </div>
+      <p className="mt-1 text-lg font-black tabular-nums text-slate-900">
+        {formaterNombre(etape.fait)}
+        <span className="text-xs font-semibold text-slate-500"> {unite}</span>
+        <span className="text-sm font-semibold text-slate-400">
+          {" "}
+          / {etape.prevu !== null ? formaterNombre(etape.prevu) : "-"}
+        </span>
+      </p>
+      <p className="text-xs text-slate-500">
+        {etape.reste === null
+          ? "Pas de quantite prevue"
+          : etape.reste > 0
+            ? `${resteLibelle} : ${formaterNombre(etape.reste)} ${unite}`
+            : etape.reste < 0
+              ? `Surplus : ${formaterNombre(-etape.reste)} ${unite}`
+              : "Complet"}
+      </p>
+    </div>
+  );
+}
+
 export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-base font-bold text-slate-900">{flux.code}</span>
+        <span className={`rounded-full px-3 py-0.5 text-xs font-semibold ${classeStatut(flux.avancement.statut)}`}>
+          {flux.avancement.statut}
+        </span>
         {flux.produit ? <span className="text-sm text-slate-600">- {flux.produit}</span> : null}
         {flux.datePeremption ? (
           <span className="text-sm font-semibold text-amber-700">
             - expire le {formatDate(flux.datePeremption)}
           </span>
         ) : null}
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <EtapeAvancement titre="Fabrication (vrac)" etape={flux.avancement.vrac} unite="kg" resteLibelle="Reste a fabriquer" />
+        <EtapeAvancement titre="Conditionnement (cartons)" etape={flux.avancement.conditionnement} unite="cartons" resteLibelle="Reste a conditionner" />
+        <EtapeAvancement titre="Emballage (cartons)" etape={flux.avancement.emballage} unite="cartons" resteLibelle="Reste a emballer" />
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
