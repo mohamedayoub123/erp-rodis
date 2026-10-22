@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
+import { fetchAllRowsFirstPageCount } from "@/lib/fetch-all-rows-parallel";
 import { SpecsQualiteForm, type SpecRow } from "./specs-form";
 
 type ArticleRow = { id: number; nom_article: string };
@@ -39,11 +40,19 @@ export default async function QualiteSpecsPage() {
   const canWrite = await canWritePageUser(currentUser, "qualiteSpecs");
   const canDelete = await canDeletePageUser(currentUser, "qualiteSpecs");
 
-  const [{ data: vracData, error: vracError }, { data: specsData, error: specsError }] = await Promise.all([
-    supabaseServer
-      .from("articles")
-      .select("id, nom_article")
-      .order("nom_article", { ascending: true }),
+  // La table articles depasse 1000 lignes : sans pagination, PostgREST coupe la liste a 1000 et les articles
+  // en fin d'alphabet (les "Vrac ...") n'apparaissaient pas dans le choix d'article. Tri nom puis id = pagination fiable.
+  const [vracResult, { data: specsData, error: specsError }] = await Promise.all([
+    fetchAllRowsFirstPageCount<ArticleRow>((from, to, avecCompte) =>
+      supabaseServer
+        .from("articles")
+        .select("id, nom_article", avecCompte ? { count: "exact" } : undefined)
+        .order("nom_article", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
+    )
+      .then((data) => ({ data, error: null }))
+      .catch((e: Error) => ({ data: null, error: { message: e.message } })),
     supabaseServer
       .from("articles_specs_qualite")
       .select(
@@ -51,9 +60,9 @@ export default async function QualiteSpecsPage() {
       ),
   ]);
 
-  const error = vracError || specsError;
+  const error = vracResult.error || specsError;
 
-  const vracArticles = ((vracData as ArticleRow[] | null) ?? []).map((row) => ({
+  const vracArticles = (vracResult.data ?? []).map((row) => ({
     id: row.id,
     label: row.nom_article,
   }));
