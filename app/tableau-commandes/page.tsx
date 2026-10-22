@@ -36,6 +36,8 @@ type SearchParams = Promise<{
   hideStand?: string;
   vue?: string;
   negatif?: string;
+  // Colonnes de commande retirees de la vue "Article manquant" (une valeur par colonne).
+  retirees?: string | string[];
 }>;
 
 const WHITE_SECRET_TURQUOISE = "bg-[#1f9da5]";
@@ -182,11 +184,37 @@ function renderArticleManquantInsideTableau(
   qtEnCoursConditionnementByArticleKey: Map<string, number>,
   hideStand: boolean = false,
   onlyNegatif: boolean = false,
-  canEditNote: boolean = false
+  canEditNote: boolean = false,
+  colonnesRetirees: string[] = []
 ) {
-  const visibleCommandColumns = commandColumns.filter(
+  const columnsAfterStand = commandColumns.filter(
     (column) => !hideStand || String(column.statut || "").toUpperCase() !== "STAND"
   );
+
+  // Colonnes retirees a la demande (croix de l'en-tete ou panneau "Colonnes") :
+  // comme pour "Supprimer stand", ces commandes ne comptent plus dans le TOTAL
+  // ni le RESTE, et l'export Excel reprend exactement ce qui est affiche.
+  const retireesSet = new Set(colonnesRetirees);
+  const retireesPresentes = columnsAfterStand.filter((column) => retireesSet.has(column.key));
+  const visibleCommandColumns = columnsAfterStand.filter((column) => !retireesSet.has(column.key));
+
+  // gardeFiltres=false : les boutons de famille repartent sans Stand / manques seulement, comme avant.
+  const lienManquant = (retirees: string[], options: { famille?: string; gardeFiltres?: boolean } = {}) => {
+    const query = new URLSearchParams({ vue: "manquant" });
+    const famille = options.famille ?? selectedFamille;
+    const gardeFiltres = options.gardeFiltres ?? true;
+    if (famille) query.set("famille", famille);
+    if (gardeFiltres && hideStand) query.set("hideStand", "1");
+    if (gardeFiltres && onlyNegatif) query.set("negatif", "1");
+    for (const key of retirees) query.append("retirees", key);
+    return `/tableau-commandes?${query.toString()}`;
+  };
+  const retireesActuelles = retireesPresentes.map((column) => column.key);
+  const champsRetirees = retireesActuelles.map((key) => (
+    <input key={`retiree-${key}`} type="hidden" name="retirees" value={key} />
+  ));
+  const libelleColonne = (column: CommandColumn) =>
+    [column.client || "-", column.numero_proforma ? `#${column.numero_proforma}` : ""].filter(Boolean).join(" ");
 
   // Total/reste recalcule en excluant les commandes Stand quand le bouton
   // "Supprimer stand" est actif - une ligne qui n'est en manque qu'a cause
@@ -305,6 +333,7 @@ function renderArticleManquantInsideTableau(
                 {selectedFamille ? <input type="hidden" name="famille" value={selectedFamille} /> : null}
                 {hideStand ? null : <input type="hidden" name="hideStand" value="1" />}
                 {onlyNegatif ? <input type="hidden" name="negatif" value="1" /> : null}
+                {champsRetirees}
                 <button
                   type="submit"
                   className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-[16px] font-medium text-amber-800"
@@ -317,6 +346,7 @@ function renderArticleManquantInsideTableau(
                 {selectedFamille ? <input type="hidden" name="famille" value={selectedFamille} /> : null}
                 {hideStand ? <input type="hidden" name="hideStand" value="1" /> : null}
                 {onlyNegatif ? null : <input type="hidden" name="negatif" value="1" />}
+                {champsRetirees}
                 <button
                   type="submit"
                   className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-[16px] font-medium text-red-800"
@@ -346,7 +376,7 @@ function renderArticleManquantInsideTableau(
         <section className="rounded-[1.75rem] border border-slate-200 bg-white px-5 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
           <div className="flex flex-wrap gap-2">
             <Link
-              href="/tableau-commandes?vue=manquant"
+              href={lienManquant(retireesActuelles, { famille: "", gardeFiltres: false })}
               className={
                 selectedFamille
                   ? "rounded-xl bg-slate-100 px-4 py-2 text-[16px] font-medium leading-none text-slate-700 shadow-sm transition hover:scale-[1.02] hover:opacity-90"
@@ -362,7 +392,7 @@ function renderArticleManquantInsideTableau(
               return (
                 <Link
                   key={family}
-                  href={`/tableau-commandes?vue=manquant&famille=${encodeURIComponent(family)}`}
+                  href={lienManquant(retireesActuelles, { famille: family, gardeFiltres: false })}
                   className={`rounded-xl px-4 py-2 text-[16px] font-medium leading-none shadow-sm transition hover:scale-[1.02] hover:opacity-90 ${buttonStyle} ${active ? "ring-2 ring-slate-950/30" : ""}`}
                 >
                   {family}
@@ -373,6 +403,55 @@ function renderArticleManquantInsideTableau(
         </section>
 
         <section className="rounded-[1.75rem] border border-slate-200 bg-white px-5 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
+          {columnsAfterStand.length > 0 ? (
+            <div className="mb-4 flex flex-wrap items-start gap-3">
+              <details className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-2">
+                <summary className="cursor-pointer select-none text-[16px] font-medium text-slate-800">
+                  Colonnes ({visibleCommandColumns.length} affichees sur {columnsAfterStand.length})
+                </summary>
+                <form action="/tableau-commandes" className="mt-3 space-y-3">
+                  <input type="hidden" name="vue" value="manquant" />
+                  {selectedFamille ? <input type="hidden" name="famille" value={selectedFamille} /> : null}
+                  {hideStand ? <input type="hidden" name="hideStand" value="1" /> : null}
+                  {onlyNegatif ? <input type="hidden" name="negatif" value="1" /> : null}
+                  <p className="text-sm text-slate-600">
+                    Cochez les colonnes a retirer. Le TOTAL, le RESTE et l&apos;export Excel sont recalcules sans elles.
+                  </p>
+                  <div className="grid max-h-[40vh] gap-x-6 gap-y-1 overflow-auto sm:grid-cols-2 xl:grid-cols-3">
+                    {columnsAfterStand.map((column) => (
+                      <label key={`choix-${column.key}`} className="flex items-center gap-2 text-[16px] text-slate-800">
+                        <input
+                          type="checkbox"
+                          name="retirees"
+                          value={column.key}
+                          defaultChecked={retireesSet.has(column.key)}
+                          className="h-4 w-4"
+                        />
+                        <span className="truncate">{libelleColonne(column)}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    type="submit"
+                    className="rounded-full bg-slate-950 px-4 py-2 text-[16px] font-medium text-white"
+                  >
+                    Appliquer
+                  </button>
+                </form>
+              </details>
+              {retireesPresentes.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-[16px] text-amber-900">
+                  <span>
+                    {retireesPresentes.length} colonne{retireesPresentes.length > 1 ? "s" : ""} retiree
+                    {retireesPresentes.length > 1 ? "s" : ""}
+                  </span>
+                  <Link href={lienManquant([])} className="font-medium underline">
+                    Remettre toutes les colonnes
+                  </Link>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {visibleSections.length === 0 ? (
             <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 px-5 py-6 text-center text-[16px] font-medium text-emerald-900">
               Aucun article manquant pour le filtre actuel.
@@ -441,6 +520,14 @@ function renderArticleManquantInsideTableau(
                           key={`status-${column.key}`}
                           className={`border border-slate-700 px-1 py-2 text-center text-[16px] font-medium uppercase leading-tight whitespace-normal break-words ${getStatusCellClass(column.statut)}`}
                         >
+                          <Link
+                            href={lienManquant([...retireesActuelles, column.key])}
+                            title={`Retirer la colonne ${libelleColonne(column)}`}
+                            aria-label={`Retirer la colonne ${libelleColonne(column)}`}
+                            className="mb-1 block text-[16px] font-bold leading-none text-red-800 hover:text-red-600"
+                          >
+                            ×
+                          </Link>
                           {getStatusLabel(column.statut)}
                         </th>
                       ))}
@@ -1001,6 +1088,9 @@ export default async function TableauCommandesPage({
   const params = await searchParams;
   const familleQuery = String(params.famille || "").trim();
   const hideStand = String(params.hideStand || "").trim() === "1";
+  const colonnesRetirees = (Array.isArray(params.retirees) ? params.retirees : params.retirees ? [params.retirees] : [])
+    .map((key) => String(key))
+    .filter(Boolean);
   // Bouton "Voir seulement les manques" - ne garde que les articles dont le
   // RESTE, une fois la quantite deja en cours de Conditionnement ajoutee,
   // reste negatif (demande explicite : le manque "brut" peut deja etre
@@ -1028,7 +1118,8 @@ export default async function TableauCommandesPage({
       qtEnCoursConditionnementByArticle,
       hideStand,
       onlyNegatif,
-      canEditNote
+      canEditNote,
+      colonnesRetirees
     );
   }
 
