@@ -13,8 +13,17 @@ import {
   annulerInventaireMpAction,
   supprimerSessionInventaireMpAction,
 } from "./actions";
-import { fetchAllLotBalances, fetchCategorieCounts, fetchGammeCounts } from "./lib";
+import {
+  compterLotsPerimetre,
+  fetchAllLotBalances,
+  fetchArticleNomsParId,
+  fetchArticleOptions,
+  fetchCategorieCounts,
+  fetchGammeCounts,
+  libellePerimetre,
+} from "./lib";
 import { LotSizePlanner } from "./lot-size-planner";
+import { ArticlesPicker } from "./articles-picker";
 
 type SessionRow = {
   id: number;
@@ -25,6 +34,8 @@ type SessionRow = {
   termine_at: string | null;
   categories_filtre: string[] | null;
   gammes_filtre: string[] | null;
+  // Colonne ajoutee par scripts/sql/add_inventaire_mp_articles_filtre.sql (absente avant : traitee comme vide).
+  articles_filtre?: number[] | null;
 };
 
 // Total de lots dans le PERIMETRE d'une session (pas le nombre de lots deja
@@ -54,12 +65,9 @@ function scopeTotal(
   return fromCat || fromGamme;
 }
 
-function scopeLabel(categoriesFiltre: string[] | null, gammesFiltre: string[] | null): string {
-  const parts = [
-    categoriesFiltre && categoriesFiltre.length > 0 ? categoriesFiltre.join(", ") : null,
-    gammesFiltre && gammesFiltre.length > 0 ? gammesFiltre.join(", ") : null,
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(" / ") : "tout le MP";
+function scopeLabel(session: SessionRow, nomsArticles: Map<number, string>): string {
+  const noms = (session.articles_filtre ?? []).map((id) => nomsArticles.get(id) ?? `Article ${id}`);
+  return libellePerimetre(session.categories_filtre, session.gammes_filtre, noms);
 }
 
 export default async function InventaireMpPage() {
@@ -68,11 +76,18 @@ export default async function InventaireMpPage() {
   const currentUser = await getCurrentStockUser();
   const peutDemarrer = await canInventaireMpDemarrerUser(currentUser);
 
-  const [{ data: sessionsData }, { data: allSessionsData }, { count: totalLotsCount }, categorieCounts, gammeCounts] =
-    await Promise.all([
+  const [
+    { data: sessionsData },
+    { data: allSessionsData },
+    { count: totalLotsCount },
+    categorieCounts,
+    gammeCounts,
+    articleOptions,
+  ] = await Promise.all([
       supabaseServer
         .from("inventaire_mp_sessions")
-        .select("id, statut, taille_lot, cree_par, created_at, termine_at, categories_filtre, gammes_filtre")
+        // "*" : articles_filtre n'existe qu'apres scripts/sql/add_inventaire_mp_articles_filtre.sql
+        .select("*")
         .order("created_at", { ascending: false })
         .limit(50),
       supabaseServer.from("inventaire_mp_sessions").select("id, created_at").order("created_at", { ascending: true }),
@@ -81,6 +96,8 @@ export default async function InventaireMpPage() {
       fetchAllLotBalances().then((lots) => ({ count: lots.length })),
       fetchCategorieCounts(),
       fetchGammeCounts(),
+      // liste des articles a choisir : inutile pour qui ne peut pas demarrer d'inventaire
+      peutDemarrer ? fetchArticleOptions() : Promise.resolve([]),
     ]);
 
   const sessions = (sessionsData as SessionRow[] | null) ?? [];
@@ -92,6 +109,26 @@ export default async function InventaireMpPage() {
   // l'historique) - demande explicite.
   const rankById = new Map<number, number>(
     ((allSessionsData as { id: number }[] | null) ?? []).map((s, index) => [s.id, index + 1])
+  );
+
+  // Noms des articles choisis par les sessions (libelle) et total EXACT de lots des sessions en cours qui ont des
+  // articles choisis (la somme par categorie/gamme ci-dessus ne sait pas les compter).
+  const articleIdsSessions = [...new Set(sessions.flatMap((s) => s.articles_filtre ?? []))];
+  const nomsArticles = await fetchArticleNomsParId(articleIdsSessions);
+  const totalExactParSession = new Map<number, number>();
+  await Promise.all(
+    activeSessions
+      .filter((s) => (s.articles_filtre ?? []).length > 0)
+      .map(async (s) => {
+        totalExactParSession.set(
+          s.id,
+          await compterLotsPerimetre({
+            categories: s.categories_filtre,
+            gammes: s.gammes_filtre,
+            articles: s.articles_filtre ?? null,
+          })
+        );
+      })
   );
 
   const sessionIds = sessions.map((s) => s.id);
@@ -136,9 +173,9 @@ export default async function InventaireMpPage() {
           <section className="rounded-[1.75rem] border border-black/5 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <h2 className="text-lg font-bold text-slate-900">Nouvel inventaire</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Choisis combien de lots te donner a la fois, et coche des categories et/ou des gammes pour limiter
-              cet inventaire (rien de coche = tout le MP - un article compte des qu&apos;il correspond a l&apos;une
-              des cases cochees). Les articles qui bougent le plus seront distribues en premier. Une fois un lot de
+              Choisis combien de lots te donner a la fois, et coche des categories et/ou des gammes, ou choisis
+              des articles precis, pour limiter cet inventaire (rien de coche = tout le MP ; categories et gammes
+              ensemble = seulement ce qui est dans les deux ; des articles choisis = seulement ces articles). Les articles qui bougent le plus seront distribues en premier. Une fois un lot de
               travail entierement compte, le suivant arrive automatiquement.
             </p>
             <form action={demarrerInventaireMpAction} className="mt-4 space-y-4">
@@ -159,6 +196,7 @@ export default async function InventaireMpPage() {
                   ))}
                 </div>
               </div>
+              <ArticlesPicker options={articleOptions} />
               <details className="rounded-lg border border-slate-200 p-3">
                 <summary className="cursor-pointer text-sm font-semibold text-slate-700">
                   Gammes (optionnel, {gammeCounts.length} disponibles)
@@ -191,20 +229,16 @@ export default async function InventaireMpPage() {
             <ul className="mt-3 divide-y divide-slate-100">
               {activeSessions.map((s) => {
                 const stats = statsBySession.get(s.id) ?? { total: 0, bon: 0, ecarts: 0 };
-                const total = scopeTotal(
-                  s.categories_filtre,
-                  s.gammes_filtre,
-                  categorieCounts,
-                  gammeCounts,
-                  totalLotsCount ?? 0
-                );
+                const total =
+                  totalExactParSession.get(s.id) ??
+                  scopeTotal(s.categories_filtre, s.gammes_filtre, categorieCounts, gammeCounts, totalLotsCount ?? 0);
                 const assigned = stats.total;
                 const restant = Math.max(0, total - assigned);
                 return (
                   <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
                     <Link href={`/stock/matiere-premiere/inventaire/${s.id}`} className="flex-1 hover:opacity-80">
                       <p className="font-semibold text-sky-700 underline">
-                        Inventaire {rankById.get(s.id) ?? s.id} - {scopeLabel(s.categories_filtre, s.gammes_filtre)}
+                        Inventaire {rankById.get(s.id) ?? s.id} - {scopeLabel(s, nomsArticles)}
                       </p>
                       <p className="text-slate-500">
                         Ouvert le {formatDateTime(s.created_at)} par {s.cree_par || "-"} - {assigned} lot(s) en cours
@@ -237,7 +271,7 @@ export default async function InventaireMpPage() {
                   <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
                     <Link href={`/stock/matiere-premiere/inventaire/${s.id}`} className="flex-1 hover:opacity-80">
                       <p className="font-semibold text-sky-700 underline">
-                        Inventaire {rankById.get(s.id) ?? s.id} - {scopeLabel(s.categories_filtre, s.gammes_filtre)}
+                        Inventaire {rankById.get(s.id) ?? s.id} - {scopeLabel(s, nomsArticles)}
                       </p>
                       <p className="text-slate-500">
                         Ouvert le {formatDateTime(s.created_at)} - {s.statut === "annule" ? "Annule" : "Termine"} le{" "}

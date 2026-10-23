@@ -9,7 +9,7 @@ import {
   canInventaireMpRegulariserUser,
 } from "@/lib/stock-auth";
 import { logAudit } from "@/lib/audit-log";
-import { fetchAllLotBalances, fetchArticleCategorieById, fetchArticleGammeById } from "./lib";
+import { fetchAllLotBalances, fetchArticleCategorieById, fetchArticleGammeById, lotDansPerimetre } from "./lib";
 
 // Tolerance flottante pour comparer un comptage physique au stock systeme -
 // jamais une egalite stricte (quantites avec decimales).
@@ -78,7 +78,9 @@ async function fetchMovementCounts(): Promise<Map<number, number>> {
 // = pas de filtre sur cette dimension). Un seul des 2 remplis = ce filtre
 // seul ; les 2 remplis ENSEMBLE = intersection (ex: categorie "BASE" +
 // gamme "ELIXIR" => seulement les BASE de la gamme ELIXIR, jamais tout BASE
-// ni toute la gamme ELIXIR) - demande explicite de l'utilisateur. Permet
+// ni toute la gamme ELIXIR) - demande explicite de l'utilisateur. articlesFiltre
+// (ids d'articles choisis un par un) restreint encore a ces articles precis.
+// Permet
 // aussi de lancer plusieurs inventaires en parallele, chacun sur son propre
 // perimetre choisi a la main.
 // Retourne le nombre de lignes creees - 0 = plus rien a distribuer dans le
@@ -87,7 +89,8 @@ async function distribuerProchainLot(
   sessionId: number,
   tailleLot: number,
   categoriesFiltre: string[] | null,
-  gammesFiltre: string[] | null
+  gammesFiltre: string[] | null,
+  articlesFiltre: number[] | null = null
 ): Promise<number> {
   const hasCategorieFiltre = !!categoriesFiltre && categoriesFiltre.length > 0;
   const hasGammeFiltre = !!gammesFiltre && gammesFiltre.length > 0;
@@ -126,21 +129,15 @@ async function distribuerProchainLot(
     )
   );
 
-  const categorieSet = hasCategorieFiltre ? new Set(categoriesFiltre) : null;
-  const gammeSet = hasGammeFiltre ? new Set(gammesFiltre) : null;
-
-  const restants = balances.filter((row) => {
-    if (assignedKeys.has(`${row.article_id}::${row.numero_lot}`)) return false;
-    if (!categorieSet && !gammeSet) return true;
-    const matchesCategorie = categorieSet ? categorieSet.has(categorieByArticleId?.get(row.article_id) ?? "") : false;
-    const matchesGamme = gammeSet ? gammeSet.has(gammeByArticleId?.get(row.article_id) ?? "") : false;
-    // Les 2 filtres ENSEMBLE = intersection (ex: categorie "BASE" + gamme
-    // "ELIXIR" => seulement les BASE de la gamme ELIXIR, pas tout BASE ni
-    // toute la gamme ELIXIR) - demande explicite de l'utilisateur, contraire
-    // au comportement precedent (l'UNE des deux suffisait). Un seul des 2
-    // filtres rempli reste inchange (ce filtre seul).
-    return hasCategorieFiltre && hasGammeFiltre ? matchesCategorie && matchesGamme : matchesCategorie || matchesGamme;
-  });
+  // Les 2 filtres categorie + gamme ENSEMBLE = intersection (ex: categorie "BASE" + gamme "ELIXIR" => seulement
+  // les BASE de la gamme ELIXIR) - demande explicite de l'utilisateur ; un seul des 2 = ce filtre seul ; des
+  // articles choisis restreignent encore. Regle commune dans lotDansPerimetre (lib.ts).
+  const perimetre = { categories: categoriesFiltre, gammes: gammesFiltre, articles: articlesFiltre };
+  const restants = balances.filter(
+    (row) =>
+      !assignedKeys.has(`${row.article_id}::${row.numero_lot}`) &&
+      lotDansPerimetre(row.article_id, perimetre, categorieByArticleId, gammeByArticleId)
+  );
 
   restants.sort((a, b) => {
     const moveDiff = (movementCounts.get(b.article_id) ?? 0) - (movementCounts.get(a.article_id) ?? 0);
@@ -182,6 +179,15 @@ export async function demarrerInventaireMpAction(formData: FormData) {
   // tout le MP, comme avant.
   const categories = formData.getAll("categorie").map((value) => String(value).trim()).filter(Boolean);
   const gammes = formData.getAll("gamme").map((value) => String(value).trim()).filter(Boolean);
+  // Articles choisis un par un (champ article_id, une valeur par article) - sans doublon.
+  const articles = [
+    ...new Set(
+      formData
+        .getAll("article_id")
+        .map((value) => Number(value))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    ),
+  ];
 
   const { data: session, error } = await supabaseServer
     .from("inventaire_mp_sessions")
@@ -190,17 +196,28 @@ export async function demarrerInventaireMpAction(formData: FormData) {
       cree_par: currentUser,
       categories_filtre: categories.length > 0 ? categories : null,
       gammes_filtre: gammes.length > 0 ? gammes : null,
+      // Colonne ajoutee par scripts/sql/add_inventaire_mp_articles_filtre.sql : envoyee seulement si des articles
+      // sont choisis, pour que les inventaires sans article continuent de marcher meme avant ce script.
+      ...(articles.length > 0 ? { articles_filtre: articles } : {}),
     })
     .select("id")
     .single();
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (articles.length > 0 && /articles_filtre/.test(error.message)) {
+      throw new Error(
+        "Le choix par article n'est pas encore active : execute scripts/sql/add_inventaire_mp_articles_filtre.sql dans Supabase (SQL Editor)."
+      );
+    }
+    throw new Error(error.message);
+  }
 
   const sessionId = (session as { id: number }).id;
   const distribues = await distribuerProchainLot(
     sessionId,
     tailleLot,
     categories.length > 0 ? categories : null,
-    gammes.length > 0 ? gammes : null
+    gammes.length > 0 ? gammes : null,
+    articles.length > 0 ? articles : null
   );
 
   if (distribues === 0) {
@@ -213,6 +230,7 @@ export async function demarrerInventaireMpAction(formData: FormData) {
   const scopeParts = [
     categories.length > 0 ? `categories: ${categories.join(", ")}` : null,
     gammes.length > 0 ? `gammes: ${gammes.join(", ")}` : null,
+    articles.length > 0 ? `${articles.length} article(s) choisi(s) (ids ${articles.join(", ")})` : null,
   ].filter(Boolean);
 
   await logAudit({
@@ -312,7 +330,8 @@ export async function soumettreComptageAction(formData: FormData) {
 
   const { data: sessionData, error: sessionError } = await supabaseServer
     .from("inventaire_mp_sessions")
-    .select("id, statut, taille_lot, categories_filtre, gammes_filtre")
+    // "*" : la colonne articles_filtre n'existe qu'apres scripts/sql/add_inventaire_mp_articles_filtre.sql
+    .select("*")
     .eq("id", sessionId)
     .maybeSingle();
   if (sessionError || !sessionData) throw new Error("Session introuvable.");
@@ -322,6 +341,7 @@ export async function soumettreComptageAction(formData: FormData) {
     taille_lot: number;
     categories_filtre: string[] | null;
     gammes_filtre: string[] | null;
+    articles_filtre?: number[] | null;
   };
   if (session.statut !== "en_cours") throw new Error("Cet inventaire est deja termine.");
 
@@ -391,7 +411,8 @@ export async function soumettreComptageAction(formData: FormData) {
         sessionId,
         session.taille_lot,
         session.categories_filtre,
-        session.gammes_filtre
+        session.gammes_filtre,
+        session.articles_filtre ?? null
       );
       if (distribues === 0) {
         await supabaseServer

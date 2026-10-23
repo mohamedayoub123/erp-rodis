@@ -18,7 +18,14 @@ import {
   ignorerEcartLigneAction,
   annulerInventaireMpAction,
 } from "../actions";
-import { fetchAllLotBalances, fetchCategorieCounts, fetchGammeCounts } from "../lib";
+import {
+  compterLotsPerimetre,
+  fetchAllLotBalances,
+  fetchArticleNomsParId,
+  fetchCategorieCounts,
+  fetchGammeCounts,
+  libellePerimetre,
+} from "../lib";
 
 type SessionRow = {
   id: number;
@@ -29,6 +36,8 @@ type SessionRow = {
   termine_at: string | null;
   categories_filtre: string[] | null;
   gammes_filtre: string[] | null;
+  // Colonne ajoutee par scripts/sql/add_inventaire_mp_articles_filtre.sql (absente avant : traitee comme vide).
+  articles_filtre?: number[] | null;
 };
 
 type LigneRow = {
@@ -172,7 +181,8 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
 
   const { data: sessionData } = await supabaseServer
     .from("inventaire_mp_sessions")
-    .select("id, statut, taille_lot, cree_par, created_at, termine_at, categories_filtre, gammes_filtre")
+    // "*" : articles_filtre n'existe qu'apres scripts/sql/add_inventaire_mp_articles_filtre.sql
+    .select("*")
     .eq("id", sessionId)
     .maybeSingle();
   const session = sessionData as SessionRow | null;
@@ -228,19 +238,27 @@ export default async function InventaireMpSessionPage({ params }: { params: Page
 
   const hasCategorieFiltre = !!session.categories_filtre && session.categories_filtre.length > 0;
   const hasGammeFiltre = !!session.gammes_filtre && session.gammes_filtre.length > 0;
-  const scopeLabel = [
-    hasCategorieFiltre ? session.categories_filtre!.join(", ") : null,
-    hasGammeFiltre ? session.gammes_filtre!.join(", ") : null,
-  ]
-    .filter(Boolean)
-    .join(" / ") || "tout le MP";
+  const articlesFiltre = session.articles_filtre ?? [];
+  const hasArticleFiltre = articlesFiltre.length > 0;
+  const nomsArticlesFiltre = hasArticleFiltre ? await fetchArticleNomsParId(articlesFiltre) : new Map<number, string>();
+  const scopeLabel = libellePerimetre(
+    session.categories_filtre,
+    session.gammes_filtre,
+    articlesFiltre.map((id) => nomsArticlesFiltre.get(id) ?? `Article ${id}`)
+  );
 
   // Total de lots dans le PERIMETRE de cette session (pas seulement ce qui
   // lui a deja ete distribue par lots de N) - demande explicite : savoir
   // "sur combien au total" pour une session limitee a une categorie/gamme,
   // pas juste le compteur du lot de travail courant.
   let totalLotsScope: number;
-  if (hasCategorieFiltre || hasGammeFiltre) {
+  if (hasArticleFiltre) {
+    totalLotsScope = await compterLotsPerimetre({
+      categories: session.categories_filtre,
+      gammes: session.gammes_filtre,
+      articles: articlesFiltre,
+    });
+  } else if (hasCategorieFiltre || hasGammeFiltre) {
     const [categorieCounts, gammeCounts] = await Promise.all([fetchCategorieCounts(), fetchGammeCounts()]);
     const catSet = hasCategorieFiltre ? new Set(session.categories_filtre) : null;
     const gamSet = hasGammeFiltre ? new Set(session.gammes_filtre) : null;
