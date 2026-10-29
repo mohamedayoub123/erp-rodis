@@ -11,6 +11,7 @@ import {
 } from "@/lib/stock-auth";
 import { familyRank, articleTypeRank, articleContenanceFromName } from "@/lib/gamme-families";
 import { logAudit } from "@/lib/audit-log";
+import { verifierSortiesSansStockNegatif } from "@/lib/controle-stock-negatif";
 import { fetchCoutsParCartonProduitsFinis, type LotUtiliseInfo } from "@/lib/prix-revient";
 import { fetchStockGroupsByArticle, fetchReservedByKey, buildAvailableCodesByArticle } from "./[id]/stock-codes";
 import type { CodeOption } from "./[id]/fifo-code-picker";
@@ -2040,6 +2041,56 @@ export async function deliverCommandeAction(formData: FormData) {
     .select("numero_proforma, statut")
     .eq("id", commandeId)
     .maybeSingle();
+
+  // La livraison sort du stock les lots choisis par le FIFO : refuse si l'un
+  // d'eux (cumule par lot) descendrait sous zero depuis le calcul du FIFO
+  // (ex: sortie ou Transfer Invoice entre-temps). Avant toute ecriture ; le
+  // message passe par commandeErreurRedirect (affiche sur la fiche commande).
+  if (commandeAvantLivraison?.statut !== "LIVREE") {
+    const { data: fifoLivraison, error: fifoLivraisonError } = await supabaseServer
+      .from("fifo_resultats")
+      .select("lot_stock_id, quantite_chargee")
+      .eq("commande_id", commandeId);
+    if (fifoLivraisonError) {
+      throw new Error(fifoLivraisonError.message);
+    }
+
+    const fifoLignes = (fifoLivraison ?? []) as { lot_stock_id: number | null; quantite_chargee: number | null }[];
+    const lotIds = [...new Set(fifoLignes.map((f) => f.lot_stock_id).filter((id): id is number => Boolean(id)))];
+    if (lotIds.length > 0) {
+      const { data: lotsLivraison, error: lotsLivraisonError } = await supabaseServer
+        .from("lots_stock")
+        .select("id, article_id, numero_lot, code_normalise")
+        .in("id", lotIds);
+      if (lotsLivraisonError) {
+        throw new Error(lotsLivraisonError.message);
+      }
+
+      const lotParId = new Map(
+        ((lotsLivraison ?? []) as {
+          id: number;
+          article_id: number | null;
+          numero_lot: string | null;
+          code_normalise: string | null;
+        }[]).map((lot) => [lot.id, lot])
+      );
+
+      await verifierSortiesSansStockNegatif(
+        fifoLignes.flatMap((f) => {
+          const lot = f.lot_stock_id ? lotParId.get(f.lot_stock_id) : undefined;
+          if (!lot?.article_id) return [];
+          return [
+            {
+              articleType: "PF" as const,
+              articleId: lot.article_id,
+              numeroLot: lot.numero_lot || lot.code_normalise,
+              quantite: Number(f.quantite_chargee ?? 0),
+            },
+          ];
+        })
+      );
+    }
+  }
 
   const { error } = await supabaseServer.rpc("stock_deliver_commande", {
     p_commande_id: commandeId,

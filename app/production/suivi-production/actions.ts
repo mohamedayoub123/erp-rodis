@@ -8,6 +8,7 @@ import { MAX_CARTONS_FICHE_PLUS, MAX_FICHES_PLUS_PAR_CODE } from "@/lib/limites-
 import { estValideurTestLabo } from "@/lib/valideurs-test-labo";
 import { verifierNomsConditionnement } from "@/lib/noms-conditionnement";
 import { logAudit } from "@/lib/audit-log";
+import { trouverMessageStockNegatif } from "@/lib/controle-stock-negatif";
 import { fetchVracDepotBParArticle } from "@/lib/vrac-depot-b";
 import {
   encoderRecuperations,
@@ -1584,6 +1585,18 @@ export async function ajouterAjustementMpTestLaboAction(formData: FormData) {
   }
 
   const depotId = await fetchDepotBId();
+
+  // Vraie sortie de stock du Depot B : refusee si le lot y deviendrait
+  // negatif (la matiere doit d'abord etre en stock). Redirige avec le
+  // message (un throw serait efface en production), avant toute ecriture.
+  const messageStockNegatif = await trouverMessageStockNegatif([
+    { articleType: "MP", articleId, numeroLot, quantite, depotId },
+  ]);
+  if (messageStockNegatif) {
+    redirect(
+      `/production/suivi-production/fabrication/${ligneId}/test-labo?code=${encodeURIComponent(code)}&erreur=${encodeURIComponent(messageStockNegatif)}`
+    );
+  }
 
   const { error } = await supabaseServer.from("lots_stock_matiere_premiere").insert({
     article_id: articleId,

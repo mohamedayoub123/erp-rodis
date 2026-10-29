@@ -515,8 +515,9 @@ export function SortiePanelMp({
 
   // Article et numero de lot en saisie libre (comme Entree). Deux modes :
   // "normal" (comme avant) bloque cote serveur si l'article/lot n'existe pas
-  // ou si le stock disponible est insuffisant ; "admin" force la sortie sans
-  // aucune verification, stock qui peut devenir negatif, lot ecrit librement.
+  // ou si le stock disponible est insuffisant ; "admin" accepte un lot ecrit
+  // librement mais, comme toute sortie, refuse celle qui rendrait le stock
+  // du lot negatif (voir lib/controle-stock-negatif.ts).
   const selectedArticle = useMemo(
     () => articles.find((article) => article.label === articleInput) ?? null,
     [articleInput, articles]
@@ -689,7 +690,12 @@ export function SortiePanelMp({
 
     startTransition(async () => {
       try {
-        await createSortieMpBatchAction(formData);
+        const resultat = await createSortieMpBatchAction(formData);
+        if (!resultat.ok) {
+          // Refus "stock negatif" : les lignes restent a l'ecran pour etre corrigees.
+          setErrorMessage(resultat.message);
+          return;
+        }
         setRows([]);
         setMessage("Sortie enregistree dans le stock matiere premiere.");
         setVersionStock((v) => v + 1);
@@ -711,7 +717,7 @@ export function SortiePanelMp({
 
       <p className={`mt-2 text-xs font-medium ${mode === "admin" ? "text-red-700" : "text-sky-800/70"}`}>
         {mode === "admin"
-          ? "Aucune verification de stock - la sortie est forcee meme si l'article/lot n'existe pas ou si le stock devient negatif."
+          ? "Saisie libre de l'article et du lot - la sortie est quand meme refusee si le stock du lot deviendrait negatif."
           : "Bloquee si l'article/lot n'existe pas dans le stock ou si le stock disponible est insuffisant."}
       </p>
 

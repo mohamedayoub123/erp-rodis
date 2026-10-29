@@ -15,6 +15,7 @@ import {
 } from "@/app/production-plastique/shared";
 import { logAudit } from "@/lib/audit-log";
 import { invaliderSoldesLotsMp, lireSoldesLotsMp, type LotBalanceRow } from "@/lib/lot-balances-mp";
+import { trouverMessageStockNegatif } from "@/lib/controle-stock-negatif";
 
 // Supprime une ligne de detail puis, si c'etait la derniere ligne de son
 // mouvement (groupe), renvoie vers la liste au lieu de laisser la page
@@ -419,6 +420,23 @@ export async function createSortieMpBatchAction(formData: FormData) {
     };
   });
 
+  // Aucune sortie ne doit rendre le stock negatif, Sortie Admin comprise
+  // (demande explicite : "n'importe quelle sortie"). La RPC ne verifie que
+  // les sorties normales ; ce controle couvre aussi le mode admin et cumule
+  // les lignes d'un meme lot. Le message est RETOURNE (pas lance) : un throw
+  // depuis une Server Action voit son texte efface en production par Next.js.
+  const messageStockNegatif = await trouverMessageStockNegatif(
+    lignes.map((l) => ({
+      articleType: "MP" as const,
+      articleId: l.article_id,
+      numeroLot: l.numero_lot,
+      quantite: l.quantite,
+    }))
+  );
+  if (messageStockNegatif) {
+    return { ok: false as const, message: messageStockNegatif };
+  }
+
   const { data: rpcResult, error } = await supabaseServer.rpc("stock_mp_record_sortie_batch", {
     p_lignes: lignes,
   });
@@ -498,7 +516,7 @@ export async function createSortieMpBatchAction(formData: FormData) {
 
   revalidateMouvementsMpPages();
 
-  return { ok: true };
+  return { ok: true as const };
 }
 
 // Supprime tout un mouvement TE/TS matiere premiere (toutes ses lignes).

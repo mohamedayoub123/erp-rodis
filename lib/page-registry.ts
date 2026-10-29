@@ -484,7 +484,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "mouvementsMatierePremiereSortieAdmin",
     module: "Mouvements",
-    label: "Sortie Admin Matiere Premiere (stock force, sans verification)",
+    label: "Sortie Admin Matiere Premiere (saisie libre article + lot)",
     pathPrefixes: ["/mouvements/matiere-premiere/sortie-admin"],
     // Droit distinct, sans heritage de l'ancien "writeMouvements" - a
     // accorder explicitement, meme a un utilisateur qui a deja la sortie

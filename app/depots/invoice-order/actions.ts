@@ -8,6 +8,7 @@ import { stockTableFor, type ArticleType } from "../transfer-order/stock-lots";
 import { logAudit } from "@/lib/audit-log";
 import { fetchInvoiceOrderLabel } from "@/lib/depot-labels";
 import { arrondiQuantite } from "../transfer-order/repartition";
+import { verifierSortiesSansStockNegatif } from "@/lib/controle-stock-negatif";
 
 async function requireWriteAccess() {
   const currentUser = await getCurrentStockUser();
@@ -803,6 +804,29 @@ export async function validateInvoiceOrder(invoiceOrderId: number, currentUser: 
     ((allLignesData ?? []) as { id: number; article_type: ArticleType; article_id: number }[]).map((l) => [l.id, l])
   );
 
+  // Aucune sortie ne doit rendre le stock negatif (demande explicite) :
+  // verifie TOUTES les lignes encore a traiter, cumulees par lot, contre le
+  // solde reel du depot source AVANT d'ecrire quoi que ce soit - tout ou
+  // rien, jamais un TI a moitie valide. Une ligne deja liee a ses 2
+  // mouvements (relance apres un echec) a deja sorti son stock : ignoree.
+  await verifierSortiesSansStockNegatif(
+    invoiceLignes
+      .filter((l) => !(l.sortie_lot_id && l.entree_lot_id))
+      .flatMap((l) => {
+        const ligne = ligneById.get(l.transfer_order_ligne_id);
+        if (!ligne) return [];
+        return [
+          {
+            articleType: ligne.article_type,
+            articleId: ligne.article_id,
+            numeroLot: l.numero_lot,
+            quantite: l.quantite,
+            depotId: transferOrder.depot_source_id,
+          },
+        ];
+      })
+  );
+
   const { data: depotsData, error: depotsError } = await supabaseServer
     .from("depots")
     .select("id, nom")
@@ -969,7 +993,21 @@ export async function validateInvoiceOrderAction(formData: FormData) {
     throw new Error("Transfer Invoice invalide.");
   }
 
-  await validateInvoiceOrder(invoiceOrderId, currentUser);
+  // Formulaire natif <form action> : un throw ici verrait son message efface
+  // en production par Next.js (page d'erreur generique) - or le refus "stock
+  // negatif" doit etre lisible. On le capte et on redirige avec le vrai
+  // message en avertissement (redirect() HORS du try, il lance lui-meme une
+  // exception speciale que le catch attraperait sinon).
+  let messageErreur: string | null = null;
+  try {
+    await validateInvoiceOrder(invoiceOrderId, currentUser);
+  } catch (error) {
+    messageErreur = error instanceof Error ? error.message : "Erreur pendant la validation.";
+  }
+
+  if (messageErreur) {
+    redirect(`/depots/invoice-order/${invoiceOrderId}?avertissement=${encodeURIComponent(messageErreur)}`);
+  }
 }
 
 export async function updateInvoiceOrderRemarqueAction(formData: FormData) {

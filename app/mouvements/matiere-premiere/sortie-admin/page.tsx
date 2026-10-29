@@ -33,7 +33,7 @@ export default async function MouvementsMatierePremiereSortieAdminPage() {
                 Sortie Admin - Matiere Premiere
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Force la sortie sans verification de stock. Reserve aux utilisateurs autorises.
+                Saisie libre de l&apos;article et du lot. La sortie est refusee si le stock du lot deviendrait negatif. Reserve aux utilisateurs autorises.
               </p>
             </div>
 

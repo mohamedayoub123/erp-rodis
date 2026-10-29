@@ -12,6 +12,7 @@ import {
 } from "@/lib/stock-auth";
 import { deleteLotStockCore } from "@/lib/lot-stock-delete";
 import { logAudit } from "@/lib/audit-log";
+import { trouverMessageStockNegatif } from "@/lib/controle-stock-negatif";
 
 export async function loginStockEditAction(formData: FormData) {
   const username = String(formData.get("username") || "").trim().toLowerCase();
@@ -68,9 +69,32 @@ export async function updateLotStockAction(formData: FormData) {
 
   const { data: lotAvantModification } = await supabaseServer
     .from("lots_stock")
-    .select("numero_lot, date_fabrication, qte_entree, qte_sortie, chambre, code_pays, note")
+    .select("article_id, numero_lot, date_fabrication, qte_entree, qte_sortie, chambre, code_pays, note")
     .eq("id", lotId)
     .maybeSingle();
+
+  // Aucune modification ne doit faire descendre le stock du lot sous zero
+  // (demande explicite : "n'importe quelle sortie") : augmenter la sortie ou
+  // baisser l'entree d'une ligne retire du stock au lot. Seule la baisse nette
+  // est controlee, donc corriger un lot deja negatif reste possible. Message
+  // RETOURNE (jamais lance) : un throw voit son texte efface en production.
+  if (lotAvantModification?.article_id) {
+    const baisseDuStock =
+      Number(lotAvantModification.qte_entree ?? 0) -
+      Number(lotAvantModification.qte_sortie ?? 0) -
+      (qteEntree - qteSortie);
+    const messageStockNegatif = await trouverMessageStockNegatif([
+      {
+        articleType: "PF",
+        articleId: lotAvantModification.article_id as number,
+        numeroLot: (lotAvantModification.numero_lot as string | null) ?? numeroLot,
+        quantite: baisseDuStock,
+      },
+    ]);
+    if (messageStockNegatif) {
+      return { ok: false as const, message: messageStockNegatif };
+    }
+  }
 
   const { error } = await supabaseServer.rpc("stock_edit_lot", {
     p_lot_id: lotId,
@@ -113,6 +137,8 @@ export async function updateLotStockAction(formData: FormData) {
   revalidatePath("/fifo");
   revalidatePath("/admin");
   revalidatePath("/");
+
+  return { ok: true as const };
 }
 
 export async function deleteLotStockAction(formData: FormData) {

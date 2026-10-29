@@ -38,7 +38,10 @@ export function EditLotForm({
 
     startTransition(async () => {
       try {
-        await updateLotStockAction(formData);
+        const resultat = await updateLotStockAction(formData);
+        if (!resultat.ok) {
+          setErrorMessage(resultat.message);
+        }
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Erreur pendant l'enregistrement.");
       }
