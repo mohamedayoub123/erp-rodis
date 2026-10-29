@@ -245,6 +245,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                                       {commande.code}
                                     </Link>{" "}
                                     - {nombre(commande.quantite)}
+                                    {commande.dateCommande ? ` - commande du ${formatDate(commande.dateCommande)}` : " - date de commande non renseignee"}
                                   </li>
                                 ))}
                               </ul>
@@ -271,7 +272,10 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                                     </Link>{" "}
                                     - {nombre(transit.quantite)}
                                     {transit.statutDossier ? ` - ${transit.statutDossier}` : ""}
-                                    {transit.datePrevueReception ? ` - prevu le ${formatDate(transit.datePrevueReception)}` : ""}
+                                    {transit.dateImport ? ` - import du ${formatDate(transit.dateImport)}` : ""}
+                                    {transit.datePrevueReception
+                                      ? ` - reception prevue le ${formatDate(transit.datePrevueReception)}`
+                                      : " - date de reception prevue non renseignee"}
                                   </li>
                                 ))}
                               </ul>

@@ -50,6 +50,8 @@ export type CommandeEnCours = {
   nDoss4d: string | null;
   nDossErp: string | null;
   quantite: number;
+  // date de la commande (date_jour du BC) ; la plus ancienne si le meme BC a plusieurs lignes de cet article
+  dateCommande: string | null;
 };
 
 // Import en transit : evenement d'import pas encore receptionne, regroupe par dossier
@@ -58,6 +60,8 @@ export type ImportEnCours = {
   nDossErp: string | null;
   quantite: number;
   statutDossier: string;
+  // date de l'import (date_import) ; la plus recente si le dossier a plusieurs evenements pour cet article
+  dateImport: string | null;
   datePrevueReception: string | null;
 };
 
@@ -106,6 +110,7 @@ type BcLigneRow = {
   n_doss_erp: string | null;
   quantite: number | null;
   statut: string | null;
+  date_jour: string | null;
 };
 type ImportEvenementRow = {
   id: number;
@@ -114,6 +119,7 @@ type ImportEvenementRow = {
   n_doss_erp_import: string | null;
   quantite_importee: number | null;
   lot_stock_id: number | null;
+  date_import: string | null;
 };
 type DossierStatutRow = {
   n_doss_4d: string | null;
@@ -235,7 +241,7 @@ async function lireArrivagesMp(mpIds: number[]): Promise<Arrivages> {
 
   const bcLignes = await lireParIds<BcLigneRow>(
     "bons_commande_matiere_premiere",
-    "id, article_id, code, n_doss_4d, n_doss_erp, quantite, statut",
+    "id, article_id, code, n_doss_4d, n_doss_erp, quantite, statut, date_jour",
     "article_id",
     mpIds
   );
@@ -244,7 +250,7 @@ async function lireArrivagesMp(mpIds: number[]): Promise<Arrivages> {
     ligneIds.length > 0
       ? lireParIds<ImportEvenementRow>(
           "bons_commande_mp_imports",
-          "id, bc_ligne_id, n_doss_4d_import, n_doss_erp_import, quantite_importee, lot_stock_id",
+          "id, bc_ligne_id, n_doss_4d_import, n_doss_erp_import, quantite_importee, lot_stock_id, date_import",
           "bc_ligne_id",
           ligneIds
         )
@@ -278,9 +284,21 @@ async function lireArrivagesMp(mpIds: number[]): Promise<Arrivages> {
     if (!(reste > 0)) continue;
     const code = String(ligne.code ?? "").trim() || `ligne ${ligne.id}`;
     const cle = `${ligne.article_id}::${code}`;
+    const dateCommande = ligne.date_jour ? String(ligne.date_jour).slice(0, 10) : null;
     const existant = commandeParMpEtCode.get(cle);
-    if (existant) existant.quantite += reste;
-    else commandeParMpEtCode.set(cle, { mpId: ligne.article_id, code, nDoss4d: ligne.n_doss_4d, nDossErp: ligne.n_doss_erp, quantite: reste });
+    if (existant) {
+      existant.quantite += reste;
+      if (dateCommande && (!existant.dateCommande || dateCommande < existant.dateCommande)) existant.dateCommande = dateCommande;
+    } else {
+      commandeParMpEtCode.set(cle, {
+        mpId: ligne.article_id,
+        code,
+        nDoss4d: ligne.n_doss_4d,
+        nDossErp: ligne.n_doss_erp,
+        quantite: reste,
+        dateCommande,
+      });
+    }
   }
   for (const { mpId, ...commande } of commandeParMpEtCode.values()) {
     const liste = commandesParMp.get(mpId) ?? [];
@@ -300,15 +318,19 @@ async function lireArrivagesMp(mpIds: number[]): Promise<Arrivages> {
     const quantite = Number(evenement.quantite_importee ?? 0);
     if (!(quantite > 0)) continue;
     const cle = `${mpId}::${cleDoss}`;
+    const dateImport = evenement.date_import ? String(evenement.date_import).slice(0, 10) : null;
     const existant = importParMpEtDossier.get(cle);
-    if (existant) existant.quantite += quantite;
-    else {
+    if (existant) {
+      existant.quantite += quantite;
+      if (dateImport && (!existant.dateImport || dateImport > existant.dateImport)) existant.dateImport = dateImport;
+    } else {
       importParMpEtDossier.set(cle, {
         mpId,
         nDoss4d: evenement.n_doss_4d_import,
         nDossErp: evenement.n_doss_erp_import,
         quantite,
         statutDossier: dossier?.statut ?? "",
+        dateImport,
         datePrevueReception: dossier?.date_prevue_reception ?? null,
       });
     }
