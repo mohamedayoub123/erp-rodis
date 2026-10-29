@@ -151,7 +151,8 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                       {article.nom}
                     </Link>
                     <span className="text-slate-500">
-                      {nombre(article.cartons)} carton(s) - proforma {article.parProforma.map((p) => p.proforma).join(", ")}
+                      {nombre(article.aProduire)} carton(s) a produire - proforma{" "}
+                      {article.parProforma.map((p) => p.proforma).join(", ")}
                     </span>
                   </li>
                 ))}
@@ -175,7 +176,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                     >
                       {article.nom}
                     </Link>
-                    <span className="text-slate-500">{nombre(article.cartons)} carton(s)</span>
+                    <span className="text-slate-500">{nombre(article.aProduire)} carton(s) a produire</span>
                   </li>
                 ))}
               </ul>
@@ -186,8 +187,11 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
             <div className="border-b border-slate-100 px-6 py-4">
               <h2 className="text-lg font-bold text-slate-900">Articles de conditionnement necessaires</h2>
               <p className="mt-1 text-sm text-slate-600">
-                Besoin = cartons commandes x quantite de la recette / nombre de cartons du lot de la recette. Stock = stock
-                MP actuel, tous depots. Commande (BC) = ce qu&apos;il reste a recevoir sur les bons de commande en cours ;
+                Besoin = cartons a produire x quantite de la recette / nombre de cartons du lot de la recette. Cartons a
+                produire = cartons commandes moins ce qui est deja en stock PF : comme le RESTE du Tableau de commande, le
+                stock est partage entre toutes les commandes (la plus ancienne d&apos;abord), pas retire en entier de ces
+                proformas. Dans chaque couleur, les articles de conditionnement cosmetique sont avant les plastiques. Stock
+                = stock MP actuel, tous depots. Commande (BC) = ce qu&apos;il reste a recevoir sur les bons de commande en cours ;
                 Import = ce qui est en route et pas encore receptionne. Le reste a recevoir d&apos;un BC deduit deja ce qui
                 est importe : commande et import ne se comptent jamais deux fois.
               </p>
@@ -200,6 +204,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                   <thead className="sticky top-0 bg-slate-50 text-slate-600">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Article de conditionnement</th>
+                      <th className="px-4 py-3 font-semibold">Type</th>
                       <th className="px-4 py-3 font-semibold">Unite</th>
                       <th className="px-4 py-3 text-right font-semibold">Besoin</th>
                       <th className="px-4 py-3 text-right font-semibold">Stock</th>
@@ -219,6 +224,9 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                         }`}
                       >
                         <td className="px-4 py-3 font-medium text-slate-900">{besoin.nom}</td>
+                        <td className="px-4 py-3 text-xs font-semibold text-slate-500">
+                          {besoin.type === "cosmetique" ? "Cosmetique" : besoin.type === "plastique" ? "Plastique" : "Autre"}
+                        </td>
                         <td className="px-4 py-3 text-slate-600">{besoin.unite || "-"}</td>
                         <td className="px-4 py-3 text-right tabular-nums">{nombre(besoin.besoin)}</td>
                         <td className="px-4 py-3 text-right tabular-nums">{nombre(besoin.stock)}</td>
@@ -310,10 +318,13 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                 <thead className="sticky top-0 bg-slate-50 text-slate-600">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Article</th>
-                    <th className="px-4 py-3 text-right font-semibold">Cartons</th>
+                    <th className="px-4 py-3 text-right font-semibold">Cartons commandes</th>
+                    <th className="px-4 py-3 text-right font-semibold">Stock PF</th>
+                    <th className="px-4 py-3 text-right font-semibold">Deja couvert par le stock</th>
+                    <th className="px-4 py-3 text-right font-semibold">A produire</th>
                     <th className="px-4 py-3 font-semibold">Proforma</th>
                     <th className="px-4 py-3 font-semibold">Recette conditionnement</th>
-                    <th className="px-4 py-3 text-right font-semibold">Vrac necessaire (kg)</th>
+                    <th className="px-4 py-3 text-right font-semibold">Vrac pour les cartons a produire (kg)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -321,11 +332,20 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                     <tr key={article.articleId} className="border-t border-slate-100">
                       <td className="px-4 py-3 font-medium text-slate-900">{article.nom}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{nombre(article.cartons)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-600">{nombre(article.stockPf)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-600">{nombre(article.couvertParStock)}</td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
+                        {nombre(article.aProduire)}
+                      </td>
                       <td className="px-4 py-3 text-slate-600">
                         {article.parProforma.map((p) => p.proforma).join(", ")}
                       </td>
                       <td className="px-4 py-3">
-                        {article.statutRecette === "ok" ? (
+                        {article.statutRecette === "couvert_stock" ? (
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                            Tout est en stock
+                          </span>
+                        ) : article.statutRecette === "ok" ? (
                           <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
                             {article.nbLignesRecette} article(s) de conditionnement
                           </span>

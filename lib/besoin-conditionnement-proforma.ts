@@ -1,12 +1,22 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { lireSoldesLotsMp } from "@/lib/lot-balances-mp";
-import { getBaseProforma } from "@/app/tableau-commandes/family-data";
+import {
+  buildCommandeKey,
+  fetchArticleStocksFromStockPage,
+  getBaseProforma,
+  normalizeArticle,
+} from "@/app/tableau-commandes/family-data";
 import { computeStatutBc } from "@/app/stock/matiere-premiere/bc/constants";
 
 // Besoin en articles de conditionnement d'une ou plusieurs proformas (Commandes PF), calcule avec la Recette Conditionnement
 // de chaque article commande : la recette (table recettes_pf) donne, pour un lot de "quantite_recette_base" cartons, la quantite
 // de chaque article de conditionnement (matiere premiere) ; on la ramene au nombre de cartons commandes puis on la compare au
 // stock MP actuel. Les articles commandes qui n'ont pas de recette sont listes a part.
+//
+// Cartons deja en stock : on ne compte en conditionnement que les cartons a PRODUIRE. Comme le "RESTE" du Tableau de commande
+// (stock - total commande), le stock PF est partage entre TOUTES les commandes non livrees : il est attribue aux commandes dans
+// l'ordre des colonnes du tableau (de la plus ancienne a la plus recente), et seul ce qui manque pour les proformas saisies
+// est a produire - jamais le stock total retire d'une seule proforma.
 //
 // Pour chaque article de conditionnement, on indique aussi ce qui arrive deja : les commandes (BC) en cours, ou il reste a
 // recevoir, et les imports en transit (meme regle que Statistique MP : evenement d'import pas encore receptionne dont le
@@ -29,17 +39,27 @@ export type ProformaSaisie = {
   commandes: CommandeProforma[];
 };
 
-export type StatutRecette = "ok" | "sans_recette" | "lot_inconnu";
+// couvert_stock : tout est deja en stock PF, rien a produire donc pas de recette a verifier
+export type StatutRecette = "ok" | "sans_recette" | "lot_inconnu" | "couvert_stock";
+
+// Type d'un article de conditionnement (categorie de l'article MP) : sert a ranger les cosmetiques avant les plastiques
+export type TypeConditionnement = "cosmetique" | "plastique" | "autre";
 
 export type ArticleCommande = {
   articleId: number;
   nom: string;
+  // cartons commandes sur les proformas saisies
   cartons: number;
+  // stock PF actuel de l'article (meme calcul que le Tableau de commande)
+  stockPf: number;
+  // cartons des proformas saisies deja couverts par le stock PF, et cartons qu'il reste a produire (= cartons - couvert)
+  couvertParStock: number;
+  aProduire: number;
   // proformas (numero de base) ou cet article est commande, avec les cartons de chacune
   parProforma: { proforma: string; cartons: number }[];
   statutRecette: StatutRecette;
   nbLignesRecette: number;
-  // vrac necessaire (kg) pour les cartons commandes, quand l'article a un vrac et que la recette permet de le calculer
+  // vrac necessaire (kg) pour les cartons a produire, quand l'article a un vrac et que la recette permet de le calculer
   vracKg: number | null;
   vracNom: string | null;
 };
@@ -69,6 +89,7 @@ export type BesoinArticleConditionnement = {
   articleMpId: number;
   nom: string;
   unite: string;
+  type: TypeConditionnement;
   besoin: number;
   stock: number;
   manque: number;
@@ -101,7 +122,7 @@ type ArticleRow = {
   piece_par_carton: number | null;
 };
 type RecetteRow = { article_pf_id: number; article_mp_id: number; quantite: number | null };
-type MpRow = { id: number; nom_article: string | null; unite: string | null };
+type MpRow = { id: number; nom_article: string | null; unite: string | null; categorie: string | null };
 type BcLigneRow = {
   id: number;
   article_id: number | null;
@@ -132,6 +153,80 @@ type Arrivages = {
   commandesParMp: Map<number, CommandeEnCours[]>;
   importsParMp: Map<number, ImportEnCours[]>;
 };
+
+// "ARTICLE DE CONDITIONNEMENT PLASTIQUE" (capsules, flacons, pots) / "... COSMETIQUE" (cartons, sleeves, etiquettes, etuis...)
+export function typeConditionnement(categorie: string | null | undefined): TypeConditionnement {
+  const texte = String(categorie ?? "").toUpperCase();
+  if (texte.includes("PLASTIQUE")) return "plastique";
+  if (texte.includes("CONDITIONNEMENT") && texte.includes("COSMETIQUE")) return "cosmetique";
+  return "autre";
+}
+
+// Attribue le stock aux commandes dans l'ordre (la plus ancienne d'abord) et rend, pour chacune, les cartons NON couverts.
+// La somme des cartons non couverts de toutes les commandes vaut max(0, total commande - stock), soit le RESTE negatif du tableau.
+export function repartirStock(stock: number, ordreCles: string[], quantites: Map<string, number>): Map<string, number> {
+  let disponible = Math.max(0, stock);
+  const manques = new Map<string, number>();
+  for (const cle of ordreCles) {
+    const quantite = quantites.get(cle) ?? 0;
+    if (!(quantite > 0)) continue;
+    const pris = Math.min(quantite, disponible);
+    disponible -= pris;
+    manques.set(cle, quantite - pris);
+  }
+  return manques;
+}
+
+type CommandeActiveRow = {
+  id: number;
+  client: string | null;
+  mode_chargement: string | null;
+  numero_proforma: string | null;
+  commande_lignes:
+    | {
+        quantite_demandee: number | null;
+        articles: { nom_article: string | null } | { nom_article: string | null }[] | null;
+      }[]
+    | null;
+};
+
+// Commandes non livrees, dans l'ordre des colonnes du Tableau de commande (creation croissante, un camion = sa proforma de base)
+// et, par article (nom normalise comme le tableau), la quantite commandee dans chaque colonne.
+async function lireCommandesActives(): Promise<{ ordreCles: string[]; quantiteParNom: Map<string, Map<string, number>> }> {
+  const ordreCles: string[] = [];
+  const vues = new Set<string>();
+  const quantiteParNom = new Map<string, Map<string, number>>();
+  for (let debut = 0; ; debut += 500) {
+    const { data, error } = await supabaseServer
+      .from("commandes")
+      .select("id, client, mode_chargement, numero_proforma, commande_lignes(quantite_demandee, articles(nom_article))")
+      .neq("statut", "LIVREE")
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(debut, debut + 499);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as unknown as CommandeActiveRow[];
+    for (const commande of page) {
+      const cle = buildCommandeKey(commande);
+      if (!vues.has(cle)) {
+        vues.add(cle);
+        ordreCles.push(cle);
+      }
+      for (const ligne of commande.commande_lignes ?? []) {
+        const relation = ligne.articles;
+        const article = Array.isArray(relation) ? relation[0] : relation;
+        const nomCle = normalizeArticle(String(article?.nom_article ?? ""));
+        const quantite = Number(ligne.quantite_demandee ?? 0);
+        if (!nomCle || !(quantite > 0)) continue;
+        const parCle = quantiteParNom.get(nomCle) ?? new Map<string, number>();
+        parCle.set(cle, (parCle.get(cle) ?? 0) + quantite);
+        quantiteParNom.set(nomCle, parCle);
+      }
+    }
+    if (page.length < 500) break;
+  }
+  return { ordreCles, quantiteParNom };
+}
 
 function cleDossier(nDoss4d: string | null, nDossErp: string | null) {
   return `${nDoss4d ?? ""}|||${nDossErp ?? ""}`;
@@ -214,7 +309,7 @@ async function lireLignes(commandeIds: number[]): Promise<LigneRow[]> {
   return lignes;
 }
 
-async function lireParIds<T>(table: string, colonnes: string, colonneId: string, ids: number[]): Promise<T[]> {
+async function lireParIds<T>(table: string, colonnes: string, colonneId: string, ids: (number | string)[]): Promise<T[]> {
   const lignes: T[] = [];
   for (const morceau of decouper(ids, 150)) {
     for (let debut = 0; ; debut += 1000) {
@@ -400,6 +495,53 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
   ]);
   const articleParId = new Map(articlesRows.map((article) => [article.id, article]));
 
+  // Cartons deja en stock PF : meme stock et memes commandes que le Tableau de commande (voir l'en-tete du fichier)
+  const nomCleParArticle = new Map<number, string>();
+  for (const articleId of articleIds) {
+    nomCleParArticle.set(articleId, normalizeArticle(String(articleParId.get(articleId)?.nom_article ?? "")));
+  }
+  const nomsDistincts = [...new Set(articlesRows.map((article) => article.nom_article).filter((nom): nom is string => !!nom))];
+  const [articlesMemeNom, commandesActives] = await Promise.all([
+    nomsDistincts.length > 0
+      ? lireParIds<{ id: number; nom_article: string | null; nature: string | null }>("articles", "id, nom_article, nature", "nom_article", nomsDistincts)
+      : Promise.resolve([]),
+    lireCommandesActives(),
+  ]);
+  const stockPfParNom = await fetchArticleStocksFromStockPage(articlesMemeNom.filter((article) => article.nature !== "vrac"));
+
+  // Par article : cartons saisis dans chaque colonne (proforma) ; le stock est attribue colonne apres colonne
+  const saisiParNom = new Map<string, Map<string, number>>();
+  for (const articleId of articleIds) {
+    const nomCle = nomCleParArticle.get(articleId) ?? "";
+    if (!nomCle) continue;
+    const parCle = saisiParNom.get(nomCle) ?? new Map<string, number>();
+    for (const [proforma, cartonsProforma] of parProformaParArticle.get(articleId) ?? []) {
+      const cle = `proforma::${proforma}`;
+      parCle.set(cle, (parCle.get(cle) ?? 0) + cartonsProforma);
+    }
+    saisiParNom.set(nomCle, parCle);
+  }
+  const manqueParNom = new Map<string, { manque: number; saisi: number }>();
+  for (const [nomCle, saisi] of saisiParNom) {
+    const quantites = new Map(commandesActives.quantiteParNom.get(nomCle) ?? []);
+    const ordre = [...commandesActives.ordreCles];
+    // proforma saisie qui n'est plus dans le tableau (livree) : placee en dernier, avec les cartons saisis
+    for (const [cle, quantite] of saisi) {
+      if (!quantites.has(cle)) {
+        quantites.set(cle, quantite);
+        ordre.push(cle);
+      }
+    }
+    const manques = repartirStock(stockPfParNom.get(nomCle) ?? 0, ordre, quantites);
+    let manque = 0;
+    let saisiTotal = 0;
+    for (const [cle, quantite] of saisi) {
+      manque += Math.min(manques.get(cle) ?? 0, quantite);
+      saisiTotal += quantite;
+    }
+    manqueParNom.set(nomCle, { manque, saisi: saisiTotal });
+  }
+
   const recettesParArticle = new Map<number, RecetteRow[]>();
   for (const ligne of recettes) {
     if (!(Number(ligne.quantite ?? 0) > 0)) continue;
@@ -413,7 +555,7 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
   // Un souci de lecture des commandes / imports ne doit pas bloquer le calcul du besoin : on le signale seulement
   let arrivagesIndisponibles = false;
   const [mpRows, vracRows, soldes, arrivages] = await Promise.all([
-    mpIds.length > 0 ? lireParIds<MpRow>("articles_matiere_premiere", "id, nom_article, unite", "id", mpIds) : Promise.resolve([]),
+    mpIds.length > 0 ? lireParIds<MpRow>("articles_matiere_premiere", "id, nom_article, unite, categorie", "id", mpIds) : Promise.resolve([]),
     vracIds.length > 0 ? lireParIds<{ id: number; nom_article: string | null }>("articles", "id, nom_article", "id", vracIds) : Promise.resolve([]),
     lireSoldesLotsMp(),
     lireArrivagesMp(mpIds).catch((): Arrivages => {
@@ -436,13 +578,22 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
     const lignesRecette = recettesParArticle.get(articleId) ?? [];
     const base = Number(article?.quantite_recette_base ?? 0);
 
+    // Cartons a produire = ce que le stock PF ne couvre pas (voir repartirStock) ; un nom d'article partage entre plusieurs
+    // articles repartit le manque au prorata des cartons de chacun
+    const nomCle = nomCleParArticle.get(articleId) ?? "";
+    const manqueNom = manqueParNom.get(nomCle);
+    const aProduireBrut = manqueNom && manqueNom.saisi > 0 ? (manqueNom.manque * cartons) / manqueNom.saisi : cartons;
+    const aProduire = aProduireBrut < 1e-6 ? 0 : aProduireBrut;
+    const stockPf = nomCle ? (stockPfParNom.get(nomCle) ?? 0) : 0;
+
     let statutRecette: StatutRecette = "ok";
-    if (lignesRecette.length === 0) statutRecette = "sans_recette";
+    if (aProduire <= 0) statutRecette = "couvert_stock";
+    else if (lignesRecette.length === 0) statutRecette = "sans_recette";
     else if (!(base > 0)) statutRecette = "lot_inconnu";
 
     if (statutRecette === "ok") {
       for (const ligne of lignesRecette) {
-        const besoin = (cartons * Number(ligne.quantite)) / base;
+        const besoin = (aProduire * Number(ligne.quantite)) / base;
         const courant = besoinParMp.get(ligne.article_mp_id) ?? { besoin: 0, utilisePar: new Set<string>() };
         courant.besoin += besoin;
         courant.utilisePar.add(nom);
@@ -452,11 +603,11 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
 
     // Vrac : meme regle que la page de la recette (quantite saisie pour le lot, sinon pieces par carton x contenance)
     let vracKg: number | null = null;
-    if (article?.vrac_article_id) {
+    if (article?.vrac_article_id && aProduire > 0) {
       if (article.vrac_quantite_recette !== null && article.vrac_quantite_recette !== undefined) {
-        vracKg = (cartons * Number(article.vrac_quantite_recette)) / (base > 0 ? base : 1);
+        vracKg = (aProduire * Number(article.vrac_quantite_recette)) / (base > 0 ? base : 1);
       } else if (article.piece_par_carton && article.contenance) {
-        vracKg = cartons * Number(article.piece_par_carton) * Number(article.contenance);
+        vracKg = aProduire * Number(article.piece_par_carton) * Number(article.contenance);
       }
     }
 
@@ -464,6 +615,9 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
       articleId,
       nom,
       cartons,
+      stockPf,
+      couvertParStock: Math.max(0, cartons - aProduire),
+      aProduire,
       parProforma: [...(parProformaParArticle.get(articleId) ?? new Map<string, number>()).entries()].map(
         ([proforma, cartonsProforma]) => ({ proforma, cartons: cartonsProforma })
       ),
@@ -490,6 +644,7 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
       articleMpId,
       nom: mp?.nom_article ?? `Article MP ${articleMpId}`,
       unite: mp?.unite ?? "",
+      type: typeConditionnement(mp?.categorie),
       besoin: valeur.besoin,
       stock,
       manque,
@@ -501,12 +656,20 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
       resteACouvrir: resteBrut < 1e-6 ? 0 : resteBrut,
     };
   });
-  // Non couverts d'abord, puis en manque couverts par une commande / un import, puis le reste
+  // Par couleur : non couverts d'abord, puis en manque couverts par une commande / un import, puis le reste. Dans chaque
+  // couleur : les articles de conditionnement cosmetique, puis les plastiques (sans les melanger), puis les autres.
   const rangBesoin = (besoin: BesoinArticleConditionnement) => (besoin.resteACouvrir > 0 ? 0 : besoin.manque > 0 ? 1 : 2);
-  besoins.sort((a, b) => rangBesoin(a) - rangBesoin(b) || a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
+  const rangType = (type: TypeConditionnement) => (type === "cosmetique" ? 0 : type === "plastique" ? 1 : 2);
+  besoins.sort(
+    (a, b) =>
+      rangBesoin(a) - rangBesoin(b) ||
+      rangType(a.type) - rangType(b.type) ||
+      a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" })
+  );
 
   articles.sort((a, b) => {
-    const rang = (statut: StatutRecette) => (statut === "sans_recette" ? 0 : statut === "lot_inconnu" ? 1 : 2);
+    const rang = (statut: StatutRecette) =>
+      statut === "sans_recette" ? 0 : statut === "lot_inconnu" ? 1 : statut === "ok" ? 2 : 3;
     return rang(a.statutRecette) - rang(b.statutRecette) || a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" });
   });
 
