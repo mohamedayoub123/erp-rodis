@@ -1,11 +1,19 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { lireSoldesLotsMp } from "@/lib/lot-balances-mp";
 import { getBaseProforma } from "@/app/tableau-commandes/family-data";
+import { computeStatutBc } from "@/app/stock/matiere-premiere/bc/constants";
 
 // Besoin en articles de conditionnement d'une ou plusieurs proformas (Commandes PF), calcule avec la Recette Conditionnement
 // de chaque article commande : la recette (table recettes_pf) donne, pour un lot de "quantite_recette_base" cartons, la quantite
 // de chaque article de conditionnement (matiere premiere) ; on la ramene au nombre de cartons commandes puis on la compare au
 // stock MP actuel. Les articles commandes qui n'ont pas de recette sont listes a part.
+//
+// Pour chaque article de conditionnement, on indique aussi ce qui arrive deja : les commandes (BC) en cours, ou il reste a
+// recevoir, et les imports en transit (meme regle que Statistique MP : evenement d'import pas encore receptionne dont le
+// dossier n'est pas encore "Receptionne Rodis"). Le reste a recevoir d'un BC deduit tout ce qui en a deja ete importe, donc
+// commande + import ne se comptent jamais deux fois.
+
+const STATUT_DOSSIER_MP_TERMINE = "Receptionne Rodis";
 
 export const MAX_PROFORMAS = 30;
 
@@ -36,6 +44,23 @@ export type ArticleCommande = {
   vracNom: string | null;
 };
 
+// Commande (BC) en cours : ce qu'il reste a recevoir sur une ligne de bon de commande
+export type CommandeEnCours = {
+  code: string;
+  nDoss4d: string | null;
+  nDossErp: string | null;
+  quantite: number;
+};
+
+// Import en transit : evenement d'import pas encore receptionne, regroupe par dossier
+export type ImportEnCours = {
+  nDoss4d: string | null;
+  nDossErp: string | null;
+  quantite: number;
+  statutDossier: string;
+  datePrevueReception: string | null;
+};
+
 export type BesoinArticleConditionnement = {
   articleMpId: number;
   nom: string;
@@ -44,12 +69,20 @@ export type BesoinArticleConditionnement = {
   stock: number;
   manque: number;
   utilisePar: string[];
+  commandes: CommandeEnCours[];
+  commandeTotal: number;
+  imports: ImportEnCours[];
+  importTotal: number;
+  // manque moins ce qui arrive (commandes + imports) ; 0 = le manque est couvert
+  resteACouvrir: number;
 };
 
 export type ResultatBesoin = {
   proformas: ProformaSaisie[];
   articles: ArticleCommande[];
   besoins: BesoinArticleConditionnement[];
+  // vrai si les commandes / imports n'ont pas pu etre lus (le reste du calcul reste valable)
+  arrivagesIndisponibles: boolean;
 };
 
 type CommandeRow = { id: number; client: string | null; statut: string | null; numero_proforma: string | null };
@@ -65,6 +98,38 @@ type ArticleRow = {
 };
 type RecetteRow = { article_pf_id: number; article_mp_id: number; quantite: number | null };
 type MpRow = { id: number; nom_article: string | null; unite: string | null };
+type BcLigneRow = {
+  id: number;
+  article_id: number | null;
+  code: string | null;
+  n_doss_4d: string | null;
+  n_doss_erp: string | null;
+  quantite: number | null;
+  statut: string | null;
+};
+type ImportEvenementRow = {
+  id: number;
+  bc_ligne_id: number;
+  n_doss_4d_import: string | null;
+  n_doss_erp_import: string | null;
+  quantite_importee: number | null;
+  lot_stock_id: number | null;
+};
+type DossierStatutRow = {
+  n_doss_4d: string | null;
+  n_doss_erp: string | null;
+  statut: string | null;
+  date_prevue_reception: string | null;
+};
+
+type Arrivages = {
+  commandesParMp: Map<number, CommandeEnCours[]>;
+  importsParMp: Map<number, ImportEnCours[]>;
+};
+
+function cleDossier(nDoss4d: string | null, nDossErp: string | null) {
+  return `${nDoss4d ?? ""}|||${nDossErp ?? ""}`;
+}
 
 // "3685, 3928 03983" -> ["3685", "3928", "03983"] (virgule, point-virgule, espace ou retour a la ligne ; sans doublon)
 export function lireProformasSaisies(texte: string): string[] {
@@ -162,6 +227,117 @@ async function lireParIds<T>(table: string, colonnes: string, colonneId: string,
   return lignes;
 }
 
+// Commandes (BC) et imports en cours des articles de conditionnement demandes (mpIds = articles_matiere_premiere.id)
+async function lireArrivagesMp(mpIds: number[]): Promise<Arrivages> {
+  const commandesParMp = new Map<number, CommandeEnCours[]>();
+  const importsParMp = new Map<number, ImportEnCours[]>();
+  if (mpIds.length === 0) return { commandesParMp, importsParMp };
+
+  const bcLignes = await lireParIds<BcLigneRow>(
+    "bons_commande_matiere_premiere",
+    "id, article_id, code, n_doss_4d, n_doss_erp, quantite, statut",
+    "article_id",
+    mpIds
+  );
+  const ligneIds = bcLignes.map((ligne) => ligne.id);
+  const [evenements, statutsDossier] = await Promise.all([
+    ligneIds.length > 0
+      ? lireParIds<ImportEvenementRow>(
+          "bons_commande_mp_imports",
+          "id, bc_ligne_id, n_doss_4d_import, n_doss_erp_import, quantite_importee, lot_stock_id",
+          "bc_ligne_id",
+          ligneIds
+        )
+      : Promise.resolve([] as ImportEvenementRow[]),
+    lireTousLesStatutsDossier(),
+  ]);
+
+  const statutParDossier = new Map(
+    statutsDossier.map((ligne) => [cleDossier(ligne.n_doss_4d, ligne.n_doss_erp), ligne])
+  );
+  const articleParLigne = new Map<number, number>();
+  for (const ligne of bcLignes) if (ligne.article_id) articleParLigne.set(ligne.id, ligne.article_id);
+
+  // Quantite DEJA importee par ligne de BC (tous evenements, receptionnes ou pas) : sert au statut et au reste a recevoir
+  const importeeParLigne = new Map<number, number>();
+  for (const evenement of evenements) {
+    importeeParLigne.set(
+      evenement.bc_ligne_id,
+      (importeeParLigne.get(evenement.bc_ligne_id) ?? 0) + Number(evenement.quantite_importee ?? 0)
+    );
+  }
+
+  // Commandes en cours : ligne pas "Termine", reste a recevoir = commande - deja importe
+  const commandeParMpEtCode = new Map<string, CommandeEnCours & { mpId: number }>();
+  for (const ligne of bcLignes) {
+    if (!ligne.article_id) continue;
+    const quantite = Number(ligne.quantite ?? 0);
+    const importee = importeeParLigne.get(ligne.id) ?? 0;
+    if (computeStatutBc(quantite, importee, ligne.statut) === "Termine") continue;
+    const reste = Math.max(0, quantite - importee);
+    if (!(reste > 0)) continue;
+    const code = String(ligne.code ?? "").trim() || `ligne ${ligne.id}`;
+    const cle = `${ligne.article_id}::${code}`;
+    const existant = commandeParMpEtCode.get(cle);
+    if (existant) existant.quantite += reste;
+    else commandeParMpEtCode.set(cle, { mpId: ligne.article_id, code, nDoss4d: ligne.n_doss_4d, nDossErp: ligne.n_doss_erp, quantite: reste });
+  }
+  for (const { mpId, ...commande } of commandeParMpEtCode.values()) {
+    const liste = commandesParMp.get(mpId) ?? [];
+    liste.push(commande);
+    commandesParMp.set(mpId, liste);
+  }
+
+  // Imports en transit : evenement pas encore receptionne (pas de lot de stock) dont le dossier n'est pas "Receptionne Rodis"
+  const importParMpEtDossier = new Map<string, ImportEnCours & { mpId: number }>();
+  for (const evenement of evenements) {
+    if (evenement.lot_stock_id !== null) continue;
+    const mpId = articleParLigne.get(evenement.bc_ligne_id);
+    if (!mpId) continue;
+    const cleDoss = cleDossier(evenement.n_doss_4d_import, evenement.n_doss_erp_import);
+    const dossier = statutParDossier.get(cleDoss);
+    if (dossier?.statut === STATUT_DOSSIER_MP_TERMINE) continue;
+    const quantite = Number(evenement.quantite_importee ?? 0);
+    if (!(quantite > 0)) continue;
+    const cle = `${mpId}::${cleDoss}`;
+    const existant = importParMpEtDossier.get(cle);
+    if (existant) existant.quantite += quantite;
+    else {
+      importParMpEtDossier.set(cle, {
+        mpId,
+        nDoss4d: evenement.n_doss_4d_import,
+        nDossErp: evenement.n_doss_erp_import,
+        quantite,
+        statutDossier: dossier?.statut ?? "",
+        datePrevueReception: dossier?.date_prevue_reception ?? null,
+      });
+    }
+  }
+  for (const { mpId, ...transit } of importParMpEtDossier.values()) {
+    const liste = importsParMp.get(mpId) ?? [];
+    liste.push(transit);
+    importsParMp.set(mpId, liste);
+  }
+
+  return { commandesParMp, importsParMp };
+}
+
+async function lireTousLesStatutsDossier(): Promise<DossierStatutRow[]> {
+  const lignes: DossierStatutRow[] = [];
+  for (let debut = 0; ; debut += 1000) {
+    const { data, error } = await supabaseServer
+      .from("dossiers_import_mp_statut")
+      .select("n_doss_4d, n_doss_erp, statut, date_prevue_reception")
+      .order("id", { ascending: true })
+      .range(debut, debut + 999);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as DossierStatutRow[];
+    lignes.push(...page);
+    if (page.length < 1000) break;
+  }
+  return lignes;
+}
+
 export async function calculerBesoinProformas(saisies: string[]): Promise<ResultatBesoin> {
   const proformas: ProformaSaisie[] = await Promise.all(
     saisies.map(async (saisie) => ({ saisie, commandes: await lireCommandesProforma(saisie) }))
@@ -170,7 +346,7 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
   // Une commande trouvee par 2 saisies (ex. "3983" et "03983") n'est comptee qu'une fois
   const commandeParId = new Map<number, CommandeProforma>();
   for (const proforma of proformas) for (const commande of proforma.commandes) commandeParId.set(commande.id, commande);
-  if (commandeParId.size === 0) return { proformas, articles: [], besoins: [] };
+  if (commandeParId.size === 0) return { proformas, articles: [], besoins: [], arrivagesIndisponibles: false };
 
   const lignes = await lireLignes([...commandeParId.keys()]);
 
@@ -189,7 +365,7 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
   }
 
   const articleIds = [...cartonsParArticle.keys()];
-  if (articleIds.length === 0) return { proformas, articles: [], besoins: [] };
+  if (articleIds.length === 0) return { proformas, articles: [], besoins: [], arrivagesIndisponibles: false };
 
   const [articlesRows, recettes] = await Promise.all([
     lireParIds<ArticleRow>(
@@ -212,10 +388,16 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
 
   const mpIds = [...new Set(recettes.map((ligne) => ligne.article_mp_id))];
   const vracIds = [...new Set(articlesRows.map((article) => article.vrac_article_id).filter((id): id is number => !!id))];
-  const [mpRows, vracRows, soldes] = await Promise.all([
+  // Un souci de lecture des commandes / imports ne doit pas bloquer le calcul du besoin : on le signale seulement
+  let arrivagesIndisponibles = false;
+  const [mpRows, vracRows, soldes, arrivages] = await Promise.all([
     mpIds.length > 0 ? lireParIds<MpRow>("articles_matiere_premiere", "id, nom_article, unite", "id", mpIds) : Promise.resolve([]),
     vracIds.length > 0 ? lireParIds<{ id: number; nom_article: string | null }>("articles", "id, nom_article", "id", vracIds) : Promise.resolve([]),
     lireSoldesLotsMp(),
+    lireArrivagesMp(mpIds).catch((): Arrivages => {
+      arrivagesIndisponibles = true;
+      return { commandesParMp: new Map(), importsParMp: new Map() };
+    }),
   ]);
   const mpParId = new Map(mpRows.map((mp) => [mp.id, mp]));
   const vracParId = new Map(vracRows.map((vrac) => [vrac.id, vrac.nom_article ?? `Article ${vrac.id}`]));
@@ -274,24 +456,37 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
     const mp = mpParId.get(articleMpId);
     const stock = stockParMp.get(articleMpId) ?? 0;
     // Un stock negatif (sorties saisies en trop) n'est pas du stock a "rembourser" : on compte au plus 0 de disponible
-    const manque = Math.max(0, valeur.besoin - Math.max(stock, 0));
+    const manqueBrut = Math.max(0, valeur.besoin - Math.max(stock, 0));
+    // arrondi pour ne pas afficher un manque de 0,0000001 cause par les virgules flottantes
+    const manque = manqueBrut < 1e-6 ? 0 : manqueBrut;
+    const commandes = (arrivages.commandesParMp.get(articleMpId) ?? []).sort((a, b) => b.quantite - a.quantite);
+    const imports = (arrivages.importsParMp.get(articleMpId) ?? []).sort((a, b) => b.quantite - a.quantite);
+    const commandeTotal = commandes.reduce((somme, commande) => somme + commande.quantite, 0);
+    const importTotal = imports.reduce((somme, transit) => somme + transit.quantite, 0);
+    const resteBrut = Math.max(0, manque - commandeTotal - importTotal);
     return {
       articleMpId,
       nom: mp?.nom_article ?? `Article MP ${articleMpId}`,
       unite: mp?.unite ?? "",
       besoin: valeur.besoin,
       stock,
-      // arrondi pour ne pas afficher un manque de 0,0000001 cause par les virgules flottantes
-      manque: manque < 1e-6 ? 0 : manque,
+      manque,
       utilisePar: [...valeur.utilisePar].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" })),
+      commandes,
+      commandeTotal,
+      imports,
+      importTotal,
+      resteACouvrir: resteBrut < 1e-6 ? 0 : resteBrut,
     };
   });
-  besoins.sort((a, b) => (b.manque > 0 ? 1 : 0) - (a.manque > 0 ? 1 : 0) || a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
+  // Non couverts d'abord, puis en manque couverts par une commande / un import, puis le reste
+  const rangBesoin = (besoin: BesoinArticleConditionnement) => (besoin.resteACouvrir > 0 ? 0 : besoin.manque > 0 ? 1 : 2);
+  besoins.sort((a, b) => rangBesoin(a) - rangBesoin(b) || a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
   articles.sort((a, b) => {
     const rang = (statut: StatutRecette) => (statut === "sans_recette" ? 0 : statut === "lot_inconnu" ? 1 : 2);
     return rang(a.statutRecette) - rang(b.statutRecette) || a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" });
   });
 
-  return { proformas, articles, besoins };
+  return { proformas, articles, besoins, arrivagesIndisponibles };
 }

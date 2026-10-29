@@ -5,6 +5,8 @@ import { canViewPageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SubmitButton } from "@/app/_components/submit-button";
+import { formatDate } from "@/lib/format-date";
+import { encodeDossierId } from "@/app/stock/matiere-premiere/commande/dossier-id";
 import {
   MAX_PROFORMAS,
   calculerBesoinProformas,
@@ -32,14 +34,30 @@ function Carte({ titre, valeur, ton }: { titre: string; valeur: string | number;
 }
 
 function Resultat({ resultat }: { resultat: ResultatBesoin }) {
-  const { proformas, articles, besoins } = resultat;
+  const { proformas, articles, besoins, arrivagesIndisponibles } = resultat;
   const trouvees = proformas.filter((proforma) => proforma.commandes.length > 0);
   const introuvables = proformas.filter((proforma) => proforma.commandes.length === 0);
   const sansRecette = articles.filter((article) => article.statutRecette === "sans_recette");
   const lotInconnu = articles.filter((article) => article.statutRecette === "lot_inconnu");
   const enManque = besoins.filter((besoin) => besoin.manque > 0);
+  // en manque ET rien (ou pas assez) en commande / import pour le couvrir
+  const nonCouverts = besoins.filter((besoin) => besoin.resteACouvrir > 0);
+  const manquesCouverts = enManque.length - nonCouverts.length;
 
   const toutEstLa = trouvees.length > 0 && sansRecette.length === 0 && lotInconnu.length === 0 && enManque.length === 0;
+  // ambre : tout est couvert, mais une partie du manque n'arrive que par une commande / un import en cours
+  const seulementArrivages =
+    trouvees.length > 0 && sansRecette.length === 0 && lotInconnu.length === 0 && nonCouverts.length === 0 && manquesCouverts > 0;
+  const phrasesVerdict = [
+    sansRecette.length > 0 ? `${sansRecette.length} article(s) sans recette de conditionnement` : null,
+    lotInconnu.length > 0 ? `${lotInconnu.length} recette(s) sans nombre de cartons du lot` : null,
+    nonCouverts.length > 0
+      ? `${nonCouverts.length} article(s) de conditionnement en manque sans commande ni import suffisant`
+      : null,
+    manquesCouverts > 0
+      ? `${manquesCouverts} article(s) en manque mais couverts par une commande / un import en cours`
+      : null,
+  ].filter(Boolean);
 
   return (
     <>
@@ -84,25 +102,33 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
             className={`rounded-[1.75rem] border px-6 py-5 text-[16px] font-semibold ${
               toutEstLa
                 ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                : "border-red-200 bg-red-50 text-red-900"
+                : seulementArrivages
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-red-200 bg-red-50 text-red-900"
             }`}
           >
             {toutEstLa
               ? "Tout est la : tous les articles commandes ont une recette de conditionnement et tous les articles de conditionnement sont en stock."
-              : [
-                  sansRecette.length > 0 ? `${sansRecette.length} article(s) sans recette de conditionnement` : null,
-                  lotInconnu.length > 0 ? `${lotInconnu.length} recette(s) sans nombre de cartons du lot` : null,
-                  enManque.length > 0 ? `${enManque.length} article(s) de conditionnement en manque` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" - ")}
+              : phrasesVerdict.join(" - ")}
           </section>
 
-          <section className="grid gap-4 md:grid-cols-4">
+          {arrivagesIndisponibles ? (
+            <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+              Commandes et imports non lus : le stock est compare au besoin sans tenir compte de ce qui est deja en route.
+              Recharge la page pour reessayer.
+            </p>
+          ) : null}
+
+          <section className="grid gap-4 md:grid-cols-5">
             <Carte titre="Articles commandes" valeur={articles.length} ton="neutre" />
             <Carte titre="Sans recette" valeur={sansRecette.length} ton={sansRecette.length > 0 ? "rouge" : "vert"} />
             <Carte titre="Articles de conditionnement" valeur={besoins.length} ton="neutre" />
             <Carte titre="En manque" valeur={enManque.length} ton={enManque.length > 0 ? "rouge" : "vert"} />
+            <Carte
+              titre="Non couverts"
+              valeur={nonCouverts.length}
+              ton={nonCouverts.length > 0 ? "rouge" : enManque.length > 0 ? "ambre" : "vert"}
+            />
           </section>
 
           {sansRecette.length > 0 ? (
@@ -161,7 +187,9 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
               <h2 className="text-lg font-bold text-slate-900">Articles de conditionnement necessaires</h2>
               <p className="mt-1 text-sm text-slate-600">
                 Besoin = cartons commandes x quantite de la recette / nombre de cartons du lot de la recette. Stock = stock
-                MP actuel, tous depots.
+                MP actuel, tous depots. Commande (BC) = ce qu&apos;il reste a recevoir sur les bons de commande en cours ;
+                Import = ce qui est en route et pas encore receptionne. Le reste a recevoir d&apos;un BC deduit deja ce qui
+                est importe : commande et import ne se comptent jamais deux fois.
               </p>
             </div>
             {besoins.length === 0 ? (
@@ -176,12 +204,20 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                       <th className="px-4 py-3 text-right font-semibold">Besoin</th>
                       <th className="px-4 py-3 text-right font-semibold">Stock</th>
                       <th className="px-4 py-3 text-right font-semibold">Manque</th>
+                      <th className="px-4 py-3 font-semibold">Commande (BC) en cours</th>
+                      <th className="px-4 py-3 font-semibold">Import en cours</th>
+                      <th className="px-4 py-3 text-right font-semibold">Reste a couvrir</th>
                       <th className="px-4 py-3 font-semibold">Utilise par</th>
                     </tr>
                   </thead>
                   <tbody>
                     {besoins.map((besoin) => (
-                      <tr key={besoin.articleMpId} className={`border-t border-slate-100 ${besoin.manque > 0 ? "bg-red-50" : ""}`}>
+                      <tr
+                        key={besoin.articleMpId}
+                        className={`border-t border-slate-100 align-top ${
+                          besoin.resteACouvrir > 0 ? "bg-red-50" : besoin.manque > 0 ? "bg-amber-50" : ""
+                        }`}
+                      >
                         <td className="px-4 py-3 font-medium text-slate-900">{besoin.nom}</td>
                         <td className="px-4 py-3 text-slate-600">{besoin.unite || "-"}</td>
                         <td className="px-4 py-3 text-right tabular-nums">{nombre(besoin.besoin)}</td>
@@ -192,6 +228,62 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                           }`}
                         >
                           {besoin.manque > 0 ? nombre(besoin.manque) : "OK"}
+                        </td>
+                        <td className="px-4 py-3">
+                          {besoin.commandes.length === 0 ? (
+                            <span className="text-slate-300">-</span>
+                          ) : (
+                            <>
+                              <p className="font-semibold tabular-nums text-slate-900">{nombre(besoin.commandeTotal)}</p>
+                              <ul className="mt-1 space-y-0.5 text-xs">
+                                {besoin.commandes.map((commande) => (
+                                  <li key={commande.code} className="text-slate-600">
+                                    <Link
+                                      href={`/stock/matiere-premiere/bc/${commande.code}`}
+                                      className="font-semibold text-sky-700 underline"
+                                    >
+                                      {commande.code}
+                                    </Link>{" "}
+                                    - {nombre(commande.quantite)}
+                                  </li>
+                                ))}
+                              </ul>
+                            </>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {besoin.imports.length === 0 ? (
+                            <span className="text-slate-300">-</span>
+                          ) : (
+                            <>
+                              <p className="font-semibold tabular-nums text-slate-900">{nombre(besoin.importTotal)}</p>
+                              <ul className="mt-1 space-y-0.5 text-xs">
+                                {besoin.imports.map((transit) => (
+                                  <li
+                                    key={`${transit.nDoss4d ?? ""}|${transit.nDossErp ?? ""}`}
+                                    className="text-slate-600"
+                                  >
+                                    <Link
+                                      href={`/stock/matiere-premiere/commande/${encodeDossierId(transit.nDoss4d, transit.nDossErp)}`}
+                                      className="font-semibold text-sky-700 underline"
+                                    >
+                                      {transit.nDoss4d || transit.nDossErp || "Sans dossier"}
+                                    </Link>{" "}
+                                    - {nombre(transit.quantite)}
+                                    {transit.statutDossier ? ` - ${transit.statutDossier}` : ""}
+                                    {transit.datePrevueReception ? ` - prevu le ${formatDate(transit.datePrevueReception)}` : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                            </>
+                          )}
+                        </td>
+                        <td
+                          className={`px-4 py-3 text-right font-semibold tabular-nums ${
+                            besoin.resteACouvrir > 0 ? "text-red-700" : besoin.manque > 0 ? "text-amber-700" : "text-emerald-700"
+                          }`}
+                        >
+                          {besoin.resteACouvrir > 0 ? nombre(besoin.resteACouvrir) : besoin.manque > 0 ? "Couvert" : "OK"}
                         </td>
                         <td className="px-4 py-3 text-slate-500">
                           {besoin.utilisePar.slice(0, 3).join(", ")}
