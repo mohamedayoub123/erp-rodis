@@ -703,6 +703,15 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/production/recette-conditionnement"],
     adminGroup: "Recette Conditionnement",
   },
+  // Besoin en articles de conditionnement d'une ou plusieurs proformas (lecture seule). Module NOUVEAU : absent de
+  // PAGES_EXISTANTES (lib/pages-existantes.ts), donc ferme par defaut sauf pour les admins (mayoub, ayoub).
+  {
+    key: "productionBesoinConditionnement",
+    module: "Production",
+    label: "Besoin Conditionnement par proforma",
+    pathPrefixes: ["/production/besoin-conditionnement"],
+    adminGroup: "Besoin Conditionnement",
+  },
   {
     key: "machines",
     module: "Production",

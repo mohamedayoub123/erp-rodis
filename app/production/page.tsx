@@ -117,6 +117,13 @@ const TILES = [
     description: "Enregistre les articles vrac avec le code du vrac a recuperer : ils entrent dans le Depot B et deviennent utilisables en Fabrication.",
   },
   {
+    label: "Besoin Conditionnement",
+    href: "/production/besoin-conditionnement",
+    pageKey: "productionBesoinConditionnement",
+    icon: "📦",
+    description: "Tape un ou plusieurs numeros de proforma : les articles de conditionnement necessaires (Recette Conditionnement), le stock, et les articles sans recette.",
+  },
+  {
     label: "Noms Conditionnement",
     href: "/production/noms-conditionnement",
     pageKey: "productionNomsConditionnement",
