@@ -888,7 +888,7 @@ export async function saveConditionnementRapportAction(formData: FormData) {
 
 // ENTREE PAR LIGNE du Conditionnement : la ligne saisit elle-meme 10 releves de poids, 10 releves de
 // cadence (toutes les 15 min - la moyenne est enregistree dans poids_reel / cadence, comme l'Entree
-// simple) et coche chaque casier sorti (jusqu'a 50) avec le nb de pieces par casier : le nb de cartons
+// simple) et coche chaque casier sorti (jusqu'a 250) avec le nb de pieces par casier : le nb de cartons
 // est CALCULE ici (casiers x pieces / pieces par carton), jamais lu dans le navigateur. Chaque Enregistrer
 // cree une NOUVELLE fournee (formulaire toujours vide au depart) - pas de "doublon ignore" comme l'Entree
 // simple : deux fournees de meme quantite sont normales ici. Meme deduction proportionnelle de la

@@ -22,7 +22,7 @@ function formater(valeur: number) {
   return valeur.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-// Partie "Production" de l'Entree par ligne : casiers coches (1 a 200) + pieces par casier -> cartons
+// Partie "Production" de l'Entree par ligne : casiers coches (1 a 250) + pieces par casier -> cartons
 // calcules en direct ; 10 releves de cadence (toutes les 15 min) et 10 releves de poids -> moyennes.
 // Ce que l'on voit ici n'est qu'un apercu : l'action serveur recalcule tout a l'enregistrement.
 export function ParLigneProduction({
