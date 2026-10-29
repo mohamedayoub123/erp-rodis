@@ -1,6 +1,6 @@
 import { CONDITIONNEMENTS, uniteContenance } from "@/lib/contenance-mp";
 
-// Contenance (nombre) et, a cote, le type dans une liste fixe : Sac, Fut, Barrique, Carton. Le nombre est en kg, ou en
+// Contenance (nombre) et, a cote, le type dans une liste fixe : Sac, Fut, Barrique, Carton, Bidon. Le nombre est en kg, ou en
 // PIECES pour un article compte a la piece (cartons, articles de conditionnement : unite pcs). Meme composant pour
 // l'article et pour la reception d'un import. Les champs envoyes sont "contenance" et "conditionnement".
 export function ChampsContenance({
@@ -39,7 +39,7 @@ export function ChampsContenance({
         <select
           name="conditionnement"
           defaultValue={conditionnement ?? ""}
-          aria-label="Type : sac, fût, barrique ou carton"
+          aria-label="Type : sac, fût, barrique, carton ou bidon"
           required={requis}
           className={classeChamp}
         >

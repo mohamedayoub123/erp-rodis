@@ -58,7 +58,7 @@ async function lireContenanceArticle(formData: FormData): Promise<Record<string,
   if (avecType) {
     const conditionnement = lireConditionnement(formData.get("conditionnement"));
     if ((contenance !== null) !== (conditionnement !== null)) {
-      throw new Error("Renseigne la contenance (kg ou pieces) ET le type (Sac, Fut, Barrique, Carton), ou laisse les deux vides.");
+      throw new Error("Renseigne la contenance (kg ou pieces) ET le type (Sac, Fut, Barrique, Carton, Bidon), ou laisse les deux vides.");
     }
     champs.conditionnement = conditionnement;
   }

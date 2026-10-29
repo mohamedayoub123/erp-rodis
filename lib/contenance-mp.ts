@@ -3,7 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 
 // Contenance d'une matiere premiere : "Sac de 25 kg", "Fut de 200 kg", "Barrique de 220 kg", "Carton de 25 kg". La
 // contenance est en kg, sauf pour les articles comptes a la piece (cartons, flacons, sleeves, etiquettes... : unite "pcs")
-// ou elle est en PIECES ("Carton de 1 000 pieces", voir uniteContenance) ; le type (Sac, Fut, Barrique, Carton) se choisit
+// ou elle est en PIECES ("Carton de 1 000 pieces", voir uniteContenance) ; le type (Sac, Fut, Barrique, Carton, Bidon) se choisit
 // dans une liste fixe. Elle existe a 3 endroits :
 //  - sur l'article (Articles Matiere Premiere) : la contenance habituelle, proposee a la reception ;
 //  - sur chaque lot recu (lots_stock_matiere_premiere) : la contenance REELLE de ce lot, car un meme article peut
@@ -30,6 +30,7 @@ export const CONDITIONNEMENTS = [
   { code: "FUT", libelle: "Fût" },
   { code: "BARRIQUE", libelle: "Barrique" },
   { code: "CARTON", libelle: "Carton" },
+  { code: "BIDON", libelle: "Bidon" },
 ] as const;
 
 export type CodeConditionnement = (typeof CONDITIONNEMENTS)[number]["code"];
@@ -53,7 +54,7 @@ export function lireConditionnement(valeur: FormDataEntryValue | null): CodeCond
   const texte = String(valeur ?? "").trim().toUpperCase();
   if (!texte) return null;
   const trouve = CONDITIONNEMENTS.find((c) => c.code === texte);
-  if (!trouve) throw new Error("Type de contenance invalide : choisis Sac, Fût, Barrique ou Carton.");
+  if (!trouve) throw new Error("Type de contenance invalide : choisis Sac, Fût, Barrique, Carton ou Bidon.");
   return trouve.code;
 }
 

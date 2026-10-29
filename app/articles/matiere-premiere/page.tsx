@@ -193,7 +193,7 @@ export default async function ArticlesMatierePremierePage({
 
         {(!avecContenance || !avecType) && canEditArticles ? (
           <p className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
-            Pour saisir la contenance des articles (Sac, Fût, Barrique, en kg), exécutez d&apos;abord le SQL{" "}
+            Pour saisir la contenance des articles (Sac, Fût, Barrique, Carton, Bidon, en kg), exécutez d&apos;abord le SQL{" "}
             <code className="rounded bg-white px-1.5 py-0.5 text-xs">{avecContenance ? SQL_CONDITIONNEMENT : SQL_CONTENANCE}</code>{" "}
             dans Supabase (SQL Editor).
           </p>

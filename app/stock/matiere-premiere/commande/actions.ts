@@ -262,7 +262,7 @@ export async function createReceptionMpAction(formData: FormData) {
     throw new Error("La contenance du lot est obligatoire pour receptionner (ex : 25 kg pour un sac de 25 kg, ou 1000 pieces pour un carton de 1000 pieces).");
   }
   if (avecType && conditionnement === null) {
-    throw new Error("Le type de contenance du lot est obligatoire pour receptionner : choisis Sac, Fut, Barrique ou Carton.");
+    throw new Error("Le type de contenance du lot est obligatoire pour receptionner : choisis Sac, Fut, Barrique, Carton ou Bidon.");
   }
   const champContenance = {
     ...(avecContenance ? { contenance } : {}),
