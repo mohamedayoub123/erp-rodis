@@ -191,7 +191,8 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                 produire = cartons commandes moins ce qui est deja en stock PF : comme le RESTE du Tableau de commande, le
                 stock est partage entre toutes les commandes (la plus ancienne d&apos;abord), pas retire en entier de ces
                 proformas. Dans chaque couleur, les articles de conditionnement cosmetique sont avant les plastiques. Stock
-                = stock MP actuel, tous depots. Commande (BC) = ce qu&apos;il reste a recevoir sur les bons de commande en cours ;
+                = stock du Depot E seulement (le seul utilisable pour conditionner : le stock des autres depots, Depot B,
+                Depot F..., ne compte pas). Commande (BC) = ce qu&apos;il reste a recevoir sur les bons de commande en cours ;
                 Import = ce qui est en route et pas encore receptionne. Le reste a recevoir d&apos;un BC deduit deja ce qui
                 est importe : commande et import ne se comptent jamais deux fois.
               </p>

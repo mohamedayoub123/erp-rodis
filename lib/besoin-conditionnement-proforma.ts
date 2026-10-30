@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { lireSoldesLotsMp } from "@/lib/lot-balances-mp";
+import { lireStockMpDepotE } from "@/lib/lot-balances-mp";
 import {
   buildCommandeKey,
   fetchArticleStocksFromStockPage,
@@ -11,7 +11,7 @@ import { computeStatutBc } from "@/app/stock/matiere-premiere/bc/constants";
 // Besoin en articles de conditionnement d'une ou plusieurs proformas (Commandes PF), calcule avec la Recette Conditionnement
 // de chaque article commande : la recette (table recettes_pf) donne, pour un lot de "quantite_recette_base" cartons, la quantite
 // de chaque article de conditionnement (matiere premiere) ; on la ramene au nombre de cartons commandes puis on la compare au
-// stock MP actuel. Les articles commandes qui n'ont pas de recette sont listes a part.
+// stock MP du Depot E (le seul depot utilisable pour conditionner). Les articles commandes qui n'ont pas de recette sont listes a part.
 //
 // Cartons deja en stock : on ne compte en conditionnement que les cartons a PRODUIRE. Comme le "RESTE" du Tableau de commande
 // (stock - total commande), le stock PF est partage entre TOUTES les commandes non livrees : il est attribue aux commandes dans
@@ -554,10 +554,10 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
   const vracIds = [...new Set(articlesRows.map((article) => article.vrac_article_id).filter((id): id is number => !!id))];
   // Un souci de lecture des commandes / imports ne doit pas bloquer le calcul du besoin : on le signale seulement
   let arrivagesIndisponibles = false;
-  const [mpRows, vracRows, soldes, arrivages] = await Promise.all([
+  const [mpRows, vracRows, soldesDepotE, arrivages] = await Promise.all([
     mpIds.length > 0 ? lireParIds<MpRow>("articles_matiere_premiere", "id, nom_article, unite, categorie", "id", mpIds) : Promise.resolve([]),
     vracIds.length > 0 ? lireParIds<{ id: number; nom_article: string | null }>("articles", "id, nom_article", "id", vracIds) : Promise.resolve([]),
-    lireSoldesLotsMp(),
+    lireStockMpDepotE(),
     lireArrivagesMp(mpIds).catch((): Arrivages => {
       arrivagesIndisponibles = true;
       return { commandesParMp: new Map(), importsParMp: new Map() };
@@ -565,8 +565,10 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
   ]);
   const mpParId = new Map(mpRows.map((mp) => [mp.id, mp]));
   const vracParId = new Map(vracRows.map((vrac) => [vrac.id, vrac.nom_article ?? `Article ${vrac.id}`]));
-  const stockParMp = new Map<number, number>();
-  for (const solde of soldes) stockParMp.set(solde.article_id, (stockParMp.get(solde.article_id) ?? 0) + Number(solde.stock ?? 0));
+  // Stock = celui du Depot E seulement (le seul utilisable pour conditionner, voir lireStockMpDepotE) : stock total du depot,
+  // y compris les quantites entrees sans numero de lot (les soldes par lot les ignoraient : "Capsule Kinder Orange" affichait
+  // 675 alors que le Depot E en a 58 683)
+  const stockParMp = new Map(soldesDepotE.map((solde) => [solde.article_id, solde.stock]));
 
   const articles: ArticleCommande[] = [];
   const besoinParMp = new Map<number, { besoin: number; utilisePar: Set<string> }>();

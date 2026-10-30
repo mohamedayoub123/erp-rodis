@@ -1138,6 +1138,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockAlerteMp",
   "stockActuelMp",
   "stockRapportMp",
+  "stockNegatifMp",
   "stockRotationMp",
   "stockMinProposeMp",
   "stockMouvementsMp",

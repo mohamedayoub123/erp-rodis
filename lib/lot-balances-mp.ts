@@ -56,3 +56,44 @@ export function invaliderSoldesLotsMp() {
 export async function lireSoldesLotsMp(): Promise<LotBalanceRow[]> {
   return lecteurSoldes();
 }
+
+// Stock matiere premiere du seul "Depot E", par article (fonction SQL stock_by_article_depot_mp : le depot d'un mouvement est
+// son depot_id, sinon le depot par defaut de l'article - meme regle que la page du depot). C'est le seul stock utilisable pour
+// conditionner : les articles plastique / cosmetique sont fabriques ou receptionnes ailleurs (Depot F, Depot B...) puis
+// transferes au Depot E. Meme lecture validee par l'empreinte que les soldes ci-dessus : un transfert enregistre est visible
+// tout de suite. Une erreur de lecture est levee (jamais un stock a 0 qui ferait croire a un manque).
+export type StockMpDepotRow = { article_id: number; stock: number };
+
+async function lireStockDepotEDepuisLaBase(): Promise<StockMpDepotRow[]> {
+  const { data: depot, error: erreurDepot } = await supabaseServer.from("depots").select("id").eq("nom", "Depot E").maybeSingle();
+  if (erreurDepot) throw new Error(erreurDepot.message);
+  const depotEId = (depot as { id: number } | null)?.id;
+  if (!depotEId) throw new Error('Depot "Depot E" introuvable');
+
+  const lignes: StockMpDepotRow[] = [];
+  const taillePage = 1000;
+  for (let debut = 0; ; debut += taillePage) {
+    // un seul article par ligne une fois filtre sur le depot : le tri par article rend la pagination stable
+    const { data, error } = await supabaseServer
+      .rpc("stock_by_article_depot_mp")
+      .eq("depot_id", depotEId)
+      .order("article_id", { ascending: true })
+      .range(debut, debut + taillePage - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as { article_id: number; stock: number | string | null }[];
+    for (const ligne of page) lignes.push({ article_id: Number(ligne.article_id), stock: Number(ligne.stock ?? 0) });
+    if (page.length < taillePage) break;
+  }
+  return lignes;
+}
+
+const lecteurStockDepotE = creerLecteurValide<StockMpDepotRow>({
+  lireEmpreinte: empreinteMouvementsMp,
+  lireTout: lireStockDepotEDepuisLaBase,
+  // Seul un changement de depot par defaut d'un article (modification sur place, sans mouvement) peut attendre jusque-la.
+  dureeMaxMs: 120_000,
+});
+
+export async function lireStockMpDepotE(): Promise<StockMpDepotRow[]> {
+  return lecteurStockDepotE();
+}
