@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { fetchRestantConditionnementEmballageByArticle } from "../production/suivi/data";
+import { fetchNomsArticlesParId, fetchRestantConditionnementEmballageByArticle } from "../production/suivi/data";
 import {
   FAMILY_ORDER,
   FAMILY_SUBGAMMES,
@@ -235,11 +235,18 @@ export async function fetchQtEnCoursConditionnementByArticle() {
   if (ligneIds.length > 0) {
     const { data: lignesData } = await supabaseServer
       .from("programme_lignes")
-      .select("id, produit")
+      .select("id, produit, article_id")
       .in("id", ligneIds);
 
-    const lignes = (lignesData as { id: number; produit: string | null }[] | null) ?? [];
-    const produitByLigneId = new Map(lignes.map((ligne) => [ligne.id, ligne.produit || ""]));
+    const lignes = (lignesData as { id: number; produit: string | null; article_id: number | null }[] | null) ?? [];
+    // Nom de l'article (par id) plutot que le nom ecrit dans le programme, qui peut differer d'une lettre
+    const nomArticleParId = await fetchNomsArticlesParId(lignes.map((ligne) => ligne.article_id));
+    const produitByLigneId = new Map(
+      lignes.map((ligne) => [
+        ligne.id,
+        (ligne.article_id ? nomArticleParId.get(ligne.article_id) : null) ?? (ligne.produit || ""),
+      ])
+    );
 
     for (const row of pendingRows) {
       const articleKey = normalizeArticle(produitByLigneId.get(Number(row.programme_ligne_id ?? 0)) || "");

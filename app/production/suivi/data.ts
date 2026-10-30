@@ -505,6 +505,27 @@ export async function fetchArticleGammeInfoByIds(
   return result;
 }
 
+// Nom actuel de chaque article (articles.nom_article), par id. Une ligne de programme garde le nom ecrit le jour de sa creation
+// ("Creme Dr Johnson 50grs", "EDT ... BLOSSIM 60ML") alors que le Tableau de commande range tout sous le nom de l'article
+// ("CREME DR JOHNSON 50GR", "... BLOSSOM ...") : rattacher par l'id evite qu'un programme en cours ne soit pas retrouve a cause
+// d'une petite difference d'ecriture.
+export async function fetchNomsArticlesParId(articleIds: (number | null)[]): Promise<Map<number, string>> {
+  const result = new Map<number, string>();
+  const uniqueIds = [...new Set(articleIds.filter((id): id is number => typeof id === "number" && id > 0))];
+  const chunkSize = 500;
+  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+    const { data, error } = await supabaseServer
+      .from("articles")
+      .select("id, nom_article")
+      .in("id", uniqueIds.slice(i, i + chunkSize));
+    if (error) continue;
+    for (const row of (data ?? []) as { id: number; nom_article: string | null }[]) {
+      if (row.nom_article) result.set(row.id, row.nom_article);
+    }
+  }
+  return result;
+}
+
 function normalizeArticleNameForRestant(value: string | null) {
   return (value || "").replace(/ /g, "").trim().toUpperCase();
 }
@@ -520,10 +541,11 @@ export async function fetchRestantConditionnementEmballageByArticle(): Promise<M
   const { rows: allLignes } = await fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true });
   const activeLigneIds = allLignes.map((ligne) => ligne.id);
 
-  const [cartonEntries, emballageEntries, codeTermineRows] = await Promise.all([
+  const [cartonEntries, emballageEntries, codeTermineRows, nomArticleParId] = await Promise.all([
     fetchAllCartonEntries(activeLigneIds),
     fetchAllEmballageEntries(activeLigneIds),
     fetchAllCodeTermineRows(activeLigneIds),
+    fetchNomsArticlesParId(allLignes.map((ligne) => ligne.article_id)),
   ]);
 
   const terminatedCodes = new Set(
@@ -552,7 +574,9 @@ export async function fetchRestantConditionnementEmballageByArticle(): Promise<M
   for (const ligne of allLignes) {
     if (ligne.programme_termine) continue;
 
-    const articleKey = normalizeArticleNameForRestant(ligne.produit);
+    const articleKey = normalizeArticleNameForRestant(
+      (ligne.article_id ? nomArticleParId.get(ligne.article_id) : null) ?? ligne.produit
+    );
     if (!articleKey) continue;
 
     const rawCodes = (ligne.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
