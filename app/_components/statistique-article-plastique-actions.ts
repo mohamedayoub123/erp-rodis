@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchPlastiqueRows } from "@/app/_components/statistique-article-plastique";
+import { lireTypeMachine } from "@/lib/type-machine-plastique";
 
 // Utilisee depuis Rapport MP (stockPlastiqueMp) ET Production Plastique
 // (productionPlastiqueStatistique) - le composant est partage entre les 2, le droit
@@ -59,6 +60,24 @@ export async function updateMachinePlastiqueAction(formData: FormData) {
   const { error } = await supabaseServer
     .from("articles_matiere_premiere")
     .update({ machine_plastique: machine })
+    .eq("id", articleId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/stock/matiere-premiere/rapport/plastique");
+  revalidatePath("/production-plastique/statistique");
+}
+
+// Type de machine (Injection, Soufflage ou PET), choisi dans la liste (vide = non renseigne).
+export async function updateTypeMachinePlastiqueAction(formData: FormData) {
+  await requireStatistiqueArticlePlastiqueWriteAccess();
+
+  const articleId = lireArticleId(formData);
+  const typeMachine = lireTypeMachine(formData.get("type_machine"));
+
+  const { error } = await supabaseServer
+    .from("articles_matiere_premiere")
+    .update({ type_machine_plastique: typeMachine })
     .eq("id", articleId);
 
   if (error) throw new Error(error.message);

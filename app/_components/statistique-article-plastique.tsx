@@ -11,9 +11,11 @@ import { CATEGORIE_PLASTIQUE } from "@/app/production-plastique/shared";
 import {
   updateAvisFabricationAction,
   updateMachinePlastiqueAction,
+  updateTypeMachinePlastiqueAction,
   updateNbCavitesAction,
   saveCommandeArticlePlastiqueAction,
 } from "@/app/_components/statistique-article-plastique-actions";
+import { SQL_TYPE_MACHINE_PLASTIQUE, TYPES_MACHINE_PLASTIQUE, libelleTypeMachine } from "@/lib/type-machine-plastique";
 
 // Module partage - meme rendu utilise depuis Rapport MP
 // (stock/matiere-premiere/rapport/plastique) et Production Plastique
@@ -40,6 +42,8 @@ type ArticleDetailRow = {
   // Colonnes ajoutees par scripts/sql/add_machine_cavites_articles_matiere_premiere.sql
   machine_plastique?: string | null;
   nb_cavites?: number | null;
+  // Colonne ajoutee par scripts/sql/add_type_machine_plastique.sql
+  type_machine_plastique?: string | null;
 };
 
 export type PlastiqueRow = {
@@ -58,6 +62,8 @@ export type PlastiqueRow = {
   // Saisis a la main : machine sur laquelle l'article travaille (vide = aucune) et cavites du moule
   machine: string | null;
   nb_cavites: number | null;
+  // Procede de fabrication choisi a la main : INJECTION, SOUFFLAGE ou PET (null = non renseigne)
+  type_machine: string | null;
   // Quantite de cet article dans la derniere commande enregistree (Save) ; null = pas dans cette commande
   a_fabriquer: string | null;
 };
@@ -172,19 +178,38 @@ async function fetchAllStockActuelMpRows(): Promise<{ rows: StockActuelMpRpcRow[
 
 const COLONNES_DETAIL = "id, sous_famille, min_stock, max_stock, gamme, avis_fabrication";
 
-// Lit les details des articles plastique avec Machine/Cavites ; tant que le script SQL
-// n'a pas ete lance (colonnes absentes), relit sans eux pour que la page reste utilisable.
+// Lit les details des articles plastique avec Machine/Cavites et Type de machine ; tant qu'un script SQL
+// n'a pas ete lance (colonnes absentes), relit sans ces colonnes pour que la page reste utilisable.
 async function lireDetailsPlastique(): Promise<{
   data: ArticleDetailRow[] | null;
   error: string | null;
   machineCavitesPret: boolean;
+  typeMachinePret: boolean;
 }> {
+  const avecTypeMachine = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select(`${COLONNES_DETAIL}, machine_plastique, nb_cavites, type_machine_plastique`)
+    .eq("categorie", CATEGORIE_PLASTIQUE);
+  if (!avecTypeMachine.error) {
+    return {
+      data: avecTypeMachine.data as unknown as ArticleDetailRow[],
+      error: null,
+      machineCavitesPret: true,
+      typeMachinePret: true,
+    };
+  }
+
   const complet = await supabaseServer
     .from("articles_matiere_premiere")
     .select(`${COLONNES_DETAIL}, machine_plastique, nb_cavites`)
     .eq("categorie", CATEGORIE_PLASTIQUE);
   if (!complet.error) {
-    return { data: complet.data as unknown as ArticleDetailRow[], error: null, machineCavitesPret: true };
+    return {
+      data: complet.data as unknown as ArticleDetailRow[],
+      error: null,
+      machineCavitesPret: true,
+      typeMachinePret: false,
+    };
   }
 
   const simple = await supabaseServer
@@ -195,6 +220,7 @@ async function lireDetailsPlastique(): Promise<{
     data: simple.error ? null : (simple.data as unknown as ArticleDetailRow[]),
     error: simple.error?.message ?? null,
     machineCavitesPret: false,
+    typeMachinePret: false,
   };
 }
 
@@ -235,6 +261,7 @@ export async function fetchPlastiqueRows(): Promise<{
   rows: PlastiqueRow[];
   error: string | null;
   machineCavitesPret: boolean;
+  typeMachinePret: boolean;
   derniereCommandeCode: string | null;
 }> {
   const [stockResult, detailResult, derniereCommande] = await Promise.all([
@@ -244,13 +271,14 @@ export async function fetchPlastiqueRows(): Promise<{
   ]);
 
   if (stockResult.error) {
-    return { rows: [], error: stockResult.error, machineCavitesPret: false, derniereCommandeCode: null };
+    return { rows: [], error: stockResult.error, machineCavitesPret: false, typeMachinePret: false, derniereCommandeCode: null };
   }
   if (detailResult.error || !detailResult.data) {
     return {
       rows: [],
       error: detailResult.error ?? "Lecture des articles impossible.",
       machineCavitesPret: false,
+      typeMachinePret: false,
       derniereCommandeCode: null,
     };
   }
@@ -278,6 +306,7 @@ export async function fetchPlastiqueRows(): Promise<{
         avis_fabrication: detail?.avis_fabrication ?? null,
         machine: detail?.machine_plastique ?? null,
         nb_cavites: detail?.nb_cavites ?? null,
+        type_machine: detail?.type_machine_plastique ?? null,
         a_fabriquer: derniereCommande.parArticle.get(row.article_id) ?? null,
       };
     })
@@ -294,6 +323,7 @@ export async function fetchPlastiqueRows(): Promise<{
     rows,
     error: null,
     machineCavitesPret: detailResult.machineCavitesPret,
+    typeMachinePret: detailResult.typeMachinePret,
     derniereCommandeCode: derniereCommande.code,
   };
 }
@@ -335,6 +365,7 @@ export async function StatistiqueArticlePlastique({
   type?: string;
   gamme?: string;
   machine?: string;
+  typemachine?: string;
   afabriquer?: string;
   demarrage?: string;
 }>;
@@ -347,14 +378,26 @@ export async function StatistiqueArticlePlastique({
   const gammeFilter = (params.gamme || "").trim();
   // Filtres a 3 choix (tous / avec / sans) : toute autre valeur de l'adresse est ignoree
   const machineFilter = params.machine === "avec" || params.machine === "sans" ? params.machine : "";
+  // Type de machine : un des 3 types, ou "sans" (pas encore renseigne - pratique pour remplir les articles restants)
+  const typeMachineFilter =
+    params.typemachine === "sans" || TYPES_MACHINE_PLASTIQUE.some((type) => type.code === params.typemachine)
+      ? (params.typemachine ?? "")
+      : "";
   const aFabriquerFilter = params.afabriquer === "avec" || params.afabriquer === "sans" ? params.afabriquer : "";
   const demarrageFilter =
     params.demarrage === "demarrer" || params.demarrage === "ne_pas_demarrer" ? params.demarrage : "";
   const hasFilters = Boolean(
-    q || categorieFilter || typeFilter || gammeFilter || machineFilter || aFabriquerFilter || demarrageFilter
+    q ||
+      categorieFilter ||
+      typeFilter ||
+      gammeFilter ||
+      machineFilter ||
+      typeMachineFilter ||
+      aFabriquerFilter ||
+      demarrageFilter
   );
 
-  const { rows: allRows, error, machineCavitesPret, derniereCommandeCode } = await fetchPlastiqueRows();
+  const { rows: allRows, error, machineCavitesPret, typeMachinePret, derniereCommandeCode } = await fetchPlastiqueRows();
 
   const rows = allRows
     .filter((row) => !q || matchesArticleSearch(row.nom_article, q))
@@ -367,6 +410,11 @@ export async function StatistiqueArticlePlastique({
     .filter((row) => !gammeFilter || (row.gamme || "").toLowerCase() === gammeFilter.toLowerCase())
     // Machine : "avec" = un nom de machine est renseigne
     .filter((row) => !machineFilter || Boolean(row.machine?.trim()) === (machineFilter === "avec"))
+    // Type de machine : un des 3 types, ou "sans" = pas encore choisi
+    .filter(
+      (row) =>
+        !typeMachineFilter || (typeMachineFilter === "sans" ? !row.type_machine : row.type_machine === typeMachineFilter)
+    )
     // A fabriquer : "avec" = l'article est dans la derniere commande
     .filter((row) => !aFabriquerFilter || Boolean(row.a_fabriquer) === (aFabriquerFilter === "avec"))
     // Production : "Demarrer" ou "Ne pas demarrer" (les articles sans stock max n'ont ni l'un ni l'autre)
@@ -401,6 +449,7 @@ export async function StatistiqueArticlePlastique({
     { label: "Demarrer la production ?", key: "arret" },
     { label: "A fabriquer", key: "aFabriquer" },
     { label: "Avis de fabrication", key: "avis" },
+    { label: "Type de machine", key: "typeMachine" },
     { label: "Machine en cours", key: "machine" },
     { label: "Cavites", key: "cavites" },
   ];
@@ -421,6 +470,7 @@ export async function StatistiqueArticlePlastique({
     })(),
     aFabriquer: formaterAFabriquer(row.a_fabriquer),
     avis: row.avis_fabrication || "-",
+    typeMachine: libelleTypeMachine(row.type_machine),
     machine: row.machine || "-",
     cavites: row.nb_cavites ?? "-",
   }));
@@ -447,6 +497,20 @@ export async function StatistiqueArticlePlastique({
             <option value="">Machine : tous les articles</option>
             <option value="avec">Avec machine</option>
             <option value="sans">Sans machine</option>
+          </select>
+          <select
+            name="typemachine"
+            defaultValue={typeMachineFilter}
+            aria-label="Filtre type de machine"
+            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+          >
+            <option value="">Type de machine : tous</option>
+            {TYPES_MACHINE_PLASTIQUE.map((type) => (
+              <option key={type.code} value={type.code}>
+                {type.libelle}
+              </option>
+            ))}
+            <option value="sans">Type de machine non renseigne</option>
           </select>
           <select
             name="afabriquer"
@@ -501,6 +565,12 @@ export async function StatistiqueArticlePlastique({
           add_machine_cavites_articles_matiere_premiere.sql dans Supabase (SQL Editor).
         </p>
       ) : null}
+      {!error && machineCavitesPret && !typeMachinePret ? (
+        <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          Type de machine n&apos;est pas encore actif : lance d&apos;abord le script SQL{" "}
+          {SQL_TYPE_MACHINE_PLASTIQUE.replace("scripts/sql/", "")} dans Supabase (SQL Editor).
+        </p>
+      ) : null}
 
       <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
         {error ? (
@@ -532,6 +602,7 @@ export async function StatistiqueArticlePlastique({
                     ) : null}
                   </th>
                   <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
+                  <th className="px-6 py-4 font-semibold">Type de machine</th>
                   <th className="px-6 py-4 font-semibold">Machine en cours</th>
                   <th className="px-6 py-4 font-semibold">Cavites</th>
                 </tr>
@@ -615,6 +686,39 @@ export async function StatistiqueArticlePlastique({
                           </form>
                         ) : (
                           <span className="text-slate-600">{row.avis_fabrication || "-"}</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {canEdit && typeMachinePret ? (
+                          // key : la liste se remet a jour apres OK
+                          <form
+                            key={`type-machine-${row.type_machine ?? ""}`}
+                            action={updateTypeMachinePlastiqueAction}
+                            className="flex items-center gap-2"
+                          >
+                            <input type="hidden" name="article_id" value={row.article_id} />
+                            <select
+                              name="type_machine"
+                              defaultValue={row.type_machine ?? ""}
+                              aria-label="Type de machine : injection, soufflage ou PET"
+                              className="w-32 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none"
+                            >
+                              <option value="">Type...</option>
+                              {TYPES_MACHINE_PLASTIQUE.map((type) => (
+                                <option key={type.code} value={type.code}>
+                                  {type.libelle}
+                                </option>
+                              ))}
+                            </select>
+                            <SubmitButton
+                              pendingLabel="..."
+                              className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                            >
+                              OK
+                            </SubmitButton>
+                          </form>
+                        ) : (
+                          <span className="text-slate-600">{libelleTypeMachine(row.type_machine)}</span>
                         )}
                       </td>
                       <td className="px-6 py-4">

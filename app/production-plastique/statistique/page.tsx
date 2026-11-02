@@ -9,6 +9,7 @@ type SearchParams = Promise<{
   type?: string;
   gamme?: string;
   machine?: string;
+  typemachine?: string;
   afabriquer?: string;
   demarrage?: string;
 }>;
