@@ -717,6 +717,15 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/production/besoin-conditionnement"],
     adminGroup: "Besoin Conditionnement",
   },
+  // Besoin en matieres premieres (Recette Fabrication) d'une ou plusieurs proformas (lecture seule). Module NOUVEAU, ferme par
+  // defaut sauf pour les admins, comme Besoin Conditionnement.
+  {
+    key: "productionBesoinFabrication",
+    module: "Production",
+    label: "Besoin Fabrication par proforma",
+    pathPrefixes: ["/production/besoin-fabrication"],
+    adminGroup: "Besoin Fabrication",
+  },
   {
     key: "machines",
     module: "Production",

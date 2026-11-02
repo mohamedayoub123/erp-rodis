@@ -124,6 +124,13 @@ const TILES = [
     description: "Tape un ou plusieurs numeros de proforma : les articles de conditionnement necessaires (Recette Conditionnement), le stock, et les articles sans recette.",
   },
   {
+    label: "Besoin Fabrication",
+    href: "/production/besoin-fabrication",
+    pageKey: "productionBesoinFabrication",
+    icon: "🧪",
+    description: "Tape un ou plusieurs numeros de proforma : le vrac a fabriquer et les matieres premieres necessaires (Recette Fabrication), le stock, les commandes et imports en cours.",
+  },
+  {
     label: "Noms Conditionnement",
     href: "/production/noms-conditionnement",
     pageKey: "productionNomsConditionnement",

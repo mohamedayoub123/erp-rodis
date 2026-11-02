@@ -62,6 +62,8 @@ export type ArticleCommande = {
   // vrac necessaire (kg) pour les cartons a produire, quand l'article a un vrac et que la recette permet de le calculer
   vracKg: number | null;
   vracNom: string | null;
+  // article vrac (articles.id) de cet article fini : sert au Besoin Fabrication, qui applique la Recette Fabrication du vrac
+  vracArticleId: number | null;
 };
 
 // Commande (BC) en cours : ce qu'il reste a recevoir sur une ligne de bon de commande
@@ -149,7 +151,7 @@ type DossierStatutRow = {
   date_prevue_reception: string | null;
 };
 
-type Arrivages = {
+export type Arrivages = {
   commandesParMp: Map<number, CommandeEnCours[]>;
   importsParMp: Map<number, ImportEnCours[]>;
 };
@@ -309,7 +311,7 @@ async function lireLignes(commandeIds: number[]): Promise<LigneRow[]> {
   return lignes;
 }
 
-async function lireParIds<T>(table: string, colonnes: string, colonneId: string, ids: (number | string)[]): Promise<T[]> {
+export async function lireParIds<T>(table: string, colonnes: string, colonneId: string, ids: (number | string)[]): Promise<T[]> {
   const lignes: T[] = [];
   for (const morceau of decouper(ids, 150)) {
     for (let debut = 0; ; debut += 1000) {
@@ -329,7 +331,7 @@ async function lireParIds<T>(table: string, colonnes: string, colonneId: string,
 }
 
 // Commandes (BC) et imports en cours des articles de conditionnement demandes (mpIds = articles_matiere_premiere.id)
-async function lireArrivagesMp(mpIds: number[]): Promise<Arrivages> {
+export async function lireArrivagesMp(mpIds: number[]): Promise<Arrivages> {
   const commandesParMp = new Map<number, CommandeEnCours[]>();
   const importsParMp = new Map<number, ImportEnCours[]>();
   if (mpIds.length === 0) return { commandesParMp, importsParMp };
@@ -455,7 +457,12 @@ async function lireTousLesStatutsDossier(): Promise<DossierStatutRow[]> {
   return lignes;
 }
 
-export async function calculerBesoinProformas(saisies: string[]): Promise<ResultatBesoin> {
+// sansBesoinsMp : ne calcule que les cartons a produire et le vrac (Besoin Fabrication) - ni le stock, ni les commandes / imports
+// des articles de conditionnement ne sont lus, "besoins" reste alors sans valeur.
+export async function calculerBesoinProformas(
+  saisies: string[],
+  options?: { sansBesoinsMp?: boolean }
+): Promise<ResultatBesoin> {
   const proformas: ProformaSaisie[] = await Promise.all(
     saisies.map(async (saisie) => ({ saisie, commandes: await lireCommandesProforma(saisie) }))
   );
@@ -550,14 +557,14 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
     recettesParArticle.set(ligne.article_pf_id, liste);
   }
 
-  const mpIds = [...new Set(recettes.map((ligne) => ligne.article_mp_id))];
+  const mpIds = options?.sansBesoinsMp ? [] : [...new Set(recettes.map((ligne) => ligne.article_mp_id))];
   const vracIds = [...new Set(articlesRows.map((article) => article.vrac_article_id).filter((id): id is number => !!id))];
   // Un souci de lecture des commandes / imports ne doit pas bloquer le calcul du besoin : on le signale seulement
   let arrivagesIndisponibles = false;
   const [mpRows, vracRows, soldesDepotE, arrivages] = await Promise.all([
     mpIds.length > 0 ? lireParIds<MpRow>("articles_matiere_premiere", "id, nom_article, unite, categorie", "id", mpIds) : Promise.resolve([]),
     vracIds.length > 0 ? lireParIds<{ id: number; nom_article: string | null }>("articles", "id, nom_article", "id", vracIds) : Promise.resolve([]),
-    lireStockMpDepotE(),
+    options?.sansBesoinsMp ? Promise.resolve([]) : lireStockMpDepotE(),
     lireArrivagesMp(mpIds).catch((): Arrivages => {
       arrivagesIndisponibles = true;
       return { commandesParMp: new Map(), importsParMp: new Map() };
@@ -627,6 +634,7 @@ export async function calculerBesoinProformas(saisies: string[]): Promise<Result
       nbLignesRecette: lignesRecette.length,
       vracKg,
       vracNom: article?.vrac_article_id ? (vracParId.get(article.vrac_article_id) ?? null) : null,
+      vracArticleId: article?.vrac_article_id ?? null,
     });
   }
 

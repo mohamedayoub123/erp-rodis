@@ -5,8 +5,7 @@ import { canViewPageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SubmitButton } from "@/app/_components/submit-button";
-import { formatDate } from "@/lib/format-date";
-import { encodeDossierId } from "@/app/stock/matiere-premiere/commande/dossier-id";
+import { CellulesArrivagesMp } from "@/app/_components/besoin-arrivages-cellules";
 import {
   MAX_PROFORMAS,
   calculerBesoinProformas,
@@ -238,59 +237,12 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                         >
                           {besoin.manque > 0 ? nombre(besoin.manque) : "OK"}
                         </td>
-                        <td className="px-4 py-3">
-                          {besoin.commandes.length === 0 ? (
-                            <span className="text-slate-300">-</span>
-                          ) : (
-                            <>
-                              <p className="font-semibold tabular-nums text-slate-900">{nombre(besoin.commandeTotal)}</p>
-                              <ul className="mt-1 space-y-0.5 text-xs">
-                                {besoin.commandes.map((commande) => (
-                                  <li key={commande.code} className="text-slate-600">
-                                    <Link
-                                      href={`/stock/matiere-premiere/bc/${commande.code}`}
-                                      className="font-semibold text-sky-700 underline"
-                                    >
-                                      {commande.code}
-                                    </Link>{" "}
-                                    - {nombre(commande.quantite)}
-                                    {commande.dateCommande ? ` - commande du ${formatDate(commande.dateCommande)}` : " - date de commande non renseignee"}
-                                  </li>
-                                ))}
-                              </ul>
-                            </>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {besoin.imports.length === 0 ? (
-                            <span className="text-slate-300">-</span>
-                          ) : (
-                            <>
-                              <p className="font-semibold tabular-nums text-slate-900">{nombre(besoin.importTotal)}</p>
-                              <ul className="mt-1 space-y-0.5 text-xs">
-                                {besoin.imports.map((transit) => (
-                                  <li
-                                    key={`${transit.nDoss4d ?? ""}|${transit.nDossErp ?? ""}`}
-                                    className="text-slate-600"
-                                  >
-                                    <Link
-                                      href={`/stock/matiere-premiere/commande/${encodeDossierId(transit.nDoss4d, transit.nDossErp)}`}
-                                      className="font-semibold text-sky-700 underline"
-                                    >
-                                      {transit.nDoss4d || transit.nDossErp || "Sans dossier"}
-                                    </Link>{" "}
-                                    - {nombre(transit.quantite)}
-                                    {transit.statutDossier ? ` - ${transit.statutDossier}` : ""}
-                                    {transit.dateImport ? ` - import du ${formatDate(transit.dateImport)}` : ""}
-                                    {transit.datePrevueReception
-                                      ? ` - reception prevue le ${formatDate(transit.datePrevueReception)}`
-                                      : " - date de reception prevue non renseignee"}
-                                  </li>
-                                ))}
-                              </ul>
-                            </>
-                          )}
-                        </td>
+                        <CellulesArrivagesMp
+                          commandes={besoin.commandes}
+                          commandeTotal={besoin.commandeTotal}
+                          imports={besoin.imports}
+                          importTotal={besoin.importTotal}
+                        />
                         <td
                           className={`px-4 py-3 text-right font-semibold tabular-nums ${
                             besoin.resteACouvrir > 0 ? "text-red-700" : besoin.manque > 0 ? "text-amber-700" : "text-emerald-700"

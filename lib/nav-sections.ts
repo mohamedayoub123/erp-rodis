@@ -139,6 +139,11 @@ export const navItems: NavItem[] = [
         pageKey: "productionBesoinConditionnement",
       },
       {
+        href: "/production/besoin-fabrication",
+        label: "Besoin Fabrication",
+        pageKey: "productionBesoinFabrication",
+      },
+      {
         href: "/production/retours-conditionnement",
         label: "Retours Conditionnement",
         pageKey: "retoursConditionnement",
