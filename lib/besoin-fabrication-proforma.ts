@@ -19,7 +19,12 @@ import {
 //     le stock des autres depots, Depot B, Depot F..., ne compte pas), puis aux commandes (BC) et imports en cours (commande et
 //     import ne se comptent jamais deux fois).
 
-export type StatutRecetteFabrication = "ok" | "sans_recette" | "lot_inconnu";
+// incomplete : la recette existe mais la somme de ses matieres premieres n'atteint pas le lot (ex : seulement la BASE, 0,5 kg
+// pour un lot de 100 kg) : le vrac n'est pas encore completement ecrit, les autres matieres ne sont pas comptees
+export type StatutRecetteFabrication = "ok" | "sans_recette" | "lot_inconnu" | "incomplete";
+
+// Ecart toleree entre la somme des matieres de la recette et le lot (arrondis de saisie) : 1 % du lot
+const TOLERANCE_RECETTE = 0.01;
 
 // Un vrac a fabriquer et les articles finis (cartons a produire) qui le demandent
 export type VracAFabriquer = {
@@ -30,6 +35,8 @@ export type VracAFabriquer = {
   base: number;
   statutRecette: StatutRecetteFabrication;
   nbLignesRecette: number;
+  // total des matieres premieres de la recette (meme unite que le lot) : doit valoir le lot pour une recette complete
+  sommeRecette: number;
   articles: { articleId: number; nom: string; cartons: number; kg: number }[];
 };
 
@@ -113,6 +120,7 @@ export async function calculerBesoinFabrication(saisies: string[]): Promise<Resu
       base: 0,
       statutRecette: "ok" as StatutRecetteFabrication,
       nbLignesRecette: 0,
+      sommeRecette: 0,
       articles: [],
     };
     vrac.kg += article.vracKg;
@@ -151,8 +159,18 @@ export async function calculerBesoinFabrication(saisies: string[]): Promise<Resu
     const lignes = lignesParVrac.get(vrac.vracId) ?? [];
     vrac.base = baseParVrac.get(vrac.vracId) ?? 0;
     vrac.nbLignesRecette = lignes.length;
-    vrac.statutRecette = lignes.length === 0 ? "sans_recette" : !(vrac.base > 0) ? "lot_inconnu" : "ok";
-    if (vrac.statutRecette !== "ok") continue;
+    vrac.sommeRecette = lignes.reduce((somme, ligne) => somme + Number(ligne.quantite), 0);
+    vrac.statutRecette =
+      lignes.length === 0
+        ? "sans_recette"
+        : !(vrac.base > 0)
+          ? "lot_inconnu"
+          : Math.abs(vrac.sommeRecette - vrac.base) > TOLERANCE_RECETTE * vrac.base
+            ? "incomplete"
+            : "ok";
+    // Sans recette ou sans lot : rien a calculer. Recette incomplete : on compte quand meme les matieres deja saisies (la page
+    // signale que les autres manquent).
+    if (vrac.statutRecette === "sans_recette" || vrac.statutRecette === "lot_inconnu") continue;
     for (const ligne of lignes) {
       const courant = besoinParMp.get(ligne.article_mp_id) ?? { besoin: 0, utilisePar: new Set<string>() };
       courant.besoin += (vrac.kg * Number(ligne.quantite)) / vrac.base;
@@ -161,8 +179,9 @@ export async function calculerBesoinFabrication(saisies: string[]): Promise<Resu
     }
   }
 
-  // Problemes d'abord (pas de recette, lot inconnu), puis le plus gros vrac
-  const rangStatut = (statut: StatutRecetteFabrication) => (statut === "sans_recette" ? 0 : statut === "lot_inconnu" ? 1 : 2);
+  // Problemes d'abord (pas de recette, lot inconnu, recette incomplete), puis les recettes completes
+  const rangStatut = (statut: StatutRecetteFabrication) =>
+    statut === "sans_recette" ? 0 : statut === "lot_inconnu" ? 1 : statut === "incomplete" ? 2 : 3;
   vracs.sort(
     (a, b) => rangStatut(a.statutRecette) - rangStatut(b.statutRecette) || a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" })
   );

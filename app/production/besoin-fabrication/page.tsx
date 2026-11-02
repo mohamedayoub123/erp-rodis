@@ -34,6 +34,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
   const introuvables = proformas.filter((proforma) => proforma.commandes.length === 0);
   const sansRecette = vracs.filter((vrac) => vrac.statutRecette === "sans_recette");
   const lotInconnu = vracs.filter((vrac) => vrac.statutRecette === "lot_inconnu");
+  const incompletes = vracs.filter((vrac) => vrac.statutRecette === "incomplete");
   const enManque = besoins.filter((besoin) => besoin.manque > 0);
   // en manque ET rien (ou pas assez) en commande / import pour le couvrir
   const nonCouverts = besoins.filter((besoin) => besoin.resteACouvrir > 0);
@@ -41,7 +42,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
   const totalKg = vracs.reduce((somme, vrac) => somme + vrac.kg, 0);
 
   const rienAFabriquer = trouvees.length > 0 && nbArticlesAProduire === 0;
-  const problemes = sansVrac.length + sansRecette.length + lotInconnu.length;
+  const problemes = sansVrac.length + sansRecette.length + lotInconnu.length + incompletes.length;
   const toutEstLa = trouvees.length > 0 && !rienAFabriquer && problemes === 0 && enManque.length === 0;
   // ambre : tout est couvert, mais une partie du manque n'arrive que par une commande / un import en cours
   const seulementArrivages = trouvees.length > 0 && problemes === 0 && nonCouverts.length === 0 && manquesCouverts > 0;
@@ -49,6 +50,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
     sansVrac.length > 0 ? `${sansVrac.length} article(s) a produire sans vrac calculable` : null,
     sansRecette.length > 0 ? `${sansRecette.length} vrac sans recette de fabrication` : null,
     lotInconnu.length > 0 ? `${lotInconnu.length} recette(s) sans quantite du lot` : null,
+    incompletes.length > 0 ? `${incompletes.length} vrac avec une recette de fabrication incomplete` : null,
     nonCouverts.length > 0 ? `${nonCouverts.length} matiere(s) premiere(s) en manque sans commande ni import suffisant` : null,
     manquesCouverts > 0 ? `${manquesCouverts} matiere(s) premiere(s) en manque mais couverte(s) par une commande / un import en cours` : null,
   ].filter(Boolean);
@@ -117,7 +119,11 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
 
           <section className="grid gap-4 md:grid-cols-5">
             <Carte titre="Vrac a fabriquer (kg)" valeur={nombre(totalKg, 1)} ton="neutre" />
-            <Carte titre="Vrac sans recette" valeur={sansRecette.length + lotInconnu.length} ton={sansRecette.length + lotInconnu.length > 0 ? "rouge" : "vert"} />
+            <Carte
+              titre="Vrac sans recette complete"
+              valeur={sansRecette.length + lotInconnu.length + incompletes.length}
+              ton={sansRecette.length + lotInconnu.length + incompletes.length > 0 ? "rouge" : "vert"}
+            />
             <Carte titre="Matieres premieres" valeur={besoins.length} ton="neutre" />
             <Carte titre="En manque" valeur={enManque.length} ton={enManque.length > 0 ? "rouge" : "vert"} />
             <Carte
@@ -192,6 +198,32 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
                       {vrac.nom}
                     </Link>
                     <span className="text-slate-500">{nombre(vrac.kg, 1)} kg a fabriquer</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {incompletes.length > 0 ? (
+            <section className="rounded-[1.75rem] border border-red-200 bg-white p-6 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
+              <h2 className="text-lg font-bold text-red-800">Vrac dont la recette de fabrication est incomplete</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Le vrac n&apos;est pas encore completement ecrit : la somme des matieres premieres de sa{" "}
+                <Link href="/production/recette-fabrication" className="font-semibold text-sky-700 underline">
+                  Recette Fabrication
+                </Link>{" "}
+                n&apos;atteint pas le lot de la recette. Seules les matieres deja saisies sont comptees ci-dessous : le besoin des
+                autres matieres premieres n&apos;apparait pas.
+              </p>
+              <ul className="mt-3 divide-y divide-slate-100">
+                {incompletes.map((vrac) => (
+                  <li key={vrac.vracId} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                    <Link href={`/production/recette-fabrication/${vrac.vracId}`} className="font-semibold text-red-700 underline">
+                      {vrac.nom}
+                    </Link>
+                    <span className="text-slate-500">
+                      {nombre(vrac.sommeRecette)} kg saisis sur {nombre(vrac.base)} kg du lot - {nombre(vrac.kg, 1)} kg a fabriquer
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -315,6 +347,10 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
                           ) : vrac.statutRecette === "lot_inconnu" ? (
                             <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
                               Quantite du lot manquante
+                            </span>
+                          ) : vrac.statutRecette === "incomplete" ? (
+                            <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
+                              Recette incomplete : {nombre(vrac.sommeRecette)} kg sur {nombre(vrac.base)} kg
                             </span>
                           ) : (
                             <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
