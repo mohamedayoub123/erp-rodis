@@ -7,10 +7,34 @@ import { SubmitButton } from "@/app/_components/submit-button";
 import { conditionnementMpDisponible, contenanceMpDisponible } from "@/lib/contenance-mp";
 import { ChampsContenance } from "@/app/_components/champs-contenance";
 
+// Categories et sous familles deja utilisees : proposees quand on tape, pour ecrire exactement comme les autres articles (un
+// article plastique ne ressort dans Statistique Article Plastique (E3) que si sa categorie est "ARTICLE DE CONDITIONNEMENT PLASTIQUE")
+async function lireCategoriesEtSousFamilles(): Promise<{ categories: string[]; sousFamilles: string[] }> {
+  const categories = new Set<string>();
+  const sousFamilles = new Set<string>();
+  for (let debut = 0; ; debut += 1000) {
+    const { data, error } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .select("categorie, sous_famille")
+      .order("id", { ascending: true })
+      .range(debut, debut + 999);
+    if (error) break;
+    const page = (data ?? []) as { categorie: string | null; sous_famille: string | null }[];
+    for (const ligne of page) {
+      if (ligne.categorie?.trim()) categories.add(ligne.categorie.trim());
+      if (ligne.sous_famille?.trim()) sousFamilles.add(ligne.sous_famille.trim());
+    }
+    if (page.length < 1000) break;
+  }
+  const trier = (valeurs: Set<string>) => [...valeurs].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  return { categories: trier(categories), sousFamilles: trier(sousFamilles) };
+}
+
 export default async function NouvelArticleMpPage() {
-  const [currentStockUser, depotsResult] = await Promise.all([
+  const [currentStockUser, depotsResult, { categories, sousFamilles }] = await Promise.all([
     getCurrentStockUser(),
     supabaseServer.from("depots").select("id, nom").order("nom", { ascending: true }),
+    lireCategoriesEtSousFamilles(),
   ]);
   const canWriteArticles = await canWritePageUser(currentStockUser, "articlesMatierePremiereNouvelle");
   const [avecContenance, avecType] = await Promise.all([contenanceMpDisponible(), conditionnementMpDisponible()]);
@@ -57,15 +81,29 @@ export default async function NouvelArticleMpPage() {
               <input
                 type="text"
                 name="categorie"
-                placeholder="Categorie"
+                list="categories-mp"
+                placeholder="Categorie (ARTICLE DE CONDITIONNEMENT PLASTIQUE pour un article plastique : il sera dans E3)"
+                autoComplete="off"
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
               />
+              <datalist id="categories-mp">
+                {categories.map((categorie) => (
+                  <option key={categorie} value={categorie} />
+                ))}
+              </datalist>
               <input
                 type="text"
                 name="sous_famille"
+                list="sous-familles-mp"
                 placeholder="Sous Famille"
+                autoComplete="off"
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none"
               />
+              <datalist id="sous-familles-mp">
+                {sousFamilles.map((sousFamille) => (
+                  <option key={sousFamille} value={sousFamille} />
+                ))}
+              </datalist>
               <input
                 type="text"
                 name="unite"

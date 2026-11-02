@@ -85,19 +85,40 @@ export async function updateMachinePlastiqueAction(formData: FormData) {
   revalidatePath("/production-plastique/statistique");
 }
 
-// Type de machine (Injection, Soufflage ou PET), choisi dans la liste (vide = non renseigne).
+// Type de machine (Injection, Soufflage ou PET), choisi dans la liste. Il est FIXE : on le choisit une seule fois, par article
+// (demande explicite : le type decide de la feuille de l'export Excel, on ne doit plus pouvoir le changer). Un article qui a
+// deja un type refuse tout changement, meme venant d'un formulaire envoye a la main ; la modification n'est ecrite que si le
+// type est encore vide au moment de l'enregistrement (deux personnes en meme temps : la premiere gagne).
 export async function updateTypeMachinePlastiqueAction(formData: FormData) {
   await requireStatistiqueArticlePlastiqueWriteAccess();
 
   const articleId = lireArticleId(formData);
   const typeMachine = lireTypeMachine(formData.get("type_machine"));
 
-  const { error } = await supabaseServer
+  const { data: actuel, error: erreurLecture } = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select("type_machine_plastique")
+    .eq("id", articleId)
+    .maybeSingle();
+  if (erreurLecture) throw new Error(erreurLecture.message);
+
+  const courant = (actuel as { type_machine_plastique: string | null } | null)?.type_machine_plastique ?? null;
+  if (courant !== null) {
+    if (courant === typeMachine) return;
+    throw new Error("Le type de machine de cet article est fixe : il ne peut plus etre change une fois choisi.");
+  }
+  if (typeMachine === null) return;
+
+  const { data: modifies, error } = await supabaseServer
     .from("articles_matiere_premiere")
     .update({ type_machine_plastique: typeMachine })
-    .eq("id", articleId);
-
+    .eq("id", articleId)
+    .is("type_machine_plastique", null)
+    .select("id");
   if (error) throw new Error(error.message);
+  if (!modifies || modifies.length === 0) {
+    throw new Error("Le type de machine de cet article vient d'etre choisi : il est fixe et ne peut plus etre change.");
+  }
 
   revalidatePath("/stock/matiere-premiere/rapport/plastique");
   revalidatePath("/production-plastique/statistique");

@@ -65,6 +65,20 @@ async function lireContenanceArticle(formData: FormData): Promise<Record<string,
   return champs;
 }
 
+// Si la categorie saisie est une categorie deja utilisee a la majuscule / aux espaces pres, on enregistre l'ecriture EXISTANTE :
+// la categorie est du texte libre, et un article plastique ecrit "Article de conditionnement plastique" ne serait sinon pas
+// reconnu comme "ARTICLE DE CONDITIONNEMENT PLASTIQUE" donc absent de Statistique Article Plastique (E3).
+async function categorieCanonique(saisie: string): Promise<string> {
+  const texte = saisie.replace(/\s+/g, " ").trim();
+  if (!texte) return "";
+  const { data } = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select("categorie")
+    .ilike("categorie", texte.replace(/[\\%_]/g, "\\$&"))
+    .limit(1);
+  return (data as { categorie: string | null }[] | null)?.[0]?.categorie ?? texte;
+}
+
 function revalidateArticlesMpPages() {
   revalidatePath("/articles/matiere-premiere");
   revalidatePath("/stock/matiere-premiere");
@@ -75,7 +89,7 @@ export async function createArticleMpAction(formData: FormData) {
   await requireWriteAccess();
 
   const nomArticle = String(formData.get("nom_article") || "").trim();
-  const categorie = String(formData.get("categorie") || "").trim();
+  const categorie = await categorieCanonique(String(formData.get("categorie") || ""));
   const sousFamille = String(formData.get("sous_famille") || "").trim();
   const unite = String(formData.get("unite") || "").trim();
   const gamme = String(formData.get("gamme") || "").trim();
@@ -161,7 +175,7 @@ export async function updateArticleMpAction(formData: FormData) {
 
   const articleId = Number(String(formData.get("article_id") || "0"));
   const nomArticle = String(formData.get("nom_article") || "").trim();
-  const categorie = String(formData.get("categorie") || "").trim();
+  const categorie = await categorieCanonique(String(formData.get("categorie") || ""));
   const sousFamille = String(formData.get("sous_famille") || "").trim();
   const unite = String(formData.get("unite") || "").trim();
   const gamme = String(formData.get("gamme") || "").trim();

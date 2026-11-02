@@ -45,6 +45,7 @@ type ArticleDetailRow = {
   max_stock: number | null;
   gamme: string | null;
   avis_fabrication: string | null;
+  utilisation: string | null;
   // Colonnes ajoutees par scripts/sql/add_machine_cavites_articles_matiere_premiere.sql
   machine_plastique?: string | null;
   nb_cavites?: number | null;
@@ -59,6 +60,8 @@ export type PlastiqueRow = {
   // Type du ou des produits finis dont la recette de conditionnement contient cet article
   // (ex: "Gel douche", "Clarifiant") ; vide si l'article n'est dans aucune recette.
   types_produit: string[];
+  // Champ "Utilisation" de l'article (Articles Matiere Premiere) : les produits / usages auxquels il sert
+  utilisation: string | null;
   unite: string | null;
   gamme: string | null;
   stock_actuel: number;
@@ -182,7 +185,7 @@ async function fetchAllStockActuelMpRows(): Promise<{ rows: StockActuelMpRpcRow[
   return { rows, error: null };
 }
 
-const COLONNES_DETAIL = "id, sous_famille, min_stock, max_stock, gamme, avis_fabrication";
+const COLONNES_DETAIL = "id, sous_famille, min_stock, max_stock, gamme, avis_fabrication, utilisation";
 
 // Lit les details des articles plastique avec Machine/Cavites et Type de machine ; tant qu'un script SQL
 // n'a pas ete lance (colonnes absentes), relit sans ces colonnes pour que la page reste utilisable.
@@ -304,6 +307,7 @@ export async function fetchPlastiqueRows(): Promise<{
         // Sous famille lue sur l'article (la fonction SQL ne la renvoie pas toujours)
         categorie: detail?.sous_famille ?? row.sous_famille ?? null,
         types_produit: typesParArticle.get(row.article_id) ?? [],
+        utilisation: detail?.utilisation?.trim() || null,
         unite: row.unite,
         gamme: detail?.gamme ?? null,
         stock_actuel: Number(row.stock_actuel ?? 0),
@@ -450,6 +454,7 @@ export async function StatistiqueArticlePlastique({
     { label: "Gamme", key: "gamme" },
     { label: "Sous famille", key: "categorie" },
     { label: "Type", key: "type" },
+    { label: "Utilisation", key: "utilisation" },
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stock" },
     { label: "Stock min", key: "min" },
@@ -468,6 +473,7 @@ export async function StatistiqueArticlePlastique({
     gamme: row.gamme || "-",
     categorie: displayCategorie(row.categorie),
     type: row.types_produit.length > 0 ? row.types_produit.join(", ") : "-",
+    utilisation: row.utilisation || "-",
     unite: row.unite || "-",
     stock: row.stock_actuel,
     min: row.min_stock ?? "-",
@@ -613,6 +619,7 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">Gamme</th>
                   <th className="px-6 py-4 font-semibold">Sous famille</th>
                   <th className="px-6 py-4 font-semibold">Type</th>
+                  <th className="px-6 py-4 font-semibold">Utilisation</th>
                   <th className="px-6 py-4 font-semibold">Unite</th>
                   <th className="px-6 py-4 font-semibold">Stock actuel</th>
                   <th className="px-6 py-4 font-semibold">Stock min</th>
@@ -656,6 +663,10 @@ export async function StatistiqueArticlePlastique({
                       <td className="px-6 py-4 text-slate-600">{displayCategorie(row.categorie)}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.types_produit.length > 0 ? row.types_produit.join(", ") : "-"}
+                      </td>
+                      {/* Texte libre, parfois sur plusieurs lignes : on garde les retours a la ligne, dans une largeur limitee */}
+                      <td className="min-w-[14rem] max-w-xs whitespace-pre-line px-6 py-4 text-slate-600">
+                        {row.utilisation || "-"}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4">
@@ -714,8 +725,9 @@ export async function StatistiqueArticlePlastique({
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        {canEdit && typeMachinePret ? (
-                          // key : la liste se remet a jour apres OK
+                        {canEdit && typeMachinePret && !row.type_machine ? (
+                          // Le type est FIXE : on ne le choisit qu'une fois (liste montree seulement tant qu'il est vide) ;
+                          // key : la cellule se remet a jour apres OK
                           <form
                             key={`type-machine-${row.type_machine ?? ""}`}
                             action={updateTypeMachinePlastiqueAction}
@@ -742,8 +754,15 @@ export async function StatistiqueArticlePlastique({
                               OK
                             </SubmitButton>
                           </form>
+                        ) : row.type_machine ? (
+                          <span
+                            title="Type de machine fixe : il ne peut plus etre change"
+                            className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700"
+                          >
+                            {libelleTypeMachine(row.type_machine)}
+                          </span>
                         ) : (
-                          <span className="text-slate-600">{libelleTypeMachine(row.type_machine)}</span>
+                          <span className="text-slate-400">-</span>
                         )}
                       </td>
                       <td className="px-6 py-4">
