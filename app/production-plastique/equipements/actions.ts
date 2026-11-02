@@ -117,9 +117,15 @@ export async function deleteEquipementPlastiqueAction(formData: FormData) {
     .select("id", { count: "exact", head: true })
     .eq("machine_plastique", nom);
   if (erreurCompte) throw new Error(erreurCompte.message);
-  if ((count ?? 0) > 0) {
+  // Machines multiples d'un article (table article_machines_plastique) : une erreur ici = table pas encore creee, rien a verifier
+  const { count: liaisons, error: erreurLiaisons } = await supabaseServer
+    .from("article_machines_plastique")
+    .select("article_id", { count: "exact", head: true })
+    .eq("equipement_id", id);
+  const nbArticles = (count ?? 0) + (erreurLiaisons ? 0 : (liaisons ?? 0));
+  if (nbArticles > 0) {
     throw new Error(
-      `L'equipement "${nom}" est encore utilise par ${count} article(s) dans Statistique Article Plastique (E3) - change leur machine avant de le supprimer.`
+      `L'equipement "${nom}" est encore utilise par ${nbArticles} article(s) dans Statistique Article Plastique (E3) - retire-le de leurs machines avant de le supprimer.`
     );
   }
 

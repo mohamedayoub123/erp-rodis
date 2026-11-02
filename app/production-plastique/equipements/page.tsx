@@ -9,6 +9,7 @@ import {
   SQL_EQUIPEMENTS_PLASTIQUE,
   SQL_TON_SECTION_EQUIPEMENTS_PLASTIQUE,
   fetchEquipementsPlastique,
+  fetchMachinesParArticle,
 } from "@/lib/equipements-plastique";
 import { CATEGORIE_PLASTIQUE } from "../shared";
 import {
@@ -39,10 +40,18 @@ export default async function EquipementsPlastiquePage() {
   const canEdit = await canWritePageUser(currentUser, "productionPlastiqueEquipements");
   const canDelete = await canDeletePageUser(currentUser, "productionPlastiqueEquipements");
 
-  const [{ pret, colonnesPret, equipements }, articlesParMachine] = await Promise.all([
-    fetchEquipementsPlastique(),
-    compterArticlesParMachine(),
-  ]);
+  const { pret, colonnesPret, equipements } = await fetchEquipementsPlastique();
+  // Nombre d'articles de E3 par machine : un article peut avoir plusieurs machines (table article_machines_plastique) ; tant que
+  // cette table n'existe pas, la machine unique enregistree sur l'article
+  const machinesResult = pret ? await fetchMachinesParArticle(equipements) : { pret: false, parArticle: new Map() };
+  let articlesParMachine = new Map<string, number>();
+  if (machinesResult.pret) {
+    for (const machines of machinesResult.parArticle.values()) {
+      for (const machine of machines) articlesParMachine.set(machine.nom, (articlesParMachine.get(machine.nom) ?? 0) + 1);
+    }
+  } else if (pret) {
+    articlesParMachine = await compterArticlesParMachine();
+  }
   // Sections deja utilisees (INJ, SOUFF...) proposees quand on tape
   const sectionsExistantes = [...new Set(equipements.map((e) => e.section).filter((s): s is string => Boolean(s)))].sort();
 

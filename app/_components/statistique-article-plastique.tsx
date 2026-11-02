@@ -13,6 +13,9 @@ import {
   updateMachinePlastiqueAction,
   updateTypeMachinePlastiqueAction,
   updateNbCavitesAction,
+  ajouterMachinePlastiqueAction,
+  modifierCavitesMachinePlastiqueAction,
+  retirerMachinePlastiqueAction,
   saveCommandeArticlePlastiqueAction,
 } from "@/app/_components/statistique-article-plastique-actions";
 import {
@@ -21,7 +24,13 @@ import {
   libelleTypeMachine,
   repartirParTypeMachine,
 } from "@/lib/type-machine-plastique";
-import { SQL_EQUIPEMENTS_PLASTIQUE, fetchEquipementsPlastique } from "@/lib/equipements-plastique";
+import {
+  SQL_ARTICLE_MACHINES_PLASTIQUE,
+  SQL_EQUIPEMENTS_PLASTIQUE,
+  fetchEquipementsPlastique,
+  fetchMachinesParArticle,
+  type MachineArticle,
+} from "@/lib/equipements-plastique";
 import { lireStockMpDepotE } from "@/lib/lot-balances-mp";
 import { separerUtilisations } from "@/lib/utilisation-article";
 
@@ -377,6 +386,118 @@ export function doitArreterProduction(row: PlastiqueRow): boolean | null {
   return row.stock_actuel >= seuil;
 }
 
+// Machines d'un article : une LIGNE PAR MACHINE avec SES cavites (un article peut en avoir 3 ou plus qui travaillent en meme
+// temps), et en dessous une ligne pour en ajouter une de plus (nom pris dans la liste Equipements + ses cavites).
+function CelluleMachines({
+  articleId,
+  machines,
+  nbCavitesAvant,
+  canEdit,
+}: {
+  articleId: number;
+  machines: MachineArticle[];
+  // nombre de cavites saisi AVANT l'arrivee des machines multiples (un seul nombre par article) : gardé visible tant que
+  // l'article n'a aucune machine
+  nbCavitesAvant: number | null;
+  canEdit: boolean;
+}) {
+  if (!canEdit) {
+    if (machines.length === 0) return <span className="text-slate-600">-</span>;
+    return (
+      <ul className="space-y-1">
+        {machines.map((machine) => (
+          <li key={machine.equipementId} className="rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-700">
+            <span className="font-semibold">{machine.nom}</span> - {machine.nbCavites ?? "?"} cavite(s)
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {machines.length > 0 ? (
+        <ul className="space-y-1.5">
+          {machines.map((machine) => (
+            // key : la ligne se remet a jour apres OK
+            <li
+              key={`${machine.equipementId}-${machine.nbCavites ?? ""}`}
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-2 py-1"
+            >
+              <span className="min-w-[3rem] text-sm font-semibold text-slate-900">{machine.nom}</span>
+              <form action={modifierCavitesMachinePlastiqueAction} className="flex items-center gap-1">
+                <input type="hidden" name="article_id" value={articleId} />
+                <input type="hidden" name="equipement_id" value={machine.equipementId} />
+                <input
+                  type="number"
+                  name="nb_cavites"
+                  defaultValue={machine.nbCavites ?? ""}
+                  placeholder="Cav."
+                  min="1"
+                  max="999"
+                  step="1"
+                  aria-label={`Cavites de ${machine.nom}`}
+                  className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm outline-none"
+                />
+                <SubmitButton
+                  pendingLabel="..."
+                  className="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-slate-800"
+                >
+                  OK
+                </SubmitButton>
+              </form>
+              <form action={retirerMachinePlastiqueAction}>
+                <input type="hidden" name="article_id" value={articleId} />
+                <input type="hidden" name="equipement_id" value={machine.equipementId} />
+                <SubmitButton
+                  pendingLabel="..."
+                  className="rounded-full border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                >
+                  Retirer
+                </SubmitButton>
+              </form>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <form action={ajouterMachinePlastiqueAction} className="flex flex-wrap items-center gap-1">
+        <input type="hidden" name="article_id" value={articleId} />
+        <input
+          type="text"
+          name="equipement"
+          list="equipements-e3"
+          placeholder={machines.length === 0 ? "+ Machine..." : "+ Une autre machine..."}
+          autoComplete="off"
+          maxLength={100}
+          aria-label="Ajouter une machine (nom pris dans la liste des equipements)"
+          className="w-40 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm outline-none"
+        />
+        <input
+          type="number"
+          name="nb_cavites"
+          placeholder="Cav."
+          min="1"
+          max="999"
+          step="1"
+          aria-label="Cavites de cette machine"
+          className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm outline-none"
+        />
+        <SubmitButton
+          pendingLabel="..."
+          className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800"
+        >
+          Ajouter
+        </SubmitButton>
+      </form>
+
+      {machines.length === 0 && nbCavitesAvant !== null ? (
+        <p className="text-xs text-slate-400">Cavites saisies avant : {nbCavitesAvant}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export async function StatistiqueArticlePlastique({
   pageHref,
   canEdit,
@@ -427,6 +548,13 @@ export async function StatistiqueArticlePlastique({
   // Machine en cours : liste des equipements de la Production Plastique (page Equipements) ; tant que cette liste n'existe
   // pas (SQL pas lance), la machine reste une saisie libre
   const nomsEquipements = equipementsPlastique.equipements.map((equipement) => equipement.nom);
+  // Plusieurs machines par article, chacune avec ses cavites (table article_machines_plastique) ; tant qu'elle n'existe pas
+  // (SQL pas lance), une seule machine et un seul nombre de cavites par article comme avant
+  const machinesResult = equipementsPlastique.pret
+    ? await fetchMachinesParArticle(equipementsPlastique.equipements)
+    : { pret: false, parArticle: new Map<number, MachineArticle[]>() };
+  const machinesPret = machinesResult.pret;
+  const machinesDe = (articleId: number): MachineArticle[] => machinesResult.parArticle.get(articleId) ?? [];
 
   const rows = allRows
     .filter((row) => !q || matchesArticleSearch(row.nom_article, q))
@@ -437,8 +565,12 @@ export async function StatistiqueArticlePlastique({
         !typeFilter || row.types_produit.some((type) => type.toLowerCase() === typeFilter.toLowerCase())
     )
     .filter((row) => !gammeFilter || (row.gamme || "").toLowerCase() === gammeFilter.toLowerCase())
-    // Machine : "avec" = un nom de machine est renseigne
-    .filter((row) => !machineFilter || Boolean(row.machine?.trim()) === (machineFilter === "avec"))
+    // Machine : "avec" = au moins une machine est renseignee
+    .filter(
+      (row) =>
+        !machineFilter ||
+        (machinesPret ? machinesDe(row.article_id).length > 0 : Boolean(row.machine?.trim())) === (machineFilter === "avec")
+    )
     // Type de machine : un des 3 types, ou "sans" = pas encore choisi
     .filter(
       (row) =>
@@ -503,8 +635,21 @@ export async function StatistiqueArticlePlastique({
     aFabriquer: formaterAFabriquer(row.a_fabriquer),
     avis: row.avis_fabrication || "-",
     typeMachine: libelleTypeMachine(row.type_machine),
-    machine: row.machine || "-",
-    cavites: row.nb_cavites ?? "-",
+    // Plusieurs machines : une par ligne dans la cellule Excel, et ses cavites sur la MEME ligne de la colonne Cavites
+    machine: machinesPret
+      ? machinesDe(row.article_id).length > 0
+        ? machinesDe(row.article_id)
+            .map((machine) => machine.nom)
+            .join("\n")
+        : "-"
+      : row.machine || "-",
+    cavites: machinesPret
+      ? machinesDe(row.article_id).length > 0
+        ? machinesDe(row.article_id)
+            .map((machine) => machine.nbCavites ?? "-")
+            .join("\n")
+        : "-"
+      : (row.nb_cavites ?? "-"),
   });
   const exportRows = rows.map(versLigneExport);
   // Excel en 3 feuilles : Injection, Soufflage, PET (d'apres la colonne Type de machine) ; les articles sans type, s'il y en a,
@@ -612,6 +757,13 @@ export async function StatistiqueArticlePlastique({
           tape a la main.
         </p>
       ) : null}
+      {!error && equipementsPlastique.pret && !machinesPret ? (
+        <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          Plusieurs machines par article (chacune avec ses cavites) ne sont pas encore actives : lance d&apos;abord le script SQL{" "}
+          {SQL_ARTICLE_MACHINES_PLASTIQUE.replace("scripts/sql/", "")} dans Supabase (SQL Editor). En attendant, un article n&apos;a
+          qu&apos;une machine et un nombre de cavites.
+        </p>
+      ) : null}
       {!error && machineCavitesPret && !typeMachinePret ? (
         <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
           Type de machine n&apos;est pas encore actif : lance d&apos;abord le script SQL{" "}
@@ -654,8 +806,17 @@ export async function StatistiqueArticlePlastique({
                   </th>
                   <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
                   <th className="px-6 py-4 font-semibold">Type de machine</th>
-                  <th className="px-6 py-4 font-semibold">Machine en cours</th>
-                  <th className="px-6 py-4 font-semibold">Cavites</th>
+                  {machinesPret ? (
+                    <th className="px-6 py-4 font-semibold">
+                      Machines en cours et cavites
+                      <span className="block text-xs font-normal text-slate-400">1 ligne par machine, avec ses cavites</span>
+                    </th>
+                  ) : (
+                    <>
+                      <th className="px-6 py-4 font-semibold">Machine en cours</th>
+                      <th className="px-6 py-4 font-semibold">Cavites</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -797,6 +958,17 @@ export async function StatistiqueArticlePlastique({
                           <span className="text-slate-400">-</span>
                         )}
                       </td>
+                      {machinesPret ? (
+                        <td className="min-w-[22rem] px-6 py-4 align-top">
+                          <CelluleMachines
+                            articleId={row.article_id}
+                            machines={machinesDe(row.article_id)}
+                            nbCavitesAvant={row.nb_cavites}
+                            canEdit={canEdit}
+                          />
+                        </td>
+                      ) : (
+                        <>
                       <td className="px-6 py-4">
                         {canEdit && machineCavitesPret ? (
                           <div className="flex items-center gap-2">
@@ -885,11 +1057,21 @@ export async function StatistiqueArticlePlastique({
                           <span className="text-slate-600">{row.nb_cavites ?? "-"}</span>
                         )}
                       </td>
+                        </>
+                      )}
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            {machinesPret && canEdit ? (
+              // Les machines proposees quand on tape (une seule liste pour toutes les lignes)
+              <datalist id="equipements-e3">
+                {nomsEquipements.map((nom) => (
+                  <option key={nom} value={nom} />
+                ))}
+              </datalist>
+            ) : null}
           </div>
         )}
       </section>

@@ -124,19 +124,99 @@ export async function updateTypeMachinePlastiqueAction(formData: FormData) {
   revalidatePath("/production-plastique/statistique");
 }
 
-// Nombre de cavites du moule, saisi a la main (vide = non renseigne).
+// Nombre de cavites du moule, saisi a la main (vide = non renseigne) : entier entre 1 et 999
+function lireNbCavites(formData: FormData): number | null {
+  const texte = String(formData.get("nb_cavites") || "").trim();
+  if (texte === "") return null;
+  const nbCavites = Number(texte);
+  if (!Number.isInteger(nbCavites) || nbCavites < 1 || nbCavites > 999) {
+    throw new Error("Le nombre de cavites doit etre un nombre entier entre 1 et 999.");
+  }
+  return nbCavites;
+}
+
+// ---- Plusieurs machines par article, chacune avec ses cavites (table article_machines_plastique) ----
+// Une machine se choisit dans la liste Production Plastique > Equipements, par son nom (sans tenir compte des majuscules ni des
+// espaces : "m 16" = "M16"). La meme machine ajoutee deux fois ne cree pas de doublon : ses cavites sont mises a jour.
+function cleNom(nom: string): string {
+  return nom.replace(/\s+/g, "").toLowerCase();
+}
+
+function lireEquipementId(formData: FormData): number {
+  const equipementId = Number(formData.get("equipement_id"));
+  if (!Number.isInteger(equipementId) || equipementId <= 0) throw new Error("Machine invalide.");
+  return equipementId;
+}
+
+function revalidatePagesPlastique() {
+  revalidatePath("/stock/matiere-premiere/rapport/plastique");
+  revalidatePath("/production-plastique/statistique");
+  revalidatePath("/production-plastique/equipements");
+}
+
+export async function ajouterMachinePlastiqueAction(formData: FormData) {
+  await requireStatistiqueArticlePlastiqueWriteAccess();
+
+  const articleId = lireArticleId(formData);
+  const nomSaisi = String(formData.get("equipement") || "").trim();
+  if (!nomSaisi) throw new Error("Choisis une machine de la liste.");
+  const nbCavites = lireNbCavites(formData);
+
+  const { pret, equipements } = await fetchEquipementsPlastique();
+  if (!pret) throw new Error("La liste des equipements n'est pas active : lance d'abord le SQL create_equipements_plastique.sql.");
+  const equipement = equipements.find((candidat) => cleNom(candidat.nom) === cleNom(nomSaisi));
+  if (!equipement) {
+    throw new Error(`Equipement inconnu : "${nomSaisi}". Choisis une machine de la liste (Production Plastique > Equipements).`);
+  }
+
+  const { error } = await supabaseServer
+    .from("article_machines_plastique")
+    .upsert({ article_id: articleId, equipement_id: equipement.id, nb_cavites: nbCavites }, { onConflict: "article_id,equipement_id" });
+  if (error) throw new Error(error.message);
+
+  revalidatePagesPlastique();
+}
+
+export async function modifierCavitesMachinePlastiqueAction(formData: FormData) {
+  await requireStatistiqueArticlePlastiqueWriteAccess();
+
+  const articleId = lireArticleId(formData);
+  const equipementId = lireEquipementId(formData);
+  const nbCavites = lireNbCavites(formData);
+
+  const { error } = await supabaseServer
+    .from("article_machines_plastique")
+    .update({ nb_cavites: nbCavites })
+    .eq("article_id", articleId)
+    .eq("equipement_id", equipementId);
+  if (error) throw new Error(error.message);
+
+  revalidatePagesPlastique();
+}
+
+export async function retirerMachinePlastiqueAction(formData: FormData) {
+  await requireStatistiqueArticlePlastiqueWriteAccess();
+
+  const articleId = lireArticleId(formData);
+  const equipementId = lireEquipementId(formData);
+
+  const { error } = await supabaseServer
+    .from("article_machines_plastique")
+    .delete()
+    .eq("article_id", articleId)
+    .eq("equipement_id", equipementId);
+  if (error) throw new Error(error.message);
+
+  revalidatePagesPlastique();
+}
+
+// Ancien fonctionnement (une seule machine et un seul nombre de cavites par article), garde tant que la table
+// article_machines_plastique n'existe pas.
 export async function updateNbCavitesAction(formData: FormData) {
   await requireStatistiqueArticlePlastiqueWriteAccess();
 
   const articleId = lireArticleId(formData);
-  const texte = String(formData.get("nb_cavites") || "").trim();
-  let nbCavites: number | null = null;
-  if (texte !== "") {
-    nbCavites = Number(texte);
-    if (!Number.isInteger(nbCavites) || nbCavites < 1 || nbCavites > 999) {
-      throw new Error("Le nombre de cavites doit etre un nombre entier entre 1 et 999.");
-    }
-  }
+  const nbCavites = lireNbCavites(formData);
 
   const { error } = await supabaseServer
     .from("articles_matiere_premiere")
