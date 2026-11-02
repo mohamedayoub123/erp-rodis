@@ -17,6 +17,7 @@ import {
 } from "@/lib/comptabilite";
 import { recalculerEcrituresDependantes } from "@/lib/ecriture-recompute";
 import { conditionnementMpDisponible, contenanceMpDisponible, lireConditionnement, lireContenance } from "@/lib/contenance-mp";
+import { lireDimensionsColis } from "@/lib/volume-colis";
 
 // Sources d'ecritures comptables generees par une Reception (voir plus bas,
 // createReceptionMpAction) - reprises ici pour effacer les ecritures liees
@@ -226,6 +227,9 @@ export async function createReceptionMpAction(formData: FormData) {
   const [avecContenance, avecType] = await Promise.all([contenanceMpDisponible(), conditionnementMpDisponible()]);
   const contenance = lireContenance(formData.get("contenance"));
   const conditionnement = lireConditionnement(formData.get("conditionnement"));
+  // Dimensions d'un colis (cm), facultatives mais toutes les 3 ensemble : elles restent sur l'article (modifiables aussi sur la
+  // fiche Produit) et donnent le volume du dossier ; rien n'est enregistre si les 3 sont vides.
+  const dimensionsColis = lireDimensionsColis(formData);
 
   const bcLigneId = Number(String(formData.get("bc_ligne_id") || "0"));
   const quantiteRaw = String(formData.get("quantite_importee") || "").trim().replace(",", ".");
@@ -322,15 +326,42 @@ export async function createReceptionMpAction(formData: FormData) {
 
   const { data: articleRow } = await supabaseServer
     .from("articles_matiere_premiere")
-    .select("unite, depot_id")
+    .select("unite, depot_id, longueur, largeur, hauteur")
     .eq("id", articleId)
     .maybeSingle();
 
-  const unite = (articleRow as { unite: string | null; depot_id: number | null } | null)?.unite ?? null;
+  const articleInfo = articleRow as {
+    unite: string | null;
+    depot_id: number | null;
+    longueur: number | null;
+    largeur: number | null;
+    hauteur: number | null;
+  } | null;
+  const unite = articleInfo?.unite ?? null;
   // Sans depot, la reception est invisible dans les colonnes "Disponible
   // Depot" (Verifier Stock, TO/TI) et le filtre Depot de Stock MP - meme si
   // la quantite existe bien en base.
-  const depotId = (articleRow as { unite: string | null; depot_id: number | null } | null)?.depot_id ?? null;
+  const depotId = articleInfo?.depot_id ?? null;
+
+  // Dimensions du colis saisies a la reception : enregistrees sur l'article (seulement si elles changent), AVANT toute ecriture
+  // de la reception pour qu'une erreur ici ne laisse pas une reception a moitie faite.
+  if (
+    dimensionsColis &&
+    (Number(articleInfo?.longueur) !== dimensionsColis.longueur ||
+      Number(articleInfo?.largeur) !== dimensionsColis.largeur ||
+      Number(articleInfo?.hauteur) !== dimensionsColis.hauteur)
+  ) {
+    const { error: dimensionsError } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .update(dimensionsColis)
+      .eq("id", articleId);
+
+    if (dimensionsError) {
+      throw new Error(`Dimensions du colis non enregistrees : ${dimensionsError.message}`);
+    }
+    revalidatePath("/articles/matiere-premiere");
+    revalidatePath(`/produit/mp/${articleId}`);
+  }
 
   const fournisseur = parseOptionalText(formData, "fournisseur");
 

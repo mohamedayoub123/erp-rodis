@@ -12,6 +12,7 @@ import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { SQL_CONDITIONNEMENT, SQL_CONTENANCE, conditionnementMpDisponible, contenanceMpDisponible, formaterContenance } from "@/lib/contenance-mp";
 import { ChampsContenance } from "@/app/_components/champs-contenance";
+import { formaterDimensions, formaterLitres, formaterM3, volumeColisLitres } from "@/lib/volume-colis";
 
 const EXPORT_COLUMNS = [
   { label: "Article", key: "nom_article" },
@@ -39,12 +40,17 @@ type ArticleMpRow = {
   min_stock: number | null;
   max_stock: number | null;
   depot_id: number | null;
+  // dimensions d'un colis en cm (scripts/sql/add_dimensions_poids_articles.sql), saisies a la reception d'un import ou sur la
+  // fiche Produit : le volume est calcule a l'affichage, jamais enregistre
+  longueur: number | null;
+  largeur: number | null;
+  hauteur: number | null;
   contenance?: number | null;
   conditionnement?: string | null;
 };
 
 const ARTICLES_MP_COLUMNS =
-  "id, nom_article, categorie, sous_famille, unite, gamme, gamme_statistique, utilisation, min_stock, max_stock, depot_id";
+  "id, nom_article, categorie, sous_famille, unite, gamme, gamme_statistique, utilisation, min_stock, max_stock, depot_id, longueur, largeur, hauteur";
 
 // PostgREST plafonne chaque requete a ~1000 lignes quel que soit le .range()
 // demande - la table (~2200 lignes) a donc toujours besoin de plusieurs
@@ -138,6 +144,12 @@ export default async function ArticlesMatierePremierePage({
     return true;
   });
 
+  // Export Excel : les 3 dimensions et le volume d'un colis en litres (vide quand les dimensions ne sont pas toutes renseignees)
+  const lignesExport = filteredArticles.map((article) => ({
+    ...article,
+    volume_colis_litres: volumeColisLitres(article.longueur, article.largeur, article.hauteur),
+  }));
+
   const totalArticles = filteredArticles.length;
   const totalPages = Math.max(1, Math.ceil(totalArticles / PAGE_SIZE));
   const articles = filteredArticles.slice(from, to + 1);
@@ -171,11 +183,15 @@ export default async function ArticlesMatierePremierePage({
           <div className="flex flex-wrap gap-3">
             <BackButton href="/stock/matiere-premiere" label="Retour gestion stock MP" />
             <ExportExcelButton
-              rows={filteredArticles}
+              rows={lignesExport}
               columns={[
                 ...EXPORT_COLUMNS,
                 ...(avecContenance ? [{ label: "Contenance (kg ou pièces)", key: "contenance" }] : []),
                 ...(avecType ? [{ label: "Type de contenance", key: "conditionnement" }] : []),
+                { label: "Longueur colis (cm)", key: "longueur" },
+                { label: "Largeur colis (cm)", key: "largeur" },
+                { label: "Hauteur colis (cm)", key: "hauteur" },
+                { label: "Volume colis (L)", key: "volume_colis_litres" },
               ]}
               filename={`articles-matiere-premiere-${new Date().toISOString().slice(0, 10)}.xlsx`}
             />
@@ -250,6 +266,8 @@ export default async function ArticlesMatierePremierePage({
                       {avecContenance ? (
                         <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Contenance</th>
                       ) : null}
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Dimensions colis (cm)</th>
+                      <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Volume colis</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme Statistique</th>
                       <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Utilisation</th>
@@ -272,6 +290,22 @@ export default async function ArticlesMatierePremierePage({
                         {avecContenance ? (
                           <td className="px-6 py-4 text-slate-600">{formaterContenance(article.contenance, article.conditionnement, article.unite)}</td>
                         ) : null}
+                        <td className="px-6 py-4 text-slate-600">
+                          {formaterDimensions(article.longueur, article.largeur, article.hauteur)}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {(() => {
+                            const litres = volumeColisLitres(article.longueur, article.largeur, article.hauteur);
+                            return litres === null ? (
+                              "-"
+                            ) : (
+                              <>
+                                <span className="font-semibold text-slate-900">{formaterLitres(litres)}</span>
+                                <span className="block text-xs text-slate-400">{formaterM3(litres / 1000)}</span>
+                              </>
+                            );
+                          })()}
+                        </td>
                         <td className="px-6 py-4 text-slate-600">{article.gamme || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.gamme_statistique || "-"}</td>
                         <td className="px-6 py-4 text-slate-600">{article.utilisation || "-"}</td>

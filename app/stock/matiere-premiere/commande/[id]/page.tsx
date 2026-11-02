@@ -20,6 +20,17 @@ import { statutBcBadgeClass, type StatutBc } from "../../bc/constants";
 import { convertirEnFcfa } from "@/lib/prix-devise";
 import { conditionnementMpDisponible, contenanceMpDisponible, formaterContenance, uniteContenance } from "@/lib/contenance-mp";
 import { ChampsContenance } from "@/app/_components/champs-contenance";
+import { ChampsDimensions } from "@/app/_components/champs-dimensions";
+import {
+  formaterDimensions,
+  formaterLitres,
+  formaterM3,
+  formaterNombreColis,
+  nombreColis,
+  sommeValeursConnues,
+  volumeColisLitres,
+  volumeQuantiteM3,
+} from "@/lib/volume-colis";
 
 type ImportRow = {
   id: number;
@@ -84,22 +95,37 @@ async function fetchBcLignes(ligneIds: number[]) {
   return (data ?? []) as BcLigneRow[];
 }
 
-type ArticleContenance = { contenance: number | null; conditionnement: string | null; unite: string | null };
+type ArticleContenance = {
+  contenance: number | null;
+  conditionnement: string | null;
+  unite: string | null;
+  longueur: number | null;
+  largeur: number | null;
+  hauteur: number | null;
+};
 
-// Contenance habituelle (nombre en kg ou en pieces + type) de chaque article du dossier, proposee dans le formulaire de
-// reception ; l'unite de l'article (pcs -> pieces) decide de l'unite de la contenance
-async function fetchContenancesArticles(articleIds: number[], avecType: boolean) {
+// Contenance habituelle (nombre en kg ou en pieces + type) et dimensions du colis (cm) de chaque article du dossier, proposees
+// dans le formulaire de reception ; l'unite de l'article (pcs -> pieces) decide de l'unite de la contenance. Les dimensions sont
+// lues meme quand la contenance n'existe pas encore (SQL pas execute) : le volume d'un colis n'en depend pas.
+async function fetchContenancesArticles(articleIds: number[], avecContenance: boolean, avecType: boolean) {
   if (articleIds.length === 0) return new Map<number, ArticleContenance>();
 
   const { data } = await supabaseServer
     .from("articles_matiere_premiere")
-    .select(avecType ? "id, unite, contenance, conditionnement" : "id, unite, contenance")
+    .select(`id, unite, longueur, largeur, hauteur${avecContenance ? ", contenance" : ""}${avecType ? ", conditionnement" : ""}`)
     .in("id", articleIds);
 
   return new Map(
     ((data ?? []) as unknown as (Partial<ArticleContenance> & { id: number })[]).map((row) => [
       row.id,
-      { contenance: row.contenance ?? null, conditionnement: row.conditionnement ?? null, unite: row.unite ?? null },
+      {
+        contenance: row.contenance ?? null,
+        conditionnement: row.conditionnement ?? null,
+        unite: row.unite ?? null,
+        longueur: row.longueur ?? null,
+        largeur: row.largeur ?? null,
+        hauteur: row.hauteur ?? null,
+      },
     ])
   );
 }
@@ -149,7 +175,7 @@ export default async function ImportMpDossierPage({
   const bcLignes = await fetchBcLignes([...new Set(rows.map((row) => row.bc_ligne_id))]);
   const ligneById = new Map(bcLignes.map((ligne) => [ligne.id, ligne]));
   const articleIds = [...new Set(bcLignes.map((ligne) => ligne.article_id).filter((id): id is number => id !== null))];
-  const articlesById = avecContenance ? await fetchContenancesArticles(articleIds, avecType) : new Map<number, ArticleContenance>();
+  const articlesById = await fetchContenancesArticles(articleIds, avecContenance, avecType);
   const lotIds = rows.map((row) => row.lot_stock_id).filter((lotId): lotId is number => lotId !== null);
   const lotDataById = await fetchLotPrices(lotIds);
 
@@ -209,6 +235,38 @@ export default async function ImportMpDossierPage({
     null
   );
 
+  // Volume = colis de l'article (longueur x largeur x hauteur saisies a la reception ou sur la fiche Produit) x nombre de colis
+  // (quantite / contenance). Un article sans dimensions ou sans contenance n'a pas de volume : "-" et il ne compte pas dans le
+  // total (jamais un volume devine), le nombre de lignes concernees est rappele sous le total.
+  type ColisLigne = { litres: number | null; colis: number | null; volumeM3: number | null };
+  const colisParLigne = new Map<number, ColisLigne>();
+  for (const ligne of bcLignes) {
+    const article = articlesById.get(ligne.article_id ?? -1);
+    const quantite = quantiteImporteeParLigne.get(ligne.id) ?? 0;
+    const litres = article ? volumeColisLitres(article.longueur, article.largeur, article.hauteur) : null;
+    colisParLigne.set(ligne.id, {
+      litres,
+      colis: nombreColis(quantite, article?.contenance),
+      volumeM3: volumeQuantiteM3(quantite, article?.contenance, litres),
+    });
+  }
+  const volumeTotalLignes = sommeValeursConnues([...colisParLigne.values()].map((c) => c.volumeM3));
+  const colisTotalLignes = sommeValeursConnues([...colisParLigne.values()].map((c) => c.colis));
+  const lignesSansVolume = bcLignes.filter(
+    (ligne) => (quantiteImporteeParLigne.get(ligne.id) ?? 0) > 0 && colisParLigne.get(ligne.id)?.volumeM3 == null
+  ).length;
+  const quantiteTotaleLignes = [...quantiteImporteeParLigne.values()].reduce((sum, quantite) => sum + quantite, 0);
+
+  // Une reception garde la contenance REELLE de son lot : c'est elle (pas celle de l'article) qui donne le nombre de colis recus
+  const volumeParReception = new Map<number, number | null>();
+  for (const row of receptionRows) {
+    const article = articlesById.get(ligneById.get(row.bc_ligne_id)?.article_id ?? -1);
+    const litres = article ? volumeColisLitres(article.longueur, article.largeur, article.hauteur) : null;
+    volumeParReception.set(row.id, volumeQuantiteM3(Number(row.quantite_importee ?? 0), row.contenance, litres));
+  }
+  const volumeTotalReceptions = sommeValeursConnues([...volumeParReception.values()]);
+  const receptionsSansVolume = receptionRows.filter((row) => volumeParReception.get(row.id) == null).length;
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -225,6 +283,17 @@ export default async function ImportMpDossierPage({
                 Doss. ERP : {nDossErp || "-"} - {receptionRows.length} reception(s) - {quantiteReceptionneeTotale} au
                 total
               </p>
+              {volumeTotalLignes !== null || volumeTotalReceptions !== null ? (
+                <p className="mt-1 text-sm font-semibold text-slate-800">
+                  Volume du dossier :{" "}
+                  {[
+                    volumeTotalLignes !== null ? `${formaterM3(volumeTotalLignes)} a receptionner` : null,
+                    volumeTotalReceptions !== null ? `${formaterM3(volumeTotalReceptions)} receptionne` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" - ")}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-3">
@@ -254,6 +323,9 @@ export default async function ImportMpDossierPage({
                       <th className="px-4 py-3 font-semibold">Article</th>
                       {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix unitaire</th> : null}
                       <th className="px-4 py-3 font-semibold">Qte a receptionner</th>
+                      <th className="px-4 py-3 font-semibold">Colis (cm)</th>
+                      {avecContenance ? <th className="px-4 py-3 font-semibold">Nb colis</th> : null}
+                      {avecContenance ? <th className="px-4 py-3 font-semibold">Volume (m³)</th> : null}
                       {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix total</th> : null}
                       <th className="px-4 py-3 font-semibold">Statut</th>
                       {canEdit || canDelete ? <th className="px-4 py-3 font-semibold">Action</th> : null}
@@ -290,6 +362,26 @@ export default async function ImportMpDossierPage({
                             </td>
                           ) : null}
                           <td className="px-4 py-3 font-semibold text-slate-900">{quantiteAReceptionner}</td>
+                          <td className="px-4 py-3 text-slate-600">
+                            {(() => {
+                              const article = articlesById.get(ligne.article_id ?? -1);
+                              const litres = colisParLigne.get(ligne.id)?.litres ?? null;
+                              return (
+                                <>
+                                  {formaterDimensions(article?.longueur, article?.largeur, article?.hauteur)}
+                                  {litres !== null ? <span className="block text-xs text-slate-400">{formaterLitres(litres)} / colis</span> : null}
+                                </>
+                              );
+                            })()}
+                          </td>
+                          {avecContenance ? (
+                            <td className="px-4 py-3 text-slate-600">{formaterNombreColis(colisParLigne.get(ligne.id)?.colis)}</td>
+                          ) : null}
+                          {avecContenance ? (
+                            <td className="px-4 py-3 font-semibold text-slate-900">
+                              {formaterM3(colisParLigne.get(ligne.id)?.volumeM3)}
+                            </td>
+                          ) : null}
                           {canVoirPrix ? (
                             <td className="px-4 py-3 font-semibold text-slate-900">
                               {formatFcfa(prixTotalParLigne.get(ligne.id) ?? null)}
@@ -340,6 +432,14 @@ export default async function ImportMpDossierPage({
                                           />
                                         </div>
                                       ) : null}
+                                      <ChampsDimensions
+                                        longueur={articlesById.get(ligne.article_id ?? -1)?.longueur}
+                                        largeur={articlesById.get(ligne.article_id ?? -1)?.largeur}
+                                        hauteur={articlesById.get(ligne.article_id ?? -1)?.hauteur}
+                                        contenanceInitiale={articlesById.get(ligne.article_id ?? -1)?.contenance}
+                                        quantiteInitiale={quantiteAReceptionner > 0 ? quantiteAReceptionner : null}
+                                        classeChamp="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                      />
                                       <label className="grid gap-1 text-xs text-slate-500">
                                         Fournisseur
                                         <input
@@ -417,17 +517,29 @@ export default async function ImportMpDossierPage({
                       );
                     })}
                   </tbody>
-                  {canVoirPrix ? (
-                    <tfoot>
-                      <tr className="border-t border-slate-200 bg-slate-50">
-                        <td className="px-4 py-3 font-semibold text-slate-900" colSpan={3}>
-                          Total
-                        </td>
+                  <tfoot>
+                    <tr className="border-t border-slate-200 bg-slate-50 align-top">
+                      <td className="px-4 py-3 font-semibold text-slate-900" colSpan={canVoirPrix ? 3 : 2}>
+                        Total
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{quantiteTotaleLignes}</td>
+                      <td className="px-4 py-3 text-xs text-slate-500">
+                        {avecContenance && lignesSansVolume > 0
+                          ? `${lignesSansVolume} ligne(s) sans volume (dimensions ou contenance manquantes)`
+                          : null}
+                      </td>
+                      {avecContenance ? (
+                        <td className="px-4 py-3 font-semibold text-slate-900">{formaterNombreColis(colisTotalLignes)}</td>
+                      ) : null}
+                      {avecContenance ? (
+                        <td className="px-4 py-3 font-semibold text-slate-900">{formaterM3(volumeTotalLignes)}</td>
+                      ) : null}
+                      {canVoirPrix ? (
                         <td className="px-4 py-3 font-semibold text-slate-900">{formatFcfa(totalGeneralLignes)}</td>
-                        <td colSpan={canEdit || canDelete ? 2 : 1}></td>
-                      </tr>
-                    </tfoot>
-                  ) : null}
+                      ) : null}
+                      <td colSpan={canEdit || canDelete ? 2 : 1}></td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </section>
@@ -452,6 +564,7 @@ export default async function ImportMpDossierPage({
                       {canVoirPrix ? <th className="px-4 py-3 font-semibold">Prix total</th> : null}
                       <th className="px-4 py-3 font-semibold">Lot</th>
                       {avecContenance ? <th className="px-4 py-3 font-semibold">Contenance</th> : null}
+                      {avecContenance ? <th className="px-4 py-3 font-semibold">Volume (m³)</th> : null}
                       <th className="px-4 py-3 font-semibold">Date fabrication</th>
                       <th className="px-4 py-3 font-semibold">Date expiration</th>
                       <th className="px-4 py-3 font-semibold">Date reception</th>
@@ -494,6 +607,9 @@ export default async function ImportMpDossierPage({
                               {formaterContenance(row.contenance, row.conditionnement, articlesById.get(ligne?.article_id ?? -1)?.unite)}
                             </td>
                           ) : null}
+                          {avecContenance ? (
+                            <td className="px-4 py-3 font-semibold text-slate-900">{formaterM3(volumeParReception.get(row.id))}</td>
+                          ) : null}
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_fabrication)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_expiration)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_import)}</td>
@@ -509,19 +625,27 @@ export default async function ImportMpDossierPage({
                       );
                     })}
                   </tbody>
-                  {canVoirPrix ? (
-                    <tfoot>
-                      <tr className="border-t border-slate-200 bg-slate-50">
-                        <td className="px-4 py-3 font-semibold text-slate-900" colSpan={4}>
-                          Total
-                        </td>
-                        <td className="px-4 py-3 font-semibold text-slate-900">
-                          {formatFcfa(totalGeneralReceptions)}
-                        </td>
-                        <td colSpan={(canDelete ? 5 : 4) + (avecContenance ? 1 : 0)}></td>
-                      </tr>
-                    </tfoot>
-                  ) : null}
+                  <tfoot>
+                    <tr className="border-t border-slate-200 bg-slate-50 align-top">
+                      <td className="px-4 py-3 font-semibold text-slate-900" colSpan={2}>
+                        Total
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{quantiteReceptionneeTotale}</td>
+                      {canVoirPrix ? <td></td> : null}
+                      {canVoirPrix ? (
+                        <td className="px-4 py-3 font-semibold text-slate-900">{formatFcfa(totalGeneralReceptions)}</td>
+                      ) : null}
+                      <td colSpan={avecContenance ? 2 : 1} className="px-4 py-3 text-xs text-slate-500">
+                        {avecContenance && receptionsSansVolume > 0
+                          ? `${receptionsSansVolume} reception(s) sans volume (dimensions ou contenance manquantes)`
+                          : null}
+                      </td>
+                      {avecContenance ? (
+                        <td className="px-4 py-3 font-semibold text-slate-900">{formaterM3(volumeTotalReceptions)}</td>
+                      ) : null}
+                      <td colSpan={canDelete ? 4 : 3}></td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
               )}
