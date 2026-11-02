@@ -1139,6 +1139,16 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     defaultView: false,
     defaultWrite: false,
   },
+  // Nouvelle page (pas une page decoupee de l'accueil) : fermee pour tous sauf les administrateurs tant qu'elle n'est pas
+  // accordee depuis Admin, donc sans heriteDe.
+  {
+    key: "productionPlastiqueEquipements",
+    module: "ProductionPlastique",
+    label: "Equipements Plastique (machines proposees dans E3)",
+    pathPrefixes: ["/production-plastique/equipements"],
+    defaultView: false,
+    defaultWrite: false,
+  },
   // Fournisseurs (contrepartie de l'ecriture Achat/Fournisseur) - prive par
   // defaut comme Comptabilite.
   {

@@ -16,6 +16,7 @@ import {
   saveCommandeArticlePlastiqueAction,
 } from "@/app/_components/statistique-article-plastique-actions";
 import { SQL_TYPE_MACHINE_PLASTIQUE, TYPES_MACHINE_PLASTIQUE, libelleTypeMachine } from "@/lib/type-machine-plastique";
+import { SQL_EQUIPEMENTS_PLASTIQUE, fetchEquipementsPlastique } from "@/lib/equipements-plastique";
 
 // Module partage - meme rendu utilise depuis Rapport MP
 // (stock/matiere-premiere/rapport/plastique) et Production Plastique
@@ -397,7 +398,11 @@ export async function StatistiqueArticlePlastique({
       demarrageFilter
   );
 
-  const { rows: allRows, error, machineCavitesPret, typeMachinePret, derniereCommandeCode } = await fetchPlastiqueRows();
+  const [{ rows: allRows, error, machineCavitesPret, typeMachinePret, derniereCommandeCode }, equipementsPlastique] =
+    await Promise.all([fetchPlastiqueRows(), fetchEquipementsPlastique()]);
+  // Machine en cours : liste des equipements de la Production Plastique (page Equipements) ; tant que cette liste n'existe
+  // pas (SQL pas lance), la machine reste une saisie libre
+  const nomsEquipements = equipementsPlastique.equipements.map((equipement) => equipement.nom);
 
   const rows = allRows
     .filter((row) => !q || matchesArticleSearch(row.nom_article, q))
@@ -563,6 +568,13 @@ export async function StatistiqueArticlePlastique({
         <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
           Machine et Cavites ne sont pas encore actives : lance d&apos;abord le script SQL
           add_machine_cavites_articles_matiere_premiere.sql dans Supabase (SQL Editor).
+        </p>
+      ) : null}
+      {!error && machineCavitesPret && !equipementsPlastique.pret ? (
+        <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          La liste des equipements n&apos;est pas encore active : lance d&apos;abord le script SQL{" "}
+          {SQL_EQUIPEMENTS_PLASTIQUE.replace("scripts/sql/", "")} dans Supabase (SQL Editor). En attendant, la machine se
+          tape a la main.
         </p>
       ) : null}
       {!error && machineCavitesPret && !typeMachinePret ? (
@@ -731,14 +743,34 @@ export async function StatistiqueArticlePlastique({
                               className="flex items-center gap-2"
                             >
                               <input type="hidden" name="article_id" value={row.article_id} />
-                              <input
-                                type="text"
-                                name="machine"
-                                defaultValue={row.machine ?? ""}
-                                placeholder="Machine..."
-                                maxLength={100}
-                                className="w-40 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
-                              />
+                              {equipementsPlastique.pret ? (
+                                <select
+                                  name="machine"
+                                  defaultValue={row.machine ?? ""}
+                                  aria-label="Machine en cours (equipements de la production plastique)"
+                                  className="w-40 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none"
+                                >
+                                  <option value="">Machine...</option>
+                                  {nomsEquipements.map((nom) => (
+                                    <option key={nom} value={nom}>
+                                      {nom}
+                                    </option>
+                                  ))}
+                                  {/* Machine saisie avant la liste et absente de celle-ci : on la garde visible */}
+                                  {row.machine && !nomsEquipements.includes(row.machine) ? (
+                                    <option value={row.machine}>{row.machine} (hors liste)</option>
+                                  ) : null}
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  name="machine"
+                                  defaultValue={row.machine ?? ""}
+                                  placeholder="Machine..."
+                                  maxLength={100}
+                                  className="w-40 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
+                                />
+                              )}
                               <SubmitButton
                                 pendingLabel="..."
                                 className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"

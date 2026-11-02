@@ -46,6 +46,13 @@ const TILES = [
     icon: "\u{1F4CB}",
     description: "Enregistrees depuis Statistique Article Plastique (E3) via Save.",
   },
+  {
+    label: "Equipements",
+    href: "/production-plastique/equipements",
+    pageKey: "productionPlastiqueEquipements",
+    icon: "\u{2699}\u{FE0F}",
+    description: "Machines de la production plastique - proposees dans la colonne Machine en cours de E3.",
+  },
 ] as const;
 
 export default async function ProductionPlastiquePage() {

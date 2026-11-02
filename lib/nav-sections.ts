@@ -176,6 +176,7 @@ export const navItems: NavItem[] = [
       },
       { href: "/production-plastique/statistique", label: "Statistique", pageKey: "productionPlastiqueStatistique" },
       { href: "/production-plastique/commandes", label: "Commandes", pageKey: "productionPlastiqueCommandes" },
+      { href: "/production-plastique/equipements", label: "Equipements", pageKey: "productionPlastiqueEquipements" },
     ],
   },
   {

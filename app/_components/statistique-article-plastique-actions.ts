@@ -5,6 +5,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchPlastiqueRows } from "@/app/_components/statistique-article-plastique";
 import { lireTypeMachine } from "@/lib/type-machine-plastique";
+import { fetchEquipementsPlastique } from "@/lib/equipements-plastique";
 
 // Utilisee depuis Rapport MP (stockPlastiqueMp) ET Production Plastique
 // (productionPlastiqueStatistique) - le composant est partage entre les 2, le droit
@@ -56,6 +57,22 @@ export async function updateMachinePlastiqueAction(formData: FormData) {
 
   const articleId = lireArticleId(formData);
   const machine = String(formData.get("machine") || "").trim().slice(0, 100) || null;
+
+  // Une fois la liste des equipements plastique active, la machine doit en faire partie (ou etre celle que l'article a
+  // deja : une machine saisie avant la liste reste valable tant qu'on ne la change pas)
+  if (machine !== null) {
+    const { pret, equipements } = await fetchEquipementsPlastique();
+    if (pret && !equipements.some((equipement) => equipement.nom === machine)) {
+      const { data: article } = await supabaseServer
+        .from("articles_matiere_premiere")
+        .select("machine_plastique")
+        .eq("id", articleId)
+        .maybeSingle();
+      if ((article as { machine_plastique: string | null } | null)?.machine_plastique !== machine) {
+        throw new Error("Equipement inconnu : choisis une machine de la liste (Production Plastique > Equipements).");
+      }
+    }
+  }
 
   const { error } = await supabaseServer
     .from("articles_matiere_premiere")
