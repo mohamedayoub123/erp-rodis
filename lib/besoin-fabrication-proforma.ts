@@ -1,4 +1,4 @@
-import { supabaseServer } from "@/lib/supabase-server";
+import { lireStockMpDepotE } from "@/lib/lot-balances-mp";
 import {
   calculerBesoinProformas,
   lireArrivagesMp,
@@ -15,10 +15,9 @@ import {
 //     contenance (ou la quantite de vrac saisie dans sa Recette Conditionnement) ;
 //  2. la Recette Fabrication du vrac (table recettes_pf, article_pf_id = le vrac) donne, pour un lot de "quantite_recette_base"
 //     kg de vrac, la quantite de chaque MP : besoin MP = kg de vrac a fabriquer x quantite de la recette / kg du lot de la recette ;
-//  3. le besoin de chaque MP est compare au stock utilisable en fabrication, puis aux commandes (BC) et imports en cours (memes
-//     regles que le Besoin Conditionnement : commande et import ne se comptent jamais deux fois). Stock utilisable = Depot E
-//     (reserve generale, depot par defaut des MP) + Depot B (depot de la fabrication, ou les Transfer Orders des programmes
-//     envoient les MP) : compter le seul Depot E ferait croire a des manques que le Depot B couvre.
+//  3. le besoin de chaque MP est compare au stock du Depot E SEULEMENT (decision de l'utilisateur, comme le Besoin Conditionnement :
+//     le stock des autres depots, Depot B, Depot F..., ne compte pas), puis aux commandes (BC) et imports en cours (commande et
+//     import ne se comptent jamais deux fois).
 
 export type StatutRecetteFabrication = "ok" | "sans_recette" | "lot_inconnu";
 
@@ -50,9 +49,7 @@ export type BesoinMpFabrication = {
   unite: string;
   categorie: string;
   besoin: number;
-  // stock utilisable = Depot E + Depot B (un solde negatif compte pour 0 : des sorties saisies en trop ne sont pas du stock a rembourser)
-  stockDepotE: number;
-  stockDepotB: number;
+  // stock du Depot E (peut etre negatif : sorties saisies en trop ; le manque compte alors 0 de disponible)
   stock: number;
   manque: number;
   // vracs dont la recette utilise cette MP
@@ -77,32 +74,6 @@ export type ResultatBesoinFabrication = {
 type VracRow = { id: number; nom_article: string | null; quantite_recette_base: number | null };
 type RecetteRow = { article_pf_id: number; article_mp_id: number; quantite: number | null };
 type MpRow = { id: number; nom_article: string | null; unite: string | null; categorie: string | null };
-
-// Stock d'un depot par article (fonction SQL stock_by_article_depot_mp : le depot d'un mouvement est son depot_id, sinon le depot
-// par defaut de l'article - meme regle que la page du depot). Une erreur de lecture est levee (jamais un stock a 0 qui ferait
-// croire a un manque).
-async function lireStockMpDuDepot(nomDepot: string): Promise<Map<number, number>> {
-  const { data: depot, error: erreurDepot } = await supabaseServer.from("depots").select("id").eq("nom", nomDepot).maybeSingle();
-  if (erreurDepot) throw new Error(erreurDepot.message);
-  const depotId = (depot as { id: number } | null)?.id;
-  if (!depotId) throw new Error(`Depot "${nomDepot}" introuvable`);
-
-  const stock = new Map<number, number>();
-  const taillePage = 1000;
-  for (let debut = 0; ; debut += taillePage) {
-    // un seul article par ligne une fois filtre sur le depot : le tri par article rend la pagination stable
-    const { data, error } = await supabaseServer
-      .rpc("stock_by_article_depot_mp")
-      .eq("depot_id", depotId)
-      .order("article_id", { ascending: true })
-      .range(debut, debut + taillePage - 1);
-    if (error) throw new Error(error.message);
-    const page = (data ?? []) as { article_id: number; stock: number | string | null }[];
-    for (const ligne of page) stock.set(Number(ligne.article_id), Number(ligne.stock ?? 0));
-    if (page.length < taillePage) break;
-  }
-  return stock;
-}
 
 export async function calculerBesoinFabrication(saisies: string[]): Promise<ResultatBesoinFabrication> {
   // Cartons a produire + kg de vrac par article : meme calcul que le Besoin Conditionnement (sans ses articles de conditionnement)
@@ -202,24 +173,22 @@ export async function calculerBesoinFabrication(saisies: string[]): Promise<Resu
 
   // Un souci de lecture des commandes / imports ne doit pas bloquer le calcul du besoin : on le signale seulement
   let arrivagesIndisponibles = false;
-  const [mpRows, stockDepotE, stockDepotB, arrivages] = await Promise.all([
+  const [mpRows, soldesDepotE, arrivages] = await Promise.all([
     lireParIds<MpRow>("articles_matiere_premiere", "id, nom_article, unite, categorie", "id", mpIds),
-    lireStockMpDuDepot("Depot E"),
-    lireStockMpDuDepot("Depot B"),
+    lireStockMpDepotE(),
     lireArrivagesMp(mpIds).catch((): Arrivages => {
       arrivagesIndisponibles = true;
       return { commandesParMp: new Map(), importsParMp: new Map() };
     }),
   ]);
   const mpParId = new Map(mpRows.map((mp) => [mp.id, mp]));
+  const stockParMp = new Map(soldesDepotE.map((solde) => [solde.article_id, solde.stock]));
 
   const besoins: BesoinMpFabrication[] = [...besoinParMp.entries()].map(([articleMpId, valeur]) => {
     const mp = mpParId.get(articleMpId);
-    const enE = stockDepotE.get(articleMpId) ?? 0;
-    const enB = stockDepotB.get(articleMpId) ?? 0;
-    // Un stock negatif (sorties saisies en trop) n'est pas du stock a "rembourser" : chaque depot compte au plus 0 de disponible
-    const stock = Math.max(enE, 0) + Math.max(enB, 0);
-    const manqueBrut = Math.max(0, valeur.besoin - stock);
+    const stock = stockParMp.get(articleMpId) ?? 0;
+    // Un stock negatif (sorties saisies en trop) n'est pas du stock a "rembourser" : on compte au plus 0 de disponible
+    const manqueBrut = Math.max(0, valeur.besoin - Math.max(stock, 0));
     // arrondi pour ne pas afficher un manque de 0,0000001 cause par les virgules flottantes
     const manque = manqueBrut < 1e-6 ? 0 : manqueBrut;
     const commandes = (arrivages.commandesParMp.get(articleMpId) ?? []).sort((a, b) => b.quantite - a.quantite);
@@ -233,8 +202,6 @@ export async function calculerBesoinFabrication(saisies: string[]): Promise<Resu
       unite: mp?.unite ?? "",
       categorie: mp?.categorie ?? "",
       besoin: valeur.besoin,
-      stockDepotE: enE,
-      stockDepotB: enB,
       stock,
       manque,
       utilisePar: [...valeur.utilisePar].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" })),

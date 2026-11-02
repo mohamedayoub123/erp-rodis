@@ -204,8 +204,8 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
               <p className="mt-1 text-sm text-slate-600">
                 Besoin = kg de vrac a fabriquer x quantite de la Recette Fabrication / kg du lot de la recette. Les kg de vrac
                 viennent des cartons a produire (cartons commandes moins le stock PF, comme le Besoin Conditionnement) x pieces
-                par carton x contenance. Stock utilisable = Depot E (reserve generale) + Depot B (depot de la fabrication) ; un solde negatif
-                compte pour 0. Commande (BC) = ce qu&apos;il reste a recevoir sur les
+                par carton x contenance. Stock = stock du Depot E seulement (le stock des autres depots, Depot B, Depot F..., ne compte
+                pas). Commande (BC) = ce qu&apos;il reste a recevoir sur les
                 bons de commande en cours ; Import = ce qui est en route et pas encore receptionne : commande et import ne se
                 comptent jamais deux fois.
               </p>
@@ -223,9 +223,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
                       <th className="px-4 py-3 font-semibold">Categorie</th>
                       <th className="px-4 py-3 font-semibold">Unite</th>
                       <th className="px-4 py-3 text-right font-semibold">Besoin</th>
-                      <th className="px-4 py-3 text-right font-semibold">Depot E</th>
-                      <th className="px-4 py-3 text-right font-semibold">Depot B</th>
-                      <th className="px-4 py-3 text-right font-semibold">Stock utilisable</th>
+                      <th className="px-4 py-3 text-right font-semibold">Stock</th>
                       <th className="px-4 py-3 text-right font-semibold">Manque</th>
                       <th className="px-4 py-3 font-semibold">Commande (BC) en cours</th>
                       <th className="px-4 py-3 font-semibold">Import en cours</th>
@@ -245,8 +243,6 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
                         <td className="px-4 py-3 text-xs font-semibold text-slate-500">{besoin.categorie || "-"}</td>
                         <td className="px-4 py-3 text-slate-600">{besoin.unite || "-"}</td>
                         <td className="px-4 py-3 text-right tabular-nums">{nombre(besoin.besoin)}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-slate-600">{nombre(besoin.stockDepotE)}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-slate-600">{nombre(besoin.stockDepotB)}</td>
                         <td className="px-4 py-3 text-right tabular-nums">{nombre(besoin.stock)}</td>
                         <td
                           className={`px-4 py-3 text-right font-semibold tabular-nums ${
