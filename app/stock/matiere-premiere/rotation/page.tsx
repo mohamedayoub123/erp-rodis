@@ -109,21 +109,51 @@ async function fetchAllArticlesMp() {
 // scripts/sql/create_rotation_stock_mp_agregats.sql) : avant, la page
 // telechargeait les ~62 000 mouvements de matiere premiere, 1000 a la fois,
 // pour les additionner ici (~20 s).
+//
+// Seul le Depot E compte (demande explicite) : la fonction a 3 parametres (add_depot_rotation_stock_mp_agregats.sql) limite les
+// 4 sommes aux mouvements de ce depot. Tant que ce SQL n'est pas lance, on retombe sur la version a 2 parametres (tous les
+// depots) et la page le signale (depotEPret = false).
+const DEPOT_ROTATION = "Depot E";
+
+function fonctionAbsente(erreur: { code?: string; message: string }) {
+  return (
+    erreur.code === "PGRST202" ||
+    erreur.code === "42883" ||
+    /could not find the function|does not exist/i.test(erreur.message)
+  );
+}
+
 async function fetchAgregatsMouvements(debut12MoisIso: string, debut1MoisIso: string) {
-  const appel = () =>
+  // 2e essai apres une courte pause si la base, tres sollicitee, depasse son
+  // delai maximum (la requete suivante passe en general sans probleme).
+  async function avecReessai(appel: () => PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }>) {
+    let resultat = await appel();
+    if (resultat.error && !fonctionAbsente(resultat.error)) {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      resultat = await appel();
+    }
+    return resultat;
+  }
+
+  const { data: depot, error: erreurDepot } = await supabaseServer.from("depots").select("id").eq("nom", DEPOT_ROTATION).maybeSingle();
+  if (erreurDepot) return { rows: [] as AgregatMp[], error: erreurDepot, depotEPret: false };
+  const depotId = (depot as { id: number } | null)?.id;
+  if (!depotId) return { rows: [] as AgregatMp[], error: { message: `Depot "${DEPOT_ROTATION}" introuvable.` }, depotEPret: false };
+
+  const duDepot = await avecReessai(() =>
     supabaseServer.rpc("rotation_stock_mp_agregats", {
       p_debut_12_mois: debut12MoisIso,
       p_debut_1_mois: debut1MoisIso,
-    });
-  // 2e essai apres une courte pause si la base, tres sollicitee, depasse son
-  // delai maximum (la requete suivante passe en general sans probleme).
-  let { data, error } = await appel();
-  if (error) {
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    ({ data, error } = await appel());
-  }
+      p_depot_id: depotId,
+    })
+  );
+  if (!duDepot.error) return { rows: (duDepot.data as AgregatMp[] | null) ?? [], error: null, depotEPret: true };
+  if (!fonctionAbsente(duDepot.error)) return { rows: [] as AgregatMp[], error: duDepot.error, depotEPret: false };
 
-  return { rows: ((data as AgregatMp[] | null) ?? []), error };
+  const tousDepots = await avecReessai(() =>
+    supabaseServer.rpc("rotation_stock_mp_agregats", { p_debut_12_mois: debut12MoisIso, p_debut_1_mois: debut1MoisIso })
+  );
+  return { rows: (tousDepots.data as AgregatMp[] | null) ?? [], error: tousDepots.error, depotEPret: false };
 }
 
 function formatNumber(value: number) {
@@ -184,7 +214,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
   const oneMonthAgoIso = oneMonthAgo.toISOString().slice(0, 10);
 
-  const [{ rows: articles, error: articlesError }, { rows: agregats, error: agregatsError }] =
+  const [{ rows: articles, error: articlesError }, { rows: agregats, error: agregatsError, depotEPret }] =
     await Promise.all([fetchAllArticlesMp(), fetchAgregatsMouvements(twelveMonthsAgoIso, oneMonthAgoIso)]);
 
   const error = articlesError || agregatsError;
@@ -330,7 +360,8 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
               Rotation de Stock MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Rotation = consommation des 12 derniers mois / stock moyen (moyenne entre le stock
+              Tout est calcule sur le Depot E seulement : le stock, le stock d&apos;il y a 12 mois et les sorties des autres depots ne
+              comptent pas. Rotation = consommation des 12 derniers mois / stock moyen (moyenne entre le stock
               d&apos;il y a 12 mois et le stock actuel - combien de fois le stock a ete renouvele
               dans l&apos;annee). Jours de couverture = a la vitesse actuelle, combien de jours le
               stock restant tiendrait. Niveau : Forte (4x/an ou plus), Moyenne (1 a 4x/an), Faible
@@ -349,6 +380,13 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
             <RefreshButton />
           </div>
         </div>
+
+        {!error && !depotEPret ? (
+          <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+            Le calcul sur le Depot E seulement n&apos;est pas encore actif : lance d&apos;abord le script SQL
+            add_depot_rotation_stock_mp_agregats.sql dans Supabase (SQL Editor). En attendant, cette page compte TOUS les depots.
+          </p>
+        ) : null}
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <div className="mb-5 flex flex-wrap gap-2">
