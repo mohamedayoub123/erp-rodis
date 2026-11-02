@@ -261,13 +261,6 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     adminGroup: "Rapport (Matiere Premiere)",
   },
   {
-    key: "stockPlastiqueMp",
-    module: "Stock",
-    label: "Statistique Article Plastique MP (E3)",
-    pathPrefixes: ["/stock/matiere-premiere/rapport/plastique"],
-    adminGroup: "Rapport (Matiere Premiere)",
-  },
-  {
     key: "stockRotationMp",
     module: "Stock",
     label: "Rotation de Stock MP",
@@ -1232,7 +1225,6 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockSurstockMp",
   "stockPerimeMp",
   "stockDormantMp",
-  "stockPlastiqueMp",
   "statistiqueMp",
   "inventaireMp",
   "commandeMp",

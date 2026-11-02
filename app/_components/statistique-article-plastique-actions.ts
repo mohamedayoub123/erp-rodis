@@ -7,15 +7,12 @@ import { fetchPlastiqueRows } from "@/app/_components/statistique-article-plasti
 import { lireTypeMachine } from "@/lib/type-machine-plastique";
 import { fetchEquipementsPlastique } from "@/lib/equipements-plastique";
 
-// Utilisee depuis Rapport MP (stockPlastiqueMp) ET Production Plastique
-// (productionPlastiqueStatistique) - le composant est partage entre les 2, le droit
-// d'ecriture accorde depuis L'UN OU L'AUTRE module suffit.
+// Statistique Article Plastique (E3) n'existe plus que dans Production Plastique (la copie du Rapport MP a ete retiree) :
+// le droit d'ecriture est celui de la page "Statistique Article Plastique (E3)" de Production Plastique.
 async function requireStatistiqueArticlePlastiqueWriteAccess() {
   const currentUser = await getCurrentStockUser();
-  const canFromRapportMp = await canWritePageUser(currentUser, "stockPlastiqueMp");
-  const canFromProduction = await canWritePageUser(currentUser, "productionPlastiqueStatistique");
 
-  if (!canFromRapportMp && !canFromProduction) {
+  if (!(await canWritePageUser(currentUser, "productionPlastiqueStatistique"))) {
     throw new Error("Cet utilisateur ne peut pas modifier cette page.");
   }
 
@@ -39,7 +36,6 @@ export async function updateAvisFabricationAction(formData: FormData) {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath("/stock/matiere-premiere/rapport/plastique");
   revalidatePath("/production-plastique/statistique");
 }
 
@@ -81,7 +77,6 @@ export async function updateMachinePlastiqueAction(formData: FormData) {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath("/stock/matiere-premiere/rapport/plastique");
   revalidatePath("/production-plastique/statistique");
 }
 
@@ -120,7 +115,6 @@ export async function updateTypeMachinePlastiqueAction(formData: FormData) {
     throw new Error("Le type de machine de cet article vient d'etre choisi : il est fixe et ne peut plus etre change.");
   }
 
-  revalidatePath("/stock/matiere-premiere/rapport/plastique");
   revalidatePath("/production-plastique/statistique");
 }
 
@@ -149,24 +143,30 @@ function lireEquipementId(formData: FormData): number {
 }
 
 function revalidatePagesPlastique() {
-  revalidatePath("/stock/matiere-premiere/rapport/plastique");
   revalidatePath("/production-plastique/statistique");
   revalidatePath("/production-plastique/equipements");
 }
 
-export async function ajouterMachinePlastiqueAction(formData: FormData) {
+// Resultat de "Ajouter" : le message d'erreur est RENDU sous le formulaire. Une erreur levee (throw) dans une action serveur
+// n'afficherait en production que la page generique "Une erreur s'est produite", sans dire pourquoi (machine absente de la
+// liste, champ vide...).
+export type EtatAjoutMachine = { erreur: string | null } | null;
+
+async function ajouterMachinePlastique(formData: FormData) {
   await requireStatistiqueArticlePlastiqueWriteAccess();
 
   const articleId = lireArticleId(formData);
   const nomSaisi = String(formData.get("equipement") || "").trim();
-  if (!nomSaisi) throw new Error("Choisis une machine de la liste.");
+  if (!nomSaisi) throw new Error("Tape ou choisis le nom d'une machine de la liste.");
   const nbCavites = lireNbCavites(formData);
 
   const { pret, equipements } = await fetchEquipementsPlastique();
   if (!pret) throw new Error("La liste des equipements n'est pas active : lance d'abord le SQL create_equipements_plastique.sql.");
   const equipement = equipements.find((candidat) => cleNom(candidat.nom) === cleNom(nomSaisi));
   if (!equipement) {
-    throw new Error(`Equipement inconnu : "${nomSaisi}". Choisis une machine de la liste (Production Plastique > Equipements).`);
+    throw new Error(
+      `La machine "${nomSaisi}" n'est pas dans la liste. Choisis une machine proposee, ou ajoute-la d'abord dans Production Plastique > Equipements.`
+    );
   }
 
   const { error } = await supabaseServer
@@ -175,6 +175,15 @@ export async function ajouterMachinePlastiqueAction(formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePagesPlastique();
+}
+
+export async function ajouterMachinePlastiqueAction(_etat: EtatAjoutMachine, formData: FormData): Promise<EtatAjoutMachine> {
+  try {
+    await ajouterMachinePlastique(formData);
+    return { erreur: null };
+  } catch (e) {
+    return { erreur: e instanceof Error ? e.message : "Erreur pendant l'ajout de la machine." };
+  }
 }
 
 export async function modifierCavitesMachinePlastiqueAction(formData: FormData) {
@@ -225,7 +234,6 @@ export async function updateNbCavitesAction(formData: FormData) {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath("/stock/matiere-premiere/rapport/plastique");
   revalidatePath("/production-plastique/statistique");
 }
 

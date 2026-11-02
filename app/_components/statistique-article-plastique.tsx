@@ -13,7 +13,6 @@ import {
   updateMachinePlastiqueAction,
   updateTypeMachinePlastiqueAction,
   updateNbCavitesAction,
-  ajouterMachinePlastiqueAction,
   modifierCavitesMachinePlastiqueAction,
   retirerMachinePlastiqueAction,
   saveCommandeArticlePlastiqueAction,
@@ -33,12 +32,10 @@ import {
 } from "@/lib/equipements-plastique";
 import { lireStockMpDepotE } from "@/lib/lot-balances-mp";
 import { separerUtilisations } from "@/lib/utilisation-article";
+import { FormulaireAjoutMachinePlastique } from "@/app/_components/formulaire-ajout-machine-plastique";
 
-// Module partage - meme rendu utilise depuis Rapport MP
-// (stock/matiere-premiere/rapport/plastique) et Production Plastique
-// (production-plastique/statistique), demande explicite : "la meme
-// module" aux 2 endroits plutot que 2 versions dupliquees a maintenir
-// separement.
+// Statistique Article Plastique (E3) : page production-plastique/statistique. La copie qui existait dans Rapport MP
+// (stock/matiere-premiere/rapport/plastique) a ete retiree (demande explicite : c'etait la meme page).
 
 type StockActuelMpRpcRow = {
   article_id: number;
@@ -461,35 +458,7 @@ function CelluleMachines({
         </ul>
       ) : null}
 
-      <form action={ajouterMachinePlastiqueAction} className="flex flex-wrap items-center gap-1">
-        <input type="hidden" name="article_id" value={articleId} />
-        <input
-          type="text"
-          name="equipement"
-          list="equipements-e3"
-          placeholder={machines.length === 0 ? "+ Machine..." : "+ Une autre machine..."}
-          autoComplete="off"
-          maxLength={100}
-          aria-label="Ajouter une machine (nom pris dans la liste des equipements)"
-          className="w-40 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm outline-none"
-        />
-        <input
-          type="number"
-          name="nb_cavites"
-          placeholder="Cav."
-          min="1"
-          max="999"
-          step="1"
-          aria-label="Cavites de cette machine"
-          className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm outline-none"
-        />
-        <SubmitButton
-          pendingLabel="..."
-          className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800"
-        >
-          Ajouter
-        </SubmitButton>
-      </form>
+      <FormulaireAjoutMachinePlastique articleId={articleId} aDesMachines={machines.length > 0} />
 
       {machines.length === 0 && nbCavitesAvant !== null ? (
         <p className="text-xs text-slate-400">Cavites saisies avant : {nbCavitesAvant}</p>

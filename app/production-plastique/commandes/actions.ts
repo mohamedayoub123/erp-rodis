@@ -57,7 +57,6 @@ export async function supprimerCommandeArticlePlastiqueAction(commandeId: number
 
     revalidatePath("/production-plastique/commandes");
     revalidatePath("/production-plastique/statistique");
-    revalidatePath("/stock/matiere-premiere/rapport/plastique");
 
     return { ok: true, message: `Commande ${code} supprimee.` };
   } catch (error) {

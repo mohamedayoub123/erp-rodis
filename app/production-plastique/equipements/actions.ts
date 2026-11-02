@@ -26,7 +26,6 @@ function lireTonSection(formData: FormData): { ton?: string | null; section?: st
 function revalidateEquipementsPlastique() {
   revalidatePath("/production-plastique/equipements");
   revalidatePath("/production-plastique/statistique");
-  revalidatePath("/stock/matiere-premiere/rapport/plastique");
 }
 
 // Deux equipements ne peuvent pas porter le meme nom, sans tenir compte des majuscules ("m3" = "M3")

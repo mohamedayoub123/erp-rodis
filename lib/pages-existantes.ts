@@ -30,7 +30,6 @@ export const PAGES_EXISTANTES = new Set<string>([
   "stockPropositionCommandeMp",
   "stockSurstockMp",
   "stockActuelMp",
-  "stockPlastiqueMp",
   "stockRotationMp",
   "stockPerimeMp",
   "stockDormantMp",
