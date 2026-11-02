@@ -20,6 +20,18 @@ export function lireTypeMachine(valeur: FormDataEntryValue | null): CodeTypeMach
   return trouve.code;
 }
 
+// Une feuille Excel par type de machine (Injection, Soufflage, PET), toujours les 3 meme si l'une est vide. Les articles sans
+// type vont dans une feuille "Sans type", ajoutee seulement s'il y en a, pour qu'aucun article ne disparaisse de l'export.
+export function repartirParTypeMachine<T extends { type_machine: string | null }>(rows: T[]): { nom: string; rows: T[] }[] {
+  const feuilles: { nom: string; rows: T[] }[] = TYPES_MACHINE_PLASTIQUE.map((type) => ({
+    nom: type.libelle,
+    rows: rows.filter((row) => row.type_machine === type.code),
+  }));
+  const sansType = rows.filter((row) => !TYPES_MACHINE_PLASTIQUE.some((type) => type.code === row.type_machine));
+  if (sansType.length > 0) feuilles.push({ nom: "Sans type", rows: sansType });
+  return feuilles;
+}
+
 export function libelleTypeMachine(code: string | null | undefined): string {
   return TYPES_MACHINE_PLASTIQUE.find((type) => type.code === code)?.libelle ?? "-";
 }

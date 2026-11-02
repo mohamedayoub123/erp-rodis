@@ -1,44 +1,22 @@
 "use client";
 
 import * as XLSX from "xlsx";
-
-type ExportColumn = { label: string; key: string };
-type ExportRow = Record<string, string | number | null | undefined>;
+import { construireClasseur, type ColonneExport, type FeuilleExport, type LigneExport } from "@/lib/classeur-excel";
 
 export function ExportExcelButton({
   rows,
   columns,
   filename,
+  sheets,
 }: {
-  rows: ExportRow[];
-  columns: ExportColumn[];
+  rows: LigneExport[];
+  columns: ColonneExport[];
   filename: string;
+  // Plusieurs feuilles (ex : une par type de machine) ; sans cela, une seule feuille "Export" avec "rows"
+  sheets?: FeuilleExport[];
 }) {
   function handleExport() {
-    const data = rows.map((row) =>
-      Object.fromEntries(columns.map((column) => [column.label, row[column.key] ?? ""]))
-    );
-    const worksheet = XLSX.utils.json_to_sheet(data, { header: columns.map((column) => column.label) });
-
-    // Largeur de chaque colonne ajustee au plus long contenu (titre ou
-    // valeur), pour ne pas avoir a redimensionner a la main a l'ouverture.
-    worksheet["!cols"] = columns.map((column) => {
-      const longest = rows.reduce((max, row) => {
-        const text = row[column.key];
-        const length = text === null || text === undefined ? 0 : String(text).length;
-        return Math.max(max, length);
-      }, column.label.length);
-      return { wch: Math.min(Math.max(longest + 2, 10), 60) };
-    });
-
-    // Filtre sur toutes les colonnes (fleches de tri/filtre Excel sur la
-    // ligne de titres).
-    const lastCol = XLSX.utils.encode_col(columns.length - 1);
-    worksheet["!autofilter"] = { ref: `A1:${lastCol}${rows.length + 1}` };
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Export");
-    XLSX.writeFile(workbook, filename);
+    XLSX.writeFile(construireClasseur(columns, sheets ?? [{ name: "Export", rows }]), filename);
   }
 
   return (

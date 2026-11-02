@@ -15,7 +15,12 @@ import {
   updateNbCavitesAction,
   saveCommandeArticlePlastiqueAction,
 } from "@/app/_components/statistique-article-plastique-actions";
-import { SQL_TYPE_MACHINE_PLASTIQUE, TYPES_MACHINE_PLASTIQUE, libelleTypeMachine } from "@/lib/type-machine-plastique";
+import {
+  SQL_TYPE_MACHINE_PLASTIQUE,
+  TYPES_MACHINE_PLASTIQUE,
+  libelleTypeMachine,
+  repartirParTypeMachine,
+} from "@/lib/type-machine-plastique";
 import { SQL_EQUIPEMENTS_PLASTIQUE, fetchEquipementsPlastique } from "@/lib/equipements-plastique";
 
 // Module partage - meme rendu utilise depuis Rapport MP
@@ -458,7 +463,7 @@ export async function StatistiqueArticlePlastique({
     { label: "Machine en cours", key: "machine" },
     { label: "Cavites", key: "cavites" },
   ];
-  const exportRows = rows.map((row) => ({
+  const versLigneExport = (row: PlastiqueRow) => ({
     article: row.nom_article,
     gamme: row.gamme || "-",
     categorie: displayCategorie(row.categorie),
@@ -478,6 +483,13 @@ export async function StatistiqueArticlePlastique({
     typeMachine: libelleTypeMachine(row.type_machine),
     machine: row.machine || "-",
     cavites: row.nb_cavites ?? "-",
+  });
+  const exportRows = rows.map(versLigneExport);
+  // Excel en 3 feuilles : Injection, Soufflage, PET (d'apres la colonne Type de machine) ; les articles sans type, s'il y en a,
+  // sont dans une 4e feuille "Sans type"
+  const exportFeuilles = repartirParTypeMachine(rows).map((feuille) => ({
+    name: feuille.nom,
+    rows: feuille.rows.map(versLigneExport),
   }));
 
   return (
@@ -556,6 +568,7 @@ export async function StatistiqueArticlePlastique({
               {canEdit ? <SaveCommandeButton saveAction={saveCommandeArticlePlastiqueAction} /> : null}
               <ExportExcelButton
                 rows={exportRows}
+                sheets={exportFeuilles}
                 columns={exportColumns}
                 filename={`statistique-article-plastique-${new Date().toISOString().slice(0, 10)}.xlsx`}
               />
