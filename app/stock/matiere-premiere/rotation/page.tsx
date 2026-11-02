@@ -11,6 +11,8 @@ type ArticleMpRow = {
   nom_article: string;
   categorie: string | null;
   unite: string | null;
+  // Gamme de l'article (champ Gamme des Articles Matiere Premiere), distincte de la gamme statistique
+  gamme: string | null;
   gamme_statistique: string | null;
 };
 
@@ -28,6 +30,7 @@ type RotationRow = {
   article_id: number;
   nom_article: string;
   categorie: string | null;
+  gamme: string | null;
   gamme_statistique: string | null;
   unite: string | null;
   stock_actuel: number;
@@ -88,7 +91,7 @@ async function fetchAllArticlesMp() {
   while (true) {
     const { data, error } = await supabaseServer
       .from("articles_matiere_premiere")
-      .select("id, nom_article, categorie, unite, gamme_statistique")
+      .select("id, nom_article, categorie, unite, gamme, gamme_statistique")
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -163,6 +166,7 @@ function formatNumber(value: number) {
 type SearchParams = Promise<{
   article?: string;
   categorie?: string;
+  gamme?: string;
   gamme_statistique?: string;
   niveau?: string;
   tout?: string;
@@ -190,12 +194,15 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   const params = await searchParams;
   const articleFilter = (params.article || "").trim();
   const categorieFilter = (params.categorie || "").trim().toLowerCase();
+  const gammeFilter = (params.gamme || "").trim().toLowerCase();
   const gammeStatistiqueFilter = (params.gamme_statistique || "").trim().toLowerCase();
   const niveauFilter = (params.niveau || "").trim().toUpperCase() as NiveauRotation | "";
   const triParam = (params.tri || "").trim();
   const tri: CleTri = TRIS.some((option) => option.cle === triParam) ? (triParam as CleTri) : "rotation";
   const ordre: "desc" | "asc" = params.ordre === "asc" ? "asc" : "desc";
-  const hasFilters = Boolean(articleFilter || categorieFilter || gammeStatistiqueFilter || niveauFilter || params.tri || params.ordre);
+  const hasFilters = Boolean(
+    articleFilter || categorieFilter || gammeFilter || gammeStatistiqueFilter || niveauFilter || params.tri || params.ordre
+  );
 
   // Stock actuel = somme entree-sortie de tous les mouvements de l'article
   // (meme calcul que Stock Actuel MP / Stock Alert MP). Consommation 12 mois
@@ -250,6 +257,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
         article_id: article.id,
         nom_article: article.nom_article,
         categorie: article.categorie,
+        gamme: article.gamme,
         gamme_statistique: article.gamme_statistique,
         unite: article.unite,
         stock_actuel: stockActuel,
@@ -264,6 +272,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
     })
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
     .filter((row) => !categorieFilter || (row.categorie || "").toLowerCase().includes(categorieFilter))
+    .filter((row) => !gammeFilter || (row.gamme || "").toLowerCase().includes(gammeFilter))
     .filter(
       (row) => !gammeStatistiqueFilter || (row.gamme_statistique || "").toLowerCase().includes(gammeStatistiqueFilter)
     )
@@ -293,6 +302,9 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   const categorieOptions = (
     [...new Set(articles.map((article) => article.categorie).filter(Boolean))] as string[]
   ).map((label, index) => ({ id: index, label }));
+  const gammeOptions = ([...new Set(articles.map((article) => article.gamme).filter(Boolean))] as string[])
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .map((label, index) => ({ id: index, label }));
   const gammeStatistiqueOptions = (
     [...new Set(articles.map((article) => article.gamme_statistique).filter(Boolean))] as string[]
   )
@@ -304,6 +316,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
     new URLSearchParams({
       ...(articleFilter ? { article: articleFilter } : {}),
       ...(categorieFilter ? { categorie: categorieFilter } : {}),
+      ...(gammeFilter ? { gamme: gammeFilter } : {}),
       ...(gammeStatistiqueFilter ? { gamme_statistique: gammeStatistiqueFilter } : {}),
       ...(niveauFilter ? { niveau: niveauFilter } : {}),
       ...(triParDefaut ? {} : { tri, ordre }),
@@ -321,6 +334,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   const exportColumns = [
     { label: "Article", key: "article" },
     { label: "Categorie", key: "categorie" },
+    { label: "Gamme", key: "gamme" },
     { label: "Gamme statistique", key: "gammeStatistique" },
     { label: "Unite", key: "unite" },
     { label: "Stock actuel", key: "stockActuel" },
@@ -336,6 +350,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   const exportRows = rotationRows.map((row) => ({
     article: row.nom_article,
     categorie: row.categorie || "-",
+    gamme: row.gamme || "-",
     gammeStatistique: row.gamme_statistique || "-",
     unite: row.unite || "-",
     stockActuel: row.stock_actuel,
@@ -417,6 +432,12 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
               placeholder="Categorie..."
             />
             <SearchableFilterInput
+              name="gamme"
+              defaultValue={params.gamme || ""}
+              options={gammeOptions}
+              placeholder="Gamme..."
+            />
+            <SearchableFilterInput
               name="gamme_statistique"
               defaultValue={params.gamme_statistique || ""}
               options={gammeStatistiqueOptions}
@@ -485,6 +506,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                   <tr>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Gamme statistique</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
@@ -510,6 +532,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                     <tr key={row.article_id} className="border-t border-slate-100 align-top">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
                       <td className="px-6 py-4 text-slate-600">{row.categorie || "-"}</td>
+                      <td className="px-6 py-4 text-slate-600">{row.gamme || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.gamme_statistique || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(row.stock_actuel)}</td>
