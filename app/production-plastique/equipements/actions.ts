@@ -12,6 +12,16 @@ function lireNom(formData: FormData): string {
   return nom;
 }
 
+// TON / SECTION : texte libre court, vide = non renseigne. Renvoie les seuls champs presents dans le formulaire (ils n'y sont
+// que si les colonnes existent, voir add_ton_section_equipements_plastique.sql) pour ne jamais ecrire dans une colonne absente.
+function lireTonSection(formData: FormData): { ton?: string | null; section?: string | null } {
+  const lire = (cle: string) => String(formData.get(cle) || "").trim().slice(0, 50) || null;
+  return {
+    ...(formData.has("ton") ? { ton: lire("ton") } : {}),
+    ...(formData.has("section") ? { section: lire("section") } : {}),
+  };
+}
+
 // Les memes pages montrent la liste (Equipements) ou la proposent (colonne Machine en cours de E3, depuis Rapport MP aussi)
 function revalidateEquipementsPlastique() {
   revalidatePath("/production-plastique/equipements");
@@ -36,7 +46,7 @@ export async function createEquipementPlastiqueAction(formData: FormData) {
   const nom = lireNom(formData);
   if (await nomDejaPris(nom)) throw new Error(`L'equipement "${nom}" existe deja.`);
 
-  const { error } = await supabaseServer.from("equipements_plastique").insert({ nom });
+  const { error } = await supabaseServer.from("equipements_plastique").insert({ nom, ...lireTonSection(formData) });
   if (error) throw new Error(error.message);
 
   revalidateEquipementsPlastique();
@@ -63,17 +73,22 @@ export async function renameEquipementPlastiqueAction(formData: FormData) {
   if (!actuel) throw new Error("Equipement introuvable.");
 
   const ancienNom = (actuel as { nom: string }).nom;
-  if (ancienNom === nom) return;
-  if (await nomDejaPris(nom, id)) throw new Error(`L'equipement "${nom}" existe deja.`);
+  const nomChange = ancienNom !== nom;
+  if (nomChange && (await nomDejaPris(nom, id))) throw new Error(`L'equipement "${nom}" existe deja.`);
 
-  const { error } = await supabaseServer.from("equipements_plastique").update({ nom }).eq("id", id);
+  const { error } = await supabaseServer
+    .from("equipements_plastique")
+    .update({ nom, ...lireTonSection(formData) })
+    .eq("id", id);
   if (error) throw new Error(error.message);
 
-  const { error: erreurArticles } = await supabaseServer
-    .from("articles_matiere_premiere")
-    .update({ machine_plastique: nom })
-    .eq("machine_plastique", ancienNom);
-  if (erreurArticles) throw new Error(erreurArticles.message);
+  if (nomChange) {
+    const { error: erreurArticles } = await supabaseServer
+      .from("articles_matiere_premiere")
+      .update({ machine_plastique: nom })
+      .eq("machine_plastique", ancienNom);
+    if (erreurArticles) throw new Error(erreurArticles.message);
+  }
 
   revalidateEquipementsPlastique();
 }
