@@ -1098,6 +1098,7 @@ export type AdminSection =
   | "GestionStockPf"
   | "GestionStockMp"
   | "Production"
+  | "ProductionPlastique"
   | "Qualite"
   | "Entrepot"
   | "Produit"
@@ -1109,6 +1110,7 @@ export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   GestionStockPf: "Gestion Stock PF",
   GestionStockMp: "Gestion Stock MP",
   Production: "Production",
+  ProductionPlastique: "Production Plastique",
   Qualite: "Qualite",
   Entrepot: "Entrepot",
   Produit: "Produit",
@@ -1125,6 +1127,7 @@ export const ADMIN_SECTION_ORDER: AdminSection[] = [
   "GestionStockPf",
   "GestionStockMp",
   "Production",
+  "ProductionPlastique",
   "Qualite",
   "Entrepot",
   "Produit",
@@ -1171,6 +1174,7 @@ export function sectionForPage(page: PageDefinition): AdminSection {
   if (page.key === "productionRapportCoutReel") return "ChargesUsine";
   if (MATIERE_PREMIERE_PAGE_KEYS.has(page.key)) return "GestionStockMp";
   if (page.module === "Entrepot") return "Entrepot";
+  if (page.module === "ProductionPlastique") return "ProductionPlastique";
   if (page.module === "Produit") return "Produit";
   if (page.module === "ChargesUsine") return "ChargesUsine";
   if (page.module === "Comptabilite" || page.module === "Fournisseurs") return "Comptabilite";
