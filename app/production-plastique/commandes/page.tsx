@@ -17,7 +17,7 @@ type CommandeRow = {
 export default async function CommandesArticlePlastiquePage() {
   noStore();
 
-  const canDelete = await canDeletePageUser(await getCurrentStockUser(), "productionPlastique");
+  const canDelete = await canDeletePageUser(await getCurrentStockUser(), "productionPlastiqueCommandes");
 
   const { data: commandesData } = await supabaseServer
     .from("commandes_article_plastique")

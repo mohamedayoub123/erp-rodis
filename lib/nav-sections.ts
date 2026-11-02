@@ -166,16 +166,16 @@ export const navItems: NavItem[] = [
     pageKey: "productionPlastique",
     matchPrefixes: ["/production-plastique"],
     subLinks: [
-      { href: "/production-plastique/articles", label: "Articles", pageKey: "productionPlastique" },
-      { href: "/production-plastique/recettes", label: "Recette Plastique", pageKey: "productionPlastique" },
-      { href: "/production-plastique/programme", label: "Ajouter Programme", pageKey: "productionPlastique" },
+      { href: "/production-plastique/articles", label: "Articles", pageKey: "productionPlastiqueArticles" },
+      { href: "/production-plastique/recettes", label: "Recette Plastique", pageKey: "productionPlastiqueRecettes" },
+      { href: "/production-plastique/programme", label: "Ajouter Programme", pageKey: "productionPlastiqueProgramme" },
       {
         href: "/production-plastique/historique-matiere",
         label: "Historique Matiere",
-        pageKey: "productionPlastique",
+        pageKey: "productionPlastiqueHistoriqueMatiere",
       },
-      { href: "/production-plastique/statistique", label: "Statistique", pageKey: "productionPlastique" },
-      { href: "/production-plastique/commandes", label: "Commandes", pageKey: "productionPlastique" },
+      { href: "/production-plastique/statistique", label: "Statistique", pageKey: "productionPlastiqueStatistique" },
+      { href: "/production-plastique/commandes", label: "Commandes", pageKey: "productionPlastiqueCommandes" },
     ],
   },
   {

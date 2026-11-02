@@ -253,6 +253,19 @@ function legacyPageValue(
   return typeof value === "boolean" ? value : undefined;
 }
 
+// Droits qu'une sous-page reprend de sa page parente (voir PageDefinition.heriteDe). Une parente SANS "Modifier"
+// (hasWrite:false, ex : l'accueil d'un module) a ses droits Modifier / Supprimer forces a faux : on relit alors ce
+// qui avait ete enregistre pour elle, sinon les sous-pages feraient perdre le "Modifier" a ceux qui l'avaient.
+function droitsHerites(
+  parente: PageDefinition,
+  calcule: PagePermissions[string],
+  enregistre: PagePermissions[string] | undefined
+): PagePermissions[string] {
+  if (parente.hasWrite !== false) return calcule;
+  const write = typeof enregistre?.write === "boolean" ? enregistre.write : false;
+  return { view: calcule.view, write, delete: typeof enregistre?.delete === "boolean" ? enregistre.delete : write };
+}
+
 function normalizeUserRecord(
   username: string,
   record: StoredUserRecord
@@ -282,22 +295,32 @@ function normalizeUserRecord(
     // droit du module (viewProduction, writeStock...) qui l'ouvrirait a tous
     // ceux qui avaient deja acces au reste du module.
     const pageNouvelle = !PAGES_EXISTANTES.has(page.key);
+    // Sous-page d'une page qui existait deja (voir heriteDe) : sans reglage enregistre, elle reprend les
+    // droits de la page parente (deja calcules : le parent est avant dans PAGE_REGISTRY)
+    const pageParente = page.heriteDe ? PAGE_REGISTRY.find((autre) => autre.key === page.heriteDe) : undefined;
+    const parent = pageParente
+      ? droitsHerites(pageParente, pages[pageParente.key], storedPages[pageParente.key])
+      : undefined;
 
     const view =
       typeof stored?.view === "boolean"
         ? stored.view
-        : pageNouvelle
-          ? defaults.pages[page.key].view
-          : legacyPageValue(page, source, "view") ?? defaults.pages[page.key].view;
+        : parent
+          ? parent.view
+          : pageNouvelle
+            ? defaults.pages[page.key].view
+            : legacyPageValue(page, source, "view") ?? defaults.pages[page.key].view;
 
     const write =
       page.hasWrite === false
         ? false
         : typeof stored?.write === "boolean"
           ? stored.write
-          : pageNouvelle
-            ? defaults.pages[page.key].write
-            : legacyPageValue(page, source, "write") ?? defaults.pages[page.key].write;
+          : parent
+            ? parent.write
+            : pageNouvelle
+              ? defaults.pages[page.key].write
+              : legacyPageValue(page, source, "write") ?? defaults.pages[page.key].write;
 
     // "Supprimer" n'existait pas comme droit distinct avant - tant qu'un
     // admin n'a pas explicitement decoche la case, on herite de "write" pour
@@ -308,7 +331,9 @@ function normalizeUserRecord(
         ? false
         : typeof stored?.delete === "boolean"
           ? stored.delete
-          : write;
+          : parent
+            ? parent.delete
+            : write;
 
     pages[page.key] = { view, write, delete: del };
   }

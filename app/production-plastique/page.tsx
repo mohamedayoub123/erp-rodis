@@ -1,47 +1,58 @@
 import Link from "next/link";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { getCurrentStockUser, getPageViewMap } from "@/lib/stock-auth";
 
 const TILES = [
   {
     label: "Articles",
     href: "/production-plastique/articles",
+    pageKey: "productionPlastiqueArticles",
     icon: "\u{1F9F4}",
     description: "Flacons, capsules, pots - fabriques en interne, jamais achetes.",
   },
   {
     label: "Recette Plastique",
     href: "/production-plastique/recettes",
+    pageKey: "productionPlastiqueRecettes",
     icon: "\u{1F9EA}",
     description: "Composition en % (matiere plastique + colorant) et prix de revient d'1 piece.",
   },
   {
     label: "Ajouter Programme",
     href: "/production-plastique/programme",
+    pageKey: "productionPlastiqueProgramme",
     icon: "\u{1F4E5}",
     description: "Article + quantite (+ lot optionnel) - entre en stock et se transfere directement.",
   },
   {
     label: "Historique Matiere Utilisee",
     href: "/production-plastique/historique-matiere",
+    pageKey: "productionPlastiqueHistoriqueMatiere",
     icon: "\u{1F9EE}",
     description: "Par code : quelle resine/colorant, quelle quantite, quel lot et quel prix.",
   },
   {
     label: "Statistique Article Plastique (E3)",
     href: "/production-plastique/statistique",
+    pageKey: "productionPlastiqueStatistique",
     icon: "\u{1F9F4}",
     description: "Flacon, flacon PET, pot, capsule, topette - stock actuel, stock min et stock max.",
   },
   {
     label: "Commandes Article Plastique",
     href: "/production-plastique/commandes",
+    pageKey: "productionPlastiqueCommandes",
     icon: "\u{1F4CB}",
     description: "Enregistrees depuis Statistique Article Plastique (E3) via Save.",
   },
 ] as const;
 
-export default function ProductionPlastiquePage() {
+export default async function ProductionPlastiquePage() {
+  // Une tuile par sous-page : on ne montre que celles que l'utilisateur a le droit de voir (Admin > permissions)
+  const pageViewMap = await getPageViewMap(await getCurrentStockUser());
+  const visibleTiles = TILES.filter((tile) => pageViewMap[tile.pageKey] ?? false);
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
       <div className="mx-auto w-full space-y-6">
@@ -66,8 +77,14 @@ export default function ProductionPlastiquePage() {
           </div>
         </section>
 
+        {visibleTiles.length === 0 ? (
+          <p className="rounded-[1.75rem] border border-black/5 bg-white p-6 text-sm text-slate-600">
+            Aucune page de Production Plastique n&apos;est ouverte pour ce compte. Demande l&apos;acces a un administrateur.
+          </p>
+        ) : null}
+
         <section className="grid gap-4 sm:grid-cols-2">
-          {TILES.map((tile) => (
+          {visibleTiles.map((tile) => (
             <Link
               key={tile.href}
               href={tile.href}

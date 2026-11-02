@@ -37,6 +37,11 @@ export type PageDefinition = {
   legacyWrite?: string;
   defaultView?: boolean;
   defaultWrite?: boolean;
+  // Cle d'une AUTRE page dont on reprend voir / modifier / supprimer tant que cet
+  // utilisateur n'a aucun reglage enregistre pour celle-ci : sert a decouper une page
+  // en sous-pages sans retirer l'acces de ceux qui l'avaient. La page parente doit etre
+  // placee AVANT dans PAGE_REGISTRY.
+  heriteDe?: string;
   // Sous-groupe affiche dans Admin, plus fin que "module" - un ModuleKey
   // comme "Stock" peut contenir des pages tres differentes (Rapport,
   // Statistique, Inventaire, Import, Commande...) qui ont chacune leur
@@ -1066,14 +1071,71 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     defaultView: false,
     defaultWrite: false,
   },
-  // Module vide pour l'instant (rien construit encore) - meme convention
-  // que Comptabilite au demarrage : cache par defaut, visible seulement
-  // pour l'admin tant qu'aucun acces n'est accorde explicitement ici.
+  // Production Plastique : cache par defaut, visible seulement pour l'admin tant
+  // qu'aucun acces n'est accorde explicitement. "productionPlastique" est l'accueil
+  // du module ; chaque sous-page a sa propre case (voir / modifier / supprimer) et
+  // part du droit deja accorde sur l'accueil (heriteDe) tant que l'admin n'a rien
+  // regle pour elle : personne ne perd son acces.
   {
     key: "productionPlastique",
     module: "ProductionPlastique",
-    label: "Production Plastique",
+    label: "Accueil Production Plastique (menu)",
     pathPrefixes: ["/production-plastique"],
+    hasWrite: false,
+    defaultView: false,
+    defaultWrite: false,
+  },
+  {
+    key: "productionPlastiqueArticles",
+    module: "ProductionPlastique",
+    label: "Articles Plastique (depot de l'article)",
+    pathPrefixes: ["/production-plastique/articles"],
+    heriteDe: "productionPlastique",
+    defaultView: false,
+    defaultWrite: false,
+  },
+  {
+    key: "productionPlastiqueRecettes",
+    module: "ProductionPlastique",
+    label: "Recette Plastique",
+    pathPrefixes: ["/production-plastique/recettes"],
+    heriteDe: "productionPlastique",
+    defaultView: false,
+    defaultWrite: false,
+  },
+  {
+    key: "productionPlastiqueProgramme",
+    module: "ProductionPlastique",
+    label: "Ajouter Programme Plastique",
+    pathPrefixes: ["/production-plastique/programme"],
+    heriteDe: "productionPlastique",
+    defaultView: false,
+    defaultWrite: false,
+  },
+  {
+    key: "productionPlastiqueHistoriqueMatiere",
+    module: "ProductionPlastique",
+    label: "Historique Matiere Utilisee (supprimer un programme)",
+    pathPrefixes: ["/production-plastique/historique-matiere"],
+    heriteDe: "productionPlastique",
+    defaultView: false,
+    defaultWrite: false,
+  },
+  {
+    key: "productionPlastiqueStatistique",
+    module: "ProductionPlastique",
+    label: "Statistique Article Plastique (E3)",
+    pathPrefixes: ["/production-plastique/statistique"],
+    heriteDe: "productionPlastique",
+    defaultView: false,
+    defaultWrite: false,
+  },
+  {
+    key: "productionPlastiqueCommandes",
+    module: "ProductionPlastique",
+    label: "Commandes Article Plastique",
+    pathPrefixes: ["/production-plastique/commandes"],
+    heriteDe: "productionPlastique",
     defaultView: false,
     defaultWrite: false,
   },

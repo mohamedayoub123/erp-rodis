@@ -12,10 +12,17 @@ import {
 import { createTransferOrder, deleteTransferOrder } from "@/app/depots/transfer-order/actions";
 import { fetchLotsInDepot, allocateFefo, totalAvailable } from "@/app/depots/transfer-order/stock-lots";
 
-async function requireWriteAccess() {
+// Chaque sous-page de Production Plastique a son propre droit "Modifier" (Admin > permissions).
+type PagePlastique =
+  | "productionPlastiqueArticles"
+  | "productionPlastiqueRecettes"
+  | "productionPlastiqueProgramme"
+  | "productionPlastiqueHistoriqueMatiere";
+
+async function requireWriteAccess(pageKey: PagePlastique) {
   const currentUser = await getCurrentStockUser();
-  if (!(await canWritePageUser(currentUser, "productionPlastique"))) {
-    throw new Error("Cet utilisateur ne peut pas modifier les recettes plastique.");
+  if (!(await canWritePageUser(currentUser, pageKey))) {
+    throw new Error("Cet utilisateur ne peut pas modifier cette page.");
   }
   return currentUser;
 }
@@ -32,7 +39,7 @@ function revalidateRecettePlastiquePages(articleProduitId: number) {
 }
 
 export async function addRecettePlastiqueLigneAction(formData: FormData) {
-  await requireWriteAccess();
+  await requireWriteAccess("productionPlastiqueRecettes");
 
   const articleProduitId = Number(formData.get("article_produit_id") || "0");
   // ProduitPickerField (composant partage) ecrit toujours son champ cache
@@ -62,7 +69,7 @@ export async function addRecettePlastiqueLigneAction(formData: FormData) {
 }
 
 export async function updateRecettePlastiqueLigneAction(formData: FormData) {
-  await requireWriteAccess();
+  await requireWriteAccess("productionPlastiqueRecettes");
 
   const ligneId = Number(formData.get("ligne_id") || "0");
   const articleProduitId = Number(formData.get("article_produit_id") || "0");
@@ -85,7 +92,7 @@ export async function updateRecettePlastiqueLigneAction(formData: FormData) {
 }
 
 export async function deleteRecettePlastiqueLigneAction(formData: FormData) {
-  await requireWriteAccess();
+  await requireWriteAccess("productionPlastiqueRecettes");
 
   const ligneId = Number(formData.get("ligne_id") || "0");
   const articleProduitId = Number(formData.get("article_produit_id") || "0");
@@ -104,7 +111,7 @@ export async function deleteRecettePlastiqueLigneAction(formData: FormData) {
 }
 
 export async function updatePoidsNetAction(formData: FormData) {
-  await requireWriteAccess();
+  await requireWriteAccess("productionPlastiqueRecettes");
 
   const articleProduitId = Number(formData.get("article_produit_id") || "0");
   if (!articleProduitId) {
@@ -127,7 +134,7 @@ export async function updatePoidsNetAction(formData: FormData) {
 }
 
 export async function updateArticlePlastiqueDepotAction(formData: FormData) {
-  await requireWriteAccess();
+  await requireWriteAccess("productionPlastiqueArticles");
 
   const articleId = Number(formData.get("article_id") || "0");
   if (!articleId) {
@@ -257,7 +264,7 @@ async function consommerIngredientsDepotSource(
 // depot destination, statut "en attente" (demande explicite : le programme
 // cree SEULEMENT le TO - l'utilisateur l'approuve lui-meme puis fait le TI
 // lui-meme depuis les pages Depots normales, plus d'auto-approbation/poste/
-// validation ici). Verifie uniquement la permission "productionPlastique" -
+// validation ici). Verifie uniquement la permission "productionPlastiqueProgramme" -
 // jamais "depots" - pour que cette action reste utilisable par qui gere le
 // plastique sans lui donner acces au module Depots entier.
 // Retourne {ok,message} au lieu de "throw" pour toute erreur attendue -
@@ -269,7 +276,7 @@ async function consommerIngredientsDepotSource(
 export async function saveProgrammePlastiqueAction(
   formData: FormData
 ): Promise<{ ok: boolean; message?: string; transferOrderId?: number }> {
-  const currentUser = await requireWriteAccess();
+  const currentUser = await requireWriteAccess("productionPlastiqueProgramme");
 
   const depotSourceId = Number(formData.get("depot_source_id") || "0") || DEPOT_PLASTIQUE_SOURCE_DEFAULT;
   const depotDestinationId = Number(formData.get("depot_destination_id") || "0") || DEPOT_PLASTIQUE_DEST_DEFAULT;
@@ -457,7 +464,7 @@ export async function saveProgrammePlastiqueAction(
 export async function deleteProgrammePlastiqueGroupAction(
   formData: FormData
 ): Promise<{ ok: boolean; message?: string }> {
-  await requireWriteAccess();
+  await requireWriteAccess("productionPlastiqueHistoriqueMatiere");
 
   const groupeId = Number(formData.get("groupe_id") || "0");
   if (!groupeId) {

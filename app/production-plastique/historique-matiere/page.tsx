@@ -222,7 +222,7 @@ export default async function HistoriqueMatierePlastiquePage({ searchParams }: {
   const code = (params.code || "").trim().toUpperCase();
 
   const currentUser = await getCurrentStockUser();
-  const canDelete = await canWritePageUser(currentUser, "productionPlastique");
+  const canDelete = await canWritePageUser(currentUser, "productionPlastiqueHistoriqueMatiere");
 
   const batches = await fetchHistoriquePlastique(code);
   const batchesAffiches = code ? batches : batches.slice(0, 20);

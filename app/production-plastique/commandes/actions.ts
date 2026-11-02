@@ -14,7 +14,7 @@ type Reponse = { ok: true; message: string } | { ok: false; message: string };
 export async function supprimerCommandeArticlePlastiqueAction(commandeId: number): Promise<Reponse> {
   try {
     const utilisateur = await getCurrentStockUser();
-    if (!(await canDeletePageUser(utilisateur, "productionPlastique"))) {
+    if (!(await canDeletePageUser(utilisateur, "productionPlastiqueCommandes"))) {
       return { ok: false, message: "Cet utilisateur ne peut pas supprimer de commande." };
     }
     if (!Number.isInteger(commandeId) || commandeId <= 0) return { ok: false, message: "Commande invalide." };

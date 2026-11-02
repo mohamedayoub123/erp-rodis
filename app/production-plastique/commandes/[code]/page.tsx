@@ -48,7 +48,7 @@ export default async function CommandeArticlePlastiqueDetailPage({
     .eq("commande_id", (commande as CommandeRow).id)
     .order("nom_article", { ascending: true });
   const lignes = (lignesData ?? []) as LigneRow[];
-  const canDelete = await canDeletePageUser(await getCurrentStockUser(), "productionPlastique");
+  const canDelete = await canDeletePageUser(await getCurrentStockUser(), "productionPlastiqueCommandes");
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">

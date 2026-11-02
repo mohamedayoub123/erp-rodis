@@ -6,12 +6,12 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchPlastiqueRows } from "@/app/_components/statistique-article-plastique";
 
 // Utilisee depuis Rapport MP (stockPlastiqueMp) ET Production Plastique
-// (productionPlastique) - le composant est partage entre les 2, le droit
+// (productionPlastiqueStatistique) - le composant est partage entre les 2, le droit
 // d'ecriture accorde depuis L'UN OU L'AUTRE module suffit.
 async function requireStatistiqueArticlePlastiqueWriteAccess() {
   const currentUser = await getCurrentStockUser();
   const canFromRapportMp = await canWritePageUser(currentUser, "stockPlastiqueMp");
-  const canFromProduction = await canWritePageUser(currentUser, "productionPlastique");
+  const canFromProduction = await canWritePageUser(currentUser, "productionPlastiqueStatistique");
 
   if (!canFromRapportMp && !canFromProduction) {
     throw new Error("Cet utilisateur ne peut pas modifier cette page.");

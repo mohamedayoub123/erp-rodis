@@ -19,7 +19,7 @@ export default async function StatistiqueArticlePlastiqueProductionPage({
   searchParams: SearchParams;
 }) {
   const currentUser = await getCurrentStockUser();
-  const canEdit = await canWritePageUser(currentUser, "productionPlastique");
+  const canEdit = await canWritePageUser(currentUser, "productionPlastiqueStatistique");
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f4efe5_0%,#fbf8f2_45%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
