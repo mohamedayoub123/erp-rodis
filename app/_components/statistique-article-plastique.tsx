@@ -22,6 +22,8 @@ import {
   repartirParTypeMachine,
 } from "@/lib/type-machine-plastique";
 import { SQL_EQUIPEMENTS_PLASTIQUE, fetchEquipementsPlastique } from "@/lib/equipements-plastique";
+import { lireStockMpDepotE } from "@/lib/lot-balances-mp";
+import { separerUtilisations } from "@/lib/utilisation-article";
 
 // Module partage - meme rendu utilise depuis Rapport MP
 // (stock/matiere-premiere/rapport/plastique) et Production Plastique
@@ -60,8 +62,9 @@ export type PlastiqueRow = {
   // Type du ou des produits finis dont la recette de conditionnement contient cet article
   // (ex: "Gel douche", "Clarifiant") ; vide si l'article n'est dans aucune recette.
   types_produit: string[];
-  // Champ "Utilisation" de l'article (Articles Matiere Premiere) : les produits / usages auxquels il sert
-  utilisation: string | null;
+  // Champ "Utilisation" de l'article (Articles Matiere Premiere) : les produits auxquels il sert, UN PAR ELEMENT (ils sont
+  // souvent saisis sur plusieurs lignes ou colles les uns aux autres, voir separerUtilisations)
+  utilisations: string[];
   unite: string | null;
   gamme: string | null;
   stock_actuel: number;
@@ -273,14 +276,26 @@ export async function fetchPlastiqueRows(): Promise<{
   typeMachinePret: boolean;
   derniereCommandeCode: string | null;
 }> {
-  const [stockResult, detailResult, derniereCommande] = await Promise.all([
+  // Stock = celui du Depot E SEULEMENT (demande explicite) : stock_actuel_mp_rows additionne TOUS les depots, il ne sert ici
+  // qu'a lister les articles ; le stock affiche vient de lireStockMpDepotE (meme stock que Besoin Conditionnement)
+  const [stockResult, detailResult, derniereCommande, stockDepotE] = await Promise.all([
     fetchAllStockActuelMpRows(),
     lireDetailsPlastique(),
     lireDerniereCommande(),
+    lireStockMpDepotE().then(
+      (lignes) => ({ parArticle: new Map(lignes.map((ligne) => [ligne.article_id, ligne.stock])), erreur: null as string | null }),
+      (e: unknown) => ({
+        parArticle: new Map<number, number>(),
+        erreur: `Stock du Depot E illisible : ${e instanceof Error ? e.message : "erreur inconnue"}`,
+      })
+    ),
   ]);
 
   if (stockResult.error) {
     return { rows: [], error: stockResult.error, machineCavitesPret: false, typeMachinePret: false, derniereCommandeCode: null };
+  }
+  if (stockDepotE.erreur) {
+    return { rows: [], error: stockDepotE.erreur, machineCavitesPret: false, typeMachinePret: false, derniereCommandeCode: null };
   }
   if (detailResult.error || !detailResult.data) {
     return {
@@ -307,10 +322,10 @@ export async function fetchPlastiqueRows(): Promise<{
         // Sous famille lue sur l'article (la fonction SQL ne la renvoie pas toujours)
         categorie: detail?.sous_famille ?? row.sous_famille ?? null,
         types_produit: typesParArticle.get(row.article_id) ?? [],
-        utilisation: detail?.utilisation?.trim() || null,
+        utilisations: separerUtilisations(detail?.utilisation),
         unite: row.unite,
         gamme: detail?.gamme ?? null,
-        stock_actuel: Number(row.stock_actuel ?? 0),
+        stock_actuel: stockDepotE.parArticle.get(row.article_id) ?? 0,
         min_stock: detail?.min_stock ?? null,
         max_stock: detail?.max_stock ?? null,
         avis_fabrication: detail?.avis_fabrication ?? null,
@@ -456,7 +471,7 @@ export async function StatistiqueArticlePlastique({
     { label: "Type", key: "type" },
     { label: "Utilisation", key: "utilisation" },
     { label: "Unite", key: "unite" },
-    { label: "Stock actuel", key: "stock" },
+    { label: "Stock actuel (Depot E)", key: "stock" },
     { label: "Stock min", key: "min" },
     { label: "Stock critique", key: "critique" },
     { label: "Stock max", key: "max" },
@@ -473,7 +488,8 @@ export async function StatistiqueArticlePlastique({
     gamme: row.gamme || "-",
     categorie: displayCategorie(row.categorie),
     type: row.types_produit.length > 0 ? row.types_produit.join(", ") : "-",
-    utilisation: row.utilisation || "-",
+    // une utilisation par ligne dans la cellule Excel (retour a la ligne, texte a la ligne dans le classeur)
+    utilisation: row.utilisations.length > 0 ? row.utilisations.join("\n") : "-",
     unite: row.unite || "-",
     stock: row.stock_actuel,
     min: row.min_stock ?? "-",
@@ -621,7 +637,10 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">Type</th>
                   <th className="px-6 py-4 font-semibold">Utilisation</th>
                   <th className="px-6 py-4 font-semibold">Unite</th>
-                  <th className="px-6 py-4 font-semibold">Stock actuel</th>
+                  <th className="px-6 py-4 font-semibold">
+                    Stock actuel
+                    <span className="block text-xs font-normal text-slate-400">Depot E seulement</span>
+                  </th>
                   <th className="px-6 py-4 font-semibold">Stock min</th>
                   <th className="px-6 py-4 font-semibold">Stock critique</th>
                   <th className="px-6 py-4 font-semibold">Stock max</th>
@@ -664,9 +683,22 @@ export async function StatistiqueArticlePlastique({
                       <td className="px-6 py-4 text-slate-600">
                         {row.types_produit.length > 0 ? row.types_produit.join(", ") : "-"}
                       </td>
-                      {/* Texte libre, parfois sur plusieurs lignes : on garde les retours a la ligne, dans une largeur limitee */}
-                      <td className="min-w-[14rem] max-w-xs whitespace-pre-line px-6 py-4 text-slate-600">
-                        {row.utilisation || "-"}
+                      {/* Une utilisation par ligne, chacune dans son cadre (jamais collees les unes aux autres) */}
+                      <td className="min-w-[14rem] max-w-xs px-6 py-4 text-slate-600">
+                        {row.utilisations.length === 0 ? (
+                          "-"
+                        ) : (
+                          <ul className="space-y-1">
+                            {row.utilisations.map((utilisation, index) => (
+                              <li
+                                key={`${index}-${utilisation}`}
+                                className="rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-700"
+                              >
+                                {utilisation}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{row.unite || "-"}</td>
                       <td className="px-6 py-4">

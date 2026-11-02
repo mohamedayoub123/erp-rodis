@@ -15,8 +15,14 @@ export function ExportExcelButton({
   // Plusieurs feuilles (ex : une par type de machine) ; sans cela, une seule feuille "Export" avec "rows"
   sheets?: FeuilleExport[];
 }) {
-  function handleExport() {
-    XLSX.writeFile(construireClasseur(columns, sheets ?? [{ name: "Export", rows }]), filename);
+  async function handleExport() {
+    if (sheets) {
+      // Plusieurs feuilles : classeur mis en forme (cadres, texte a la ligne), bibliotheque chargee seulement a ce moment
+      const { telechargerClasseurStyle } = await import("@/lib/classeur-excel-style");
+      await telechargerClasseurStyle(columns, sheets, filename);
+      return;
+    }
+    XLSX.writeFile(construireClasseur(columns, [{ name: "Export", rows }]), filename);
   }
 
   return (
