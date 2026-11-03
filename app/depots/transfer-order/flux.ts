@@ -19,6 +19,7 @@ export type FluxSortie = {
   livrePour: string | null;
   numeroBl: string | null;
   deCommande: boolean;
+  dateLivraison: string | null;
 };
 
 export type FluxConsommateur = {

@@ -413,7 +413,6 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
                   {s.label}
                 </Link>
                 ) - {s.quantite.toLocaleString("fr-FR")}
-                {s.dateLivraison ? ` - le ${formatDate(s.dateLivraison)}` : ""}
                 {detailLivraison(s)}
               </li>
             ))}
