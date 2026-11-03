@@ -677,11 +677,12 @@ function renderGenericFamilyTemplate(
   subGammeByArticleKey?: Map<string, { label: string; bannerClass: string }>,
   hideStand: boolean = false,
   onlyNegatif: boolean = false,
-  canEditNote: boolean = false
+  canEditNote: boolean = false,
+  colonnesRetirees: string[] = []
 ) {
   // Lignes du tableau + lignes d'export Excel : meme calcul que l'export de
   // toutes les familles (voir buildFamilyView dans family-data.ts).
-  const { visibleCommandColumns, rowsWithSubGamme, exportCommandColumns, exportRows } = buildFamilyView(
+  const { columnsAfterStand, visibleCommandColumns, rowsWithSubGamme, exportCommandColumns, exportRows } = buildFamilyView(
     articleRows,
     commandColumns,
     quantitiesByArticle,
@@ -689,8 +690,38 @@ function renderGenericFamilyTemplate(
     qtEnCoursConditionnementByArticleKey,
     subGammeByArticleKey,
     hideStand,
-    onlyNegatif
+    onlyNegatif,
+    colonnesRetirees
   );
+
+  // Annuler une proforma = retirer sa colonne, comme dans la vue "Article manquant" (croix de l'en-tete ou panneau "Colonnes") :
+  // le TOTAL, le RESTE et l'export Excel sont recalcules sans elle. Reglage d'affichage (dans le lien de la page), rien n'est
+  // modifie en base : les autres modules (Besoin Conditionnement...) ne changent pas.
+  const retireesSet = new Set(colonnesRetirees);
+  const retireesPresentes = columnsAfterStand.filter((column) => retireesSet.has(column.key));
+  const retireesActuelles = retireesPresentes.map((column) => column.key);
+  const champsRetirees = retireesActuelles.map((key) => (
+    <input key={`retiree-${key}`} type="hidden" name="retirees" value={key} />
+  ));
+  // gardeFiltres=false : les boutons de famille repartent sans Stand / manques seulement, comme avant ; les colonnes retirees sont gardees
+  const lienFamille = (retirees: string[], options: { famille?: string; gardeFiltres?: boolean } = {}) => {
+    const query = new URLSearchParams();
+    const famille = options.famille ?? selectedFamille;
+    const gardeFiltres = options.gardeFiltres ?? true;
+    if (famille) query.set("famille", famille);
+    if (gardeFiltres && hideStand) query.set("hideStand", "1");
+    if (gardeFiltres && onlyNegatif) query.set("negatif", "1");
+    for (const key of retirees) query.append("retirees", key);
+    return `/tableau-commandes?${query.toString()}`;
+  };
+  // Vers "Article manquant" : les proformas deja retirees le restent (meme reglage dans les deux vues)
+  const lienVersManquant = () => {
+    const query = new URLSearchParams({ vue: "manquant" });
+    for (const key of retireesActuelles) query.append("retirees", key);
+    return `/tableau-commandes?${query.toString()}`;
+  };
+  const libelleColonne = (column: CommandColumn) =>
+    [column.client || "-", column.numero_proforma ? `#${column.numero_proforma}` : ""].filter(Boolean).join(" ");
 
   return (
     <main className="min-h-screen bg-[#f4f6f8] px-4 py-6 text-slate-900 lg:px-6">
@@ -711,7 +742,7 @@ function renderGenericFamilyTemplate(
               <BackButton href="/tableau-commandes" label="Retour aux familles" />
               <RefreshButton />
               <Link
-                href="/tableau-commandes?vue=manquant"
+                href={lienVersManquant()}
                 className="rounded-full bg-red-700 px-4 py-2 text-[16px] font-medium text-white"
               >
                 Article manquant
@@ -727,6 +758,7 @@ function renderGenericFamilyTemplate(
                 <input type="hidden" name="famille" value={selectedFamille} />
                 {hideStand ? null : <input type="hidden" name="hideStand" value="1" />}
                 {onlyNegatif ? <input type="hidden" name="negatif" value="1" /> : null}
+                {champsRetirees}
                 <button
                   type="submit"
                   className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-[16px] font-medium text-amber-800"
@@ -738,6 +770,7 @@ function renderGenericFamilyTemplate(
                 <input type="hidden" name="famille" value={selectedFamille} />
                 {hideStand ? <input type="hidden" name="hideStand" value="1" /> : null}
                 {onlyNegatif ? null : <input type="hidden" name="negatif" value="1" />}
+                {champsRetirees}
                 <button
                   type="submit"
                   className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-[16px] font-medium text-red-800"
@@ -752,7 +785,7 @@ function renderGenericFamilyTemplate(
         <section className="rounded-[1.5rem] border border-slate-200 bg-white px-4 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
           <div className="flex flex-wrap gap-2">
             <Link
-              href="/tableau-commandes?vue=manquant"
+              href={lienVersManquant()}
               className="rounded-md bg-red-700 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm transition hover:opacity-90"
             >
               Article manquant
@@ -764,7 +797,7 @@ function renderGenericFamilyTemplate(
               return (
                 <Link
                   key={family}
-                  href={`/tableau-commandes?famille=${encodeURIComponent(family)}`}
+                  href={lienFamille(retireesActuelles, { famille: family, gardeFiltres: false })}
                   className={`rounded-md px-3 py-1.5 text-sm font-bold leading-none shadow-sm transition hover:opacity-90 ${buttonStyle} ${
                     isActive ? "ring-2 ring-slate-950/30" : ""
                   }`}
@@ -775,6 +808,57 @@ function renderGenericFamilyTemplate(
             })}
           </div>
         </section>
+
+        {columnsAfterStand.length > 0 ? (
+          <section className="rounded-[1.5rem] border border-slate-200 bg-white px-4 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
+            <div className="flex flex-wrap items-start gap-3">
+              <details className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-2">
+                <summary className="cursor-pointer select-none text-[16px] font-medium text-slate-800">
+                  Colonnes ({visibleCommandColumns.length} affichees sur {columnsAfterStand.length})
+                </summary>
+                <form action="/tableau-commandes" className="mt-3 space-y-3">
+                  <input type="hidden" name="famille" value={selectedFamille} />
+                  {hideStand ? <input type="hidden" name="hideStand" value="1" /> : null}
+                  {onlyNegatif ? <input type="hidden" name="negatif" value="1" /> : null}
+                  <p className="text-sm text-slate-600">
+                    Cochez les proformas a annuler (colonnes a retirer). Le TOTAL, le RESTE et l&apos;export Excel sont recalcules sans elles.
+                  </p>
+                  <div className="grid max-h-[40vh] gap-x-6 gap-y-1 overflow-auto sm:grid-cols-2 xl:grid-cols-3">
+                    {columnsAfterStand.map((column) => (
+                      <label key={`choix-${column.key}`} className="flex items-center gap-2 text-[16px] text-slate-800">
+                        <input
+                          type="checkbox"
+                          name="retirees"
+                          value={column.key}
+                          defaultChecked={retireesSet.has(column.key)}
+                          className="h-4 w-4"
+                        />
+                        <span className="truncate">{libelleColonne(column)}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    type="submit"
+                    className="rounded-full bg-slate-950 px-4 py-2 text-[16px] font-medium text-white"
+                  >
+                    Appliquer
+                  </button>
+                </form>
+              </details>
+              {retireesPresentes.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-[16px] text-amber-900">
+                  <span>
+                    {retireesPresentes.length} colonne{retireesPresentes.length > 1 ? "s" : ""} retiree
+                    {retireesPresentes.length > 1 ? "s" : ""}
+                  </span>
+                  <Link href={lienFamille([])} className="font-medium underline">
+                    Remettre toutes les colonnes
+                  </Link>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         <section className="overflow-hidden rounded-[1.5rem] border border-slate-300 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
           <div className="max-h-[75vh] overflow-auto">
@@ -822,7 +906,7 @@ function renderGenericFamilyTemplate(
                     {formatDateCell(new Date())}
                   </th>
                   <th
-                    colSpan={Math.max(commandColumns.length, 1) + 5}
+                    colSpan={Math.max(visibleCommandColumns.length, 1) + 5}
                     className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-center text-lg font-medium text-slate-950`}
                   >
                     {selectedFamille}
@@ -839,6 +923,14 @@ function renderGenericFamilyTemplate(
                           key={`status-${column.key}`}
                           className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 whitespace-normal break-words`}
                         >
+                          <Link
+                            href={lienFamille([...retireesActuelles, column.key])}
+                            title={`Annuler la proforma : retirer la colonne ${libelleColonne(column)}`}
+                            aria-label={`Annuler la proforma : retirer la colonne ${libelleColonne(column)}`}
+                            className="mb-1 block text-[16px] font-bold leading-none text-red-800 hover:text-red-600"
+                          >
+                            ×
+                          </Link>
                           <span
                             className={`inline-block rounded-sm px-3 py-1 text-[16px] font-medium uppercase ${getStatusCellClass(column.statut)}`}
                           >
@@ -1282,6 +1374,7 @@ export default async function TableauCommandesPage({
     tableData.subGammeByArticleKey,
     hideStand,
     onlyNegatif,
-    canEditNote
+    canEditNote,
+    colonnesRetirees
   );
 }

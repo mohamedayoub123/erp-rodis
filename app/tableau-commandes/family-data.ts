@@ -746,11 +746,16 @@ export function buildFamilyView(
   qtEnCoursConditionnementByArticleKey: Map<string, number>,
   subGammeByArticleKey: Map<string, SubGammeInfo> | undefined,
   hideStand: boolean,
-  onlyNegatif: boolean
+  onlyNegatif: boolean,
+  // Colonnes (proformas) retirees a la demande - meme principe que la vue "Article manquant" : elles ne comptent plus dans le
+  // TOTAL, le RESTE, le filtre "manques seulement" ni l'export Excel. Reglage d'affichage seulement (rien n'est modifie en base).
+  colonnesRetirees: string[] = []
 ) {
-  const visibleCommandColumns = commandColumns.filter(
+  const columnsAfterStand = commandColumns.filter(
     (column) => !hideStand || String(column.statut || "").toUpperCase() !== "STAND"
   );
+  const retireesSet = new Set(colonnesRetirees);
+  const visibleCommandColumns = columnsAfterStand.filter((column) => !retireesSet.has(column.key));
 
   // RESTE une fois la quantite deja en cours de Conditionnement ajoutee -
   // demande explicite : le manque "brut" (stock - commande) peut deja etre
@@ -837,7 +842,7 @@ export function buildFamilyView(
     return rows;
   });
 
-  return { visibleCommandColumns, rowsWithSubGamme, exportCommandColumns, exportRows };
+  return { columnsAfterStand, visibleCommandColumns, rowsWithSubGamme, exportCommandColumns, exportRows };
 }
 
 // Une feuille Excel par famille, dans l'ordre des boutons du Tableau de
