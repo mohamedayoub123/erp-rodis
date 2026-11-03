@@ -8,6 +8,7 @@ import type {
   CodeFluxTestLabo,
 } from "@/lib/production-code-flux";
 import { formatDate } from "@/lib/format-date";
+import { detailLivraison } from "@/lib/livraison-libelle";
 
 // Meme libelle que Historique Test Labo/Rapport Test Labo (app/qualite/...)
 // - jamais partage en dur, duplique ici volontairement (meme convention que
@@ -413,7 +414,7 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
                 </Link>
                 ) - {s.quantite.toLocaleString("fr-FR")}
                 {s.dateLivraison ? ` - le ${formatDate(s.dateLivraison)}` : ""}
-                {s.proforma ? ` - proforma ${s.proforma}` : s.livrePour ? ` - ${s.livrePour}` : ""}
+                {detailLivraison(s)}
               </li>
             ))}
           </ul>

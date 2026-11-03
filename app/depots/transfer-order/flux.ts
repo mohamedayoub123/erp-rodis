@@ -17,6 +17,8 @@ export type FluxSortie = {
   quantite: number;
   proforma: string | null;
   livrePour: string | null;
+  numeroBl: string | null;
+  deCommande: boolean;
 };
 
 export type FluxConsommateur = {

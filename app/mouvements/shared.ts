@@ -389,7 +389,11 @@ export type TraceSortie = {
   href: string;
   quantite: number;
   proforma: string | null;
+  // pour qui (le client d'une livraison de commande, ou le nom saisi sur une sortie manuelle) et numero de BL de la livraison
   livrePour: string | null;
+  numeroBl: string | null;
+  // vrai si la sortie vient d'une livraison de commande (le "livre pour" est alors le client)
+  deCommande: boolean;
   dateLivraison: string | null;
 };
 
@@ -444,6 +448,8 @@ export function traceProduitFiniPourCode(
         quantite: Number(r.qte_sortie ?? 0),
         proforma: meta.numero_proforma,
         livrePour: meta.livre_pour,
+        numeroBl: meta.numero_bl,
+        deCommande: r.source_import === "web:sortie-commande",
         dateLivraison: r.date_jour,
       };
     });

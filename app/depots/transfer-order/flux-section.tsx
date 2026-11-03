@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { FluxConsommateur, FluxInfo } from "./flux";
+import { detailLivraison } from "@/lib/livraison-libelle";
 
 export function FluxSection({
   flux,
@@ -134,7 +135,7 @@ export function FluxSection({
                             {s.label}
                           </Link>
                           ) - {s.quantite.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}
-                          {s.proforma ? ` - proforma ${s.proforma}` : s.livrePour ? ` - ${s.livrePour}` : ""}
+                          {detailLivraison(s)}
                         </li>
                       ))}
                     </ul>
