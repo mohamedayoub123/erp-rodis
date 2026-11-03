@@ -6,6 +6,7 @@ import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { fetchPlastiqueRows } from "@/app/_components/statistique-article-plastique";
 import { lireTypeMachine } from "@/lib/type-machine-plastique";
 import { fetchEquipementsPlastique } from "@/lib/equipements-plastique";
+import { prochainNumero } from "@/lib/document-numbers";
 
 // Statistique Article Plastique (E3) n'existe plus que dans Production Plastique (la copie du Rapport MP a ete retiree) :
 // le droit d'ecriture est celui de la page "Statistique Article Plastique (E3)" de Production Plastique.
@@ -239,8 +240,8 @@ export async function updateNbCavitesAction(formData: FormData) {
 
 // "Save" (Statistique Article Plastique) - photo figee des articles qui
 // ont un avis de fabrication rempli a cet instant precis (article, avis,
-// stock actuel du moment), sous un code "C<annee>.<n>" (n = position dans
-// l'annee en cours, redemarre a 1 chaque nouvelle annee) - demande
+// stock actuel du moment), sous un code "C<annee>.<n>" (n = numero permanent,
+// redemarre a 1 chaque nouvelle annee) - demande
 // explicite : une NOUVELLE commande a chaque clic, jamais une mise a jour
 // d'une commande existante.
 export async function saveCommandeArticlePlastiqueAction(): Promise<
@@ -257,12 +258,19 @@ export async function saveCommandeArticlePlastiqueAction(): Promise<
       return { ok: false, message: "Aucun article n'a d'avis de fabrication rempli - rien a enregistrer." };
     }
 
+    // Numero PERMANENT (comme les autres documents, voir lib/document-numbers.ts) : le compteur ne redescend jamais, donc le
+    // numero d'une commande supprimee n'est jamais reattribue et les suivantes ne se decalent pas. Avant : "nombre de
+    // commandes de l'annee + 1", qui reprenait un numero deja utilise des qu'on supprimait une commande qui n'etait pas la derniere.
     const currentYear = new Date().getFullYear();
-    const { count } = await supabaseServer
+    const { data: codesExistants } = await supabaseServer
       .from("commandes_article_plastique")
-      .select("id", { count: "exact", head: true })
+      .select("code")
       .like("code", `C${currentYear}.%`);
-    const code = `C${currentYear}.${(count ?? 0) + 1}`;
+    const plusGrandNumero = Math.max(
+      0,
+      ...((codesExistants ?? []) as { code: string }[]).map((ligne) => Number(String(ligne.code).split(".")[1]) || 0)
+    );
+    const code = `C${currentYear}.${await prochainNumero("CP", currentYear, plusGrandNumero)}`;
 
     const { data: commande, error: insertHeaderError } = await supabaseServer
       .from("commandes_article_plastique")
