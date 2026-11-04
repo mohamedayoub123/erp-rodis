@@ -719,6 +719,15 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/production/besoin-fabrication"],
     adminGroup: "Besoin Fabrication",
   },
+  // Stock Alert des matieres premieres par rapport a TOUTES les commandes ouvertes (lecture seule). Module NOUVEAU, ferme par
+  // defaut sauf pour les admins, comme Besoin Conditionnement / Besoin Fabrication.
+  {
+    key: "productionStockAlertCommandes",
+    module: "Production",
+    label: "Stock Alert MP par commande",
+    pathPrefixes: ["/production/stock-alert-commandes"],
+    adminGroup: "Stock Alert MP par commande",
+  },
   {
     key: "machines",
     module: "Production",

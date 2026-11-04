@@ -57,6 +57,8 @@ export type ArticleCommande = {
   aProduire: number;
   // proformas (numero de base) ou cet article est commande, avec les cartons de chacune
   parProforma: { proforma: string; cartons: number }[];
+  // proformas dont des cartons de cet article restent a produire (le stock PF ne les couvre pas), avec ces cartons
+  aProduireParProforma: { proforma: string; cartons: number }[];
   statutRecette: StatutRecette;
   nbLignesRecette: number;
   // vrac necessaire (kg) pour les cartons a produire, quand l'article a un vrac et que la recette permet de le calculer
@@ -91,11 +93,14 @@ export type BesoinArticleConditionnement = {
   articleMpId: number;
   nom: string;
   unite: string;
+  categorie: string;
   type: TypeConditionnement;
   besoin: number;
   stock: number;
   manque: number;
   utilisePar: string[];
+  // proformas dont des cartons restent a produire avec cet article de conditionnement
+  proformas: string[];
   commandes: CommandeEnCours[];
   commandeTotal: number;
   imports: ImportEnCours[];
@@ -194,15 +199,20 @@ type CommandeActiveRow = {
 
 // Commandes non livrees, dans l'ordre des colonnes du Tableau de commande (creation croissante, un camion = sa proforma de base)
 // et, par article (nom normalise comme le tableau), la quantite commandee dans chaque colonne.
-async function lireCommandesActives(): Promise<{ ordreCles: string[]; quantiteParNom: Map<string, Map<string, number>> }> {
+// sansStand : comme "Supprimer stand" du Tableau de commande, les commandes STAND ne comptent pas (ni ne prennent de stock PF).
+async function lireCommandesActives(
+  sansStand = false
+): Promise<{ ordreCles: string[]; quantiteParNom: Map<string, Map<string, number>> }> {
   const ordreCles: string[] = [];
   const vues = new Set<string>();
   const quantiteParNom = new Map<string, Map<string, number>>();
   for (let debut = 0; ; debut += 500) {
-    const { data, error } = await supabaseServer
+    let requete = supabaseServer
       .from("commandes")
       .select("id, client, mode_chargement, numero_proforma, commande_lignes(quantite_demandee, articles(nom_article))")
-      .neq("statut", "LIVREE")
+      .neq("statut", "LIVREE");
+    if (sansStand) requete = requete.neq("statut", "STAND");
+    const { data, error } = await requete
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
       .range(debut, debut + 499);
@@ -466,7 +476,15 @@ export async function calculerBesoinProformas(
   const proformas: ProformaSaisie[] = await Promise.all(
     saisies.map(async (saisie) => ({ saisie, commandes: await lireCommandesProforma(saisie) }))
   );
+  return calculerBesoinDepuisProformas(proformas, options);
+}
 
+// Meme calcul, a partir de proformas dont les commandes sont deja connues (ex : toutes les commandes ouvertes, sans les taper).
+// sansStand : les commandes STAND ne prennent pas de stock PF (a utiliser quand elles sont aussi retirees de "proformas").
+export async function calculerBesoinDepuisProformas(
+  proformas: ProformaSaisie[],
+  options?: { sansBesoinsMp?: boolean; sansStand?: boolean }
+): Promise<ResultatBesoin> {
   // Une commande trouvee par 2 saisies (ex. "3983" et "03983") n'est comptee qu'une fois
   const commandeParId = new Map<number, CommandeProforma>();
   for (const proforma of proformas) for (const commande of proforma.commandes) commandeParId.set(commande.id, commande);
@@ -512,7 +530,7 @@ export async function calculerBesoinProformas(
     nomsDistincts.length > 0
       ? lireParIds<{ id: number; nom_article: string | null; nature: string | null }>("articles", "id, nom_article, nature", "nom_article", nomsDistincts)
       : Promise.resolve([]),
-    lireCommandesActives(),
+    lireCommandesActives(options?.sansStand),
   ]);
   const stockPfParNom = await fetchArticleStocksFromStockPage(articlesMemeNom.filter((article) => article.nature !== "vrac"));
 
@@ -528,7 +546,8 @@ export async function calculerBesoinProformas(
     }
     saisiParNom.set(nomCle, parCle);
   }
-  const manqueParNom = new Map<string, { manque: number; saisi: number }>();
+  // partNonCouverte : par colonne (proforma), la part des cartons saisis que le stock PF ne couvre pas (0 a 1)
+  const manqueParNom = new Map<string, { manque: number; saisi: number; partNonCouverte: Map<string, number> }>();
   for (const [nomCle, saisi] of saisiParNom) {
     const quantites = new Map(commandesActives.quantiteParNom.get(nomCle) ?? []);
     const ordre = [...commandesActives.ordreCles];
@@ -542,11 +561,14 @@ export async function calculerBesoinProformas(
     const manques = repartirStock(stockPfParNom.get(nomCle) ?? 0, ordre, quantites);
     let manque = 0;
     let saisiTotal = 0;
+    const partNonCouverte = new Map<string, number>();
     for (const [cle, quantite] of saisi) {
-      manque += Math.min(manques.get(cle) ?? 0, quantite);
+      const nonCouvert = Math.min(manques.get(cle) ?? 0, quantite);
+      manque += nonCouvert;
       saisiTotal += quantite;
+      partNonCouverte.set(cle, quantite > 0 ? nonCouvert / quantite : 0);
     }
-    manqueParNom.set(nomCle, { manque, saisi: saisiTotal });
+    manqueParNom.set(nomCle, { manque, saisi: saisiTotal, partNonCouverte });
   }
 
   const recettesParArticle = new Map<number, RecetteRow[]>();
@@ -578,7 +600,7 @@ export async function calculerBesoinProformas(
   const stockParMp = new Map(soldesDepotE.map((solde) => [solde.article_id, solde.stock]));
 
   const articles: ArticleCommande[] = [];
-  const besoinParMp = new Map<number, { besoin: number; utilisePar: Set<string> }>();
+  const besoinParMp = new Map<number, { besoin: number; utilisePar: Set<string>; proformas: Set<string> }>();
 
   for (const articleId of articleIds) {
     const article = articleParId.get(articleId);
@@ -594,6 +616,16 @@ export async function calculerBesoinProformas(
     const aProduireBrut = manqueNom && manqueNom.saisi > 0 ? (manqueNom.manque * cartons) / manqueNom.saisi : cartons;
     const aProduire = aProduireBrut < 1e-6 ? 0 : aProduireBrut;
     const stockPf = nomCle ? (stockPfParNom.get(nomCle) ?? 0) : 0;
+    // Proformas dont des cartons de cet article restent a produire (part non couverte par le stock PF de chaque colonne)
+    const aProduireParProforma =
+      aProduire > 0
+        ? [...(parProformaParArticle.get(articleId) ?? new Map<string, number>()).entries()]
+            .map(([proforma, cartonsProforma]) => ({
+              proforma,
+              cartons: cartonsProforma * (manqueNom?.partNonCouverte.get(`proforma::${proforma}`) ?? 1),
+            }))
+            .filter((ligne) => ligne.cartons > 1e-6)
+        : [];
 
     let statutRecette: StatutRecette = "ok";
     if (aProduire <= 0) statutRecette = "couvert_stock";
@@ -603,9 +635,14 @@ export async function calculerBesoinProformas(
     if (statutRecette === "ok") {
       for (const ligne of lignesRecette) {
         const besoin = (aProduire * Number(ligne.quantite)) / base;
-        const courant = besoinParMp.get(ligne.article_mp_id) ?? { besoin: 0, utilisePar: new Set<string>() };
+        const courant = besoinParMp.get(ligne.article_mp_id) ?? {
+          besoin: 0,
+          utilisePar: new Set<string>(),
+          proformas: new Set<string>(),
+        };
         courant.besoin += besoin;
         courant.utilisePar.add(nom);
+        for (const { proforma } of aProduireParProforma) courant.proformas.add(proforma);
         besoinParMp.set(ligne.article_mp_id, courant);
       }
     }
@@ -630,6 +667,7 @@ export async function calculerBesoinProformas(
       parProforma: [...(parProformaParArticle.get(articleId) ?? new Map<string, number>()).entries()].map(
         ([proforma, cartonsProforma]) => ({ proforma, cartons: cartonsProforma })
       ),
+      aProduireParProforma,
       statutRecette,
       nbLignesRecette: lignesRecette.length,
       vracKg,
@@ -654,11 +692,13 @@ export async function calculerBesoinProformas(
       articleMpId,
       nom: mp?.nom_article ?? `Article MP ${articleMpId}`,
       unite: mp?.unite ?? "",
+      categorie: mp?.categorie ?? "",
       type: typeConditionnement(mp?.categorie),
       besoin: valeur.besoin,
       stock,
       manque,
       utilisePar: [...valeur.utilisePar].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" })),
+      proformas: [...valeur.proformas].sort((a, b) => a.localeCompare(b, "fr", { numeric: true })),
       commandes,
       commandeTotal,
       imports,

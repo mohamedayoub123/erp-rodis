@@ -131,6 +131,13 @@ const TILES = [
     description: "Tape un ou plusieurs numeros de proforma : le vrac a fabriquer et les matieres premieres necessaires (Recette Fabrication), le stock, les commandes et imports en cours.",
   },
   {
+    label: "Stock Alert MP par commande",
+    href: "/production/stock-alert-commandes",
+    pageKey: "productionStockAlertCommandes",
+    icon: "🚨",
+    description: "Toutes les commandes ouvertes d'un coup : les matieres premieres dont le stock du Depot E ne suffit pas, avec les commandes (BC) et imports en cours.",
+  },
+  {
     label: "Noms Conditionnement",
     href: "/production/noms-conditionnement",
     pageKey: "productionNomsConditionnement",

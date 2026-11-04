@@ -7,6 +7,7 @@ import {
   type CommandeEnCours,
   type ImportEnCours,
   type ProformaSaisie,
+  type ResultatBesoin,
 } from "@/lib/besoin-conditionnement-proforma";
 
 // Besoin en matieres premieres (MP) de FABRICATION d'une ou plusieurs proformas (Commandes PF) :
@@ -37,7 +38,8 @@ export type VracAFabriquer = {
   nbLignesRecette: number;
   // total des matieres premieres de la recette (meme unite que le lot) : doit valoir le lot pour une recette complete
   sommeRecette: number;
-  articles: { articleId: number; nom: string; cartons: number; kg: number }[];
+  // proformas : celles dont des cartons de cet article restent a produire
+  articles: { articleId: number; nom: string; cartons: number; kg: number; proformas: string[] }[];
 };
 
 // Article a produire dont on ne sait pas calculer le vrac : pas de vrac lie, ou ni pieces par carton x contenance ni quantite de vrac
@@ -61,6 +63,8 @@ export type BesoinMpFabrication = {
   manque: number;
   // vracs dont la recette utilise cette MP
   utilisePar: string[];
+  // proformas dont des cartons restent a produire avec un vrac qui utilise cette MP
+  proformas: string[];
   commandes: CommandeEnCours[];
   commandeTotal: number;
   imports: ImportEnCours[];
@@ -84,7 +88,15 @@ type MpRow = { id: number; nom_article: string | null; unite: string | null; cat
 
 export async function calculerBesoinFabrication(saisies: string[]): Promise<ResultatBesoinFabrication> {
   // Cartons a produire + kg de vrac par article : meme calcul que le Besoin Conditionnement (sans ses articles de conditionnement)
-  const { proformas, articles } = await calculerBesoinProformas(saisies, { sansBesoinsMp: true });
+  return calculerBesoinFabricationDepuis(await calculerBesoinProformas(saisies, { sansBesoinsMp: true }));
+}
+
+// Meme calcul a partir d'un resultat du Besoin Conditionnement deja obtenu (proformas + articles commandes avec leur vrac) :
+// permet de ne lire qu'une fois les commandes et le stock PF quand on veut aussi le besoin en articles de conditionnement.
+export async function calculerBesoinFabricationDepuis(
+  base: Pick<ResultatBesoin, "proformas" | "articles">
+): Promise<ResultatBesoinFabrication> {
+  const { proformas, articles } = base;
   const aProduire = articles.filter((article) => article.aProduire > 0);
 
   const sansVrac: ArticleSansVrac[] = [];
@@ -124,7 +136,13 @@ export async function calculerBesoinFabrication(saisies: string[]): Promise<Resu
       articles: [],
     };
     vrac.kg += article.vracKg;
-    vrac.articles.push({ articleId: article.articleId, nom: article.nom, cartons: article.aProduire, kg: article.vracKg });
+    vrac.articles.push({
+      articleId: article.articleId,
+      nom: article.nom,
+      cartons: article.aProduire,
+      kg: article.vracKg,
+      proformas: article.aProduireParProforma.map((ligne) => ligne.proforma),
+    });
     vracParId.set(article.vracArticleId, vrac);
   }
 
@@ -154,7 +172,7 @@ export async function calculerBesoinFabrication(saisies: string[]): Promise<Resu
     lignesParVrac.set(ligne.article_pf_id, liste);
   }
 
-  const besoinParMp = new Map<number, { besoin: number; utilisePar: Set<string> }>();
+  const besoinParMp = new Map<number, { besoin: number; utilisePar: Set<string>; proformas: Set<string> }>();
   for (const vrac of vracs) {
     const lignes = lignesParVrac.get(vrac.vracId) ?? [];
     vrac.base = baseParVrac.get(vrac.vracId) ?? 0;
@@ -172,9 +190,14 @@ export async function calculerBesoinFabrication(saisies: string[]): Promise<Resu
     // signale que les autres manquent).
     if (vrac.statutRecette === "sans_recette" || vrac.statutRecette === "lot_inconnu") continue;
     for (const ligne of lignes) {
-      const courant = besoinParMp.get(ligne.article_mp_id) ?? { besoin: 0, utilisePar: new Set<string>() };
+      const courant = besoinParMp.get(ligne.article_mp_id) ?? {
+        besoin: 0,
+        utilisePar: new Set<string>(),
+        proformas: new Set<string>(),
+      };
       courant.besoin += (vrac.kg * Number(ligne.quantite)) / vrac.base;
       courant.utilisePar.add(vrac.nom);
+      for (const article of vrac.articles) for (const proforma of article.proformas) courant.proformas.add(proforma);
       besoinParMp.set(ligne.article_mp_id, courant);
     }
   }
@@ -224,6 +247,7 @@ export async function calculerBesoinFabrication(saisies: string[]): Promise<Resu
       stock,
       manque,
       utilisePar: [...valeur.utilisePar].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" })),
+      proformas: [...valeur.proformas].sort((a, b) => a.localeCompare(b, "fr", { numeric: true })),
       commandes,
       commandeTotal,
       imports,

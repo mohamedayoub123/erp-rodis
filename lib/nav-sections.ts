@@ -144,6 +144,11 @@ export const navItems: NavItem[] = [
         pageKey: "productionBesoinFabrication",
       },
       {
+        href: "/production/stock-alert-commandes",
+        label: "Stock Alert MP par commande",
+        pageKey: "productionStockAlertCommandes",
+      },
+      {
         href: "/production/retours-conditionnement",
         label: "Retours Conditionnement",
         pageKey: "retoursConditionnement",
