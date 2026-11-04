@@ -17,29 +17,46 @@ function nombre(valeur: number, decimales = 3) {
   return valeur.toLocaleString("fr-FR", { maximumFractionDigits: decimales });
 }
 
-function Carte({ titre, valeur, ton }: { titre: string; valeur: string | number; ton: "neutre" | "rouge" | "vert" | "ambre" }) {
+function Carte({
+  titre,
+  valeur,
+  detail,
+  ton,
+}: {
+  titre: string;
+  valeur: string | number;
+  detail?: string;
+  ton: "neutre" | "rouge" | "vert" | "ambre";
+}) {
   const couleur =
     ton === "rouge" ? "text-red-700" : ton === "vert" ? "text-emerald-700" : ton === "ambre" ? "text-amber-700" : "text-slate-950";
   return (
     <div className="rounded-[1.5rem] border border-slate-200 bg-white px-5 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{titre}</p>
       <p className={`mt-2 text-3xl font-bold ${couleur}`}>{valeur}</p>
+      {detail ? <p className="mt-1 text-xs text-slate-500">{detail}</p> : null}
     </div>
   );
 }
 
 function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
   const { proformas, vracs, sansVrac, besoins, arrivagesIndisponibles, nbArticlesAProduire } = resultat;
+  // Les vracs dont tout est deja couvert (stock PF, programmes en cours) restent dans la liste pour leur quantite totale, mais n'ont
+  // rien a fabriquer : leur recette n'est pas a verifier
+  const vracsAFabriquer = vracs.filter((vrac) => vrac.kg > 0);
   const trouvees = proformas.filter((proforma) => proforma.commandes.length > 0);
   const introuvables = proformas.filter((proforma) => proforma.commandes.length === 0);
-  const sansRecette = vracs.filter((vrac) => vrac.statutRecette === "sans_recette");
-  const lotInconnu = vracs.filter((vrac) => vrac.statutRecette === "lot_inconnu");
-  const incompletes = vracs.filter((vrac) => vrac.statutRecette === "incomplete");
+  const sansRecette = vracsAFabriquer.filter((vrac) => vrac.statutRecette === "sans_recette");
+  const lotInconnu = vracsAFabriquer.filter((vrac) => vrac.statutRecette === "lot_inconnu");
+  const incompletes = vracsAFabriquer.filter((vrac) => vrac.statutRecette === "incomplete");
   const enManque = besoins.filter((besoin) => besoin.manque > 0);
   // en manque ET rien (ou pas assez) en commande / import pour le couvrir
   const nonCouverts = besoins.filter((besoin) => besoin.resteACouvrir > 0);
   const manquesCouverts = enManque.length - nonCouverts.length;
   const totalKg = vracs.reduce((somme, vrac) => somme + vrac.kg, 0);
+  const totalKgCommande = vracs.reduce((somme, vrac) => somme + vrac.kgTotal, 0);
+  const totalKgStock = vracs.reduce((somme, vrac) => somme + vrac.kgCouvertStock, 0);
+  const totalKgProgramme = vracs.reduce((somme, vrac) => somme + vrac.kgCouvertProgramme, 0);
 
   const rienAFabriquer = trouvees.length > 0 && nbArticlesAProduire === 0;
   const problemes = sansVrac.length + sansRecette.length + lotInconnu.length + incompletes.length;
@@ -104,7 +121,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
             }`}
           >
             {rienAFabriquer
-              ? "Rien a fabriquer : tous les cartons commandes sont deja couverts par le stock PF."
+              ? "Rien a fabriquer : tous les cartons commandes sont deja couverts par le stock PF et les programmes en cours."
               : toutEstLa
                 ? "Tout est la : tous les vracs ont une recette de fabrication et toutes les matieres premieres sont en stock."
                 : phrasesVerdict.join(" - ")}
@@ -118,7 +135,12 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
           ) : null}
 
           <section className="grid gap-4 md:grid-cols-5">
-            <Carte titre="Vrac a fabriquer (kg)" valeur={nombre(totalKg, 1)} ton="neutre" />
+            <Carte
+              titre="Vrac a fabriquer (kg)"
+              valeur={nombre(totalKg, 1)}
+              detail={`sur ${nombre(totalKgCommande, 1)} kg commandes - stock PF ${nombre(totalKgStock, 1)} - en cours ${nombre(totalKgProgramme, 1)}`}
+              ton="neutre"
+            />
             <Carte
               titre="Vrac sans recette complete"
               valeur={sansRecette.length + lotInconnu.length + incompletes.length}
@@ -234,9 +256,10 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
             <div className="border-b border-slate-100 px-6 py-4">
               <h2 className="text-lg font-bold text-slate-900">Matieres premieres necessaires</h2>
               <p className="mt-1 text-sm text-slate-600">
-                Besoin = kg de vrac a fabriquer x quantite de la Recette Fabrication / kg du lot de la recette. Les kg de vrac
-                viennent des cartons a produire (cartons commandes moins le stock PF, comme le Besoin Conditionnement) x pieces
-                par carton x contenance. Stock = stock du Depot E seulement (le stock des autres depots, Depot B, Depot F..., ne compte
+                Besoin total = kg de vrac de tous les cartons commandes x quantite de la Recette Fabrication / kg du lot de la
+                recette. Les deux colonnes suivantes en deduisent ce qui est deja en stock PF et ce qui est deja en cours
+                (programmes en cours : la meme &quot;Qt en cours de Conditionnement&quot; que le Tableau de commande) ; il reste
+                le besoin a fabriquer. Les kg de vrac viennent des cartons (pieces par carton x contenance). Stock = stock du Depot E seulement (le stock des autres depots, Depot B, Depot F..., ne compte
                 pas). Commande (BC) = ce qu&apos;il reste a recevoir sur les
                 bons de commande en cours ; Import = ce qui est en route et pas encore receptionne : commande et import ne se
                 comptent jamais deux fois.
@@ -254,7 +277,10 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
                       <th className="px-4 py-3 font-semibold">Matiere premiere</th>
                       <th className="px-4 py-3 font-semibold">Categorie</th>
                       <th className="px-4 py-3 font-semibold">Unite</th>
-                      <th className="px-4 py-3 text-right font-semibold">Besoin</th>
+                      <th className="px-4 py-3 text-right font-semibold">Besoin total (tous les cartons)</th>
+                      <th className="bg-sky-50 px-4 py-3 text-right font-semibold text-sky-900">Deduit : en stock PF</th>
+                      <th className="bg-sky-50 px-4 py-3 text-right font-semibold text-sky-900">Deduit : en cours (programmes)</th>
+                      <th className="px-4 py-3 text-right font-semibold">Besoin a fabriquer</th>
                       <th className="px-4 py-3 text-right font-semibold">Stock</th>
                       <th className="px-4 py-3 text-right font-semibold">Manque</th>
                       <th className="px-4 py-3 font-semibold">Commande (BC) en cours</th>
@@ -274,7 +300,14 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
                         <td className="px-4 py-3 font-medium text-slate-900">{besoin.nom}</td>
                         <td className="px-4 py-3 text-xs font-semibold text-slate-500">{besoin.categorie || "-"}</td>
                         <td className="px-4 py-3 text-slate-600">{besoin.unite || "-"}</td>
-                        <td className="px-4 py-3 text-right tabular-nums">{nombre(besoin.besoin)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums">{nombre(besoin.besoinTotal)}</td>
+                        <td className="bg-sky-50/60 px-4 py-3 text-right tabular-nums text-sky-900">
+                          {besoin.deduitStock > 0 ? `- ${nombre(besoin.deduitStock)}` : "-"}
+                        </td>
+                        <td className="bg-sky-50/60 px-4 py-3 text-right tabular-nums text-sky-900">
+                          {besoin.deduitProgramme > 0 ? `- ${nombre(besoin.deduitProgramme)}` : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold tabular-nums">{nombre(besoin.besoin)}</td>
                         <td className="px-4 py-3 text-right tabular-nums">{nombre(besoin.stock)}</td>
                         <td
                           className={`px-4 py-3 text-right font-semibold tabular-nums ${
@@ -314,7 +347,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
               <p className="mt-1 text-sm text-slate-600">
                 {nbArticlesAProduire === 0
                   ? "Aucun article a produire."
-                  : `${nbArticlesAProduire} article(s) a produire, ${vracs.length} vrac(s) a fabriquer.`}
+                  : `${nbArticlesAProduire} article(s) a produire, ${vracsAFabriquer.length} vrac(s) a fabriquer.`}
               </p>
             </div>
             {vracs.length === 0 ? (
@@ -325,6 +358,9 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
                   <thead className="sticky top-0 bg-slate-50 text-slate-600">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Vrac</th>
+                      <th className="px-4 py-3 text-right font-semibold">Total commande (kg)</th>
+                      <th className="bg-sky-50 px-4 py-3 text-right font-semibold text-sky-900">Deduit : en stock PF (kg)</th>
+                      <th className="bg-sky-50 px-4 py-3 text-right font-semibold text-sky-900">Deduit : en cours (kg)</th>
                       <th className="px-4 py-3 text-right font-semibold">A fabriquer (kg)</th>
                       <th className="px-4 py-3 font-semibold">Recette fabrication</th>
                       <th className="px-4 py-3 font-semibold">Articles commandes (cartons a produire)</th>
@@ -338,9 +374,20 @@ function Resultat({ resultat }: { resultat: ResultatBesoinFabrication }) {
                             {vrac.nom}
                           </Link>
                         </td>
+                        <td className="px-4 py-3 text-right tabular-nums">{nombre(vrac.kgTotal, 1)}</td>
+                        <td className="bg-sky-50/60 px-4 py-3 text-right tabular-nums text-sky-900">
+                          {vrac.kgCouvertStock > 0 ? `- ${nombre(vrac.kgCouvertStock, 1)}` : "-"}
+                        </td>
+                        <td className="bg-sky-50/60 px-4 py-3 text-right tabular-nums text-sky-900">
+                          {vrac.kgCouvertProgramme > 0 ? `- ${nombre(vrac.kgCouvertProgramme, 1)}` : "-"}
+                        </td>
                         <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-900">{nombre(vrac.kg, 1)}</td>
                         <td className="px-4 py-3">
-                          {vrac.statutRecette === "ok" ? (
+                          {vrac.kg <= 0 ? (
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                              Tout est couvert (stock / en cours)
+                            </span>
+                          ) : vrac.statutRecette === "ok" ? (
                             <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
                               {vrac.nbLignesRecette} matiere(s) premiere(s) - lot de {nombre(vrac.base)} kg
                             </span>

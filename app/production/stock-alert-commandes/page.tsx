@@ -25,10 +25,16 @@ const LIMITE_LIGNES = 150;
 type SearchParams = Promise<{
   q?: string;
   categorie?: string | string[];
+  proforma?: string | string[];
+  client?: string | string[];
+  statut?: string;
   hideStand?: string;
+  sansProgramme?: string;
   ok?: string;
   tout?: string;
 }>;
+
+type StatutFiltre = "non_couvert" | "couvert" | "ok";
 
 function nombre(valeur: number, decimales = 3) {
   return valeur.toLocaleString("fr-FR", { maximumFractionDigits: decimales });
@@ -149,6 +155,67 @@ function CalculIncomplet({ resultat }: { resultat: ResultatAlerteMp }) {
   );
 }
 
+// Programmes en cours deduits des cartons a produire (ou rappel qu'ils ne le sont pas)
+function ProgrammesEnCours({ resultat }: { resultat: ResultatAlerteMp }) {
+  if (!resultat.programmesDeduits) {
+    return (
+      <p className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        Les programmes en cours ne sont <span className="font-bold">pas deduits</span> : le besoin compte tous les cartons que le
+        stock PF ne couvre pas, meme ceux deja programmes.
+      </p>
+    );
+  }
+  const { articlesEnProgramme, cartonsEnProgramme } = resultat;
+  return (
+    <section className="rounded-[1.75rem] border border-sky-200 bg-sky-50 px-6 py-4 text-sky-950 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
+      <h2 className="text-sm font-bold">
+        Programmes en cours deduits :{" "}
+        {articlesEnProgramme.length === 0
+          ? "aucun article commande n'est en programme"
+          : `${nombre(cartonsEnProgramme, 0)} carton(s) sur ${articlesEnProgramme.length} article(s) ne sont plus a produire`}
+      </h2>
+      <p className="mt-1 text-xs text-sky-900">
+        Meme &quot;Qt en cours de Conditionnement&quot; que le Tableau de commande : cartons deja emballes pas encore en stock +
+        reste a produire des programmes confirmes. Le besoin en matieres premieres de ces cartons n&apos;est plus compte (cocher
+        &quot;Ne pas deduire les programmes en cours&quot; pour le voir).
+      </p>
+      {articlesEnProgramme.length > 0 ? (
+        <details className="mt-2 rounded-2xl border border-sky-200 bg-white px-4 py-3 text-slate-800">
+          <summary className="cursor-pointer text-sm font-semibold">Voir les articles en programme</summary>
+          <div className="mt-2 max-h-80 overflow-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="sticky top-0 bg-white text-xs text-slate-500">
+                <tr>
+                  <th className="py-1.5 pr-4 font-semibold">Article</th>
+                  <th className="px-3 py-1.5 text-right font-semibold">Commande</th>
+                  <th className="px-3 py-1.5 text-right font-semibold">Stock PF</th>
+                  <th className="px-3 py-1.5 text-right font-semibold">En programme</th>
+                  <th className="px-3 py-1.5 text-right font-semibold">Couvert par le programme</th>
+                  <th className="py-1.5 pl-3 text-right font-semibold">Reste a produire</th>
+                </tr>
+              </thead>
+              <tbody>
+                {articlesEnProgramme.map((article) => (
+                  <tr key={article.articleId} className="border-t border-slate-100">
+                    <td className="py-1.5 pr-4 font-medium">{article.nom}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{nombre(article.cartons, 0)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{nombre(article.stockPf, 0)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{nombre(article.qtEnProgramme, 0)}</td>
+                    <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-sky-800">
+                      {nombre(article.couvertParProgramme, 0)}
+                    </td>
+                    <td className="py-1.5 pl-3 text-right tabular-nums">{nombre(article.aProduire, 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
 function CommandesConcernees({ proformas }: { proformas: AlerteMp["proformas"] }) {
   return (
     <details className="text-xs text-slate-600">
@@ -175,14 +242,24 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
   const params = await searchParams;
   const q = (params.q || "").trim();
   const categoriesChoisies = lireListeParam(params.categorie);
+  const proformasChoisies = lireListeParam(params.proforma);
+  const clientsChoisis = lireListeParam(params.client);
+  const statutChoisi: StatutFiltre | "" =
+    params.statut === "non_couvert" || params.statut === "couvert" || params.statut === "ok" ? params.statut : "";
   const sansStand = params.hideStand === "1";
+  const sansProgrammes = params.sansProgramme === "1";
   const avecSuffisant = params.ok === "1";
   const toutAffiche = params.tout === "1";
 
   let resultat: ResultatAlerteMp | null = null;
   let erreur: string | null = null;
   try {
-    resultat = await calculerAlerteMpCommandes({ sansStand });
+    resultat = await calculerAlerteMpCommandes({
+      sansStand,
+      sansProgrammes,
+      proformas: proformasChoisies,
+      clients: clientsChoisis,
+    });
   } catch (e) {
     erreur = e instanceof Error ? e.message : "Erreur pendant le calcul.";
   }
@@ -193,23 +270,31 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
   const enManque = nonCouvertes.length + couvertes.length;
 
   const qMinuscule = q.toLowerCase();
+  // Un statut choisi montre seulement ces lignes ; sinon, les MP en manque (et les stocks suffisants si la case est cochee)
   const lignes = alertes
-    .filter((alerte) => avecSuffisant || alerte.manque > 0)
+    .filter((alerte) => (statutChoisi ? alerte.statut === statutChoisi : avecSuffisant || alerte.manque > 0))
     .filter((alerte) => !qMinuscule || matchesArticleSearch(alerte.nom, qMinuscule))
     .filter((alerte) => correspondALaListe(alerte.categorie, categoriesChoisies));
   const lignesAffichees = toutAffiche ? lignes : lignes.slice(0, LIMITE_LIGNES);
   const hrefVoirTout = `${CHEMIN}?${construireQuery(
     {
       q,
+      statut: statutChoisi || undefined,
       hideStand: sansStand ? "1" : undefined,
+      sansProgramme: sansProgrammes ? "1" : undefined,
       ok: avecSuffisant ? "1" : undefined,
       tout: "1",
     },
-    { categorie: categoriesChoisies }
+    { categorie: categoriesChoisies, proforma: proformasChoisies, client: clientsChoisis }
   )}`;
+  const filtreSurLesLignes = q !== "" || categoriesChoisies.length > 0 || statutChoisi !== "";
+  const filtreSurLesCommandes = proformasChoisies.length > 0 || clientsChoisis.length > 0;
 
   const nomsOptions = alertes.map((alerte, index) => ({ id: index, label: alerte.nom }));
   const categorieOptions = optionsDistinctes(alertes.map((alerte) => alerte.categorie));
+  // Les listes de choix portent sur toutes les commandes ouvertes (pas seulement celles deja choisies)
+  const proformaOptions = resultat?.proformasDisponibles.map((ligne) => ligne.proforma) ?? [];
+  const clientOptions = resultat?.clientsDisponibles ?? [];
 
   const exportColumns = [
     { label: "Categorie", key: "categorie" },
@@ -217,7 +302,10 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
     { label: "Unite", key: "unite" },
     { label: "Besoin fabrication", key: "besoinFabrication" },
     { label: "Besoin conditionnement", key: "besoinConditionnement" },
-    { label: "Besoin total", key: "besoin" },
+    { label: "Besoin total (tous les cartons)", key: "besoinTotal" },
+    { label: "Deduit : en stock PF", key: "deduitStock" },
+    { label: "Deduit : en cours (programmes)", key: "deduitProgramme" },
+    { label: "Besoin a produire", key: "besoin" },
     { label: "Stock Depot E", key: "stock" },
     { label: "Manque", key: "manque" },
     { label: "Commande (BC) en cours", key: "commandeBc" },
@@ -232,6 +320,9 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
     unite: alerte.unite || "-",
     besoinFabrication: alerte.besoinFabrication,
     besoinConditionnement: alerte.besoinConditionnement,
+    besoinTotal: alerte.besoinTotal,
+    deduitStock: alerte.deduitStock,
+    deduitProgramme: alerte.deduitProgramme,
     besoin: alerte.besoin,
     stock: alerte.stock,
     manque: alerte.manque,
@@ -276,9 +367,10 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Stock Alert MP par commande</h1>
               <p className="mt-2 max-w-3xl text-sm text-slate-600">
                 Toutes les commandes ouvertes (Commandes PF non livrees) sont prises automatiquement. Pour chaque matiere
-                premiere, le besoin (Recette Fabrication + Recette Conditionnement, apres deduction du stock PF) est compare au
-                stock du Depot E seulement, puis aux commandes (BC) et imports en cours. Seules les matieres premieres en manque
-                sont affichees, sauf si tu coches &quot;Afficher aussi les stocks suffisants&quot;.
+                premiere, le besoin (Recette Fabrication + Recette Conditionnement, apres deduction du stock PF et des programmes
+                en cours) est compare au stock du Depot E seulement, puis aux commandes (BC) et imports en cours. Seules les
+                matieres premieres en manque sont affichees, sauf si tu coches &quot;Afficher aussi les stocks suffisants&quot;.
+                Les filtres Proforma et Client limitent le calcul a ces commandes.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -301,11 +393,32 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
             <div className="lg:col-span-2">
               <MultiSelectFilter name="categorie" placeholder="Categorie..." options={categorieOptions} selected={categoriesChoisies} />
             </div>
-            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
+            <select
+              name="statut"
+              defaultValue={statutChoisi}
+              aria-label="Statut"
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none lg:col-span-2"
+            >
+              <option value="">Tous les statuts</option>
+              <option value="non_couvert">Non couvert (rouge)</option>
+              <option value="couvert">Couvert par BC / import (jaune)</option>
+              <option value="ok">Stock suffisant</option>
+            </select>
+            <div className="lg:col-span-2">
+              <MultiSelectFilter name="proforma" placeholder="Proforma..." options={proformaOptions} selected={proformasChoisies} />
+            </div>
+            <div className="lg:col-span-2">
+              <MultiSelectFilter name="client" placeholder="Client..." options={clientOptions} selected={clientsChoisis} />
+            </div>
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 lg:col-span-2">
               <input type="checkbox" name="hideStand" value="1" defaultChecked={sansStand} className="h-4 w-4" />
               Sans les commandes STAND
             </label>
-            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 lg:col-span-3">
+              <input type="checkbox" name="sansProgramme" value="1" defaultChecked={sansProgrammes} className="h-4 w-4" />
+              Ne pas deduire les programmes en cours
+            </label>
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 lg:col-span-3">
               <input type="checkbox" name="ok" value="1" defaultChecked={avecSuffisant} className="h-4 w-4" />
               Afficher aussi les stocks suffisants
             </label>
@@ -326,7 +439,9 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
 
         {resultat && aucuneCommande ? (
           <section className="rounded-[1.75rem] border border-slate-200 bg-white px-6 py-5 text-sm text-slate-600">
-            Aucune commande ouverte{sansStand ? " (hors STAND)" : ""} dans Commandes PF.
+            {filtreSurLesCommandes
+              ? `Aucune commande ouverte${sansStand ? " (hors STAND)" : ""} ne correspond a ces proformas / clients.`
+              : `Aucune commande ouverte${sansStand ? " (hors STAND)" : ""} dans Commandes PF.`}
           </section>
         ) : null}
 
@@ -382,6 +497,8 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
               />
             </section>
 
+            <ProgrammesEnCours resultat={resultat} />
+
             <CalculIncomplet resultat={resultat} />
 
             <section className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
@@ -390,8 +507,8 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
                   {avecSuffisant ? "Matieres premieres des commandes ouvertes" : "Matieres premieres en manque"}
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Besoin = ce qu&apos;il faut produire pour les commandes ouvertes (cartons commandes moins le stock PF) x la
-                  recette. Stock = Depot E seulement (les autres depots ne comptent pas). Commande (BC) = ce qu&apos;il reste a
+                  Besoin = ce qu&apos;il faut produire pour les commandes ouvertes (cartons commandes moins le stock PF
+                  {resultat.programmesDeduits ? " et les programmes en cours" : ""}) x la recette. Stock = Depot E seulement (les autres depots ne comptent pas). Commande (BC) = ce qu&apos;il reste a
                   recevoir sur les bons de commande ; Import = en route et pas encore receptionne : commande et import ne se
                   comptent jamais deux fois. Rouge = rien (ou pas assez) ne couvre le manque ; jaune = le manque est couvert par
                   un BC / import.
@@ -399,9 +516,9 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
               </div>
               {lignes.length === 0 ? (
                 <p className="px-6 py-5 text-sm text-slate-500">
-                  {alertes.length === 0 || enManque === 0
-                    ? "Aucune matiere premiere en manque."
-                    : "Aucune matiere premiere ne correspond a ces filtres."}
+                  {filtreSurLesLignes || (enManque > 0 && alertes.length > 0)
+                    ? "Aucune matiere premiere ne correspond a ces filtres."
+                    : "Aucune matiere premiere en manque."}
                 </p>
               ) : (
                 <div className="max-h-[75vh] overflow-auto">
@@ -438,6 +555,12 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
                               <p className="text-xs text-slate-500">
                                 fabrication {nombre(alerte.besoinFabrication)} + conditionnement{" "}
                                 {nombre(alerte.besoinConditionnement)}
+                              </p>
+                            ) : null}
+                            {alerte.deduitStock + alerte.deduitProgramme > 0 ? (
+                              <p className="text-xs text-sky-800">
+                                total {nombre(alerte.besoinTotal)} - stock PF {nombre(alerte.deduitStock)} - en cours{" "}
+                                {nombre(alerte.deduitProgramme)}
                               </p>
                             ) : null}
                           </td>

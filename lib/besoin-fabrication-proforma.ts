@@ -31,6 +31,11 @@ const TOLERANCE_RECETTE = 0.01;
 export type VracAFabriquer = {
   vracId: number;
   nom: string;
+  // kg de vrac pour TOUS les cartons commandes, ce que le stock PF et les programmes en cours en couvrent, et ce qu'il reste a
+  // fabriquer : kg = kgTotal - kgCouvertStock - kgCouvertProgramme. kg = 0 : tout est deja couvert (aucune recette a verifier).
+  kgTotal: number;
+  kgCouvertStock: number;
+  kgCouvertProgramme: number;
   kg: number;
   // kg de vrac pour lesquels la recette est calibree (articles.quantite_recette_base du vrac) ; 0 = non renseigne
   base: number;
@@ -57,6 +62,11 @@ export type BesoinMpFabrication = {
   nom: string;
   unite: string;
   categorie: string;
+  // besoin pour TOUS les cartons commandes, puis ce qui en est deja couvert par le stock PF et par les programmes en cours ;
+  // besoin = besoinTotal - deduitStock - deduitProgramme (ce qu'il faut encore fabriquer)
+  besoinTotal: number;
+  deduitStock: number;
+  deduitProgramme: number;
   besoin: number;
   // stock du Depot E (peut etre negatif : sorties saisies en trop ; le manque compte alors 0 de disponible)
   stock: number;
@@ -87,8 +97,9 @@ type RecetteRow = { article_pf_id: number; article_mp_id: number; quantite: numb
 type MpRow = { id: number; nom_article: string | null; unite: string | null; categorie: string | null };
 
 export async function calculerBesoinFabrication(saisies: string[]): Promise<ResultatBesoinFabrication> {
-  // Cartons a produire + kg de vrac par article : meme calcul que le Besoin Conditionnement (sans ses articles de conditionnement)
-  return calculerBesoinFabricationDepuis(await calculerBesoinProformas(saisies, { sansBesoinsMp: true }));
+  // Cartons a produire + kg de vrac par article : meme calcul que le Besoin Conditionnement (sans ses articles de conditionnement),
+  // programmes en cours deduits comme lui
+  return calculerBesoinFabricationDepuis(await calculerBesoinProformas(saisies, { sansBesoinsMp: true, deduireProgrammes: true }));
 }
 
 // Meme calcul a partir d'un resultat du Besoin Conditionnement deja obtenu (proformas + articles commandes avec leur vrac) :
@@ -101,33 +112,41 @@ export async function calculerBesoinFabricationDepuis(
 
   const sansVrac: ArticleSansVrac[] = [];
   const vracParId = new Map<number, VracAFabriquer>();
-  for (const article of aProduire) {
-    const proformasArticle = article.parProforma.map((p) => p.proforma);
-    if (!article.vracArticleId) {
-      sansVrac.push({
-        articleId: article.articleId,
-        nom: article.nom,
-        aProduire: article.aProduire,
-        proformas: proformasArticle,
-        raison: "sans_vrac",
-        vracNom: null,
-      });
-      continue;
+  for (const article of articles) {
+    // Articles sans vrac calculable : seulement ceux dont il reste des cartons a produire
+    if (article.aProduire > 0) {
+      const proformasArticle = article.parProforma.map((p) => p.proforma);
+      if (!article.vracArticleId) {
+        sansVrac.push({
+          articleId: article.articleId,
+          nom: article.nom,
+          aProduire: article.aProduire,
+          proformas: proformasArticle,
+          raison: "sans_vrac",
+          vracNom: null,
+        });
+        continue;
+      }
+      if (article.vracKg === null) {
+        sansVrac.push({
+          articleId: article.articleId,
+          nom: article.nom,
+          aProduire: article.aProduire,
+          proformas: proformasArticle,
+          raison: "kg_inconnu",
+          vracNom: article.vracNom,
+        });
+        continue;
+      }
     }
-    if (article.vracKg === null) {
-      sansVrac.push({
-        articleId: article.articleId,
-        nom: article.nom,
-        aProduire: article.aProduire,
-        proformas: proformasArticle,
-        raison: "kg_inconnu",
-        vracNom: article.vracNom,
-      });
-      continue;
-    }
+    // Vrac de l'article : on compte aussi ceux dont tout est couvert (stock PF, programmes en cours) pour le besoin total
+    if (!article.vracArticleId || article.vracKgParCarton === null) continue;
     const vrac = vracParId.get(article.vracArticleId) ?? {
       vracId: article.vracArticleId,
       nom: article.vracNom ?? `Vrac ${article.vracArticleId}`,
+      kgTotal: 0,
+      kgCouvertStock: 0,
+      kgCouvertProgramme: 0,
       kg: 0,
       base: 0,
       statutRecette: "ok" as StatutRecetteFabrication,
@@ -135,14 +154,19 @@ export async function calculerBesoinFabricationDepuis(
       sommeRecette: 0,
       articles: [],
     };
-    vrac.kg += article.vracKg;
-    vrac.articles.push({
-      articleId: article.articleId,
-      nom: article.nom,
-      cartons: article.aProduire,
-      kg: article.vracKg,
-      proformas: article.aProduireParProforma.map((ligne) => ligne.proforma),
-    });
+    vrac.kgTotal += article.cartons * article.vracKgParCarton;
+    vrac.kgCouvertStock += article.couvertParStock * article.vracKgParCarton;
+    vrac.kgCouvertProgramme += article.couvertParProgramme * article.vracKgParCarton;
+    if (article.aProduire > 0 && article.vracKg !== null) {
+      vrac.kg += article.vracKg;
+      vrac.articles.push({
+        articleId: article.articleId,
+        nom: article.nom,
+        cartons: article.aProduire,
+        kg: article.vracKg,
+        proformas: article.aProduireParProforma.map((ligne) => ligne.proforma),
+      });
+    }
     vracParId.set(article.vracArticleId, vrac);
   }
 
@@ -172,7 +196,19 @@ export async function calculerBesoinFabricationDepuis(
     lignesParVrac.set(ligne.article_pf_id, liste);
   }
 
-  const besoinParMp = new Map<number, { besoin: number; utilisePar: Set<string>; proformas: Set<string> }>();
+  const besoinParMp = new Map<
+    number,
+    {
+      besoinTotal: number;
+      deduitStock: number;
+      deduitProgramme: number;
+      besoin: number;
+      // vracs a fabriquer qui utilisent cette MP ; tousVracs : tous les vracs commandes qui l'utilisent (meme tout couverts)
+      utilisePar: Set<string>;
+      tousVracs: Set<string>;
+      proformas: Set<string>;
+    }
+  >();
   for (const vrac of vracs) {
     const lignes = lignesParVrac.get(vrac.vracId) ?? [];
     vrac.base = baseParVrac.get(vrac.vracId) ?? 0;
@@ -191,13 +227,24 @@ export async function calculerBesoinFabricationDepuis(
     if (vrac.statutRecette === "sans_recette" || vrac.statutRecette === "lot_inconnu") continue;
     for (const ligne of lignes) {
       const courant = besoinParMp.get(ligne.article_mp_id) ?? {
+        besoinTotal: 0,
+        deduitStock: 0,
+        deduitProgramme: 0,
         besoin: 0,
         utilisePar: new Set<string>(),
+        tousVracs: new Set<string>(),
         proformas: new Set<string>(),
       };
-      courant.besoin += (vrac.kg * Number(ligne.quantite)) / vrac.base;
-      courant.utilisePar.add(vrac.nom);
-      for (const article of vrac.articles) for (const proforma of article.proformas) courant.proformas.add(proforma);
+      const pourKg = (kg: number) => (kg * Number(ligne.quantite)) / vrac.base;
+      courant.besoinTotal += pourKg(vrac.kgTotal);
+      courant.deduitStock += pourKg(vrac.kgCouvertStock);
+      courant.deduitProgramme += pourKg(vrac.kgCouvertProgramme);
+      courant.besoin += pourKg(vrac.kg);
+      courant.tousVracs.add(vrac.nom);
+      if (vrac.kg > 0) {
+        courant.utilisePar.add(vrac.nom);
+        for (const article of vrac.articles) for (const proforma of article.proformas) courant.proformas.add(proforma);
+      }
       besoinParMp.set(ligne.article_mp_id, courant);
     }
   }
@@ -243,10 +290,16 @@ export async function calculerBesoinFabricationDepuis(
       nom: mp?.nom_article ?? `Article MP ${articleMpId}`,
       unite: mp?.unite ?? "",
       categorie: mp?.categorie ?? "",
+      besoinTotal: valeur.besoinTotal,
+      deduitStock: valeur.deduitStock,
+      deduitProgramme: valeur.deduitProgramme,
       besoin: valeur.besoin,
       stock,
       manque,
-      utilisePar: [...valeur.utilisePar].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" })),
+      // les vracs a fabriquer d'abord ; si tout est couvert, tous les vracs commandes qui l'utilisent
+      utilisePar: [...(valeur.utilisePar.size > 0 ? valeur.utilisePar : valeur.tousVracs)].sort((a, b) =>
+        a.localeCompare(b, "fr", { sensitivity: "base" })
+      ),
       proformas: [...valeur.proformas].sort((a, b) => a.localeCompare(b, "fr", { numeric: true })),
       commandes,
       commandeTotal,

@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { getBaseProforma } from "@/app/tableau-commandes/family-data";
+import { correspondALaListe, optionsDistinctes } from "@/lib/filtre-multiple";
 import {
   calculerBesoinDepuisProformas,
   type ArticleCommande,
@@ -22,6 +23,9 @@ import {
 //    imports en cours (commande et import ne se comptent jamais deux fois).
 // Les articles dont la recette n'est pas encore ecrite ne peuvent pas etre calcules : ils sont listes a part (le besoin de leurs MP
 // n'est PAS compte), pour que l'alerte ne laisse pas croire que tout va bien.
+// Les programmes en cours (Qt en cours de Conditionnement du Tableau de commande) sont deduits des cartons a produire : ce qui est
+// deja programme ou emballe sans etre encore en stock PF n'est plus a produire, donc son besoin en MP diminue d'autant.
+// On peut limiter le calcul a certaines proformas / certains clients (le stock PF reste partage entre TOUTES les commandes ouvertes).
 
 export type StatutAlerteMp = "non_couvert" | "couvert" | "ok";
 
@@ -32,6 +36,10 @@ export type AlerteMp = {
   categorie: string;
   besoinFabrication: number;
   besoinConditionnement: number;
+  // besoin pour TOUS les cartons commandes, puis ce que le stock PF et les programmes en cours en couvrent ; besoin = total - stock PF - en cours
+  besoinTotal: number;
+  deduitStock: number;
+  deduitProgramme: number;
   besoin: number;
   // stock du Depot E (peut etre negatif : sorties saisies en trop ; le manque compte alors 0 de disponible)
   stock: number;
@@ -53,9 +61,17 @@ export type AlerteMp = {
 };
 
 export type ResultatAlerteMp = {
-  // commandes ouvertes, regroupees par proforma (numero de base, sans le -1 / -2 du camion)
+  // commandes prises en compte (apres les filtres proforma / client), regroupees par proforma (numero de base, sans le -1 / -2 du camion)
   proformas: ProformaSaisie[];
   nbCommandes: number;
+  // toutes les commandes ouvertes (avant les filtres proforma / client) : sert a remplir les listes de choix
+  proformasDisponibles: { proforma: string; client: string }[];
+  clientsDisponibles: string[];
+  // vrai si les programmes en cours ont ete deduits des cartons a produire
+  programmesDeduits: boolean;
+  // articles commandes dont des cartons sont couverts par un programme en cours (donc plus a produire)
+  articlesEnProgramme: ArticleCommande[];
+  cartonsEnProgramme: number;
   // articles commandes dont il reste des cartons a produire (les autres sont couverts par le stock PF)
   nbArticlesAProduire: number;
   alertes: AlerteMp[];
@@ -105,6 +121,9 @@ type Cumul = {
   categorie: string;
   besoinFabrication: number;
   besoinConditionnement: number;
+  besoinTotal: number;
+  deduitStock: number;
+  deduitProgramme: number;
   stock: number;
   commandes: CommandeEnCours[];
   imports: ImportEnCours[];
@@ -112,13 +131,46 @@ type Cumul = {
   proformas: Set<string>;
 };
 
-export async function calculerAlerteMpCommandes(options?: { sansStand?: boolean }): Promise<ResultatAlerteMp> {
+function clientsDe(proforma: ProformaSaisie) {
+  return [...new Set(proforma.commandes.map((commande) => commande.client).filter(Boolean))].join(", ");
+}
+
+// sansProgrammes : ne deduit PAS les programmes en cours (par defaut ils sont deduits)
+// proformas / clients : liste vide = toutes les commandes ouvertes
+export async function calculerAlerteMpCommandes(options?: {
+  sansStand?: boolean;
+  sansProgrammes?: boolean;
+  proformas?: string[];
+  clients?: string[];
+}): Promise<ResultatAlerteMp> {
   const sansStand = options?.sansStand ?? false;
-  const proformas = await lireCommandesOuvertes(sansStand);
+  const programmesDeduits = !(options?.sansProgrammes ?? false);
+  const proformasChoisies = options?.proformas ?? [];
+  const clientsChoisis = options?.clients ?? [];
+
+  const toutes = await lireCommandesOuvertes(sansStand);
+  const proformasDisponibles = toutes
+    .map((proforma) => ({ proforma: proforma.saisie, client: clientsDe(proforma) }))
+    .sort((a, b) => a.proforma.localeCompare(b.proforma, "fr", { numeric: true }));
+  const clientsDisponibles = optionsDistinctes(toutes.flatMap((proforma) => proforma.commandes.map((commande) => commande.client)));
+
+  const proformas = toutes
+    .filter((proforma) => correspondALaListe(proforma.saisie, proformasChoisies))
+    .map((proforma) =>
+      clientsChoisis.length === 0
+        ? proforma
+        : { ...proforma, commandes: proforma.commandes.filter((commande) => correspondALaListe(commande.client, clientsChoisis)) }
+    )
+    .filter((proforma) => proforma.commandes.length > 0);
   const nbCommandes = proformas.reduce((somme, proforma) => somme + proforma.commandes.length, 0);
   const resultatVide: ResultatAlerteMp = {
     proformas,
     nbCommandes,
+    proformasDisponibles,
+    clientsDisponibles,
+    programmesDeduits,
+    articlesEnProgramme: [],
+    cartonsEnProgramme: 0,
     nbArticlesAProduire: 0,
     alertes: [],
     articlesSansRecette: [],
@@ -130,18 +182,16 @@ export async function calculerAlerteMpCommandes(options?: { sansStand?: boolean 
   if (proformas.length === 0) return resultatVide;
 
   // Un seul calcul des cartons a produire (commandes + stock PF) pour les deux besoins
-  const conditionnement = await calculerBesoinDepuisProformas(proformas, { sansStand });
+  const conditionnement = await calculerBesoinDepuisProformas(proformas, { sansStand, deduireProgrammes: programmesDeduits });
   const fabrication = await calculerBesoinFabricationDepuis(conditionnement);
 
-  const clientParProforma = new Map(
-    proformas.map((proforma) => [
-      proforma.saisie,
-      [...new Set(proforma.commandes.map((commande) => commande.client).filter(Boolean))].join(", "),
-    ])
-  );
+  const clientParProforma = new Map(proformas.map((proforma) => [proforma.saisie, clientsDe(proforma)]));
+  const articlesEnProgramme = conditionnement.articles
+    .filter((article) => article.couvertParProgramme > 0)
+    .sort((a, b) => b.couvertParProgramme - a.couvertParProgramme || a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
 
   const parMp = new Map<number, Cumul>();
-  for (const besoin of conditionnement.besoins) {
+  for (const besoin of conditionnement.besoins.filter((ligne) => ligne.besoin > 0)) {
     parMp.set(besoin.articleMpId, {
       articleMpId: besoin.articleMpId,
       nom: besoin.nom,
@@ -149,6 +199,9 @@ export async function calculerAlerteMpCommandes(options?: { sansStand?: boolean 
       categorie: besoin.categorie,
       besoinFabrication: 0,
       besoinConditionnement: besoin.besoin,
+      besoinTotal: besoin.besoinTotal,
+      deduitStock: besoin.deduitStock,
+      deduitProgramme: besoin.deduitProgramme,
       stock: besoin.stock,
       commandes: besoin.commandes,
       imports: besoin.imports,
@@ -156,11 +209,14 @@ export async function calculerAlerteMpCommandes(options?: { sansStand?: boolean 
       proformas: new Set(besoin.proformas),
     });
   }
-  for (const besoin of fabrication.besoins) {
+  for (const besoin of fabrication.besoins.filter((ligne) => ligne.besoin > 0)) {
     const existant = parMp.get(besoin.articleMpId);
     if (existant) {
       // Une MP utilisee par une recette de fabrication ET de conditionnement : un seul stock, un seul besoin (la somme)
       existant.besoinFabrication += besoin.besoin;
+      existant.besoinTotal += besoin.besoinTotal;
+      existant.deduitStock += besoin.deduitStock;
+      existant.deduitProgramme += besoin.deduitProgramme;
       for (const nom of besoin.utilisePar) existant.utilisePar.add(nom);
       for (const proforma of besoin.proformas) existant.proformas.add(proforma);
       continue;
@@ -172,6 +228,9 @@ export async function calculerAlerteMpCommandes(options?: { sansStand?: boolean 
       categorie: besoin.categorie,
       besoinFabrication: besoin.besoin,
       besoinConditionnement: 0,
+      besoinTotal: besoin.besoinTotal,
+      deduitStock: besoin.deduitStock,
+      deduitProgramme: besoin.deduitProgramme,
       stock: besoin.stock,
       commandes: besoin.commandes,
       imports: besoin.imports,
@@ -197,6 +256,9 @@ export async function calculerAlerteMpCommandes(options?: { sansStand?: boolean 
       categorie: cumul.categorie,
       besoinFabrication: cumul.besoinFabrication,
       besoinConditionnement: cumul.besoinConditionnement,
+      besoinTotal: cumul.besoinTotal,
+      deduitStock: cumul.deduitStock,
+      deduitProgramme: cumul.deduitProgramme,
       besoin,
       stock: cumul.stock,
       manque,
@@ -226,14 +288,19 @@ export async function calculerAlerteMpCommandes(options?: { sansStand?: boolean 
   return {
     proformas,
     nbCommandes,
+    proformasDisponibles,
+    clientsDisponibles,
+    programmesDeduits,
+    articlesEnProgramme,
+    cartonsEnProgramme: articlesEnProgramme.reduce((somme, article) => somme + article.couvertParProgramme, 0),
     nbArticlesAProduire: fabrication.nbArticlesAProduire,
     alertes,
     articlesSansRecette: conditionnement.articles.filter(
       (article) => article.aProduire > 0 && (article.statutRecette === "sans_recette" || article.statutRecette === "lot_inconnu")
     ),
     sansVrac: fabrication.sansVrac,
-    vracsSansRecetteComplete: fabrication.vracs.filter((vrac) => vrac.statutRecette !== "ok"),
-    nbVracs: fabrication.vracs.length,
+    vracsSansRecetteComplete: fabrication.vracs.filter((vrac) => vrac.kg > 0 && vrac.statutRecette !== "ok"),
+    nbVracs: fabrication.vracs.filter((vrac) => vrac.kg > 0).length,
     arrivagesIndisponibles: conditionnement.arrivagesIndisponibles || fabrication.arrivagesIndisponibles,
   };
 }

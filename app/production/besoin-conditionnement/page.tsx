@@ -6,6 +6,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { CellulesArrivagesMp } from "@/app/_components/besoin-arrivages-cellules";
+import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
 import {
   MAX_PROFORMAS,
   calculerBesoinProformas,
@@ -15,7 +16,11 @@ import {
 
 const CLE_PAGE = "productionBesoinConditionnement";
 
-type SearchParams = Promise<{ proforma?: string | string[] }>;
+type SearchParams = Promise<{ proforma?: string | string[]; tout?: string }>;
+
+// Le tableau des articles de conditionnement montre d'abord ceux qui manquent puis ceux dont tout est couvert : les 150 premieres
+// lignes par defaut, "Voir tout" affiche le reste (voir app/_components/voir-tout-banner.tsx).
+const LIMITE_LIGNES = 150;
 
 function nombre(valeur: number, decimales = 3) {
   return valeur.toLocaleString("fr-FR", { maximumFractionDigits: decimales });
@@ -32,8 +37,17 @@ function Carte({ titre, valeur, ton }: { titre: string; valeur: string | number;
   );
 }
 
-function Resultat({ resultat }: { resultat: ResultatBesoin }) {
+function Resultat({
+  resultat,
+  toutAffiche,
+  hrefVoirTout,
+}: {
+  resultat: ResultatBesoin;
+  toutAffiche: boolean;
+  hrefVoirTout: string;
+}) {
   const { proformas, articles, besoins, arrivagesIndisponibles } = resultat;
+  const besoinsAffiches = toutAffiche ? besoins : besoins.slice(0, LIMITE_LIGNES);
   const trouvees = proformas.filter((proforma) => proforma.commandes.length > 0);
   const introuvables = proformas.filter((proforma) => proforma.commandes.length === 0);
   const sansRecette = articles.filter((article) => article.statutRecette === "sans_recette");
@@ -186,11 +200,12 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
             <div className="border-b border-slate-100 px-6 py-4">
               <h2 className="text-lg font-bold text-slate-900">Articles de conditionnement necessaires</h2>
               <p className="mt-1 text-sm text-slate-600">
-                Besoin = cartons a produire x quantite de la recette / nombre de cartons du lot de la recette. Cartons a
-                produire = cartons commandes moins ce qui est deja en stock PF : comme le RESTE du Tableau de commande, le
-                stock est partage entre toutes les commandes (la plus ancienne d&apos;abord), pas retire en entier de ces
-                proformas. Dans chaque couleur, les articles de conditionnement cosmetique sont avant les plastiques. Stock
-                = stock du Depot E seulement (le seul utilisable pour conditionner : le stock des autres depots, Depot B,
+                Besoin total = tous les cartons commandes x quantite de la recette / nombre de cartons du lot de la recette.
+                Les deux colonnes suivantes en deduisent ce qui est deja en stock PF et ce qui est deja en cours (programmes
+                en cours : la meme &quot;Qt en cours de Conditionnement&quot; que le Tableau de commande) ; il reste le besoin a
+                produire. Comme le RESTE du Tableau de commande, le stock PF est partage entre toutes les commandes (la plus
+                ancienne d&apos;abord), pas retire en entier de ces proformas. Dans chaque couleur, les articles de
+                conditionnement cosmetique sont avant les plastiques. Stock = stock du Depot E seulement (le seul utilisable pour conditionner : le stock des autres depots, Depot B,
                 Depot F..., ne compte pas). Commande (BC) = ce qu&apos;il reste a recevoir sur les bons de commande en cours ;
                 Import = ce qui est en route et pas encore receptionne. Le reste a recevoir d&apos;un BC deduit deja ce qui
                 est importe : commande et import ne se comptent jamais deux fois.
@@ -206,7 +221,10 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                       <th className="px-4 py-3 font-semibold">Article de conditionnement</th>
                       <th className="px-4 py-3 font-semibold">Type</th>
                       <th className="px-4 py-3 font-semibold">Unite</th>
-                      <th className="px-4 py-3 text-right font-semibold">Besoin</th>
+                      <th className="px-4 py-3 text-right font-semibold">Besoin total (tous les cartons)</th>
+                      <th className="bg-sky-50 px-4 py-3 text-right font-semibold text-sky-900">Deduit : en stock PF</th>
+                      <th className="bg-sky-50 px-4 py-3 text-right font-semibold text-sky-900">Deduit : en cours (programmes)</th>
+                      <th className="px-4 py-3 text-right font-semibold">Besoin a produire</th>
                       <th className="px-4 py-3 text-right font-semibold">Stock</th>
                       <th className="px-4 py-3 text-right font-semibold">Manque</th>
                       <th className="px-4 py-3 font-semibold">Commande (BC) en cours</th>
@@ -216,7 +234,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {besoins.map((besoin) => (
+                    {besoinsAffiches.map((besoin) => (
                       <tr
                         key={besoin.articleMpId}
                         className={`border-t border-slate-100 align-top ${
@@ -228,7 +246,14 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                           {besoin.type === "cosmetique" ? "Cosmetique" : besoin.type === "plastique" ? "Plastique" : "Autre"}
                         </td>
                         <td className="px-4 py-3 text-slate-600">{besoin.unite || "-"}</td>
-                        <td className="px-4 py-3 text-right tabular-nums">{nombre(besoin.besoin)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums">{nombre(besoin.besoinTotal)}</td>
+                        <td className="bg-sky-50/60 px-4 py-3 text-right tabular-nums text-sky-900">
+                          {besoin.deduitStock > 0 ? `- ${nombre(besoin.deduitStock)}` : "-"}
+                        </td>
+                        <td className="bg-sky-50/60 px-4 py-3 text-right tabular-nums text-sky-900">
+                          {besoin.deduitProgramme > 0 ? `- ${nombre(besoin.deduitProgramme)}` : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold tabular-nums">{nombre(besoin.besoin)}</td>
                         <td className="px-4 py-3 text-right tabular-nums">{nombre(besoin.stock)}</td>
                         <td
                           className={`px-4 py-3 text-right font-semibold tabular-nums ${
@@ -258,6 +283,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                     ))}
                   </tbody>
                 </table>
+                <VoirToutBanner affiches={besoinsAffiches.length} total={besoins.length} href={hrefVoirTout} />
               </div>
             )}
           </section>
@@ -271,9 +297,11 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                 <thead className="sticky top-0 bg-slate-50 text-slate-600">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Article</th>
-                    <th className="px-4 py-3 text-right font-semibold">Cartons commandes</th>
+                    <th className="px-4 py-3 text-right font-semibold">Cartons commandes (total)</th>
                     <th className="px-4 py-3 text-right font-semibold">Stock PF</th>
-                    <th className="px-4 py-3 text-right font-semibold">Deja couvert par le stock</th>
+                    <th className="bg-sky-50 px-4 py-3 text-right font-semibold text-sky-900">Deduit : en stock PF</th>
+                    <th className="px-4 py-3 text-right font-semibold">Programmes en cours</th>
+                    <th className="bg-sky-50 px-4 py-3 text-right font-semibold text-sky-900">Deduit : en cours</th>
                     <th className="px-4 py-3 text-right font-semibold">A produire</th>
                     <th className="px-4 py-3 font-semibold">Proforma</th>
                     <th className="px-4 py-3 font-semibold">Recette conditionnement</th>
@@ -286,7 +314,13 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                       <td className="px-4 py-3 font-medium text-slate-900">{article.nom}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{nombre(article.cartons)}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-slate-600">{nombre(article.stockPf)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-slate-600">{nombre(article.couvertParStock)}</td>
+                      <td className="bg-sky-50/60 px-4 py-3 text-right tabular-nums text-sky-900">
+                        {article.couvertParStock > 0 ? `- ${nombre(article.couvertParStock)}` : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-600">{nombre(article.qtEnProgramme)}</td>
+                      <td className="bg-sky-50/60 px-4 py-3 text-right tabular-nums text-sky-900">
+                        {article.couvertParProgramme > 0 ? `- ${nombre(article.couvertParProgramme)}` : "-"}
+                      </td>
                       <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
                         {nombre(article.aProduire)}
                       </td>
@@ -296,7 +330,7 @@ function Resultat({ resultat }: { resultat: ResultatBesoin }) {
                       <td className="px-4 py-3">
                         {article.statutRecette === "couvert_stock" ? (
                           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                            Tout est en stock
+                            Tout est couvert (stock / en cours)
                           </span>
                         ) : article.statutRecette === "ok" ? (
                           <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
@@ -342,7 +376,8 @@ export default async function BesoinConditionnementPage({ searchParams }: { sear
   let erreur: string | null = null;
   if (saisies.length > 0) {
     try {
-      resultat = await calculerBesoinProformas(saisies);
+      // Les programmes en cours comptent comme du stock PF a venir : leurs cartons ne sont plus a produire
+      resultat = await calculerBesoinProformas(saisies, { deduireProgrammes: true });
     } catch (e) {
       erreur = e instanceof Error ? e.message : "Erreur pendant le calcul.";
     }
@@ -395,7 +430,13 @@ export default async function BesoinConditionnementPage({ searchParams }: { sear
           </section>
         ) : null}
 
-        {resultat ? <Resultat resultat={resultat} /> : null}
+        {resultat ? (
+          <Resultat
+            resultat={resultat}
+            toutAffiche={params.tout === "1"}
+            hrefVoirTout={`/production/besoin-conditionnement?${new URLSearchParams({ proforma: saisies.join(", "), tout: "1" }).toString()}`}
+          />
+        ) : null}
       </div>
     </main>
   );
