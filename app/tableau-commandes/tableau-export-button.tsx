@@ -269,20 +269,23 @@ export function addTableauSheet(
 
     // Articles de conditionnement : par type, stock puis besoin (plusieurs articles du meme type = valeurs separees par " / ")
     const cellulesComposants: (string | number)[] = [];
-    const manquesComposants: boolean[] = [];
+    // etat de chaque cellule : null = pas d'article de ce type ; "ok" = besoin inferieur ou egal au stock (vert) ; "manque" = besoin
+    // superieur au stock (rouge) - les deux cellules (stock, besoin) d'un type ont le meme etat, comme a l'ecran
+    const etatsComposants: (null | "ok" | "manque")[] = [];
     const nomsComposants: string[] = [];
     for (const type of typesPresents) {
       const liste = (row.composants ?? []).filter((composant) => composant.type === type.cle);
       if (liste.length === 0) {
         cellulesComposants.push("", "");
-        manquesComposants.push(false, false);
+        etatsComposants.push(null, null);
         nomsComposants.push("", "");
         continue;
       }
       const valeurs = (lire: (composant: ComposantArticle) => number): string | number =>
         liste.length === 1 ? lire(liste[0]) : liste.map((composant) => lire(composant)).join(" / ");
       cellulesComposants.push(valeurs((composant) => composant.stock), valeurs((composant) => composant.besoin));
-      manquesComposants.push(false, liste.some((composant) => composant.besoin > Math.max(composant.stock, 0)));
+      const etat = liste.some((composant) => composant.besoin > composant.stock) ? "manque" : "ok";
+      etatsComposants.push(etat, etat);
       const noms = liste.map((composant) => composant.nom).join("\n");
       nomsComposants.push(noms, noms);
     }
@@ -305,13 +308,18 @@ export function addTableauSheet(
       const isSummaryCol = colIndex > resteApresCol - 5 && colIndex <= resteApresCol;
 
       if (colIndex > resteApresCol) {
-        // Colonnes articles de conditionnement : besoin en rouge quand le stock du Depot E ne le couvre pas ; le nom en commentaire
+        // Colonnes articles de conditionnement : vert quand le besoin est inferieur ou egal au stock du Depot E, rouge quand il le
+        // depasse ; le nom en commentaire
         const index = colIndex - resteApresCol - 1;
         cell.border = LINE_BORDERS;
         cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-        const manque = manquesComposants[index];
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: manque ? RESTE_NEGATIF_RED : lineFill } };
-        cell.font = manque ? { color: { argb: TEXT_WHITE }, bold: true } : { color: { argb: TEXT_DARK } };
+        const etat = etatsComposants[index];
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: etat === "manque" ? RESTE_NEGATIF_RED : etat === "ok" ? RESTE_POSITIF_GREEN : lineFill },
+        };
+        cell.font = etat ? { color: { argb: TEXT_WHITE }, bold: true } : { color: { argb: TEXT_DARK } };
         if (nomsComposants[index]) cell.note = nomsComposants[index];
         trackWidth(colIndex, String(cell.value ?? ""));
         return;

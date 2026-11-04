@@ -178,6 +178,52 @@ function getStatusCellClass(statusValue: string | null | undefined) {
   return "bg-[#fff200] text-slate-900";
 }
 
+// Colonnes articles de conditionnement d'une ligne article (vue famille et vue Article manquant) : pour chacun des 7 types, le stock du
+// Depot E puis le besoin pour toutes les commandes ouvertes ; les deux cellules s'allument en VERT quand le besoin est inferieur ou egal
+// au stock et en ROUGE quand il le depasse (un type avec deux articles : rouge des qu'un des deux manque), nom au survol
+function renderCellulesComposants(cleLigne: string, composantsArticle: ComposantArticle[], lineFillClass: string) {
+  return TYPES_COMPOSANTS.flatMap((type) => {
+    const liste = composantsArticle.filter((composant) => composant.type === type.cle);
+    const noms = liste.map((composant) => composant.nom).join(" / ");
+    const manque = liste.some((composant) => composant.besoin > composant.stock);
+    const classeCellule = `border border-slate-300 px-1 py-1 text-center font-medium leading-tight ${
+      liste.length === 0 ? lineFillClass : manque ? "bg-red-600 text-white" : "bg-emerald-600 text-white"
+    }`;
+    return [
+      <td
+        key={`${cleLigne}-${type.cle}-stock`}
+        title={noms ? `${noms} - stock du Depot E` : undefined}
+        className={classeCellule}
+      >
+        {liste.map((composant) => (
+          <div key={composant.mpId}>{formatQuantity(composant.stock)}</div>
+        ))}
+      </td>,
+      <td
+        key={`${cleLigne}-${type.cle}-besoin`}
+        title={noms ? `${noms} - besoin pour toutes les commandes ouvertes` : undefined}
+        className={classeCellule}
+      >
+        {liste.map((composant) => (
+          <div key={composant.mpId}>{formatQuantity(composant.besoin)}</div>
+        ))}
+      </td>,
+    ];
+  });
+}
+
+// Lien "Colonnes conditionnement" : fait defiler le tableau jusqu'aux colonnes capsule / flacon / etiquette... (tout a droite)
+function LienColonnesConditionnement() {
+  return (
+    <a
+      href="#colonnes-conditionnement"
+      className="rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-[16px] font-medium text-sky-800"
+    >
+      Colonnes conditionnement →
+    </a>
+  );
+}
+
 function renderArticleManquantInsideTableau(
   families: string[],
   availableFamilies: string[],
@@ -188,8 +234,11 @@ function renderArticleManquantInsideTableau(
   hideStand: boolean = false,
   onlyNegatif: boolean = false,
   canEditNote: boolean = false,
-  colonnesRetirees: string[] = []
+  colonnesRetirees: string[] = [],
+  composants: Map<string, ComposantArticle[]> = new Map(),
+  composantsIndisponibles: boolean = false
 ) {
+  const nbColComposants = TYPES_COMPOSANTS.length * 2;
   const columnsAfterStand = commandColumns.filter(
     (column) => !hideStand || String(column.statut || "").toUpperCase() !== "STAND"
   );
@@ -280,6 +329,7 @@ function renderArticleManquantInsideTableau(
         reste: row.reste,
         qtEnCours,
         resteApresConditionnement: row.resteApresConditionnement,
+        composants: composants.get(normalizeArticle(row.article)),
       });
     }
     return familyRows;
@@ -325,6 +375,7 @@ function renderArticleManquantInsideTableau(
               >
                 Commandes
               </Link>
+              <LienColonnesConditionnement />
               <TableauExportButton
                 title={selectedFamille ? `Article manquant - ${selectedFamille}` : "Article manquant"}
                 commandColumns={exportCommandColumns}
@@ -406,6 +457,12 @@ function renderArticleManquantInsideTableau(
         </section>
 
         <section className="rounded-[1.75rem] border border-slate-200 bg-white px-5 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
+          {composantsIndisponibles ? (
+            <p className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[16px] font-medium text-amber-800">
+              Les colonnes articles de conditionnement (capsule, flacon, etiquette...) n&apos;ont pas pu etre calculees. Recharge la
+              page pour reessayer.
+            </p>
+          ) : null}
           {columnsAfterStand.length > 0 ? (
             <div className="mb-4 flex flex-wrap items-start gap-3">
               <details className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-2">
@@ -462,7 +519,10 @@ function renderArticleManquantInsideTableau(
           ) : (
             <div className="overflow-hidden rounded-[1.35rem] border border-slate-300 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
               <div className="max-h-[75vh] overflow-auto">
-                <table className="min-w-[1660px] w-full border-separate border-spacing-0 text-[16px]">
+                <table
+                  className="min-w-[1660px] w-full border-separate border-spacing-0 text-[16px]"
+                  style={{ minWidth: 1660 + nbColComposants * 96 }}
+                >
                   <colgroup>
                     <col style={{ width: "280px" }} />
                     {visibleCommandColumns.length > 0 ? (
@@ -477,6 +537,10 @@ function renderArticleManquantInsideTableau(
                     <col style={{ width: "64px" }} />
                     <col style={{ width: "84px" }} />
                     <col style={{ width: "84px" }} />
+                    {TYPES_COMPOSANTS.flatMap((type) => [
+                      <col key={`manquant-col-${type.cle}-stock`} style={{ width: "96px" }} />,
+                      <col key={`manquant-col-${type.cle}-besoin`} style={{ width: "96px" }} />,
+                    ])}
                   </colgroup>
                   {/* Toute la thead colle en UN seul bloc (au lieu d'une
                   sticky top-[Npx] par ligne) - les offsets en pixels fixes
@@ -513,6 +577,17 @@ function renderArticleManquantInsideTableau(
                       <th rowSpan={6} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[16px] font-medium uppercase leading-tight text-slate-950`}>
                         Reste apres Conditionnement
                       </th>
+                      {TYPES_COMPOSANTS.map((type, index) => (
+                        <th
+                          key={`manquant-type-${type.cle}`}
+                          id={index === 0 ? "colonnes-conditionnement" : undefined}
+                          colSpan={2}
+                          rowSpan={3}
+                          className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}
+                        >
+                          {type.libelle}
+                        </th>
+                      ))}
                     </tr>
                     <tr>
                       <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
@@ -560,6 +635,18 @@ function renderArticleManquantInsideTableau(
                           {formatTruckCount(column.nombre_camion)}
                         </th>
                       ))}
+                      {TYPES_COMPOSANTS.flatMap((type) =>
+                        ["Stock", "Besoin"].map((genre) => (
+                          <th
+                            key={`manquant-sous-${type.cle}-${genre}`}
+                            rowSpan={3}
+                            title={genre === "Stock" ? "Stock du Depot E" : "Besoin pour toutes les commandes ouvertes"}
+                            className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-center text-[14px] font-medium leading-tight text-slate-950`}
+                          >
+                            {genre}
+                          </th>
+                        ))
+                      )}
                     </tr>
                     <tr>
                       <th className={`sticky left-0 z-60 border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-left font-medium uppercase text-slate-950`}>
@@ -592,7 +679,7 @@ function renderArticleManquantInsideTableau(
                     {visibleSections.flatMap(({ family, rows }) => [
                       <tr key={`banner-${family}`}>
                         <td
-                          colSpan={1 + visibleCommandColumns.length + 5}
+                          colSpan={1 + visibleCommandColumns.length + 5 + nbColComposants}
                           className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-4 py-2 text-left text-lg font-medium text-slate-950`}
                         >
                           {family}
@@ -654,6 +741,11 @@ function renderArticleManquantInsideTableau(
                             <td className={`border border-slate-700 px-2 py-1 text-center font-medium ${resteApresConditionnementClass}`}>
                               {formatQuantity(resteApresConditionnement)}
                             </td>
+                            {renderCellulesComposants(
+                              `${family}-${row.article}`,
+                              composants.get(normalizeArticle(row.article)) ?? [],
+                              lineFillClass
+                            )}
                           </HighlightableRow>
                         );
                       }),
@@ -700,11 +792,9 @@ function renderGenericFamilyTemplate(
     composants
   );
 
-  // Colonnes articles de conditionnement : seulement les types qu'un article de la famille utilise (stock du Depot E + besoin pour
-  // toutes les commandes ouvertes, voir lib/composants-conditionnement.ts)
-  const typesAffiches = TYPES_COMPOSANTS.filter((type) =>
-    [...composants.values()].some((liste) => liste.some((composant) => composant.type === type.cle))
-  );
+  // Colonnes articles de conditionnement : les 7 types, toujours affichees (stock du Depot E + besoin pour toutes les commandes
+  // ouvertes, voir lib/composants-conditionnement.ts) ; vides pour un article sans Recette Conditionnement
+  const typesAffiches = TYPES_COMPOSANTS;
   const nbColComposants = typesAffiches.length * 2;
   const enteteVide = (prefixe: string) =>
     typesAffiches.flatMap((type) =>
@@ -766,6 +856,7 @@ function renderGenericFamilyTemplate(
               >
                 Article manquant
               </Link>
+              <LienColonnesConditionnement />
               <TableauExportButton
                 title={selectedFamille}
                 commandColumns={exportCommandColumns}
@@ -832,6 +923,11 @@ function renderGenericFamilyTemplate(
           <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[16px] font-medium text-amber-800">
             Les colonnes articles de conditionnement (capsule, flacon, etiquette...) n&apos;ont pas pu etre calculees. Recharge la page
             pour reessayer.
+          </p>
+        ) : composants.size === 0 ? (
+          <p className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-[16px] font-medium text-sky-900">
+            Les colonnes articles de conditionnement (a droite du tableau) sont vides : aucun article de cette famille n&apos;a encore de
+            Recette Conditionnement. Elles se remplissent des que les recettes sont ecrites.
           </p>
         ) : null}
 
@@ -1017,9 +1113,10 @@ function renderGenericFamilyTemplate(
                     Reste apres Conditionnement
                   </th>
                 
-                  {typesAffiches.map((type) => (
+                  {typesAffiches.map((type, index) => (
                     <th
                       key={`type-${type.cle}`}
+                      id={index === 0 ? "colonnes-conditionnement" : undefined}
                       colSpan={2}
                       className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}
                     >
@@ -1220,37 +1317,7 @@ function renderGenericFamilyTemplate(
                       <td className={`border border-slate-700 px-2 py-1 font-medium ${resteApresConditionnementClass}`}>
                         {formatQuantity(resteApresConditionnement)}
                       </td>
-                      {typesAffiches.flatMap((type) => {
-                        const liste = (composants.get(articleKey) ?? []).filter((composant) => composant.type === type.cle);
-                        const noms = liste.map((composant) => composant.nom).join(" / ");
-                        const manque = liste.some((composant) => composant.besoin > Math.max(composant.stock, 0));
-                        return [
-                          <td
-                            key={`${article}-${type.cle}-stock`}
-                            title={noms ? `${noms} - stock du Depot E` : undefined}
-                            className={`border border-slate-300 px-1 py-1 font-medium leading-tight ${lineFillClass}`}
-                          >
-                            {liste.map((composant) => (
-                              <div key={composant.mpId} className={composant.stock < 0 ? "text-red-700" : undefined}>
-                                {formatQuantity(composant.stock)}
-                              </div>
-                            ))}
-                          </td>,
-                          <td
-                            key={`${article}-${type.cle}-besoin`}
-                            title={noms ? `${noms} - besoin pour toutes les commandes ouvertes` : undefined}
-                            className={`border border-slate-300 px-1 py-1 font-medium leading-tight ${
-                              manque ? "bg-red-600 text-white" : lineFillClass
-                            }`}
-                          >
-                            {liste.map((composant) => (
-                              <div key={composant.mpId} className={composant.besoin === 0 ? "text-slate-400" : undefined}>
-                                {formatQuantity(composant.besoin)}
-                              </div>
-                            ))}
-                          </td>,
-                        ];
-                      })}
+                      {renderCellulesComposants(article, composants.get(articleKey) ?? [], lineFillClass)}
                     </HighlightableRow>
                   );
 
@@ -1292,10 +1359,36 @@ export default async function TableauCommandesPage({
     const families = [...FAMILY_ORDER, ...(await fetchDynamicFamilies())];
 
     // Calcul partage avec l'export "Toutes les familles" (feuille Article manquant) : voir manquant-data.ts
-    const { sharedCommandColumns, sections, qtEnCoursConditionnementByArticle } = await loadManquantData(
-      families,
-      selectedFamille
-    );
+    const { sharedCommandColumns, sections, qtEnCoursConditionnementByArticle, articleIdsByKey, articlesGlobaux } =
+      await loadManquantData(families, selectedFamille);
+
+    // Colonnes articles de conditionnement (capsule, flacon, etiquette, sleeve, etui, dispenseur, carton) : seulement pour les
+    // articles en manque (les seuls affiches : Supprimer stand ou une colonne retiree ne peuvent que les faire disparaitre).
+    // Un souci de lecture ne doit pas bloquer le tableau : on le signale seulement.
+    const idsManquants = new Map<string, number[]>();
+    const stockPfManquants = new Map<string, number>();
+    for (const { rows } of sections) {
+      for (const row of rows) {
+        if (!(row.reste < 0)) continue;
+        const cle = normalizeArticle(row.article);
+        const ids = articleIdsByKey.get(cle);
+        if (!ids) continue;
+        idsManquants.set(cle, ids);
+        stockPfManquants.set(cle, row.stock);
+      }
+    }
+    let composants = new Map<string, ComposantArticle[]>();
+    let composantsIndisponibles = false;
+    try {
+      composants = await calculerComposantsFamille({
+        articleIdsParCle: idsManquants,
+        stockPfParNom: stockPfManquants,
+        qtEnCoursParNom: qtEnCoursConditionnementByArticle,
+        articlesGlobaux,
+      });
+    } catch {
+      composantsIndisponibles = true;
+    }
 
     return renderArticleManquantInsideTableau(
       families,
@@ -1307,7 +1400,9 @@ export default async function TableauCommandesPage({
       hideStand,
       onlyNegatif,
       canEditNote,
-      colonnesRetirees
+      colonnesRetirees,
+      composants,
+      composantsIndisponibles
     );
   }
 

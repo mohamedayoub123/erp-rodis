@@ -157,7 +157,7 @@ export async function loadManquantData(families: string[], selectedFamille: stri
 
   const missingArticlesData =
     (missingArticlesRaw as
-      | { id: number; nom_article: string | null; gamme: string | null }[]
+      | { id: number; nom_article: string | null; gamme: string | null; nature: string | null }[]
       | null) ?? [];
   const missingCommandesData =
     (missingCommandesRaw as
@@ -328,5 +328,21 @@ export async function loadManquantData(families: string[], selectedFamille: stri
     }
   }
 
-  return { sharedCommandColumns, sections, qtEnCoursConditionnementByArticle };
+  // ids des articles finis par nom normalise (comme les lignes des sections) : servent aux colonnes articles de conditionnement
+  const articleIdsByKey = new Map<string, number[]>();
+  for (const article of unionArticlesById.values()) {
+    const cle = normalizeArticle(String(article.nom_article || ""));
+    if (!cle) continue;
+    const ids = articleIdsByKey.get(cle) ?? [];
+    ids.push(article.id);
+    articleIdsByKey.set(cle, ids);
+  }
+
+  return {
+    sharedCommandColumns,
+    sections,
+    qtEnCoursConditionnementByArticle,
+    articleIdsByKey,
+    articlesGlobaux: missingArticlesData,
+  };
 }
