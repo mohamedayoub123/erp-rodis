@@ -22,10 +22,13 @@ import {
   buildFamilyView,
   getStatusLabel,
   loadFamilyTableData,
+  loadSharedFamilyData,
   normalizeArticle,
   type CommandColumn,
 } from "./family-data";
 import { loadManquantData, type ManquantFamilySection } from "./manquant-data";
+import { calculerComposantsFamille } from "@/lib/composants-conditionnement";
+import { TYPES_COMPOSANTS, type ComposantArticle } from "@/lib/composants-types";
 
 // Le bouton "Exporter toutes les familles" calcule tout le tableau (toutes les familles + la feuille
 // Article manquant) dans une action serveur de cette page : on lui laisse le temps.
@@ -678,7 +681,9 @@ function renderGenericFamilyTemplate(
   hideStand: boolean = false,
   onlyNegatif: boolean = false,
   canEditNote: boolean = false,
-  colonnesRetirees: string[] = []
+  colonnesRetirees: string[] = [],
+  composants: Map<string, ComposantArticle[]> = new Map(),
+  composantsIndisponibles: boolean = false
 ) {
   // Lignes du tableau + lignes d'export Excel : meme calcul que l'export de
   // toutes les familles (voir buildFamilyView dans family-data.ts).
@@ -691,8 +696,22 @@ function renderGenericFamilyTemplate(
     subGammeByArticleKey,
     hideStand,
     onlyNegatif,
-    colonnesRetirees
+    colonnesRetirees,
+    composants
   );
+
+  // Colonnes articles de conditionnement : seulement les types qu'un article de la famille utilise (stock du Depot E + besoin pour
+  // toutes les commandes ouvertes, voir lib/composants-conditionnement.ts)
+  const typesAffiches = TYPES_COMPOSANTS.filter((type) =>
+    [...composants.values()].some((liste) => liste.some((composant) => composant.type === type.cle))
+  );
+  const nbColComposants = typesAffiches.length * 2;
+  const enteteVide = (prefixe: string) =>
+    typesAffiches.flatMap((type) =>
+      ["stock", "besoin"].map((genre) => (
+        <th key={`${prefixe}-${type.cle}-${genre}`} className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+      ))
+    );
 
   // Annuler une proforma = retirer sa colonne, comme dans la vue "Article manquant" (croix de l'en-tete ou panneau "Colonnes") :
   // le TOTAL, le RESTE et l'export Excel sont recalcules sans elle. Reglage d'affichage (dans le lien de la page), rien n'est
@@ -809,6 +828,13 @@ function renderGenericFamilyTemplate(
           </div>
         </section>
 
+        {composantsIndisponibles ? (
+          <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[16px] font-medium text-amber-800">
+            Les colonnes articles de conditionnement (capsule, flacon, etiquette...) n&apos;ont pas pu etre calculees. Recharge la page
+            pour reessayer.
+          </p>
+        ) : null}
+
         {columnsAfterStand.length > 0 ? (
           <section className="rounded-[1.5rem] border border-slate-200 bg-white px-4 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
             <div className="flex flex-wrap items-start gap-3">
@@ -862,7 +888,10 @@ function renderGenericFamilyTemplate(
 
         <section className="overflow-hidden rounded-[1.5rem] border border-slate-300 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
           <div className="max-h-[75vh] overflow-auto">
-            <table className="min-w-[2260px] w-full border-separate border-spacing-0 text-center text-[17px]">
+            <table
+              className="min-w-[2260px] w-full border-separate border-spacing-0 text-center text-[17px]"
+              style={{ minWidth: 2260 + nbColComposants * 96 }}
+            >
               <colgroup>
                 <col style={{ width: "280px" }} />
                 {visibleCommandColumns.length > 0 ? (
@@ -877,6 +906,10 @@ function renderGenericFamilyTemplate(
                 <col style={{ width: "64px" }} />
                 <col style={{ width: "84px" }} />
                 <col style={{ width: "84px" }} />
+                {typesAffiches.flatMap((type) => [
+                  <col key={`col-${type.cle}-stock`} style={{ width: "96px" }} />,
+                  <col key={`col-${type.cle}-besoin`} style={{ width: "96px" }} />,
+                ])}
               </colgroup>
               <thead>
                 <tr>
@@ -900,13 +933,15 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                
+                  {enteteVide("note")}
                 </tr>
                 <tr>
                   <th className="border border-slate-700 bg-white px-3 py-2 text-left text-xl font-medium text-slate-900">
                     {formatDateCell(new Date())}
                   </th>
                   <th
-                    colSpan={Math.max(visibleCommandColumns.length, 1) + 5}
+                    colSpan={Math.max(visibleCommandColumns.length, 1) + 5 + nbColComposants}
                     className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 text-center text-lg font-medium text-slate-950`}
                   >
                     {selectedFamille}
@@ -947,6 +982,8 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2 font-medium text-slate-950`} />
+                
+                  {enteteVide("statut")}
                 </tr>
                 <tr>
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-3 font-medium text-slate-950`}>
@@ -979,6 +1016,16 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}>
                     Reste apres Conditionnement
                   </th>
+                
+                  {typesAffiches.map((type) => (
+                    <th
+                      key={`type-${type.cle}`}
+                      colSpan={2}
+                      className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-3 text-[16px] font-medium uppercase leading-tight whitespace-normal break-words text-slate-950`}
+                    >
+                      {type.libelle}
+                    </th>
+                  ))}
                 </tr>
                 <tr>
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
@@ -1001,6 +1048,18 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                
+                  {typesAffiches.flatMap((type) =>
+                    ["Stock", "Besoin"].map((genre) => (
+                      <th
+                        key={`sous-${type.cle}-${genre}`}
+                        title={genre === "Stock" ? "Stock du Depot E" : "Besoin pour toutes les commandes ouvertes"}
+                        className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-1 py-2 text-[14px] font-medium leading-tight text-slate-950`}
+                      >
+                        {genre}
+                      </th>
+                    ))
+                  )}
                 </tr>
                 <tr>
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium uppercase text-slate-950`}>
@@ -1023,6 +1082,8 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                
+                  {enteteVide("tc")}
                 </tr>
                 <tr>
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
@@ -1045,6 +1106,8 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                
+                  {enteteVide("proforma")}
                 </tr>
                 <tr>
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-3 py-2 font-medium text-slate-950`}>
@@ -1067,6 +1130,8 @@ function renderGenericFamilyTemplate(
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
                   <th className={`border border-slate-700 ${WHITE_SECRET_TURQUOISE} px-2 py-2`} />
+                
+                  {enteteVide("date")}
                 </tr>
               </thead>
               <tbody>
@@ -1106,7 +1171,7 @@ function renderGenericFamilyTemplate(
                     rows.push(
                       <tr key={`subgamme-${subGamme.label}`}>
                         <td
-                          colSpan={1 + visibleCommandColumns.length + 5}
+                          colSpan={1 + visibleCommandColumns.length + 5 + nbColComposants}
                           className={`border border-slate-700 px-4 py-2 text-center text-base font-bold uppercase italic ${subGamme.bannerClass}`}
                         >
                           {subGamme.label}
@@ -1155,6 +1220,37 @@ function renderGenericFamilyTemplate(
                       <td className={`border border-slate-700 px-2 py-1 font-medium ${resteApresConditionnementClass}`}>
                         {formatQuantity(resteApresConditionnement)}
                       </td>
+                      {typesAffiches.flatMap((type) => {
+                        const liste = (composants.get(articleKey) ?? []).filter((composant) => composant.type === type.cle);
+                        const noms = liste.map((composant) => composant.nom).join(" / ");
+                        const manque = liste.some((composant) => composant.besoin > Math.max(composant.stock, 0));
+                        return [
+                          <td
+                            key={`${article}-${type.cle}-stock`}
+                            title={noms ? `${noms} - stock du Depot E` : undefined}
+                            className={`border border-slate-300 px-1 py-1 font-medium leading-tight ${lineFillClass}`}
+                          >
+                            {liste.map((composant) => (
+                              <div key={composant.mpId} className={composant.stock < 0 ? "text-red-700" : undefined}>
+                                {formatQuantity(composant.stock)}
+                              </div>
+                            ))}
+                          </td>,
+                          <td
+                            key={`${article}-${type.cle}-besoin`}
+                            title={noms ? `${noms} - besoin pour toutes les commandes ouvertes` : undefined}
+                            className={`border border-slate-300 px-1 py-1 font-medium leading-tight ${
+                              manque ? "bg-red-600 text-white" : lineFillClass
+                            }`}
+                          >
+                            {liste.map((composant) => (
+                              <div key={composant.mpId} className={composant.besoin === 0 ? "text-slate-400" : undefined}>
+                                {formatQuantity(composant.besoin)}
+                              </div>
+                            ))}
+                          </td>,
+                        ];
+                      })}
                     </HighlightableRow>
                   );
 
@@ -1361,7 +1457,23 @@ export default async function TableauCommandesPage({
 
   // Donnees de la famille (White Secret ou famille generique) : meme code que
   // l'export Excel de toutes les familles (voir family-data.ts).
-  const tableData = await loadFamilyTableData(selectedFamille);
+  const shared = await loadSharedFamilyData();
+  const tableData = await loadFamilyTableData(selectedFamille, shared);
+
+  // Colonnes articles de conditionnement (capsule, flacon, etiquette, sleeve, etui, dispenseur, carton) : stock du Depot E et
+  // besoin pour toutes les commandes ouvertes. Un souci de lecture ne doit pas bloquer le tableau : on le signale seulement.
+  let composants = new Map<string, ComposantArticle[]>();
+  let composantsIndisponibles = false;
+  try {
+    composants = await calculerComposantsFamille({
+      articleIdsParCle: tableData.articleIdsByKey,
+      stockPfParNom: tableData.stockByArticle,
+      qtEnCoursParNom: tableData.qtEnCoursByArticleKey,
+      articlesGlobaux: shared.articles,
+    });
+  } catch {
+    composantsIndisponibles = true;
+  }
 
   return renderGenericFamilyTemplate(
     families,
@@ -1375,6 +1487,8 @@ export default async function TableauCommandesPage({
     hideStand,
     onlyNegatif,
     canEditNote,
-    colonnesRetirees
+    colonnesRetirees,
+    composants,
+    composantsIndisponibles
   );
 }

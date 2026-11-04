@@ -1,6 +1,7 @@
 "use client";
 
 import ExcelJS from "exceljs";
+import { TYPES_COMPOSANTS, type ComposantArticle } from "@/lib/composants-types";
 
 // Meme approche que les autres exports du projet (Statistique MP, Capacite
 // Conditionnement) : exceljs cote client, a partir de donnees deja
@@ -43,6 +44,8 @@ export type ExportDataRow =
       reste: number;
       qtEnCours: number;
       resteApresConditionnement: number;
+      // Articles de conditionnement de l'article (capsule, flacon, etiquette...) avec leur stock et leur besoin ; absent = pas de colonnes
+      composants?: ComposantArticle[];
     };
 
 const THIN_BORDER: Partial<ExcelJS.Border> = { style: "thin", color: { argb: "FFCBD5E1" } };
@@ -120,6 +123,13 @@ export function addTableauSheet(
 ) {
   const sheet = workbook.addWorksheet(sheetName || title.slice(0, 31) || "Export");
 
+  // Colonnes articles de conditionnement (stock + besoin par type), seulement pour les types presents dans les lignes
+  const typesPresents = TYPES_COMPOSANTS.filter((type) =>
+    rows.some((row) => row.kind === "article" && row.composants?.some((composant) => composant.type === type.cle))
+  );
+  const entetesComposants = typesPresents.flatMap((type) => [`${type.libelle} - Stock`, `${type.libelle} - Besoin`]);
+  const videsComposants = entetesComposants.map(() => "");
+
   const headerLabels = [
     "Article",
     ...commandColumns.map((col) => col.numeroProforma || col.client || col.key),
@@ -128,10 +138,13 @@ export function addTableauSheet(
     "Reste",
     "Qt en cours de Conditionnement",
     "Reste apres Conditionnement",
+    ...entetesComposants,
   ];
   const totalCols = headerLabels.length;
   const firstCommandCol = 2;
   const lastCommandCol = 1 + commandColumns.length;
+  // Derniere colonne des 5 colonnes de totaux ("Reste apres Conditionnement") ; les colonnes articles de conditionnement suivent
+  const resteApresCol = lastCommandCol + 5;
 
   function bannerRow(label: string) {
     const row = sheet.addRow([label]);
@@ -160,9 +173,9 @@ export function addTableauSheet(
 
   // Meme ordre d'en-tete que l'ecran : Note, Statut, Client, Nombre de camion, tC (feuilles de familles
   // seulement), Proforma, Date commande.
-  const noteRow = sheet.addRow(["Note", ...commandColumns.map((col) => col.note || ""), "", "", "", "", ""]);
-  const statutRow = sheet.addRow(["Statut", ...commandColumns.map((col) => col.statut), "", "", "", "", ""]);
-  const clientRow = sheet.addRow(["Client", ...commandColumns.map((col) => col.client || "-"), "", "", "", "", ""]);
+  const noteRow = sheet.addRow(["Note", ...commandColumns.map((col) => col.note || ""), "", "", "", "", "", ...videsComposants]);
+  const statutRow = sheet.addRow(["Statut", ...commandColumns.map((col) => col.statut), "", "", "", "", "", ...videsComposants]);
+  const clientRow = sheet.addRow(["Client", ...commandColumns.map((col) => col.client || "-"), "", "", "", "", "", ...videsComposants]);
   const camionRow = sheet.addRow([
     "Nombre de camion",
     ...commandColumns.map((col) => (col.nombreCamion === null ? "-" : col.nombreCamion)),
@@ -171,10 +184,11 @@ export function addTableauSheet(
     "",
     "",
     "",
+    ...videsComposants,
   ]);
   const avecTc = commandColumns.some((col) => col.modeChargement !== undefined);
   const tcRow = avecTc
-    ? sheet.addRow(["tC", ...commandColumns.map((col) => col.modeChargement || ""), "", "", "", "", ""])
+    ? sheet.addRow(["tC", ...commandColumns.map((col) => col.modeChargement || ""), "", "", "", "", "", ...videsComposants])
     : null;
   const proformaRow = sheet.addRow([
     "Proforma #",
@@ -184,6 +198,7 @@ export function addTableauSheet(
     "RESTE",
     "Qt en cours",
     "Reste apres",
+    ...entetesComposants,
   ]);
   const dateRow = sheet.addRow([
     "Date commande",
@@ -193,6 +208,7 @@ export function addTableauSheet(
     "",
     "",
     "",
+    ...videsComposants,
   ]);
 
   // Lignes Statut et Client : chaque commande a la couleur de son statut, comme a l'ecran ; le reste
@@ -251,6 +267,26 @@ export function addTableauSheet(
     const lineFill = isManque ? MANQUE_YELLOW : "FFFFFFFF";
     const summaryFill = isManque ? MANQUE_YELLOW : TURQUOISE;
 
+    // Articles de conditionnement : par type, stock puis besoin (plusieurs articles du meme type = valeurs separees par " / ")
+    const cellulesComposants: (string | number)[] = [];
+    const manquesComposants: boolean[] = [];
+    const nomsComposants: string[] = [];
+    for (const type of typesPresents) {
+      const liste = (row.composants ?? []).filter((composant) => composant.type === type.cle);
+      if (liste.length === 0) {
+        cellulesComposants.push("", "");
+        manquesComposants.push(false, false);
+        nomsComposants.push("", "");
+        continue;
+      }
+      const valeurs = (lire: (composant: ComposantArticle) => number): string | number =>
+        liste.length === 1 ? lire(liste[0]) : liste.map((composant) => lire(composant)).join(" / ");
+      cellulesComposants.push(valeurs((composant) => composant.stock), valeurs((composant) => composant.besoin));
+      manquesComposants.push(false, liste.some((composant) => composant.besoin > Math.max(composant.stock, 0)));
+      const noms = liste.map((composant) => composant.nom).join("\n");
+      nomsComposants.push(noms, noms);
+    }
+
     const values = [
       row.article,
       ...commandColumns.map((col) => row.quantitiesByColumn[col.key] || ""),
@@ -259,13 +295,27 @@ export function addTableauSheet(
       row.reste,
       row.qtEnCours || "",
       row.resteApresConditionnement,
+      ...cellulesComposants,
     ];
 
     const excelRow = sheet.addRow(values);
     excelRow.eachCell({ includeEmpty: true }, (cell, colIndex) => {
       const isArticleCol = colIndex === 1;
-      const isResteApresCol = colIndex === totalCols;
-      const isSummaryCol = colIndex > totalCols - 5;
+      const isResteApresCol = colIndex === resteApresCol;
+      const isSummaryCol = colIndex > resteApresCol - 5 && colIndex <= resteApresCol;
+
+      if (colIndex > resteApresCol) {
+        // Colonnes articles de conditionnement : besoin en rouge quand le stock du Depot E ne le couvre pas ; le nom en commentaire
+        const index = colIndex - resteApresCol - 1;
+        cell.border = LINE_BORDERS;
+        cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+        const manque = manquesComposants[index];
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: manque ? RESTE_NEGATIF_RED : lineFill } };
+        cell.font = manque ? { color: { argb: TEXT_WHITE }, bold: true } : { color: { argb: TEXT_DARK } };
+        if (nomsComposants[index]) cell.note = nomsComposants[index];
+        trackWidth(colIndex, String(cell.value ?? ""));
+        return;
+      }
 
       cell.border = isArticleCol ? LINE_BORDERS : isSummaryCol ? HEADER_BORDERS : LINE_BORDERS;
       cell.alignment = { horizontal: isArticleCol ? "left" : "center", vertical: "middle", wrapText: true };

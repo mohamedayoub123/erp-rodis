@@ -9,6 +9,7 @@ import {
   fetchDynamicFamilies,
 } from "./family-lib";
 import type { ExportCommandColumn, ExportDataRow } from "./tableau-export-button";
+import type { ComposantArticle } from "@/lib/composants-types";
 
 // Donnees du Tableau de commande (une famille = un tableau). Code deplace
 // depuis page.tsx pour pouvoir etre reutilise par l'export Excel de toutes
@@ -397,6 +398,8 @@ export type FamilyTableData = {
   stockByArticle: Map<string, number>;
   qtEnCoursByArticleKey: Map<string, number>;
   subGammeByArticleKey?: Map<string, SubGammeInfo>;
+  // ids des articles finis de la famille, par nom normalise (comme les autres maps) : sert aux colonnes articles de conditionnement
+  articleIdsByKey: Map<string, number[]>;
 };
 
 type ArticleRowAll = { id: number; nom_article: string | null; gamme: string | null; nature: string | null };
@@ -622,6 +625,7 @@ export async function loadFamilyTableData(
       stockByArticle: await stockFor(whiteSecretArticles),
       qtEnCoursByArticleKey: shared.qtEnCoursByArticleKey,
       subGammeByArticleKey: undefined,
+      articleIdsByKey: indexArticleIdsByKey(whiteSecretArticles).idsByArticleKey,
     };
   }
 
@@ -730,6 +734,7 @@ export async function loadFamilyTableData(
     stockByArticle: await stockFor(genericFamilyArticles),
     qtEnCoursByArticleKey: shared.qtEnCoursByArticleKey,
     subGammeByArticleKey: genericFamilySubGammeByArticleKey,
+    articleIdsByKey: indexArticleIdsByKey(genericFamilyArticles).idsByArticleKey,
   };
 }
 
@@ -749,7 +754,9 @@ export function buildFamilyView(
   onlyNegatif: boolean,
   // Colonnes (proformas) retirees a la demande - meme principe que la vue "Article manquant" : elles ne comptent plus dans le
   // TOTAL, le RESTE, le filtre "manques seulement" ni l'export Excel. Reglage d'affichage seulement (rien n'est modifie en base).
-  colonnesRetirees: string[] = []
+  colonnesRetirees: string[] = [],
+  // Articles de conditionnement de chaque article (capsule, flacon...) : ajoutes aux lignes d'export Excel quand ils sont connus
+  composants?: Map<string, ComposantArticle[]>
 ) {
   const columnsAfterStand = commandColumns.filter(
     (column) => !hideStand || String(column.statut || "").toUpperCase() !== "STAND"
@@ -838,6 +845,7 @@ export function buildFamilyView(
       reste,
       qtEnCours,
       resteApresConditionnement: reste + qtEnCours,
+      composants: composants?.get(articleKey),
     });
     return rows;
   });
