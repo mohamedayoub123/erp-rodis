@@ -567,6 +567,8 @@ export async function StatistiqueArticlePlastique({
 
   const exportColumns = [
     { label: "Article", key: "article" },
+    { label: "Machine en cours", key: "machine" },
+    { label: "Cavites", key: "cavites" },
     { label: "Gamme", key: "gamme" },
     { label: "Sous famille", key: "categorie" },
     { label: "Type", key: "type" },
@@ -581,8 +583,6 @@ export async function StatistiqueArticlePlastique({
     { label: "A fabriquer", key: "aFabriquer" },
     { label: "Avis de fabrication", key: "avis" },
     { label: "Type de machine", key: "typeMachine" },
-    { label: "Machine en cours", key: "machine" },
-    { label: "Cavites", key: "cavites" },
   ];
   const versLigneExport = (row: PlastiqueRow) => ({
     article: row.nom_article,
@@ -753,6 +753,17 @@ export async function StatistiqueArticlePlastique({
               <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Article</th>
+                  {machinesPret ? (
+                    <th className="px-6 py-4 font-semibold">
+                      Machines en cours et cavites
+                      <span className="block text-xs font-normal text-slate-400">1 ligne par machine, avec ses cavites</span>
+                    </th>
+                  ) : (
+                    <>
+                      <th className="px-6 py-4 font-semibold">Machine en cours</th>
+                      <th className="px-6 py-4 font-semibold">Cavites</th>
+                    </>
+                  )}
                   <th className="px-6 py-4 font-semibold">Gamme</th>
                   <th className="px-6 py-4 font-semibold">Sous famille</th>
                   <th className="px-6 py-4 font-semibold">Type</th>
@@ -775,17 +786,6 @@ export async function StatistiqueArticlePlastique({
                   </th>
                   <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
                   <th className="px-6 py-4 font-semibold">Type de machine</th>
-                  {machinesPret ? (
-                    <th className="px-6 py-4 font-semibold">
-                      Machines en cours et cavites
-                      <span className="block text-xs font-normal text-slate-400">1 ligne par machine, avec ses cavites</span>
-                    </th>
-                  ) : (
-                    <>
-                      <th className="px-6 py-4 font-semibold">Machine en cours</th>
-                      <th className="px-6 py-4 font-semibold">Cavites</th>
-                    </>
-                  )}
                 </tr>
               </thead>
               <tbody>
@@ -808,6 +808,107 @@ export async function StatistiqueArticlePlastique({
                   return (
                     <tr key={row.article_id} className="border-t border-slate-100">
                       <td className="px-6 py-4 font-medium text-slate-900">{row.nom_article}</td>
+                      {machinesPret ? (
+                        <td className="min-w-[22rem] px-6 py-4 align-top">
+                          <CelluleMachines
+                            articleId={row.article_id}
+                            machines={machinesDe(row.article_id)}
+                            nbCavitesAvant={row.nb_cavites}
+                            canEdit={canEdit}
+                          />
+                        </td>
+                      ) : (
+                        <>
+                      <td className="px-6 py-4">
+                        {canEdit && machineCavitesPret ? (
+                          <div className="flex items-center gap-2">
+                            {/* key : le champ se remet a jour apres Enregistrer / Supprimer */}
+                            <form
+                              key={`machine-${row.machine ?? ""}`}
+                              action={updateMachinePlastiqueAction}
+                              className="flex items-center gap-2"
+                            >
+                              <input type="hidden" name="article_id" value={row.article_id} />
+                              {equipementsPlastique.pret ? (
+                                <select
+                                  name="machine"
+                                  defaultValue={row.machine ?? ""}
+                                  aria-label="Machine en cours (equipements de la production plastique)"
+                                  className="w-40 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none"
+                                >
+                                  <option value="">Machine...</option>
+                                  {nomsEquipements.map((nom) => (
+                                    <option key={nom} value={nom}>
+                                      {nom}
+                                    </option>
+                                  ))}
+                                  {/* Machine saisie avant la liste et absente de celle-ci : on la garde visible */}
+                                  {row.machine && !nomsEquipements.includes(row.machine) ? (
+                                    <option value={row.machine}>{row.machine} (hors liste)</option>
+                                  ) : null}
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  name="machine"
+                                  defaultValue={row.machine ?? ""}
+                                  placeholder="Machine..."
+                                  maxLength={100}
+                                  className="w-40 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
+                                />
+                              )}
+                              <SubmitButton
+                                pendingLabel="..."
+                                className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                              >
+                                OK
+                              </SubmitButton>
+                            </form>
+                            {row.machine ? (
+                              // Machine vide = plus aucune machine ne travaille sur cet article
+                              <form action={updateMachinePlastiqueAction}>
+                                <input type="hidden" name="article_id" value={row.article_id} />
+                                <input type="hidden" name="machine" value="" />
+                                <SubmitButton
+                                  pendingLabel="..."
+                                  className="rounded-full border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                                >
+                                  Supprimer
+                                </SubmitButton>
+                              </form>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-slate-600">{row.machine || "-"}</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {canEdit && machineCavitesPret ? (
+                          <form action={updateNbCavitesAction} className="flex items-center gap-2">
+                            <input type="hidden" name="article_id" value={row.article_id} />
+                            <input
+                              type="number"
+                              name="nb_cavites"
+                              defaultValue={row.nb_cavites ?? ""}
+                              placeholder="Nb"
+                              min="1"
+                              max="999"
+                              step="1"
+                              className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
+                            />
+                            <SubmitButton
+                              pendingLabel="..."
+                              className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                            >
+                              OK
+                            </SubmitButton>
+                          </form>
+                        ) : (
+                          <span className="text-slate-600">{row.nb_cavites ?? "-"}</span>
+                        )}
+                      </td>
+                        </>
+                      )}
                       <td className="px-6 py-4 text-slate-600">{row.gamme || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{displayCategorie(row.categorie)}</td>
                       <td className="px-6 py-4 text-slate-600">
@@ -927,107 +1028,6 @@ export async function StatistiqueArticlePlastique({
                           <span className="text-slate-400">-</span>
                         )}
                       </td>
-                      {machinesPret ? (
-                        <td className="min-w-[22rem] px-6 py-4 align-top">
-                          <CelluleMachines
-                            articleId={row.article_id}
-                            machines={machinesDe(row.article_id)}
-                            nbCavitesAvant={row.nb_cavites}
-                            canEdit={canEdit}
-                          />
-                        </td>
-                      ) : (
-                        <>
-                      <td className="px-6 py-4">
-                        {canEdit && machineCavitesPret ? (
-                          <div className="flex items-center gap-2">
-                            {/* key : le champ se remet a jour apres Enregistrer / Supprimer */}
-                            <form
-                              key={`machine-${row.machine ?? ""}`}
-                              action={updateMachinePlastiqueAction}
-                              className="flex items-center gap-2"
-                            >
-                              <input type="hidden" name="article_id" value={row.article_id} />
-                              {equipementsPlastique.pret ? (
-                                <select
-                                  name="machine"
-                                  defaultValue={row.machine ?? ""}
-                                  aria-label="Machine en cours (equipements de la production plastique)"
-                                  className="w-40 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none"
-                                >
-                                  <option value="">Machine...</option>
-                                  {nomsEquipements.map((nom) => (
-                                    <option key={nom} value={nom}>
-                                      {nom}
-                                    </option>
-                                  ))}
-                                  {/* Machine saisie avant la liste et absente de celle-ci : on la garde visible */}
-                                  {row.machine && !nomsEquipements.includes(row.machine) ? (
-                                    <option value={row.machine}>{row.machine} (hors liste)</option>
-                                  ) : null}
-                                </select>
-                              ) : (
-                                <input
-                                  type="text"
-                                  name="machine"
-                                  defaultValue={row.machine ?? ""}
-                                  placeholder="Machine..."
-                                  maxLength={100}
-                                  className="w-40 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
-                                />
-                              )}
-                              <SubmitButton
-                                pendingLabel="..."
-                                className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
-                              >
-                                OK
-                              </SubmitButton>
-                            </form>
-                            {row.machine ? (
-                              // Machine vide = plus aucune machine ne travaille sur cet article
-                              <form action={updateMachinePlastiqueAction}>
-                                <input type="hidden" name="article_id" value={row.article_id} />
-                                <input type="hidden" name="machine" value="" />
-                                <SubmitButton
-                                  pendingLabel="..."
-                                  className="rounded-full border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50"
-                                >
-                                  Supprimer
-                                </SubmitButton>
-                              </form>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="text-slate-600">{row.machine || "-"}</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        {canEdit && machineCavitesPret ? (
-                          <form action={updateNbCavitesAction} className="flex items-center gap-2">
-                            <input type="hidden" name="article_id" value={row.article_id} />
-                            <input
-                              type="number"
-                              name="nb_cavites"
-                              defaultValue={row.nb_cavites ?? ""}
-                              placeholder="Nb"
-                              min="1"
-                              max="999"
-                              step="1"
-                              className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
-                            />
-                            <SubmitButton
-                              pendingLabel="..."
-                              className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
-                            >
-                              OK
-                            </SubmitButton>
-                          </form>
-                        ) : (
-                          <span className="text-slate-600">{row.nb_cavites ?? "-"}</span>
-                        )}
-                      </td>
-                        </>
-                      )}
                     </tr>
                   );
                 })}
