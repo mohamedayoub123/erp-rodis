@@ -343,7 +343,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
     { label: "Consommation (12 mois)", key: "consommation12Mois" },
     { label: "Consommation (dernier mois)", key: "consommationParMois" },
     { label: "Rotation", key: "rotation" },
-    { label: "Niveau", key: "niveau" },
+    { label: "Classification", key: "niveau" },
     { label: "Jours de couverture", key: "joursCouverture" },
   ];
 
@@ -379,7 +379,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
               comptent pas. Rotation = consommation des 12 derniers mois / stock moyen (moyenne entre le stock
               d&apos;il y a 12 mois et le stock actuel - combien de fois le stock a ete renouvele
               dans l&apos;annee). Jours de couverture = a la vitesse actuelle, combien de jours le
-              stock restant tiendrait. Niveau : Forte (4x/an ou plus), Moyenne (1 a 4x/an), Faible
+              stock restant tiendrait. Classification : Forte (4x/an ou plus), Moyenne (1 a 4x/an), Faible
               (moins d&apos;1x/an mais au moins une sortie), Dormant (aucune sortie du tout sur les
               12 derniers mois). Tri par defaut : du plus rapide au plus lent ; avec &laquo; Trier par &raquo; (ou en cliquant sur une colonne) on classe par quantite, du plus grand au plus petit.
             </p>
@@ -523,7 +523,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
                       <a href={hrefTri("rotation")} className="underline decoration-dotted">Rotation{fleche("rotation")}</a>
                     </th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Niveau</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Classification</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Jours de couverture</th>
                   </tr>
                 </thead>
