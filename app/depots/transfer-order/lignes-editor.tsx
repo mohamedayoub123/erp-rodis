@@ -337,10 +337,11 @@ export function TransferOrderLignesEditor({
                               min={ligne.livre}
                               value={texteDemande}
                               onChange={(event) => setDemandes((prev) => ({ ...prev, [ligne.id]: event.target.value }))}
-                              disabled={estSupprimee}
+                              readOnly={estSupprimee}
+                              tabIndex={estSupprimee ? -1 : undefined}
                               required
                               aria-label={`Quantite demandee de ${ligne.nom}`}
-                              className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-400 disabled:bg-slate-50"
+                              className="w-32 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-400 read-only:bg-slate-50"
                             />
                             {ligne.livre > 0 ? (
                               <p className="mt-1 text-[11px] text-slate-500">Deja livre : {nombre(ligne.livre)}</p>
@@ -354,7 +355,7 @@ export function TransferOrderLignesEditor({
                           name="numero_lot"
                           defaultValue={lot.numero_lot ?? ""}
                           lots={ligne.lotsDisponibles}
-                          disabled={estSupprimee}
+                          verrouille={estSupprimee}
                           onChange={(numeroLot) => setLotsChoisis((prev) => ({ ...prev, [`${ligne.id}-${index}`]: numeroLot }))}
                         />
                       </td>

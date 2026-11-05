@@ -426,6 +426,17 @@ export async function updateTransferOrderLignesEnAttenteAction(formData: FormDat
   const articleIds = formData.getAll("article_id");
   const quantites = formData.getAll("quantite_demandee");
 
+  // Les valeurs sont associees aux lignes par POSITION : si une ligne n'a pas envoye sa quantite (champ desactive,
+  // vieil ecran reste ouvert...), toutes les quantites suivantes iraient sur la ligne d'avant (bug du TO 3008).
+  // On refuse avant d'ecrire quoi que ce soit.
+  if (quantites.length !== ligneIdsRaw.length || articleIds.length !== ligneIdsRaw.length) {
+    redirect(
+      `/depots/transfer-order/${transferOrderId}?avertissement=${encodeURIComponent(
+        "Le formulaire est incomplet (les quantites ne correspondent plus aux lignes) : rien n'a ete modifie. Recharge la page puis recommence."
+      )}`
+    );
+  }
+
   const lignes = ligneIdsRaw
     .map((rawLigneId, index) => ({
       ligneId: Number(rawLigneId || "0"),
@@ -884,6 +895,17 @@ export async function updateAllLigneLotsAction(formData: FormData) {
 // lots (le plus proche de l'expiration en premier) - voir repartition.ts, meme calcul que l'apercu a l'ecran. La quantite
 // demandee ne peut pas descendre sous ce qui est deja livre. Rien n'est ecrit tant que tout n'est pas valide (stock suffisant).
 async function updateAllLigneLotsCore(formData: FormData, transferOrderId: number, depotSourceId: number) {
+  // Les valeurs sont associees aux lignes par POSITION (ligne_id[] / numero_lot[], demande_ligne_id[] / nouvelle_demande[]) :
+  // un champ manquant decalerait toutes les valeurs suivantes d'une ligne. Verifie AVANT la moindre suppression.
+  if (
+    formData.getAll("numero_lot").length !== formData.getAll("ligne_id").length ||
+    formData.getAll("nouvelle_demande").length !== formData.getAll("demande_ligne_id").length
+  ) {
+    throw new Error(
+      "Le formulaire est incomplet (les quantites ou les lots ne correspondent plus aux lignes) : rien n'a ete modifie. Recharge la page puis recommence."
+    );
+  }
+
   const deletedLigneIds = await deleteFlaggedLignes(formData);
   await applyArticleChanges(formData, deletedLigneIds);
 

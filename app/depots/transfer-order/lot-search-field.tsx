@@ -13,6 +13,7 @@ export function LotSearchField({
   lots,
   onChange,
   disabled,
+  verrouille,
   strict,
   compact,
 }: {
@@ -21,6 +22,9 @@ export function LotSearchField({
   lots: { numeroLot: string; solde: number; libelle?: string }[];
   onChange?: (value: string) => void;
   disabled?: boolean;
+  // verrouille : champ non modifiable mais TOUJOURS envoye avec le formulaire (un champ "disabled" ne l'est pas) -
+  // necessaire quand le serveur associe les valeurs aux lignes par position (ligne_id[] / numero_lot[])
+  verrouille?: boolean;
   // strict : seul un code de la liste est accepte (le code deja enregistre reste valable) - le formulaire ne part pas sinon
   strict?: boolean;
   // compact : pas de liste permanente sous le champ (la liste deroulante suffit, utile quand il y a beaucoup de lots)
@@ -61,6 +65,8 @@ export function LotSearchField({
         autoComplete="off"
         value={value}
         disabled={disabled}
+        readOnly={verrouille}
+        tabIndex={verrouille ? -1 : undefined}
         onChange={(event) => {
           setValue(event.target.value);
           setShowDropdown(true);
@@ -69,9 +75,9 @@ export function LotSearchField({
         onFocus={() => setShowDropdown(true)}
         onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
         placeholder="Ecrire ou choisir un lot..."
-        className="w-56 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50"
+        className="w-56 rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none disabled:bg-slate-50 read-only:bg-slate-50"
       />
-      {!disabled && showDropdown && filtered.length > 0 ? (
+      {!disabled && !verrouille && showDropdown && filtered.length > 0 ? (
         <div className="absolute left-0 top-full z-20 mt-1 max-h-64 w-full min-w-[16rem] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.12)]">
           {filtered.map((lot) => (
             <button
@@ -91,7 +97,7 @@ export function LotSearchField({
       ferme des qu'on clique ailleurs) - pour toujours voir d'un coup d'oeil
       le stock de TOUS les lots de cet article, meme une fois un lot deja
       choisi. */}
-      {!disabled && (!compact || lots.length === 0) ? (
+      {!disabled && !verrouille && (!compact || lots.length === 0) ? (
         <div className="mt-1 flex flex-col gap-0.5 text-xs text-slate-500">
           {lots.length === 0
             ? "Aucun lot disponible"

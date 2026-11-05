@@ -176,14 +176,18 @@ export function TransferOrderLignesEditorEnAttente({
                     defaultLabel={ligne.nom}
                   />
                 </div>
+                {/* readOnly et PAS disabled : un champ desactive n'est pas envoye, et le serveur associe les
+                    quantites aux lignes par POSITION - toutes les quantites apres la ligne supprimee seraient
+                    alors decalees d'une ligne (bug du TO 3008). */}
                 <input
                   type="number"
                   step="0.001"
                   min="0"
                   name="quantite_demandee"
                   defaultValue={ligne.quantite_demandee}
-                  disabled={estSupprimee}
-                  className="w-28 shrink-0 rounded-2xl border border-slate-200 px-3 py-2.5 text-sm outline-none disabled:bg-slate-50"
+                  readOnly={estSupprimee}
+                  tabIndex={estSupprimee ? -1 : undefined}
+                  className="w-28 shrink-0 rounded-2xl border border-slate-200 px-3 py-2.5 text-sm outline-none read-only:bg-slate-50"
                 />
                 <label className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-red-700">
                   <input
