@@ -6,17 +6,25 @@ import { formatDate } from "@/lib/format-date";
 // dire que c'est la livraison (et absente du flux d'un Transfer Order).
 // "client" pour une livraison de commande (le "livre pour" est alors le client de la commande) ; "pour" pour une sortie manuelle
 // (nom saisi a la main).
-export function detailLivraison(sortie: {
+type SortieLivraison = {
   dateLivraison?: string | null;
   livrePour: string | null;
   proforma: string | null;
   numeroBl: string | null;
   deCommande?: boolean;
-}): string {
+};
+
+// Les morceaux un par un (date, client, proforma, BL) : le Flux par Code les affiche en pastilles separees
+export function morceauxLivraison(sortie: SortieLivraison): string[] {
   const morceaux: string[] = [];
   if (sortie.dateLivraison) morceaux.push(`livre le ${formatDate(sortie.dateLivraison)}`);
   if (sortie.livrePour) morceaux.push(`${sortie.deCommande ? "client" : "pour"} ${sortie.livrePour}`);
   if (sortie.proforma) morceaux.push(`proforma ${sortie.proforma}`);
   if (sortie.numeroBl) morceaux.push(`BL ${sortie.numeroBl}`);
+  return morceaux;
+}
+
+export function detailLivraison(sortie: SortieLivraison): string {
+  const morceaux = morceauxLivraison(sortie);
   return morceaux.length > 0 ? ` - ${morceaux.join(" - ")}` : "";
 }
