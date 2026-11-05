@@ -11,7 +11,7 @@ const NIVEAUX: Record<NiveauRotationMp, { libelle: string; classes: string }> = 
   FORTE: { libelle: "Forte rotation", classes: "bg-emerald-100 text-emerald-800" },
   MOYENNE: { libelle: "Rotation moyenne", classes: "bg-sky-100 text-sky-800" },
   FAIBLE: { libelle: "Faible rotation", classes: "bg-amber-100 text-amber-800" },
-  DORMANT: { libelle: "Dormant (aucune sortie en 12 mois)", classes: "bg-slate-200 text-slate-700" },
+  DORMANT: { libelle: "Dormant (moins de 0,5 fois par an)", classes: "bg-slate-200 text-slate-700" },
 };
 
 function nombre(valeur: number, decimales = 2) {

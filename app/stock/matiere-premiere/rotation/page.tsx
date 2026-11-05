@@ -5,6 +5,12 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
+import {
+  niveauRotationMp,
+  SEUIL_ROTATION_FAIBLE,
+  SEUIL_ROTATION_FORTE,
+  SEUIL_ROTATION_MOYENNE,
+} from "@/lib/rotation-mp-article";
 
 type ArticleMpRow = {
   id: number;
@@ -43,18 +49,14 @@ type RotationRow = {
   niveau: NiveauRotation | null;
 };
 
-// Dormant = aucune sortie du tout sur les 12 derniers mois (0 fois), meme
-// notion que Stock Dormant MP - plus fort qu'une simple "faible rotation".
-// Forte = le stock tourne au moins 4 fois par an (tous les 3 mois ou
-// moins) ; Moyenne = entre 1 et 4 fois par an ; Faible = moins d'une fois
-// par an mais au moins une sortie. Pas de niveau si la rotation n'a pas de
-// sens (stock moyen a 0).
-function niveauRotation(rotation: number | null, consommation12Mois: number): NiveauRotation | null {
-  if (rotation === null) return null;
-  if (consommation12Mois <= 0) return "DORMANT";
-  if (rotation >= 4) return "FORTE";
-  if (rotation >= 1) return "MOYENNE";
-  return "FAIBLE";
+// Classification par la rotation par an (seuils dans lib/rotation-mp-article.ts, les memes que la carte Entree / Sortie MP) :
+// Forte = 2 ou plus ; Moyenne = de 1 a moins de 2 ; Faible = de 0,5 a moins de 1 ; Dormant = moins de 0,5 (0 compris).
+// Pas de classification si la rotation n'a pas de sens (stock moyen a 0).
+const CLASSIFICATIONS: NiveauRotation[] = ["FORTE", "MOYENNE", "FAIBLE", "DORMANT"];
+
+// Nombre au format francais, sans zeros inutiles (0,5 / 2)
+function formatSeuil(valeur: number) {
+  return valeur.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
 function niveauLabel(niveau: NiveauRotation) {
@@ -244,7 +246,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
   // Jours de couverture reste base sur le stock actuel : c'est bien "avec
   // ce qu'il reste aujourd'hui, combien de jours ca tient" a la vitesse
   // actuelle. Les deux restent "-" quand le calcul n'a pas de sens.
-  const rotationRows: RotationRow[] = articles
+  const rotationRowsSansClassification: RotationRow[] = articles
     .map((article) => {
       const stockActuel = stockByArticle.get(article.id) ?? 0;
       const stockAvant12Mois = stockAvant12MoisByArticle.get(article.id) ?? 0;
@@ -267,7 +269,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
         consommation_par_mois: consommation1Mois,
         rotation,
         jours_couverture: consommation > 0 ? (stockActuel * 365) / consommation : null,
-        niveau: niveauRotation(rotation, consommation),
+        niveau: niveauRotationMp(rotation),
       };
     })
     .filter((row) => !articleFilter || matchesArticleSearch(row.nom_article, articleFilter))
@@ -275,7 +277,42 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
     .filter((row) => !gammeFilter || (row.gamme || "").toLowerCase().includes(gammeFilter))
     .filter(
       (row) => !gammeStatistiqueFilter || (row.gamme_statistique || "").toLowerCase().includes(gammeStatistiqueFilter)
-    )
+    );
+
+  // Tableau "Repartition par classification" : suit les filtres Article / Categorie / Gamme mais PAS le filtre de classification
+  // (sinon il n'afficherait plus que la classification choisie). Les articles sans rotation calculable (stock moyen a 0) sont
+  // comptes a part, jamais dans une des 4 classifications.
+  const nombreParClassification = new Map<NiveauRotation, number>(CLASSIFICATIONS.map((item) => [item, 0]));
+  let nombreSansRotation = 0;
+  for (const row of rotationRowsSansClassification) {
+    if (row.niveau === null) nombreSansRotation += 1;
+    else nombreParClassification.set(row.niveau, (nombreParClassification.get(row.niveau) ?? 0) + 1);
+  }
+  const totalArticles = rotationRowsSansClassification.length;
+  const pourcentageDuTotal = (nombre: number) =>
+    totalArticles > 0
+      ? `${((nombre / totalArticles) * 100).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
+      : "-";
+  const seuilClassification: Record<NiveauRotation, string> = {
+    FORTE: `≥ ${formatSeuil(SEUIL_ROTATION_FORTE)}`,
+    MOYENNE: `${formatSeuil(SEUIL_ROTATION_MOYENNE)} ≤ r < ${formatSeuil(SEUIL_ROTATION_FORTE)}`,
+    FAIBLE: `${formatSeuil(SEUIL_ROTATION_FAIBLE)} ≤ r < ${formatSeuil(SEUIL_ROTATION_MOYENNE)}`,
+    DORMANT: `< ${formatSeuil(SEUIL_ROTATION_FAIBLE)} ou = 0`,
+  };
+  const fondClassification: Record<NiveauRotation, string> = {
+    FORTE: "bg-white",
+    MOYENNE: "bg-yellow-200",
+    FAIBLE: "bg-orange-100",
+    DORMANT: "bg-rose-200",
+  };
+  const libelleClassification: Record<NiveauRotation, string> = {
+    FORTE: "Forte",
+    MOYENNE: "Moyenne",
+    FAIBLE: "Faible",
+    DORMANT: "Dormant",
+  };
+
+  const rotationRows: RotationRow[] = rotationRowsSansClassification
     .filter((row) => !niveauFilter || row.niveau === niveauFilter)
     .sort((a, b) => {
       const valeur = (row: RotationRow): number | null =>
@@ -379,9 +416,10 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
               comptent pas. Rotation = consommation des 12 derniers mois / stock moyen (moyenne entre le stock
               d&apos;il y a 12 mois et le stock actuel - combien de fois le stock a ete renouvele
               dans l&apos;annee). Jours de couverture = a la vitesse actuelle, combien de jours le
-              stock restant tiendrait. Classification : Forte (4x/an ou plus), Moyenne (1 a 4x/an), Faible
-              (moins d&apos;1x/an mais au moins une sortie), Dormant (aucune sortie du tout sur les
-              12 derniers mois). Tri par defaut : du plus rapide au plus lent ; avec &laquo; Trier par &raquo; (ou en cliquant sur une colonne) on classe par quantite, du plus grand au plus petit.
+              stock restant tiendrait. Classification selon la rotation par an : Forte ({formatSeuil(SEUIL_ROTATION_FORTE)} ou plus), Moyenne (de{" "}
+              {formatSeuil(SEUIL_ROTATION_MOYENNE)} a moins de {formatSeuil(SEUIL_ROTATION_FORTE)}), Faible (de{" "}
+              {formatSeuil(SEUIL_ROTATION_FAIBLE)} a moins de {formatSeuil(SEUIL_ROTATION_MOYENNE)}), Dormant (moins de{" "}
+              {formatSeuil(SEUIL_ROTATION_FAIBLE)}, sorties nulles comprises). Tri par defaut : du plus rapide au plus lent ; avec &laquo; Trier par &raquo; (ou en cliquant sur une colonne) on classe par quantite, du plus grand au plus petit.
             </p>
           </div>
 
@@ -404,6 +442,57 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
         ) : null}
 
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <div className="mb-6 overflow-x-auto">
+            <p className="text-sm font-black uppercase tracking-wide text-slate-700">Repartition par classification</p>
+            <table className="mt-2 w-full min-w-[34rem] border-collapse text-center text-base">
+              <thead>
+                <tr className="bg-[#1f4e79] text-white">
+                  <th className="border border-slate-300 px-4 py-2 font-semibold">Classification</th>
+                  <th className="border border-slate-300 px-4 py-2 font-semibold">Nombre d&apos;articles</th>
+                  <th className="border border-slate-300 px-4 py-2 font-semibold">% du total</th>
+                  <th className="border border-slate-300 px-4 py-2 font-semibold">Seuil rotation / an</th>
+                </tr>
+              </thead>
+              <tbody>
+                {CLASSIFICATIONS.map((item) => (
+                  <tr key={item} className={fondClassification[item]}>
+                    <td className="border border-slate-300 px-4 py-2 font-semibold">
+                      <a
+                        href={`/stock/matiere-premiere/rotation?${baseParams({ niveau: niveauFilter === item ? "" : item })}`}
+                        className={`hover:underline ${niveauFilter === item ? "underline" : ""}`}
+                      >
+                        {libelleClassification[item]}
+                      </a>
+                    </td>
+                    <td className="border border-slate-300 px-4 py-2 tabular-nums">
+                      {(nombreParClassification.get(item) ?? 0).toLocaleString("fr-FR")}
+                    </td>
+                    <td className="border border-slate-300 px-4 py-2 tabular-nums">
+                      {pourcentageDuTotal(nombreParClassification.get(item) ?? 0)}
+                    </td>
+                    <td className="border border-slate-300 px-4 py-2 tabular-nums">{seuilClassification[item]}</td>
+                  </tr>
+                ))}
+                {nombreSansRotation > 0 ? (
+                  <tr className="bg-slate-100 text-slate-600">
+                    <td className="border border-slate-300 px-4 py-2 font-semibold">Sans rotation</td>
+                    <td className="border border-slate-300 px-4 py-2 tabular-nums">
+                      {nombreSansRotation.toLocaleString("fr-FR")}
+                    </td>
+                    <td className="border border-slate-300 px-4 py-2 tabular-nums">{pourcentageDuTotal(nombreSansRotation)}</td>
+                    <td className="border border-slate-300 px-4 py-2">stock moyen a 0 : pas de calcul</td>
+                  </tr>
+                ) : null}
+                <tr className="font-black">
+                  <td className="border border-slate-300 px-4 py-2 text-left">Total articles</td>
+                  <td className="border border-slate-300 px-4 py-2 tabular-nums">{totalArticles.toLocaleString("fr-FR")}</td>
+                  <td className="border border-slate-300 px-4 py-2" />
+                  <td className="border border-slate-300 px-4 py-2" />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
           <div className="mb-5 flex flex-wrap gap-2">
             {(["FORTE", "MOYENNE", "FAIBLE", "DORMANT"] as NiveauRotation[]).map((item) => (
               <a

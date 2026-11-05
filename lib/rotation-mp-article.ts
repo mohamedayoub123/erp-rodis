@@ -53,14 +53,19 @@ export function dateIlYaNMois(aujourdhuiIso: string, mois: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-// Meme seuils que le rapport de rotation : Dormant = aucune sortie sur 12 mois ; Forte = au moins 4 fois par an ;
-// Moyenne = entre 1 et 4 fois ; Faible = moins d'une fois par an. Pas de niveau si la rotation n'a pas de sens.
-export function niveauRotationMp(rotation: number | null, sorties12Mois: number): NiveauRotationMp | null {
+// Classification par la rotation PAR AN - les memes seuils pour le rapport "Rotation de Stock MP" et pour cette carte :
+// Forte = 2 fois ou plus ; Moyenne = de 1 a moins de 2 ; Faible = de 0,5 a moins de 1 ; Dormant = moins de 0,5 (0 compris).
+// Pas de classification si la rotation n'a pas de sens (stock moyen nul).
+export const SEUIL_ROTATION_FORTE = 2;
+export const SEUIL_ROTATION_MOYENNE = 1;
+export const SEUIL_ROTATION_FAIBLE = 0.5;
+
+export function niveauRotationMp(rotation: number | null): NiveauRotationMp | null {
   if (rotation === null) return null;
-  if (sorties12Mois <= 0) return "DORMANT";
-  if (rotation >= 4) return "FORTE";
-  if (rotation >= 1) return "MOYENNE";
-  return "FAIBLE";
+  if (rotation >= SEUIL_ROTATION_FORTE) return "FORTE";
+  if (rotation >= SEUIL_ROTATION_MOYENNE) return "MOYENNE";
+  if (rotation >= SEUIL_ROTATION_FAIBLE) return "FAIBLE";
+  return "DORMANT";
 }
 
 export function calculerRotationArticleMp(lignes: LigneMouvementMp[], aujourdhuiIso: string): RotationArticleMp {
@@ -119,7 +124,7 @@ export function calculerRotationArticleMp(lignes: LigneMouvementMp[], aujourdhui
     sorties12Mois: arrondir2(sorties12Mois),
     stockMoyen: arrondir2(stockMoyen),
     rotation: rotation === null ? null : arrondir2(rotation),
-    niveau: niveauRotationMp(rotation, sorties12Mois),
+    niveau: niveauRotationMp(rotation),
     joursCouverture: sorties12Mois > 0 ? Math.round((stockActuel * 365) / sorties12Mois) : null,
   };
 }
