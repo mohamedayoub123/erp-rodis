@@ -60,11 +60,18 @@ export const SEUIL_ROTATION_FORTE = 2;
 export const SEUIL_ROTATION_MOYENNE = 1;
 export const SEUIL_ROTATION_FAIBLE = 0.5;
 
+// La rotation se lit ET se classe avec 2 decimales (la valeur affichee) : 0,4957 s'affiche 0,5, donc Faible - jamais un
+// "0,5" classe Dormant.
+export function arrondirRotation(rotation: number): number {
+  return arrondir2(rotation);
+}
+
 export function niveauRotationMp(rotation: number | null): NiveauRotationMp | null {
   if (rotation === null) return null;
-  if (rotation >= SEUIL_ROTATION_FORTE) return "FORTE";
-  if (rotation >= SEUIL_ROTATION_MOYENNE) return "MOYENNE";
-  if (rotation >= SEUIL_ROTATION_FAIBLE) return "FAIBLE";
+  const valeur = arrondirRotation(rotation);
+  if (valeur >= SEUIL_ROTATION_FORTE) return "FORTE";
+  if (valeur >= SEUIL_ROTATION_MOYENNE) return "MOYENNE";
+  if (valeur >= SEUIL_ROTATION_FAIBLE) return "FAIBLE";
   return "DORMANT";
 }
 

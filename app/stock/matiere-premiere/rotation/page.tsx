@@ -6,6 +6,7 @@ import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
 import {
+  arrondirRotation,
   niveauRotationMp,
   SEUIL_ROTATION_FAIBLE,
   SEUIL_ROTATION_FORTE,
@@ -253,7 +254,8 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
       const stockMoyen = (stockAvant12Mois + stockActuel) / 2;
       const consommation = consommation12MoisByArticle.get(article.id) ?? 0;
       const consommation1Mois = consommation1MoisByArticle.get(article.id) ?? 0;
-      const rotation = stockMoyen > 0 ? consommation / stockMoyen : null;
+      // arrondie a 2 decimales : la valeur affichee, triee, exportee et classee est la meme (0,4957 = 0,5 = Faible)
+      const rotation = stockMoyen > 0 ? arrondirRotation(consommation / stockMoyen) : null;
 
       return {
         article_id: article.id,
@@ -419,7 +421,7 @@ export default async function RotationStockMpPage({ searchParams }: { searchPara
               stock restant tiendrait. Classification selon la rotation par an : Forte ({formatSeuil(SEUIL_ROTATION_FORTE)} ou plus), Moyenne (de{" "}
               {formatSeuil(SEUIL_ROTATION_MOYENNE)} a moins de {formatSeuil(SEUIL_ROTATION_FORTE)}), Faible (de{" "}
               {formatSeuil(SEUIL_ROTATION_FAIBLE)} a moins de {formatSeuil(SEUIL_ROTATION_MOYENNE)}), Dormant (moins de{" "}
-              {formatSeuil(SEUIL_ROTATION_FAIBLE)}, sorties nulles comprises). Tri par defaut : du plus rapide au plus lent ; avec &laquo; Trier par &raquo; (ou en cliquant sur une colonne) on classe par quantite, du plus grand au plus petit.
+              {formatSeuil(SEUIL_ROTATION_FAIBLE)}, sorties nulles comprises). La rotation est arrondie a 2 decimales avant de classer : la valeur affichee est celle qui compte. Tri par defaut : du plus rapide au plus lent ; avec &laquo; Trier par &raquo; (ou en cliquant sur une colonne) on classe par quantite, du plus grand au plus petit.
             </p>
           </div>
 
