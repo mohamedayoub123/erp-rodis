@@ -181,23 +181,35 @@ function Section({
   titre,
   detail,
   couleur,
+  insecable,
   children,
 }: {
   titre: string;
   detail?: string;
   couleur: Couleur;
+  // rubrique courte : jamais coupee entre 2 pages du PDF (les longues, comme la production, peuvent l'etre)
+  insecable?: boolean;
   children: React.ReactNode;
 }) {
   const s = STYLES[couleur];
+  // <div role="region"> et non <section> : a l'impression (PDF), les regles globales de l'ERP aplatissent les <section>
+  // (plus de bordure ni de marge) et cachent les <header> - les couleurs de la rubrique disparaitraient.
   return (
-    <section className={`overflow-hidden rounded-2xl border border-l-8 border-slate-200 bg-white shadow-sm ${s.accent}`}>
-      <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-4 ${s.entete}`}>
+    <div
+      role="region"
+      aria-label={titre}
+      className={`overflow-hidden rounded-2xl border border-l-8 border-slate-200 bg-white shadow-sm print:shadow-none ${
+        insecable ? "print:break-inside-avoid" : ""
+      } ${s.accent}`}
+    >
+      {/* print:break-after-avoid : le titre d'une rubrique ne reste jamais seul en bas d'une page du PDF */}
+      <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-4 print:break-after-avoid ${s.entete}`}>
         <span className={`h-4 w-4 shrink-0 rounded-full ${s.puce}`} />
         <h3 className={`text-2xl font-black tracking-tight ${s.titre}`}>{titre}</h3>
         {detail ? <span className="text-base font-semibold text-slate-500">{detail}</span> : null}
       </div>
       <div className="p-4 sm:p-5">{children}</div>
-    </section>
+    </div>
   );
 }
 
@@ -245,7 +257,7 @@ function fieldOrDash(value: string | number | null | undefined) {
 function DetailField({ label, value }: { label: string; value: string | number | null | undefined }) {
   const texte = fieldOrDash(value);
   return (
-    <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 px-4 py-3">
+    <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50 px-4 py-3 print:break-inside-avoid">
       <p className="text-xs font-bold uppercase tracking-wide text-fuchsia-700">{label}</p>
       <p className={`mt-1 text-xl font-black ${texte === "-" ? "text-slate-300" : "text-slate-900"}`}>{texte}</p>
     </div>
@@ -265,7 +277,7 @@ function TestLaboSection({ testLabo }: { testLabo: CodeFluxTestLabo | null }) {
       ].filter((info): info is string => Boolean(info))
     : [];
   return (
-    <Section titre="Test labo" couleur="fuchsia">
+    <Section titre="Test labo" couleur="fuchsia" insecable>
       {testLabo ? (
         <div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -275,7 +287,7 @@ function TestLaboSection({ testLabo }: { testLabo: CodeFluxTestLabo | null }) {
             </span>
             {infos.length > 0 ? <p className="text-lg font-semibold text-slate-600">{infos.join(" - ")}</p> : null}
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+          <div className="mt-4 grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 print:grid-cols-4">
             <DetailField label="pH" value={testLabo.ph} />
             <DetailField label="Densite" value={testLabo.densite} />
             <DetailField label="Viscosite" value={testLabo.viscosite} />
@@ -309,7 +321,7 @@ function TestLaboSection({ testLabo }: { testLabo: CodeFluxTestLabo | null }) {
 function MpSourceItem({ mp, couleur }: { mp: CodeFluxMpSource; couleur: "amber" | "orange" }) {
   const s = STYLES[couleur];
   return (
-    <div className={`rounded-2xl border p-4 ${s.bordure} ${s.fond}`}>
+    <div className={`rounded-2xl border p-4 print:break-inside-avoid ${s.bordure} ${s.fond}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <p className="text-xl font-black text-slate-900">{mp.articleNom}</p>
         <p className={`text-3xl font-black tabular-nums ${s.texte}`}>{mp.quantiteReservee.toLocaleString("fr-FR")}</p>
@@ -426,14 +438,14 @@ function StageEntries({
       ) : (
         <ul className="divide-y divide-slate-100">
           {entries.map((e, i) => (
-            <li key={i} className="px-4 py-4">
+            <li key={i} className="px-4 py-4 print:break-inside-avoid">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <span className="text-2xl font-black tabular-nums text-slate-900">{e.quantite.toLocaleString("fr-FR")}</span>
                 <span className={`text-base font-bold ${e.dateJour ? "text-slate-600" : "text-slate-400"}`}>
                   {e.dateJour ? dateFormatter(e.dateJour) : NON_RENSEIGNE}
                 </span>
               </div>
-              <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+              <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 print:grid-cols-1">
                 {fields.map(({ key, label }) => (
                   <div key={key}>
                     <dt className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</dt>
@@ -493,7 +505,7 @@ function EtapeAvancement({
           ? { texte: `Surplus : ${formaterNombre(-etape.reste)} ${unite}`, classe: "text-violet-700" }
           : { texte: "Complet", classe: "text-emerald-700" };
   return (
-    <div className={`rounded-2xl border p-3 sm:p-4 ${s.bordure} ${s.fond}`}>
+    <div className={`rounded-2xl border p-3 sm:p-4 print:break-inside-avoid ${s.bordure} ${s.fond}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className={`min-w-0 text-base font-black uppercase [overflow-wrap:anywhere] sm:text-lg sm:tracking-wide ${s.titre}`}>{titre}</p>
         <span className={`shrink-0 rounded-full px-3 py-1 text-base font-black ${classeStatut(etape.statut)}`}>{etape.statut}</span>
@@ -520,7 +532,7 @@ function EtapeAvancement({
 
 function Repere({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+    <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 print:break-inside-avoid">
       <p className="text-sm font-black uppercase tracking-wide text-indigo-700">{label}</p>
       <div className="mt-2">{children}</div>
     </div>
@@ -531,8 +543,8 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
   const mpMatieres = flux.mpSources.filter((mp) => !mp.estConditionnement);
   const mpConditionnement = flux.mpSources.filter((mp) => mp.estConditionnement);
   return (
-    <article className="overflow-hidden rounded-[1.75rem] border border-sky-100 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.10)] [-webkit-print-color-adjust:exact] [print-color-adjust:exact]">
-      <header className="bg-[linear-gradient(135deg,#0f172a_0%,#1e3a8a_55%,#0369a1_100%)] px-6 py-6 text-white">
+    <article className="overflow-hidden rounded-[1.75rem] border border-sky-100 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.10)] [-webkit-print-color-adjust:exact] [print-color-adjust:exact] print:shadow-none print:[zoom:0.75]">
+      <div className="bg-[linear-gradient(135deg,#0f172a_0%,#1e3a8a_55%,#0369a1_100%)] px-6 py-6 text-white">
         <p className="text-sm font-bold uppercase tracking-[0.2em] text-sky-200">Code de dispatch</p>
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
           <h2 className="text-4xl font-black tracking-tight sm:text-5xl">{flux.code}</h2>
@@ -550,11 +562,11 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
             ) : null}
           </div>
         ) : null}
-      </header>
+      </div>
 
-      <div className="space-y-6 bg-slate-50/70 p-3 sm:p-6">
-        <Section titre="Avancement" couleur="sky">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="space-y-6 bg-slate-50/70 p-3 sm:p-6 print:space-y-4">
+        <Section titre="Avancement" couleur="sky" insecable>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 print:grid-cols-3">
             <EtapeAvancement
               titre="Fabrication (vrac)"
               etape={flux.avancement.vrac}
@@ -579,8 +591,8 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
           </div>
         </Section>
 
-        <Section titre="Programme et dispatch" couleur="indigo">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Section titre="Programme et dispatch" couleur="indigo" insecable>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3 print:grid-cols-3">
             <Repere label="MB">
               {flux.mb ? (
                 <p className="text-2xl font-black text-slate-900 [overflow-wrap:anywhere] sm:text-3xl">{flux.mb}</p>
@@ -638,7 +650,7 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
         </Section>
 
         <Section titre="Production" detail="ce qui a ete fabrique, conditionne et emballe" couleur="slate">
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-3 print:grid-cols-3">
             <StageEntries
               title="Fabrication"
               stage="fabrication"
@@ -703,7 +715,7 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
               <p className="text-base font-black uppercase tracking-wide text-emerald-800">Livraisons</p>
               <ul className="mt-2 space-y-3">
                 {flux.sorties.map((s, i) => (
-                  <li key={`${s.label}-${i}`} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <li key={`${s.label}-${i}`} className="rounded-2xl border border-slate-200 bg-white p-4 print:break-inside-avoid">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-lg font-black text-slate-900">Livre</span>
