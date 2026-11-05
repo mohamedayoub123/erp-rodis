@@ -530,6 +530,33 @@ function EtapeAvancement({
   );
 }
 
+// Une livraison : "Livre" + numero de sortie cliquable + quantite, puis date / client / proforma / BL en pastilles
+function CarteLivraison({ sortie }: { sortie: CodeFlux["sorties"][number] }) {
+  const morceaux = morceauxLivraison(sortie);
+  return (
+    <li className="rounded-2xl border border-slate-200 bg-white p-4 print:break-inside-avoid">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-lg font-black text-slate-900">Livre</span>
+          <LienPastille href={sortie.href} couleur="sky">
+            {sortie.label}
+          </LienPastille>
+        </div>
+        <p className="text-3xl font-black tabular-nums text-emerald-700">{sortie.quantite.toLocaleString("fr-FR")}</p>
+      </div>
+      {morceaux.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {morceaux.map((morceau) => (
+            <Pastille key={morceau} couleur="slate">
+              {morceau}
+            </Pastille>
+          ))}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
 function Repere({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 print:break-inside-avoid">
@@ -674,7 +701,14 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
 
         <TestLaboSection testLabo={flux.testLabo} />
 
-        <Section titre="Produit fini" detail="entree en stock et livraisons" couleur="emerald">
+        {/* peu de livraisons : la rubrique tient dans une page du PDF, elle ne se coupe pas (sinon le titre "Livraisons"
+            restait seul en bas d'une page) ; une longue liste, elle, peut passer sur la page suivante */}
+        <Section
+          titre="Produit fini"
+          detail="entree en stock et livraisons"
+          couleur="emerald"
+          insecable={flux.sorties.length <= 6}
+        >
           {flux.entreeProduction.entree ? (
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -712,33 +746,20 @@ export function CodeFluxCard({ flux }: { flux: CodeFlux }) {
 
           {flux.sorties.length > 0 ? (
             <div className="mt-5">
-              <p className="text-base font-black uppercase tracking-wide text-emerald-800">Livraisons</p>
-              <ul className="mt-2 space-y-3">
-                {flux.sorties.map((s, i) => (
-                  <li key={`${s.label}-${i}`} className="rounded-2xl border border-slate-200 bg-white p-4 print:break-inside-avoid">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-lg font-black text-slate-900">Livre</span>
-                        <LienPastille href={s.href} couleur="sky">
-                          {s.label}
-                        </LienPastille>
-                      </div>
-                      <p className="text-3xl font-black tabular-nums text-emerald-700">
-                        {s.quantite.toLocaleString("fr-FR")}
-                      </p>
-                    </div>
-                    {morceauxLivraison(s).length > 0 ? (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {morceauxLivraison(s).map((morceau) => (
-                          <Pastille key={morceau} couleur="slate">
-                            {morceau}
-                          </Pastille>
-                        ))}
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
+              {/* le titre est lie a la PREMIERE carte dans un bloc insecable : il ne reste jamais seul en bas d'une page du PDF */}
+              <div className="print:break-inside-avoid">
+                <p className="text-base font-black uppercase tracking-wide text-emerald-800">Livraisons</p>
+                <ul className="mt-2">
+                  <CarteLivraison sortie={flux.sorties[0]} />
+                </ul>
+              </div>
+              {flux.sorties.length > 1 ? (
+                <ul className="mt-3 space-y-3">
+                  {flux.sorties.slice(1).map((s, i) => (
+                    <CarteLivraison key={`${s.label}-${i + 1}`} sortie={s} />
+                  ))}
+                </ul>
+              ) : null}
             </div>
           ) : null}
         </Section>
