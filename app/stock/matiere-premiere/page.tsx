@@ -60,6 +60,13 @@ const TILES = [
     icon: "\u{1F9FE}",
     description: "Bons de commande (BC) : article, quantite, statut.",
   },
+  {
+    label: "Volume par lot",
+    href: "/stock/matiere-premiere/volume-lot",
+    pageKey: "volumeLotMp",
+    icon: "\u{1F4D0}",
+    description: "Choisis un article et son lot, tape longueur / largeur / hauteur : le volume sort tout seul.",
+  },
 ] as const;
 
 export default async function StockMatierePremierePage() {

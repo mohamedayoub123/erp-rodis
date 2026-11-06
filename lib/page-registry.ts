@@ -269,6 +269,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     adminGroup: "Rapport (Matiere Premiere)",
   },
   {
+    key: "volumeLotMp",
+    module: "Stock",
+    label: "Volume par lot MP (article + lot + dimensions du colis)",
+    pathPrefixes: ["/stock/matiere-premiere/volume-lot"],
+    hasWrite: false,
+    adminGroup: "Rapport (Matiere Premiere)",
+  },
+  {
     key: "stockPerimeMp",
     module: "Stock",
     label: "Stock Perime MP (liste + note)",

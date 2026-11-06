@@ -78,6 +78,7 @@ export const navItems: NavItem[] = [
       { href: "/stock/matiere-premiere/statistique", label: "Statistique", pageKey: "statistiqueMp" },
       { href: "/stock/matiere-premiere/inventaire", label: "Inventaire", pageKey: "inventaireMp" },
       { href: "/stock/matiere-premiere/perime", label: "Stock Perime", pageKey: "stockPerimeMp" },
+      { href: "/stock/matiere-premiere/volume-lot", label: "Volume par lot", pageKey: "volumeLotMp" },
       { href: "/stock/matiere-premiere/commande", label: "Import", pageKey: "commandeMp" },
       {
         href: "/stock/matiere-premiere/commande/suivi",
