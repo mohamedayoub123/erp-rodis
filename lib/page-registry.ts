@@ -271,9 +271,8 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "volumeLotMp",
     module: "Stock",
-    label: "Volume par lot MP (article + lot + dimensions du colis)",
+    label: "Volume par lot MP (article + lot + dimensions du lot, volume en m3)",
     pathPrefixes: ["/stock/matiere-premiere/volume-lot"],
-    hasWrite: false,
     adminGroup: "Rapport (Matiere Premiere)",
   },
   {
@@ -1242,6 +1241,7 @@ const MATIERE_PREMIERE_PAGE_KEYS = new Set([
   "stockSurstockMp",
   "stockPerimeMp",
   "stockDormantMp",
+  "volumeLotMp",
   "statistiqueMp",
   "inventaireMp",
   "commandeMp",

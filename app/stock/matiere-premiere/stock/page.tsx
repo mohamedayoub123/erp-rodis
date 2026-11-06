@@ -21,6 +21,8 @@ import { encodeDossierId } from "../commande/dossier-id";
 import { updateLotPrixAction } from "../commande/actions";
 import { DEVISE_OPTIONS } from "@/lib/devise-options";
 import { convertirEnFcfa } from "@/lib/prix-devise";
+import { lireDimensionsLotsDesArticles, volumesParCleLot } from "@/lib/dimensions-lot-mp";
+import { cleDimensionsLot, formaterVolumeLot } from "@/lib/volume-lot-mp";
 import { StockMpExportButton } from "./export-button";
 import { EditStockMpEntreeForm } from "./edit-entree-form";
 import { EditStockMpSortieForm } from "./edit-sortie-form";
@@ -187,6 +189,12 @@ export default async function StockMatierePremiereStockPage({
   ]);
 
   const pagedRows = (rowsData as DisplayRow[] | null) ?? [];
+
+  // Volume du lot (m3) : les dimensions enregistrees dans Volume par lot MP, reprises sur chaque ligne de ce lot (vide sans dimensions).
+  // Seuls les articles des lignes affichees sont lus.
+  const volumeParLot = volumesParCleLot(
+    await lireDimensionsLotsDesArticles(pagedRows.map((row) => row.article_id).filter((id): id is number => id !== null))
+  );
 
   const articleOptions = articleSuggestions.map((label, id) => ({ id, label }));
   const depotOptions = ((depotsData as { id: number; nom: string }[] | null) ?? []).map((depot) => ({
@@ -404,6 +412,7 @@ export default async function StockMatierePremiereStockPage({
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Sortie</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock code</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Stock article</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Volume (m³)</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Prix</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Fournisseur / Client</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 font-semibold">Doss. ERP</th>
@@ -466,6 +475,9 @@ export default async function StockMatierePremiereStockPage({
                       </td>
                       <td className="px-4 py-3 font-semibold text-slate-900">{row.stock_code}</td>
                       <td className="px-4 py-3 font-semibold text-fuchsia-700">{row.stock_article}</td>
+                      <td className="px-4 py-3 font-semibold text-emerald-800">
+                        {formaterVolumeLot(volumeParLot.get(cleDimensionsLot(row.article_id, row.numero_lot) ?? ""))}
+                      </td>
                       <td className="px-4 py-3 text-slate-600">
                         {row.mouvement_type === "entree" ? (
                           <div className="flex items-center gap-2">

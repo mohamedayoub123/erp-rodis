@@ -1,6 +1,8 @@
 "use server";
 
 import { supabaseServer } from "@/lib/supabase-server";
+import { lireToutesDimensionsLots, volumesParCleLot } from "@/lib/dimensions-lot-mp";
+import { cleDimensionsLot } from "@/lib/volume-lot-mp";
 
 export type StockMpExportFilters = {
   q: string;
@@ -15,6 +17,7 @@ export type StockMpExportFilters = {
 };
 
 type StockMpExportRow = {
+  article_id: number | null;
   date_jour: string | null;
   nom_article: string | null;
   mouvement_type: "entree" | "sortie";
@@ -73,5 +76,10 @@ export async function fetchStockMpExportRowsAction(filters: StockMpExportFilters
     offset += pageSize;
   }
 
-  return rows;
+  // Volume du lot (m3), comme la colonne Volume de la page : vide pour un lot sans dimensions enregistrees
+  const volumeParLot = volumesParCleLot(await lireToutesDimensionsLots());
+  return rows.map((row) => ({
+    ...row,
+    volume_m3: volumeParLot.get(cleDimensionsLot(row.article_id, row.numero_lot) ?? "") ?? null,
+  }));
 }
