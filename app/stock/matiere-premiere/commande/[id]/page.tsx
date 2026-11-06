@@ -23,7 +23,6 @@ import { ChampsContenance } from "@/app/_components/champs-contenance";
 import { ChampsDimensions } from "@/app/_components/champs-dimensions";
 import {
   formaterDimensions,
-  formaterLitres,
   formaterM3,
   formaterNombreColis,
   nombreColis,
@@ -369,7 +368,7 @@ export default async function ImportMpDossierPage({
                               return (
                                 <>
                                   {formaterDimensions(article?.longueur, article?.largeur, article?.hauteur)}
-                                  {litres !== null ? <span className="block text-xs text-slate-400">{formaterLitres(litres)} / colis</span> : null}
+                                  {litres !== null ? <span className="block text-xs text-slate-400">{formaterM3(litres / 1000, 4)} / colis</span> : null}
                                 </>
                               );
                             })()}

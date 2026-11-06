@@ -71,9 +71,10 @@ export function formaterLitres(litres: number | null | undefined): string {
   return typeof litres === "number" && Number.isFinite(litres) ? `${formaterNombre(litres, 2)} L` : "-";
 }
 
-// "0,030 m³" (3 decimales : un carton fait quelques centiemes de m3) ; "-" si inconnu
-export function formaterM3(m3: number | null | undefined): string {
-  return typeof m3 === "number" && Number.isFinite(m3) ? `${formaterNombre(m3, 3, 3)} m³` : "-";
+// "0,030 m³" (3 decimales : un carton fait quelques centiemes de m3) ; "-" si inconnu.
+// Le volume d'UN colis se lit avec 4 decimales ("0,0578 m³" et non "0,058") pour rester fidele a ses litres (57,8 L).
+export function formaterM3(m3: number | null | undefined, decimales = 3): string {
+  return typeof m3 === "number" && Number.isFinite(m3) ? `${formaterNombre(m3, decimales, decimales)} m³` : "-";
 }
 
 // "2" ou "3,33" ; "-" si inconnu
