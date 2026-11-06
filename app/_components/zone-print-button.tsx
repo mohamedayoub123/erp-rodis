@@ -6,6 +6,7 @@ export function ZonePrintButton({ zone, iconOnly = false }: { zone: string; icon
   useEffect(() => {
     function clearPrintMode() {
       document.documentElement.removeAttribute("data-print-mode");
+      for (const bloc of document.querySelectorAll("[data-print-cible]")) bloc.removeAttribute("data-print-cible");
     }
 
     window.addEventListener("afterprint", clearPrintMode);
@@ -13,6 +14,12 @@ export function ZonePrintButton({ zone, iconOnly = false }: { zone: string; icon
   }, []);
 
   function handlePrint() {
+    // Le bloc de CETTE zone est marque : l'impression (globals.css) cache tous les autres blocs [data-print-zone] et montre
+    // celui-la, quelle que soit la zone (une zone ajoutee sur /production/machines s'imprime sans toucher au CSS).
+    for (const bloc of document.querySelectorAll("[data-print-cible]")) bloc.removeAttribute("data-print-cible");
+    for (const bloc of document.querySelectorAll("[data-print-zone]")) {
+      if (bloc.getAttribute("data-print-zone") === zone) bloc.setAttribute("data-print-cible", "");
+    }
     document.documentElement.setAttribute("data-print-mode", zone);
     window.print();
   }

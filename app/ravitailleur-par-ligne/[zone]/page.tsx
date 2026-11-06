@@ -205,17 +205,22 @@ export default async function RavitailleurParLigneZonePage({
 }) {
   noStore();
   const { zone } = await params;
-  const zoneUpper = decodeURIComponent(zone).toUpperCase();
+  const zoneDemandee = decodeURIComponent(zone);
   const currentUser = await getCurrentStockUser();
   const canDelete = await canDeletePageUser(currentUser, "ravitailleurParLigne");
   const canEdit = await canWritePageUser(currentUser, "ravitailleurParLigne");
 
+  // Nom EXACT de la zone, casse comprise (la zone "plastique" mise en majuscules n'existait pas : page introuvable) ; une zone
+  // ecrite a la main dans l'URL en autre casse (b1z1) retrouve quand meme la bonne.
   const validZones = await fetchConditionnementZones();
-  if (!validZones.includes(zoneUpper)) {
+  const zoneNom =
+    validZones.find((item) => item === zoneDemandee) ??
+    validZones.find((item) => item.toUpperCase() === zoneDemandee.toUpperCase());
+  if (!zoneNom) {
     notFound();
   }
 
-  const dataRows = await fetchDispatcherRows(zoneUpper);
+  const dataRows = await fetchDispatcherRows(zoneNom);
   const articleIds = [...new Set(dataRows.map((row) => row.article_id).filter((id): id is number => !!id))];
   const articlesInfo = await fetchArticlesInfo(articleIds);
   const programmesByChaine = countProgrammesByChaine(dataRows);
@@ -271,7 +276,7 @@ export default async function RavitailleurParLigneZonePage({
                 ERP Rodis
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
-                Programme Dispatcher {zoneUpper}
+                Programme Dispatcher {zoneNom}
               </h1>
               <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm font-semibold text-slate-600">
                 {dates.length > 0 ? (
@@ -292,10 +297,10 @@ export default async function RavitailleurParLigneZonePage({
             <div className="flex flex-wrap items-center gap-3">
               <BackButton href="/ravitailleur-par-ligne" />
               <RefreshButton />
-              <ZonePrintButton zone={zoneUpper} iconOnly />
+              <ZonePrintButton zone={zoneNom} iconOnly />
               {canDelete ? (
                 <form action={deleteAllDispatcherLignesAction}>
-                  <input type="hidden" name="zone" value={zoneUpper} />
+                  <input type="hidden" name="zone" value={zoneNom} />
                   <DeleteIconButton label="Supprimer tout" />
                 </form>
               ) : null}
@@ -320,7 +325,7 @@ export default async function RavitailleurParLigneZonePage({
                     colSpan={visibleColumns.length}
                     className="border border-slate-300 bg-slate-300 px-3 py-2 text-center font-bold text-slate-900"
                   >
-                    {zoneUpper}
+                    {zoneNom}
                   </th>
                 </tr>
                 <tr>

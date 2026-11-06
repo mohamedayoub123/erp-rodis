@@ -138,16 +138,13 @@ input[type="button"]:not(:disabled),
      imprimer (data-print-mode = code de la zone, ex "B1Z1"). On cache
      toutes les zones sauf celle demandee, pour n'imprimer qu'un seul
      tableau a la fois meme si les 6 sont affiches ensemble a l'ecran. */
-  html[data-print-mode] [data-print-zone] {
+  html[data-print-mode] [data-print-zone]:not([data-print-cible]) {
     display: none !important;
   }
 
-  html[data-print-mode="B1Z1"] [data-print-zone="B1Z1"],
-  html[data-print-mode="B1Z2"] [data-print-zone="B1Z2"],
-  html[data-print-mode="B4Z1"] [data-print-zone="B4Z1"],
-  html[data-print-mode="B4Z2"] [data-print-zone="B4Z2"],
-  html[data-print-mode="B4Z3"] [data-print-zone="B4Z3"],
-  html[data-print-mode="D"] [data-print-zone="D"] {
+  /* Le bloc a imprimer est marque data-print-cible par ZonePrintButton : aucune liste de zones ici (avant, seules B1Z1, B1Z2,
+     B4Z1, B4Z2, B4Z3 et D s'imprimaient - une zone ajoutee comme "plastique" ou "TALC" sortait en page blanche). */
+  html[data-print-mode] [data-print-zone][data-print-cible] {
     display: block !important;
   }
 
