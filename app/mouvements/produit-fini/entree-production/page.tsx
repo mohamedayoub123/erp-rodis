@@ -146,6 +146,10 @@ export default async function EntreeProductionPage() {
     fetchRapportsInfo(ligneIds),
   ]);
 
+  // Libelle affiche = nom de l'ARTICLE lie a la ligne (celui sur lequel le stock est enregistre a la validation), pas le texte
+  // libre "produit" de la ligne de programme qui peut etre un ancien libelle ("Creme Skin Light Rgl" pour CREME SKIN LIGHT RGL 125ML).
+  const nomArticleParId = new Map(articleOptions.map((option) => [option.id, option.label]));
+
   const groupsByDate = new Map<string, DateGroup>();
 
   for (const entry of pendingEntries) {
@@ -202,7 +206,7 @@ export default async function EntreeProductionPage() {
     } else {
       const nouvelleLigne: DateGroupLigne = {
         entryIds: [entry.id],
-        produit: ligne?.produit || "-",
+        produit: (ligne?.article_id ? nomArticleParId.get(ligne.article_id) : null) || ligne?.produit || "-",
         numeroLot: resolvedCode || "-",
         quantite: Number(entry.quantite),
         // Par defaut, la date de fabrication proposee est la date d'entree
