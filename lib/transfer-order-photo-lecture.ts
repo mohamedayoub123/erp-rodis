@@ -44,11 +44,34 @@ function extraireJson(texte: string): unknown {
   return JSON.parse(texte.slice(debut, fin + 1));
 }
 
+// La cle telle que collee dans les reglages de Vercel : des espaces ou des guillemets autour (copie depuis un fichier .env)
+// la font refuser par Anthropic ("invalid x-api-key") alors que la cle elle-meme est bonne.
+export function nettoyerCleAnthropic(valeur: string | undefined): string {
+  return (valeur ?? "").trim().replace(/^["']+|["']+$/g, "").trim();
+}
+
+// Message clair (en francais) quand Anthropic refuse la lecture pour une raison de COMPTE, pas de photo : cle invalide,
+// credit epuise. null = autre erreur, a afficher telle quelle.
+export function messageCompteAnthropic(error: unknown): string | null {
+  const statut = (error as { status?: unknown } | null)?.status;
+  const detail = error instanceof Error ? error.message : "";
+  if (statut === 401) {
+    return "Anthropic refuse la cle ANTHROPIC_API_KEY des reglages de Vercel (cle invalide, supprimee ou mal collee) : cree une nouvelle cle sur console.anthropic.com, remplace-la dans Vercel (Production) puis redeploie.";
+  }
+  if (/credit balance is too low/i.test(detail)) {
+    return "Le credit du compte Anthropic est epuise : recharge-le sur console.anthropic.com (Plans & Billing), puis reessaie.";
+  }
+  if (statut === 403) {
+    return "Anthropic refuse l'acces a cette cle (droits ou organisation) : verifie la cle sur console.anthropic.com.";
+  }
+  return null;
+}
+
 export async function lireTransferOrderSurPhoto(
   imageBase64: string,
   mediaType: "image/jpeg" | "image/png" | "image/webp"
 ): Promise<ExtractionPhotoTo> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = nettoyerCleAnthropic(process.env.ANTHROPIC_API_KEY);
   if (!apiKey) throw new Error("CLE_ANTHROPIC_ABSENTE");
 
   const client = new Anthropic({ apiKey });

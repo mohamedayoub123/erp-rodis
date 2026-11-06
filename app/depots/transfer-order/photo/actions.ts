@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { fetchAllRowsParallel } from "@/lib/fetch-all-rows-parallel";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
-import { lireTransferOrderSurPhoto } from "@/lib/transfer-order-photo-lecture";
+import { lireTransferOrderSurPhoto, messageCompteAnthropic } from "@/lib/transfer-order-photo-lecture";
 import {
   MAX_LIGNES_PHOTO,
   TAILLE_MAX_PHOTO_BASE64,
@@ -100,6 +100,8 @@ export async function lirePhotoTransferOrderAction(
             "La lecture par photo n'est pas encore activee : il manque la cle ANTHROPIC_API_KEY dans les reglages de Vercel.",
         };
       }
+      const messageCompte = messageCompteAnthropic(error);
+      if (messageCompte) return { ok: false, message: messageCompte };
       const detail = error instanceof Error ? error.message : "erreur inconnue";
       return { ok: false, message: `La lecture de la photo a echoue (${detail}). Reessaie avec une photo plus nette.` };
     }
