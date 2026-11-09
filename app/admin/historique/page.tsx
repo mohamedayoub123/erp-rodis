@@ -38,6 +38,18 @@ const FIELD_LABELS: Record<string, string> = {
   numero_bl: "Numero BL",
   remarque: "Remarque",
   quantite: "Quantite",
+  nom_article: "Article",
+  categorie: "Categorie",
+  sous_famille: "Sous-famille",
+  unite: "Unite",
+  gamme: "Gamme",
+  gamme_statistique: "Gamme statistique",
+  utilisation: "Utilisation",
+  min_stock: "Stock min",
+  max_stock: "Stock max",
+  depot_id: "Depot (id)",
+  contenance: "Contenance",
+  conditionnement: "Conditionnement",
 };
 
 function fieldLabel(key: string) {
@@ -285,7 +297,21 @@ function SuppressionDetail({ row }: { row: AuditRow }) {
   return <p className="text-sm text-slate-500">Detail non disponible pour ce module.</p>;
 }
 
+// Article MP : la ligne complete est sauvegardee, on n'affiche pas ses champs techniques (id, nom normalise).
+function sansChampsTechniques(donnees: Record<string, unknown> | null) {
+  if (!donnees) return null;
+  return Object.fromEntries(Object.entries(donnees).filter(([cle]) => cle !== "id" && cle !== "article_normalise"));
+}
+
 function RowDetail({ row }: { row: AuditRow }) {
+  if (row.module === "ArticlesMp") {
+    const avant = sansChampsTechniques(row.donnees_avant);
+    const apres = sansChampsTechniques(row.donnees_apres);
+    if (row.action === "creation") return <CreationDetail apres={apres} />;
+    if (row.action === "suppression") return <CreationDetail apres={avant} />;
+    return <ModificationDiff avant={avant} apres={apres} />;
+  }
+
   if (row.action === "creation") return <CreationDetail apres={row.donnees_apres} />;
   if (row.action === "suppression") return <SuppressionDetail row={row} />;
   return <ModificationDiff avant={row.donnees_avant} apres={row.donnees_apres} />;
@@ -305,6 +331,7 @@ const MODULE_OPTIONS = [
   "StatistiqueMp",
   "InventaireMp",
   "InventairePf",
+  "ArticlesMp",
 ];
 
 type SearchParams = Promise<{

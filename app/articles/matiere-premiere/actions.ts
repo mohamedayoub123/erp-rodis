@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { conditionnementMpDisponible, contenanceMpDisponible, lireConditionnement, lireContenance } from "@/lib/contenance-mp";
+import { logAudit } from "@/lib/audit-log";
 
 function normalizeArticle(value: string) {
   return value.replace(/ /g, "").trim().toUpperCase();
@@ -22,6 +23,8 @@ async function requireWriteAccess() {
   if (!(await canWritePageUser(currentUser, "articlesMatierePremiereNouvelle"))) {
     throw new Error("Cet utilisateur ne peut pas ajouter des articles.");
   }
+
+  return currentUser;
 }
 
 async function requireEditAccess() {
@@ -30,6 +33,8 @@ async function requireEditAccess() {
   if (!(await canWritePageUser(currentUser, "articlesMatierePremiere"))) {
     throw new Error("Cet utilisateur ne peut pas modifier les articles.");
   }
+
+  return currentUser;
 }
 
 async function requireDeleteAccess() {
@@ -38,6 +43,8 @@ async function requireDeleteAccess() {
   if (!(await canDeletePageUser(currentUser, "articlesMatierePremiere"))) {
     throw new Error("Cet utilisateur ne peut pas supprimer les articles.");
   }
+
+  return currentUser;
 }
 
 // Contenance habituelle de l'article : nombre (kg, ou pieces pour un article compte a la piece) + type (Sac, Fut,
@@ -79,6 +86,22 @@ async function categorieCanonique(saisie: string): Promise<string> {
   return (data as { categorie: string | null }[] | null)?.[0]?.categorie ?? texte;
 }
 
+// Noms lisibles des champs dans le resume du journal (Historique) : jamais les noms de colonnes de la base.
+const LIBELLES_CHAMPS_ARTICLE_MP: Record<string, string> = {
+  nom_article: "nom",
+  categorie: "categorie",
+  sous_famille: "sous-famille",
+  unite: "unite",
+  gamme: "gamme",
+  gamme_statistique: "gamme statistique",
+  utilisation: "utilisation",
+  min_stock: "stock min",
+  max_stock: "stock max",
+  depot_id: "depot",
+  contenance: "contenance",
+  conditionnement: "conditionnement",
+};
+
 function revalidateArticlesMpPages() {
   revalidatePath("/articles/matiere-premiere");
   revalidatePath("/stock/matiere-premiere");
@@ -86,7 +109,7 @@ function revalidateArticlesMpPages() {
 }
 
 export async function createArticleMpAction(formData: FormData) {
-  await requireWriteAccess();
+  const currentUser = await requireWriteAccess();
 
   const nomArticle = String(formData.get("nom_article") || "").trim();
   const categorie = await categorieCanonique(String(formData.get("categorie") || ""));
@@ -117,7 +140,7 @@ export async function createArticleMpAction(formData: FormData) {
     throw new Error(`L'article ${nomArticle} existe deja.`);
   }
 
-  const { error } = await supabaseServer.from("articles_matiere_premiere").insert([
+  const { data: cree, error } = await supabaseServer.from("articles_matiere_premiere").insert([
     {
       nom_article: nomArticle,
       article_normalise: articleNormalise,
@@ -132,11 +155,20 @@ export async function createArticleMpAction(formData: FormData) {
       depot_id: depotId,
       ...contenance,
     },
-  ]);
+  ]).select().single();
 
   if (error) {
     throw new Error(error.message);
   }
+
+  await logAudit({
+    utilisateur: currentUser,
+    module: "ArticlesMp",
+    action: "creation",
+    cible: nomArticle,
+    resume: `Article MP ${nomArticle} cree`,
+    apres: cree,
+  });
 
   revalidateArticlesMpPages();
 }
@@ -145,13 +177,20 @@ export async function createArticleMpAction(formData: FormData) {
 // mouvements de stock, des lignes de BC, etc. lies - evite de supprimer
 // silencieusement un article encore utilise dans l'historique.
 export async function deleteArticleMpAction(formData: FormData) {
-  await requireDeleteAccess();
+  const currentUser = await requireDeleteAccess();
 
   const articleId = Number(String(formData.get("article_id") || "0"));
 
   if (!articleId) {
     throw new Error("Article invalide.");
   }
+
+  // Ligne complete gardee dans le journal (Historique) : on y voit ce qui a ete supprime et on peut le restaurer.
+  const { data: avant } = await supabaseServer
+    .from("articles_matiere_premiere")
+    .select("*")
+    .eq("id", articleId)
+    .maybeSingle<Record<string, unknown>>();
 
   const { error } = await supabaseServer
     .from("articles_matiere_premiere")
@@ -167,11 +206,22 @@ export async function deleteArticleMpAction(formData: FormData) {
     throw new Error(error.message);
   }
 
+  if (avant) {
+    await logAudit({
+      utilisateur: currentUser,
+      module: "ArticlesMp",
+      action: "suppression",
+      cible: String(avant.nom_article ?? `Article #${articleId}`),
+      resume: `Article MP ${String(avant.nom_article ?? articleId)} supprime`,
+      avant,
+    });
+  }
+
   revalidateArticlesMpPages();
 }
 
 export async function updateArticleMpAction(formData: FormData) {
-  await requireEditAccess();
+  const currentUser = await requireEditAccess();
 
   const articleId = Number(String(formData.get("article_id") || "0"));
   const nomArticle = String(formData.get("nom_article") || "").trim();
@@ -204,26 +254,50 @@ export async function updateArticleMpAction(formData: FormData) {
     throw new Error(`Un autre article existe deja avec ce nom: ${nomArticle}`);
   }
 
-  const { error } = await supabaseServer
+  const { data: avant } = await supabaseServer
     .from("articles_matiere_premiere")
-    .update({
-      nom_article: nomArticle,
-      article_normalise: articleNormalise,
-      categorie: categorie || null,
-      sous_famille: sousFamille || null,
-      unite: unite || null,
-      gamme: gamme || null,
-      gamme_statistique: gammeStatistique || null,
-      utilisation: utilisation || null,
-      min_stock: minStock,
-      max_stock: maxStock,
-      depot_id: depotId,
-      ...contenance,
-    })
-    .eq("id", articleId);
+    .select("*")
+    .eq("id", articleId)
+    .maybeSingle<Record<string, unknown>>();
+
+  const changements: Record<string, string | number | null> = {
+    nom_article: nomArticle,
+    article_normalise: articleNormalise,
+    categorie: categorie || null,
+    sous_famille: sousFamille || null,
+    unite: unite || null,
+    gamme: gamme || null,
+    gamme_statistique: gammeStatistique || null,
+    utilisation: utilisation || null,
+    min_stock: minStock,
+    max_stock: maxStock,
+    depot_id: depotId,
+    ...contenance,
+  };
+
+  const { error } = await supabaseServer.from("articles_matiere_premiere").update(changements).eq("id", articleId);
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  // Journal (Historique) : seulement si quelque chose a vraiment change ; avant / apres = la ligne complete.
+  const champsModifies = Object.keys(changements).filter(
+    (champ) => JSON.stringify(avant?.[champ] ?? null) !== JSON.stringify(changements[champ] ?? null)
+  );
+  if (avant && champsModifies.length > 0) {
+    await logAudit({
+      utilisateur: currentUser,
+      module: "ArticlesMp",
+      action: "modification",
+      cible: nomArticle,
+      resume: `Article MP ${String(avant.nom_article)} modifie (${champsModifies
+        .filter((champ) => champ !== "article_normalise")
+        .map((champ) => LIBELLES_CHAMPS_ARTICLE_MP[champ] ?? champ)
+        .join(", ")})`,
+      avant,
+      apres: { ...avant, ...changements },
+    });
   }
 
   revalidateArticlesMpPages();

@@ -344,6 +344,33 @@ async function restaurerAuditLog(formData: FormData) {
     }
 
     resumeRestauration = `Transfer Invoice ${entry.cible || ""} restaure en attente (${lignes.length} ligne(s), a valider a nouveau si le stock doit bouger)`;
+  } else if (entry.module === "ArticlesMp") {
+    // Reinsere l'article tel qu'il etait (meme nom, memes reglages) : il recoit un nouveau numero interne, jamais l'ancien.
+    const { id: _oldId, ...fields } = entry.donnees_avant as Record<string, unknown>;
+
+    if (!fields.nom_article) {
+      throw new Error("Rien a restaurer pour cette entree.");
+    }
+
+    if (fields.article_normalise) {
+      const { data: existant } = await supabaseServer
+        .from("articles_matiere_premiere")
+        .select("id")
+        .eq("article_normalise", fields.article_normalise)
+        .maybeSingle();
+
+      if (existant) {
+        throw new Error(`Un article ${String(fields.nom_article)} existe deja : restauration impossible.`);
+      }
+    }
+
+    const { error: insertError } = await supabaseServer.from("articles_matiere_premiere").insert(fields);
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    resumeRestauration = `Article MP ${entry.cible || ""} restaure (il recoit un nouveau numero interne)`;
   } else {
     throw new Error("Restauration non disponible pour ce module.");
   }
@@ -366,6 +393,7 @@ async function restaurerAuditLog(formData: FormData) {
   });
 
   revalidatePath("/admin/historique");
+  revalidatePath("/articles/matiere-premiere");
   revalidatePath("/commandes");
   revalidatePath("/stock");
   revalidatePath("/historique-programme");
