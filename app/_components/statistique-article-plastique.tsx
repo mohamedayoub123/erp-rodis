@@ -31,6 +31,7 @@ import {
   type MachineArticle,
 } from "@/lib/equipements-plastique";
 import { lireStockMpDepotE } from "@/lib/lot-balances-mp";
+import { lireTransferOrdersEnCoursDepot, type TransferOrderEnCours, type TransferOrdersArticle } from "@/lib/transfer-orders-en-cours";
 import { separerUtilisations } from "@/lib/utilisation-article";
 import { FormulaireAjoutMachinePlastique } from "@/app/_components/formulaire-ajout-machine-plastique";
 
@@ -73,7 +74,14 @@ export type PlastiqueRow = {
   utilisations: string[];
   unite: string | null;
   gamme: string | null;
+  // Stock du Depot E MOINS ce que les Transfer Orders (TO) partis du Depot E vont encore en sortir : c'est ce chiffre qui
+  // sert aux couleurs, a "Demarrer la production ?", a l'export et a la commande enregistree (Save)
   stock_actuel: number;
+  // Stock reel du Depot E avant de deduire les TO, la quantite deduite (TO approuves : quantite restante reservee ; TO en
+  // attente : quantite demandee) et les TO concernes
+  stock_depot_e: number;
+  to_deduits: number;
+  tos: TransferOrderEnCours[];
   min_stock: number | null;
   max_stock: number | null;
   avis_fabrication: string | null;
@@ -283,8 +291,10 @@ export async function fetchPlastiqueRows(): Promise<{
   derniereCommandeCode: string | null;
 }> {
   // Stock = celui du Depot E SEULEMENT (demande explicite) : stock_actuel_mp_rows additionne TOUS les depots, il ne sert ici
-  // qu'a lister les articles ; le stock affiche vient de lireStockMpDepotE (meme stock que Besoin Conditionnement)
-  const [stockResult, detailResult, derniereCommande, stockDepotE] = await Promise.all([
+  // qu'a lister les articles ; le stock affiche vient de lireStockMpDepotE (meme stock que Besoin Conditionnement), MOINS ce
+  // que les Transfer Orders partis du Depot E vont encore en sortir (demande explicite : un TO d'articles plastique se deduit
+  // du stock de l'E3 sans attendre que le Transfer Invoice soit valide)
+  const [stockResult, detailResult, derniereCommande, stockDepotE, transferOrders] = await Promise.all([
     fetchAllStockActuelMpRows(),
     lireDetailsPlastique(),
     lireDerniereCommande(),
@@ -295,6 +305,14 @@ export async function fetchPlastiqueRows(): Promise<{
         erreur: `Stock du Depot E illisible : ${e instanceof Error ? e.message : "erreur inconnue"}`,
       })
     ),
+    // Une erreur est remontee (jamais un stock sans la deduction des TO, qui ferait croire qu'il en reste plus qu'en realite)
+    lireTransferOrdersEnCoursDepot("Depot E").then(
+      (parArticle) => ({ parArticle, erreur: null as string | null }),
+      (e: unknown) => ({
+        parArticle: new Map<number, TransferOrdersArticle>(),
+        erreur: `Transfer Orders du Depot E illisibles : ${e instanceof Error ? e.message : "erreur inconnue"}`,
+      })
+    ),
   ]);
 
   if (stockResult.error) {
@@ -302,6 +320,9 @@ export async function fetchPlastiqueRows(): Promise<{
   }
   if (stockDepotE.erreur) {
     return { rows: [], error: stockDepotE.erreur, machineCavitesPret: false, typeMachinePret: false, derniereCommandeCode: null };
+  }
+  if (transferOrders.erreur) {
+    return { rows: [], error: transferOrders.erreur, machineCavitesPret: false, typeMachinePret: false, derniereCommandeCode: null };
   }
   if (detailResult.error || !detailResult.data) {
     return {
@@ -322,6 +343,9 @@ export async function fetchPlastiqueRows(): Promise<{
     .filter((row) => row.categorie === CATEGORIE_PLASTIQUE)
     .map((row) => {
       const detail = detailById.get(row.article_id);
+      const stockReel = stockDepotE.parArticle.get(row.article_id) ?? 0;
+      const to = transferOrders.parArticle.get(row.article_id);
+      const toDeduits = (to?.reserve ?? 0) + (to?.enAttente ?? 0);
       return {
         article_id: row.article_id,
         nom_article: row.nom_article,
@@ -331,7 +355,10 @@ export async function fetchPlastiqueRows(): Promise<{
         utilisations: separerUtilisations(detail?.utilisation),
         unite: row.unite,
         gamme: detail?.gamme ?? null,
-        stock_actuel: stockDepotE.parArticle.get(row.article_id) ?? 0,
+        stock_actuel: Math.round((stockReel - toDeduits) * 1e6) / 1e6 || 0,
+        stock_depot_e: stockReel,
+        to_deduits: Math.round(toDeduits * 1e6) / 1e6 || 0,
+        tos: to?.tos ?? [],
         min_stock: detail?.min_stock ?? null,
         max_stock: detail?.max_stock ?? null,
         avis_fabrication: detail?.avis_fabrication ?? null,
@@ -574,7 +601,9 @@ export async function StatistiqueArticlePlastique({
     { label: "Type", key: "type" },
     { label: "Utilisation", key: "utilisation" },
     { label: "Unite", key: "unite" },
-    { label: "Stock actuel (Depot E)", key: "stock" },
+    { label: "Stock actuel (Depot E moins TO)", key: "stock" },
+    { label: "Stock Depot E (avant TO)", key: "stockDepotE" },
+    { label: "TO deduits", key: "toDeduits" },
     { label: "Stock min", key: "min" },
     { label: "Stock critique", key: "critique" },
     { label: "Stock max", key: "max" },
@@ -593,6 +622,8 @@ export async function StatistiqueArticlePlastique({
     utilisation: row.utilisations.length > 0 ? row.utilisations.join("\n") : "-",
     unite: row.unite || "-",
     stock: row.stock_actuel,
+    stockDepotE: row.stock_depot_e,
+    toDeduits: row.to_deduits,
     min: row.min_stock ?? "-",
     critique: computeStockCritique(row) ?? "-",
     max: row.max_stock ?? "-",
@@ -771,7 +802,7 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">Unite</th>
                   <th className="px-6 py-4 font-semibold">
                     Stock actuel
-                    <span className="block text-xs font-normal text-slate-400">Depot E seulement</span>
+                    <span className="block text-xs font-normal text-slate-400">Depot E moins les TO</span>
                   </th>
                   <th className="px-6 py-4 font-semibold">Stock min</th>
                   <th className="px-6 py-4 font-semibold">Stock critique</th>
@@ -936,6 +967,24 @@ export async function StatistiqueArticlePlastique({
                         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
                           {formatNumber(row.stock_actuel)}
                         </span>
+                        {row.to_deduits > 0 ? (
+                          // Ce qui a ete retire du stock du Depot E : les Transfer Orders qui en partent et ne l'ont pas encore sorti
+                          <details className="mt-1">
+                            <summary className="cursor-pointer whitespace-nowrap text-xs font-semibold text-sky-700">
+                              Depot E {formatNumber(row.stock_depot_e)} - TO {formatNumber(row.to_deduits)}
+                            </summary>
+                            <ul className="mt-1 space-y-1 text-xs text-slate-700">
+                              {row.tos.map((to) => (
+                                <li key={to.code}>
+                                  <Link href={to.href} className="font-semibold text-sky-700 hover:underline">
+                                    {to.code}
+                                  </Link>{" "}
+                                  : {formatNumber(to.quantite)} <span className="text-slate-500">{to.detail}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         {row.min_stock !== null ? formatNumber(row.min_stock) : "-"}
