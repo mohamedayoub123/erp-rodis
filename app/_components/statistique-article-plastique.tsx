@@ -32,6 +32,13 @@ import {
 } from "@/lib/equipements-plastique";
 import { lireStockMpDepotE } from "@/lib/lot-balances-mp";
 import { lireTransferOrdersEnCoursDepot, type TransferOrderEnCours, type TransferOrdersArticle } from "@/lib/transfer-orders-en-cours";
+import {
+  lireLivraisonsDepotFVersDepotE,
+  lireQuantiteCommande,
+  resteAFabriquer,
+  type LivraisonArticle,
+  type TiLivre,
+} from "@/lib/livraisons-depot-f-vers-e";
 import { separerUtilisations } from "@/lib/utilisation-article";
 import { FormulaireAjoutMachinePlastique } from "@/app/_components/formulaire-ajout-machine-plastique";
 
@@ -90,8 +97,13 @@ export type PlastiqueRow = {
   nb_cavites: number | null;
   // Procede de fabrication choisi a la main : INJECTION, SOUFFLAGE ou PET (null = non renseigne)
   type_machine: string | null;
-  // Quantite de cet article dans la derniere commande enregistree (Save) ; null = pas dans cette commande
+  // RESTE a fabriquer : la quantite de cet article dans la derniere commande enregistree (Save) MOINS ce qui est deja arrive au
+  // Depot E depuis (Transfer Invoice valides du Depot F au Depot E) ; null = pas dans cette commande
   a_fabriquer: string | null;
+  // Quantite de la commande telle qu'enregistree, ce qui est deja livre du Depot F au Depot E depuis, et les TI concernes
+  commande_qt: string | null;
+  livre_a_e: number;
+  tis: TiLivre[];
 };
 
 // "gel douche" -> "Gel douche" (articles.type_article est saisi a la main, casse variable).
@@ -252,35 +264,63 @@ async function lireDetailsPlastique(): Promise<{
 
 // "A fabriquer" = ce qui a ete commande : les quantites de la DERNIERE commande enregistree
 // (bouton Save). Un nouveau Save remplace tout ; avant la premiere commande, la colonne est vide.
-async function lireDerniereCommande(): Promise<{ code: string | null; parArticle: Map<number, string> }> {
+// Ce qui est deja arrive au Depot E depuis cette commande (Transfer Invoice valides du Depot F au Depot E) est lu en meme temps :
+// la commande BAISSE a chaque livraison (demande explicite). Une erreur de lecture des livraisons est remontee (jamais un reste
+// a fabriquer qui ignore ce qui est deja livre).
+async function lireDerniereCommande(): Promise<{
+  code: string | null;
+  parArticle: Map<number, string>;
+  livraisons: Map<number, LivraisonArticle>;
+  erreurLivraisons: string | null;
+}> {
   const parArticle = new Map<number, string>();
+  const livraisons = new Map<number, LivraisonArticle>();
 
   const { data: commande, error } = await supabaseServer
     .from("commandes_article_plastique")
-    .select("id, code")
+    .select("id, code, created_at")
     .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (error || !commande) return { code: null, parArticle };
+  if (error || !commande) return { code: null, parArticle, livraisons, erreurLivraisons: null };
 
   const { data: lignes, error: lignesError } = await supabaseServer
     .from("commandes_article_plastique_lignes")
     .select("article_id, qt_avis")
     .eq("commande_id", (commande as { id: number }).id);
-  if (lignesError) return { code: (commande as { code: string }).code, parArticle };
+  if (lignesError) return { code: (commande as { code: string }).code, parArticle, livraisons, erreurLivraisons: null };
 
   for (const ligne of (lignes ?? []) as { article_id: number; qt_avis: string | null }[]) {
     const quantite = (ligne.qt_avis ?? "").trim();
     if (quantite) parArticle.set(ligne.article_id, quantite);
   }
-  return { code: (commande as { code: string }).code, parArticle };
+
+  let erreurLivraisons: string | null = null;
+  try {
+    const lues = await lireLivraisonsDepotFVersDepotE({
+      articleIds: [...parArticle.keys()],
+      depuis: (commande as { created_at: string }).created_at,
+    });
+    for (const [articleId, livraison] of lues) livraisons.set(articleId, livraison);
+  } catch (e) {
+    erreurLivraisons = `Livraisons du Depot F au Depot E illisibles : ${e instanceof Error ? e.message : "erreur inconnue"}`;
+  }
+  return { code: (commande as { code: string }).code, parArticle, livraisons, erreurLivraisons };
 }
 
 // La quantite est un texte libre (avis) : un nombre est mis en forme, le reste s'affiche tel quel.
 function formaterAFabriquer(valeur: string | null): string {
   if (!valeur) return "-";
-  const nombre = Number(valeur.replace(/\s/g, "").replace(",", "."));
-  return Number.isFinite(nombre) ? formatNumber(nombre) : valeur;
+  const nombre = lireQuantiteCommande(valeur);
+  return nombre !== null ? formatNumber(nombre) : valeur;
+}
+
+// Reste-t-il encore quelque chose a fabriquer ? Faux quand l'article n'est pas dans la commande ou que tout est deja livre (0) ;
+// une quantite qui n'est pas un nombre (texte libre) compte comme "a fabriquer".
+function resteEncoreAFabriquer(valeur: string | null): boolean {
+  if (!valeur) return false;
+  const nombre = lireQuantiteCommande(valeur);
+  return nombre === null || nombre > 0;
 }
 
 export async function fetchPlastiqueRows(): Promise<{
@@ -324,6 +364,9 @@ export async function fetchPlastiqueRows(): Promise<{
   if (transferOrders.erreur) {
     return { rows: [], error: transferOrders.erreur, machineCavitesPret: false, typeMachinePret: false, derniereCommandeCode: null };
   }
+  if (derniereCommande.erreurLivraisons) {
+    return { rows: [], error: derniereCommande.erreurLivraisons, machineCavitesPret: false, typeMachinePret: false, derniereCommandeCode: null };
+  }
   if (detailResult.error || !detailResult.data) {
     return {
       rows: [],
@@ -346,6 +389,8 @@ export async function fetchPlastiqueRows(): Promise<{
       const stockReel = stockDepotE.parArticle.get(row.article_id) ?? 0;
       const to = transferOrders.parArticle.get(row.article_id);
       const toDeduits = (to?.reserve ?? 0) + (to?.enAttente ?? 0);
+      const commandeQt = derniereCommande.parArticle.get(row.article_id) ?? null;
+      const livraison = derniereCommande.livraisons.get(row.article_id);
       return {
         article_id: row.article_id,
         nom_article: row.nom_article,
@@ -365,7 +410,10 @@ export async function fetchPlastiqueRows(): Promise<{
         machine: detail?.machine_plastique ?? null,
         nb_cavites: detail?.nb_cavites ?? null,
         type_machine: detail?.type_machine_plastique ?? null,
-        a_fabriquer: derniereCommande.parArticle.get(row.article_id) ?? null,
+        a_fabriquer: resteAFabriquer(commandeQt, livraison?.livre ?? 0),
+        commande_qt: commandeQt,
+        livre_a_e: livraison?.livre ?? 0,
+        tis: livraison?.tis ?? [],
       };
     })
     .sort((a, b) => {
@@ -572,8 +620,8 @@ export async function StatistiqueArticlePlastique({
       (row) =>
         !typeMachineFilter || (typeMachineFilter === "sans" ? !row.type_machine : row.type_machine === typeMachineFilter)
     )
-    // A fabriquer : "avec" = l'article est dans la derniere commande
-    .filter((row) => !aFabriquerFilter || Boolean(row.a_fabriquer) === (aFabriquerFilter === "avec"))
+    // A fabriquer : "avec" = l'article est dans la derniere commande ET il en reste a fabriquer (tout livre = "sans")
+    .filter((row) => !aFabriquerFilter || resteEncoreAFabriquer(row.a_fabriquer) === (aFabriquerFilter === "avec"))
     // Production : "Demarrer" ou "Ne pas demarrer" (les articles sans stock max n'ont ni l'un ni l'autre)
     .filter((row) => {
       if (!demarrageFilter) return true;
@@ -609,7 +657,9 @@ export async function StatistiqueArticlePlastique({
     { label: "Stock max", key: "max" },
     { label: "Stock max - 20 %", key: "seuilArret" },
     { label: "Demarrer la production ?", key: "arret" },
-    { label: "A fabriquer", key: "aFabriquer" },
+    { label: "A fabriquer (reste)", key: "aFabriquer" },
+    { label: "Commande enregistree", key: "commandeQt" },
+    { label: "Livre Depot F vers E", key: "livreDepotE" },
     { label: "Avis de fabrication", key: "avis" },
     { label: "Type de machine", key: "typeMachine" },
   ];
@@ -633,6 +683,8 @@ export async function StatistiqueArticlePlastique({
       return arret === null ? "-" : arret ? "Ne pas demarrer" : "Demarrer";
     })(),
     aFabriquer: formaterAFabriquer(row.a_fabriquer),
+    commandeQt: formaterAFabriquer(row.commande_qt),
+    livreDepotE: row.commande_qt !== null ? row.livre_a_e : "-",
     avis: row.avis_fabrication || "-",
     typeMachine: libelleTypeMachine(row.type_machine),
     // Plusieurs machines : une par ligne dans la cellule Excel, et ses cavites sur la MEME ligne de la colonne Cavites
@@ -812,7 +864,9 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">
                     A fabriquer
                     {derniereCommandeCode ? (
-                      <span className="block text-xs font-normal text-slate-400">commande {derniereCommandeCode}</span>
+                      <span className="block text-xs font-normal text-slate-400">
+                        commande {derniereCommandeCode} moins livre F vers E
+                      </span>
                     ) : null}
                   </th>
                   <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
@@ -1011,8 +1065,33 @@ export async function StatistiqueArticlePlastique({
                           </span>
                         )}
                       </td>
-                      <td className="px-6 py-4 font-bold text-red-600">
-                        {formaterAFabriquer(row.a_fabriquer)}
+                      <td className="px-6 py-4">
+                        {/* Tout livre (reste a 0) : en vert, la commande de cet article est terminee */}
+                        <span
+                          className={`font-bold ${
+                            row.a_fabriquer !== null && !resteEncoreAFabriquer(row.a_fabriquer) ? "text-emerald-700" : "text-red-600"
+                          }`}
+                        >
+                          {formaterAFabriquer(row.a_fabriquer)}
+                        </span>
+                        {row.commande_qt !== null && lireQuantiteCommande(row.commande_qt) !== null && row.livre_a_e > 0 ? (
+                          // La commande moins ce qui est deja arrive au Depot E : les Transfer Invoice valides du Depot F au Depot E
+                          <details className="mt-1">
+                            <summary className="cursor-pointer whitespace-nowrap text-xs font-semibold text-sky-700">
+                              Commande {formaterAFabriquer(row.commande_qt)} - livre {formatNumber(row.livre_a_e)}
+                            </summary>
+                            <ul className="mt-1 space-y-1 text-xs font-normal text-slate-700">
+                              {row.tis.map((ti) => (
+                                <li key={ti.code}>
+                                  <Link href={ti.href} className="font-semibold text-sky-700 hover:underline">
+                                    {ti.code}
+                                  </Link>{" "}
+                                  : {formatNumber(ti.quantite)}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
                       </td>
                       <td className="px-6 py-4">
                         {canEdit ? (
