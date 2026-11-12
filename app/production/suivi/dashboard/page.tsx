@@ -305,7 +305,12 @@ export default async function PlanningDashboardPage({
       // plusieurs codes combines pour un meme programme. Filtrer ici ferait
       // ressortir les 3 lots des qu'un seul matche, au lieu du seul lot
       // demande.
-      if (produitFilter && !matchesArticleSearch(ligne.produit, produitFilter)) return false;
+      // Le menu du filtre propose le NOM de l'article (ex "DSR PERFECT GLOW 30ML") alors qu'une ligne garde le nom ecrit le jour de
+      // sa creation ("DSR PERFECT GLOW 30grs") : chercher dans les deux, sinon la ligne reste introuvable (375 lignes concernees).
+      if (produitFilter) {
+        const nomArticle = ligne.article_id ? articleById.get(ligne.article_id)?.nom_article : null;
+        if (!matchesArticleSearch(ligne.produit, produitFilter) && !matchesArticleSearch(nomArticle, produitFilter)) return false;
+      }
       if (pdFilter && !ligne.pdLabel.toLowerCase().includes(pdFilter)) return false;
       if (gammeFilter && gammeByArticleId.get(ligne.article_id ?? -1) !== gammeFilter) return false;
       if (dateDebutFilter && (!ligne.date_jour || ligne.date_jour < dateDebutFilter)) return false;
