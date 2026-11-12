@@ -243,9 +243,11 @@ export async function updateNbCavitesAction(formData: FormData) {
 // stock actuel du moment), sous un code "C<annee>.<n>" (n = numero permanent,
 // redemarre a 1 chaque nouvelle annee) - demande
 // explicite : une NOUVELLE commande a chaque clic, jamais une mise a jour
-// d'une commande existante.
+// d'une commande existante. Une fois enregistree, la colonne Avis de fabrication
+// de ces articles est videe (les quantites sont dans A fabriquer) ; "avertissement" =
+// la commande est faite mais les avis n'ont pas pu etre vides.
 export async function saveCommandeArticlePlastiqueAction(): Promise<
-  { ok: true; href: string } | { ok: false; message: string }
+  { ok: true; href: string; avertissement?: string } | { ok: false; message: string }
 > {
   try {
     const currentUser = await requireStatistiqueArticlePlastiqueWriteAccess();
@@ -300,9 +302,32 @@ export async function saveCommandeArticlePlastiqueAction(): Promise<
       return { ok: false, message: insertLignesError.message };
     }
 
-    revalidatePath("/production-plastique/commandes");
+    // Les quantites sont maintenant dans la commande (colonne A fabriquer) : la colonne Avis de fabrication revient VIDE pour
+    // la commande suivante (demande explicite). Seuls les articles de cette commande sont vides, et seulement si leur avis est
+    // encore exactement celui qui vient d'etre enregistre (un avis retape entre-temps n'est jamais efface).
+    const idsParAvis = new Map<string, number[]>();
+    for (const ligne of lignesAvisRemplis) {
+      const avis = ligne.avis_fabrication as string;
+      idsParAvis.set(avis, [...(idsParAvis.get(avis) ?? []), ligne.article_id]);
+    }
+    let avertissement: string | undefined;
+    for (const [avis, ids] of idsParAvis) {
+      for (let i = 0; i < ids.length && !avertissement; i += 200) {
+        const { error: viderError } = await supabaseServer
+          .from("articles_matiere_premiere")
+          .update({ avis_fabrication: null })
+          .in("id", ids.slice(i, i + 200))
+          .eq("avis_fabrication", avis);
+        if (viderError) {
+          avertissement = `La commande ${commande.code} est bien enregistree, mais les avis de fabrication n'ont pas pu etre vides (${viderError.message}). Ne refais pas Save (ca creerait une 2e commande) : vide les avis a la main.`;
+        }
+      }
+    }
 
-    return { ok: true, href: `/production-plastique/commandes/${commande.code}` };
+    revalidatePath("/production-plastique/commandes");
+    revalidatePath("/production-plastique/statistique");
+
+    return { ok: true, href: `/production-plastique/commandes/${commande.code}`, avertissement };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : "Erreur pendant l'enregistrement." };
   }

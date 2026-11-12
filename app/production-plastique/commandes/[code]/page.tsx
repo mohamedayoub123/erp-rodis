@@ -58,8 +58,8 @@ export default async function CommandeArticlePlastiqueDetailPage({
   const canDelete = await canDeletePageUser(await getCurrentStockUser(), "productionPlastiqueCommandes");
 
   // Ce qui est deja arrive au Depot E pendant la vie de cette commande : Transfer Invoice valides du Depot F au Depot E crees
-  // depuis son enregistrement et jusqu'a la commande suivante (un nouveau Save la remplace) ; la derniere commande va jusqu'a
-  // maintenant. Meme calcul que la colonne "A fabriquer" de Statistique Article Plastique (E3).
+  // depuis son enregistrement et jusqu'a la commande suivante (ce qui n'est pas livre a ce moment-la est reporte sur la commande
+  // suivante, voir la colonne "A fabriquer" de Statistique Article Plastique (E3)) ; la derniere commande va jusqu'a maintenant.
   let livraisons = new Map<number, LivraisonArticle>();
   let erreurLivraisons: string | null = null;
   try {

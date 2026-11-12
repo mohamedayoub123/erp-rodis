@@ -6,7 +6,8 @@ import { supabaseServer } from "@/lib/supabase-server";
 // "a fabriquer 30 000" dont 12 000 sont deja arrives par un TI n'a plus que 18 000 a fabriquer.
 // Les TI sont relus a chaque affichage (jamais mis en memoire) : un TI supprime, ou une ligne retiree apres coup, fait remonter
 // le reste a fabriquer tout de suite.
-export type TiLivre = { code: string; href: string; quantite: number };
+// creeLe : date de creation du TI (sert a savoir pendant quelle commande il est arrive, voir calculerResteCumule)
+export type TiLivre = { code: string; href: string; quantite: number; creeLe: string };
 export type LivraisonArticle = { livre: number; tis: TiLivre[] };
 
 const arrondi = (valeur: number) => Math.round(valeur * 1e6) / 1e6 || 0;
@@ -50,11 +51,11 @@ export async function lireLivraisonsDepotFVersDepotE(options: {
   if (!depotF) throw new Error('Depot "Depot F" introuvable');
 
   // 1. Transfer Invoice valides crees depuis la commande
-  const tis: { id: number; numero: number | null; date_jour: string; transfer_order_id: number }[] = [];
+  const tis: { id: number; numero: number | null; date_jour: string; transfer_order_id: number; created_at: string }[] = [];
   for (let debut = 0; ; debut += 1000) {
     let requete = supabaseServer
       .from("invoice_orders")
-      .select("id, numero, date_jour, transfer_order_id")
+      .select("id, numero, date_jour, transfer_order_id, created_at")
       .eq("statut", "valide")
       .gte("created_at", options.depuis);
     if (options.avant) requete = requete.lt("created_at", options.avant);
@@ -121,7 +122,7 @@ export async function lireLivraisonsDepotFVersDepotE(options: {
     const code = `TI.${ti.date_jour.slice(0, 4)}.${ti.numero ?? ti.id}`;
     const existant = entree.tis.find((candidat) => candidat.code === code);
     if (existant) existant.quantite += quantite;
-    else entree.tis.push({ code, href: `/depots/invoice-order/${ti.id}`, quantite });
+    else entree.tis.push({ code, href: `/depots/invoice-order/${ti.id}`, quantite, creeLe: ti.created_at });
     resultat.set(articleId, entree);
   }
 
@@ -147,4 +148,60 @@ export function resteAFabriquer(quantiteCommande: string | null, livre: number):
   const nombre = lireQuantiteCommande(quantiteCommande);
   if (nombre === null) return quantiteCommande;
   return String(Math.max(0, arrondi(nombre - livre)));
+}
+
+// Une ligne d'un article dans une commande enregistree (Save de Statistique Article Plastique) : code de la commande, moment de
+// son enregistrement et quantite (texte libre).
+export type CommandeArticle = { code: string; creeLe: string; quantite: string };
+export type ResteCumule = {
+  // les commandes qui contiennent l'article, de la plus ancienne a la plus recente
+  commandes: CommandeArticle[];
+  // total commande (nombre) ; si la derniere quantite est un texte libre ("urgent"), ce texte
+  commandeTotal: string;
+  // total livre du Depot F au Depot E depuis la premiere commande de l'article, et les TI concernes
+  livre: number;
+  tis: TiLivre[];
+  // A fabriquer : ce qui restait + chaque nouvelle commande - ce qui est arrive ; ou le texte libre de la derniere commande
+  reste: string;
+};
+
+// A fabriquer CUMULE d'un article (demande explicite : un nouveau Save s'AJOUTE a ce qu'il reste, il ne remplace pas). Les commandes
+// sont prises dans l'ordre ; pour chacune : reste = ce qui restait avant + sa quantite - ce qui est arrive au Depot E pendant sa vie
+// (du Save de cette commande jusqu'au Save de la suivante, la derniere jusqu'a maintenant), jamais en dessous de 0. Un TI cree avant
+// la premiere commande de l'article n'est pas compte. Une quantite texte libre n'entre pas dans les additions.
+export function calculerResteCumule(commandes: CommandeArticle[], livraison: LivraisonArticle | undefined): ResteCumule {
+  const ordre = commandes
+    .map((commande, rang) => ({ commande, rang, instant: Date.parse(commande.creeLe) }))
+    .sort((a, b) => a.instant - b.instant || a.rang - b.rang)
+    .map((entree) => entree.commande);
+  const tis = livraison?.tis ?? [];
+
+  let solde = 0;
+  let total = 0;
+  let livre = 0;
+  const tisRetenus: TiLivre[] = [];
+  ordre.forEach((commande, index) => {
+    const debut = Date.parse(commande.creeLe);
+    const fin = index + 1 < ordre.length ? Date.parse(ordre[index + 1].creeLe) : Infinity;
+    const duranteCetteCommande = tis.filter((ti) => {
+      const instant = Date.parse(ti.creeLe);
+      return instant >= debut && instant < fin;
+    });
+    const livrePeriode = duranteCetteCommande.reduce((somme, ti) => somme + ti.quantite, 0);
+    const nombre = lireQuantiteCommande(commande.quantite);
+    if (nombre !== null) total += nombre;
+    solde = Math.max(0, arrondi(solde + (nombre ?? 0) - livrePeriode));
+    livre += livrePeriode;
+    tisRetenus.push(...duranteCetteCommande);
+  });
+
+  const derniere = ordre[ordre.length - 1];
+  const texteLibre = derniere && lireQuantiteCommande(derniere.quantite) === null ? derniere.quantite : null;
+  return {
+    commandes: ordre,
+    commandeTotal: texteLibre ?? String(arrondi(total)),
+    livre: arrondi(livre),
+    tis: tisRetenus,
+    reste: texteLibre ?? String(solde),
+  };
 }

@@ -33,10 +33,11 @@ import {
 import { lireStockMpDepotE } from "@/lib/lot-balances-mp";
 import { lireTransferOrdersEnCoursDepot, type TransferOrderEnCours, type TransferOrdersArticle } from "@/lib/transfer-orders-en-cours";
 import {
+  calculerResteCumule,
   lireLivraisonsDepotFVersDepotE,
   lireQuantiteCommande,
-  resteAFabriquer,
-  type LivraisonArticle,
+  type CommandeArticle,
+  type ResteCumule,
   type TiLivre,
 } from "@/lib/livraisons-depot-f-vers-e";
 import { separerUtilisations } from "@/lib/utilisation-article";
@@ -97,13 +98,15 @@ export type PlastiqueRow = {
   nb_cavites: number | null;
   // Procede de fabrication choisi a la main : INJECTION, SOUFFLAGE ou PET (null = non renseigne)
   type_machine: string | null;
-  // RESTE a fabriquer : la quantite de cet article dans la derniere commande enregistree (Save) MOINS ce qui est deja arrive au
-  // Depot E depuis (Transfer Invoice valides du Depot F au Depot E) ; null = pas dans cette commande
+  // RESTE a fabriquer, CUMULE : ce qui restait des commandes precedentes + chaque nouvelle commande enregistree (Save) MOINS ce qui
+  // est deja arrive au Depot E depuis (Transfer Invoice valides du Depot F au Depot E) ; null = l'article n'est dans aucune commande
   a_fabriquer: string | null;
-  // Quantite de la commande telle qu'enregistree, ce qui est deja livre du Depot F au Depot E depuis, et les TI concernes
+  // Total des commandes enregistrees de cet article, ce qui est deja livre du Depot F au Depot E depuis la premiere, les TI
+  // concernes et les commandes (code + quantite) qui le contiennent
   commande_qt: string | null;
   livre_a_e: number;
   tis: TiLivre[];
+  commandes: CommandeArticle[];
 };
 
 // "gel douche" -> "Gel douche" (articles.type_article est saisi a la main, casse variable).
@@ -262,50 +265,86 @@ async function lireDetailsPlastique(): Promise<{
   };
 }
 
-// "A fabriquer" = ce qui a ete commande : les quantites de la DERNIERE commande enregistree
-// (bouton Save). Un nouveau Save remplace tout ; avant la premiere commande, la colonne est vide.
-// Ce qui est deja arrive au Depot E depuis cette commande (Transfer Invoice valides du Depot F au Depot E) est lu en meme temps :
-// la commande BAISSE a chaque livraison (demande explicite). Une erreur de lecture des livraisons est remontee (jamais un reste
-// a fabriquer qui ignore ce qui est deja livre).
-async function lireDerniereCommande(): Promise<{
+// "A fabriquer" = ce qui a ete commande et pas encore livre : TOUTES les commandes enregistrees (bouton Save) s'additionnent (un
+// nouveau Save s'AJOUTE a ce qu'il reste, il ne remplace pas - demande explicite) ; avant la premiere commande, la colonne est vide.
+// Ce qui est deja arrive au Depot E depuis (Transfer Invoice valides du Depot F au Depot E) est lu en meme temps : le reste BAISSE
+// a chaque livraison, voir calculerResteCumule. Une erreur de lecture est remontee (jamais un reste a fabriquer qui ignore une
+// commande ou ce qui est deja livre). Une commande supprimee ne compte plus ; plus la plus ancienne commande est vieille, plus il y a de
+// Transfer Invoice a relire : supprimer les commandes terminees garde la page legere.
+async function lireCommandesEnregistrees(): Promise<{
   code: string | null;
-  parArticle: Map<number, string>;
-  livraisons: Map<number, LivraisonArticle>;
-  erreurLivraisons: string | null;
+  parArticle: Map<number, ResteCumule>;
+  erreur: string | null;
 }> {
-  const parArticle = new Map<number, string>();
-  const livraisons = new Map<number, LivraisonArticle>();
+  const parArticle = new Map<number, ResteCumule>();
 
-  const { data: commande, error } = await supabaseServer
-    .from("commandes_article_plastique")
-    .select("id, code, created_at")
-    .order("id", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error || !commande) return { code: null, parArticle, livraisons, erreurLivraisons: null };
-
-  const { data: lignes, error: lignesError } = await supabaseServer
-    .from("commandes_article_plastique_lignes")
-    .select("article_id, qt_avis")
-    .eq("commande_id", (commande as { id: number }).id);
-  if (lignesError) return { code: (commande as { code: string }).code, parArticle, livraisons, erreurLivraisons: null };
-
-  for (const ligne of (lignes ?? []) as { article_id: number; qt_avis: string | null }[]) {
-    const quantite = (ligne.qt_avis ?? "").trim();
-    if (quantite) parArticle.set(ligne.article_id, quantite);
-  }
-
-  let erreurLivraisons: string | null = null;
   try {
-    const lues = await lireLivraisonsDepotFVersDepotE({
-      articleIds: [...parArticle.keys()],
-      depuis: (commande as { created_at: string }).created_at,
-    });
-    for (const [articleId, livraison] of lues) livraisons.set(articleId, livraison);
+    // 1. toutes les commandes, de la plus ancienne a la plus recente
+    const commandes: { id: number; code: string; created_at: string }[] = [];
+    for (let debut = 0; ; debut += 1000) {
+      const { data, error } = await supabaseServer
+        .from("commandes_article_plastique")
+        .select("id, code, created_at")
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(debut, debut + 999);
+      if (error) throw new Error(error.message);
+      const page = (data ?? []) as typeof commandes;
+      commandes.push(...page);
+      if (page.length < 1000) break;
+    }
+    if (commandes.length === 0) return { code: null, parArticle, erreur: null };
+
+    // 2. leurs lignes (une par article), regroupees par article dans l'ordre des commandes
+    const commandeParId = new Map(commandes.map((commande, rang) => [commande.id, { ...commande, rang }]));
+    const parArticleCommandes = new Map<number, (CommandeArticle & { rang: number })[]>();
+    for (let i = 0; i < commandes.length; i += 50) {
+      const ids = commandes.slice(i, i + 50).map((commande) => commande.id);
+      for (let debut = 0; ; debut += 1000) {
+        const { data, error } = await supabaseServer
+          .from("commandes_article_plastique_lignes")
+          .select("id, commande_id, article_id, qt_avis")
+          .in("commande_id", ids)
+          .order("id", { ascending: true })
+          .range(debut, debut + 999);
+        if (error) throw new Error(error.message);
+        const page = (data ?? []) as { id: number; commande_id: number; article_id: number; qt_avis: string | null }[];
+        for (const ligne of page) {
+          const quantite = (ligne.qt_avis ?? "").trim();
+          const commande = commandeParId.get(ligne.commande_id);
+          if (!quantite || !commande) continue;
+          const liste = parArticleCommandes.get(ligne.article_id) ?? [];
+          liste.push({ code: commande.code, creeLe: commande.created_at, quantite, rang: commande.rang });
+          parArticleCommandes.set(ligne.article_id, liste);
+        }
+        if (page.length < 1000) break;
+      }
+    }
+
+    // 3. ce qui est deja arrive au Depot E depuis la premiere commande (reparti par commande dans calculerResteCumule)
+    let livraisons: Awaited<ReturnType<typeof lireLivraisonsDepotFVersDepotE>>;
+    try {
+      livraisons = await lireLivraisonsDepotFVersDepotE({
+        articleIds: [...parArticleCommandes.keys()],
+        depuis: commandes[0].created_at,
+      });
+    } catch (e) {
+      throw new Error(`Livraisons du Depot F au Depot E illisibles : ${e instanceof Error ? e.message : "erreur inconnue"}`);
+    }
+
+    for (const [articleId, liste] of parArticleCommandes) {
+      const ordonnees = [...liste].sort((a, b) => a.rang - b.rang).map(({ code, creeLe, quantite }) => ({ code, creeLe, quantite }));
+      parArticle.set(articleId, calculerResteCumule(ordonnees, livraisons.get(articleId)));
+    }
+    return { code: commandes[commandes.length - 1].code, parArticle, erreur: null };
   } catch (e) {
-    erreurLivraisons = `Livraisons du Depot F au Depot E illisibles : ${e instanceof Error ? e.message : "erreur inconnue"}`;
+    const message = e instanceof Error ? e.message : "erreur inconnue";
+    return {
+      code: null,
+      parArticle: new Map(),
+      erreur: message.startsWith("Livraisons") ? message : `Commandes enregistrees illisibles : ${message}`,
+    };
   }
-  return { code: (commande as { code: string }).code, parArticle, livraisons, erreurLivraisons };
 }
 
 // La quantite est un texte libre (avis) : un nombre est mis en forme, le reste s'affiche tel quel.
@@ -334,10 +373,10 @@ export async function fetchPlastiqueRows(): Promise<{
   // qu'a lister les articles ; le stock affiche vient de lireStockMpDepotE (meme stock que Besoin Conditionnement), MOINS ce
   // que les Transfer Orders partis du Depot E vont encore en sortir (demande explicite : un TO d'articles plastique se deduit
   // du stock de l'E3 sans attendre que le Transfer Invoice soit valide)
-  const [stockResult, detailResult, derniereCommande, stockDepotE, transferOrders] = await Promise.all([
+  const [stockResult, detailResult, commandes, stockDepotE, transferOrders] = await Promise.all([
     fetchAllStockActuelMpRows(),
     lireDetailsPlastique(),
-    lireDerniereCommande(),
+    lireCommandesEnregistrees(),
     lireStockMpDepotE().then(
       (lignes) => ({ parArticle: new Map(lignes.map((ligne) => [ligne.article_id, ligne.stock])), erreur: null as string | null }),
       (e: unknown) => ({
@@ -364,8 +403,8 @@ export async function fetchPlastiqueRows(): Promise<{
   if (transferOrders.erreur) {
     return { rows: [], error: transferOrders.erreur, machineCavitesPret: false, typeMachinePret: false, derniereCommandeCode: null };
   }
-  if (derniereCommande.erreurLivraisons) {
-    return { rows: [], error: derniereCommande.erreurLivraisons, machineCavitesPret: false, typeMachinePret: false, derniereCommandeCode: null };
+  if (commandes.erreur) {
+    return { rows: [], error: commandes.erreur, machineCavitesPret: false, typeMachinePret: false, derniereCommandeCode: null };
   }
   if (detailResult.error || !detailResult.data) {
     return {
@@ -389,8 +428,7 @@ export async function fetchPlastiqueRows(): Promise<{
       const stockReel = stockDepotE.parArticle.get(row.article_id) ?? 0;
       const to = transferOrders.parArticle.get(row.article_id);
       const toDeduits = (to?.reserve ?? 0) + (to?.enAttente ?? 0);
-      const commandeQt = derniereCommande.parArticle.get(row.article_id) ?? null;
-      const livraison = derniereCommande.livraisons.get(row.article_id);
+      const cumul = commandes.parArticle.get(row.article_id);
       return {
         article_id: row.article_id,
         nom_article: row.nom_article,
@@ -410,10 +448,11 @@ export async function fetchPlastiqueRows(): Promise<{
         machine: detail?.machine_plastique ?? null,
         nb_cavites: detail?.nb_cavites ?? null,
         type_machine: detail?.type_machine_plastique ?? null,
-        a_fabriquer: resteAFabriquer(commandeQt, livraison?.livre ?? 0),
-        commande_qt: commandeQt,
-        livre_a_e: livraison?.livre ?? 0,
-        tis: livraison?.tis ?? [],
+        a_fabriquer: cumul?.reste ?? null,
+        commande_qt: cumul?.commandeTotal ?? null,
+        livre_a_e: cumul?.livre ?? 0,
+        tis: cumul?.tis ?? [],
+        commandes: cumul?.commandes ?? [],
       };
     })
     .sort((a, b) => {
@@ -430,7 +469,7 @@ export async function fetchPlastiqueRows(): Promise<{
     error: null,
     machineCavitesPret: detailResult.machineCavitesPret,
     typeMachinePret: detailResult.typeMachinePret,
-    derniereCommandeCode: derniereCommande.code,
+    derniereCommandeCode: commandes.code,
   };
 }
 
@@ -658,7 +697,7 @@ export async function StatistiqueArticlePlastique({
     { label: "Stock max - 20 %", key: "seuilArret" },
     { label: "Demarrer la production ?", key: "arret" },
     { label: "A fabriquer (reste)", key: "aFabriquer" },
-    { label: "Commande enregistree", key: "commandeQt" },
+    { label: "Commandes enregistrees (total)", key: "commandeQt" },
     { label: "Livre Depot F vers E", key: "livreDepotE" },
     { label: "Avis de fabrication", key: "avis" },
     { label: "Type de machine", key: "typeMachine" },
@@ -850,6 +889,15 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">Gamme</th>
                   <th className="px-6 py-4 font-semibold">Sous famille</th>
                   <th className="px-6 py-4 font-semibold">Type</th>
+                  <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
+                  <th className="px-6 py-4 font-semibold">
+                    A fabriquer
+                    {derniereCommandeCode ? (
+                      <span className="block text-xs font-normal text-slate-400">
+                        total des commandes (derniere {derniereCommandeCode}) moins livre F vers E
+                      </span>
+                    ) : null}
+                  </th>
                   <th className="px-6 py-4 font-semibold">Utilisation</th>
                   <th className="px-6 py-4 font-semibold">Unite</th>
                   <th className="px-6 py-4 font-semibold">
@@ -861,15 +909,6 @@ export async function StatistiqueArticlePlastique({
                   <th className="px-6 py-4 font-semibold">Stock max</th>
                   <th className="px-6 py-4 font-semibold">Stock max - 20 %</th>
                   <th className="px-6 py-4 font-semibold">Demarrer la production ?</th>
-                  <th className="px-6 py-4 font-semibold">
-                    A fabriquer
-                    {derniereCommandeCode ? (
-                      <span className="block text-xs font-normal text-slate-400">
-                        commande {derniereCommandeCode} moins livre F vers E
-                      </span>
-                    ) : null}
-                  </th>
-                  <th className="px-6 py-4 font-semibold">Avis de fabrication</th>
                   <th className="px-6 py-4 font-semibold">Type de machine</th>
                 </tr>
               </thead>
@@ -999,6 +1038,67 @@ export async function StatistiqueArticlePlastique({
                       <td className="px-6 py-4 text-slate-600">
                         {row.types_produit.length > 0 ? row.types_produit.join(", ") : "-"}
                       </td>
+                      <td className="px-6 py-4">
+                        {canEdit ? (
+                          <form action={updateAvisFabricationAction} className="flex items-center gap-2">
+                            <input type="hidden" name="article_id" value={row.article_id} />
+                            <input
+                              type="text"
+                              name="avis_fabrication"
+                              defaultValue={row.avis_fabrication ?? ""}
+                              placeholder="Avis..."
+                              className="w-40 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
+                            />
+                            <SubmitButton
+                              pendingLabel="..."
+                              className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                            >
+                              OK
+                            </SubmitButton>
+                          </form>
+                        ) : (
+                          <span className="text-slate-600">{row.avis_fabrication || "-"}</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {/* Tout livre (reste a 0) : en vert, la commande de cet article est terminee */}
+                        <span
+                          className={`font-bold ${
+                            row.a_fabriquer !== null && !resteEncoreAFabriquer(row.a_fabriquer) ? "text-emerald-700" : "text-red-600"
+                          }`}
+                        >
+                          {formaterAFabriquer(row.a_fabriquer)}
+                        </span>
+                        {row.commande_qt !== null &&
+                        lireQuantiteCommande(row.commande_qt) !== null &&
+                        (row.livre_a_e > 0 || row.commandes.length > 1) ? (
+                          // Les commandes de l'article (elles s'additionnent) moins ce qui est deja arrive au Depot E : les Transfer
+                          // Invoice valides du Depot F au Depot E
+                          <details className="mt-1">
+                            <summary className="cursor-pointer whitespace-nowrap text-xs font-semibold text-sky-700">
+                              {row.commandes.length > 1 ? "Commandes" : "Commande"} {formaterAFabriquer(row.commande_qt)} - livre{" "}
+                              {formatNumber(row.livre_a_e)}
+                            </summary>
+                            <ul className="mt-1 space-y-1 text-xs font-normal text-slate-700">
+                              {row.commandes.length > 1
+                                ? row.commandes.map((commande) => (
+                                    <li key={commande.code}>
+                                      Commande {commande.code} : {formaterAFabriquer(commande.quantite)}
+                                    </li>
+                                  ))
+                                : null}
+                              {row.tis.map((ti) => (
+                                <li key={ti.code}>
+                                  <Link href={ti.href} className="font-semibold text-sky-700 hover:underline">
+                                    {ti.code}
+                                  </Link>{" "}
+                                  : {formatNumber(ti.quantite)}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
+                      </td>
                       {/* Une utilisation par ligne, chacune dans son cadre (jamais collees les unes aux autres) */}
                       <td className="min-w-[14rem] max-w-xs px-6 py-4 text-slate-600">
                         {row.utilisations.length === 0 ? (
@@ -1063,56 +1163,6 @@ export async function StatistiqueArticlePlastique({
                           >
                             {arret ? "Ne pas demarrer" : "Demarrer"}
                           </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        {/* Tout livre (reste a 0) : en vert, la commande de cet article est terminee */}
-                        <span
-                          className={`font-bold ${
-                            row.a_fabriquer !== null && !resteEncoreAFabriquer(row.a_fabriquer) ? "text-emerald-700" : "text-red-600"
-                          }`}
-                        >
-                          {formaterAFabriquer(row.a_fabriquer)}
-                        </span>
-                        {row.commande_qt !== null && lireQuantiteCommande(row.commande_qt) !== null && row.livre_a_e > 0 ? (
-                          // La commande moins ce qui est deja arrive au Depot E : les Transfer Invoice valides du Depot F au Depot E
-                          <details className="mt-1">
-                            <summary className="cursor-pointer whitespace-nowrap text-xs font-semibold text-sky-700">
-                              Commande {formaterAFabriquer(row.commande_qt)} - livre {formatNumber(row.livre_a_e)}
-                            </summary>
-                            <ul className="mt-1 space-y-1 text-xs font-normal text-slate-700">
-                              {row.tis.map((ti) => (
-                                <li key={ti.code}>
-                                  <Link href={ti.href} className="font-semibold text-sky-700 hover:underline">
-                                    {ti.code}
-                                  </Link>{" "}
-                                  : {formatNumber(ti.quantite)}
-                                </li>
-                              ))}
-                            </ul>
-                          </details>
-                        ) : null}
-                      </td>
-                      <td className="px-6 py-4">
-                        {canEdit ? (
-                          <form action={updateAvisFabricationAction} className="flex items-center gap-2">
-                            <input type="hidden" name="article_id" value={row.article_id} />
-                            <input
-                              type="text"
-                              name="avis_fabrication"
-                              defaultValue={row.avis_fabrication ?? ""}
-                              placeholder="Avis..."
-                              className="w-40 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none"
-                            />
-                            <SubmitButton
-                              pendingLabel="..."
-                              className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
-                            >
-                              OK
-                            </SubmitButton>
-                          </form>
-                        ) : (
-                          <span className="text-slate-600">{row.avis_fabrication || "-"}</span>
                         )}
                       </td>
                       <td className="px-6 py-4">

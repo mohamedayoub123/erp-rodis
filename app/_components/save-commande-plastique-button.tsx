@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 export function SaveCommandeButton({
   saveAction,
 }: {
-  saveAction: () => Promise<{ ok: true; href: string } | { ok: false; message: string }>;
+  saveAction: () => Promise<{ ok: true; href: string; avertissement?: string } | { ok: false; message: string }>;
 }) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -20,6 +20,8 @@ export function SaveCommandeButton({
     startTransition(async () => {
       const result = await saveAction();
       if (result.ok) {
+        // La commande est faite mais les avis n'ont pas pu etre vides : le dire avant de changer de page
+        if (result.avertissement) window.alert(result.avertissement);
         router.push(result.href);
       } else {
         window.alert(result.message);
