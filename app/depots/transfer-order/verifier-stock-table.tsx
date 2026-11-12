@@ -106,7 +106,7 @@ export function VerifierStockTable({
                         {canCreateTransferOrders && peutCreerTransferOrders ? (
                           <input
                             type="number"
-                            step="0.001"
+                            step="any"
                             min="0"
                             name={`besoin_override_${row.id}`}
                             defaultValue={row.besoin}

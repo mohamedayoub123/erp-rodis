@@ -181,7 +181,7 @@ export function TransferOrderLignesEditorEnAttente({
                     alors decalees d'une ligne (bug du TO 3008). */}
                 <input
                   type="number"
-                  step="0.001"
+                  step="any"
                   min="0"
                   name="quantite_demandee"
                   defaultValue={ligne.quantite_demandee}
@@ -211,7 +211,7 @@ export function TransferOrderLignesEditorEnAttente({
               </div>
               <input
                 type="number"
-                step="0.001"
+                step="any"
                 min="0"
                 name="quantite_demandee"
                 placeholder="Quantite"

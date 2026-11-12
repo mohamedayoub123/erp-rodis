@@ -66,7 +66,7 @@ export function TransferOrderLinesForm({
             <TransferArticlePicker articlesMp={articlesMp} articlesPf={articlesPf} depotSourceId={depotSourceId} />
             <input
               type="number"
-              step="0.001"
+              step="any"
               min="0"
               name="quantite_demandee"
               placeholder="Quantite"

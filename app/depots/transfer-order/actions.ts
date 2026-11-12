@@ -400,6 +400,21 @@ export async function updateTransferOrderLignesEnAttenteAction(formData: FormDat
     throw new Error("Transfer Order invalide.");
   }
 
+  // Meme regle que les autres enregistrements de cette page : un throw depuis une Server Action voit son message
+  // efface en production (l'ecran n'affichait qu'une erreur generique) - on le capte et on redirige avec le vrai
+  // message en avertissement. Le redirect de succes efface un ancien avertissement encore dans l'adresse.
+  try {
+    await updateTransferOrderLignesEnAttenteCore(formData, transferOrderId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Erreur pendant l'enregistrement.";
+    redirect(`/depots/transfer-order/${transferOrderId}?avertissement=${encodeURIComponent(message)}`);
+  }
+
+  revalidatePath(`/depots/transfer-order/${transferOrderId}`);
+  redirect(`/depots/transfer-order/${transferOrderId}`);
+}
+
+async function updateTransferOrderLignesEnAttenteCore(formData: FormData, transferOrderId: number) {
   const { data: transferOrderData, error: transferOrderError } = await supabaseServer
     .from("transfer_orders")
     .select("id, depot_source_id, statut")
@@ -430,10 +445,8 @@ export async function updateTransferOrderLignesEnAttenteAction(formData: FormDat
   // vieil ecran reste ouvert...), toutes les quantites suivantes iraient sur la ligne d'avant (bug du TO 3008).
   // On refuse avant d'ecrire quoi que ce soit.
   if (quantites.length !== ligneIdsRaw.length || articleIds.length !== ligneIdsRaw.length) {
-    redirect(
-      `/depots/transfer-order/${transferOrderId}?avertissement=${encodeURIComponent(
-        "Le formulaire est incomplet (les quantites ne correspondent plus aux lignes) : rien n'a ete modifie. Recharge la page puis recommence."
-      )}`
+    throw new Error(
+      "Le formulaire est incomplet (les quantites ne correspondent plus aux lignes) : rien n'a ete modifie. Recharge la page puis recommence."
     );
   }
 
@@ -450,19 +463,48 @@ export async function updateTransferOrderLignesEnAttenteAction(formData: FormDat
     throw new Error("Ajoute au moins un article avec une quantite.");
   }
 
-  for (const ligne of lignes) {
-    const lots = await fetchLotsInDepot(
-      ligne.articleType,
-      ligne.articleId,
-      transferOrder.depot_source_id,
-      transferOrderId
+  // Le stock n'est controle que pour ce que la personne vient vraiment de changer : une ligne nouvelle, un autre
+  // article ou une quantite AUGMENTEE. Une ligne laissee telle quelle (ou diminuee) n'est pas recontrolee : le stock
+  // a pu baisser depuis la creation du TO, et cela ne doit pas empecher de corriger ou supprimer une AUTRE ligne
+  // (TO 3376 : une base demandee 37,828 pour 37,554 en stock bloquait tout enregistrement, meme la suppression
+  // d'un colorant). L'approbation repartit de toute facon le stock reel.
+  const { data: anciennesData, error: anciennesError } = await supabaseServer
+    .from("transfer_order_lignes")
+    .select("id, article_type, article_id, quantite_demandee")
+    .eq("transfer_order_id", transferOrderId);
+  if (anciennesError) throw new Error(anciennesError.message);
+  const anciennes = new Map(
+    ((anciennesData ?? []) as { id: number; article_type: ArticleType; article_id: number; quantite_demandee: number }[]).map(
+      (ligne) => [ligne.id, ligne]
+    )
+  );
+
+  const aControler = lignes.filter((ligne) => {
+    const ancienne = anciennes.get(ligne.ligneId);
+    if (!ancienne) return true;
+    if (ancienne.article_type !== ligne.articleType || ancienne.article_id !== ligne.articleId) return true;
+    return ligne.quantiteDemandee > Number(ancienne.quantite_demandee ?? 0) + 1e-9;
+  });
+
+  const lotsParLigne = await Promise.all(
+    aControler.map((ligne) =>
+      fetchLotsInDepot(ligne.articleType, ligne.articleId, transferOrder.depot_source_id, transferOrderId)
+    )
+  );
+  const manques = aControler
+    .map((ligne, index) => ({ ligne, disponible: totalAvailable(lotsParLigne[index]) }))
+    .filter(({ ligne, disponible }) => ligne.quantiteDemandee > disponible + 1e-6);
+  if (manques.length > 0) {
+    const formater = (valeur: number) => valeur.toLocaleString("fr-FR", { maximumFractionDigits: 6 });
+    const details = await Promise.all(
+      manques.map(async ({ ligne, disponible }) => {
+        const table = ligne.articleType === "MP" ? "articles_matiere_premiere" : "articles";
+        const { data: article } = await supabaseServer.from(table).select("nom_article").eq("id", ligne.articleId).maybeSingle();
+        const nom = (article as { nom_article: string } | null)?.nom_article ?? `#${ligne.articleId}`;
+        return `"${nom}" : demande ${formater(ligne.quantiteDemandee)}, disponible ${formater(disponible)}`;
+      })
     );
-    const disponible = totalAvailable(lots);
-    if (ligne.quantiteDemandee > disponible + 1e-6) {
-      throw new Error(
-        `Stock insuffisant dans le depot source pour un des articles - disponible : ${disponible.toLocaleString("fr-FR", { maximumFractionDigits: 6 })}.`
-      );
-    }
+    throw new Error(`Stock insuffisant dans le depot source - ${details.join(" ; ")}. Rien n'a ete modifie.`);
   }
 
   if (supprimerIds.size > 0) {
@@ -508,8 +550,6 @@ export async function updateTransferOrderLignesEnAttenteAction(formData: FormDat
     cible: label,
     resume: `Transfer Order ${label} modifie (lignes, avant approbation)`,
   });
-
-  revalidatePath(`/depots/transfer-order/${transferOrderId}`);
 }
 
 // Remplace la repartition par lot de TOUTES les lignes d'un coup, depuis un
