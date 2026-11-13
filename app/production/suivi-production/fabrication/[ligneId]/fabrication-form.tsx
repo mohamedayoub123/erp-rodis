@@ -16,6 +16,7 @@ import {
   renderTimeState,
 } from "@/app/_components/time-text-input";
 import { VracRecupereFields } from "../vrac-recupere-fields";
+import { VracMisEnRecuperationField } from "../vrac-mis-en-recuperation-field";
 import { fusionnerRecuperations, lireRecuperations } from "@/lib/vrac-recuperations";
 import { MachineSelectField } from "../../machine-select-field";
 import { TYPE_PRODUIT_OPTIONS } from "../../../machines/type-produit-options";
@@ -142,6 +143,7 @@ export function FabricationForm({
   code,
   rapport,
   vracRecupereLots,
+  qtMiseEnRecuperationInitiale,
   machines,
   ligneDateJour,
 }: {
@@ -149,6 +151,8 @@ export function FabricationForm({
   code: string;
   rapport: RapportInfo | null;
   vracRecupereLots: { numeroLot: string; solde: number; libelle?: string }[];
+  // Vrac deja mis en recuperation par cette fiche (lu dans le stock du Depot B, voir la page)
+  qtMiseEnRecuperationInitiale: number;
   machines: { nom: string; typeProduit: string[] }[];
   ligneDateJour: string;
 }) {
@@ -416,9 +420,11 @@ export function FabricationForm({
         <h2 className="mb-1 text-lg font-bold text-slate-900">Production</h2>
         <p className="mb-3 text-xs text-slate-500">
           Vrac fabrique = somme automatique des poids des 4 cuves. Ce qui est enregistre ici est
-          retire de ce qu&apos;il reste a faire (visible dans le Dashboard). &quot;Qt a
-          recuperer&quot; est la quantite de vrac recuperee dans le stock du Depot B (choisis son
-          &quot;Code vrac recupere&quot; dans la liste du module Vrac a recuperer) : elle
+          retire de ce qu&apos;il reste a faire (visible dans le Dashboard). &quot;Qt mise en
+          recuperation&quot; est la partie du vrac fabrique que tu n&apos;utilises pas pour ce code : elle
+          entre au Depot B (module Vrac a recuperer) sous le meme code et n&apos;est pas envoyee au
+          Conditionnement. &quot;Qt a recuperer&quot; est au contraire du vrac pris dans le stock du Depot B
+          (choisis son &quot;Code vrac recupere&quot; dans la liste du module Vrac a recuperer) : elle
           s&apos;AJOUTE au vrac de ce code et est retiree du stock du Depot B (maximum : le stock du lot choisi).
         </p>
         <div className="grid gap-4 md:grid-cols-3">
@@ -433,13 +439,24 @@ export function FabricationForm({
               className={`${inputClass} bg-slate-50 text-slate-600`}
             />
           </label>
-          <VracRecupereFields
-            lots={vracRecupereLots}
-            recuperationsInitiales={fusionnerRecuperations(
-              lireRecuperations(rapport?.code_vrac_recupere, rapport?.qt_vrac_recupere)
-            )}
+          <VracMisEnRecuperationField
+            code={code}
+            quantiteInitiale={qtMiseEnRecuperationInitiale}
+            vracFabrique={vracTotal}
             classeChamp={inputClass}
           />
+          <div className="col-span-full border-t border-slate-100 pt-4">
+            <p className="mb-3 text-xs font-semibold text-slate-600">Recuperer du vrac du Depot B pour ce code</p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <VracRecupereFields
+                lots={vracRecupereLots}
+                recuperationsInitiales={fusionnerRecuperations(
+                  lireRecuperations(rapport?.code_vrac_recupere, rapport?.qt_vrac_recupere)
+                )}
+                classeChamp={inputClass}
+              />
+            </div>
+          </div>
         </div>
       </div>
 

@@ -13,6 +13,7 @@ import { MachineAndTypeFields } from "../../machine-and-type-fields";
 import { fetchMachinesByType } from "@/lib/machines-by-type";
 import { fetchVracDepotB } from "@/lib/vrac-depot-b";
 import { VracRecupereFields } from "../vrac-recupere-fields";
+import { VracMisEnRecuperationField } from "../vrac-mis-en-recuperation-field";
 
 const ARRET_CAUSES = [
   { field: "fabrication_arret_absence_air", label: "Absence d'air" },
@@ -386,9 +387,12 @@ export default async function NouvelleFicheFabricationPage({
                 <h2 className="mb-1 text-lg font-bold text-slate-900">Production</h2>
                 <p className="mb-3 text-xs text-slate-500">
                   Ce qui est saisi ici est retire de ce qu&apos;il reste a faire (visible dans le
-                  Dashboard). &quot;Qt a recuperer&quot; est la quantite de vrac recuperee dans le stock
-                  du Depot B (choisis son &quot;Code vrac recupere&quot; dans la liste) : elle
-                  s&apos;AJOUTE au vrac de ce code et est retiree du stock du Depot B.
+                  Dashboard). &quot;Qt mise en recuperation&quot; est la partie du vrac fabrique que tu
+                  n&apos;utilises pas pour ce code : elle entre au Depot B (module Vrac a recuperer) sous
+                  le meme code et n&apos;est pas envoyee au Conditionnement. &quot;Qt a recuperer&quot; est
+                  au contraire du vrac pris dans le stock du Depot B (choisis son &quot;Code vrac
+                  recupere&quot; dans la liste) : elle s&apos;AJOUTE au vrac de ce code et est retiree du
+                  stock du Depot B.
                 </p>
                 <div className="grid gap-4 md:grid-cols-3">
                   <label className="grid gap-1 text-xs font-semibold text-slate-500">
@@ -402,10 +406,16 @@ export default async function NouvelleFicheFabricationPage({
                       className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
                     />
                   </label>
-                  <VracRecupereFields
-                    lots={vracRecupereLots}
-                    classeChamp="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-                  />
+                  <VracMisEnRecuperationField classeChamp="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none" />
+                  <div className="col-span-full border-t border-slate-100 pt-4">
+                    <p className="mb-3 text-xs font-semibold text-slate-600">Recuperer du vrac du Depot B pour ce code</p>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <VracRecupereFields
+                        lots={vracRecupereLots}
+                        classeChamp="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 

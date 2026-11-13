@@ -11,6 +11,7 @@ import { vracLabelFromName } from "@/lib/gamme-families";
 import { FabricationForm } from "./fabrication-form";
 import { messageSiTestLaboInvalide } from "../../actions";
 import { fetchVracDepotB } from "@/lib/vrac-depot-b";
+import { noteVracEnRecuperationFabrication } from "@/lib/vrac-a-recuperer";
 import { fetchMachinesByType } from "@/lib/machines-by-type";
 
 type LigneInfo = {
@@ -131,6 +132,27 @@ export default async function RapportFabricationPage({
   // se choisit dans cette liste, un code qui n'existe pas n'est pas accepte.
   const vracRecupereLots = await fetchVracDepotB();
 
+  // Vrac deja mis en recuperation par CETTE fiche (ligne de stock du Depot B creee a son Enregistrer) : pre-remplit "Qt mise en
+  // recuperation". Lu depuis le stock, jamais depuis qt_a_recuperer (ancien "mis de cote", sans stock derriere). Une erreur de lecture
+  // est affichee a la place du formulaire : un formulaire a 0 ferait effacer par erreur ce qui est deja en recuperation au prochain Save.
+  let qtMiseEnRecuperation = 0;
+  let erreurLectureRecuperation: string | null = null;
+  if (code) {
+    const { data: misesEnRecuperation, error: misesEnRecuperationError } = await supabaseServer
+      .from("lots_stock")
+      .select("qte_entree")
+      .eq("note", noteVracEnRecuperationFabrication(ligne.id, code))
+      .gt("qte_entree", 0);
+    if (misesEnRecuperationError) {
+      erreurLectureRecuperation = `Impossible de lire le vrac deja mis en recuperation pour ce code (${misesEnRecuperationError.message}). Recharge la page.`;
+    } else {
+      qtMiseEnRecuperation =
+        Math.round(
+          ((misesEnRecuperation ?? []) as { qte_entree: number | null }[]).reduce((somme, ligneStock) => somme + Number(ligneStock.qte_entree ?? 0), 0) * 1000
+        ) / 1000;
+    }
+  }
+
   const machines = await fetchMachinesByType("Fabrication");
 
   return (
@@ -188,12 +210,15 @@ export default async function RapportFabricationPage({
                 Aller au Test labo
               </Link>
             </div>
+          ) : erreurLectureRecuperation ? (
+            <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{erreurLectureRecuperation}</p>
           ) : (
             <FabricationForm
               ligneId={ligne.id}
               code={code}
               rapport={rapport}
               vracRecupereLots={vracRecupereLots}
+              qtMiseEnRecuperationInitiale={qtMiseEnRecuperation}
               machines={machines}
               ligneDateJour={ligne.date_jour}
             />

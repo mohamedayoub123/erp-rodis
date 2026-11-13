@@ -8,6 +8,16 @@ export const SOURCE_VRAC_A_RECUPERER = "web:vrac-a-recuperer";
 
 export const MAX_LIGNES_VRAC_A_RECUPERER = 50;
 
+// Vrac MIS EN RECUPERATION par une fiche Fabrication (quantite fabriquee mais pas utilisee pour son code) : la fiche cree une ligne de
+// stock du MEME type que ce module (meme source_import, Depot B, article vrac, code de la fiche) - elle est donc listee ici et proposee
+// ensuite dans "Code vrac recupere". Cette note la relie a sa fiche : elle est remplacee a chaque nouvel Enregistrer de la fiche et
+// supprimee avec elle, et le module refuse de la supprimer a la main (il faut corriger la quantite sur la fiche).
+export const PREFIXE_NOTE_FABRICATION = "Vrac a recuperer - Fabrication ligne ";
+
+export function noteVracEnRecuperationFabrication(ligneId: number, code: string): string {
+  return `${PREFIXE_NOTE_FABRICATION}${ligneId} code ${code}`;
+}
+
 export type ArticleVrac = { id: number; nom: string };
 
 export type VracEnregistre = {

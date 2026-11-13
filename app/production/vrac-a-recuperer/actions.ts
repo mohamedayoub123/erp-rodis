@@ -6,6 +6,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/
 import { logAudit } from "@/lib/audit-log";
 import {
   MAX_LIGNES_VRAC_A_RECUPERER,
+  PREFIXE_NOTE_FABRICATION,
   SOURCE_VRAC_A_RECUPERER,
   dateIsoValide,
   formaterQuantiteVrac,
@@ -182,10 +183,19 @@ export async function supprimerVracARecupererAction(lotId: number): Promise<Repo
       numero_lot: string | null;
       qte_entree: number | null;
       source_import: string | null;
+      note: string | null;
     } | null;
     if (!lot) return { ok: false, message: "Cette ligne n'existe plus. Recharge la page." };
     if (lot.source_import !== SOURCE_VRAC_A_RECUPERER) {
       return { ok: false, message: "Seules les lignes enregistrees ici peuvent etre supprimees ici." };
+    }
+    // Vrac mis en recuperation par une fiche Fabrication : le supprimer ici ferait disparaitre ce vrac (il est deja retire de ce qui part au
+    // Conditionnement) alors que la fiche l'affiche encore - la quantite se change ou se retire sur la fiche
+    if ((lot.note ?? "").startsWith(PREFIXE_NOTE_FABRICATION)) {
+      return {
+        ok: false,
+        message: `Cette ligne vient d'une fiche Fabrication (${(lot.note ?? "").replace("Vrac a recuperer - ", "")}) : change ou retire la quantite mise en recuperation sur cette fiche, pas ici.`,
+      };
     }
     if (!lot.depot_id) return { ok: false, message: "Depot introuvable pour cette ligne." };
 

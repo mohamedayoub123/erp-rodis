@@ -10,6 +10,7 @@ import { verifierNomsConditionnement } from "@/lib/noms-conditionnement";
 import { logAudit } from "@/lib/audit-log";
 import { trouverMessageStockNegatif } from "@/lib/controle-stock-negatif";
 import { fetchVracDepotBParArticle } from "@/lib/vrac-depot-b";
+import { SOURCE_VRAC_A_RECUPERER, noteVracEnRecuperationFabrication } from "@/lib/vrac-a-recuperer";
 import {
   encoderRecuperations,
   fusionnerRecuperations,
@@ -447,8 +448,22 @@ export async function deleteSuiviProductionRowAction(targets: {
     throw new Error("Rien a supprimer.");
   }
 
+  // Vrac mis en recuperation par cette fabrication (ligne de stock du Depot B) : s'il a deja ete repris sur une autre fiche, le retirer
+  // passerait le stock de ce code en negatif. Message renvoye (pas jete : un throw perd son texte en production). Cherche aussi avec le
+  // rapport seul : une fabrication dont TOUT le vrac est parti en recuperation n'a plus d'entree vrac.
+  const supprimeFabrication = Boolean(fabricationId || rapportId) && Boolean(ligneId && code);
+  if (supprimeFabrication) {
+    const refus = await messageSiVracEnRecuperationDejaRepris(ligneId, code);
+    if (refus) return { error: refus };
+  }
+
   const deletions: PromiseLike<{ error: { message: string } | null } | void>[] = [];
 
+  if (supprimeFabrication) {
+    deletions.push(
+      supabaseServer.from("lots_stock").delete().eq("note", noteVracEnRecuperationFabrication(ligneId, code))
+    );
+  }
   if (fabricationId) {
     deletions.push(supabaseServer.from("production_vrac_entries").delete().eq("id", fabricationId));
     // Sans ca, l'ecriture comptable "fabrication_vrac" de ce vrac restait
@@ -489,6 +504,7 @@ export async function deleteSuiviProductionRowAction(targets: {
 
   revalidatePath("/production/suivi-production");
   revalidatePath("/production/suivi/dashboard");
+  if (supprimeFabrication) revalidatePath("/production/vrac-a-recuperer");
 }
 
 // production_mp_reserve reference production_code_termine (pas
@@ -602,14 +618,22 @@ export async function supprimerToutesTracesProductionPourLigne(
       supabaseServer.from("production_vrac_entries").select("id, code").eq("programme_ligne_id", ligneId),
       supabaseServer.from("production_carton_entries").select("id, code").eq("programme_ligne_id", ligneId),
       supabaseServer.from("production_emballage_entries").select("id").eq("programme_ligne_id", ligneId),
-      supabaseServer.from("production_rapports").select("id").eq("programme_ligne_id", ligneId),
+      supabaseServer.from("production_rapports").select("id, code").eq("programme_ligne_id", ligneId),
       supabaseServer.from("production_code_termine").select("code").eq("programme_ligne_id", ligneId),
     ]);
 
   const vrac = (vracRows ?? []) as { id: number; code: string }[];
   const carton = (cartonRows ?? []) as { id: number; code: string }[];
   const emballage = (emballageRows ?? []) as { id: number }[];
-  const rapports = (rapportRows ?? []) as { id: number }[];
+  const rapports = (rapportRows ?? []) as { id: number; code: string }[];
+
+  // Codes dont la Fabrication a pu mettre du vrac en recuperation (ligne de stock du Depot B) : ceux qui ont une entree vrac OU un
+  // rapport (une fabrication dont tout le vrac est parti en recuperation n'a pas d'entree vrac). Refus si ce vrac a deja ete repris ailleurs.
+  const codesFabrication = [...new Set([...vrac.map((row) => row.code), ...rapports.map((row) => row.code)])].filter(Boolean);
+  for (const codeFabrication of codesFabrication) {
+    const refus = await messageSiVracEnRecuperationDejaRepris(ligneId, codeFabrication);
+    if (refus) return { error: refus };
+  }
   const codes = new Set<string>([
     ...vrac.map((row) => row.code),
     ...carton.map((row) => row.code),
@@ -618,6 +642,11 @@ export async function supprimerToutesTracesProductionPourLigne(
 
   const deletions: PromiseLike<{ error: { message: string } | null } | void>[] = [];
 
+  for (const codeFabrication of codesFabrication) {
+    deletions.push(
+      supabaseServer.from("lots_stock").delete().eq("note", noteVracEnRecuperationFabrication(ligneId, codeFabrication))
+    );
+  }
   for (const row of vrac) {
     deletions.push(supabaseServer.from("production_vrac_entries").delete().eq("id", row.id));
     deletions.push(supprimerEcriturePourSource("fabrication_vrac", `${ligneId}-${row.code}`));
@@ -1129,6 +1158,78 @@ function noteVracRecuperation(ligneId: number, code: string) {
   return `Recuperation vrac - ligne ${ligneId} code ${code}`;
 }
 
+function arrondi3(valeur: number): number {
+  return Math.round(valeur * 1000) / 1000;
+}
+
+function formaterKg(valeur: number): string {
+  return valeur.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
+}
+
+// Vrac que cette fiche (ligne + code) a MIS EN RECUPERATION : lignes de stock du Depot B creees a son Enregistrer (voir
+// noteVracEnRecuperationFabrication), regroupees par lot, avec le stock actuel du lot (toutes entrees - toutes sorties) pour savoir ce qui
+// a deja ete repris ailleurs. C'est la seule source de verite : la colonne qt_a_recuperer date de l'ancien "mis de cote" (dont le stock a
+// ete retire de la base) et ne sert pas ici.
+type MiseEnRecuperation = { articleId: number; depotId: number | null; numeroLot: string; total: number; solde: number };
+
+async function lireMisesEnRecuperation(ligneId: number, code: string): Promise<MiseEnRecuperation[]> {
+  const { data, error } = await supabaseServer
+    .from("lots_stock")
+    .select("article_id, depot_id, numero_lot, qte_entree")
+    .eq("note", noteVracEnRecuperationFabrication(ligneId, code))
+    .gt("qte_entree", 0);
+  if (error) throw new Error(error.message);
+
+  const groupes = new Map<string, MiseEnRecuperation>();
+  for (const ligne of (data ?? []) as {
+    article_id: number;
+    depot_id: number | null;
+    numero_lot: string | null;
+    qte_entree: number | null;
+  }[]) {
+    const numeroLot = ligne.numero_lot ?? "";
+    const cle = `${ligne.article_id}|${ligne.depot_id ?? ""}|${numeroLot}`;
+    const groupe = groupes.get(cle) ?? { articleId: ligne.article_id, depotId: ligne.depot_id, numeroLot, total: 0, solde: 0 };
+    groupe.total = arrondi3(groupe.total + Number(ligne.qte_entree ?? 0));
+    groupes.set(cle, groupe);
+  }
+
+  for (const groupe of groupes.values()) {
+    let requete = supabaseServer
+      .from("lots_stock")
+      .select("qte_entree, qte_sortie")
+      .eq("article_id", groupe.articleId)
+      .eq("numero_lot", groupe.numeroLot);
+    requete = groupe.depotId === null ? requete.is("depot_id", null) : requete.eq("depot_id", groupe.depotId);
+    const { data: mouvements, error: mouvementsError } = await requete;
+    if (mouvementsError) throw new Error(mouvementsError.message);
+    groupe.solde = arrondi3(
+      ((mouvements ?? []) as { qte_entree: number | null; qte_sortie: number | null }[]).reduce(
+        (somme, ligne) => somme + Number(ligne.qte_entree ?? 0) - Number(ligne.qte_sortie ?? 0),
+        0
+      )
+    );
+  }
+  return [...groupes.values()];
+}
+
+// Ce qui a deja ete repris ailleurs sur ce vrac mis en recuperation (0 = intact).
+function quantiteDejaReprise(mise: MiseEnRecuperation): number {
+  return Math.max(0, arrondi3(mise.total - mise.solde));
+}
+
+// Message si la fiche (ligne + code) ne peut pas etre supprimee parce que son vrac mis en recuperation a deja ete repris ailleurs : le
+// retirer du Depot B passerait le stock de ce code en negatif. null = on peut supprimer.
+async function messageSiVracEnRecuperationDejaRepris(ligneId: number, code: string): Promise<string | null> {
+  for (const mise of await lireMisesEnRecuperation(ligneId, code)) {
+    const reprise = quantiteDejaReprise(mise);
+    if (reprise > 1e-6) {
+      return `Impossible de supprimer ${code} : du vrac qu'il a mis en recuperation (${mise.numeroLot}) a deja ete repris ailleurs (${formaterKg(reprise)} kg sur ${formaterKg(mise.total)} kg). Corrige d'abord ces recuperations.`;
+    }
+  }
+  return null;
+}
+
 export async function saveFabricationRapportAction(formData: FormData) {
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
   // Comme Conditionnement/Emballage, la Fabrication se saisit desormais par
@@ -1178,6 +1279,33 @@ export async function saveFabricationRapportAction(formData: FormData) {
     // "mis de cote" de cette fiche est supprime a l'enregistrement (voir plus bas).
     const qtARecupererExistante = Number(rapportExistant?.qt_a_recuperer ?? 0);
 
+    // Vrac MIS EN RECUPERATION par cette fiche (champ "Qt mise en recuperation") : la quantite fabriquee mais pas utilisee pour ce code
+    // entre dans le module "Vrac a recuperer" (Depot B) sous le code de la fiche et n'est PAS envoyee au Conditionnement. Un formulaire
+    // sans ce champ ne change pas ce qui est deja en recuperation. Lu depuis le stock (voir lireMisesEnRecuperation), pas depuis
+    // qt_a_recuperer.
+    const noteMiseEnRecuperation = noteVracEnRecuperationFabrication(ligneId, code);
+    const misesEnRecuperationExistantes = await lireMisesEnRecuperation(ligneId, code);
+    const qtMiseEnRecuperationExistante = arrondi3(
+      misesEnRecuperationExistantes.reduce((somme, mise) => somme + mise.total, 0)
+    );
+    const brutMiseEnRecuperation = formData.has("qt_mise_en_recuperation")
+      ? String(formData.get("qt_mise_en_recuperation") ?? "").trim().replace(",", ".")
+      : null;
+    const qtMiseEnRecuperationSaisie =
+      brutMiseEnRecuperation === null ? null : brutMiseEnRecuperation === "" ? 0 : Number(brutMiseEnRecuperation);
+    if (qtMiseEnRecuperationSaisie !== null && (!Number.isFinite(qtMiseEnRecuperationSaisie) || qtMiseEnRecuperationSaisie < 0)) {
+      throw new Error("Qt mise en recuperation invalide.");
+    }
+    const qtMiseEnRecuperation = arrondi3(qtMiseEnRecuperationSaisie ?? qtMiseEnRecuperationExistante);
+    if (qtMiseEnRecuperation > arrondi3(Math.max(0, vracFabrique ?? 0)) + 1e-6) {
+      throw new Error(
+        `La quantite mise en recuperation (${formaterKg(qtMiseEnRecuperation)} kg) ne peut pas depasser le vrac fabrique (${formaterKg(Math.max(0, vracFabrique ?? 0))} kg).`
+      );
+    }
+    if (qtMiseEnRecuperation > 0 && !code) {
+      throw new Error("Cette fiche n'a pas de code : impossible de mettre du vrac en recuperation.");
+    }
+
     // Une fiche peut recuperer le vrac de PLUSIEURS codes (voir lib/vrac-recuperations.ts) : ce qu'elle avait deja pris, puis ce que
     // le formulaire demande maintenant. Un formulaire qui n'envoie pas ces champs ne change pas les recuperations existantes.
     const recuperationsExistantes = fusionnerRecuperations(
@@ -1195,6 +1323,11 @@ export async function saveFabricationRapportAction(formData: FormData) {
       }
     }
     const demandees = fusionnerRecuperations(saisies);
+    if (qtMiseEnRecuperation > 0 && demandees.some((demande) => demande.code.trim().toLowerCase() === code.toLowerCase())) {
+      throw new Error(
+        `Le code ${code} est celui de cette fiche : tu ne peux pas le mettre en recuperation ET le recuperer sur la meme fiche.`
+      );
+    }
 
     // Lots du Depot B portant chaque code, du plus gros solde au plus petit : le stock debite est celui du lot CHOISI, pas
     // forcement celui de l'article de cette ligne (le vrac recupere peut venir d'un autre produit).
@@ -1244,7 +1377,17 @@ export async function saveFabricationRapportAction(formData: FormData) {
     // vrai mouvement de stock).
     let vracArticleId: number | null = null;
     let depotBId: number | null = null;
-    if (qtARecupererExistante > 0 || qtVracRecupereExistante > 0 || demandees.length > 0) {
+    // Ecriture exacte du code de cette fiche dans le Depot B (le stock d'un code reste regroupe sous une seule ecriture, comme dans le
+    // module Vrac a recuperer) : celle qui existe deja pour cet article, sinon le code tel que saisi
+    let numeroLotMiseEnRecuperation = code;
+    let lignesDepotBRemplacees: Record<string, unknown>[] = [];
+    if (
+      qtARecupererExistante > 0 ||
+      qtVracRecupereExistante > 0 ||
+      demandees.length > 0 ||
+      qtMiseEnRecuperation > 0 ||
+      misesEnRecuperationExistantes.length > 0
+    ) {
       [vracArticleId, depotBId] = await Promise.all([resolveVracArticleIdForLigne(ligneId), fetchDepotBId()]);
       if (!vracArticleId || !depotBId) {
         throw new Error(
@@ -1252,15 +1395,54 @@ export async function saveFabricationRapportAction(formData: FormData) {
         );
       }
 
+      if (qtMiseEnRecuperation > 0) {
+        const { data: ecritureExistante, error: ecritureError } = await supabaseServer
+          .from("lots_stock")
+          .select("numero_lot")
+          .eq("depot_id", depotBId)
+          .eq("article_id", vracArticleId)
+          .eq("code_normalise", code.toUpperCase())
+          .not("numero_lot", "is", null)
+          .limit(1);
+        if (ecritureError) throw new Error(ecritureError.message);
+        const ecriture = ((ecritureExistante ?? []) as { numero_lot: string | null }[])[0]?.numero_lot;
+        if (ecriture) numeroLotMiseEnRecuperation = ecriture;
+      }
+
+      // La mise en recuperation de CETTE fiche est REMPLACEE (jamais cumulee) : si une partie a deja ete reprise sur une autre fiche, on
+      // ne peut pas descendre en dessous de ce qui est parti (le stock du code passerait en negatif). Verifie AVANT toute ecriture.
+      for (const mise of misesEnRecuperationExistantes) {
+        const reprise = quantiteDejaReprise(mise);
+        const resteSurCeLot =
+          mise.articleId === vracArticleId && mise.depotId === depotBId && mise.numeroLot === numeroLotMiseEnRecuperation
+            ? qtMiseEnRecuperation
+            : 0;
+        if (reprise > resteSurCeLot + 1e-6) {
+          throw new Error(
+            `Du vrac mis en recuperation par cette fiche a deja ete repris ailleurs (${formaterKg(reprise)} kg sur ${formaterKg(mise.total)} kg) : tu ne peux pas en mettre moins de ${formaterKg(reprise)} kg en recuperation.`
+          );
+        }
+      }
+
       // Remplace (jamais n'accumule) les mouvements Depot B de la
       // precedente saisie de CE ligne+code AVANT de valider le solde
       // disponible ci-dessous - sinon une correction (meme quantite
       // recuperee re-enregistree) se heurterait a tort a son propre
       // mouvement precedent.
-      const { error: cleanupError } = await supabaseServer
+      // Les lignes qui vont etre remplacees sont gardees pour etre REMISES si l'ecriture des nouvelles echoue (voir plus bas) : sans
+      // ca, une panne a cet instant ferait disparaitre du Depot B le vrac mis en recuperation / les sorties de la saisie precedente
+      // alors que la fiche reste inchangee. Ces lignes n'ont que les colonnes ecrites par cette action.
+      const notesRemplacees = [noteVracMisDeCote(ligneId, code), noteVracRecuperation(ligneId, code), noteMiseEnRecuperation];
+      const { data: anciennesLignes, error: anciennesLignesError } = await supabaseServer
         .from("lots_stock")
-        .delete()
-        .in("note", [noteVracMisDeCote(ligneId, code), noteVracRecuperation(ligneId, code)]);
+        .select("article_id, depot_id, date_jour, numero_lot, code_normalise, date_fabrication, qte_entree, qte_sortie, source_import, note, utilisateur")
+        .in("note", notesRemplacees);
+      if (anciennesLignesError) {
+        throw new Error(anciennesLignesError.message);
+      }
+      lignesDepotBRemplacees = (anciennesLignes ?? []) as Record<string, unknown>[];
+
+      const { error: cleanupError } = await supabaseServer.from("lots_stock").delete().in("note", notesRemplacees);
       if (cleanupError) {
         throw new Error(cleanupError.message);
       }
@@ -1311,9 +1493,31 @@ export async function saveFabricationRapportAction(formData: FormData) {
         utilisateur: currentUser,
       });
     }
+    // Le vrac mis en recuperation ENTRE dans le Depot B comme une ligne du module "Vrac a recuperer" (meme source_import) : article vrac
+    // de la ligne, code de la fiche. Il est donc liste dans le module et propose ensuite dans "Code vrac recupere".
+    if (qtMiseEnRecuperation > 1e-9 && vracArticleId && depotBId) {
+      depotBInserts.push({
+        article_id: vracArticleId,
+        depot_id: depotBId,
+        date_jour: dateJourDepotB,
+        numero_lot: numeroLotMiseEnRecuperation,
+        code_normalise: numeroLotMiseEnRecuperation.toUpperCase(),
+        date_fabrication: dateJourDepotB,
+        qte_entree: qtMiseEnRecuperation,
+        qte_sortie: 0,
+        source_import: SOURCE_VRAC_A_RECUPERER,
+        note: noteMiseEnRecuperation,
+        utilisateur: currentUser,
+      });
+    }
     if (depotBInserts.length > 0) {
       const { error: depotBInsertError } = await supabaseServer.from("lots_stock").insert(depotBInserts);
       if (depotBInsertError) {
+        // L'insertion est un seul bloc (tout ou rien) : rien de nouveau n'est ecrit, on remet ce que le nettoyage venait de retirer
+        if (lignesDepotBRemplacees.length > 0) {
+          const { error: restaurationError } = await supabaseServer.from("lots_stock").insert(lignesDepotBRemplacees);
+          if (restaurationError) console.error("Depot B : remise des lignes remplacees impossible apres un echec :", restaurationError.message);
+        }
         throw new Error(depotBInsertError.message);
       }
     }
@@ -1333,7 +1537,8 @@ export async function saveFabricationRapportAction(formData: FormData) {
     // ce qui a ete physiquement fabrique (utilise tel quel par l'ecriture
     // comptable plus bas : la MP a ete consommee pour TOUT le vrac,
     // mis de cote ou non).
-    const vracEnvoyeConditionnement = Math.max(0, vracFabrique ?? 0) + recuperationsEnregistrees.total;
+    const vracEnvoyeConditionnement =
+      Math.max(0, arrondi3((vracFabrique ?? 0) - qtMiseEnRecuperation)) + recuperationsEnregistrees.total;
 
     // upsertRapport (production_rapports) et la suppression de l'ancienne
     // entree vrac ne dependent pas l'une de l'autre - lancees en parallele.
@@ -1429,6 +1634,23 @@ export async function saveFabricationRapportAction(formData: FormData) {
       } catch (comptaError) {
         console.error("Ecriture comptable fabrication echouee:", comptaError);
       }
+    }
+
+    // Trace de la mise en recuperation (creation / changement / retrait), comme le module Vrac a recuperer
+    if (Math.abs(qtMiseEnRecuperation - qtMiseEnRecuperationExistante) > 1e-6) {
+      await logAudit({
+        utilisateur: currentUser,
+        module: "Stock",
+        // Jamais "suppression" : la page Historique proposerait un bouton Restaurer sans sens pour cette ligne ; un retrait est une
+        // modification (X kg -> 0)
+        action: qtMiseEnRecuperationExistante > 0 ? "modification" : "creation",
+        cible: code,
+        resume: `Fabrication ${code} (ligne ${ligneId}) : vrac mis en recuperation (Depot B) ${formaterKg(qtMiseEnRecuperationExistante)} kg -> ${formaterKg(qtMiseEnRecuperation)} kg`,
+        avant: { qt_mise_en_recuperation: qtMiseEnRecuperationExistante },
+        apres: { qt_mise_en_recuperation: qtMiseEnRecuperation, code: numeroLotMiseEnRecuperation },
+      });
+      revalidatePath("/production/vrac-a-recuperer");
+      revalidatePath("/depots");
     }
 
     revalidateRapportPages();

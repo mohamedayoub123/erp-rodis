@@ -26,7 +26,7 @@ export function DeleteRowButton({
     setError("");
     startTransition(async () => {
       try {
-        await deleteSuiviProductionRowAction({
+        const resultat = await deleteSuiviProductionRowAction({
           fabricationId,
           conditionnementId,
           emballageId,
@@ -34,6 +34,8 @@ export function DeleteRowButton({
           ligneId,
           code,
         });
+        // Refus normal (ex : vrac mis en recuperation deja repris ailleurs) : renvoye avec son texte, un throw le perdrait en production
+        if (resultat?.error) setError(resultat.error);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur pendant la suppression.");
       }
