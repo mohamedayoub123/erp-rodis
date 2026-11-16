@@ -6,6 +6,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { formatDate } from "@/lib/format-date";
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { SupprimerCommandeButton } from "../supprimer-commande-button";
+import { SupprimerLigneCommandeButton } from "../supprimer-ligne-commande-button";
 import {
   lireLivraisonsDepotFVersDepotE,
   lireQuantiteCommande,
@@ -129,6 +130,7 @@ export default async function CommandeArticlePlastiqueDetailPage({
                   </th>
                   <th className="px-6 py-4 font-semibold">Reste a fabriquer</th>
                   <th className="px-6 py-4 font-semibold">Stock actuel</th>
+                  {canDelete ? <th className="px-6 py-4" /> : null}
                 </tr>
               </thead>
               <tbody>
@@ -170,6 +172,15 @@ export default async function CommandeArticlePlastiqueDetailPage({
                         {reste === null ? "-" : resteNombre !== null ? formatNumber(resteNombre) : reste}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{formatNumber(ligne.stock_actuel)}</td>
+                      {canDelete ? (
+                        <td className="px-6 py-4 text-right">
+                          <SupprimerLigneCommandeButton
+                            ligneId={ligne.id}
+                            nomArticle={ligne.nom_article}
+                            code={(commande as CommandeRow).code}
+                          />
+                        </td>
+                      ) : null}
                     </tr>
                   );
                 })}
