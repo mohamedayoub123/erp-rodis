@@ -19,6 +19,7 @@ import { canDeletePageUser, canWritePageUser, getCurrentStockUser, getDashboardP
 import { cleChoix, lireTousLesChoix, type ChoixCodeVrac } from "@/lib/conditionnement-codes-vrac";
 import { LotCodeCell } from "./lot-code-cell";
 import { CodeVracCell } from "./code-vrac-cell";
+import { ChangerContenanceCell } from "./changer-contenance-cell";
 import { SingleDayFilter } from "./single-day-filter";
 import { SEUIL_FIN_PROGRAMME_CARTONS } from "./quantites-fin-programme";
 import { DeleteProgrammeLigneButton } from "./delete-programme-ligne-button";
@@ -304,6 +305,27 @@ export default async function PlanningDashboardPage({
     (a, b) => (a as string).localeCompare(b as string)
   ) as string[];
   const articleOptions = articles.map((article) => ({ id: article.id, label: article.nom_article }));
+
+  // Conditionnement : changer la contenance d'une ligne (200 / 300 / 500 ml...) = passer a un autre produit fini du MEME vrac. Propose seulement
+  // tant que rien n'a ete saisi sur la ligne (le serveur controle aussi : Besoin valide, matieres reservees...).
+  const articlesParVrac = new Map<number, { id: number; label: string }[]>();
+  for (const article of articles) {
+    if (!article.vrac_article_id) continue;
+    const liste = articlesParVrac.get(article.vrac_article_id) ?? [];
+    liste.push({ id: article.id, label: article.nom_article });
+    articlesParVrac.set(article.vrac_article_id, liste);
+  }
+  for (const liste of articlesParVrac.values()) liste.sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true }));
+  const peutChangerContenance = dash.entrer && peutEcrireConditionnement;
+  const renderProduitConditionnement = (ligne: ProgrammeLigneRow) => {
+    const texte = ligne.produit || "-";
+    if (!peutChangerContenance || !ligne.article_id || !ligne.groupe_id) return texte;
+    if ((cartonByLigne.get(ligne.id) ?? []).length > 0 || (emballageByLigne.get(ligne.id) ?? []).length > 0) return texte;
+    const vracId = articleById.get(ligne.article_id)?.vrac_article_id ?? null;
+    const options = vracId ? articlesParVrac.get(vracId) ?? [] : [];
+    if (options.length < 2) return texte;
+    return <ChangerContenanceCell ligneId={ligne.id} produit={texte} articleId={ligne.article_id} options={options} />;
+  };
 
   // "code" et "pd" n'ont pas de table dediee - ce sont des valeurs derivees
   // de numero_lot (eclate sur la virgule, comme plus bas pour codeRows) et
@@ -897,7 +919,7 @@ export default async function PlanningDashboardPage({
                         <td className="px-4 py-3 font-medium text-slate-900">
                           {row.ligne.zone} / {row.ligne.chaine}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
+                        <td className="px-4 py-3 text-slate-600">{renderProduitConditionnement(row.ligne)}</td>
                         <td className="px-4 py-3 text-slate-700">
                           {renderCodeConditionnement(row.ligne, row.code)}
                         </td>
