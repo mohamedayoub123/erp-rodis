@@ -15,8 +15,10 @@ import {
   markEmballageTermineAction,
   markVracTermineAction,
 } from "../actions";
-import { canDeletePageUser, getCurrentStockUser, getDashboardProductionUser, isAdminUser } from "@/lib/stock-auth";
+import { canDeletePageUser, canWritePageUser, getCurrentStockUser, getDashboardProductionUser, isAdminUser } from "@/lib/stock-auth";
+import { cleChoix, lireTousLesChoix, type ChoixCodeVrac } from "@/lib/conditionnement-codes-vrac";
 import { LotCodeCell } from "./lot-code-cell";
+import { CodeVracCell } from "./code-vrac-cell";
 import { SingleDayFilter } from "./single-day-filter";
 import { SEUIL_FIN_PROGRAMME_CARTONS } from "./quantites-fin-programme";
 import { DeleteProgrammeLigneButton } from "./delete-programme-ligne-button";
@@ -211,7 +213,49 @@ export default async function PlanningDashboardPage({
   const canDeleteLigne = await canDeletePageUser(currentUser, "productionSuiviDashboard");
   // Ce que la personne voit du Dashboard (cases de l'ecran Admin > permissions de l'utilisateur) : colonnes, boutons, salles
   const dash = await getDashboardProductionUser(currentUser);
-  const nbColonnes = [dash.fabrication, dash.conditionnement, dash.emballage].filter(Boolean).length;
+  // Conditionnement : colonne N Lot = codes VRAC choisis (voir lib/conditionnement-codes-vrac.ts). Table absente (script SQL pas encore lance)
+  // = ancien fonctionnement, rien ne change.
+  const [resultatChoix, peutEcrireConditionnement] = await Promise.all([
+    lireTousLesChoix(),
+    canWritePageUser(currentUser, "productionSuiviProductionConditionnement"),
+  ]);
+  const choixDisponible = resultatChoix.ok;
+  const choixParLigneCode: Map<string, ChoixCodeVrac[]> = resultatChoix.ok ? resultatChoix.parLigneCode : new Map();
+  const choixDeLaLigne = (ligneId: number, code: string) => choixParLigneCode.get(cleChoix(ligneId, code)) ?? [];
+  // Des cartons deja saisis sous ce code (ou sous l'ancien code partage "") : la ligne est deja commencee, elle garde son ancien code.
+  const aDesCartons = (ligneId: number, code: string) =>
+    (cartonByLigne.get(ligneId) ?? []).some((entry) => (entry.code === code || entry.code === "") && Number(entry.quantite) > 0);
+  // Ligne d'un programme sans code vrac choisi et sans carton : le Conditionnement attend le choix du code vrac
+  const attendChoixCodeVrac = (ligne: { id: number; groupe_id: number | null }, code: string) =>
+    choixDisponible && Boolean(ligne.groupe_id) && choixDeLaLigne(ligne.id, code).length === 0 && !aDesCartons(ligne.id, code);
+  const renderCodeConditionnement = (ligne: { id: number; groupe_id: number | null }, code: string) => {
+    if (!choixDisponible || !ligne.groupe_id) return renderLotCode(ligne.id, code);
+    const choix = choixDeLaLigne(ligne.id, code);
+    if (choix.length === 0 && aDesCartons(ligne.id, code)) return renderLotCode(ligne.id, code);
+    return (
+      <CodeVracCell
+        ligneId={ligne.id}
+        code={code}
+        choix={choix.map((c) => ({ id: c.id, codeVrac: c.codeVrac, quantite: c.quantite }))}
+        peutModifier={dash.entrer && peutEcrireConditionnement}
+      />
+    );
+  };
+  // Emballage : le numero de lot est le code vrac choisi au Conditionnement (lecture seule), sinon l'ancien code
+  const renderCodeEmballage = (ligne: { id: number }, code: string) => {
+    const choix = choixDeLaLigne(ligne.id, code);
+    if (choix.length === 0) return renderLotCode(ligne.id, code);
+    return (
+      <div className="flex flex-col gap-1">
+        {choix.map((c) => (
+          <span key={c.id} className="w-fit rounded-full bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-800">
+            {c.codeVrac}
+          </span>
+        ))}
+      </div>
+    );
+  };
+  const nbColonnes =[dash.fabrication, dash.conditionnement, dash.emballage].filter(Boolean).length;
   const classeColonnes = nbColonnes >= 3 ? "xl:grid-cols-3" : nbColonnes === 2 ? "xl:grid-cols-2" : "xl:grid-cols-1";
   const colSpanFabrication = canDeleteLigne ? 10 : 9;
   // Bouton Entrer de Fabrication et de Conditionnement : bleu quand le Test labo du code est fait, ROUGE sinon (Fabrication
@@ -227,6 +271,10 @@ export default async function PlanningDashboardPage({
   const fabricationEntree = (ligneId: number, code: string) =>
     (vracByLigne.get(ligneId) ?? []).some((entry) => entry.code === code);
   const etatEntrerConditionnement = (ligne: { id: number; groupe_id: number | null }, code: string): "rouge" | "jaune" | "bleu" => {
+    // Code vrac choisi (Fabrication deja entree et Test labo fait sur ce code vrac, controles au moment du choix) : pret. Pas encore choisi :
+    // jaune (le Conditionnement serait refuse tant que le code vrac n'est pas choisi dans la colonne N Lot).
+    if (choixDisponible && Boolean(ligne.groupe_id) && choixDeLaLigne(ligne.id, code).length > 0) return "bleu";
+    if (attendChoixCodeVrac(ligne, code)) return "jaune";
     if (!testLaboFait(ligne.id, code)) return "rouge";
     if (Boolean(ligne.groupe_id) && !fabricationEntree(ligne.id, code)) return "jaune";
     return "bleu";
@@ -244,6 +292,7 @@ export default async function PlanningDashboardPage({
   };
   const titreEntrerConditionnement = (ligne: { id: number; groupe_id: number | null }, code: string) => {
     const etat = etatEntrerConditionnement(ligne, code);
+    if (attendChoixCodeVrac(ligne, code)) return "Choisis d'abord le code vrac dans la colonne N Lot";
     if (etat === "rouge") return "Test labo pas encore fait";
     if (etat === "jaune") return "Entrer Fabrication pas encore fait";
     return undefined;
@@ -432,6 +481,10 @@ export default async function PlanningDashboardPage({
   // entierement realisee garde donc pour toujours un "restant" theorique
   // juste en dessous de 1 et ne disparaissait jamais du Dashboard. Moins
   // d'un carton restant = plus rien a faire concretement.
+  // Filtre Code en Conditionnement / Emballage : le code de la ligne OU un des codes vrac choisis (le N Lot affiche).
+  const codeConditionnementCorrespond = (row: CodeRow, filtre: string) =>
+    row.code.toLowerCase().includes(filtre) ||
+    choixDeLaLigne(row.ligne.id, row.code).some((choix) => choix.codeVrac.toLowerCase().includes(filtre));
   const vracRows = codeRows
     .filter(
       (row) =>
@@ -451,7 +504,7 @@ export default async function PlanningDashboardPage({
           row.cartonPrevuIsNull ||
           lignesAvecReserveEnAttente.has(`${row.ligne.id}::${row.code}::carton`))
     )
-    .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
+    .filter((row) => !codeFilter || codeConditionnementCorrespond(row, codeFilter));
   const emballageRows = codeRows
     .filter(
       (row) =>
@@ -459,7 +512,7 @@ export default async function PlanningDashboardPage({
         row.emballagePrevu > 0 &&
         row.emballageRestant >= 1
     )
-    .filter((row) => !codeFilter || row.code.toLowerCase().includes(codeFilter));
+    .filter((row) => !codeFilter || codeConditionnementCorrespond(row, codeFilter));
 
   const totalVracPrevu = vracRows.reduce((sum, row) => sum + row.vracPrevu, 0);
   const totalVracProduit = vracRows.reduce((sum, row) => sum + row.vracProduit, 0);
@@ -846,7 +899,7 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
                         <td className="px-4 py-3 text-slate-700">
-                          {renderLotCode(row.ligne.id, row.code)}
+                          {renderCodeConditionnement(row.ligne, row.code)}
                         </td>
                         <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                         <td className="px-4 py-3 text-slate-900">
@@ -971,7 +1024,7 @@ export default async function PlanningDashboardPage({
                         <td className="px-4 py-3 text-slate-600">{formatDate(row.ligne.date_jour)}</td>
                         <td className="px-4 py-3 text-slate-600">{row.ligne.produit || "-"}</td>
                         <td className="px-4 py-3 text-slate-700">
-                          {renderLotCode(row.ligne.id, row.code)}
+                          {renderCodeEmballage(row.ligne, row.code)}
                         </td>
                         <td className="px-4 py-3">
                           <RestantBadge restant={row.emballageRestant} />

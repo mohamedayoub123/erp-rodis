@@ -8,6 +8,7 @@ import { MAX_CARTONS_FICHE_PLUS, MAX_FICHES_PLUS_PAR_CODE } from "@/lib/limites-
 import { estValideurTestLabo } from "@/lib/valideurs-test-labo";
 import { verifierNomsConditionnement } from "@/lib/noms-conditionnement";
 import { logAudit } from "@/lib/audit-log";
+import { cleChoix, codesVracBloquesParQualite, lireChoixLigneCode } from "@/lib/conditionnement-codes-vrac";
 import { trouverMessageStockNegatif } from "@/lib/controle-stock-negatif";
 import { fetchVracDepotBParArticle } from "@/lib/vrac-depot-b";
 import { SOURCE_VRAC_A_RECUPERER, noteVracEnRecuperationFabrication } from "@/lib/vrac-a-recuperer";
@@ -338,7 +339,7 @@ export async function messageSiConditionnementInvalide(ligneId: number, code: st
   // resultat de l'autre - lancees en parallele au lieu d'enchainer 3
   // allers-retours reseau sequentiels vers Supabase (c'etait la moitie du
   // temps de latence ressenti au Save du Conditionnement).
-  const [rapportResult, vientDunProgramme, fabricationFaite] = await Promise.all([
+  const [rapportResult, vientDunProgramme, fabricationFaite, choixResult] = await Promise.all([
     supabaseServer
       .from("production_rapports")
       .select("disposition_qualite")
@@ -347,7 +348,36 @@ export async function messageSiConditionnementInvalide(ligneId: number, code: st
       .maybeSingle(),
     ligneVientDunPogramme(ligneId),
     fabricationDejaProduite(ligneId, code),
+    lireChoixLigneCode(ligneId, code),
   ]);
+
+  // Dashboard > Conditionnement > colonne N Lot : le code vrac se CHOISIT (liste des codes dont la Fabrication est entree et le Test labo fait,
+  // controles au moment du choix). Code(s) vrac choisi(s) : on ne controle plus la Fabrication / le Test labo du code de la ligne, seulement
+  // que le statut qualite d'un code choisi n'est pas passe a "A recuperer" / "A detruire" depuis. Table absente (script SQL pas lance) =
+  // ancien fonctionnement.
+  if (choixResult.ok) {
+    const choix = choixResult.parLigneCode.get(cleChoix(ligneId, code)) ?? [];
+    if (choix.length > 0) {
+      const bloques = await codesVracBloquesParQualite(choix.map((c) => c.codeVrac));
+      if (bloques.length > 0) {
+        return `Le code vrac ${bloques.join(", ")} est marque "A recuperer" ou "A detruire" au Test labo - il ne peut pas etre conditionne.`;
+      }
+      return null;
+    }
+    // Ligne d'un programme sans code vrac choisi : le choix vient avant la premiere saisie (une ligne deja commencee garde son code)
+    if (vientDunProgramme) {
+      const { data: cartonsExistants, error: cartonsErreur } = await supabaseServer
+        .from("production_carton_entries")
+        .select("id")
+        .eq("programme_ligne_id", ligneId)
+        .in("code", [code, ""])
+        .limit(1);
+      if (cartonsErreur) throw new Error(cartonsErreur.message);
+      if ((cartonsExistants ?? []).length === 0) {
+        return "Choisis d'abord le code vrac (colonne N Lot du Conditionnement, bouton Choisir le code vrac dans le Dashboard) avant de saisir le Conditionnement.";
+      }
+    }
+  }
 
   const dispositionQualite = (rapportResult.data as { disposition_qualite: string | null } | null)
     ?.disposition_qualite;

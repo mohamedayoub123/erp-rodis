@@ -817,6 +817,9 @@ export async function cascadeRenameProductionCode(
     supabaseServer.from("production_emballage_entries").update({ code: newCode }).in("programme_ligne_id", ligneIds).eq("code", oldCode),
     supabaseServer.from("production_code_termine").update({ code: newCode }).in("programme_ligne_id", ligneIds).eq("code", oldCode),
     supabaseServer.from("production_rapports").update({ code: newCode }).in("programme_ligne_id", ligneIds).eq("code", oldCode),
+    // Codes vrac choisis au Conditionnement (Dashboard) : le code de la ligne ET le code vrac choisi suivent le renommage
+    supabaseServer.from("conditionnement_codes_vrac").update({ code: newCode }).in("programme_ligne_id", ligneIds).eq("code", oldCode),
+    supabaseServer.from("conditionnement_codes_vrac").update({ code_vrac: newCode }).eq("code_vrac", oldCode),
     // Sans ca, le PD (PD1, PD2...) associe a ce code disparaissait apres un
     // renommage - buildPdLabelByCode (suivi/data.ts) retrouve le PD via
     // programme_dispatcher_history.code, jamais mise a jour ici avant (bug
