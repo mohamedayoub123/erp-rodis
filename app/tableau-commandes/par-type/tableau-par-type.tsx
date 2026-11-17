@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { ExportExcelButton } from "@/app/_components/export-excel-button";
 
 // Tableau de la page Commandes par type : cartes de totaux + tableau (un article par ligne, un client par colonne). Une croix sur chaque client le
 // retire du tableau (utile pour ne garder que les commandes qui interessent) : les totaux, le stock apres commande en cours et le reste a fabriquer
@@ -99,24 +98,28 @@ export function TableauParType({
   const [retires, setRetires] = useState<string[]>([]);
   const { clientsVisibles, lignesVisibles, totalParClient, totaux } = calculerAffichage(lignes, clients, retires);
 
-  const colonnesExport = [
-    { label: "Article", key: "article" },
-    ...clientsVisibles.map((client, index) => ({ label: client, key: `client${index}` })),
-    { label: "Total commande", key: "total" },
-    { label: "Stock PF", key: "stock" },
-    { label: "Programme en cours", key: "enCours" },
-    { label: "Reste a fabriquer", key: "reste" },
-    { label: "Stock apres commande en cours", key: "apres" },
-  ];
-  const lignesExport = lignesVisibles.map((ligne) => ({
-    article: ligne.nom,
-    ...Object.fromEntries(clientsVisibles.map((client, index) => [`client${index}`, quantiteClient(ligne, client)])),
-    total: ligne.total,
-    stock: ligne.stock,
-    enCours: ligne.enCours,
-    reste: ligne.reste,
-    apres: ligne.apres,
-  }));
+  // Excel : le meme tableau que l'ecran (memes couleurs, memes clients, memes totaux - les clients retires n'y sont plus), voir lib/classeur-par-type.ts
+  async function exporterExcel() {
+    const { telechargerClasseurParType } = await import("@/lib/classeur-par-type");
+    await telechargerClasseurParType(
+      {
+        titre,
+        clients: clientsVisibles,
+        lignes: lignesVisibles.map((ligne) => ({
+          nom: ligne.nom,
+          quantites: ligne.parClient,
+          total: ligne.total,
+          stock: ligne.stock,
+          enCours: ligne.enCours,
+          reste: ligne.reste,
+          apres: ligne.apres,
+        })),
+        totalParClient: Object.fromEntries(totalParClient),
+        totaux,
+      },
+      nomFichier
+    );
+  }
 
   return (
     <>
@@ -157,7 +160,18 @@ export function TableauParType({
                 </span>
               ))}
             </div>
-            <ExportExcelButton rows={lignesExport} columns={colonnesExport} filename={nomFichier} />
+            <button
+              type="button"
+              onClick={exporterExcel}
+              aria-label="Exporter en Excel"
+              title="Exporter en Excel (meme forme et memes couleurs que l'ecran)"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-700 hover:border-slate-400"
+            >
+              <svg viewBox="0 0 24 24" className="h-6 w-6">
+                <rect x="2" y="2" width="20" height="20" rx="3" fill="#1D6F42" />
+                <path d="M7 7.5 10.6 12 7 16.5h2.1L11.6 13l2.5 3.5h2.1L12.6 12l3.6-4.5h-2.1l-2.5 3.4-2.5-3.4H7Z" fill="#ffffff" />
+              </svg>
+            </button>
           </div>
         </div>
 
