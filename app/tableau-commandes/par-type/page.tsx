@@ -164,15 +164,21 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
   const colonnesClients = [...clients.keys()].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
   const lignes: LigneTableau[] = [...lignesArticle.values()]
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base", numeric: true }))
-    .map((detail) => ({
-      cle: detail.cle,
-      nom: detail.nom,
-      parClient: detail.parClient,
-      stock: calcul?.stockPfParNom.get(detail.cle) ?? 0,
-      enCours: calcul?.qtEnCoursParNom.get(detail.cle) ?? 0,
-      // meme fonction que le Tableau de commande : le manque du nom reparti entre ses articles (la somme = max(0, commande - stock - en cours))
-      resteServeur: Math.round(detail.ids.reduce((somme, id) => somme + (calcul?.aProduire(id) ?? 0), 0) * 100) / 100,
-    }));
+    .map((detail) => {
+      const stock = calcul?.stockPfParNom.get(detail.cle) ?? 0;
+      // Programme en cours en cartons ENTIERS : l'Entree par ligne du Conditionnement saisit des cartons partiels (casiers x pieces / pieces par carton,
+      // ex 246,67), dont le reste a conditionner garde les decimales (3,33 par ligne) qui s'additionnent
+      const enCours = Math.round(calcul?.qtEnCoursParNom.get(detail.cle) ?? 0);
+      return {
+        cle: detail.cle,
+        nom: detail.nom,
+        parClient: detail.parClient,
+        stock,
+        enCours,
+        // reste a fabriquer = max(0, commande - stock - programme en cours), comme le Tableau de commande (avec le programme en cours arrondi)
+        resteServeur: Math.max(0, detail.total - Math.max(0, stock) - Math.max(0, enCours)),
+      };
+    });
   const titreType = typeChoisi === TOUS ? "Tous les types" : libelleType(typeChoisi, exemplesDeType);
   const dateDuJour = new Date().toISOString().slice(0, 10);
 
