@@ -2,9 +2,9 @@ import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { supabaseServer } from "@/lib/supabase-server";
 import { calculerCartonsAProduireGlobal } from "@/lib/composants-conditionnement";
+import { TableauParType, type LigneTableau, type StatutCommande } from "./tableau-par-type";
 
 // Commandes par TYPE de produit fini (champ "Type" de la fiche article : hydratant, clarifiant, gel douche, pommade...) : on choisit le type, la page
 // donne tous les articles de ce type qui sont commandes avec la quantite de chaque client, le total, le stock, ce qui restera en stock apres les
@@ -69,17 +69,15 @@ type LigneArticle = {
   type: string;
   ids: number[];
   total: number;
-  parClient: Map<string, number>;
+  // client -> quantite par statut de commande (En cours / BL transforme / Stand)
+  parClient: Record<string, Partial<Record<StatutCommande, number>>>;
 };
 
-function Carte({ titre, valeur, detail, classes }: { titre: string; valeur: string; detail?: string; classes: string }) {
-  return (
-    <div className={`rounded-2xl border-l-4 px-4 py-3 shadow-sm ${classes}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{titre}</p>
-      <p className="mt-1 text-2xl font-black">{valeur}</p>
-      {detail ? <p className="mt-0.5 text-xs font-medium opacity-70">{detail}</p> : null}
-    </div>
-  );
+function cleStatut(statut: string | null): StatutCommande {
+  const valeur = String(statut ?? "").trim().toUpperCase();
+  if (valeur === "STAND") return "STAND";
+  if (valeur === "BL_TRANSFORME") return "BL_TRANSFORME";
+  return "EN_COURS";
 }
 
 export default async function CommandesParTypePage({ searchParams }: { searchParams: SearchParams }) {
@@ -119,7 +117,11 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
   const erreur = articlesErreur || commandesErreur || calculErreur;
 
   const clientParCommande = new Map<number, string>();
-  for (const commande of commandes) clientParCommande.set(commande.id, (commande.client ?? "").trim() || "(sans client)");
+  const statutParCommande = new Map<number, StatutCommande>();
+  for (const commande of commandes) {
+    clientParCommande.set(commande.id, (commande.client ?? "").trim() || "(sans client)");
+    statutParCommande.set(commande.id, cleStatut(commande.statut));
+  }
 
   // Resume par type : articles commandes et cartons commandes (toutes les commandes non livrees)
   const resumeParType = new Map<string, { articles: Set<number>; cartons: number; clients: Set<string> }>();
@@ -148,60 +150,30 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
       type,
       ids: [] as number[],
       total: 0,
-      parClient: new Map<string, number>(),
+      parClient: {} as Record<string, Partial<Record<StatutCommande, number>>>,
     };
     if (!detail.ids.includes(article.id)) detail.ids.push(article.id);
     detail.total += cartons;
-    detail.parClient.set(client, (detail.parClient.get(client) ?? 0) + cartons);
+    const statut = statutParCommande.get(ligne.commande_id) ?? "EN_COURS";
+    detail.parClient[client] = { ...detail.parClient[client], [statut]: (detail.parClient[client]?.[statut] ?? 0) + cartons };
     lignesArticle.set(cle, detail);
     clients.set(client, (clients.get(client) ?? 0) + cartons);
   }
 
   const types = [...resumeParType.entries()].sort((a, b) => b[1].cartons - a[1].cartons);
   const colonnesClients = [...clients.keys()].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
-  const lignes = [...lignesArticle.values()]
+  const lignes: LigneTableau[] = [...lignesArticle.values()]
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base", numeric: true }))
-    .map((detail) => {
-      const stock = calcul?.stockPfParNom.get(detail.cle) ?? 0;
-      const enCours = calcul?.qtEnCoursParNom.get(detail.cle) ?? 0;
+    .map((detail) => ({
+      cle: detail.cle,
+      nom: detail.nom,
+      parClient: detail.parClient,
+      stock: calcul?.stockPfParNom.get(detail.cle) ?? 0,
+      enCours: calcul?.qtEnCoursParNom.get(detail.cle) ?? 0,
       // meme fonction que le Tableau de commande : le manque du nom reparti entre ses articles (la somme = max(0, commande - stock - en cours))
-      const reste = detail.ids.reduce((somme, id) => somme + (calcul?.aProduire(id) ?? 0), 0);
-      // Stock apres commande en cours = stock + programme en cours - total commande : ce qui restera en stock une fois toutes les commandes livrees et
-      // les programmes en cours termines (negatif = il manquera ce nombre de cartons)
-      const apres = Math.round((stock + enCours - detail.total) * 100) / 100;
-      return { ...detail, stock, enCours, apres, reste: Math.round(reste * 100) / 100 };
-    });
-  const totaux = lignes.reduce(
-    (somme, ligne) => ({
-      total: somme.total + ligne.total,
-      stock: somme.stock + Math.max(0, ligne.stock),
-      enCours: somme.enCours + Math.max(0, ligne.enCours),
-      apres: somme.apres + ligne.apres,
-      reste: somme.reste + ligne.reste,
-      enRupture: somme.enRupture + (ligne.apres < 0 ? 1 : 0),
-    }),
-    { total: 0, stock: 0, enCours: 0, apres: 0, reste: 0, enRupture: 0 }
-  );
-
+      resteServeur: Math.round(detail.ids.reduce((somme, id) => somme + (calcul?.aProduire(id) ?? 0), 0) * 100) / 100,
+    }));
   const titreType = typeChoisi === TOUS ? "Tous les types" : libelleType(typeChoisi, exemplesDeType);
-  const colonnesExport = [
-    { label: "Article", key: "article" },
-    ...colonnesClients.map((client, index) => ({ label: client, key: `client${index}` })),
-    { label: "Total commande", key: "total" },
-    { label: "Stock PF", key: "stock" },
-    { label: "Programme en cours", key: "enCours" },
-    { label: "Reste a fabriquer", key: "reste" },
-    { label: "Stock apres commande en cours", key: "apres" },
-  ];
-  const lignesExport = lignes.map((ligne) => ({
-    article: ligne.nom,
-    ...Object.fromEntries(colonnesClients.map((client, index) => [`client${index}`, ligne.parClient.get(client) ?? 0])),
-    total: ligne.total,
-    stock: ligne.stock,
-    enCours: ligne.enCours,
-    reste: ligne.reste,
-    apres: ligne.apres,
-  }));
   const dateDuJour = new Date().toISOString().slice(0, 10);
 
   return (
@@ -261,151 +233,13 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
         </section>
 
         {typeChoisi && !erreur ? (
-          <>
-            {lignes.length > 0 ? (
-              <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-                <Carte titre="Articles commandes" valeur={String(lignes.length)} detail={`${colonnesClients.length} clients`} classes="border-slate-500 bg-slate-50 text-slate-900" />
-                <Carte titre="Total commande" valeur={formater(totaux.total)} detail="cartons" classes="border-indigo-500 bg-indigo-50 text-indigo-900" />
-                <Carte titre="Stock PF" valeur={formater(totaux.stock)} detail="cartons" classes="border-emerald-500 bg-emerald-50 text-emerald-900" />
-                <Carte titre="Programme en cours" valeur={formater(totaux.enCours)} detail="cartons" classes="border-amber-500 bg-amber-50 text-amber-900" />
-                <Carte
-                  titre="En manque apres commande en cours"
-                  valeur={String(totaux.enRupture)}
-                  detail="articles"
-                  classes={totaux.enRupture > 0 ? "border-red-500 bg-red-50 text-red-800" : "border-emerald-500 bg-emerald-50 text-emerald-900"}
-                />
-                <Carte
-                  titre="Reste a fabriquer"
-                  valeur={formater(totaux.reste)}
-                  detail="cartons"
-                  classes={totaux.reste > 0 ? "border-rose-500 bg-rose-50 text-rose-800" : "border-emerald-500 bg-emerald-50 text-emerald-900"}
-                />
-              </section>
-            ) : null}
-
-            <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
-                <div>
-                  <h2 className="text-lg font-black text-slate-900">{titreType}</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {lignes.length} articles commandes par {colonnesClients.length} clients - reste a fabriquer total {formater(totaux.reste)} cartons
-                  </p>
-                </div>
-                <ExportExcelButton
-                  rows={lignesExport}
-                  columns={colonnesExport}
-                  filename={`commandes-par-type-${typeChoisi === TOUS ? "tous" : typeChoisi.replace(/[^a-z0-9]+/gi, "-")}-${dateDuJour}.xlsx`}
-                />
-              </div>
-              {lignes.length === 0 ? (
-                <p className="px-6 py-6 text-sm text-slate-500">Aucun article de ce type n&apos;est commande en ce moment.</p>
-              ) : (
-                <div className="max-h-[75vh] overflow-auto">
-                  <table className="w-max border-separate border-spacing-0 text-left text-sm">
-                    <thead>
-                      <tr>
-                        <th className="sticky left-0 top-0 z-20 w-[18rem] min-w-[18rem] max-w-[18rem] bg-slate-800 px-4 py-3 font-bold text-white">Article</th>
-                        {colonnesClients.map((client) => (
-                          <th
-                            key={client}
-                            title={client}
-                            className="sticky top-0 z-10 w-[8rem] min-w-[8rem] max-w-[8rem] whitespace-normal break-words border-b border-r border-t border-sky-300 bg-sky-100 px-1 py-2 text-center align-middle text-sm font-bold leading-snug text-sky-900"
-                          >
-                            {client}
-                          </th>
-                        ))}
-                        <th className="sticky top-0 z-10 border-r border-slate-300 bg-indigo-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-bold text-white">Total commande</th>
-                        <th className="sticky top-0 z-10 border-r border-slate-300 bg-emerald-100 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-bold text-emerald-900">Stock PF</th>
-                        <th className="sticky top-0 z-10 border-r border-slate-300 bg-amber-100 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-bold text-amber-900">Programme en cours</th>
-                        <th className="sticky top-0 z-10 border-r border-slate-300 bg-rose-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-bold text-white">Reste a fabriquer</th>
-                        <th className="sticky top-0 z-10 border-r border-slate-300 bg-teal-600 w-[7rem] min-w-[7rem] max-w-[7rem] px-2 py-3 text-center align-middle font-bold text-white">
-                          Stock apres commande en cours
-                          <span className="block text-[11px] font-medium text-teal-100">stock + programme en cours - commande</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lignes.map((ligne, index) => {
-                        const fond = index % 2 === 0 ? "bg-white" : "bg-slate-50";
-                        return (
-                          <tr key={ligne.cle} className="group">
-                            <td className={`sticky left-0 z-[1] w-[18rem] min-w-[18rem] max-w-[18rem] border-b border-r border-slate-300 px-4 py-3 align-middle font-semibold text-slate-900 ${fond} group-hover:bg-sky-50`}>
-                              {ligne.nom}
-                            </td>
-                            {colonnesClients.map((client) => {
-                              const quantite = ligne.parClient.get(client);
-                              return (
-                                <td
-                                  key={client}
-                                  className={`w-[8rem] min-w-[8rem] max-w-[8rem] border-b border-r border-slate-300 px-1 py-2 text-center align-middle ${fond} group-hover:bg-sky-50`}
-                                >
-                                  {quantite !== undefined ? (
-                                    <span className="inline-block min-w-[2.75rem] rounded-lg bg-sky-100 px-2 py-0.5 text-center text-base font-bold text-sky-900">
-                                      {formater(quantite)}
-                                    </span>
-                                  ) : null}
-                                </td>
-                              );
-                            })}
-                            <td className="border-b border-r border-slate-300 bg-indigo-50 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-base font-black text-indigo-900">{formater(ligne.total)}</td>
-                            <td
-                              className={`border-b border-r border-slate-300 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-semibold ${
-                                ligne.stock < 0 ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"
-                              }`}
-                            >
-                              {formater(ligne.stock)}
-                            </td>
-                            <td className={`border-b border-r border-slate-300 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-semibold ${ligne.enCours > 0 ? "bg-amber-50 text-amber-800" : `${fond} text-slate-400`}`}>
-                              {formater(ligne.enCours)}
-                            </td>
-                            <td
-                              className={`border-b border-r border-slate-300 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-base font-black ${
-                                ligne.reste > 0 ? "bg-rose-100 text-rose-700" : "bg-emerald-50 text-emerald-700"
-                              }`}
-                            >
-                              {formater(ligne.reste)}
-                            </td>
-                            <td
-                              title={
-                                ligne.apres < 0
-                                  ? `Stock ${formater(ligne.stock)} + programme en cours ${formater(ligne.enCours)} - commande ${formater(ligne.total)} : il manquera ${formater(-ligne.apres)} cartons`
-                                  : `Stock ${formater(ligne.stock)} + programme en cours ${formater(ligne.enCours)} - commande ${formater(ligne.total)} : il restera ${formater(ligne.apres)} cartons en stock`
-                              }
-                              className={`border-b border-r border-slate-300 w-[7rem] min-w-[7rem] max-w-[7rem] px-2 py-3 text-center align-middle text-base font-black ${
-                                ligne.apres < 0 ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-800"
-                              }`}
-                            >
-                              {formater(ligne.apres)}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr className="font-black">
-                        <td className="sticky bottom-0 left-0 z-10 w-[18rem] min-w-[18rem] max-w-[18rem] bg-slate-800 px-4 py-3 text-white">Total</td>
-                        {colonnesClients.map((client) => (
-                          <td
-                            key={client}
-                            className="sticky bottom-0 w-[8rem] min-w-[8rem] max-w-[8rem] border-r border-sky-300 bg-sky-200 px-1 py-3 text-center text-base text-sky-900"
-                          >
-                            {formater(clients.get(client) ?? 0)}
-                          </td>
-                        ))}
-                        <td className="sticky bottom-0 border-r border-slate-300 bg-indigo-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-white">{formater(totaux.total)}</td>
-                        <td className="sticky bottom-0 border-r border-slate-300 bg-emerald-200 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-emerald-900">{formater(totaux.stock)}</td>
-                        <td className="sticky bottom-0 border-r border-slate-300 bg-amber-200 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-amber-900">{formater(totaux.enCours)}</td>
-                        <td className="sticky bottom-0 border-r border-slate-300 bg-rose-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-white">{formater(totaux.reste)}</td>
-                        <td className={`sticky bottom-0 w-[7rem] min-w-[7rem] max-w-[7rem] border-r border-slate-300 px-2 py-3 text-center align-middle ${totaux.apres < 0 ? "bg-red-600 text-white" : "bg-teal-600 text-white"}`}>
-                          {formater(totaux.apres)}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              )}
-            </section>
-          </>
+          <TableauParType
+            key={typeChoisi}
+            titre={titreType}
+            lignes={lignes}
+            clients={colonnesClients}
+            nomFichier={`commandes-par-type-${typeChoisi === TOUS ? "tous" : typeChoisi.replace(/[^a-z0-9]+/gi, "-")}-${dateDuJour}.xlsx`}
+          />
         ) : null}
       </div>
     </main>
