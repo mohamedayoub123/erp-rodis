@@ -28,8 +28,14 @@ export async function changerContenanceLigneAction(ligneId: number, nouvelArticl
       action: "modification",
       cible: String(ligneId),
       resume: `Contenance changee sur la ligne ${ligneId} : ${resultat.message}`,
-      avant: { ligneId, produit: resultat.ancien, qtCarton: resultat.cartonsAvant },
-      apres: { ligneId, produit: resultat.nouveau, qtCarton: resultat.cartonsApres },
+      avant: { ligneId, produit: resultat.ancien, qtCarton: resultat.cartonsAvant, lotsGardes: resultat.lotsGardes },
+      apres: {
+        ligneId,
+        produit: resultat.nouveau,
+        qtCarton: resultat.cartonsApres,
+        lotsDeplaces: resultat.lotsDeplaces,
+        nouvelleLigneId: resultat.nouvelleLigneId,
+      },
     });
 
     revalidatePath("/production/suivi/dashboard");

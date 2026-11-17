@@ -317,14 +317,28 @@ export default async function PlanningDashboardPage({
   }
   for (const liste of articlesParVrac.values()) liste.sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true }));
   const peutChangerContenance = dash.entrer && peutEcrireConditionnement;
-  const renderProduitConditionnement = (ligne: ProgrammeLigneRow) => {
+  const renderProduitConditionnement = (ligne: ProgrammeLigneRow, code: string) => {
     const texte = ligne.produit || "-";
     if (!peutChangerContenance || !ligne.article_id || !ligne.groupe_id) return texte;
-    if ((cartonByLigne.get(ligne.id) ?? []).length > 0 || (emballageByLigne.get(ligne.id) ?? []).length > 0) return texte;
     const vracId = articleById.get(ligne.article_id)?.vrac_article_id ?? null;
     const options = vracId ? articlesParVrac.get(vracId) ?? [] : [];
     if (options.length < 2) return texte;
-    return <ChangerContenanceCell ligneId={ligne.id} produit={texte} articleId={ligne.article_id} options={options} />;
+    // Un lot deja commence (cartons ou emballage saisis) garde sa contenance ; les lots pas encore commences de la meme ligne peuvent changer
+    // (ils passent sur une nouvelle ligne si d'autres lots de la ligne sont deja commences - le serveur controle aussi le Besoin valide).
+    const lotsLigne = (ligne.numero_lot || "").split(",").map((lot) => lot.trim()).filter(Boolean);
+    const commences = new Set([...(cartonByLigne.get(ligne.id) ?? []), ...(emballageByLigne.get(ligne.id) ?? [])].map((entry) => entry.code));
+    if (commences.has("")) return texte;
+    if (commences.has(code) || (lotsLigne.length === 0 && commences.size > 0)) return texte;
+    return (
+      <ChangerContenanceCell
+        ligneId={ligne.id}
+        produit={texte}
+        articleId={ligne.article_id}
+        options={options}
+        lotsConcernes={lotsLigne.filter((lot) => !commences.has(lot))}
+        lotsGardes={lotsLigne.filter((lot) => commences.has(lot))}
+      />
+    );
   };
 
   // "code" et "pd" n'ont pas de table dediee - ce sont des valeurs derivees
@@ -919,7 +933,7 @@ export default async function PlanningDashboardPage({
                         <td className="px-4 py-3 font-medium text-slate-900">
                           {row.ligne.zone} / {row.ligne.chaine}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">{renderProduitConditionnement(row.ligne)}</td>
+                        <td className="px-4 py-3 text-slate-600">{renderProduitConditionnement(row.ligne, row.code)}</td>
                         <td className="px-4 py-3 text-slate-700">
                           {renderCodeConditionnement(row.ligne, row.code)}
                         </td>
