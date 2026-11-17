@@ -20,6 +20,7 @@ import { cleChoix, lireTousLesChoix, type ChoixCodeVrac } from "@/lib/conditionn
 import { LotCodeCell } from "./lot-code-cell";
 import { CodeVracCell } from "./code-vrac-cell";
 import { ChangerContenanceCell } from "./changer-contenance-cell";
+import { DiviserCodeCell } from "./diviser-code-cell";
 import { SingleDayFilter } from "./single-day-filter";
 import { SEUIL_FIN_PROGRAMME_CARTONS } from "./quantites-fin-programme";
 import { DeleteProgrammeLigneButton } from "./delete-programme-ligne-button";
@@ -216,9 +217,10 @@ export default async function PlanningDashboardPage({
   const dash = await getDashboardProductionUser(currentUser);
   // Conditionnement : colonne N Lot = codes VRAC choisis (voir lib/conditionnement-codes-vrac.ts). Table absente (script SQL pas encore lance)
   // = ancien fonctionnement, rien ne change.
-  const [resultatChoix, peutEcrireConditionnement] = await Promise.all([
+  const [resultatChoix, peutEcrireConditionnement, peutEcrireFabrication] = await Promise.all([
     lireTousLesChoix(),
     canWritePageUser(currentUser, "productionSuiviProductionConditionnement"),
+    canWritePageUser(currentUser, "productionSuiviProductionFabrication"),
   ]);
   const choixDisponible = resultatChoix.ok;
   const choixParLigneCode: Map<string, ChoixCodeVrac[]> = resultatChoix.ok ? resultatChoix.parLigneCode : new Map();
@@ -297,6 +299,21 @@ export default async function PlanningDashboardPage({
     if (etat === "rouge") return "Test labo pas encore fait";
     if (etat === "jaune") return "Entrer Fabrication pas encore fait";
     return undefined;
+  };
+
+  // Fabrication : bouton "Diviser" (un code coupe en 2, le nouveau code prend une partie du vrac). Propose seulement tant que le code n'est pas
+  // commence : aucune saisie (vrac, cartons, emballage), pas de Besoin valide ni de Fin programme, aucun code vrac choisi au Conditionnement
+  // (le serveur controle aussi tout ca).
+  const peutDiviserCodes = dash.entrer && peutEcrireFabrication;
+  const ETAPES_DU_CODE: CodeTermineStage[] = ["vrac", "carton", "emballage", "pesage", "salle_conditionnement"];
+  const codeDivisible = (row: CodeRow) => {
+    if (!peutDiviserCodes || !row.ligne.groupe_id) return false;
+    if (row.code === "-" || row.vracPrevuIsNull || !(row.vracPrevu > 0)) return false;
+    const ligneId = row.ligne.id;
+    const saisies = [...(vracByLigne.get(ligneId) ?? []), ...(cartonByLigne.get(ligneId) ?? []), ...(emballageByLigne.get(ligneId) ?? [])];
+    if (saisies.some((entry) => entry.code === row.code || entry.code === "")) return false;
+    if (ETAPES_DU_CODE.some((etape) => terminatedCodes.has(`${ligneId}::${row.code}::${etape}`))) return false;
+    return choixDeLaLigne(ligneId, row.code).length === 0;
   };
 
   const gammeByArticleId = new Map(articles.map((article) => [article.id, article.gamme || ""]));
@@ -811,6 +828,7 @@ export default async function PlanningDashboardPage({
                         </td>
                         <td className="px-4 py-3 text-slate-700">
                           {renderLotCode(row.ligne.id, row.code)}
+                          {codeDivisible(row) ? <DiviserCodeCell ligneId={row.ligne.id} code={row.code} vracPrevu={row.vracPrevu} /> : null}
                         </td>
                         <td className="px-4 py-3 text-slate-700">{row.pdLabel}</td>
                         <td className="px-4 py-3">
