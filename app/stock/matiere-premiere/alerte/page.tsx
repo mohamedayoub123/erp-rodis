@@ -12,6 +12,7 @@ import { encodeDossierId } from "../commande/dossier-id";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { computeStatutBc } from "../bc/constants";
 import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
+import { lireStockMpDepotE, type StockMpDepotRow } from "@/lib/lot-balances-mp";
 import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
 
 type ArticleMpRow = {
@@ -205,23 +206,34 @@ export default async function StockAlerteMpPage({
     { rows: bcLignes, error: bcError },
     { rows: importEvenements, error: importError },
     { rows: dossierStatuts, error: statutError },
+    { rows: stockDepotE, error: depotEError },
   ] = await Promise.all([
     fetchAllArticlesMp(),
     fetchAgregatsMpParArticle(),
     fetchAllBcLignes(),
     fetchAllImportEvenements(),
     fetchAllDossierStatuts(),
+    // lireStockMpDepotE leve une erreur de lecture : on l'affiche comme les autres, jamais un stock a 0 qui ferait croire a une alerte
+    lireStockMpDepotE().then(
+      (rows) => ({ rows, error: null }),
+      (e: unknown) => ({
+        rows: [] as StockMpDepotRow[],
+        error: { message: `Stock Depot E : ${e instanceof Error ? e.message : String(e)}` },
+      })
+    ),
   ]);
 
-  const error = articlesError || mouvementsError || bcError || importError || statutError;
+  const error = articlesError || mouvementsError || bcError || importError || statutError || depotEError;
 
   const datePrevueByDossier = new Map(
     dossierStatuts.map((row) => [dossierKey(row.n_doss_4d, row.n_doss_erp), row.date_prevue_reception])
   );
 
-  // Stock actuel = somme entree-sortie de tous les mouvements de l'article
-  // (meme calcul que la page Stock MP). Alerte des que ce stock descend a
-  // ou sous le seuil "Stock min" defini sur l'article.
+  // Stock actuel = stock du Depot E SEULEMENT (decision de l'utilisateur :
+  // le stock des autres depots - Depot B, Depot F... - ne compte pas, comme
+  // dans "Stock Alert MP par commande"). Un article sans stock au Depot E
+  // vaut 0 ; le stock peut etre negatif (sorties saisies en trop). Alerte
+  // des que ce stock descend a ou sous le seuil "Stock min" de l'article.
   //
   // Consommation (sortie) sur plusieurs fenetres glissantes (1/3/6/12 mois)
   // + Entree sur 12/3 mois - date_jour, meme convention "AAAA-MM-JJ" que le
@@ -239,8 +251,9 @@ export default async function StockAlerteMpPage({
   const entree12MoisByArticle = new Map<number, number>();
   const entree3MoisByArticle = new Map<number, number>();
 
+  for (const solde of stockDepotE) stockByArticle.set(solde.article_id, solde.stock);
+
   for (const row of agregats) {
-    stockByArticle.set(row.article_id, Number(row.stock ?? 0));
     consommationByPeriodAndArticle[1].set(row.article_id, Number(row.sortie_1_mois ?? 0));
     consommationByPeriodAndArticle[3].set(row.article_id, Number(row.sortie_3_mois ?? 0));
     consommationByPeriodAndArticle[6].set(row.article_id, Number(row.sortie_6_mois ?? 0));
@@ -357,7 +370,7 @@ export default async function StockAlerteMpPage({
     { label: "Categorie", key: "categorie" },
     { label: "Sous famille", key: "sousFamille" },
     { label: "Article", key: "article" },
-    { label: "Stock", key: "stock" },
+    { label: "Stock Depot E", key: "stock" },
     { label: "Unite", key: "unite" },
     { label: "Consommation dernier mois", key: "consommation1Mois" },
     { label: "Consommation dernier 3 mois", key: "consommation3Mois" },
@@ -416,7 +429,7 @@ export default async function StockAlerteMpPage({
               Stock Alert MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Articles dont le stock actuel (calcule depuis les mouvements TE/TS) est egal ou
+              Articles dont le stock du Depot E (seulement, les autres depots ne comptent pas) est egal ou
               inferieur au stock min defini sur l&apos;article.
             </p>
           </div>
@@ -490,7 +503,7 @@ export default async function StockAlerteMpPage({
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Sous famille</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock Depot E</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation dernier mois</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation dernier 3 mois</th>
