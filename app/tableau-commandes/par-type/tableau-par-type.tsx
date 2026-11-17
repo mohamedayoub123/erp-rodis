@@ -1,11 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { FiltrePd } from "../filtre-pd";
+import { enCoursSelonPd, type EnCoursParPd, type PdDuType } from "@/lib/programme-en-cours-par-pd";
 
 // Tableau de la page Commandes par type : cartes de totaux + tableau (un article par ligne, un client par colonne). Une croix sur chaque client le
 // retire du tableau (utile pour ne garder que les commandes qui interessent) : les totaux, le stock apres commande en cours et le reste a fabriquer
 // sont recalcules sans ce client, les articles qui n'ont plus aucune commande disparaissent, et on peut remettre les clients retires. Chaque quantite
 // est coloree selon le statut de la commande : Stand (orange), BL transforme (vert), En cours (jaune), comme dans le Tableau de commande.
+// Le filtre "Programme en cours : PD" choisit les PD dont le programme en cours compte : programme en cours, reste a fabriquer et stock apres
+// commande en cours sont recalcules avec ces PD seulement.
 
 export type StatutCommande = "EN_COURS" | "BL_TRANSFORME" | "STAND";
 
@@ -15,8 +19,10 @@ export type LigneTableau = {
   // client -> quantite par statut de commande
   parClient: Record<string, Partial<Record<StatutCommande, number>>>;
   stock: number;
+  // programme en cours de TOUS les PD (cartons entiers), et sa repartition par PD pour le filtre
   enCours: number;
-  // reste a fabriquer calcule sur le serveur (toutes les commandes), valable tant qu'aucun client n'est retire
+  enCoursParPd: EnCoursParPd;
+  // reste a fabriquer calcule sur le serveur (toutes les commandes, tous les PD), valable tant qu'aucun client n'est retire et qu'aucun PD n'est decoche
   resteServeur: number;
 };
 
@@ -52,18 +58,21 @@ function quantiteClient(ligne: LigneTableau, client: string): number {
 
 // Ce qui est affiche une fois certains clients retires : totaux, stock apres commande en cours et reste a fabriquer recalcules sans eux, articles sans
 // commande restante masques. Le reste a fabriquer du serveur (toutes les commandes) ne vaut que tant qu'aucun client n'est retire.
-export function calculerAffichage(lignes: LigneTableau[], clients: string[], retires: string[]) {
+// pdChoisis : les PD dont le programme en cours compte (null = tous les PD, comme avant) - le programme en cours de chaque article devient celui de ces
+// PD seulement, et le reste a fabriquer et le stock apres commande en cours suivent.
+export function calculerAffichage(lignes: LigneTableau[], clients: string[], retires: string[], pdChoisis: Set<string> | null = null) {
   const clientsVisibles = clients.filter((client) => !retires.includes(client));
 
-  // Recalcul sans les clients retires (le reste a fabriquer du serveur ne vaut que si tous les clients sont la)
+  // Recalcul sans les clients retires et avec les PD choisis (le reste a fabriquer du serveur ne vaut que si tous les clients et tous les PD sont la)
   const lignesVisibles = lignes
     .map((ligne) => {
       const total = arrondi2(clientsVisibles.reduce((somme, client) => somme + quantiteClient(ligne, client), 0));
+      const enCours = enCoursSelonPd(ligne.enCours, ligne.enCoursParPd, pdChoisis);
       const reste =
-        retires.length === 0
+        retires.length === 0 && pdChoisis === null
           ? ligne.resteServeur
-          : arrondi2(Math.max(0, total - Math.max(0, ligne.stock) - Math.max(0, ligne.enCours)));
-      return { ...ligne, total, reste, apres: arrondi2(ligne.stock + ligne.enCours - total) };
+          : arrondi2(Math.max(0, total - Math.max(0, ligne.stock) - Math.max(0, enCours)));
+      return { ...ligne, enCours, total, reste, apres: arrondi2(ligne.stock + enCours - total) };
     })
     .filter((ligne) => ligne.total > 0);
 
@@ -88,15 +97,21 @@ export function TableauParType({
   titre,
   lignes,
   clients,
+  pds,
   nomFichier,
 }: {
   titre: string;
   lignes: LigneTableau[];
   clients: string[];
+  // les PD qui contiennent des articles du type choisi (filtre "Programme en cours : PD")
+  pds: PdDuType[];
   nomFichier: string;
 }) {
   const [retires, setRetires] = useState<string[]>([]);
-  const { clientsVisibles, lignesVisibles, totalParClient, totaux } = calculerAffichage(lignes, clients, retires);
+  // Au depart tous les PD sont choisis : le tableau est celui d'avant le filtre
+  const [pdChoisis, setPdChoisis] = useState<Set<string>>(() => new Set(pds.map((pd) => pd.cle)));
+  const tousLesPd = pdChoisis.size === pds.length;
+  const { clientsVisibles, lignesVisibles, totalParClient, totaux } = calculerAffichage(lignes, clients, retires, tousLesPd ? null : pdChoisis);
 
   // Excel : le meme tableau que l'ecran (memes couleurs, memes clients, memes totaux - les clients retires n'y sont plus), voir lib/classeur-par-type.ts
   async function exporterExcel() {
@@ -116,6 +131,8 @@ export function TableauParType({
         })),
         totalParClient: Object.fromEntries(totalParClient),
         totaux,
+        // quand on a decoche des PD : l'Excel dit lesquels comptent dans le programme en cours
+        filtrePd: tousLesPd ? null : { choisis: pds.filter((pd) => pdChoisis.has(pd.cle)).map((pd) => pd.cle), total: pds.length },
       },
       nomFichier
     );
@@ -123,6 +140,8 @@ export function TableauParType({
 
   return (
     <>
+      <FiltrePd pds={pds} choisis={pdChoisis} onChange={setPdChoisis} />
+
       {lignesVisibles.length > 0 ? (
         <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <Carte titre="Articles commandes" valeur={String(lignesVisibles.length)} detail={`${clientsVisibles.length} clients`} classes="border-slate-500 bg-slate-50 text-slate-900" />
@@ -150,6 +169,7 @@ export function TableauParType({
             <h2 className="text-lg font-black text-slate-900">{titre}</h2>
             <p className="mt-1 text-xs text-slate-500">
               {lignesVisibles.length} articles commandes par {clientsVisibles.length} clients - reste a fabriquer total {formater(totaux.reste)} cartons
+              {tousLesPd ? "" : ` - programme en cours de ${pdChoisis.size} PD sur ${pds.length}`}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">

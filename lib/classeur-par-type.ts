@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { texteFiltrePd, type FiltrePdExport } from "@/lib/programme-en-cours-par-pd";
 
 // Export Excel de la page "Commandes par type de produit fini" (/tableau-commandes/par-type) : le classeur reprend la forme de l'ecran, cellule par
 // cellule - titre et sous-titre, legende des statuts, les 6 cartes de totaux, puis le tableau (un article par ligne, un client par colonne) avec les
@@ -27,6 +28,8 @@ export type DonneesParType = {
   lignes: LigneExportParType[];
   totalParClient: Record<string, number>;
   totaux: { total: number; stock: number; enCours: number; apres: number; reste: number; enManque: number };
+  // PD choisis dans le filtre "Programme en cours" quand il en manque (null = tous les PD)
+  filtrePd?: FiltrePdExport | null;
 };
 
 // Couleurs de l'ecran (classes Tailwind du tableau), en ARGB
@@ -118,7 +121,8 @@ export function construireClasseurParType(donnees: DonneesParType): ExcelJS.Work
   // ----- Titre et sous-titre (comme l'ecran) -----
   ligneFusionnee("Commandes par type de produit fini - " + donnees.titre, 26, { bold: true, size: 16, color: { argb: TEXTE } });
   ligneFusionnee(
-    `${lignes.length} articles commandes par ${clients.length} clients - reste a fabriquer total ${texteNombre(totaux.reste)} cartons`,
+    `${lignes.length} articles commandes par ${clients.length} clients - reste a fabriquer total ${texteNombre(totaux.reste)} cartons` +
+      (donnees.filtrePd ? ` - ${texteFiltrePd(donnees.filtrePd)}` : ""),
     18,
     { size: 11, color: { argb: "FF64748B" } }
   );

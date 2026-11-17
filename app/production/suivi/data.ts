@@ -537,6 +537,19 @@ function normalizeArticleNameForRestant(value: string | null) {
 // ligne/code (ex: Tableau de commande).
 export async function fetchRestantConditionnementEmballageByArticle(): Promise<Map<string, number>> {
   const result = new Map<string, number>();
+  // Meme additions, dans le meme ordre, que quand le calcul etait fait ici : le total par article ne change pas
+  for (const detail of await fetchRestantConditionnementEmballageParCode()) {
+    result.set(detail.articleKey, (result.get(detail.articleKey) ?? 0) + detail.restant);
+  }
+  return result;
+}
+
+// Le meme "reste a conditionner / emballer", mais detaille par CODE de lot (un code = un PD, voir buildPdLabelByCode) : sert au filtre par PD du
+// programme en cours (Commandes par type, Stock restant par type). fetchRestantConditionnementEmballageByArticle en est la somme par article.
+export type RestantParCode = { articleKey: string; code: string; ligneId: number; restant: number };
+
+export async function fetchRestantConditionnementEmballageParCode(): Promise<RestantParCode[]> {
+  const details: RestantParCode[] = [];
 
   const { rows: allLignes } = await fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true });
   const activeLigneIds = allLignes.map((ligne) => ligne.id);
@@ -635,12 +648,12 @@ export async function fetchRestantConditionnementEmballageByArticle(): Promise<M
       }
 
       if (restant > 0) {
-        result.set(articleKey, (result.get(articleKey) ?? 0) + restant);
+        details.push({ articleKey, code, ligneId: ligne.id, restant });
       }
     }
   }
 
-  return result;
+  return details;
 }
 
 export function formatDate(value: string | null) {

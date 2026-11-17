@@ -378,6 +378,14 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     pathPrefixes: ["/tableau-commandes/par-type"],
     hasWrite: false,
   },
+  // Nouvelle page : fermee par defaut (voir lib/pages-existantes.ts), a accorder depuis Admin
+  {
+    key: "tableauCommandesStockRestant",
+    module: "TableauCommandes",
+    label: "Stock restant par type de produit fini",
+    pathPrefixes: ["/tableau-commandes/stock-restant"],
+    hasWrite: false,
+  },
 
   // Dormant
   {

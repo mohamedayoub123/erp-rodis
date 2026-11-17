@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase-server";
-import { fetchNomsArticlesParId, fetchRestantConditionnementEmballageByArticle } from "../production/suivi/data";
+import { fetchNomsArticlesParId, fetchRestantConditionnementEmballageParCode } from "../production/suivi/data";
 import {
   FAMILY_ORDER,
   FAMILY_SUBGAMMES,
@@ -216,17 +216,25 @@ export function getWhiteSecretContenance(article: string) {
 //    colonnes "Restant" du Dashboard Production), donc pas encore compte
 //    dans la liste "Entree Production" ci-dessus.
 export async function fetchQtEnCoursConditionnementByArticle() {
-  const map = new Map<string, number>();
+  return additionnerQtEnCours(await fetchQtEnCoursConditionnementDetaille());
+}
+
+// Le meme "Qt en cours de Conditionnement", detaille par CODE de lot (un code = un PD, voir buildPdLabelByCode) : sert au filtre par PD du programme en
+// cours (Commandes par type, Stock restant par type). "emballe" = deja emballe pas encore en stock, "restant" = encore a conditionner / emballer.
+export type QtEnCoursDetail = { articleKey: string; code: string; quantite: number; source: "emballe" | "restant" };
+
+export async function fetchQtEnCoursConditionnementDetaille(): Promise<QtEnCoursDetail[]> {
+  const details: QtEnCoursDetail[] = [];
 
   const { data: pendingData, error: pendingError } = await supabaseServer
     .from("production_emballage_entries")
-    .select("programme_ligne_id, quantite")
+    .select("programme_ligne_id, quantite, code")
     .eq("transfere_stock", false)
     .limit(10000);
 
   const pendingRows =
     !pendingError && pendingData
-      ? (pendingData as { programme_ligne_id: number | null; quantite: number | null }[])
+      ? (pendingData as { programme_ligne_id: number | null; quantite: number | null; code: string | null }[])
       : [];
 
   const ligneIds = [
@@ -236,10 +244,11 @@ export async function fetchQtEnCoursConditionnementByArticle() {
   if (ligneIds.length > 0) {
     const { data: lignesData } = await supabaseServer
       .from("programme_lignes")
-      .select("id, produit, article_id")
+      .select("id, produit, article_id, numero_lot")
       .in("id", ligneIds);
 
-    const lignes = (lignesData as { id: number; produit: string | null; article_id: number | null }[] | null) ?? [];
+    const lignes =
+      (lignesData as { id: number; produit: string | null; article_id: number | null; numero_lot: string | null }[] | null) ?? [];
     // Nom de l'article (par id) plutot que le nom ecrit dans le programme, qui peut differer d'une lettre
     const nomArticleParId = await fetchNomsArticlesParId(lignes.map((ligne) => ligne.article_id));
     const produitByLigneId = new Map(
@@ -248,20 +257,45 @@ export async function fetchQtEnCoursConditionnementByArticle() {
         (ligne.article_id ? nomArticleParId.get(ligne.article_id) : null) ?? (ligne.produit || ""),
       ])
     );
+    // Une entree sans code (ancienne saisie partagee entre les codes de la ligne) est rattachee au premier code de sa ligne
+    const premierCodeParLigneId = new Map(
+      lignes.map((ligne) => [ligne.id, (ligne.numero_lot || "").split(",").map((code) => code.trim()).find(Boolean) ?? ""])
+    );
 
     for (const row of pendingRows) {
-      const articleKey = normalizeArticle(produitByLigneId.get(Number(row.programme_ligne_id ?? 0)) || "");
+      const ligneId = Number(row.programme_ligne_id ?? 0);
+      const articleKey = normalizeArticle(produitByLigneId.get(ligneId) || "");
       if (!articleKey) continue;
 
-      map.set(articleKey, Number(map.get(articleKey) ?? 0) + Number(row.quantite ?? 0));
+      const code = String(row.code ?? "").trim() || (premierCodeParLigneId.get(ligneId) ?? "");
+      details.push({ articleKey, code, quantite: Number(row.quantite ?? 0), source: "emballe" });
     }
   }
 
-  const restantConditionnementEmballage = await fetchRestantConditionnementEmballageByArticle();
-  for (const [articleKey, restant] of restantConditionnementEmballage) {
-    map.set(articleKey, Number(map.get(articleKey) ?? 0) + restant);
+  const restantConditionnementEmballage = await fetchRestantConditionnementEmballageParCode();
+  for (const restant of restantConditionnementEmballage) {
+    details.push({ articleKey: restant.articleKey, code: restant.code, quantite: restant.restant, source: "restant" });
   }
 
+  return details;
+}
+
+// Total par article du detail ci-dessus : exactement les memes additions, dans le meme ordre, que le calcul d'origine (d'abord ce qui est emballe,
+// puis le restant deja additionne par article).
+export function additionnerQtEnCours(details: QtEnCoursDetail[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const detail of details) {
+    if (detail.source !== "emballe") continue;
+    map.set(detail.articleKey, Number(map.get(detail.articleKey) ?? 0) + detail.quantite);
+  }
+  const restantParArticle = new Map<string, number>();
+  for (const detail of details) {
+    if (detail.source !== "restant") continue;
+    restantParArticle.set(detail.articleKey, (restantParArticle.get(detail.articleKey) ?? 0) + detail.quantite);
+  }
+  for (const [articleKey, restant] of restantParArticle) {
+    map.set(articleKey, Number(map.get(articleKey) ?? 0) + restant);
+  }
   return map;
 }
 

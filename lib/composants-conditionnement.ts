@@ -1,10 +1,13 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { lireStockMpDepotE } from "@/lib/lot-balances-mp";
 import {
+  additionnerQtEnCours,
   fetchArticleStocksFromStockPage,
-  fetchQtEnCoursConditionnementByArticle,
+  fetchQtEnCoursConditionnementDetaille,
   normalizeArticle,
 } from "@/app/tableau-commandes/family-data";
+import { buildPdLabelByCode } from "@/app/production/suivi/data";
+import { repartirEnCoursParPd, type EnCoursParPd } from "@/lib/programme-en-cours-par-pd";
 import { lireLignes, lireParIds } from "@/lib/besoin-conditionnement-proforma";
 import { TYPES_COMPOSANTS, typeComposant, type ComposantArticle, type TypeComposant } from "@/lib/composants-types";
 
@@ -85,15 +88,18 @@ export function cartonsAProduireParArticle(params: {
 // articleIds (optionnel) : ne lit le stock que des articles (et de leurs homonymes) de cette liste - exact pour eux (le calcul est par nom),
 // beaucoup plus rapide quand on n'affiche qu'un type de produit fini. Renvoie aussi les lignes de commande lues, le nom normalise de chaque
 // article, le stock PF et les programmes en cours par nom.
+// parPd (optionnel) : renvoie aussi, pour chaque nom d'article, son programme en cours reparti entre les PD (enCoursParPd - vide sans cette option) :
+// la somme des PD d'un article est son programme en cours qtEnCoursParNom.
 export async function calculerCartonsAProduireGlobal(
   articlesGlobaux: ArticleNomRow[],
-  options?: { articleIds?: Set<number> }
+  options?: { articleIds?: Set<number>; parPd?: boolean }
 ): Promise<{
   lignes: { commande_id: number; article_id: number | null; quantite_demandee: number | null }[];
   cartonsParId: Map<number, number>;
   cleParId: Map<number, string>;
   stockPfParNom: Map<string, number>;
   qtEnCoursParNom: Map<string, number>;
+  enCoursParPd: Map<string, EnCoursParPd>;
   aProduire: (articleId: number) => number;
 }> {
   const lignes = await lireIdsCommandesOuvertes().then((ids) => lireLignes(ids));
@@ -103,16 +109,20 @@ export async function calculerCartonsAProduireGlobal(
   const idsConcernes = [...cartonsParId.keys()].filter((id) => !options?.articleIds || options.articleIds.has(id));
   const clesCommandees = new Set(idsConcernes.map((id) => cleParId.get(id) ?? "").filter(Boolean));
   const articlesMemeNom = articlesGlobaux.filter((article) => clesCommandees.has(cleParId.get(article.id) ?? ""));
-  const [stockPfParNom, qtEnCoursParNom] = await Promise.all([
+  const [stockPfParNom, enCoursDetail, pdParCode] = await Promise.all([
     fetchArticleStocksFromStockPage(articlesMemeNom.filter((article) => article.nature !== "vrac")),
-    fetchQtEnCoursConditionnementByArticle(),
+    fetchQtEnCoursConditionnementDetaille(),
+    options?.parPd ? buildPdLabelByCode() : Promise.resolve(new Map<string, string>()),
   ]);
+  const qtEnCoursParNom = additionnerQtEnCours(enCoursDetail);
+  const enCoursParPd = options?.parPd ? repartirEnCoursParPd(enCoursDetail, pdParCode) : new Map<string, EnCoursParPd>();
   return {
     lignes,
     cartonsParId,
     cleParId,
     stockPfParNom,
     qtEnCoursParNom,
+    enCoursParPd,
     aProduire: cartonsAProduireParArticle({ cartonsParId, cleParId, articlesMemeNom, stockPfParNom, qtEnCoursParNom }),
   };
 }

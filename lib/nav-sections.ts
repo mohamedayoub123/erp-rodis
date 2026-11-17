@@ -43,6 +43,7 @@ export const navItems: NavItem[] = [
       { href: "/commandes", label: "Commandes", pageKey: "commandesListe" },
       { href: "/tableau-commandes", label: "Tableau cmd", pageKey: "tableauCommandes" },
       { href: "/tableau-commandes/par-type", label: "Cmd par type", pageKey: "tableauCommandesParType" },
+      { href: "/tableau-commandes/stock-restant", label: "Stock restant", pageKey: "tableauCommandesStockRestant" },
       { href: "/stock-dormant", label: "Dormant", pageKey: "stockDormant" },
       {
         href: "/stock-dormant-sans-commande",

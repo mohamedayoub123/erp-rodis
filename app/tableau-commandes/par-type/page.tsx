@@ -4,6 +4,8 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { supabaseServer } from "@/lib/supabase-server";
 import { calculerCartonsAProduireGlobal } from "@/lib/composants-conditionnement";
+import { pdsDesArticles } from "@/lib/programme-en-cours-par-pd";
+import { LienStockRestant } from "../lien-stock-restant";
 import { TableauParType, type LigneTableau, type StatutCommande } from "./tableau-par-type";
 
 // Commandes par TYPE de produit fini (champ "Type" de la fiche article : hydratant, clarifiant, gel douche, pommade...) : on choisit le type, la page
@@ -109,7 +111,7 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
   try {
     calcul = await calculerCartonsAProduireGlobal(
       articlesTous.map((article) => ({ id: article.id, nom_article: article.nom_article, nature: article.nature })),
-      { articleIds: idsDuType }
+      { articleIds: idsDuType, parPd: true }
     );
   } catch (e) {
     calculErreur = e instanceof Error ? e.message : "Calcul impossible.";
@@ -175,10 +177,17 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
         parClient: detail.parClient,
         stock,
         enCours,
+        // le meme programme en cours, reparti entre les PD (filtre "Programme en cours : PD")
+        enCoursParPd: calcul?.enCoursParPd.get(detail.cle) ?? {},
         // reste a fabriquer = max(0, commande - stock - programme en cours), comme le Tableau de commande (avec le programme en cours arrondi)
         resteServeur: Math.max(0, detail.total - Math.max(0, stock) - Math.max(0, enCours)),
       };
     });
+  // Les PD proposes dans le filtre : ceux qui contiennent des articles du type choisi (commandes ou non) avec du programme en cours
+  const pdsDuType = pdsDesArticles(
+    [...idsDuType].map((id) => calcul?.cleParId.get(id) ?? ""),
+    calcul?.enCoursParPd ?? new Map()
+  );
   const titreType = typeChoisi === TOUS ? "Tous les types" : libelleType(typeChoisi, exemplesDeType);
   const dateDuJour = new Date().toISOString().slice(0, 10);
 
@@ -193,10 +202,12 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
               <p className="mt-2 max-w-3xl text-sm text-slate-600">
                 Choisis un type : tous les articles de ce type qui sont commandes (commandes non livrees : en cours, stand, BL transforme), avec la
                 quantite de chaque client, le total, le stock, les programmes en cours, le reste a fabriquer et ce qui restera en stock
-                apres les commandes (stock + programme en cours - commande). Meme calcul que le Tableau de commande.
+                apres les commandes (stock + programme en cours - commande). Meme calcul que le Tableau de commande. Le filtre &quot;Programme en cours&quot;
+                permet de choisir les PD dont le programme en cours compte (seulement les PD qui contiennent des articles du type choisi).
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <LienStockRestant />
               <BackButton href="/tableau-commandes" label="Retour tableau" />
               <RefreshButton />
             </div>
@@ -244,6 +255,7 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
             titre={titreType}
             lignes={lignes}
             clients={colonnesClients}
+            pds={pdsDuType}
             nomFichier={`commandes-par-type-${typeChoisi === TOUS ? "tous" : typeChoisi.replace(/[^a-z0-9]+/gi, "-")}-${dateDuJour}.xlsx`}
           />
         ) : null}
