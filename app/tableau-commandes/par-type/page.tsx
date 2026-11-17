@@ -309,16 +309,16 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
                           <th
                             key={client}
                             title={client}
-                            className="sticky top-0 z-10 w-[7rem] min-w-[7rem] max-w-[7rem] whitespace-normal break-words border-b border-r border-t border-sky-300 bg-sky-100 px-1 py-2 text-center align-middle text-[11px] font-bold leading-tight text-sky-900"
+                            className="sticky top-0 z-10 w-[8rem] min-w-[8rem] max-w-[8rem] whitespace-normal break-words border-b border-r border-t border-sky-300 bg-sky-100 px-1 py-2 text-center align-middle text-sm font-bold leading-snug text-sky-900"
                           >
                             {client}
                           </th>
                         ))}
-                        <th className="sticky top-0 z-10 bg-indigo-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right font-bold text-white">Total commande</th>
-                        <th className="sticky top-0 z-10 bg-emerald-100 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right font-bold text-emerald-900">Stock PF</th>
-                        <th className="sticky top-0 z-10 bg-amber-100 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right font-bold text-amber-900">Programme en cours</th>
-                        <th className="sticky top-0 z-10 bg-rose-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right font-bold text-white">Reste a fabriquer</th>
-                        <th className="sticky top-0 z-10 bg-teal-600 w-[7rem] min-w-[7rem] max-w-[7rem] px-2 py-3 text-right font-bold text-white">
+                        <th className="sticky top-0 z-10 border-r border-slate-300 bg-indigo-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-bold text-white">Total commande</th>
+                        <th className="sticky top-0 z-10 border-r border-slate-300 bg-emerald-100 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-bold text-emerald-900">Stock PF</th>
+                        <th className="sticky top-0 z-10 border-r border-slate-300 bg-amber-100 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-bold text-amber-900">Programme en cours</th>
+                        <th className="sticky top-0 z-10 border-r border-slate-300 bg-rose-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-bold text-white">Reste a fabriquer</th>
+                        <th className="sticky top-0 z-10 border-r border-slate-300 bg-teal-600 w-[7rem] min-w-[7rem] max-w-[7rem] px-2 py-3 text-center align-middle font-bold text-white">
                           Stock apres commande en cours
                           <span className="block text-[11px] font-medium text-teal-100">stock + programme en cours - commande</span>
                         </th>
@@ -329,7 +329,7 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
                         const fond = index % 2 === 0 ? "bg-white" : "bg-slate-50";
                         return (
                           <tr key={ligne.cle} className="group">
-                            <td className={`sticky left-0 z-[1] w-[18rem] min-w-[18rem] max-w-[18rem] border-b border-r border-slate-300 px-4 py-3 font-semibold text-slate-900 ${fond} group-hover:bg-sky-50`}>
+                            <td className={`sticky left-0 z-[1] w-[18rem] min-w-[18rem] max-w-[18rem] border-b border-r border-slate-300 px-4 py-3 align-middle font-semibold text-slate-900 ${fond} group-hover:bg-sky-50`}>
                               {ligne.nom}
                             </td>
                             {colonnesClients.map((client) => {
@@ -337,29 +337,29 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
                               return (
                                 <td
                                   key={client}
-                                  className={`w-[7rem] min-w-[7rem] max-w-[7rem] border-b border-r border-slate-300 px-1 py-2 text-center align-middle ${fond} group-hover:bg-sky-50`}
+                                  className={`w-[8rem] min-w-[8rem] max-w-[8rem] border-b border-r border-slate-300 px-1 py-2 text-center align-middle ${fond} group-hover:bg-sky-50`}
                                 >
                                   {quantite !== undefined ? (
-                                    <span className="inline-block min-w-[2.25rem] rounded-lg bg-sky-100 px-1.5 py-0.5 text-center font-bold text-sky-900">
+                                    <span className="inline-block min-w-[2.75rem] rounded-lg bg-sky-100 px-2 py-0.5 text-center text-base font-bold text-sky-900">
                                       {formater(quantite)}
                                     </span>
                                   ) : null}
                                 </td>
                               );
                             })}
-                            <td className="border-b border-slate-100 bg-indigo-50 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right text-base font-black text-indigo-900">{formater(ligne.total)}</td>
+                            <td className="border-b border-r border-slate-300 bg-indigo-50 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-base font-black text-indigo-900">{formater(ligne.total)}</td>
                             <td
-                              className={`border-b border-slate-100 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right font-semibold ${
+                              className={`border-b border-r border-slate-300 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-semibold ${
                                 ligne.stock < 0 ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"
                               }`}
                             >
                               {formater(ligne.stock)}
                             </td>
-                            <td className={`border-b border-slate-100 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right font-semibold ${ligne.enCours > 0 ? "bg-amber-50 text-amber-800" : `${fond} text-slate-400`}`}>
+                            <td className={`border-b border-r border-slate-300 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle font-semibold ${ligne.enCours > 0 ? "bg-amber-50 text-amber-800" : `${fond} text-slate-400`}`}>
                               {formater(ligne.enCours)}
                             </td>
                             <td
-                              className={`border-b border-slate-100 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right text-base font-black ${
+                              className={`border-b border-r border-slate-300 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-base font-black ${
                                 ligne.reste > 0 ? "bg-rose-100 text-rose-700" : "bg-emerald-50 text-emerald-700"
                               }`}
                             >
@@ -371,7 +371,7 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
                                   ? `Stock ${formater(ligne.stock)} + programme en cours ${formater(ligne.enCours)} - commande ${formater(ligne.total)} : il manquera ${formater(-ligne.apres)} cartons`
                                   : `Stock ${formater(ligne.stock)} + programme en cours ${formater(ligne.enCours)} - commande ${formater(ligne.total)} : il restera ${formater(ligne.apres)} cartons en stock`
                               }
-                              className={`border-b border-slate-100 w-[7rem] min-w-[7rem] max-w-[7rem] px-2 py-3 text-right text-base font-black ${
+                              className={`border-b border-r border-slate-300 w-[7rem] min-w-[7rem] max-w-[7rem] px-2 py-3 text-center align-middle text-base font-black ${
                                 ligne.apres < 0 ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-800"
                               }`}
                             >
@@ -387,16 +387,16 @@ export default async function CommandesParTypePage({ searchParams }: { searchPar
                         {colonnesClients.map((client) => (
                           <td
                             key={client}
-                            className="sticky bottom-0 w-[7rem] min-w-[7rem] max-w-[7rem] border-r border-sky-300 bg-sky-200 px-1 py-3 text-center text-sky-900"
+                            className="sticky bottom-0 w-[8rem] min-w-[8rem] max-w-[8rem] border-r border-sky-300 bg-sky-200 px-1 py-3 text-center text-base text-sky-900"
                           >
                             {formater(clients.get(client) ?? 0)}
                           </td>
                         ))}
-                        <td className="sticky bottom-0 bg-indigo-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right text-white">{formater(totaux.total)}</td>
-                        <td className="sticky bottom-0 bg-emerald-200 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right text-emerald-900">{formater(totaux.stock)}</td>
-                        <td className="sticky bottom-0 bg-amber-200 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right text-amber-900">{formater(totaux.enCours)}</td>
-                        <td className="sticky bottom-0 bg-rose-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-right text-white">{formater(totaux.reste)}</td>
-                        <td className={`sticky bottom-0 w-[7rem] min-w-[7rem] max-w-[7rem] px-2 py-3 text-right ${totaux.apres < 0 ? "bg-red-600 text-white" : "bg-teal-600 text-white"}`}>
+                        <td className="sticky bottom-0 border-r border-slate-300 bg-indigo-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-white">{formater(totaux.total)}</td>
+                        <td className="sticky bottom-0 border-r border-slate-300 bg-emerald-200 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-emerald-900">{formater(totaux.stock)}</td>
+                        <td className="sticky bottom-0 border-r border-slate-300 bg-amber-200 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-amber-900">{formater(totaux.enCours)}</td>
+                        <td className="sticky bottom-0 border-r border-slate-300 bg-rose-600 w-[6rem] min-w-[6rem] max-w-[6rem] px-2 py-3 text-center align-middle text-white">{formater(totaux.reste)}</td>
+                        <td className={`sticky bottom-0 w-[7rem] min-w-[7rem] max-w-[7rem] border-r border-slate-300 px-2 py-3 text-center align-middle ${totaux.apres < 0 ? "bg-red-600 text-white" : "bg-teal-600 text-white"}`}>
                           {formater(totaux.apres)}
                         </td>
                       </tr>
