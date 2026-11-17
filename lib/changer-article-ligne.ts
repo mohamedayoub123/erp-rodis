@@ -57,7 +57,9 @@ const TABLES_DEPLACEES = ["production_rapports", "production_vrac_entries", "pro
 
 const somme = (valeurs: (number | null | undefined)[]) => valeurs.reduce<number>((total, valeur) => total + Number(valeur ?? 0), 0);
 
-export async function changerArticleLigne(ligneId: number, nouvelArticleId: number): Promise<ChangementArticle> {
+// code : le lot de la ligne du Dashboard sur laquelle on a clique - SEUL ce lot change de contenance, les autres lots de la ligne ne changent pas
+// (chacun se change separement). Sans code : tous les lots pas encore commences de la ligne.
+export async function changerArticleLigne(ligneId: number, nouvelArticleId: number, code?: string): Promise<ChangementArticle> {
   const { data: ligneData, error: ligneErreur } = await supabaseServer.from("programme_lignes").select("*").eq("id", ligneId).maybeSingle();
   if (ligneErreur) return { ok: false, message: ligneErreur.message };
   const ligne = ligneData as LigneBrute | null;
@@ -104,10 +106,23 @@ export async function changerArticleLigne(ligneId: number, nouvelArticleId: numb
   const demarres = new Set<string>();
   for (const entree of entrees) demarres.add((entree.code ?? "").trim());
   for (const termine of termineRows) if (ETAPES_BLOQUANTES.includes(termine.stage)) demarres.add((termine.code ?? "").trim());
-  const lotsGardes = codesOuLigneEntiere.filter((code) => demarres.has(code) || (codes.length === 0 && demarres.size > 0));
-  const lotsAChanger = codesOuLigneEntiere.filter((code) => !lotsGardes.includes(code));
-  if (lotsAChanger.length === 0) {
-    return { ok: false, message: "Tous les lots de cette ligne ont deja du conditionnement ou un Besoin valide : la contenance ne peut plus changer." };
+  const codeDemande = code && code.trim() !== "-" ? code.trim() : "";
+  let lotsGardes: string[];
+  let lotsAChanger: string[];
+  if (codeDemande) {
+    // UN seul lot : celui de la ligne du Dashboard sur laquelle on a clique. Les autres lots de la ligne gardent leur contenance.
+    if (!codes.includes(codeDemande)) return { ok: false, message: "Ce lot n'existe plus sur cette ligne. Recharge la page." };
+    if (demarres.has(codeDemande)) {
+      return { ok: false, message: "Ce lot a deja du conditionnement ou un Besoin valide : sa contenance ne peut plus changer." };
+    }
+    lotsAChanger = [codeDemande];
+    lotsGardes = codes.filter((lot) => lot !== codeDemande);
+  } else {
+    lotsGardes = codesOuLigneEntiere.filter((lot) => demarres.has(lot) || (codes.length === 0 && demarres.size > 0));
+    lotsAChanger = codesOuLigneEntiere.filter((lot) => !lotsGardes.includes(lot));
+    if (lotsAChanger.length === 0) {
+      return { ok: false, message: "Tous les lots de cette ligne ont deja du conditionnement ou un Besoin valide : la contenance ne peut plus changer." };
+    }
   }
 
   // Des matieres reservees pour l'ancienne contenance sur les lots qui changeraient : refuse
@@ -166,30 +181,100 @@ export async function changerArticleLigne(ligneId: number, nouvelArticleId: numb
   const cartonsDeplaces = somme(detailDeplace.map((entree) => entree.qt_carton));
   const cartonsAvantDeplaces = somme(detail.filter((entree) => lotsAChanger.includes(entree.code)).map((entree) => entree.qt_carton));
 
-  // 1) nouvelle ligne (copie de la ligne d'origine : meme groupe / PD, date, chaine...)
-  const { id: _ancienId, ...copie } = ligne;
-  void _ancienId;
-  const nouvelleLigne = {
-    ...copie,
-    article_id: nouveau.id,
-    produit: nouveau.nom_article,
-    numero_lot: lotsAChanger.join(", "),
-    numero_lot_detail: detailDeplace,
-    vrac_a_fabriquer: somme(detailDeplace.map((entree) => entree.qt_vrac)),
-    qt_carton: cartonsDeplaces,
+  // 1) ligne d'arrivee : une ligne DEJA existante du meme groupe / PD, meme date, meme chaine et meme zone avec le nouvel article (les lots que l'on
+  // change un par un s'y regroupent), sinon une NOUVELLE ligne (copie de la ligne d'origine)
+  type LigneCible = {
+    id: number;
+    numero_lot: string | null;
+    numero_lot_detail: EntreeDetail[] | null;
+    vrac_a_fabriquer: number | null;
+    qt_carton: number | null;
+    programme_termine: boolean | null;
   };
-  const { data: creee, error: creationErreur } = await supabaseServer.from("programme_lignes").insert(nouvelleLigne).select("id").maybeSingle();
-  if (creationErreur) return { ok: false, message: creationErreur.message };
-  const nouvelleLigneId = (creee as { id: number } | null)?.id;
-  if (!nouvelleLigneId) return { ok: false, message: "La nouvelle ligne n'a pas pu etre creee." };
+  let cible: LigneCible | null = null;
+  const dateJour = typeof ligne.date_jour === "string" ? ligne.date_jour : null;
+  const zone = typeof ligne.zone === "string" ? ligne.zone : null;
+  const chaine = typeof ligne.chaine === "string" ? ligne.chaine : null;
+  if (ligne.groupe_id !== null && dateJour && zone && chaine) {
+    const { data: candidats } = await supabaseServer
+      .from("programme_lignes")
+      .select("id, numero_lot, numero_lot_detail, vrac_a_fabriquer, qt_carton, programme_termine")
+      .eq("groupe_id", ligne.groupe_id)
+      .eq("article_id", nouveau.id)
+      .eq("date_jour", dateJour)
+      .eq("zone", zone)
+      .eq("chaine", chaine)
+      .neq("id", ligneId)
+      .order("id", { ascending: true });
+    cible =
+      ((candidats ?? []) as LigneCible[]).find((candidat) => {
+        const lotsCandidat = (candidat.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+        return (
+          !candidat.programme_termine &&
+          Array.isArray(candidat.numero_lot_detail) &&
+          candidat.numero_lot_detail.length === lotsCandidat.length &&
+          !lotsAChanger.some((lot) => lotsCandidat.includes(lot))
+        );
+      }) ?? null;
+  }
 
-  // 2) les lignes rattachees a (ligne, lot) des lots deplaces suivent la nouvelle ligne ; en cas d'echec tout est remis comme avant
+  let nouvelleLigneId: number;
+  let ligneCreee = false;
+  if (cible) {
+    const lotsCible = (cible.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
+    const detailArrivee = [...(cible.numero_lot_detail ?? []), ...detailDeplace];
+    const { data: fusionnee, error: fusionErreur } = await supabaseServer
+      .from("programme_lignes")
+      .update({
+        numero_lot: [...lotsCible, ...lotsAChanger].join(", "),
+        numero_lot_detail: detailArrivee,
+        vrac_a_fabriquer: somme(detailArrivee.map((entree) => entree.qt_vrac)),
+        qt_carton: somme(detailArrivee.map((entree) => entree.qt_carton)),
+      })
+      .eq("id", cible.id)
+      .select("id");
+    if (fusionErreur) return { ok: false, message: fusionErreur.message };
+    if ((fusionnee ?? []).length !== 1) return { ok: false, message: "La ligne d'arrivee a change entre-temps. Recharge la page." };
+    nouvelleLigneId = cible.id;
+  } else {
+    const { id: _ancienId, ...copie } = ligne;
+    void _ancienId;
+    const nouvelleLigne = {
+      ...copie,
+      article_id: nouveau.id,
+      produit: nouveau.nom_article,
+      numero_lot: lotsAChanger.join(", "),
+      numero_lot_detail: detailDeplace,
+      vrac_a_fabriquer: somme(detailDeplace.map((entree) => entree.qt_vrac)),
+      qt_carton: cartonsDeplaces,
+    };
+    const { data: creee, error: creationErreur } = await supabaseServer.from("programme_lignes").insert(nouvelleLigne).select("id").maybeSingle();
+    if (creationErreur) return { ok: false, message: creationErreur.message };
+    const idCree = (creee as { id: number } | null)?.id;
+    if (!idCree) return { ok: false, message: "La nouvelle ligne n'a pas pu etre creee." };
+    nouvelleLigneId = idCree;
+    ligneCreee = true;
+  }
+
+  // 2) les lignes rattachees a (ligne, lot) des lots deplaces suivent la ligne d'arrivee ; en cas d'echec tout est remis comme avant
   const tablesDeplacees: string[] = [];
   const annuler = async () => {
     for (const table of tablesDeplacees) {
       await supabaseServer.from(table).update({ programme_ligne_id: ligneId }).eq("programme_ligne_id", nouvelleLigneId).in("code", lotsAChanger);
     }
-    await supabaseServer.from("programme_lignes").delete().eq("id", nouvelleLigneId);
+    if (ligneCreee) {
+      await supabaseServer.from("programme_lignes").delete().eq("id", nouvelleLigneId);
+    } else if (cible) {
+      await supabaseServer
+        .from("programme_lignes")
+        .update({
+          numero_lot: cible.numero_lot,
+          numero_lot_detail: cible.numero_lot_detail,
+          vrac_a_fabriquer: cible.vrac_a_fabriquer,
+          qt_carton: cible.qt_carton,
+        })
+        .eq("id", cible.id);
+    }
   };
   for (const table of TABLES_DEPLACEES) {
     const { error } = await supabaseServer.from(table).update({ programme_ligne_id: nouvelleLigneId }).eq("programme_ligne_id", ligneId).in("code", lotsAChanger);
@@ -222,7 +307,9 @@ export async function changerArticleLigne(ligneId: number, nouvelArticleId: numb
 
   return {
     ok: true,
-    message: `Lots ${lotsAChanger.join(", ")} : ${ancien.nom_article} -> ${nouveau.nom_article} sur une nouvelle ligne (cartons prevus ${cartonsAvantDeplaces} -> ${cartonsDeplaces}) ; ${lotsGardes.join(", ")} reste en ${ancien.nom_article}`,
+    message: `Lot${lotsAChanger.length > 1 ? "s" : ""} ${lotsAChanger.join(", ")} : ${ancien.nom_article} -> ${nouveau.nom_article} ${
+      ligneCreee ? "sur une nouvelle ligne" : "sur la ligne deja existante dans cette contenance"
+    } (cartons prevus ${cartonsAvantDeplaces} -> ${cartonsDeplaces}) ; ${lotsGardes.join(", ")} ne change${lotsGardes.length > 1 ? "nt" : ""} pas`,
     ancien: ancien.nom_article,
     nouveau: nouveau.nom_article,
     cartonsAvant: cartonsAvantDeplaces,

@@ -12,16 +12,16 @@ export function ChangerContenanceCell({
   produit,
   articleId,
   options,
-  lotsConcernes,
-  lotsGardes,
+  code,
+  lotsAutres,
 }: {
   ligneId: number;
   produit: string;
   articleId: number;
   options: { id: number; label: string }[];
-  // lots qui changent de contenance / lots deja commences qui gardent la leur (ils restent sur la ligne d'origine)
-  lotsConcernes: string[];
-  lotsGardes: string[];
+  // le lot de CETTE ligne du Dashboard (seul lui change) et les autres lots de la meme ligne de programme (ils ne changent pas)
+  code: string;
+  lotsAutres: string[];
 }) {
   const router = useRouter();
   const [ouvert, setOuvert] = useState(false);
@@ -36,14 +36,14 @@ export function ChangerContenanceCell({
       return;
     }
     const texteConfirmation =
-      lotsGardes.length > 0
-        ? `Passer les lots ${lotsConcernes.join(", ")} en ${cible.label} ? Ils passent sur une NOUVELLE ligne et leurs cartons prevus sont recalcules. ${lotsGardes.join(", ")} reste en ${produit} (deja commence).`
+      lotsAutres.length > 0
+        ? `Passer le lot ${code} en ${cible.label} ? SEUL ce lot change (ses cartons prevus sont recalcules). Les autres lots de la ligne (${lotsAutres.join(", ")}) ne changent pas.`
         : `Passer ${produit} en ${cible.label} ? Les cartons prevus de cette ligne seront recalcules.`;
     if (!window.confirm(texteConfirmation)) return;
     setMessage(null);
     demarrer(async () => {
       try {
-        const reponse = await changerContenanceLigneAction(ligneId, choix);
+        const reponse = await changerContenanceLigneAction(ligneId, choix, code);
         if (!reponse.ok) {
           setMessage(reponse.message);
           return;

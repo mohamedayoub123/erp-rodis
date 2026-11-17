@@ -335,8 +335,8 @@ export default async function PlanningDashboardPage({
         produit={texte}
         articleId={ligne.article_id}
         options={options}
-        lotsConcernes={lotsLigne.filter((lot) => !commences.has(lot))}
-        lotsGardes={lotsLigne.filter((lot) => commences.has(lot))}
+        code={code}
+        lotsAutres={lotsLigne.filter((lot) => lot !== code)}
       />
     );
   };

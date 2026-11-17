@@ -9,7 +9,8 @@ import { changerArticleLigne } from "@/lib/changer-article-ligne";
 // message d'une Error jetee depuis une Server Action en production.
 type Reponse = { ok: true; message: string } | { ok: false; message: string };
 
-export async function changerContenanceLigneAction(ligneId: number, nouvelArticleId: number): Promise<Reponse> {
+// code : le lot de la ligne du Dashboard sur laquelle on a clique - seul ce lot change de contenance
+export async function changerContenanceLigneAction(ligneId: number, nouvelArticleId: number, code?: string): Promise<Reponse> {
   try {
     const utilisateur = await getCurrentStockUser();
     if (!(await canWritePageUser(utilisateur, "productionSuiviProductionConditionnement"))) {
@@ -19,7 +20,7 @@ export async function changerContenanceLigneAction(ligneId: number, nouvelArticl
       return { ok: false, message: "Ligne ou article invalide." };
     }
 
-    const resultat = await changerArticleLigne(ligneId, nouvelArticleId);
+    const resultat = await changerArticleLigne(ligneId, nouvelArticleId, code);
     if (!resultat.ok) return resultat;
 
     await logAudit({
