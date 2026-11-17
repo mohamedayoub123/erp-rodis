@@ -6,6 +6,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { matchesArticleSearch } from "@/lib/article-search";
+import { formatDate } from "@/lib/format-date";
 import { encodeDossierId } from "../commande/dossier-id";
 import { computeStatutBc } from "../bc/constants";
 import { fetchStockActuelMpDepotE } from "../rapport/capacite-conditionnement/capacite-lib";
@@ -41,6 +42,16 @@ type DossierRef = {
   nDoss4d: string | null;
   nDossErp: string | null;
   qteImportee: number;
+  // Date prevue de reception du dossier d'import (dossiers_import_mp_statut) et son statut ; null = pas renseignee
+  datePrevue: string | null;
+  statut: string | null;
+};
+
+type DossierStatutRow = {
+  n_doss_4d: string | null;
+  n_doss_erp: string | null;
+  statut: string | null;
+  date_prevue_reception: string | null;
 };
 
 type StockRow = {
@@ -116,6 +127,22 @@ async function fetchAllBcLignes() {
   return { rows, error: null };
 }
 
+// Date prevue de reception et statut de chaque dossier d'import. Une panne de lecture ne bloque pas la page : les dates sont alors simplement absentes.
+async function fetchDossiersStatut() {
+  const rows: DossierStatutRow[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabaseServer
+      .from("dossiers_import_mp_statut")
+      .select("n_doss_4d, n_doss_erp, statut, date_prevue_reception")
+      .range(from, from + 999);
+    if (error) return rows;
+    const chunk = (data ?? []) as DossierStatutRow[];
+    rows.push(...chunk);
+    if (chunk.length < 1000) break;
+  }
+  return rows;
+}
+
 async function fetchAllImportEvenements() {
   const rows: ImportEvenementRow[] = [];
   let from = 0;
@@ -162,15 +189,19 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
     { rows: gammeRows, error: gammeError },
     { rows: bcLignes, error: bcError },
     { rows: importEvenements, error: importError },
+    dossiersStatut,
   ] = await Promise.all([
     fetchStockActuelMp(),
     fetchGammeByArticleId(),
     fetchAllBcLignes(),
     fetchAllImportEvenements(),
+    fetchDossiersStatut(),
   ]);
+  const statutParDossier = new Map(dossiersStatut.map((row) => [dossierKey(row.n_doss_4d, row.n_doss_erp), row]));
 
   const error = articlesError || gammeError || bcError || importError;
   const gammeByArticleId = new Map(gammeRows.map((row) => [row.id, row.gamme]));
+  const aujourdhui = new Date().toISOString().slice(0, 10);
 
   // "Qte importee TOTALE" (tous evenements confondus, receptionnes ou pas)
   // sert uniquement a calculer le statut (voir computeStatutBc) - a ne pas
@@ -229,6 +260,8 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
       nDoss4d: evenement.n_doss_4d_import,
       nDossErp: evenement.n_doss_erp_import,
       qteImportee: (existing?.qteImportee ?? 0) + Number(evenement.quantite_importee ?? 0),
+      datePrevue: statutParDossier.get(key)?.date_prevue_reception ?? null,
+      statut: statutParDossier.get(key)?.statut ?? null,
     });
     importRefsByArticle.set(articleId, map);
   }
@@ -281,7 +314,12 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
       : "-",
     import: row.importRefs.length
       ? row.importRefs
-          .map((ref) => `4D: ${ref.nDoss4d || "-"} / ERP: ${ref.nDossErp || "-"} - Qte: ${ref.qteImportee}`)
+          .map(
+            (ref) =>
+              `4D: ${ref.nDoss4d || "-"} / ERP: ${ref.nDossErp || "-"} - Qte: ${ref.qteImportee} - Date prevue: ${
+                ref.datePrevue ? formatDate(ref.datePrevue) : "non precisee"
+              }`
+          )
           .join(" | ")
       : "-",
   }));
@@ -435,6 +473,19 @@ export default async function StockActuelMpPage({ searchParams }: { searchParams
                                   4D: {ref.nDoss4d || "-"} / ERP: {ref.nDossErp || "-"}
                                 </Link>{" "}
                                 - Qte: {formatNumber(ref.qteImportee)}
+                                <span
+                                  className={`mt-0.5 block font-semibold ${
+                                    !ref.datePrevue
+                                      ? "italic text-slate-400"
+                                      : ref.statut !== "Receptionne Rodis" && ref.datePrevue < aujourdhui
+                                        ? "text-red-600"
+                                        : "text-emerald-700"
+                                  }`}
+                                  title={ref.statut ? `Statut du dossier : ${ref.statut}` : undefined}
+                                >
+                                  Date prevue : {ref.datePrevue ? formatDate(ref.datePrevue) : "non precisee"}
+                                  {ref.datePrevue && ref.statut !== "Receptionne Rodis" && ref.datePrevue < aujourdhui ? " (en retard)" : ""}
+                                </span>
                               </li>
                             ))}
                           </ul>
