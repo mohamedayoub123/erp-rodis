@@ -1,6 +1,10 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { lireStockMpDepotE } from "@/lib/lot-balances-mp";
-import { fetchArticleStocksFromStockPage, normalizeArticle } from "@/app/tableau-commandes/family-data";
+import {
+  fetchArticleStocksFromStockPage,
+  fetchQtEnCoursConditionnementByArticle,
+  normalizeArticle,
+} from "@/app/tableau-commandes/family-data";
 import { lireLignes, lireParIds } from "@/lib/besoin-conditionnement-proforma";
 import { TYPES_COMPOSANTS, typeComposant, type ComposantArticle, type TypeComposant } from "@/lib/composants-types";
 
@@ -33,6 +37,69 @@ async function lireIdsCommandesOuvertes(): Promise<number[]> {
     if (page.length < 1000) break;
   }
   return ids;
+}
+
+// Cartons commandes par article (toutes les commandes ouvertes donnees)
+function cartonsCommandesParArticle(lignes: { article_id: number | null; quantite_demandee: number | null }[]): Map<number, number> {
+  const cartonsParId = new Map<number, number>();
+  for (const ligne of lignes) {
+    const cartons = Number(ligne.quantite_demandee ?? 0);
+    if (!ligne.article_id || !(cartons > 0)) continue;
+    cartonsParId.set(ligne.article_id, (cartonsParId.get(ligne.article_id) ?? 0) + cartons);
+  }
+  return cartonsParId;
+}
+
+// Cartons A PRODUIRE d'un article = ce qui reste de ses commandes ouvertes une fois deduits le stock PF et les programmes en cours. Les articles
+// qui ont le meme nom (normalise) partagent leur stock PF et leurs programmes : le manque de ce nom est reparti au prorata de leurs commandes.
+// Cartons non couverts par nom = max(0, commande - stock PF - programmes en cours) (la somme des cartons non couverts de chaque commande, dans
+// l'ordre du tableau, vaut toujours ce total). UNE seule definition, utilisee par les colonnes du Tableau de commande ET par la page Manque
+// Articles : les deux donnent toujours le meme besoin.
+export function cartonsAProduireParArticle(params: {
+  cartonsParId: Map<number, number>;
+  cleParId: Map<number, string>;
+  articlesMemeNom: { id: number }[];
+  stockPfParNom: Map<string, number>;
+  qtEnCoursParNom: Map<string, number>;
+}): (articleId: number) => number {
+  const commandeParNom = new Map<string, number>();
+  for (const article of params.articlesMemeNom) {
+    const cle = params.cleParId.get(article.id) ?? "";
+    commandeParNom.set(cle, (commandeParNom.get(cle) ?? 0) + (params.cartonsParId.get(article.id) ?? 0));
+  }
+  const manqueParNom = new Map<string, number>();
+  for (const [cle, commande] of commandeParNom) {
+    const disponible = Math.max(0, params.stockPfParNom.get(cle) ?? 0) + Math.max(0, params.qtEnCoursParNom.get(cle) ?? 0);
+    manqueParNom.set(cle, Math.max(0, commande - disponible));
+  }
+  return (articleId: number) => {
+    const cartons = params.cartonsParId.get(articleId) ?? 0;
+    const cle = params.cleParId.get(articleId) ?? "";
+    const commande = commandeParNom.get(cle) ?? 0;
+    return commande > 0 ? ((manqueParNom.get(cle) ?? 0) * cartons) / commande : cartons;
+  };
+}
+
+// Pour TOUS les articles commandes (page Manque Articles) : cartons commandes et cartons a produire de chaque article, avec les memes sources
+// que le Tableau de commande (stock PF "comme la page Stock", programmes en cours = Qt en cours de Conditionnement, commandes non livrees).
+export async function calculerCartonsAProduireGlobal(articlesGlobaux: ArticleNomRow[]): Promise<{
+  cartonsParId: Map<number, number>;
+  aProduire: (articleId: number) => number;
+}> {
+  const lignes = await lireIdsCommandesOuvertes().then((ids) => lireLignes(ids));
+  const cartonsParId = cartonsCommandesParArticle(lignes);
+  const cleParId = new Map<number, string>();
+  for (const article of articlesGlobaux) cleParId.set(article.id, normalizeArticle(String(article.nom_article ?? "")));
+  const clesCommandees = new Set([...cartonsParId.keys()].map((id) => cleParId.get(id) ?? "").filter(Boolean));
+  const articlesMemeNom = articlesGlobaux.filter((article) => clesCommandees.has(cleParId.get(article.id) ?? ""));
+  const [stockPfParNom, qtEnCoursParNom] = await Promise.all([
+    fetchArticleStocksFromStockPage(articlesMemeNom.filter((article) => article.nature !== "vrac")),
+    fetchQtEnCoursConditionnementByArticle(),
+  ]);
+  return {
+    cartonsParId,
+    aProduire: cartonsAProduireParArticle({ cartonsParId, cleParId, articlesMemeNom, stockPfParNom, qtEnCoursParNom }),
+  };
 }
 
 // articleIdsParCle : articles finis de la famille, par nom normalise (normalizeArticle) -> ids
@@ -91,26 +158,15 @@ export async function calculerComposantsFamille(params: {
   ]);
   for (const [cle, stock] of stocksLus) stockPfParNom.set(cle, stock);
 
-  // Cartons commandes par article, puis par nom (un nom partage entre plusieurs articles repartit le manque au prorata)
-  const cartonsParId = new Map<number, number>();
-  for (const ligne of lignes) {
-    const cartons = Number(ligne.quantite_demandee ?? 0);
-    if (!ligne.article_id || !(cartons > 0)) continue;
-    cartonsParId.set(ligne.article_id, (cartonsParId.get(ligne.article_id) ?? 0) + cartons);
-  }
-  const commandeParNom = new Map<string, number>();
-  for (const article of articlesMemeNom) {
-    const cle = cleParId.get(article.id) ?? "";
-    commandeParNom.set(cle, (commandeParNom.get(cle) ?? 0) + (cartonsParId.get(article.id) ?? 0));
-  }
-
-  // Cartons non couverts par nom = max(0, commande - stock PF - programmes en cours) (la somme des cartons non couverts de chaque
-  // commande, dans l'ordre du tableau, vaut toujours ce total)
-  const manqueParNom = new Map<string, number>();
-  for (const [cle, commande] of commandeParNom) {
-    const disponible = Math.max(0, stockPfParNom.get(cle) ?? 0) + Math.max(0, params.qtEnCoursParNom.get(cle) ?? 0);
-    manqueParNom.set(cle, Math.max(0, commande - disponible));
-  }
+  // Cartons commandes par article, puis cartons a produire (le meme calcul sert a la page Manque Articles, voir cartonsAProduireParArticle)
+  const cartonsParId = cartonsCommandesParArticle(lignes);
+  const aProduireArticle = cartonsAProduireParArticle({
+    cartonsParId,
+    cleParId,
+    articlesMemeNom,
+    stockPfParNom,
+    qtEnCoursParNom: params.qtEnCoursParNom,
+  });
 
   // 5) Besoin de chaque article de conditionnement pour toutes les commandes ouvertes
   const baseParId = new Map(articlesUtil.map((article) => [article.id, Number(article.quantite_recette_base ?? 0)]));
@@ -119,9 +175,7 @@ export async function calculerComposantsFamille(params: {
     const base = baseParId.get(ligne.article_pf_id) ?? 0;
     const cartons = cartonsParId.get(ligne.article_pf_id) ?? 0;
     if (!(base > 0) || !(cartons > 0)) continue;
-    const cle = cleParId.get(ligne.article_pf_id) ?? "";
-    const commande = commandeParNom.get(cle) ?? 0;
-    const aProduire = commande > 0 ? ((manqueParNom.get(cle) ?? 0) * cartons) / commande : cartons;
+    const aProduire = aProduireArticle(ligne.article_pf_id);
     besoinParMp.set(ligne.article_mp_id, (besoinParMp.get(ligne.article_mp_id) ?? 0) + (aProduire * Number(ligne.quantite)) / base);
   }
 
