@@ -6,6 +6,7 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { HighlightableRow } from "./highlightable-row";
 import { ToutesFamillesExportButton } from "./export-toutes-familles-button";
+import { LienParType } from "./lien-par-type";
 import { CommandeNoteCell } from "./note-cell";
 import {
   TableauExportButton,
@@ -369,12 +370,14 @@ function renderArticleManquantInsideTableau(
               >
                 Gerer les gammes
               </Link>
+              <LienParType />
               <Link
                 href="/commandes"
                 className="rounded-full bg-slate-950 px-4 py-2 text-[16px] font-medium text-white"
               >
                 Commandes
               </Link>
+              <LienParType />
               <LienColonnesConditionnement />
               <TableauExportButton
                 title={selectedFamille ? `Article manquant - ${selectedFamille}` : "Article manquant"}
@@ -856,6 +859,7 @@ function renderGenericFamilyTemplate(
               >
                 Article manquant
               </Link>
+              <LienParType />
               <LienColonnesConditionnement />
               <TableauExportButton
                 title={selectedFamille}
@@ -1450,6 +1454,7 @@ export default async function TableauCommandesPage({
                 >
                   Gerer les gammes
                 </Link>
+                <LienParType />
                 <ToutesFamillesExportButton />
                 <Link
                   href="/commandes"
