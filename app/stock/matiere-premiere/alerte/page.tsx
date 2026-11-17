@@ -13,6 +13,7 @@ import { matchesArticleSearch } from "@/lib/article-search";
 import { computeStatutBc } from "../bc/constants";
 import { fetchAgregatsMpParArticle } from "@/lib/mp-agregats";
 import { lireStockMpDepotE, type StockMpDepotRow } from "@/lib/lot-balances-mp";
+import { lireTransferOrdersEnCoursDepot, type TransferOrderEnCours, type TransferOrdersArticle } from "@/lib/transfer-orders-en-cours";
 import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
 
 type ArticleMpRow = {
@@ -32,7 +33,13 @@ type AlerteRow = {
   categorie: string | null;
   sous_famille: string | null;
   unite: string | null;
+  // Stock du Depot E MOINS ce que les Transfer Orders (TO) partis du Depot E vont encore en sortir
   stock_actuel: number;
+  stock_depot_e: number;
+  to_deduits: number;
+  tos: TransferOrderEnCours[];
+  // Couleur de la ligne (voir couleurAlerte) : null = la ligne ne s'allume pas
+  couleur: CouleurAlerte | null;
   min_stock: number;
   consommation_1_mois: number;
   consommation_3_mois: number;
@@ -169,6 +176,25 @@ function dossierKey(nDoss4d: string | null, nDossErp: string | null) {
   return `${nDoss4d ?? ""}|||${nDossErp ?? ""}`;
 }
 
+// La ligne d'un article s'allume quand son stock (Depot E moins TO) est egal ou inferieur a sa consommation des 3 derniers mois :
+//  - JAUNE  : une commande (BC) et PAS d'import ;
+//  - VERT   : un import est en cours ;
+//  - ORANGE : ni commande (BC) ni import.
+// Sinon (stock au-dessus de la consommation des 3 mois) la ligne reste blanche.
+type CouleurAlerte = "jaune" | "vert" | "orange";
+
+const COULEURS_ALERTE: Record<CouleurAlerte, { ligne: string; puce: string; libelle: string; export: string }> = {
+  jaune: { ligne: "bg-yellow-200", puce: "bg-yellow-200 text-yellow-900", libelle: "Commande (BC) sans import", export: "Jaune - BC sans import" },
+  vert: { ligne: "bg-green-200", puce: "bg-green-200 text-green-900", libelle: "Import en cours", export: "Vert - import en cours" },
+  orange: { ligne: "bg-orange-200", puce: "bg-orange-200 text-orange-900", libelle: "Ni commande (BC) ni import", export: "Orange - ni BC ni import" },
+};
+
+function couleurAlerte(stock: number, consommation3Mois: number, aUnBc: boolean, aUnImport: boolean): CouleurAlerte | null {
+  if (!(stock <= consommation3Mois)) return null;
+  if (aUnImport) return "vert";
+  return aUnBc ? "jaune" : "orange";
+}
+
 function formatNumber(value: number) {
   return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
@@ -207,6 +233,7 @@ export default async function StockAlerteMpPage({
     { rows: importEvenements, error: importError },
     { rows: dossierStatuts, error: statutError },
     { rows: stockDepotE, error: depotEError },
+    { parArticle: transferOrders, error: transferOrdersError },
   ] = await Promise.all([
     fetchAllArticlesMp(),
     fetchAgregatsMpParArticle(),
@@ -221,9 +248,18 @@ export default async function StockAlerteMpPage({
         error: { message: `Stock Depot E : ${e instanceof Error ? e.message : String(e)}` },
       })
     ),
+    // Ce que les TO partis du Depot E vont encore en sortir : une erreur est affichee (jamais un stock sans la deduction des TO, qui ferait
+    // croire qu'il en reste plus qu'en realite)
+    lireTransferOrdersEnCoursDepot("Depot E").then(
+      (parArticle) => ({ parArticle, error: null }),
+      (e: unknown) => ({
+        parArticle: new Map<number, TransferOrdersArticle>(),
+        error: { message: `Transfer Orders du Depot E : ${e instanceof Error ? e.message : String(e)}` },
+      })
+    ),
   ]);
 
-  const error = articlesError || mouvementsError || bcError || importError || statutError || depotEError;
+  const error = articlesError || mouvementsError || bcError || importError || statutError || depotEError || transferOrdersError;
 
   const datePrevueByDossier = new Map(
     dossierStatuts.map((row) => [dossierKey(row.n_doss_4d, row.n_doss_erp), row.date_prevue_reception])
@@ -231,9 +267,14 @@ export default async function StockAlerteMpPage({
 
   // Stock actuel = stock du Depot E SEULEMENT (decision de l'utilisateur :
   // le stock des autres depots - Depot B, Depot F... - ne compte pas, comme
-  // dans "Stock Alert MP par commande"). Un article sans stock au Depot E
+  // dans "Stock Alert MP par commande"), MOINS ce que les Transfer Orders
+  // (TO) partis du Depot E vont encore en sortir (TO approuves : quantite
+  // restante reservee ; TO en attente : quantite demandee - comme la
+  // Statistique Article Plastique). Un article sans stock au Depot E
   // vaut 0 ; le stock peut etre negatif (sorties saisies en trop). Alerte
   // des que ce stock descend a ou sous le seuil "Stock min" de l'article.
+  // Un article SANS AUCUNE consommation sur 12 mois n'a pas de mouvement :
+  // il n'est jamais mis en alerte (demande de l'utilisateur).
   //
   // Consommation (sortie) sur plusieurs fenetres glissantes (1/3/6/12 mois)
   // + Entree sur 12/3 mois - date_jour, meme convention "AAAA-MM-JJ" que le
@@ -328,25 +369,40 @@ export default async function StockAlerteMpPage({
 
   const alertes: AlerteRow[] = articles
     .filter((article) => article.min_stock !== null)
-    .map((article) => ({
-      article_id: article.id,
-      nom_article: article.nom_article,
-      categorie: article.categorie,
-      sous_famille: article.sous_famille,
-      unite: article.unite,
-      stock_actuel: stockByArticle.get(article.id) ?? 0,
-      min_stock: article.min_stock as number,
-      consommation_1_mois: consommationByPeriodAndArticle[1].get(article.id) ?? 0,
-      consommation_3_mois: consommationByPeriodAndArticle[3].get(article.id) ?? 0,
-      consommation_6_mois: consommationByPeriodAndArticle[6].get(article.id) ?? 0,
-      consommation_12_mois: consommationByPeriodAndArticle[12].get(article.id) ?? 0,
-      entree_12_mois: entree12MoisByArticle.get(article.id) ?? 0,
-      entree_3_mois: entree3MoisByArticle.get(article.id) ?? 0,
-      utilisation_produit: article.utilisation,
-      bcRefs: bcRefsByArticle.get(article.id) ?? [],
-      importRefs: [...(importRefsByArticle.get(article.id)?.values() ?? [])],
-    }))
+    .map((article) => {
+      const stockDepotEReel = stockByArticle.get(article.id) ?? 0;
+      const to = transferOrders.get(article.id);
+      const toDeduits = Math.round(((to?.reserve ?? 0) + (to?.enAttente ?? 0)) * 1e6) / 1e6 || 0;
+      const stockApresTo = Math.round((stockDepotEReel - toDeduits) * 1e6) / 1e6 || 0;
+      const consommation3Mois = consommationByPeriodAndArticle[3].get(article.id) ?? 0;
+      const bcRefs = bcRefsByArticle.get(article.id) ?? [];
+      const importRefs = [...(importRefsByArticle.get(article.id)?.values() ?? [])];
+      return {
+        article_id: article.id,
+        nom_article: article.nom_article,
+        categorie: article.categorie,
+        sous_famille: article.sous_famille,
+        unite: article.unite,
+        stock_actuel: stockApresTo,
+        stock_depot_e: stockDepotEReel,
+        to_deduits: toDeduits,
+        tos: to?.tos ?? [],
+        couleur: couleurAlerte(stockApresTo, consommation3Mois, bcRefs.length > 0, importRefs.length > 0),
+        min_stock: article.min_stock as number,
+        consommation_1_mois: consommationByPeriodAndArticle[1].get(article.id) ?? 0,
+        consommation_3_mois: consommation3Mois,
+        consommation_6_mois: consommationByPeriodAndArticle[6].get(article.id) ?? 0,
+        consommation_12_mois: consommationByPeriodAndArticle[12].get(article.id) ?? 0,
+        entree_12_mois: entree12MoisByArticle.get(article.id) ?? 0,
+        entree_3_mois: entree3MoisByArticle.get(article.id) ?? 0,
+        utilisation_produit: article.utilisation,
+        bcRefs,
+        importRefs,
+      };
+    })
     .filter((row) => row.stock_actuel <= row.min_stock)
+    // aucun mouvement de sortie sur 12 mois : pas d'alerte
+    .filter((row) => row.consommation_12_mois > 0)
     .filter((row) => !qLower || matchesArticleSearch(row.nom_article, qLower))
     .filter((row) => correspondALaListe(row.categorie, categoriesChoisies))
     .filter((row) => correspondALaListe(row.sous_famille, sousFamillesChoisies))
@@ -370,7 +426,9 @@ export default async function StockAlerteMpPage({
     { label: "Categorie", key: "categorie" },
     { label: "Sous famille", key: "sousFamille" },
     { label: "Article", key: "article" },
-    { label: "Stock Depot E", key: "stock" },
+    { label: "Stock Depot E (moins TO)", key: "stock" },
+    { label: "Stock Depot E (avant TO)", key: "stockDepotE" },
+    { label: "TO deduits", key: "toDeduits" },
     { label: "Unite", key: "unite" },
     { label: "Consommation dernier mois", key: "consommation1Mois" },
     { label: "Consommation dernier 3 mois", key: "consommation3Mois" },
@@ -383,6 +441,7 @@ export default async function StockAlerteMpPage({
     { label: "Import", key: "import" },
     { label: "Average consommation 12 mois", key: "averageConsommation" },
     { label: "Utilisation produit", key: "utilisationProduit" },
+    { label: "Couleur alerte", key: "couleurAlerte" },
   ];
 
   const exportRows = alertes.map((alerte) => ({
@@ -390,6 +449,8 @@ export default async function StockAlerteMpPage({
     sousFamille: alerte.sous_famille || "-",
     article: alerte.nom_article,
     stock: alerte.stock_actuel,
+    stockDepotE: alerte.stock_depot_e,
+    toDeduits: alerte.to_deduits,
     unite: alerte.unite || "-",
     consommation1Mois: alerte.consommation_1_mois,
     consommation3Mois: alerte.consommation_3_mois,
@@ -415,6 +476,7 @@ export default async function StockAlerteMpPage({
       : "-",
     averageConsommation: Math.round((alerte.consommation_12_mois / 12) * 100) / 100,
     utilisationProduit: alerte.utilisation_produit || "-",
+    couleurAlerte: alerte.couleur ? COULEURS_ALERTE[alerte.couleur].export : "-",
   }));
 
   return (
@@ -429,8 +491,9 @@ export default async function StockAlerteMpPage({
               Stock Alert MP
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Articles dont le stock du Depot E (seulement, les autres depots ne comptent pas) est egal ou
-              inferieur au stock min defini sur l&apos;article.
+              Articles dont le stock du Depot E (seulement, les autres depots ne comptent pas), moins ce que les
+              Transfer Orders (TO) vont encore en sortir, est egal ou inferieur au stock min defini sur l&apos;article.
+              Un article sans aucune consommation sur les 12 derniers mois n&apos;est pas affiche.
             </p>
           </div>
 
@@ -485,6 +548,16 @@ export default async function StockAlerteMpPage({
         </section>
 
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-6 py-3 text-xs">
+            <span className="font-semibold text-slate-600">
+              La ligne s&apos;allume quand le stock (Depot E moins TO) est egal ou inferieur a la consommation des 3 derniers mois :
+            </span>
+            {(Object.keys(COULEURS_ALERTE) as CouleurAlerte[]).map((cle) => (
+              <span key={cle} className={`rounded-full px-3 py-1 font-semibold ${COULEURS_ALERTE[cle].puce}`}>
+                {COULEURS_ALERTE[cle].libelle}
+              </span>
+            ))}
+          </div>
           {error ? (
             <div className="px-6 py-8">
               <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
@@ -503,7 +576,10 @@ export default async function StockAlerteMpPage({
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Categorie</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Sous famille</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Article</th>
-                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Stock Depot E</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                      Stock Depot E
+                      <span className="block text-xs font-normal text-slate-400">moins les TO</span>
+                    </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation dernier mois</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation dernier 3 mois</th>
@@ -520,7 +596,12 @@ export default async function StockAlerteMpPage({
                 </thead>
                 <tbody>
                   {alertesAffichees.map((alerte) => (
-                    <tr key={alerte.article_id} className="border-t border-slate-100">
+                    <tr
+                      key={alerte.article_id}
+                      data-couleur={alerte.couleur ?? undefined}
+                      title={alerte.couleur ? COULEURS_ALERTE[alerte.couleur].libelle : undefined}
+                      className={`border-t border-slate-100 ${alerte.couleur ? COULEURS_ALERTE[alerte.couleur].ligne : ""}`}
+                    >
                       <td className="px-6 py-4 text-slate-600">{alerte.categorie || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{alerte.sous_famille || "-"}</td>
                       <td className="px-6 py-4 font-medium text-slate-900">{alerte.nom_article}</td>
@@ -528,6 +609,24 @@ export default async function StockAlerteMpPage({
                         <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
                           {formatNumber(alerte.stock_actuel)}
                         </span>
+                        {alerte.to_deduits > 0 ? (
+                          // Ce qui a ete retire du stock du Depot E : les TO qui en partent et ne l'ont pas encore sorti
+                          <details className="mt-1">
+                            <summary className="cursor-pointer whitespace-nowrap text-xs font-semibold text-sky-700">
+                              Depot E {formatNumber(alerte.stock_depot_e)} - TO {formatNumber(alerte.to_deduits)}
+                            </summary>
+                            <ul className="mt-1 space-y-1 text-xs text-slate-700">
+                              {alerte.tos.map((to) => (
+                                <li key={to.code}>
+                                  <Link href={to.href} className="font-semibold text-sky-700 hover:underline">
+                                    {to.code}
+                                  </Link>{" "}
+                                  : {formatNumber(to.quantite)} <span className="text-slate-500">{to.detail}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{alerte.unite || "-"}</td>
                       <td className="px-6 py-4 font-semibold text-sky-700">
