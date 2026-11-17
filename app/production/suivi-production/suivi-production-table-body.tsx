@@ -114,11 +114,14 @@ type ExpandState = Record<string, { cond: boolean; emb: boolean }>;
 export function SuiviProductionTableBody({
   rows,
   plCodeByGroupeId,
+  codesVracParCle,
   canDelete,
   initialExpandedByKey,
 }: {
   rows: DisplayRow[];
   plCodeByGroupeId: Record<string, string>;
+  // "ligneId::code" -> codes vrac choisis au Conditionnement (= lot du produit fini), vide quand rien n'est choisi
+  codesVracParCle: Record<string, { codeVrac: string; quantite: number }[]>;
   canDelete: boolean;
   initialExpandedByKey: ExpandState;
 }) {
@@ -141,7 +144,18 @@ export function SuiviProductionTableBody({
     return (
       <tr key={row.key} className="border-t border-slate-100 align-top">
         <td className="px-6 py-4 text-slate-600">{row.ligne.produit || "-"}</td>
-        <td className="px-6 py-4 font-medium text-slate-900">{row.displayCode}</td>
+        <td className="px-6 py-4 font-medium text-slate-900">
+          {row.displayCode}
+          {(codesVracParCle[`${row.ligne.id}::${row.displayCode}`] ?? []).map((choix) => (
+            <span
+              key={choix.codeVrac}
+              title="Code vrac choisi au Conditionnement : c'est le lot du produit fini (Conditionnement, Emballage, stock)"
+              className="mt-1 block w-fit rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-800"
+            >
+              Lot produit fini : {choix.codeVrac} · {choix.quantite.toLocaleString("fr-FR", { maximumFractionDigits: 3 })} kg
+            </span>
+          ))}
+        </td>
         <td className="px-6 py-4 text-slate-600">{row.displayVrac ?? "-"}</td>
         <td className="px-6 py-4 text-slate-600">
           {row.displayCarton !== null ? Math.round(row.displayCarton * 100) / 100 : "-"}

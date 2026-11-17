@@ -13,6 +13,12 @@ import {
   supprimerEcriturePourSource,
 } from "@/lib/comptabilite";
 import { cascadeRenameProductionCode } from "@/app/production/suivi/actions";
+import { cleChoix, lireChoixLigneCode } from "@/lib/conditionnement-codes-vrac";
+
+// Note d'un lot d'Entree Production dont le numero de lot est un code vrac choisi au Conditionnement : garde le code du programme et la ligne,
+// pour retrouver le Besoin (cout reel) de la ligne.
+const PREFIXE_NOTE_CODE_PROGRAMME = "Code programme ";
+const MOTIF_NOTE_CODE_PROGRAMME = /^Code programme (.+) \(ligne (\d+)\)$/;
 
 // Ecriture separee pour la consommation REELLE des articles de
 // conditionnement (sleeve/capsule/carton/flacon...) d'un code precis - bug
@@ -79,10 +85,10 @@ export async function recalculerEcritureEntreeProduction(
 
   const { data: lotsData } = await supabaseServer
     .from("lots_stock")
-    .select("qte_entree, numero_lot")
+    .select("qte_entree, numero_lot, note")
     .eq("mouvement_groupe_id", groupeId)
     .eq("article_id", articleId);
-  const lots = (lotsData as { qte_entree: number; numero_lot: string | null }[] | null) ?? [];
+  const lots = (lotsData as { qte_entree: number; numero_lot: string | null; note: string | null }[] | null) ?? [];
   if (lots.length === 0) return;
 
   const quantite = lots.reduce((sum, l) => sum + Number(l.qte_entree ?? 0), 0);
@@ -104,18 +110,30 @@ export async function recalculerEcritureEntreeProduction(
   // ce groupe. Le "code" ici est celui tape a l'ecran Entree Production
   // (lots_stock.numero_lot), le meme code de dispatch que
   // production_code_termine dans le cas normal (non renomme depuis).
-  const codesUtilises = [...new Set(lots.map((l) => l.numero_lot).filter(Boolean))] as string[];
+  // Un lot dont le numero est un code vrac choisi au Conditionnement (note "Code programme X (ligne N)") garde le cout reel du Besoin de SA ligne
+  // (code du programme X) : le numero de lot n'est plus le code du Besoin. Une seule fois par (ligne, code) meme si la quantite est repartie
+  // sur plusieurs lots : le cout d'un Besoin n'est jamais compte deux fois.
+  const sourcesCout = new Map<string, { code: string; ligneId: number | null }>();
+  for (const lot of lots) {
+    if (!lot.numero_lot) continue;
+    const depuisNote = MOTIF_NOTE_CODE_PROGRAMME.exec(lot.note ?? "");
+    const code = depuisNote ? depuisNote[1] : lot.numero_lot;
+    const ligneId = depuisNote ? Number(depuisNote[2]) : null;
+    sourcesCout.set(`${ligneId ?? ""}::${code}`, { code, ligneId });
+  }
+  const codesUtilises = [...sourcesCout.values()];
   let coutReelTotal = 0;
   let lotsReelUtilises: LotUtiliseInfo[] = [];
   let coutReelDisponible = codesUtilises.length > 0;
 
-  for (const code of codesUtilises) {
-    const { data: termineData } = await supabaseServer
+  for (const { code, ligneId: ligneSource } of codesUtilises) {
+    let requeteTermine = supabaseServer
       .from("production_code_termine")
       .select("id, programme_ligne_id")
       .eq("code", code)
-      .eq("stage", "salle_conditionnement")
-      .maybeSingle();
+      .eq("stage", "salle_conditionnement");
+    if (ligneSource !== null) requeteTermine = requeteTermine.eq("programme_ligne_id", ligneSource);
+    const { data: termineData } = await requeteTermine.maybeSingle();
     const termine = termineData as { id: number; programme_ligne_id: number } | null;
     if (!termine) {
       coutReelDisponible = false;
@@ -262,19 +280,21 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
   // "<id representant>:<id1,id2,...>" pour retrouver quelles entrees
   // partagent le meme jeu de champs code_X/qty_X/... et doivent finir dans
   // le MEME lots_stock (une seule quantite totale), pas une par entree.
+  // representativeId : identifiant de la ligne a l'ecran = l'id de sa 1re entree ("123"), ou "<id>~<rang>" ("123~1") pour une des lignes d'une entree
+  // repartie sur plusieurs codes vrac choisis au Conditionnement (une ligne de stock par code, voir page.tsx).
   const mergeGroupsRaw = formData.getAll("merge_group").map((value) => String(value));
   const seenEntryIds = new Set<number>();
-  const mergedGroups: { representativeId: number; memberIds: number[] }[] = [];
+  const mergedGroups: { representativeId: string; memberIds: number[] }[] = [];
 
   for (const raw of mergeGroupsRaw) {
     const [repPart, membersPart] = raw.split(":");
-    const representativeId = Number(repPart);
+    const representativeId = String(repPart || "").trim();
     const memberIds = (membersPart || "")
       .split(",")
       .map((id) => Number(id))
       .filter((id) => Number.isFinite(id) && id > 0 && pendingById.has(id));
 
-    if (!representativeId || memberIds.length === 0) continue;
+    if (!/^\d+(~\d+)?$/.test(representativeId) || memberIds.length === 0) continue;
 
     mergedGroups.push({ representativeId, memberIds });
     memberIds.forEach((id) => seenEntryIds.add(id));
@@ -285,7 +305,29 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
   // perdue silencieusement.
   for (const row of pendingRows) {
     if (!seenEntryIds.has(row.id)) {
-      mergedGroups.push({ representativeId: row.id, memberIds: [row.id] });
+      mergedGroups.push({ representativeId: String(row.id), memberIds: [row.id] });
+    }
+  }
+
+  // Une entree repartie sur plusieurs codes vrac se valide EN ENTIER : valider une seule de ses lignes marquerait l'entree "transferee" alors que
+  // les autres codes n'entreraient jamais en stock.
+  const onlyEntryIdRaw = formData.get("only_entry_id");
+  if (onlyEntryIdRaw && String(onlyEntryIdRaw).includes("~")) {
+    throw new Error("Cette entree est repartie sur plusieurs codes vrac : valide toute l'entree (bouton Valider cette entree).");
+  }
+  const lignesRepartiesParEntree = new Map<number, number>();
+  for (const group of mergedGroups) {
+    if (!group.representativeId.includes("~")) continue;
+    lignesRepartiesParEntree.set(group.memberIds[0], (lignesRepartiesParEntree.get(group.memberIds[0]) ?? 0) + 1);
+  }
+  for (const [entryId, nbLignes] of lignesRepartiesParEntree) {
+    const entree = pendingById.get(entryId);
+    const ligneEntree = entree ? ligneById.get(entree.programme_ligne_id) : undefined;
+    const codeEntree = entree?.code || ((ligneEntree?.numero_lot || "").split(",").filter((c) => c.trim()).length <= 1 ? ligneEntree?.numero_lot || "" : "");
+    const choixEntree = entree && codeEntree ? await lireChoixLigneCode(entree.programme_ligne_id, codeEntree) : null;
+    const attendu = choixEntree?.ok ? choixEntree.parLigneCode.get(cleChoix(entree!.programme_ligne_id, codeEntree))?.length ?? 0 : 0;
+    if (attendu < 2 || nbLignes !== attendu) {
+      throw new Error("La repartition de cette entree sur les codes vrac a change : recharge la page.");
     }
   }
 
@@ -297,7 +339,6 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
   // pouvoir aussi passer tout comme ca existe". Le formulaire soumet
   // toujours TOUTES les lignes du groupe (entry_ids/merge_group), ce filtre
   // reduit juste ce qui est effectivement traite a la ligne demandee.
-  const onlyEntryIdRaw = formData.get("only_entry_id");
   const filteredGroups = onlyEntryIdRaw
     ? mergedGroups.filter((group) => group.memberIds.includes(Number(onlyEntryIdRaw)))
     : mergedGroups;
@@ -318,7 +359,7 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
     chambre: string | null;
     code_pays: string | null;
     source_import: string;
-    note: null;
+    note: string | null;
     utilisateur: string | null;
   };
 
@@ -347,7 +388,22 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
     // propage le renommage en cascade des qu'il differe.
     const ligneCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
     const originalCode = first.code || (ligneCodes.length <= 1 ? ligne?.numero_lot || "" : "");
-    if (originalCode && originalCode !== numeroLot) {
+
+    // Dashboard > Conditionnement : le lot du produit fini est le code VRAC choisi (colonne N Lot). Ce n'est pas un renommage du code du
+    // programme (qui reste celui du vrac / de la Fabrication) : aucun renommage en cascade. Un autre code que ceux choisis est refuse (changer
+    // le choix dans le Dashboard), sinon la correction de "typo" renommerait tout Production. Le code du programme est gardee dans la note du
+    // lot pour que le cout reel continue de se calculer sur le Besoin de la ligne (voir recalculerEcritureEntreeProduction).
+    let noteCodeProgramme: string | null = null;
+    const choixLigne = originalCode ? await lireChoixLigneCode(first.programme_ligne_id, originalCode) : null;
+    const codesChoisis = choixLigne?.ok ? (choixLigne.parLigneCode.get(cleChoix(first.programme_ligne_id, originalCode)) ?? []).map((c) => c.codeVrac) : [];
+    if (codesChoisis.length > 0) {
+      if (!codesChoisis.some((code) => code.toLowerCase() === numeroLot.toLowerCase())) {
+        throw new Error(`Le lot doit etre un des codes vrac choisis au Conditionnement (${codesChoisis.join(", ")}) : change le choix dans le Dashboard pour utiliser un autre code.`);
+      }
+      if (originalCode.toLowerCase() !== numeroLot.toLowerCase()) {
+        noteCodeProgramme = `${PREFIXE_NOTE_CODE_PROGRAMME}${originalCode} (ligne ${first.programme_ligne_id})`;
+      }
+    } else if (originalCode && originalCode !== numeroLot) {
       await cascadeRenameProductionCode(originalCode, numeroLot);
     }
 
@@ -376,7 +432,7 @@ export async function createEntreeProductionBatchAction(formData: FormData) {
       chambre: chambre || null,
       code_pays: codePays || null,
       source_import: "web:entree-production",
-      note: null,
+      note: noteCodeProgramme,
       utilisateur: currentUser,
     });
   }

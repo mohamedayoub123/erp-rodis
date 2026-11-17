@@ -4,6 +4,8 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { fetchWebMouvementSourceRows } from "../../shared";
 import { EntreeProductionBoard, type EntreeDateGroup, type EntreeDateGroupLigne } from "./entree-production-board";
+import { cleChoix, lireTousLesChoix } from "@/lib/conditionnement-codes-vrac";
+import { repartirQuantite } from "@/lib/repartition-codes-vrac";
 
 type EmballageEntryRow = {
   id: number;
@@ -141,10 +143,14 @@ export default async function EntreeProductionPage() {
   ]);
 
   const ligneIds = [...new Set(pendingEntries.map((entry) => entry.programme_ligne_id))];
-  const [ligneById, rapportById] = await Promise.all([
+  const [ligneById, rapportById, resultatChoix] = await Promise.all([
     fetchLignesInfo(ligneIds),
     fetchRapportsInfo(ligneIds),
+    lireTousLesChoix(),
   ]);
+  // Codes vrac choisis au Conditionnement (Dashboard) : le lot du produit fini est le code vrac CHOISI, pas le code du programme. Table absente
+  // (script SQL pas lance) : aucun choix, tout se passe comme avant.
+  const choixParLigneCode = resultatChoix.ok ? resultatChoix.parLigneCode : new Map();
 
   // Libelle affiche = nom de l'ARTICLE lie a la ligne (celui sur lequel le stock est enregistre a la validation), pas le texte
   // libre "produit" de la ligne de programme qui peut etre un ancien libelle ("Creme Skin Light Rgl" pour CREME SKIN LIGHT RGL 125ML).
@@ -190,7 +196,29 @@ export default async function EntreeProductionPage() {
     // entree jamais resaisie depuis ce changement ET une ligne qui n'a
     // jamais ete decoupee en plusieurs codes (aucune ambiguite dans ce cas).
     const ligneCodes = (ligne?.numero_lot || "").split(",").map((c) => c.trim()).filter(Boolean);
-    const resolvedCode = entry.code || (ligneCodes.length <= 1 ? ligne?.numero_lot || "" : "");
+    const codeProgramme = entry.code || (ligneCodes.length <= 1 ? ligne?.numero_lot || "" : "");
+    const choixLigne = codeProgramme ? choixParLigneCode.get(cleChoix(entry.programme_ligne_id, codeProgramme)) ?? [] : [];
+
+    // Plusieurs codes vrac choisis : UNE ligne de stock par code, les cartons repartis selon les kg choisis (jamais fusionnee avec d'autres
+    // entrees : toutes les lignes soeurs se valident ensemble, voir partageDe)
+    if (choixLigne.length >= 2) {
+      repartirQuantite(Number(entry.quantite), choixLigne).forEach((part, rang) => {
+        group.lignes.push({
+          cle: `${entry.id}~${rang}`,
+          partageDe: entry.id,
+          entryIds: [entry.id],
+          produit: (ligne?.article_id ? nomArticleParId.get(ligne.article_id) : null) || ligne?.produit || "-",
+          numeroLot: part.codeVrac,
+          quantite: part.quantite,
+          dateFabrication: entryDate,
+          datePeremption: rapport?.date_peremption || "",
+          hasArticle: Boolean(ligne?.article_id),
+        });
+      });
+      continue;
+    }
+    // Un seul code vrac choisi : c'est le lot du produit fini
+    const resolvedCode = choixLigne.length === 1 ? choixLigne[0].codeVrac : codeProgramme;
 
     // Plusieurs entrees emballage (des saisies "Entrer" separees) peuvent
     // porter le meme article + code dans la meme date de saisie - fusionne
@@ -205,6 +233,8 @@ export default async function EntreeProductionPage() {
       existingLigne.quantite += Number(entry.quantite);
     } else {
       const nouvelleLigne: DateGroupLigne = {
+        cle: String(entry.id),
+        partageDe: null,
         entryIds: [entry.id],
         produit: (ligne?.article_id ? nomArticleParId.get(ligne.article_id) : null) || ligne?.produit || "-",
         numeroLot: resolvedCode || "-",

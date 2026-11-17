@@ -7,6 +7,7 @@ import { SearchableFilterInput } from "@/app/_components/searchable-filter-input
 import { canDeletePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { SuiviProductionTableBody } from "./suivi-production-table-body";
+import { cleChoix, lireTousLesChoix } from "@/lib/conditionnement-codes-vrac";
 import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
 
 // formatDateTime/dispositionQualiteLabel ont demenage dans
@@ -702,7 +703,18 @@ export default async function SuiviProductionListPage({
     emballageResult.rows
   );
 
-  const codeOptions = [...new Set(allRows.map((row) => row.displayCode))]
+  // Codes VRAC choisis au Conditionnement (Dashboard) : le lot du produit fini. Le code du programme ne vaut que pour le vrac (Fabrication).
+  // Table absente (script SQL pas lance) : rien de plus affiche.
+  const resultatChoix = await lireTousLesChoix();
+  const codesVracParCle: Record<string, { codeVrac: string; quantite: number }[]> = {};
+  if (resultatChoix.ok) {
+    for (const [cle, choix] of resultatChoix.parLigneCode) {
+      codesVracParCle[cle] = choix.map((c) => ({ codeVrac: c.codeVrac, quantite: c.quantite }));
+    }
+  }
+  const codesVracDeLaLigne = (ligneId: number, code: string) => codesVracParCle[cleChoix(ligneId, code)] ?? [];
+
+  const codeOptions = [...new Set([...allRows.map((row) => row.displayCode), ...Object.values(codesVracParCle).flat().map((c) => c.codeVrac)])]
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
     .map((label, id) => ({ id, label }));
   const produitOptions = [...new Set(allRows.map((row) => row.ligne.produit).filter((p): p is string => Boolean(p)))]
@@ -719,7 +731,11 @@ export default async function SuiviProductionListPage({
   }
 
   const rows = allRows.filter((row) => {
-    if (codeFilter && !row.displayCode.toLowerCase().includes(codeFilter)) {
+    if (
+      codeFilter &&
+      !row.displayCode.toLowerCase().includes(codeFilter) &&
+      !codesVracDeLaLigne(row.ligne.id, row.displayCode).some((c) => c.codeVrac.toLowerCase().includes(codeFilter))
+    ) {
       return false;
     }
     if (produitFilter && !matchesArticleSearch(row.ligne.produit, produitFilter)) {
@@ -848,7 +864,8 @@ export default async function SuiviProductionListPage({
                       Article
                     </th>
                     <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
-                      Code
+                      Code (vrac du programme)
+                      <span className="block text-xs font-normal text-slate-500">Lot du produit fini : code vrac choisi au Conditionnement</span>
                     </th>
                     <th rowSpan={2} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-6 py-3 font-semibold align-bottom">
                       Vrac demande
@@ -980,6 +997,7 @@ export default async function SuiviProductionListPage({
                 <SuiviProductionTableBody
                   rows={pagedRows}
                   plCodeByGroupeId={plCodeByGroupeIdObject}
+                  codesVracParCle={codesVracParCle}
                   canDelete={canDelete}
                   initialExpandedByKey={initialExpandedByKey}
                 />

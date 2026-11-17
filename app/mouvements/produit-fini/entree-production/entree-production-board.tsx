@@ -10,6 +10,11 @@ import { createEntreeProductionBatchAction, deletePendingEmballageEntriesAction 
 import { ExtraLignesField } from "./extra-lignes-field";
 
 export type EntreeDateGroupLigne = {
+  // Identifiant unique de la ligne a l'ecran (noms des champs du formulaire) : l'id de la 1re entree, ou "<id>~<rang>" quand l'entree est
+  // repartie sur plusieurs codes vrac choisis au Conditionnement (une ligne de stock par code, voir partageDe)
+  cle: string;
+  // Entree emballage repartie sur plusieurs codes vrac : les lignes soeurs partagent cet id et se valident TOUTES ENSEMBLE
+  partageDe: number | null;
   entryIds: number[];
   produit: string;
   numeroLot: string;
@@ -46,13 +51,22 @@ export function EntreeProductionBoard({
   const [codeFilter, setCodeFilter] = useState("");
   const hasFilters = Boolean(articleFilter.trim() || codeFilter.trim());
 
-  function ligneVisible(ligne: EntreeDateGroupLigne) {
+  function filtreCorrespond(ligne: EntreeDateGroupLigne) {
     if (articleFilter.trim() && !matchesArticleSearch(ligne.produit, articleFilter.trim())) return false;
     if (codeFilter.trim() && !ligne.numeroLot.toLowerCase().includes(codeFilter.trim().toLowerCase())) return false;
     return true;
   }
 
-  const anyGroupVisible = dateGroups.some((group) => group.lignes.some(ligneVisible));
+  // Les lignes d'une entree repartie sur plusieurs codes vrac se valident TOUTES ENSEMBLE : si l'une correspond au filtre, ses soeurs restent
+  // visibles (et donc envoyees avec le formulaire), sinon une validation filtree ne ferait entrer en stock qu'une partie de l'entree.
+  function ligneVisible(ligne: EntreeDateGroupLigne, lignesDuGroupe: EntreeDateGroupLigne[]) {
+    if (ligne.partageDe !== null) {
+      return lignesDuGroupe.some((autre) => autre.partageDe === ligne.partageDe && filtreCorrespond(autre));
+    }
+    return filtreCorrespond(ligne);
+  }
+
+  const anyGroupVisible = dateGroups.some((group) => group.lignes.some((ligne) => ligneVisible(ligne, group.lignes)));
 
   return (
     <>
@@ -102,7 +116,7 @@ export function EntreeProductionBoard({
           ) : null}
 
           {dateGroups.map((group) => {
-            const groupVisibleLignes = group.lignes.filter(ligneVisible);
+            const groupVisibleLignes = group.lignes.filter((ligne) => ligneVisible(ligne, group.lignes));
             const groupHasVisibleLine = groupVisibleLignes.length > 0;
             const allValid = groupVisibleLignes.every((ligne) => ligne.hasArticle);
             const totalQuantite = groupVisibleLignes.reduce((sum, ligne) => sum + Number(ligne.quantite), 0);
@@ -122,10 +136,10 @@ export function EntreeProductionBoard({
                   />
                   {groupVisibleLignes.map((ligne) => (
                     <input
-                      key={ligne.entryIds[0]}
+                      key={ligne.cle}
                       type="hidden"
                       name="merge_group"
-                      value={`${ligne.entryIds[0]}:${ligne.entryIds.join(",")}`}
+                      value={`${ligne.cle}:${ligne.entryIds.join(",")}`}
                     />
                   ))}
 
@@ -171,8 +185,8 @@ export function EntreeProductionBoard({
                       </thead>
                       <tbody>
                         {group.lignes.map((ligne) => {
-                          const representativeId = ligne.entryIds[0];
-                          const visible = ligneVisible(ligne);
+                          const representativeId = ligne.cle;
+                          const visible = ligneVisible(ligne, group.lignes);
                           return (
                             <tr
                               key={representativeId}
@@ -199,6 +213,11 @@ export function EntreeProductionBoard({
                                 {ligne.entryIds.length > 1 ? (
                                   <p className="mt-1 text-[11px] font-semibold text-slate-400">
                                     Total de {ligne.entryIds.length} saisies fusionnees
+                                  </p>
+                                ) : null}
+                                {ligne.partageDe !== null ? (
+                                  <p className="mt-1 max-w-[11rem] text-[11px] font-semibold text-sky-700">
+                                    Part de l&apos;entree repartie sur plusieurs codes vrac (selon les kg choisis) - valide toute l&apos;entree
                                   </p>
                                 ) : null}
                               </td>
@@ -236,7 +255,7 @@ export function EntreeProductionBoard({
                                   <SubmitButton
                                     name="only_entry_id"
                                     value={representativeId}
-                                    disabled={!ligne.hasArticle}
+                                    disabled={!ligne.hasArticle || ligne.partageDe !== null}
                                     pendingLabel="..."
                                     className="rounded-full border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
                                   >
