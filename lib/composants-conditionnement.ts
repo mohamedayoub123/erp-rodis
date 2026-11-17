@@ -82,22 +82,37 @@ export function cartonsAProduireParArticle(params: {
 
 // Pour TOUS les articles commandes (page Manque Articles) : cartons commandes et cartons a produire de chaque article, avec les memes sources
 // que le Tableau de commande (stock PF "comme la page Stock", programmes en cours = Qt en cours de Conditionnement, commandes non livrees).
-export async function calculerCartonsAProduireGlobal(articlesGlobaux: ArticleNomRow[]): Promise<{
+// articleIds (optionnel) : ne lit le stock que des articles (et de leurs homonymes) de cette liste - exact pour eux (le calcul est par nom),
+// beaucoup plus rapide quand on n'affiche qu'un type de produit fini. Renvoie aussi les lignes de commande lues, le nom normalise de chaque
+// article, le stock PF et les programmes en cours par nom.
+export async function calculerCartonsAProduireGlobal(
+  articlesGlobaux: ArticleNomRow[],
+  options?: { articleIds?: Set<number> }
+): Promise<{
+  lignes: { commande_id: number; article_id: number | null; quantite_demandee: number | null }[];
   cartonsParId: Map<number, number>;
+  cleParId: Map<number, string>;
+  stockPfParNom: Map<string, number>;
+  qtEnCoursParNom: Map<string, number>;
   aProduire: (articleId: number) => number;
 }> {
   const lignes = await lireIdsCommandesOuvertes().then((ids) => lireLignes(ids));
   const cartonsParId = cartonsCommandesParArticle(lignes);
   const cleParId = new Map<number, string>();
   for (const article of articlesGlobaux) cleParId.set(article.id, normalizeArticle(String(article.nom_article ?? "")));
-  const clesCommandees = new Set([...cartonsParId.keys()].map((id) => cleParId.get(id) ?? "").filter(Boolean));
+  const idsConcernes = [...cartonsParId.keys()].filter((id) => !options?.articleIds || options.articleIds.has(id));
+  const clesCommandees = new Set(idsConcernes.map((id) => cleParId.get(id) ?? "").filter(Boolean));
   const articlesMemeNom = articlesGlobaux.filter((article) => clesCommandees.has(cleParId.get(article.id) ?? ""));
   const [stockPfParNom, qtEnCoursParNom] = await Promise.all([
     fetchArticleStocksFromStockPage(articlesMemeNom.filter((article) => article.nature !== "vrac")),
     fetchQtEnCoursConditionnementByArticle(),
   ]);
   return {
+    lignes,
     cartonsParId,
+    cleParId,
+    stockPfParNom,
+    qtEnCoursParNom,
     aProduire: cartonsAProduireParArticle({ cartonsParId, cleParId, articlesMemeNom, stockPfParNom, qtEnCoursParNom }),
   };
 }

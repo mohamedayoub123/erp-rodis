@@ -42,6 +42,7 @@ export const navItems: NavItem[] = [
       { href: "/mouvements", label: "Mouvements", pageKey: "mouvementsHub" },
       { href: "/commandes", label: "Commandes", pageKey: "commandesListe" },
       { href: "/tableau-commandes", label: "Tableau cmd", pageKey: "tableauCommandes" },
+      { href: "/tableau-commandes/par-type", label: "Cmd par type", pageKey: "tableauCommandesParType" },
       { href: "/stock-dormant", label: "Dormant", pageKey: "stockDormant" },
       {
         href: "/stock-dormant-sans-commande",
