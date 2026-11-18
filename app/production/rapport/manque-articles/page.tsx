@@ -486,7 +486,6 @@ function ManqueSection({ title, rows, fichier, filtres }: { title: string; rows:
   const lignesExport: LigneExportManque[] = rows.map((row) => ({
     nom: row.nom,
     sousFamille: row.sousFamille,
-    unite: row.unite,
     besoin: row.besoin,
     stock: row.stock,
     manque: row.manque,

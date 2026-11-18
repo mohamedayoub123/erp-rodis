@@ -1,8 +1,11 @@
 import ExcelJS from "exceljs";
 import { nombreDeLignes } from "@/lib/classeur-excel-style";
 
-// Export Excel des tableaux de la page Manque Articles (Manque - Matiere Premiere / Manque - Conditionnement) : les memes colonnes que l'ecran
-// (Article, Sous famille, Unite, Besoin, Stock Depot E, Manque) puis les commandes (BC) et les imports en cours. Mise en forme :
+// Export Excel des tableaux de la page Manque Articles (Manque - Matiere Premiere / Manque - Conditionnement) : les colonnes de l'ecran
+// (Article, Sous famille, Besoin, Stock Depot E, Manque - sans la colonne Unite, voulue absente de l'Excel) puis les commandes (BC) et les
+// imports en cours. Mise en forme :
+//  - une BORDURE visible sur TOUTES les cellules du tableau (titres et lignes) ;
+//  - les TITRES des colonnes sont EN GRAS et plus grands (13) ;
 //  - tout commence en HAUT et a GAUCHE de chaque cellule (le contenu d'une ligne demarre a la meme hauteur, meme quand un BC / import est long) ;
 //  - la colonne MANQUE est en ROUGE (fond rouge clair, texte rouge fonce en gras) ;
 //  - les colonnes de detail BC / Import sont en "renvoyer a la ligne" (texte a la ligne) : un BC ou un import par ligne dans la cellule, la hauteur
@@ -12,7 +15,6 @@ import { nombreDeLignes } from "@/lib/classeur-excel-style";
 export type LigneExportManque = {
   nom: string;
   sousFamille: string;
-  unite: string;
   besoin: number;
   stock: number;
   manque: number;
@@ -35,8 +37,9 @@ const BLANC = "FFFFFFFF";
 const GRIS_CLAIR = "FFF8FAFC"; // slate-50
 const TEXTE = "FF0F172A"; // slate-900
 const GRIS_TEXTE = "FF64748B"; // slate-500
-const BORDURE = "FFCBD5E1"; // slate-300
+const BORDURE = "FF475569"; // slate-600 : bordure bien visible sur TOUTES les cellules du tableau (en-tete compris)
 const ARDOISE = "FF1E293B"; // slate-800
+const TAILLE_TITRE_COLONNE = 13; // titres des colonnes : gras et plus grands que le texte (11)
 const ROUGE_FOND = "FFFEE2E2"; // red-100
 const ROUGE_TEXTE = "FFB91C1C"; // red-700
 
@@ -54,13 +57,12 @@ const formatNombre = (valeur: number) => (Number.isInteger(valeur) ? "#,##0" : "
 const COLONNES: { titre: string; largeur: number }[] = [
   { titre: "Article", largeur: 48 },
   { titre: "Sous famille", largeur: 18 },
-  { titre: "Unite", largeur: 9 },
   { titre: "Besoin", largeur: 14 },
   { titre: "Stock Depot E", largeur: 15 },
   { titre: "Manque", largeur: 14 },
-  { titre: "Commande (BC) en cours - Qt", largeur: 17 },
+  { titre: "Commande (BC) en cours - Qt", largeur: 24 },
   { titre: "Commande (BC) en cours - Detail (BC, Qt, date du BC)", largeur: 52 },
-  { titre: "Import en cours - Qt", largeur: 16 },
+  { titre: "Import en cours - Qt", largeur: 20 },
   { titre: "Import en cours - Detail (dossier, Qt, date de reception prevue)", largeur: 78 },
 ];
 
@@ -84,19 +86,22 @@ export function construireClasseurManque(donnees: DonneesManque): ExcelJS.Workbo
 
   // ----- Titre, sous-titre et filtres -----
   const aujourdhui = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
-  ligneFusionnee(donnees.titre, 26, { bold: true, size: 16, color: { argb: TEXTE } });
+  ligneFusionnee(donnees.titre, 30, { bold: true, size: 18, color: { argb: TEXTE } });
   ligneFusionnee(`${lignes.length} article(s) en manque - au ${aujourdhui}`, 18, { size: 11, color: { argb: GRIS_TEXTE } });
   if (donnees.filtres) ligneFusionnee(`Filtres : ${donnees.filtres}`, 18, { size: 11, bold: true, color: { argb: "FF92400E" } });
   sheet.addRow([]).height = 6;
 
   // ----- En-tete du tableau -----
+  // Titres des colonnes : EN GRAS et en plus grand (13), a la ligne quand ils sont longs (la hauteur suit : un titre plus grand tient sur moins de
+  // caracteres par ligne), bordure sur chaque cellule
   const entete = sheet.addRow(COLONNES.map((colonne) => colonne.titre));
-  entete.height = 34;
+  const lignesEntete = Math.max(...COLONNES.map((colonne) => nombreDeLignes(colonne.titre, Math.floor((colonne.largeur * 11) / TAILLE_TITRE_COLONNE))));
+  entete.height = Math.max(30, lignesEntete * 18 + 10);
   entete.eachCell((cellule) => {
     cellule.fill = rempli(ARDOISE);
-    cellule.font = { bold: true, size: 11, color: { argb: BLANC } };
+    cellule.font = { bold: true, size: TAILLE_TITRE_COLONNE, color: { argb: BLANC } };
     cellule.alignment = { vertical: "top", horizontal: "left", wrapText: true };
-    cellule.border = cadre(ARDOISE);
+    cellule.border = cadre(BORDURE);
   });
 
   // ----- Les articles en manque, dans l'ordre de l'ecran -----
@@ -121,15 +126,14 @@ export function construireClasseurManque(donnees: DonneesManque): ExcelJS.Workbo
     };
     ecrire(1, ligne.nom, { gras: true });
     ecrire(2, ligne.sousFamille || "-");
-    ecrire(3, ligne.unite || "-");
-    ecrire(4, ligne.besoin, { format: formatNombre(ligne.besoin) });
-    ecrire(5, ligne.stock, { format: formatNombre(ligne.stock) });
+    ecrire(3, ligne.besoin, { format: formatNombre(ligne.besoin) });
+    ecrire(4, ligne.stock, { format: formatNombre(ligne.stock) });
     // MANQUE en rouge
-    ecrire(6, ligne.manque, { gras: true, fond: ROUGE_FOND, texte: ROUGE_TEXTE, format: formatNombre(ligne.manque) });
-    ecrire(7, ligne.commandeTotal, { format: formatNombre(ligne.commandeTotal) });
-    ecrire(8, ligne.commandeDetail);
-    ecrire(9, ligne.importTotal, { format: formatNombre(ligne.importTotal) });
-    ecrire(10, ligne.importDetail);
+    ecrire(5, ligne.manque, { gras: true, fond: ROUGE_FOND, texte: ROUGE_TEXTE, format: formatNombre(ligne.manque) });
+    ecrire(6, ligne.commandeTotal, { format: formatNombre(ligne.commandeTotal) });
+    ecrire(7, ligne.commandeDetail);
+    ecrire(8, ligne.importTotal, { format: formatNombre(ligne.importTotal) });
+    ecrire(9, ligne.importDetail);
     row.height = Math.max(20, lignesMax * HAUTEUR_LIGNE + 5);
   });
 
