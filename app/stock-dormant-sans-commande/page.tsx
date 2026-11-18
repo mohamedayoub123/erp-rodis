@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { PersistPageFilters } from "@/app/_components/persist-page-filters";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
+import { ExportDormantButton } from "./export-dormant-button";
 import { DormantTable } from "../stock-dormant/dormant-table";
 import { DormantFilterForm } from "../stock-dormant/filter-form";
 import { matchesArticleSearch } from "@/lib/article-search";
@@ -369,6 +370,31 @@ export default async function StockDormantSansCommandePage({
     8
   );
 
+  // Excel : tous les lots affiches (memes filtres, toutes les pages), meme forme et memes couleurs que l'ecran - voir lib/classeur-dormant.ts
+  const filtresExport = [
+    article ? `Article : ${article}` : "",
+    gamme ? `Gamme : ${gamme}` : "",
+    selectedTypes.length > 0 ? `Type : ${selectedTypes.join(", ")}` : "",
+    couleur ? `Couleur : ${couleur.toUpperCase()}` : "",
+  ]
+    .filter(Boolean)
+    .join(" - ");
+  const donneesExport = {
+    titre: "Stock dormant sans commande - produits finis",
+    filtres: filtresExport,
+    lignes: filteredRows.map((ligne) => ({
+      couleur: ligne.couleur,
+      article: ligne.nom_article,
+      gamme: ligne.gamme,
+      type: ligne.type_article,
+      marque: ligne.marque,
+      lot: ligne.numero_lot,
+      qt: ligne.stock_restant,
+      dateFab: ligne.date_fabrication,
+      ageJours: ligne.age_jours,
+    })),
+  };
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff8ee_0%,#fffdf8_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
       <PersistPageFilters />
@@ -391,6 +417,10 @@ export default async function StockDormantSansCommandePage({
 
           <div className="flex flex-wrap items-center gap-3">
             <BackButton href="/" label="Retour accueil" />
+            <ExportDormantButton
+              donnees={donneesExport}
+              nomFichier={`stock-dormant-sans-commande-pf-${new Date().toISOString().slice(0, 10)}.xlsx`}
+            />
             <RefreshButton />
             <Link
               href="/stock"
