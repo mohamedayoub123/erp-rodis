@@ -2431,11 +2431,16 @@ export async function addFifoLigneForNewArticleAction(
   // ce qui a vraiment ete demande, quel que soit ce qui est ajoute ensuite
   // en resultat FIFO - sinon 200 demandes + 100 ajoutes affichait a tort
   // 300 de demande au lieu de 200 demandes / 300 charges).
+  // Une commande peut avoir PLUSIEURS lignes du meme article (ex : 200 + 50 saisis separement) : sans le tri + limit(1), maybeSingle()
+  // echouait avec "JSON object requested, multiple (or no) rows returned" et on ne pouvait plus ajouter de lot. On rattache a la
+  // premiere ligne (la plus ancienne), celle qui porte deja les resultats FIFO de l'article.
   const { data: existingLigne, error: existingLigneError } = await supabaseServer
     .from("commande_lignes")
     .select("id")
     .eq("commande_id", commandeId)
     .eq("article_id", articleId)
+    .order("id", { ascending: true })
+    .limit(1)
     .maybeSingle();
 
   if (existingLigneError) {
