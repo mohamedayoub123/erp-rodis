@@ -6,7 +6,7 @@ import { deleteAllDispatcherLignesAction } from "../dispatcher-actions";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { DeleteIconButton } from "@/app/_components/delete-icon-button";
-import { formatDate } from "../../production/suivi/data";
+import { buildPdLabelByCode, formatDate } from "../../production/suivi/data";
 import { ZonePrintButton } from "../zone-print-button";
 import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
 import { DispatcherRowEditor } from "../dispatcher-row-editor";
@@ -221,6 +221,9 @@ export default async function RavitailleurParLigneZonePage({
   }
 
   const dataRows = await fetchDispatcherRows(zoneNom);
+  // Numero PD de chaque code (PD1, PD2... : le programme "enregistre" depuis le Dispatcher), imprime dans la colonne PD ; vide tant que le code
+  // n'a pas ete enregistre dans un PD
+  const pdLabelByCode = await buildPdLabelByCode();
   const articleIds = [...new Set(dataRows.map((row) => row.article_id).filter((id): id is number => !!id))];
   const articlesInfo = await fetchArticlesInfo(articleIds);
   const programmesByChaine = countProgrammesByChaine(dataRows);
@@ -254,6 +257,7 @@ export default async function RavitailleurParLigneZonePage({
     "DATE",
     "CHAINE",
     "PRODUIT",
+    "PD",
     "CODE",
     "QT CARTON",
     "QT VRAC",
@@ -351,6 +355,9 @@ export default async function RavitailleurParLigneZonePage({
                       </td>
                       <td className="border border-slate-300 bg-white px-3 py-3">{row.chaine || ""}</td>
                       <td className="border border-slate-300 bg-white px-3 py-3">{row.produit || ""}</td>
+                      <td className="border border-slate-300 bg-white px-3 py-3 font-semibold">
+                        {row.code ? (pdLabelByCode.get(row.code) ?? pdLabelByCode.get(row.code.trim()) ?? "") : ""}
+                      </td>
                       <DispatcherRowEditor
                         id={row.id}
                         initialCode={row.code || ""}

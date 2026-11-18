@@ -4,7 +4,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ZonePrintButton } from "../zone-print-button";
 import { DispatcherSaveAllButton } from "../dispatcher-save-all-button";
-import { formatDate } from "../../production/suivi/data";
+import { buildPdLabelByCode, formatDate } from "../../production/suivi/data";
 import { computePlCodesByGroupeId } from "@/lib/programme-pl-code";
 import { canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { DispatcherRowEditor } from "../dispatcher-row-editor";
@@ -22,6 +22,7 @@ const WIDTH_BY_COLUMN: Record<string, string> = {
   DATE: "6%",
   CHAINE: "7%",
   PRODUIT: "17%",
+  PD: "5%",
   CODE: "8%",
   "QT CARTON": "7%",
   "QT VRAC": "7%",
@@ -222,6 +223,9 @@ export default async function RavitailleurToutesZonesPage() {
   const canEdit = await canWritePageUser(currentUser, "ravitailleurParLigne");
   const validZones = await fetchConditionnementZones();
   const dataRows = await fetchAllDispatcherRows();
+  // Numero PD de chaque code (PD1, PD2... : le programme "enregistre" depuis le Dispatcher), imprime dans la colonne PD ; vide tant que le code
+  // n'a pas ete enregistre dans un PD
+  const pdLabelByCode = await buildPdLabelByCode();
   const articleIds = [...new Set(dataRows.map((row) => row.article_id).filter((id): id is number => !!id))];
   const articlesInfo = await fetchArticlesInfo(articleIds);
   const programmesByChaine = countProgrammesByChaine(dataRows);
@@ -312,6 +316,7 @@ export default async function RavitailleurToutesZonesPage() {
             "DATE",
             "CHAINE",
             "PRODUIT",
+            "PD",
             "CODE",
             "QT CARTON",
             "QT VRAC",
@@ -384,6 +389,9 @@ export default async function RavitailleurToutesZonesPage() {
                             </td>
                             <td className="border border-slate-300 bg-white px-3 py-3">{row.chaine || ""}</td>
                             <td className="border border-slate-300 bg-white px-3 py-3">{row.produit || ""}</td>
+                            <td className="border border-slate-300 bg-white px-3 py-3 font-semibold">
+                              {row.code ? (pdLabelByCode.get(row.code) ?? pdLabelByCode.get(row.code.trim()) ?? "") : ""}
+                            </td>
                             <DispatcherRowEditor
                               id={row.id}
                               initialCode={row.code || ""}
