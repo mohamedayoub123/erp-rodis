@@ -296,7 +296,8 @@ export async function calculerAlerteMpCommandes(options?: {
     nbArticlesAProduire: fabrication.nbArticlesAProduire,
     alertes,
     articlesSansRecette: conditionnement.articles.filter(
-      (article) => article.aProduire > 0 && (article.statutRecette === "sans_recette" || article.statutRecette === "lot_inconnu")
+      (article) =>
+        article.aProduireConditionnement > 0 && (article.statutRecette === "sans_recette" || article.statutRecette === "lot_inconnu")
     ),
     sansVrac: fabrication.sansVrac,
     vracsSansRecetteComplete: fabrication.vracs.filter((vrac) => vrac.kg > 0 && vrac.statutRecette !== "ok"),
