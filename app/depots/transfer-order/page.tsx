@@ -41,6 +41,7 @@ async function lireTable<T>(table: string, colonnes: string): Promise<T[]> {
   );
 }
 
+// Filtres de la liste : De, Vers, Statut (En attente / Approuve / Partiellement fini / Poste), Numero TO, Numero TI, Remarque.
 // Nombre de Transfer Orders affiches d'emblee (le reste avec "Voir tout") : la liste complete (~1 900 lignes)
 // pesait plusieurs Mo a chaque ouverture / filtre.
 const LIMITE_LIGNES = 150;
@@ -83,6 +84,7 @@ type SearchParams = Promise<{
   numeroTo?: string;
   numeroTi?: string;
   remarque?: string;
+  statut?: string;
   avertissement?: string;
   tout?: string;
 }>;
@@ -97,6 +99,7 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
   const numeroToFilter = (params.numeroTo || "").trim().toLowerCase();
   const numeroTiFilter = (params.numeroTi || "").trim().toLowerCase();
   const remarqueFilter = (params.remarque || "").trim().toLowerCase();
+  const statutFilter = (params.statut || "").trim();
   const avertissement = params.avertissement || "";
   const toutAfficher = params.tout === "1";
 
@@ -141,11 +144,18 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
         if (!tiCodes.some((code) => code.toLowerCase().includes(numeroTiFilter))) return false;
       }
       if (remarqueFilter && !(row.remarque || "").toLowerCase().includes(remarqueFilter)) return false;
+      if (statutFilter && row.statut !== statutFilter) return false;
       return true;
     });
   const hasActiveFilter = Boolean(
-    depotSourceFilter || depotDestinationFilter || numeroToFilter || numeroTiFilter || remarqueFilter
+    depotSourceFilter || depotDestinationFilter || numeroToFilter || numeroTiFilter || remarqueFilter || statutFilter
   );
+  // Choix du filtre Statut : les 4 statuts connus, puis tout autre statut present dans les donnees (jamais un TO impossible a retrouver)
+  const statutsInconnus = [...new Set(transferOrders.map((row) => row.statut))].filter((statut) => statut && !(statut in STATUT_LABELS));
+  const statutOptions = [
+    ...Object.entries(STATUT_LABELS).map(([valeur, libelle]) => ({ valeur, libelle })),
+    ...statutsInconnus.map((valeur) => ({ valeur, libelle: valeur })),
+  ];
 
   const versOptions = (articles: { id: number; nom_article: string }[]) =>
     articles
@@ -163,6 +173,7 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
     if (params.numeroTo) query.set("numeroTo", params.numeroTo);
     if (params.numeroTi) query.set("numeroTi", params.numeroTi);
     if (params.remarque) query.set("remarque", params.remarque);
+    if (params.statut) query.set("statut", params.statut);
     query.set("tout", "1");
     return `/depots/transfer-order?${query.toString()}`;
   })();
@@ -245,7 +256,7 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
         ) : null}
 
         <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-          <form className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <form className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <label className="grid gap-1 text-xs font-semibold text-slate-500">
               De
               <select
@@ -272,6 +283,21 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
                 {depots.map((depot) => (
                   <option key={depot.id} value={depot.id}>
                     {depot.nom}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              Statut
+              <select
+                name="statut"
+                defaultValue={statutFilter}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
+              >
+                <option value="">Tous</option>
+                {statutOptions.map((option) => (
+                  <option key={option.valeur} value={option.valeur}>
+                    {option.libelle}
                   </option>
                 ))}
               </select>
@@ -306,7 +332,7 @@ export default async function TransferOrderListPage({ searchParams }: { searchPa
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
               />
             </label>
-            <div className="flex items-end gap-3 sm:col-span-3 lg:col-span-5">
+            <div className="flex items-end gap-3 sm:col-span-3 lg:col-span-6">
               <button type="submit" className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white">
                 Filtrer
               </button>
