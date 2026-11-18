@@ -1,16 +1,21 @@
 import ExcelJS from "exceljs";
 import { nombreDeLignes } from "@/lib/classeur-excel-style";
 
-// Export Excel des tableaux de la page Manque Articles (Manque - Matiere Premiere / Manque - Conditionnement) : les colonnes de l'ecran
-// (Article, Sous famille, Besoin, Stock Depot E, Manque - sans la colonne Unite, voulue absente de l'Excel) puis les commandes (BC) et les
-// imports en cours. Mise en forme :
-//  - une BORDURE visible sur TOUTES les cellules du tableau (titres et lignes) ;
+// Export Excel de la page Manque Articles : UN SEUL fichier, UNE feuille, avec les deux tableaux de l'ecran l'un sous l'autre (Manque - Matiere
+// Premiere puis Manque - Conditionnement) : les colonnes de l'ecran (Article, Sous famille, Besoin, Stock Depot E, Manque - sans la colonne Unite,
+// voulue absente de l'Excel) puis les commandes (BC) et les imports en cours. Mise en forme :
+//  - une BORDURE visible sur TOUTES les cellules des tableaux (titres et lignes) ;
 //  - les TITRES des colonnes sont EN GRAS et plus grands (13) ;
 //  - tout commence en HAUT et a GAUCHE de chaque cellule (le contenu d'une ligne demarre a la meme hauteur, meme quand un BC / import est long) ;
 //  - la colonne MANQUE est en ROUGE (fond rouge clair, texte rouge fonce en gras) ;
+//  - le code d'un BC et le dossier d'un import sont en BLEU, gras, soulignes, comme les liens de l'ERP ; le reste de la ligne en gris ;
 //  - les colonnes de detail BC / Import sont en "renvoyer a la ligne" (texte a la ligne) : un BC ou un import par ligne dans la cellule, la hauteur
 //    de la ligne s'ajuste au nombre de lignes.
 // Charge a la demande par le bouton d'export (exceljs est une bibliotheque lourde).
+
+// Un BC ou un import : son code (le code du BC, le dossier de l'import - en bleu souligne dans l'Excel, comme les liens de l'ERP) puis le reste de la
+// ligne (" - quantite - ...")
+export type DetailExport = { code: string; reste: string };
 
 export type LigneExportManque = {
   nom: string;
@@ -18,19 +23,22 @@ export type LigneExportManque = {
   besoin: number;
   stock: number;
   manque: number;
-  // total a recevoir sur les bons de commande, puis une ligne par BC : "code - quantite - commande du jj-mm-aaaa" ("-" = aucun BC)
+  // total a recevoir sur les bons de commande, puis une ligne par BC : "code - quantite - commande du jj-mm-aaaa" (vide = aucun BC)
   commandeTotal: number;
-  commandeDetail: string;
-  // total en route, puis une ligne par import : "dossier - quantite - statut - import du ... - reception prevue le jj-mm-aaaa" ("-" = aucun import)
+  commandeDetail: DetailExport[];
+  // total en route, puis une ligne par import : "dossier - quantite - statut - import du ... - reception prevue le jj-mm-aaaa" (vide = aucun import)
   importTotal: number;
-  importDetail: string;
+  importDetail: DetailExport[];
 };
+
+// Un tableau de l'ecran ("Manque - Matiere Premiere", "Manque - Conditionnement") ; un tableau sans ligne n'est pas envoye
+export type SectionManque = { titre: string; lignes: LigneExportManque[] };
 
 export type DonneesManque = {
   titre: string;
   // ex : "Sous famille : CAPSULE, CARTON" (vide = aucun filtre)
   filtres: string;
-  lignes: LigneExportManque[];
+  sections: SectionManque[];
 };
 
 const BLANC = "FFFFFFFF";
@@ -42,6 +50,8 @@ const ARDOISE = "FF1E293B"; // slate-800
 const TAILLE_TITRE_COLONNE = 13; // titres des colonnes : gras et plus grands que le texte (11)
 const ROUGE_FOND = "FFFEE2E2"; // red-100
 const ROUGE_TEXTE = "FFB91C1C"; // red-700
+const BLEU_LIEN = "FF0369A1"; // sky-700 : la couleur des codes BC et des dossiers d'import dans l'ERP (liens en bleu, gras, soulignes)
+const GRIS_DETAIL = "FF475569"; // slate-600 : le reste de la ligne d'un BC / import, comme dans l'ERP
 
 const HAUTEUR_LIGNE = 15;
 
@@ -53,6 +63,18 @@ function cadre(argb: string): Partial<ExcelJS.Borders> {
 }
 
 const formatNombre = (valeur: number) => (Number.isInteger(valeur) ? "#,##0" : "#,##0.000");
+
+// Cellule "detail" d'un BC / import : le code en bleu gras souligne (comme dans l'ERP) puis le reste en gris, un BC / import par ligne de la cellule.
+// Renvoie aussi le texte brut, pour calculer la hauteur de la ligne.
+function valeurDetail(details: DetailExport[]): { valeur: string | ExcelJS.CellRichTextValue; texte: string } {
+  if (details.length === 0) return { valeur: "-", texte: "-" };
+  const morceaux: ExcelJS.RichText[] = [];
+  details.forEach((detail, index) => {
+    morceaux.push({ text: detail.code, font: { bold: true, underline: true, size: 11, color: { argb: BLEU_LIEN } } });
+    morceaux.push({ text: detail.reste + (index < details.length - 1 ? "\n" : ""), font: { size: 11, color: { argb: GRIS_DETAIL } } });
+  });
+  return { valeur: { richText: morceaux }, texte: details.map((detail) => detail.code + detail.reste).join("\n") };
+}
 
 const COLONNES: { titre: string; largeur: number }[] = [
   { titre: "Article", largeur: 48 },
@@ -69,7 +91,7 @@ const COLONNES: { titre: string; largeur: number }[] = [
 export function construireClasseurManque(donnees: DonneesManque): ExcelJS.Workbook {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(donnees.titre.slice(0, 31) || "Manque");
-  const { lignes } = donnees;
+  const sections = donnees.sections.filter((section) => section.lignes.length > 0);
   const nbColonnes = COLONNES.length;
   COLONNES.forEach((colonne, index) => {
     sheet.getColumn(index + 1).width = colonne.largeur;
@@ -85,61 +107,95 @@ export function construireClasseurManque(donnees: DonneesManque): ExcelJS.Workbo
   }
 
   // ----- Titre, sous-titre et filtres -----
+  const total = sections.reduce((somme, section) => somme + section.lignes.length, 0);
   const aujourdhui = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
+  const detailSections = sections.map((section) => `${section.titre.replace(/^Manque - /, "")} : ${section.lignes.length}`).join(", ");
   ligneFusionnee(donnees.titre, 30, { bold: true, size: 18, color: { argb: TEXTE } });
-  ligneFusionnee(`${lignes.length} article(s) en manque - au ${aujourdhui}`, 18, { size: 11, color: { argb: GRIS_TEXTE } });
+  ligneFusionnee(`${total} article(s) en manque${detailSections ? ` (${detailSections})` : ""} - au ${aujourdhui}`, 18, {
+    size: 11,
+    color: { argb: GRIS_TEXTE },
+  });
   if (donnees.filtres) ligneFusionnee(`Filtres : ${donnees.filtres}`, 18, { size: 11, bold: true, color: { argb: "FF92400E" } });
   sheet.addRow([]).height = 6;
 
-  // ----- En-tete du tableau -----
   // Titres des colonnes : EN GRAS et en plus grand (13), a la ligne quand ils sont longs (la hauteur suit : un titre plus grand tient sur moins de
   // caracteres par ligne), bordure sur chaque cellule
-  const entete = sheet.addRow(COLONNES.map((colonne) => colonne.titre));
   const lignesEntete = Math.max(...COLONNES.map((colonne) => nombreDeLignes(colonne.titre, Math.floor((colonne.largeur * 11) / TAILLE_TITRE_COLONNE))));
-  entete.height = Math.max(30, lignesEntete * 18 + 10);
-  entete.eachCell((cellule) => {
-    cellule.fill = rempli(ARDOISE);
-    cellule.font = { bold: true, size: TAILLE_TITRE_COLONNE, color: { argb: BLANC } };
-    cellule.alignment = { vertical: "top", horizontal: "left", wrapText: true };
-    cellule.border = cadre(BORDURE);
-  });
+  const hauteurEntete = Math.max(30, lignesEntete * 18 + 10);
+  let premiereEntete = 0;
+  let derniereLigne = 0;
 
-  // ----- Les articles en manque, dans l'ordre de l'ecran -----
-  lignes.forEach((ligne, index) => {
-    const fond = index % 2 === 0 ? BLANC : GRIS_CLAIR;
-    const row = sheet.addRow([]);
-    let lignesMax = 1;
-    const ecrire = (
-      colonne: number,
-      valeur: string | number,
-      options?: { gras?: boolean; texte?: string; fond?: string; format?: string }
-    ) => {
-      const cellule = row.getCell(colonne);
-      cellule.value = valeur;
-      cellule.fill = rempli(options?.fond ?? fond);
-      cellule.font = { bold: options?.gras ?? false, size: 11, color: { argb: options?.texte ?? TEXTE } };
-      // tout commence en haut et a gauche ; texte a la ligne (BC / import longs sur plusieurs lignes)
+  sections.forEach((section, indexSection) => {
+    // ----- Titre du tableau (Manque - Matiere Premiere / Manque - Conditionnement) -----
+    ligneFusionnee(`${section.titre} (${section.lignes.length})`, 24, { bold: true, size: 14, color: { argb: TEXTE } });
+
+    // ----- En-tete du tableau -----
+    const entete = sheet.addRow(COLONNES.map((colonne) => colonne.titre));
+    entete.height = hauteurEntete;
+    entete.eachCell((cellule) => {
+      cellule.fill = rempli(ARDOISE);
+      cellule.font = { bold: true, size: TAILLE_TITRE_COLONNE, color: { argb: BLANC } };
       cellule.alignment = { vertical: "top", horizontal: "left", wrapText: true };
       cellule.border = cadre(BORDURE);
-      if (options?.format) cellule.numFmt = options.format;
-      if (typeof valeur === "string") lignesMax = Math.max(lignesMax, nombreDeLignes(valeur, COLONNES[colonne - 1].largeur));
-    };
-    ecrire(1, ligne.nom, { gras: true });
-    ecrire(2, ligne.sousFamille || "-");
-    ecrire(3, ligne.besoin, { format: formatNombre(ligne.besoin) });
-    ecrire(4, ligne.stock, { format: formatNombre(ligne.stock) });
-    // MANQUE en rouge
-    ecrire(5, ligne.manque, { gras: true, fond: ROUGE_FOND, texte: ROUGE_TEXTE, format: formatNombre(ligne.manque) });
-    ecrire(6, ligne.commandeTotal, { format: formatNombre(ligne.commandeTotal) });
-    ecrire(7, ligne.commandeDetail);
-    ecrire(8, ligne.importTotal, { format: formatNombre(ligne.importTotal) });
-    ecrire(9, ligne.importDetail);
-    row.height = Math.max(20, lignesMax * HAUTEUR_LIGNE + 5);
+    });
+    if (indexSection === 0) premiereEntete = entete.number;
+
+    // ----- Les articles en manque, dans l'ordre de l'ecran -----
+    section.lignes.forEach((ligne, index) => {
+      const fond = index % 2 === 0 ? BLANC : GRIS_CLAIR;
+      const row = sheet.addRow([]);
+      let lignesMax = 1;
+      const ecrire = (
+        colonne: number,
+        valeur: string | number,
+        options?: { gras?: boolean; texte?: string; fond?: string; format?: string }
+      ) => {
+        const cellule = row.getCell(colonne);
+        cellule.value = valeur;
+        cellule.fill = rempli(options?.fond ?? fond);
+        cellule.font = { bold: options?.gras ?? false, size: 11, color: { argb: options?.texte ?? TEXTE } };
+        // tout commence en haut et a gauche ; texte a la ligne (BC / import longs sur plusieurs lignes)
+        cellule.alignment = { vertical: "top", horizontal: "left", wrapText: true };
+        cellule.border = cadre(BORDURE);
+        if (options?.format) cellule.numFmt = options.format;
+        if (typeof valeur === "string") lignesMax = Math.max(lignesMax, nombreDeLignes(valeur, COLONNES[colonne - 1].largeur));
+      };
+      // Colonnes BC / Import : code en bleu gras souligne + reste en gris, texte a la ligne, meme cadre et meme alignement que les autres cellules
+      const ecrireDetail = (colonne: number, details: DetailExport[]) => {
+        const { valeur, texte } = valeurDetail(details);
+        const cellule = row.getCell(colonne);
+        cellule.value = valeur;
+        cellule.fill = rempli(fond);
+        cellule.font = { size: 11, color: { argb: TEXTE } };
+        cellule.alignment = { vertical: "top", horizontal: "left", wrapText: true };
+        cellule.border = cadre(BORDURE);
+        lignesMax = Math.max(lignesMax, nombreDeLignes(texte, COLONNES[colonne - 1].largeur));
+      };
+      ecrire(1, ligne.nom, { gras: true });
+      ecrire(2, ligne.sousFamille || "-");
+      ecrire(3, ligne.besoin, { format: formatNombre(ligne.besoin) });
+      ecrire(4, ligne.stock, { format: formatNombre(ligne.stock) });
+      // MANQUE en rouge
+      ecrire(5, ligne.manque, { gras: true, fond: ROUGE_FOND, texte: ROUGE_TEXTE, format: formatNombre(ligne.manque) });
+      ecrire(6, ligne.commandeTotal, { format: formatNombre(ligne.commandeTotal) });
+      ecrireDetail(7, ligne.commandeDetail);
+      ecrire(8, ligne.importTotal, { format: formatNombre(ligne.importTotal) });
+      ecrireDetail(9, ligne.importDetail);
+      row.height = Math.max(20, lignesMax * HAUTEUR_LIGNE + 5);
+      derniereLigne = row.number;
+    });
+
+    // Espace entre deux tableaux
+    if (indexSection < sections.length - 1) sheet.addRow([]).height = 14;
   });
 
-  // En-tete fige, filtre automatique sur le tableau, impression en paysage sur la largeur d'une page avec l'en-tete repete
-  sheet.views = [{ state: "frozen", xSplit: 0, ySplit: entete.number, showGridLines: false }];
-  if (lignes.length > 0) sheet.autoFilter = { from: { row: entete.number, column: 1 }, to: { row: entete.number + lignes.length, column: nbColonnes } };
+  // Un seul tableau : en-tete fige, filtre automatique et en-tete repete a l'impression ; deux tableaux l'un sous l'autre : ni filtre ni en-tete fige
+  // (un filtre Excel ne couvre qu'une seule plage)
+  sheet.views = [{ state: "normal", showGridLines: false }];
+  if (sections.length === 1) {
+    sheet.views = [{ state: "frozen", xSplit: 0, ySplit: premiereEntete, showGridLines: false }];
+    sheet.autoFilter = { from: { row: premiereEntete, column: 1 }, to: { row: derniereLigne, column: nbColonnes } };
+  }
   sheet.pageSetup = {
     orientation: "landscape",
     paperSize: 9,
@@ -147,7 +203,7 @@ export function construireClasseurManque(donnees: DonneesManque): ExcelJS.Workbo
     fitToWidth: 1,
     fitToHeight: 0,
     margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
-    printTitlesRow: `${entete.number}:${entete.number}`,
+    ...(sections.length === 1 ? { printTitlesRow: `${premiereEntete}:${premiereEntete}` } : {}),
   };
 
   return workbook;

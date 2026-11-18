@@ -4,7 +4,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { ExportManqueButton } from "./export-manque-button";
-import type { LigneExportManque } from "@/lib/classeur-manque-articles";
+import type { DetailExport, LigneExportManque, SectionManque } from "@/lib/classeur-manque-articles";
 import { supabaseServer } from "@/lib/supabase-server";
 import { calculerCartonsAProduireGlobal } from "@/lib/composants-conditionnement";
 import { calculerDeductionTiProgrammes, type DeductionTiMp } from "@/lib/ti-programmes";
@@ -20,7 +20,12 @@ import { formatDate } from "@/lib/format-date";
 import { CellulesArrivagesMp } from "@/app/_components/besoin-arrivages-cellules";
 import { fetchStockActuelMpDepotE, type StockActuelMpRow } from "../../../stock/matiere-premiere/rapport/capacite-conditionnement/capacite-lib";
 
-type SearchParams = Promise<{ sousFamille?: string | string[] }>;
+type SearchParams = Promise<{ sousFamille?: string | string[]; gamme?: string | string[] }>;
+
+// Gamme d'un article, ecrite de plusieurs facons dans les donnees ("bb clear", "BB Clear ", "BB CLEAR") : sans espaces en trop, en majuscules
+function cleGamme(gamme: string | null | undefined): string {
+  return String(gamme ?? "").trim().replace(/\s+/g, " ").toUpperCase() || "SANS GAMME";
+}
 
 type ArticleRow = {
   id: number;
@@ -95,30 +100,23 @@ export type ManqueRow = {
   importTotal: number;
 };
 
-// Texte Excel d'un BC : "code - quantite - commande du jj-mm-aaaa", un BC par ligne de la cellule (la cellule renvoie a la ligne)
-function texteBc(commandes: CommandeEnCours[]) {
-  return commandes.length === 0
-    ? "-"
-    : commandes
-        .map(
-          (commande) =>
-            `${commande.code} - ${commande.quantite}${commande.dateCommande ? ` - commande du ${formatDate(commande.dateCommande)}` : " - date de commande non renseignee"}`
-        )
-        .join("\n");
+// Excel : un BC = son code (en bleu dans le fichier, comme le lien de l'ERP) puis " - quantite - commande du jj-mm-aaaa", un BC par ligne de la cellule
+function detailBc(commandes: CommandeEnCours[]): DetailExport[] {
+  return commandes.map((commande) => ({
+    code: commande.code,
+    reste: ` - ${commande.quantite}${commande.dateCommande ? ` - commande du ${formatDate(commande.dateCommande)}` : " - date de commande non renseignee"}`,
+  }));
 }
 
-// Texte Excel d'un import : "dossier - quantite - statut - import du ... - reception prevue le jj-mm-aaaa", un import par ligne de la cellule
-function texteImport(imports: ImportEnCours[]) {
-  return imports.length === 0
-    ? "-"
-    : imports
-        .map(
-          (transit) =>
-            `${transit.nDoss4d || transit.nDossErp || "Sans dossier"} - ${transit.quantite}${transit.statutDossier ? ` - ${transit.statutDossier}` : ""}${
-              transit.dateImport ? ` - import du ${formatDate(transit.dateImport)}` : ""
-            }${transit.datePrevueReception ? ` - reception prevue le ${formatDate(transit.datePrevueReception)}` : " - date de reception prevue non renseignee"}`
-        )
-        .join("\n");
+// Excel : un import = son dossier (en bleu dans le fichier) puis " - quantite - statut - import du ... - reception prevue le jj-mm-aaaa", un import par
+// ligne de la cellule
+function detailImport(imports: ImportEnCours[]): DetailExport[] {
+  return imports.map((transit) => ({
+    code: transit.nDoss4d || transit.nDossErp || "Sans dossier",
+    reste: ` - ${transit.quantite}${transit.statutDossier ? ` - ${transit.statutDossier}` : ""}${
+      transit.dateImport ? ` - import du ${formatDate(transit.dateImport)}` : ""
+    }${transit.datePrevueReception ? ` - reception prevue le ${formatDate(transit.datePrevueReception)}` : " - date de reception prevue non renseignee"}`,
+  }));
 }
 
 // Article fini dont le besoin en conditionnement ne peut pas etre calcule : pas de formule (Recette Conditionnement) ou formule sans
@@ -138,6 +136,11 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   const sousFamilleFilter = new Set(
     Array.isArray(params.sousFamille) ? params.sousFamille : params.sousFamille ? [params.sousFamille] : []
   );
+  // Filtre Gamme : le besoin ne compte que les commandes des articles finis de ces gammes (le stock Depot E reste le meme) ; sans filtre, toutes
+  const gammeFilter = new Set(
+    (Array.isArray(params.gamme) ? params.gamme : params.gamme ? [params.gamme] : []).map((gamme) => cleGamme(gamme))
+  );
+  const gammeActive = gammeFilter.size > 0;
 
   // Meme calcul que les colonnes "articles de conditionnement" du Tableau de commande (lib/composants-conditionnement.ts) : toutes les
   // commandes non livrees (En cours, Stand, BL transforme), cartons A PRODUIRE = commande - stock produit fini ("comme la page Stock", les
@@ -169,7 +172,13 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
     calculError = e instanceof Error ? e.message : "Calcul des cartons a produire impossible.";
   }
   const quantiteParArticle = cartonsParId;
-  const finishedArticleIds = [...quantiteParArticle.keys()];
+  // Gammes proposees : celles des articles commandes (une gamme ecrite de plusieurs facons n'est proposee qu'une fois)
+  const gammeParArticle = new Map(articlesTous.map((article) => [article.id, cleGamme(article.gamme)]));
+  const gammeOptions = [...new Set([...quantiteParArticle.keys()].map((id) => gammeParArticle.get(id) ?? "SANS GAMME"))].sort((a, b) =>
+    a.localeCompare(b, "fr", { sensitivity: "base", numeric: true })
+  );
+  const articleDansLaGamme = (articleId: number) => !gammeActive || gammeFilter.has(gammeParArticle.get(articleId) ?? "SANS GAMME");
+  const finishedArticleIds = [...quantiteParArticle.keys()].filter(articleDansLaGamme);
 
   const { rows: articlesFinisRaw, error: articlesFinisError } =
     finishedArticleIds.length > 0
@@ -205,7 +214,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   const besoinParMp = new Map<number, number>();
   // Besoin des articles de conditionnement avant la deduction des TI (voir plus bas)
   const besoinConditionnementParMp = new Map<number, number>();
-  for (const [articleId] of quantiteParArticle.entries()) {
+  for (const articleId of finishedArticleIds) {
     const article = articleById.get(articleId);
     const totalCartonsNet = aProduire(articleId);
     const cartonsConditionnement = aProduireConditionnement(articleId);
@@ -246,7 +255,8 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   let tiParMp = new Map<number, DeductionTiMp>();
   let tiIndisponible = false;
   try {
-    tiParMp = await calculerDeductionTiProgrammes();
+    // avec un filtre Gamme : seuls les programmes des articles de ces gammes comptent pour la deduction
+    tiParMp = await calculerDeductionTiProgrammes(gammeActive ? { articleIds: new Set(finishedArticleIds) } : undefined);
   } catch {
     tiIndisponible = true;
   }
@@ -332,6 +342,8 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   const sansFormule: SansFormuleRow[] = [];
   for (const article of articlesTous) {
     if (article.nature === "vrac") continue;
+    // avec un filtre Gamme : seulement les articles de ces gammes
+    if (!articleDansLaGamme(article.id)) continue;
     const commande = quantiteParArticle.get(article.id) ?? 0;
     let motif: string | null = null;
     if (!avecFormule.has(article.id)) motif = "Pas de formule de conditionnement";
@@ -382,8 +394,19 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   const aucunManqueApresFiltre =
     !errorMessage && !aucunManqueDuTout && manqueMp.length === 0 && manqueConditionnement.length === 0;
   const dateDuJour = new Date().toISOString().slice(0, 10);
-  // Filtre "Sous famille" rappele dans l'Excel (vide = aucun filtre) : l'export contient exactement les lignes affichees
-  const filtresTexte = sousFamilleFilter.size > 0 ? `Sous famille : ${[...sousFamilleFilter].join(", ")}` : "";
+  // Filtres Gamme / Sous famille rappeles dans l'Excel (vide = aucun filtre) : l'export contient exactement les lignes affichees
+  const filtresTexte = [
+    gammeActive ? `Gamme : ${[...gammeFilter].join(", ")} (besoin des commandes de ces gammes seulement)` : "",
+    sousFamilleFilter.size > 0 ? `Sous famille : ${[...sousFamilleFilter].join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join(" - ");
+  // UN SEUL fichier Excel pour la page : les deux tableaux (matiere premiere puis conditionnement) l'un sous l'autre, voir lib/classeur-manque-articles.ts
+  const sectionsExcel: SectionManque[] = [
+    { titre: "Manque - Matiere Premiere", lignes: lignesPourExcel(manqueMp) },
+    { titre: "Manque - Conditionnement", lignes: lignesPourExcel(manqueConditionnement) },
+  ];
+  const excelDisponible = !errorMessage && manqueMp.length + manqueConditionnement.length > 0;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -399,38 +422,65 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
                 (flacon, capsule, etiquette...), un programme en cours ne fait pas disparaitre le besoin : seuls le stock produit fini, les
                 cartons deja emballes et les TI deja faits de Depot E vers Depot B pour les programmes en cours (retrouves par le numero MB du
                 programme, dans la remarque du TO) sont deduits de la demande. Seuls les articles en manque sont affiches, avec les commandes (BC) et les imports
-                en cours (quantite, date du BC, date de reception prevue). Les articles sans formule de conditionnement sont listes en bas de
-                page.
+                en cours (quantite, date du BC, date de reception prevue). Avec un filtre Gamme, le besoin ne compte que les commandes des
+                articles de ces gammes (le stock Depot E reste le meme). L&apos;icone Excel exporte les deux tableaux dans un seul fichier. Les
+                articles sans formule de conditionnement sont listes en bas de page.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
               <BackButton href="/production/rapport" label="Retour rapport" />
               <RefreshButton />
+              {excelDisponible ? (
+                <ExportManqueButton
+                  donnees={{ titre: "Manque Articles", filtres: filtresTexte, sections: sectionsExcel }}
+                  nomFichier={`manque-articles-${dateDuJour}.xlsx`}
+                />
+              ) : null}
             </div>
           </div>
         </section>
 
-        {sousFamilleOptions.length > 0 ? (
+        {sousFamilleOptions.length > 0 || gammeOptions.length > 0 ? (
           <section className="rounded-[1.75rem] border border-black/5 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
             <form className="grid gap-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sous famille</p>
-              <div className="flex flex-wrap gap-3">
-                {sousFamilleOptions.map((option) => (
-                  <label
-                    key={option}
-                    className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-700"
-                  >
-                    <input
-                      type="checkbox"
-                      name="sousFamille"
-                      value={option}
-                      defaultChecked={sousFamilleFilter.has(option)}
-                    />
-                    {option}
-                  </label>
-                ))}
-              </div>
+              {gammeOptions.length > 0 ? (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Gamme</p>
+                  <div className="flex flex-wrap gap-3">
+                    {gammeOptions.map((option) => (
+                      <label
+                        key={option}
+                        className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-700"
+                      >
+                        <input type="checkbox" name="gamme" value={option} defaultChecked={gammeFilter.has(option)} />
+                        {option}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              {sousFamilleOptions.length > 0 ? (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sous famille</p>
+                  <div className="flex flex-wrap gap-3">
+                    {sousFamilleOptions.map((option) => (
+                      <label
+                        key={option}
+                        className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-700"
+                      >
+                        <input
+                          type="checkbox"
+                          name="sousFamille"
+                          value={option}
+                          defaultChecked={sousFamilleFilter.has(option)}
+                        />
+                        {option}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              ) : null}
               <div className="flex items-center gap-3">
                 <button
                   type="submit"
@@ -438,7 +488,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
                 >
                   Filtrer
                 </button>
-                {sousFamilleFilter.size > 0 ? (
+                {sousFamilleFilter.size > 0 || gammeActive ? (
                   <Link
                     href="/production/rapport/manque-articles"
                     className="rounded-2xl border border-slate-200 px-5 py-3 text-center text-sm font-semibold text-slate-700"
@@ -461,7 +511,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
           </div>
         ) : aucunManqueApresFiltre ? (
           <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-semibold text-amber-800">
-            Aucun manque pour les sous-familles selectionnees.
+            Aucun manque pour les filtres selectionnes.
           </div>
         ) : (
           <>
@@ -476,18 +526,8 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
                 grand). Recharge la page.
               </div>
             ) : null}
-            <ManqueSection
-              title="Manque - Matiere Premiere"
-              rows={manqueMp}
-              fichier={`manque-matiere-premiere-${dateDuJour}.xlsx`}
-              filtres={filtresTexte}
-            />
-            <ManqueSection
-              title="Manque - Conditionnement"
-              rows={manqueConditionnement}
-              fichier={`manque-conditionnement-${dateDuJour}.xlsx`}
-              filtres={filtresTexte}
-            />
+            <ManqueSection title="Manque - Matiere Premiere" rows={manqueMp} />
+            <ManqueSection title="Manque - Conditionnement" rows={manqueConditionnement} />
           </>
         )}
 
@@ -503,28 +543,29 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   );
 }
 
-function ManqueSection({ title, rows, fichier, filtres }: { title: string; rows: ManqueRow[]; fichier: string; filtres: string }) {
-  if (rows.length === 0) return null;
-
-  // Excel (voir lib/classeur-manque-articles.ts) : les quantites sont de vrais nombres (0 = rien en cours), le detail des BC / imports est un
-  // texte avec les dates, un BC / import par ligne de la cellule
-  const lignesExport: LigneExportManque[] = rows.map((row) => ({
+// Lignes d'un tableau pour l'Excel (voir lib/classeur-manque-articles.ts) : les quantites sont de vrais nombres (0 = rien en cours), les BC / imports
+// sont des listes (code + reste de la ligne, avec les dates), un BC / import par ligne de la cellule
+function lignesPourExcel(rows: ManqueRow[]): LigneExportManque[] {
+  return rows.map((row) => ({
     nom: row.nom,
     sousFamille: row.sousFamille,
     besoin: row.besoin,
     stock: row.stock,
     manque: row.manque,
     commandeTotal: row.commandeTotal,
-    commandeDetail: texteBc(row.commandes),
+    commandeDetail: detailBc(row.commandes),
     importTotal: row.importTotal,
-    importDetail: texteImport(row.imports),
+    importDetail: detailImport(row.imports),
   }));
+}
+
+function ManqueSection({ title, rows }: { title: string; rows: ManqueRow[] }) {
+  if (rows.length === 0) return null;
 
   return (
     <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
       <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
         <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-        <ExportManqueButton donnees={{ titre: title, filtres, lignes: lignesExport }} nomFichier={fichier} />
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
