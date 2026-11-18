@@ -43,7 +43,7 @@ export type ProformaSaisie = {
 // couvert_stock : tout est deja en stock PF, rien a produire donc pas de recette a verifier
 export type StatutRecette = "ok" | "sans_recette" | "lot_inconnu" | "couvert_stock";
 
-// Type d'un article de conditionnement (categorie de l'article MP) : sert a ranger les cosmetiques avant les plastiques
+// Type d'un article de conditionnement (categorie de l'article MP) : sert a ranger les plastiques avant les cosmetiques
 export type TypeConditionnement = "cosmetique" | "plastique" | "autre";
 
 export type ArticleCommande = {
@@ -180,6 +180,12 @@ export function typeConditionnement(categorie: string | null | undefined): TypeC
   if (texte.includes("PLASTIQUE")) return "plastique";
   if (texte.includes("CONDITIONNEMENT") && texte.includes("COSMETIQUE")) return "cosmetique";
   return "autre";
+}
+
+// Ordre d'affichage des articles de conditionnement : d'abord tous les PLASTIQUES (capsules, pompes, flacons, pots...), puis les COSMETIQUES
+// (cartons, sleeves, etiquettes, etuis...), puis les autres. Partage par Besoin Conditionnement et Manque Articles.
+export function rangTypeConditionnement(type: TypeConditionnement): number {
+  return type === "plastique" ? 0 : type === "cosmetique" ? 1 : 2;
 }
 
 // Attribue le stock aux commandes dans l'ordre (la plus ancienne d'abord) et rend, pour chacune, les cartons NON couverts.
@@ -774,9 +780,10 @@ export async function calculerBesoinDepuisProformas(
     };
   });
   // Par couleur : non couverts d'abord, puis en manque couverts par une commande / un import, puis le reste. Dans chaque
-  // couleur : les articles de conditionnement cosmetique, puis les plastiques (sans les melanger), puis les autres.
+  // couleur : d'abord tous les articles de conditionnement PLASTIQUE, puis les articles de conditionnement COSMETIQUE (sans les melanger),
+  // puis les autres.
   const rangBesoin = (besoin: BesoinArticleConditionnement) => (besoin.resteACouvrir > 0 ? 0 : besoin.manque > 0 ? 1 : 2);
-  const rangType = (type: TypeConditionnement) => (type === "cosmetique" ? 0 : type === "plastique" ? 1 : 2);
+  const rangType = (type: TypeConditionnement) => rangTypeConditionnement(type);
   besoins.sort(
     (a, b) =>
       rangBesoin(a) - rangBesoin(b) ||

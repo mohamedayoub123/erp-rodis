@@ -205,7 +205,7 @@ function Resultat({
                 en cours : la meme &quot;Qt en cours de Conditionnement&quot; que le Tableau de commande) ; il reste le besoin a
                 produire. Comme le RESTE du Tableau de commande, le stock PF est partage entre toutes les commandes (la plus
                 ancienne d&apos;abord), pas retire en entier de ces proformas. Dans chaque couleur, les articles de
-                conditionnement cosmetique sont avant les plastiques. Stock = stock du Depot E seulement (le seul utilisable pour conditionner : le stock des autres depots, Depot B,
+                conditionnement plastique sont avant les cosmetiques. Stock = stock du Depot E seulement (le seul utilisable pour conditionner : le stock des autres depots, Depot B,
                 Depot F..., ne compte pas). Commande (BC) = ce qu&apos;il reste a recevoir sur les bons de commande en cours ;
                 Import = ce qui est en route et pas encore receptionne. Le reste a recevoir d&apos;un BC deduit deja ce qui
                 est importe : commande et import ne se comptent jamais deux fois.

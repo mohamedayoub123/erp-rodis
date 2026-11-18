@@ -5,7 +5,14 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { supabaseServer } from "@/lib/supabase-server";
 import { calculerCartonsAProduireGlobal } from "@/lib/composants-conditionnement";
-import { lireArrivagesMp, type Arrivages, type CommandeEnCours, type ImportEnCours } from "@/lib/besoin-conditionnement-proforma";
+import {
+  lireArrivagesMp,
+  rangTypeConditionnement,
+  typeConditionnement,
+  type Arrivages,
+  type CommandeEnCours,
+  type ImportEnCours,
+} from "@/lib/besoin-conditionnement-proforma";
 import { formatDate } from "@/lib/format-date";
 import { CellulesArrivagesMp } from "@/app/_components/besoin-arrivages-cellules";
 import { fetchStockActuelMpDepotE, type StockActuelMpRow } from "../../../stock/matiere-premiere/rapport/capacite-conditionnement/capacite-lib";
@@ -242,6 +249,8 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
 
   const manqueMpToutes: ManqueRow[] = [];
   const manqueConditionnementToutes: ManqueRow[] = [];
+  // Rang de chaque article de conditionnement : d'abord tous les PLASTIQUES, puis les COSMETIQUES, puis les autres (voir rangTypeConditionnement)
+  const rangConditionnement = new Map<number, number>();
   for (const mpId of mpIds) {
     const stockInfo = stockById.get(mpId);
     const besoin = besoinParMp.get(mpId) ?? 0;
@@ -266,6 +275,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
       importTotal: 0,
     };
     (estChimique ? manqueMpToutes : manqueConditionnementToutes).push(row);
+    if (!estChimique) rangConditionnement.set(mpId, rangTypeConditionnement(typeConditionnement(stockInfo?.categorie)));
   }
 
   // Commandes (BC) en cours et imports en transit des articles en manque : quantite, date du BC et date de reception prevue des imports. Un souci
@@ -285,7 +295,11 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   }
 
   manqueMpToutes.sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
-  manqueConditionnementToutes.sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
+  manqueConditionnementToutes.sort(
+    (a, b) =>
+      (rangConditionnement.get(a.id) ?? 2) - (rangConditionnement.get(b.id) ?? 2) ||
+      a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" })
+  );
 
   // Articles finis sans formule de conditionnement (Recette Conditionnement : aucune ligne avec une quantite > 0), ou avec une formule mais sans
   // quantite de recette de base (non calcules, voir plus haut). Ceux qui ont des commandes en cours d'abord : leur besoin en sleeve, capsule...
