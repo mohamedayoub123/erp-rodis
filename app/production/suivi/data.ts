@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { supabaseServer } from "@/lib/supabase-server";
 import { codesNumerotes } from "@/lib/document-numbers";
 
@@ -23,6 +24,8 @@ export type ProgrammeLigneRow = {
   numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
   programme_termine: boolean;
   programme_termine_date: string | null;
+  // "MB6598/AYOUB" : numero MB du programme (le meme numero est dans la remarque des Transfer Orders, ex "PLASTIQUE MB-6598"), puis qui l'a cree
+  programe: string | null;
 };
 
 export type CartonEntryRow = {
@@ -78,7 +81,7 @@ export async function fetchAllProgrammeLignes(options?: {
     let query = supabaseServer
       .from("programme_lignes")
       .select(
-        "id, groupe_id, zone, chaine, article_id, produit, qt_carton, vrac_a_fabriquer, plateforme, date_jour, created_at, vrac_termine, vrac_termine_date, carton_termine, carton_termine_date, emballage_termine, emballage_termine_date, numero_lot, numero_lot_detail, programme_termine, programme_termine_date"
+        "id, groupe_id, zone, chaine, article_id, produit, qt_carton, vrac_a_fabriquer, plateforme, date_jour, created_at, vrac_termine, vrac_termine_date, carton_termine, carton_termine_date, emballage_termine, emballage_termine_date, numero_lot, numero_lot_detail, programme_termine, programme_termine_date, programe"
       )
       // Lignes marquees "erreur de saisie" (voir scripts/sql/exclude_pd1_pd2_bad_data.sql)
       // - masquees des rapports/suivi sans rien supprimer (stock et
@@ -548,8 +551,27 @@ export async function fetchRestantConditionnementEmballageByArticle(): Promise<M
 // programme en cours (Commandes par type, Stock restant par type). fetchRestantConditionnementEmballageByArticle en est la somme par article.
 export type RestantParCode = { articleKey: string; code: string; ligneId: number; restant: number };
 
-export async function fetchRestantConditionnementEmballageParCode(): Promise<RestantParCode[]> {
-  const details: RestantParCode[] = [];
+// Avancement de chaque CODE de chaque ligne de programme en cours (programme confirme, pas termine), restant ou non : c'est la lecture unique dont
+// partent le "reste a conditionner / emballer" ci-dessous ET le calcul des TI deja faits pour un programme (lib/ti-programmes.ts) - memoisee le temps
+// d'une requete (cache de React), donc lue une seule fois meme quand une page utilise les deux. cartonRestant / emballageRestant sont les restants
+// EFFECTIFS : 0 quand le code est termine a cette etape ou quand il reste moins de 1.
+export type AvancementCode = {
+  ligneId: number;
+  articleId: number | null;
+  articleKey: string;
+  programe: string | null;
+  // date de production de la ligne (programme_lignes.date_jour, "aaaa-mm-jj")
+  dateJour: string;
+  code: string;
+  cartonPrevu: number;
+  cartonProduit: number;
+  cartonTermine: boolean;
+  cartonRestant: number;
+  emballageRestant: number;
+};
+
+export const lireAvancementProgrammes = cache(async (): Promise<AvancementCode[]> => {
+  const details: AvancementCode[] = [];
 
   const { rows: allLignes } = await fetchAllProgrammeLignes({ activeOnly: true, confirmedOnly: true });
   const activeLigneIds = allLignes.map((ligne) => ligne.id);
@@ -630,26 +652,41 @@ export async function fetchRestantConditionnementEmballageParCode(): Promise<Res
       const emballageProduit = emballageProduitByCode.get(code) ?? 0;
       const emballageRestant = emballagePrevu - emballageProduit;
 
-      let restant = 0;
+      const cartonTermine = isCodeTerminated(ligne.id, code, "carton", codes.length, ligne.carton_termine);
+      details.push({
+        ligneId: ligne.id,
+        articleId: ligne.article_id,
+        articleKey,
+        programe: ligne.programe ?? null,
+        dateJour: ligne.date_jour,
+        code,
+        cartonPrevu,
+        cartonProduit,
+        cartonTermine,
+        cartonRestant: !cartonTermine && cartonRestant >= 1 ? cartonRestant : 0,
+        emballageRestant:
+          !isCodeTerminated(ligne.id, code, "emballage", codes.length, ligne.emballage_termine) &&
+          emballagePrevu > 0 &&
+          emballageRestant >= 1
+            ? emballageRestant
+            : 0,
+      });
+    }
+  }
 
-      if (
-        !isCodeTerminated(ligne.id, code, "carton", codes.length, ligne.carton_termine) &&
-        cartonRestant >= 1
-      ) {
-        restant += cartonRestant;
-      }
+  return details;
+});
 
-      if (
-        !isCodeTerminated(ligne.id, code, "emballage", codes.length, ligne.emballage_termine) &&
-        emballagePrevu > 0 &&
-        emballageRestant >= 1
-      ) {
-        restant += emballageRestant;
-      }
+export async function fetchRestantConditionnementEmballageParCode(): Promise<RestantParCode[]> {
+  const details: RestantParCode[] = [];
 
-      if (restant > 0) {
-        details.push({ articleKey, code, ligneId: ligne.id, restant });
-      }
+  // Memes additions, dans le meme ordre, que quand le calcul etait fait ici : le total par article ne change pas
+  for (const avancement of await lireAvancementProgrammes()) {
+    let restant = 0;
+    if (avancement.cartonRestant > 0) restant += avancement.cartonRestant;
+    if (avancement.emballageRestant > 0) restant += avancement.emballageRestant;
+    if (restant > 0) {
+      details.push({ articleKey: avancement.articleKey, code: avancement.code, ligneId: avancement.ligneId, restant });
     }
   }
 

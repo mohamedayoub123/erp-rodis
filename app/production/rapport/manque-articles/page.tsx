@@ -7,6 +7,7 @@ import { ExportManqueButton } from "./export-manque-button";
 import type { LigneExportManque } from "@/lib/classeur-manque-articles";
 import { supabaseServer } from "@/lib/supabase-server";
 import { calculerCartonsAProduireGlobal } from "@/lib/composants-conditionnement";
+import { calculerDeductionTiProgrammes, type DeductionTiMp } from "@/lib/ti-programmes";
 import {
   lireArrivagesMp,
   rangTypeConditionnement,
@@ -202,6 +203,8 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   // Tableau de commande, un article dont la quantite de recette de base est absente n'est pas calcule : il est signale plus bas dans la liste
   // "Articles sans formule de conditionnement" (au lieu de compter la recette pour 1 carton).
   const besoinParMp = new Map<number, number>();
+  // Besoin des articles de conditionnement avant la deduction des TI (voir plus bas)
+  const besoinConditionnementParMp = new Map<number, number>();
   for (const [articleId] of quantiteParArticle.entries()) {
     const article = articleById.get(articleId);
     const totalCartonsNet = aProduire(articleId);
@@ -213,7 +216,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
     const ratioCarton = cartonsConditionnement / Number(article?.quantite_recette_base);
     if (cartonsConditionnement > 0.000001) {
       for (const r of recettes.filter((r) => r.article_pf_id === articleId && Number(r.quantite) > 0)) {
-        besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioCarton);
+        besoinConditionnementParMp.set(r.article_mp_id, (besoinConditionnementParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioCarton);
       }
     }
 
@@ -235,6 +238,21 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
         besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioVrac);
       }
     }
+  }
+
+  // TI deja faits (Depot E vers Depot B) pour les programmes en cours : ce qui est deja sorti pour un programme et pas encore consomme est deduit
+  // du besoin des articles de conditionnement (flacon, capsule...), jamais plus que le besoin (voir lib/ti-programmes.ts). Un souci de lecture ne
+  // bloque pas la page : le besoin est alors montre sans cette deduction (le manque ne peut qu'etre surestime, jamais cache).
+  let tiParMp = new Map<number, DeductionTiMp>();
+  let tiIndisponible = false;
+  try {
+    tiParMp = await calculerDeductionTiProgrammes();
+  } catch {
+    tiIndisponible = true;
+  }
+  for (const [mpId, besoinBrut] of besoinConditionnementParMp) {
+    const net = besoinBrut - Math.min(tiParMp.get(mpId)?.deduction ?? 0, besoinBrut);
+    besoinParMp.set(mpId, (besoinParMp.get(mpId) ?? 0) + net);
   }
 
   const mpIds = [...besoinParMp.keys()];
@@ -378,8 +396,9 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
               <p className="mt-2 text-sm text-slate-600">
                 Meme calcul que le Tableau de commande : toutes les commandes en cours, BL transforme ou stand, cartons encore a produire passes
                 dans les recettes de fabrication et de conditionnement, compares au stock actuel Depot E. Pour les articles de conditionnement
-                (flacon, capsule, etiquette...), un programme en cours ne fait pas disparaitre le besoin : seuls le stock produit fini et les
-                cartons deja emballes sont deduits de la demande. Seuls les articles en manque sont affiches, avec les commandes (BC) et les imports
+                (flacon, capsule, etiquette...), un programme en cours ne fait pas disparaitre le besoin : seuls le stock produit fini, les
+                cartons deja emballes et les TI deja faits de Depot E vers Depot B pour les programmes en cours (retrouves par le numero MB du
+                programme, dans la remarque du TO) sont deduits de la demande. Seuls les articles en manque sont affiches, avec les commandes (BC) et les imports
                 en cours (quantite, date du BC, date de reception prevue). Les articles sans formule de conditionnement sont listes en bas de
                 page.
               </p>
@@ -449,6 +468,12 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
             {arrivagesIndisponibles ? (
               <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-medium text-amber-800">
                 Les commandes (BC) et les imports en cours n&apos;ont pas pu etre lus : les colonnes BC / Import sont vides. Recharge la page.
+              </div>
+            ) : null}
+            {tiIndisponible ? (
+              <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-medium text-amber-800">
+                Les TI deja faits pour les programmes n&apos;ont pas pu etre lus : le besoin est montre sans les deduire (le manque peut etre trop
+                grand). Recharge la page.
               </div>
             ) : null}
             <ManqueSection

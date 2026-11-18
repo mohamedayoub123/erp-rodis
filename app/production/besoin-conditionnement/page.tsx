@@ -201,10 +201,12 @@ function Resultat({
               <h2 className="text-lg font-bold text-slate-900">Articles de conditionnement necessaires</h2>
               <p className="mt-1 text-sm text-slate-600">
                 Besoin total = tous les cartons commandes x quantite de la recette / nombre de cartons du lot de la recette.
-                Les deux colonnes suivantes en deduisent ce qui est deja en stock PF et les cartons deja emballes pas encore en
-                stock (la part deja emballee de la &quot;Qt en cours de Conditionnement&quot; du Tableau de commande) ; il reste le
-                besoin a produire. Un programme en cours ne fait PAS baisser ce besoin : tant que le flacon, la capsule... n&apos;est
-                pas consomme, il faut l&apos;avoir (sans TI vers le depot de production, le manque reste affiche). Comme le RESTE du
+                Les deux colonnes suivantes en deduisent ce qui est deja en stock PF, puis ce qui est deja sorti pour les programmes :
+                les cartons deja emballes pas encore en stock et les TI deja faits de Depot E vers Depot B pour les programmes a
+                venir ou du jour (retrouves par le numero MB du programme dans la remarque du TO, jamais plus que ce que le
+                programme a encore besoin) ; il reste le besoin a produire. Un programme en cours ne fait PAS baisser ce besoin tout
+                seul : tant que le flacon, la capsule... n&apos;est pas sorti par un TI, il faut l&apos;avoir (sans TI, le manque reste
+                affiche). Comme le RESTE du
                 Tableau de commande, le stock PF est partage entre toutes les commandes (la plus
                 ancienne d&apos;abord), pas retire en entier de ces proformas. Dans chaque couleur, les articles de
                 conditionnement plastique sont avant les cosmetiques. Stock = stock du Depot E seulement (le seul utilisable pour conditionner : le stock des autres depots, Depot B,
@@ -225,7 +227,7 @@ function Resultat({
                       <th className="px-4 py-3 font-semibold">Unite</th>
                       <th className="px-4 py-3 text-right font-semibold">Besoin total (tous les cartons)</th>
                       <th className="bg-sky-50 px-4 py-3 text-right font-semibold text-sky-900">Deduit : en stock PF</th>
-                      <th className="bg-sky-50 px-4 py-3 text-right font-semibold text-sky-900">Deduit : deja emballe (programmes)</th>
+                      <th className="bg-sky-50 px-4 py-3 text-right font-semibold text-sky-900">Deduit : programmes (emballe + TI deja faits)</th>
                       <th className="px-4 py-3 text-right font-semibold">Besoin a produire</th>
                       <th className="px-4 py-3 text-right font-semibold">Stock</th>
                       <th className="px-4 py-3 text-right font-semibold">Manque</th>

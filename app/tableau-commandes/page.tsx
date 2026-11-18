@@ -187,6 +187,8 @@ function renderCellulesComposants(cleLigne: string, composantsArticle: Composant
     const liste = composantsArticle.filter((composant) => composant.type === type.cle);
     const noms = liste.map((composant) => composant.nom).join(" / ");
     const manque = liste.some((composant) => composant.besoin > composant.stock);
+    // TI deja faits (Depot E vers Depot B) pour les programmes en cours : deja retires du besoin, rappeles au survol
+    const tiDeduit = liste.reduce((somme, composant) => somme + composant.tiDeduit, 0);
     const classeCellule = `border border-slate-300 px-1 py-1 text-center font-medium leading-tight ${
       liste.length === 0 ? lineFillClass : manque ? "bg-red-600 text-white" : "bg-emerald-600 text-white"
     }`;
@@ -202,7 +204,13 @@ function renderCellulesComposants(cleLigne: string, composantsArticle: Composant
       </td>,
       <td
         key={`${cleLigne}-${type.cle}-besoin`}
-        title={noms ? `${noms} - besoin pour toutes les commandes ouvertes` : undefined}
+        title={
+          noms
+            ? `${noms} - besoin pour toutes les commandes ouvertes${
+                tiDeduit > 0 ? ` (apres deduction de ${formatQuantity(tiDeduit)} deja sortis vers le Depot B par TI pour les programmes en cours)` : ""
+              }`
+            : undefined
+        }
         className={classeCellule}
       >
         {liste.map((composant) => (

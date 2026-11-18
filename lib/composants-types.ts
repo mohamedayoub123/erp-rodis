@@ -22,8 +22,10 @@ export type ComposantArticle = {
   type: TypeComposant;
   // stock du Depot E (peut etre negatif : sorties saisies en trop)
   stock: number;
-  // besoin pour toutes les commandes ouvertes (cartons a produire x recette)
+  // besoin pour toutes les commandes ouvertes (cartons a produire x recette), apres deduction des TI deja faits pour les programmes en cours
   besoin: number;
+  // part du besoin deja sortie vers le Depot B par les TI des programmes en cours (deja retiree de "besoin")
+  tiDeduit: number;
 };
 
 function nettoyer(valeur: string | null | undefined) {

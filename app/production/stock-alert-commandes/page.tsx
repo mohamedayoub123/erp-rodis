@@ -178,7 +178,8 @@ function ProgrammesEnCours({ resultat }: { resultat: ResultatAlerteMp }) {
         Meme &quot;Qt en cours de Conditionnement&quot; que le Tableau de commande : cartons deja emballes pas encore en stock +
         reste a produire des programmes confirmes. Le besoin en vrac (matieres premieres chimiques) de ces cartons n&apos;est plus
         compte (cocher &quot;Ne pas deduire les programmes en cours&quot; pour le voir). Les articles de conditionnement (flacon,
-        capsule, etiquette...) restent comptes : sans TI, ils ne sont pas encore la ; seuls les cartons deja emballes en sont deduits.
+        capsule, etiquette...) restent comptes : sans TI, ils ne sont pas encore la ; seuls les cartons deja emballes et les TI deja faits
+        (Depot E vers Depot B, par numero MB du programme) en sont deduits.
       </p>
       {articlesEnProgramme.length > 0 ? (
         <details className="mt-2 rounded-2xl border border-sky-200 bg-white px-4 py-3 text-slate-800">
@@ -510,7 +511,7 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
                 <p className="mt-1 text-sm text-slate-600">
                   Besoin = ce qu&apos;il faut produire pour les commandes ouvertes (cartons commandes moins le stock PF
                   {resultat.programmesDeduits
-                    ? " et les programmes en cours pour le vrac ; pour les articles de conditionnement (flacon, capsule...), seuls les cartons deja emballes sont deduits : un programme en cours ne fait pas baisser leur besoin"
+                    ? " et les programmes en cours pour le vrac ; pour les articles de conditionnement (flacon, capsule...), seuls les cartons deja emballes et les TI deja faits de Depot E vers Depot B pour les programmes a venir ou du jour sont deduits : un programme en cours ne fait pas baisser leur besoin tout seul"
                     : ""}) x la recette. Stock = Depot E seulement (les autres depots ne comptent pas). Commande (BC) = ce qu&apos;il reste a
                   recevoir sur les bons de commande ; Import = en route et pas encore receptionne : commande et import ne se
                   comptent jamais deux fois. Rouge = rien (ou pas assez) ne couvre le manque ; jaune = le manque est couvert par

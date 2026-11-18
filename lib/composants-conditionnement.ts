@@ -10,6 +10,7 @@ import {
 import { buildPdLabelByCode } from "@/app/production/suivi/data";
 import { repartirEnCoursParPd, type EnCoursParPd } from "@/lib/programme-en-cours-par-pd";
 import { lireLignes, lireParIds } from "@/lib/besoin-conditionnement-proforma";
+import { calculerDeductionTiProgrammes, type DeductionTiMp } from "@/lib/ti-programmes";
 import { TYPES_COMPOSANTS, typeComposant, type ComposantArticle, type TypeComposant } from "@/lib/composants-types";
 
 // Colonnes "articles de conditionnement" du Tableau de commande : pour chaque article fini, les articles de sa Recette
@@ -157,11 +158,14 @@ export async function calculerComposantsFamille(params: {
   if (familleIds.length === 0) return resultat;
 
   // 1) En parallele : recettes de la famille, stock du Depot E, toutes les lignes des commandes ouvertes, et les cartons deja emballes
-  const [recettesFamilleBrutes, soldesDepotE, lignes, qtEmballeParNom] = await Promise.all([
+  // + les TI deja faits (Depot E vers Depot B) pour les programmes en cours, a deduire du besoin (voir lib/ti-programmes.ts) : un souci de lecture
+  // ne bloque pas le tableau, le besoin est alors montre sans cette deduction (le manque ne peut qu'etre surestime, jamais cache)
+  const [recettesFamilleBrutes, soldesDepotE, lignes, qtEmballeParNom, tiParMp] = await Promise.all([
     lireParIds<RecetteRow>("recettes_pf", "id, article_pf_id, article_mp_id, quantite", "article_pf_id", familleIds),
     lireStockMpDepotE(),
     lireIdsCommandesOuvertes().then((ids) => lireLignes(ids)),
     fetchQtEmballeEnAttenteDetaille().then((details) => additionnerQtEnCours(details)),
+    calculerDeductionTiProgrammes().catch(() => new Map<number, DeductionTiMp>()),
   ]);
   const recettesFamille = recettesFamilleBrutes.filter((ligne) => Number(ligne.quantite ?? 0) > 0);
   const mpIdsFamille = [...new Set(recettesFamille.map((ligne) => ligne.article_mp_id))];
@@ -231,7 +235,10 @@ export async function calculerComposantsFamille(params: {
       const type = typeParMp.get(ligne.article_mp_id);
       const mp = mpParId.get(ligne.article_mp_id);
       if (!type || !mp) continue;
-      const besoin = besoinParMp.get(ligne.article_mp_id) ?? 0;
+      // besoin = ce qu'il reste a couvrir - ce qui est deja sorti vers le Depot B pour les programmes en cours (TI deja faits, jamais plus que le besoin)
+      const besoinBrut = besoinParMp.get(ligne.article_mp_id) ?? 0;
+      const tiDeduit = Math.min(tiParMp.get(ligne.article_mp_id)?.deduction ?? 0, besoinBrut);
+      const besoin = besoinBrut - tiDeduit;
       composants.set(ligne.article_mp_id, {
         mpId: mp.id,
         nom: mp.nom_article ?? `Article MP ${mp.id}`,
@@ -239,6 +246,7 @@ export async function calculerComposantsFamille(params: {
         type,
         stock: stockParMp.get(mp.id) ?? 0,
         besoin: besoin < 1e-6 ? 0 : besoin,
+        tiDeduit: tiDeduit < 1e-6 ? 0 : tiDeduit,
       });
     }
     if (composants.size > 0) {

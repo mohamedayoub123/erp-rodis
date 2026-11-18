@@ -9,6 +9,7 @@ import {
   normalizeArticle,
 } from "@/app/tableau-commandes/family-data";
 import { computeStatutBc } from "@/app/stock/matiere-premiere/bc/constants";
+import { calculerDeductionTiProgrammes, type DeductionTiMp } from "@/lib/ti-programmes";
 
 // Besoin en articles de conditionnement d'une ou plusieurs proformas (Commandes PF), calcule avec la Recette Conditionnement
 // de chaque article commande : la recette (table recettes_pf) donne, pour un lot de "quantite_recette_base" cartons, la quantite
@@ -798,6 +799,25 @@ export async function calculerBesoinDepuisProformas(
       vracNom: article?.vrac_article_id ? (vracParId.get(article.vrac_article_id) ?? null) : null,
       vracArticleId: article?.vrac_article_id ?? null,
     });
+  }
+
+  // TI deja faits (Depot E vers Depot B) pour les programmes en cours des articles de ces proformas : ce qui est deja sorti pour un programme et pas
+  // encore consomme est deduit du besoin (jamais plus que le besoin) et range dans "deduitProgramme" - le besoin reste egal a besoinTotal -
+  // deduitStock - deduitProgramme. Comme les autres deductions de programmes, seulement avec l'option deduireProgrammes. Un souci de lecture ne
+  // bloque pas le calcul : le besoin est alors montre sans cette deduction (le manque ne peut qu'etre surestime, jamais cache).
+  if (options?.deduireProgrammes && !options?.sansBesoinsMp && besoinParMp.size > 0) {
+    let tiParMp = new Map<number, DeductionTiMp>();
+    try {
+      tiParMp = await calculerDeductionTiProgrammes({ articleIds: new Set(articleIds) });
+    } catch {
+      tiParMp = new Map();
+    }
+    for (const [articleMpId, valeur] of besoinParMp) {
+      const deduitTi = Math.min(tiParMp.get(articleMpId)?.deduction ?? 0, valeur.besoin);
+      if (!(deduitTi > 1e-6)) continue;
+      valeur.besoin -= deduitTi;
+      valeur.deduitProgramme += deduitTi;
+    }
   }
 
   const besoins: BesoinArticleConditionnement[] = [...besoinParMp.entries()].map(([articleMpId, valeur]) => {
