@@ -3,6 +3,8 @@ import { unstable_noStore as noStore } from "next/cache";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { ExportManqueButton } from "./export-manque-button";
+import type { LigneExportManque } from "@/lib/classeur-manque-articles";
 import { supabaseServer } from "@/lib/supabase-server";
 import { calculerCartonsAProduireGlobal } from "@/lib/composants-conditionnement";
 import {
@@ -92,7 +94,7 @@ export type ManqueRow = {
   importTotal: number;
 };
 
-// Texte Excel d'un BC : "code - quantite - commande du jj-mm-aaaa" (plusieurs BC separes par " | ")
+// Texte Excel d'un BC : "code - quantite - commande du jj-mm-aaaa", un BC par ligne de la cellule (la cellule renvoie a la ligne)
 function texteBc(commandes: CommandeEnCours[]) {
   return commandes.length === 0
     ? "-"
@@ -101,10 +103,10 @@ function texteBc(commandes: CommandeEnCours[]) {
           (commande) =>
             `${commande.code} - ${commande.quantite}${commande.dateCommande ? ` - commande du ${formatDate(commande.dateCommande)}` : " - date de commande non renseignee"}`
         )
-        .join(" | ");
+        .join("\n");
 }
 
-// Texte Excel d'un import : "dossier - quantite - statut - import du ... - reception prevue le jj-mm-aaaa"
+// Texte Excel d'un import : "dossier - quantite - statut - import du ... - reception prevue le jj-mm-aaaa", un import par ligne de la cellule
 function texteImport(imports: ImportEnCours[]) {
   return imports.length === 0
     ? "-"
@@ -115,7 +117,7 @@ function texteImport(imports: ImportEnCours[]) {
               transit.dateImport ? ` - import du ${formatDate(transit.dateImport)}` : ""
             }${transit.datePrevueReception ? ` - reception prevue le ${formatDate(transit.datePrevueReception)}` : " - date de reception prevue non renseignee"}`
         )
-        .join(" | ");
+        .join("\n");
 }
 
 // Article fini dont le besoin en conditionnement ne peut pas etre calcule : pas de formule (Recette Conditionnement) ou formule sans
@@ -362,6 +364,8 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   const aucunManqueApresFiltre =
     !errorMessage && !aucunManqueDuTout && manqueMp.length === 0 && manqueConditionnement.length === 0;
   const dateDuJour = new Date().toISOString().slice(0, 10);
+  // Filtre "Sous famille" rappele dans l'Excel (vide = aucun filtre) : l'export contient exactement les lignes affichees
+  const filtresTexte = sousFamilleFilter.size > 0 ? `Sous famille : ${[...sousFamilleFilter].join(", ")}` : "";
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#edf8ff_0%,#f8fcff_48%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -447,8 +451,18 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
                 Les commandes (BC) et les imports en cours n&apos;ont pas pu etre lus : les colonnes BC / Import sont vides. Recharge la page.
               </div>
             ) : null}
-            <ManqueSection title="Manque - Matiere Premiere" rows={manqueMp} fichier={`manque-matiere-premiere-${dateDuJour}.xlsx`} />
-            <ManqueSection title="Manque - Conditionnement" rows={manqueConditionnement} fichier={`manque-conditionnement-${dateDuJour}.xlsx`} />
+            <ManqueSection
+              title="Manque - Matiere Premiere"
+              rows={manqueMp}
+              fichier={`manque-matiere-premiere-${dateDuJour}.xlsx`}
+              filtres={filtresTexte}
+            />
+            <ManqueSection
+              title="Manque - Conditionnement"
+              rows={manqueConditionnement}
+              fichier={`manque-conditionnement-${dateDuJour}.xlsx`}
+              filtres={filtresTexte}
+            />
           </>
         )}
 
@@ -464,24 +478,12 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   );
 }
 
-function ManqueSection({ title, rows, fichier }: { title: string; rows: ManqueRow[]; fichier: string }) {
+function ManqueSection({ title, rows, fichier, filtres }: { title: string; rows: ManqueRow[]; fichier: string; filtres: string }) {
   if (rows.length === 0) return null;
 
-  const colonnes = [
-    { label: "Article", key: "nom" },
-    { label: "Sous famille", key: "sousFamille" },
-    { label: "Unite", key: "unite" },
-    { label: "Besoin", key: "besoin" },
-    { label: "Stock Depot E", key: "stock" },
-    { label: "Manque", key: "manque" },
-    { label: "Commande (BC) en cours - Qt", key: "commandeTotal" },
-    { label: "Commande (BC) en cours - Detail (BC, Qt, date du BC)", key: "commandeDetail" },
-    { label: "Import en cours - Qt", key: "importTotal" },
-    { label: "Import en cours - Detail (dossier, Qt, date de reception prevue)", key: "importDetail" },
-  ];
-  // Excel : les quantites BC / import sont de vrais nombres (0 = rien en cours), le detail est en texte avec les dates
-  const lignesExport = rows.map((row) => ({
-    id: row.id,
+  // Excel (voir lib/classeur-manque-articles.ts) : les quantites sont de vrais nombres (0 = rien en cours), le detail des BC / imports est un
+  // texte avec les dates, un BC / import par ligne de la cellule
+  const lignesExport: LigneExportManque[] = rows.map((row) => ({
     nom: row.nom,
     sousFamille: row.sousFamille,
     unite: row.unite,
@@ -498,7 +500,7 @@ function ManqueSection({ title, rows, fichier }: { title: string; rows: ManqueRo
     <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
       <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
         <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-        <ExportExcelButton rows={lignesExport} columns={colonnes} filename={fichier} />
+        <ExportManqueButton donnees={{ titre: title, filtres, lignes: lignesExport }} nomFichier={fichier} />
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
