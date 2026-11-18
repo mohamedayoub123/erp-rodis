@@ -98,6 +98,8 @@ export type ManqueRow = {
   commandeTotal: number;
   imports: ImportEnCours[];
   importTotal: number;
+  // gammes des articles finis qui ont besoin de cet article (commandes a couvrir) - colonne Gamme de l'Excel
+  gammes: string[];
 };
 
 // Excel : un BC = son code (en bleu dans le fichier, comme le lien de l'ERP) puis " - quantite - commande du jj-mm-aaaa", un BC par ligne de la cellule
@@ -212,6 +214,13 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   // Tableau de commande, un article dont la quantite de recette de base est absente n'est pas calcule : il est signale plus bas dans la liste
   // "Articles sans formule de conditionnement" (au lieu de compter la recette pour 1 carton).
   const besoinParMp = new Map<number, number>();
+  // Gammes des articles finis qui ont besoin de chaque article (colonne Gamme de l'Excel) : un flacon peut servir a plusieurs gammes
+  const gammesParMp = new Map<number, Set<string>>();
+  const noterGamme = (mpId: number, articleId: number) => {
+    const gammes = gammesParMp.get(mpId) ?? new Set<string>();
+    gammes.add(gammeParArticle.get(articleId) ?? "SANS GAMME");
+    gammesParMp.set(mpId, gammes);
+  };
   // Besoin des articles de conditionnement avant la deduction des TI (voir plus bas)
   const besoinConditionnementParMp = new Map<number, number>();
   for (const articleId of finishedArticleIds) {
@@ -226,6 +235,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
     if (cartonsConditionnement > 0.000001) {
       for (const r of recettes.filter((r) => r.article_pf_id === articleId && Number(r.quantite) > 0)) {
         besoinConditionnementParMp.set(r.article_mp_id, (besoinConditionnementParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioCarton);
+        noterGamme(r.article_mp_id, articleId);
       }
     }
 
@@ -245,6 +255,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
       const ratioVrac = vracNecessaireTotal / (vracArticle?.quantite_recette_base || 1);
       for (const r of recettes.filter((r) => r.article_pf_id === article.vrac_article_id)) {
         besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioVrac);
+        noterGamme(r.article_mp_id, articleId);
       }
     }
   }
@@ -303,6 +314,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
       commandeTotal: 0,
       imports: [],
       importTotal: 0,
+      gammes: [...(gammesParMp.get(mpId) ?? [])].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base", numeric: true })),
     };
     (estChimique ? manqueMpToutes : manqueConditionnementToutes).push(row);
     if (!estChimique) rangConditionnement.set(mpId, rangTypeConditionnement(typeConditionnement(stockInfo?.categorie)));
@@ -552,6 +564,7 @@ function lignesPourExcel(rows: ManqueRow[]): LigneExportManque[] {
     besoin: row.besoin,
     stock: row.stock,
     manque: row.manque,
+    gamme: row.gammes.join(", ") || "-",
     commandeTotal: row.commandeTotal,
     commandeDetail: detailBc(row.commandes),
     importTotal: row.importTotal,
