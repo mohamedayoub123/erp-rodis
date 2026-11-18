@@ -224,6 +224,21 @@ export async function fetchQtEnCoursConditionnementByArticle() {
 export type QtEnCoursDetail = { articleKey: string; code: string; quantite: number; source: "emballe" | "restant" };
 
 export async function fetchQtEnCoursConditionnementDetaille(): Promise<QtEnCoursDetail[]> {
+  const details = await fetchQtEmballeEnAttenteDetaille();
+
+  const restantConditionnementEmballage = await fetchRestantConditionnementEmballageParCode();
+  for (const restant of restantConditionnementEmballage) {
+    details.push({ articleKey: restant.articleKey, code: restant.code, quantite: restant.restant, source: "restant" });
+  }
+
+  return details;
+}
+
+// Premier morceau seulement du programme en cours : ce qui est deja EMBALLE (Suivi Production) mais pas encore valide dans le stock (source
+// "emballe"). Ces cartons sont deja produits, donc leurs articles de conditionnement (flacon, capsule, etiquette...) sont deja consommes : c'est
+// la seule partie du programme en cours qu'on deduit du besoin en articles de conditionnement (voir lib/composants-conditionnement.ts). Lecture
+// bien plus legere que le programme en cours complet (pas de lecture du restant a conditionner / emballer).
+export async function fetchQtEmballeEnAttenteDetaille(): Promise<QtEnCoursDetail[]> {
   const details: QtEnCoursDetail[] = [];
 
   const { data: pendingData, error: pendingError } = await supabaseServer
@@ -270,11 +285,6 @@ export async function fetchQtEnCoursConditionnementDetaille(): Promise<QtEnCours
       const code = String(row.code ?? "").trim() || (premierCodeParLigneId.get(ligneId) ?? "");
       details.push({ articleKey, code, quantite: Number(row.quantite ?? 0), source: "emballe" });
     }
-  }
-
-  const restantConditionnementEmballage = await fetchRestantConditionnementEmballageParCode();
-  for (const restant of restantConditionnementEmballage) {
-    details.push({ articleKey: restant.articleKey, code: restant.code, quantite: restant.restant, source: "restant" });
   }
 
   return details;

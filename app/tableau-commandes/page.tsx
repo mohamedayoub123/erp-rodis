@@ -1387,7 +1387,6 @@ export default async function TableauCommandesPage({
       composants = await calculerComposantsFamille({
         articleIdsParCle: idsManquants,
         stockPfParNom: stockPfManquants,
-        qtEnCoursParNom: qtEnCoursConditionnementByArticle,
         articlesGlobaux,
       });
     } catch {
@@ -1568,7 +1567,6 @@ export default async function TableauCommandesPage({
     composants = await calculerComposantsFamille({
       articleIdsParCle: tableData.articleIdsByKey,
       stockPfParNom: tableData.stockByArticle,
-      qtEnCoursParNom: tableData.qtEnCoursByArticleKey,
       articlesGlobaux: shared.articles,
     });
   } catch {

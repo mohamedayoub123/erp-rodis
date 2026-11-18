@@ -5,6 +5,9 @@ import { RefreshButton } from "@/app/_components/refresh-button";
 import { ExportExcelButton } from "@/app/_components/export-excel-button";
 import { supabaseServer } from "@/lib/supabase-server";
 import { calculerCartonsAProduireGlobal } from "@/lib/composants-conditionnement";
+import { lireArrivagesMp, type Arrivages, type CommandeEnCours, type ImportEnCours } from "@/lib/besoin-conditionnement-proforma";
+import { formatDate } from "@/lib/format-date";
+import { CellulesArrivagesMp } from "@/app/_components/besoin-arrivages-cellules";
 import { fetchStockActuelMpDepotE, type StockActuelMpRow } from "../../../stock/matiere-premiere/rapport/capacite-conditionnement/capacite-lib";
 
 type SearchParams = Promise<{ sousFamille?: string | string[] }>;
@@ -74,7 +77,39 @@ export type ManqueRow = {
   besoin: number;
   stock: number;
   manque: number;
+  // Ce qui arrive deja (meme lecture que Besoin Conditionnement / Stock Alert MP par commande) : ce qu'il reste a recevoir sur les bons de
+  // commande (BC), avec la date du BC, et les imports en transit, avec leur date de reception prevue
+  commandes: CommandeEnCours[];
+  commandeTotal: number;
+  imports: ImportEnCours[];
+  importTotal: number;
 };
+
+// Texte Excel d'un BC : "code - quantite - commande du jj-mm-aaaa" (plusieurs BC separes par " | ")
+function texteBc(commandes: CommandeEnCours[]) {
+  return commandes.length === 0
+    ? "-"
+    : commandes
+        .map(
+          (commande) =>
+            `${commande.code} - ${commande.quantite}${commande.dateCommande ? ` - commande du ${formatDate(commande.dateCommande)}` : " - date de commande non renseignee"}`
+        )
+        .join(" | ");
+}
+
+// Texte Excel d'un import : "dossier - quantite - statut - import du ... - reception prevue le jj-mm-aaaa"
+function texteImport(imports: ImportEnCours[]) {
+  return imports.length === 0
+    ? "-"
+    : imports
+        .map(
+          (transit) =>
+            `${transit.nDoss4d || transit.nDossErp || "Sans dossier"} - ${transit.quantite}${transit.statutDossier ? ` - ${transit.statutDossier}` : ""}${
+              transit.dateImport ? ` - import du ${formatDate(transit.dateImport)}` : ""
+            }${transit.datePrevueReception ? ` - reception prevue le ${formatDate(transit.datePrevueReception)}` : " - date de reception prevue non renseignee"}`
+        )
+        .join(" | ");
+}
 
 // Article fini dont le besoin en conditionnement ne peut pas etre calcule : pas de formule (Recette Conditionnement) ou formule sans
 // "quantite de recette de base" (le Tableau de commande ignore alors ses recettes)
@@ -107,7 +142,11 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   }>("articles", "id, nom_article, nature, gamme");
 
   let cartonsParId = new Map<number, number>();
+  // aProduire : cartons a produire apres TOUT le programme en cours (vrac / matieres premieres chimiques) ; aProduireConditionnement : cartons
+  // dont les articles de conditionnement (flacon, capsule, etiquette...) restent a couvrir - un programme en cours ne fait pas disparaitre ce
+  // besoin tant que l'article n'est pas consomme, seuls les cartons deja emballes sont deduits
   let aProduire: (articleId: number) => number = () => 0;
+  let aProduireConditionnement: (articleId: number) => number = () => 0;
   let calculError: string | null = null;
   try {
     const calcul = await calculerCartonsAProduireGlobal(
@@ -115,6 +154,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
     );
     cartonsParId = calcul.cartonsParId;
     aProduire = calcul.aProduire;
+    aProduireConditionnement = calcul.aProduireConditionnement;
   } catch (e) {
     calculError = e instanceof Error ? e.message : "Calcul des cartons a produire impossible.";
   }
@@ -156,15 +196,20 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
   for (const [articleId] of quantiteParArticle.entries()) {
     const article = articleById.get(articleId);
     const totalCartonsNet = aProduire(articleId);
-    if (totalCartonsNet <= 0.000001) continue;
+    const cartonsConditionnement = aProduireConditionnement(articleId);
+    if (totalCartonsNet <= 0.000001 && cartonsConditionnement <= 0.000001) continue;
     if (!(Number(article?.quantite_recette_base ?? 0) > 0)) continue;
 
-    const ratioCarton = totalCartonsNet / Number(article?.quantite_recette_base);
-    for (const r of recettes.filter((r) => r.article_pf_id === articleId && Number(r.quantite) > 0)) {
-      besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioCarton);
+    // Articles de conditionnement (recette de l'article fini) : cartons dont le conditionnement reste a couvrir
+    const ratioCarton = cartonsConditionnement / Number(article?.quantite_recette_base);
+    if (cartonsConditionnement > 0.000001) {
+      for (const r of recettes.filter((r) => r.article_pf_id === articleId && Number(r.quantite) > 0)) {
+        besoinParMp.set(r.article_mp_id, (besoinParMp.get(r.article_mp_id) ?? 0) + r.quantite * ratioCarton);
+      }
     }
 
-    if (article?.vrac_article_id) {
+    // Vrac (matieres premieres chimiques de la recette de fabrication) : cartons a produire apres tout le programme en cours
+    if (totalCartonsNet > 0.000001 && article?.vrac_article_id) {
       const vracArticle = articleById.get(article.vrac_article_id);
       // Meme repli "auto" que la page Recette Conditionnement : sans
       // vrac_quantite_recette saisi a la main, le vrac necessaire se
@@ -215,8 +260,28 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
       besoin: round(besoin),
       stock: round(stock),
       manque: estChimique ? round(manqueBrut) : Math.ceil(manqueBrut),
+      commandes: [],
+      commandeTotal: 0,
+      imports: [],
+      importTotal: 0,
     };
     (estChimique ? manqueMpToutes : manqueConditionnementToutes).push(row);
+  }
+
+  // Commandes (BC) en cours et imports en transit des articles en manque : quantite, date du BC et date de reception prevue des imports. Un souci
+  // de lecture ne bloque pas la page : on le signale seulement (les colonnes restent vides).
+  let arrivagesIndisponibles = false;
+  let arrivages: Arrivages = { commandesParMp: new Map(), importsParMp: new Map() };
+  try {
+    arrivages = await lireArrivagesMp([...manqueMpToutes, ...manqueConditionnementToutes].map((row) => row.id));
+  } catch {
+    arrivagesIndisponibles = true;
+  }
+  for (const row of [...manqueMpToutes, ...manqueConditionnementToutes]) {
+    row.commandes = [...(arrivages.commandesParMp.get(row.id) ?? [])].sort((a, b) => b.quantite - a.quantite);
+    row.imports = [...(arrivages.importsParMp.get(row.id) ?? [])].sort((a, b) => b.quantite - a.quantite);
+    row.commandeTotal = row.commandes.reduce((somme, commande) => somme + commande.quantite, 0);
+    row.importTotal = row.imports.reduce((somme, transit) => somme + transit.quantite, 0);
   }
 
   manqueMpToutes.sort((a, b) => a.nom.localeCompare(b.nom, "fr", { sensitivity: "base" }));
@@ -245,7 +310,7 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
       nom: article.nom_article ?? `Article #${article.id}`,
       gamme: article.gamme?.trim() || "-",
       commande: round(commande, 2),
-      aProduire: round(aProduire(article.id), 2),
+      aProduire: round(aProduireConditionnement(article.id), 2),
       motif,
     });
   }
@@ -293,10 +358,12 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">ERP Rodis</p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Manque Articles</h1>
               <p className="mt-2 text-sm text-slate-600">
-                Meme calcul que le Tableau de commande : toutes les commandes en cours, BL transforme ou stand, cartons encore a produire (demande
-                moins stock produit fini moins programmes deja en cours) passes dans les recettes de fabrication et de conditionnement, compares
-                au stock actuel Depot E. Seuls les articles en manque sont affiches. Les articles sans formule de conditionnement sont listes en
-                bas de page.
+                Meme calcul que le Tableau de commande : toutes les commandes en cours, BL transforme ou stand, cartons encore a produire passes
+                dans les recettes de fabrication et de conditionnement, compares au stock actuel Depot E. Pour les articles de conditionnement
+                (flacon, capsule, etiquette...), un programme en cours ne fait pas disparaitre le besoin : seuls le stock produit fini et les
+                cartons deja emballes sont deduits de la demande. Seuls les articles en manque sont affiches, avec les commandes (BC) et les imports
+                en cours (quantite, date du BC, date de reception prevue). Les articles sans formule de conditionnement sont listes en bas de
+                page.
               </p>
             </div>
 
@@ -361,6 +428,11 @@ export default async function ManqueArticlesPage({ searchParams }: { searchParam
           </div>
         ) : (
           <>
+            {arrivagesIndisponibles ? (
+              <div className="rounded-[1.75rem] border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-medium text-amber-800">
+                Les commandes (BC) et les imports en cours n&apos;ont pas pu etre lus : les colonnes BC / Import sont vides. Recharge la page.
+              </div>
+            ) : null}
             <ManqueSection title="Manque - Matiere Premiere" rows={manqueMp} fichier={`manque-matiere-premiere-${dateDuJour}.xlsx`} />
             <ManqueSection title="Manque - Conditionnement" rows={manqueConditionnement} fichier={`manque-conditionnement-${dateDuJour}.xlsx`} />
           </>
@@ -388,13 +460,31 @@ function ManqueSection({ title, rows, fichier }: { title: string; rows: ManqueRo
     { label: "Besoin", key: "besoin" },
     { label: "Stock Depot E", key: "stock" },
     { label: "Manque", key: "manque" },
+    { label: "Commande (BC) en cours - Qt", key: "commandeTotal" },
+    { label: "Commande (BC) en cours - Detail (BC, Qt, date du BC)", key: "commandeDetail" },
+    { label: "Import en cours - Qt", key: "importTotal" },
+    { label: "Import en cours - Detail (dossier, Qt, date de reception prevue)", key: "importDetail" },
   ];
+  // Excel : les quantites BC / import sont de vrais nombres (0 = rien en cours), le detail est en texte avec les dates
+  const lignesExport = rows.map((row) => ({
+    id: row.id,
+    nom: row.nom,
+    sousFamille: row.sousFamille,
+    unite: row.unite,
+    besoin: row.besoin,
+    stock: row.stock,
+    manque: row.manque,
+    commandeTotal: row.commandeTotal,
+    commandeDetail: texteBc(row.commandes),
+    importTotal: row.importTotal,
+    importDetail: texteImport(row.imports),
+  }));
 
   return (
     <section className="overflow-hidden rounded-[1.75rem] border border-black/5 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
       <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
         <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-        <ExportExcelButton rows={rows.map((row) => ({ ...row }))} columns={colonnes} filename={fichier} />
+        <ExportExcelButton rows={lignesExport} columns={colonnes} filename={fichier} />
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
@@ -406,11 +496,13 @@ function ManqueSection({ title, rows, fichier }: { title: string; rows: ManqueRo
               <th className="px-6 py-4 font-semibold">Besoin</th>
               <th className="px-6 py-4 font-semibold">Stock Depot E</th>
               <th className="px-6 py-4 font-semibold">Manque</th>
+              <th className="px-4 py-4 font-semibold">Commande (BC) en cours</th>
+              <th className="px-4 py-4 font-semibold">Import en cours</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} className="border-t border-slate-100">
+              <tr key={row.id} className="border-t border-slate-100 align-top">
                 <td className="px-6 py-4 font-medium text-slate-900">{row.nom}</td>
                 <td className="px-6 py-4 text-slate-600">{row.sousFamille}</td>
                 <td className="px-6 py-4 text-slate-600">{row.unite}</td>
@@ -425,6 +517,12 @@ function ManqueSection({ title, rows, fichier }: { title: string; rows: ManqueRo
                     {row.manque.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}
                   </span>
                 </td>
+                <CellulesArrivagesMp
+                  commandes={row.commandes}
+                  commandeTotal={row.commandeTotal}
+                  imports={row.imports}
+                  importTotal={row.importTotal}
+                />
               </tr>
             ))}
           </tbody>

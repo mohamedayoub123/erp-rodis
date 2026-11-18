@@ -3,6 +3,7 @@ import { lireStockMpDepotE } from "@/lib/lot-balances-mp";
 import {
   additionnerQtEnCours,
   fetchArticleStocksFromStockPage,
+  fetchQtEmballeEnAttenteDetaille,
   fetchQtEnCoursConditionnementDetaille,
   normalizeArticle,
 } from "@/app/tableau-commandes/family-data";
@@ -14,9 +15,12 @@ import { TYPES_COMPOSANTS, typeComposant, type ComposantArticle, type TypeCompos
 // Colonnes "articles de conditionnement" du Tableau de commande : pour chaque article fini, les articles de sa Recette
 // Conditionnement rangés par type (capsule / pompe, flacon, etiquette, sleeve, etui, dispenseur, carton), avec
 //  - le stock du Depot E (le seul depot utilisable pour conditionner) ;
-//  - le besoin de cet article de conditionnement pour TOUTES les commandes ouvertes : cartons qu'il reste a produire (commandes
-//    moins stock PF moins programmes en cours, comme le Stock Alert MP par commande) x quantite de la recette. L'article de
-//    conditionnement peut servir a plusieurs articles finis (meme d'une autre famille) : leurs commandes comptent toutes.
+//  - le besoin de cet article de conditionnement pour TOUTES les commandes ouvertes : cartons dont les articles de conditionnement
+//    restent a couvrir (commandes moins stock PF moins cartons DEJA EMBALLES) x quantite de la recette. Un programme en cours ne
+//    fait PAS disparaitre le besoin : tant que le flacon / la capsule n'a pas ete consomme, il faut l'avoir (sinon un programme de 1000
+//    cartons affichait "besoin 0" alors que le flacon n'existe pas). Seuls les cartons deja emballes (produits, pas encore valides
+//    dans le stock PF) sont deduits : leurs articles de conditionnement sont deja consommes. L'article de conditionnement peut servir
+//    a plusieurs articles finis (meme d'une autre famille) : leurs commandes comptent toutes.
 // Le calcul est celui du Besoin Conditionnement / Stock Alert MP par commande, restreint aux articles de conditionnement
 // de la famille affichee (le stock PF et les commandes ne sont lus que pour les articles qui les utilisent).
 
@@ -53,11 +57,11 @@ function cartonsCommandesParArticle(lignes: { article_id: number | null; quantit
   return cartonsParId;
 }
 
-// Cartons A PRODUIRE d'un article = ce qui reste de ses commandes ouvertes une fois deduits le stock PF et les programmes en cours. Les articles
-// qui ont le meme nom (normalise) partagent leur stock PF et leurs programmes : le manque de ce nom est reparti au prorata de leurs commandes.
-// Cartons non couverts par nom = max(0, commande - stock PF - programmes en cours) (la somme des cartons non couverts de chaque commande, dans
-// l'ordre du tableau, vaut toujours ce total). UNE seule definition, utilisee par les colonnes du Tableau de commande ET par la page Manque
-// Articles : les deux donnent toujours le meme besoin.
+// Cartons A PRODUIRE d'un article = ce qui reste de ses commandes ouvertes une fois deduits le stock PF et la quantite "deja couverte"
+// (qtEnCoursParNom : selon l'appelant, tout le programme en cours - qui compte comme du stock PF a venir - ou seulement les cartons deja
+// emballes). Les articles qui ont le meme nom (normalise) partagent leur stock PF et leurs programmes : le manque de ce nom est reparti au
+// prorata de leurs commandes. Cartons non couverts par nom = max(0, commande - stock PF - quantite deja couverte) (la somme des cartons non
+// couverts de chaque commande, dans l'ordre du tableau, vaut toujours ce total).
 export function cartonsAProduireParArticle(params: {
   cartonsParId: Map<number, number>;
   cleParId: Map<number, string>;
@@ -90,6 +94,9 @@ export function cartonsAProduireParArticle(params: {
 // article, le stock PF et les programmes en cours par nom.
 // parPd (optionnel) : renvoie aussi, pour chaque nom d'article, son programme en cours reparti entre les PD (enCoursParPd - vide sans cette option) :
 // la somme des PD d'un article est son programme en cours qtEnCoursParNom.
+// aProduire : cartons a produire APRES tout le programme en cours (pour la fabrication du vrac et les projections de stock PF).
+// aProduireConditionnement : cartons dont les ARTICLES DE CONDITIONNEMENT restent a couvrir = commande - stock PF - cartons deja emballes
+// seulement (un programme en cours ne fait pas disparaitre le besoin de flacons / capsules tant qu'ils ne sont pas consommes).
 export async function calculerCartonsAProduireGlobal(
   articlesGlobaux: ArticleNomRow[],
   options?: { articleIds?: Set<number>; parPd?: boolean }
@@ -101,6 +108,7 @@ export async function calculerCartonsAProduireGlobal(
   qtEnCoursParNom: Map<string, number>;
   enCoursParPd: Map<string, EnCoursParPd>;
   aProduire: (articleId: number) => number;
+  aProduireConditionnement: (articleId: number) => number;
 }> {
   const lignes = await lireIdsCommandesOuvertes().then((ids) => lireLignes(ids));
   const cartonsParId = cartonsCommandesParArticle(lignes);
@@ -115,6 +123,7 @@ export async function calculerCartonsAProduireGlobal(
     options?.parPd ? buildPdLabelByCode() : Promise.resolve(new Map<string, string>()),
   ]);
   const qtEnCoursParNom = additionnerQtEnCours(enCoursDetail);
+  const qtEmballeParNom = additionnerQtEnCours(enCoursDetail.filter((detail) => detail.source === "emballe"));
   const enCoursParPd = options?.parPd ? repartirEnCoursParPd(enCoursDetail, pdParCode) : new Map<string, EnCoursParPd>();
   return {
     lignes,
@@ -124,28 +133,35 @@ export async function calculerCartonsAProduireGlobal(
     qtEnCoursParNom,
     enCoursParPd,
     aProduire: cartonsAProduireParArticle({ cartonsParId, cleParId, articlesMemeNom, stockPfParNom, qtEnCoursParNom }),
+    aProduireConditionnement: cartonsAProduireParArticle({
+      cartonsParId,
+      cleParId,
+      articlesMemeNom,
+      stockPfParNom,
+      qtEnCoursParNom: qtEmballeParNom,
+    }),
   };
 }
 
 // articleIdsParCle : articles finis de la famille, par nom normalise (normalizeArticle) -> ids
 // stockPfParNom : stock PF deja calcule pour ces articles (meme cle) ; les autres sont lus ici
-// qtEnCoursParNom : programmes en cours (Qt en cours de Conditionnement du Tableau de commande), meme cle
 // articlesGlobaux : tous les articles (id, nom, nature), deja lus par la page : evite de les relire
+// Les cartons deja emballes (pas encore en stock PF) sont lus ici (lecture legere) : ce sont les seuls du programme en cours que le besoin deduit.
 export async function calculerComposantsFamille(params: {
   articleIdsParCle: Map<string, number[]>;
   stockPfParNom: Map<string, number>;
-  qtEnCoursParNom: Map<string, number>;
   articlesGlobaux: ArticleNomRow[];
 }): Promise<Map<string, ComposantArticle[]>> {
   const resultat = new Map<string, ComposantArticle[]>();
   const familleIds = [...new Set([...params.articleIdsParCle.values()].flat())];
   if (familleIds.length === 0) return resultat;
 
-  // 1) En parallele : recettes de la famille, stock du Depot E, et toutes les lignes des commandes ouvertes
-  const [recettesFamilleBrutes, soldesDepotE, lignes] = await Promise.all([
+  // 1) En parallele : recettes de la famille, stock du Depot E, toutes les lignes des commandes ouvertes, et les cartons deja emballes
+  const [recettesFamilleBrutes, soldesDepotE, lignes, qtEmballeParNom] = await Promise.all([
     lireParIds<RecetteRow>("recettes_pf", "id, article_pf_id, article_mp_id, quantite", "article_pf_id", familleIds),
     lireStockMpDepotE(),
     lireIdsCommandesOuvertes().then((ids) => lireLignes(ids)),
+    fetchQtEmballeEnAttenteDetaille().then((details) => additionnerQtEnCours(details)),
   ]);
   const recettesFamille = recettesFamilleBrutes.filter((ligne) => Number(ligne.quantite ?? 0) > 0);
   const mpIdsFamille = [...new Set(recettesFamille.map((ligne) => ligne.article_mp_id))];
@@ -183,14 +199,15 @@ export async function calculerComposantsFamille(params: {
   ]);
   for (const [cle, stock] of stocksLus) stockPfParNom.set(cle, stock);
 
-  // Cartons commandes par article, puis cartons a produire (le meme calcul sert a la page Manque Articles, voir cartonsAProduireParArticle)
+  // Cartons commandes par article, puis cartons dont les articles de conditionnement restent a couvrir (le meme calcul sert a la page Manque
+  // Articles : aProduireConditionnement, voir calculerCartonsAProduireGlobal) - seuls les cartons deja emballes sont deduits du programme en cours
   const cartonsParId = cartonsCommandesParArticle(lignes);
   const aProduireArticle = cartonsAProduireParArticle({
     cartonsParId,
     cleParId,
     articlesMemeNom,
     stockPfParNom,
-    qtEnCoursParNom: params.qtEnCoursParNom,
+    qtEnCoursParNom: qtEmballeParNom,
   });
 
   // 5) Besoin de chaque article de conditionnement pour toutes les commandes ouvertes
