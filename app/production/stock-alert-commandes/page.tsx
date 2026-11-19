@@ -5,7 +5,8 @@ import { canViewPageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { SubmitButton } from "@/app/_components/submit-button";
-import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { ExportAlerteButton } from "@/app/_components/export-alerte-button";
+import { COULEURS_EXCEL, type DonneesAlerte } from "@/lib/stock-alert-excel-donnees";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { MultiSelectFilter } from "@/app/_components/multi-select-filter";
 import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
@@ -298,58 +299,95 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
   const proformaOptions = resultat?.proformasDisponibles.map((ligne) => ligne.proforma) ?? [];
   const clientOptions = resultat?.clientsDisponibles ?? [];
 
-  const exportColumns = [
-    { label: "Categorie", key: "categorie" },
-    { label: "Matiere premiere", key: "matierePremiere" },
-    { label: "Unite", key: "unite" },
-    { label: "Besoin fabrication", key: "besoinFabrication" },
-    { label: "Besoin conditionnement", key: "besoinConditionnement" },
-    { label: "Besoin total (tous les cartons)", key: "besoinTotal" },
-    { label: "Deduit : en stock PF", key: "deduitStock" },
-    { label: "Deduit : en cours (programmes)", key: "deduitProgramme" },
-    { label: "Besoin a produire", key: "besoin" },
-    { label: "Stock Depot E", key: "stock" },
-    { label: "Manque", key: "manque" },
-    { label: "Commande (BC) en cours", key: "commandeBc" },
-    { label: "Import en cours", key: "import" },
-    { label: "Reste a couvrir", key: "resteACouvrir" },
-    { label: "Statut", key: "statut" },
-    { label: "Proformas concernees", key: "proformas" },
-  ];
-  const exportRows = lignes.map((alerte) => ({
-    categorie: alerte.categorie || "-",
-    matierePremiere: alerte.nom,
-    unite: alerte.unite || "-",
-    besoinFabrication: alerte.besoinFabrication,
-    besoinConditionnement: alerte.besoinConditionnement,
-    besoinTotal: alerte.besoinTotal,
-    deduitStock: alerte.deduitStock,
-    deduitProgramme: alerte.deduitProgramme,
-    besoin: alerte.besoin,
-    stock: alerte.stock,
-    manque: alerte.manque,
-    commandeBc: alerte.commandes.length
-      ? alerte.commandes
-          .map(
-            (commande) =>
-              `${commande.code} - ${commande.quantite}${commande.dateCommande ? ` - commande du ${formatDate(commande.dateCommande)}` : ""}`
-          )
-          .join(" | ")
-      : "-",
-    import: alerte.imports.length
-      ? alerte.imports
-          .map(
-            (transit) =>
-              `${transit.nDoss4d || transit.nDossErp || "Sans dossier"} - ${transit.quantite}${
-                transit.datePrevueReception ? ` - reception prevue le ${formatDate(transit.datePrevueReception)}` : ""
-              }`
-          )
-          .join(" | ")
-      : "-",
-    resteACouvrir: alerte.resteACouvrir,
-    statut: LIBELLE_STATUT[alerte.statut],
-    proformas: alerte.proformas.map((ligne) => (ligne.client ? `${ligne.proforma} (${ligne.client})` : ligne.proforma)).join(", "),
-  }));
+  // Excel : memes couleurs que l'ecran (ligne rouge clair = non couvert, jaune clair = couvert par un BC / import ; manque et reste en rouge /
+  // jaune / vert ; BC et dossiers d'import en bleu souligne), un BC / un import par ligne de la cellule, texte a la ligne, tout en haut a gauche
+  // - voir lib/classeur-stock-alert.ts. Le style est donne par colonne (une cellule n'envoie qu'une valeur), sauf Manque / Reste / Statut qui
+  // changent de couleur selon la ligne.
+  const aujourdhuiExcel = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
+  const filtresExcel = [
+    q ? `Matiere premiere : ${q}` : "",
+    categoriesChoisies.length ? `Categorie : ${categoriesChoisies.join(", ")}` : "",
+    statutChoisi ? `Statut : ${LIBELLE_STATUT[statutChoisi]}` : "",
+    proformasChoisies.length ? `Proforma : ${proformasChoisies.join(", ")}` : "",
+    clientsChoisis.length ? `Client : ${clientsChoisis.join(", ")}` : "",
+    sansStand ? "Sans les commandes STAND" : "",
+    sansProgrammes ? "Programmes en cours non deduits" : "",
+  ]
+    .filter(Boolean)
+    .join(" - ");
+  const gris = { texte: COULEURS_EXCEL.gris };
+  const besoinDeduit = { texte: COULEURS_EXCEL.bleuDetail };
+  const couleurStatut = (statut: AlerteMp["statut"]) =>
+    statut === "non_couvert" ? COULEURS_EXCEL.rouge : statut === "couvert" ? COULEURS_EXCEL.ambre : COULEURS_EXCEL.vert;
+  const donneesExcel: DonneesAlerte = {
+    titre: "Stock Alert MP par commande",
+    sousTitre: `${lignes.length} matiere(s) premiere(s)${avecSuffisant ? "" : " en manque"} pour les commandes ouvertes - au ${aujourdhuiExcel}`,
+    filtres: filtresExcel,
+    legende: [
+      { libelle: "Rouge : rien (ou pas assez) ne couvre le manque", fond: COULEURS_EXCEL.rougeLigne, texte: COULEURS_EXCEL.rougeFort },
+      { libelle: "Jaune : le manque est couvert par un BC / import en cours", fond: COULEURS_EXCEL.ambreLigne, texte: COULEURS_EXCEL.ambre },
+    ],
+    colonnes: [
+      { titre: "Categorie", largeur: 18, style: gris },
+      { titre: "Matiere premiere", largeur: 44, style: { texte: COULEURS_EXCEL.texte, gras: true } },
+      { titre: "Unite", largeur: 10, style: gris },
+      { titre: "Besoin fabrication", largeur: 16, style: gris },
+      { titre: "Besoin conditionnement", largeur: 24, style: gris },
+      { titre: "Besoin total (tous les cartons)", largeur: 18, style: besoinDeduit },
+      { titre: "Deduit : en stock PF", largeur: 16, style: besoinDeduit },
+      { titre: "Deduit : en cours (programmes)", largeur: 20, style: besoinDeduit },
+      { titre: "Besoin a produire", largeur: 16, style: { texte: COULEURS_EXCEL.texte } },
+      { titre: "Stock Depot E", largeur: 15, style: { texte: COULEURS_EXCEL.texte } },
+      { titre: "Manque", largeur: 14 },
+      { titre: "Commande (BC) en cours", largeur: 54 },
+      { titre: "Import en cours", largeur: 62 },
+      { titre: "Reste a couvrir", largeur: 15 },
+      { titre: "Statut", largeur: 16 },
+      { titre: "Proformas concernees", largeur: 40, style: gris },
+    ],
+    lignes: lignes.map((alerte) => ({
+      fond: alerte.statut === "non_couvert" ? COULEURS_EXCEL.rougeLigne : alerte.statut === "couvert" ? COULEURS_EXCEL.ambreLigne : undefined,
+      cellules: [
+        alerte.categorie || "-",
+        alerte.nom,
+        alerte.unite || "-",
+        alerte.besoinFabrication,
+        alerte.besoinConditionnement,
+        alerte.besoinTotal,
+        alerte.deduitStock,
+        alerte.deduitProgramme,
+        alerte.besoin,
+        alerte.stock,
+        // MANQUE : rouge quand il manque, vert sinon (comme l'ecran)
+        { valeur: alerte.manque, style: { texte: alerte.manque > 0 ? COULEURS_EXCEL.rouge : COULEURS_EXCEL.vert, gras: true } },
+        {
+          details: alerte.commandes.map((commande) => ({
+            code: commande.code,
+            reste: ` - ${commande.quantite}${commande.dateCommande ? ` - commande du ${formatDate(commande.dateCommande)}` : " - date de commande non renseignee"}`,
+          })),
+        },
+        {
+          details: alerte.imports.map((transit) => ({
+            code: transit.nDoss4d || transit.nDossErp || "Sans dossier",
+            reste: ` - ${transit.quantite}${transit.statutDossier ? ` - ${transit.statutDossier}` : ""}${
+              transit.dateImport ? ` - import du ${formatDate(transit.dateImport)}` : ""
+            }${transit.datePrevueReception ? ` - reception prevue le ${formatDate(transit.datePrevueReception)}` : " - date de reception prevue non renseignee"}`,
+          })),
+        },
+        // RESTE A COUVRIR : rouge s'il reste du manque, jaune quand un BC / import le couvre, vert sinon (comme l'ecran)
+        {
+          valeur: alerte.resteACouvrir,
+          style: {
+            texte: alerte.resteACouvrir > 0 ? COULEURS_EXCEL.rouge : alerte.manque > 0 ? COULEURS_EXCEL.ambre : COULEURS_EXCEL.vert,
+            gras: true,
+          },
+        },
+        { valeur: LIBELLE_STATUT[alerte.statut], style: { texte: couleurStatut(alerte.statut), gras: true } },
+        // une proforma par ligne de la cellule
+        alerte.proformas.map((ligne) => (ligne.client ? `${ligne.proforma} (${ligne.client})` : ligne.proforma)).join("\n"),
+      ],
+    })),
+  };
 
   const aucuneCommande = resultat !== null && resultat.proformas.length === 0;
   const phrasesVerdict = [
@@ -378,11 +416,7 @@ export default async function StockAlertCommandesPage({ searchParams }: { search
             <div className="flex items-center gap-3">
               <BackButton href="/production" label="Retour production" />
               {resultat ? (
-                <ExportExcelButton
-                  rows={exportRows}
-                  columns={exportColumns}
-                  filename={`stock-alert-mp-commandes-${new Date().toISOString().slice(0, 10)}.xlsx`}
-                />
+                <ExportAlerteButton donnees={donneesExcel} nomFichier={`stock-alert-mp-commandes-${new Date().toISOString().slice(0, 10)}.xlsx`} />
               ) : null}
               <RefreshButton />
             </div>

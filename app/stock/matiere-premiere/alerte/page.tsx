@@ -3,7 +3,8 @@ import { unstable_noStore as noStore } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
-import { ExportExcelButton } from "@/app/_components/export-excel-button";
+import { ExportAlerteButton } from "@/app/_components/export-alerte-button";
+import { COULEURS_EXCEL, type DonneesAlerte } from "@/lib/stock-alert-excel-donnees";
 import { SearchableFilterInput } from "@/app/_components/searchable-filter-input";
 import { MultiSelectFilter } from "@/app/_components/multi-select-filter";
 import { construireQuery, correspondALaListe, lireListeParam, optionsDistinctes } from "@/lib/filtre-multiple";
@@ -183,10 +184,35 @@ function dossierKey(nDoss4d: string | null, nDossErp: string | null) {
 // Sinon (stock au-dessus de la consommation des 3 mois) la ligne reste blanche.
 type CouleurAlerte = "jaune" | "vert" | "orange";
 
-const COULEURS_ALERTE: Record<CouleurAlerte, { ligne: string; puce: string; libelle: string; export: string }> = {
-  jaune: { ligne: "bg-yellow-200", puce: "bg-yellow-200 text-yellow-900", libelle: "Commande (BC) sans import", export: "Jaune - BC sans import" },
-  vert: { ligne: "bg-green-200", puce: "bg-green-200 text-green-900", libelle: "Import en cours", export: "Vert - import en cours" },
-  orange: { ligne: "bg-orange-200", puce: "bg-orange-200 text-orange-900", libelle: "Ni commande (BC) ni import", export: "Orange - ni BC ni import" },
+// fondExcel / texteExcel : les memes couleurs (yellow-200, green-200, orange-200) dans le fichier Excel
+const COULEURS_ALERTE: Record<
+  CouleurAlerte,
+  { ligne: string; puce: string; libelle: string; export: string; fondExcel: string; texteExcel: string }
+> = {
+  jaune: {
+    ligne: "bg-yellow-200",
+    puce: "bg-yellow-200 text-yellow-900",
+    libelle: "Commande (BC) sans import",
+    export: "Jaune - BC sans import",
+    fondExcel: COULEURS_EXCEL.jauneLigne,
+    texteExcel: COULEURS_EXCEL.jauneTexte,
+  },
+  vert: {
+    ligne: "bg-green-200",
+    puce: "bg-green-200 text-green-900",
+    libelle: "Import en cours",
+    export: "Vert - import en cours",
+    fondExcel: COULEURS_EXCEL.vertLigne,
+    texteExcel: COULEURS_EXCEL.vertTexte,
+  },
+  orange: {
+    ligne: "bg-orange-200",
+    puce: "bg-orange-200 text-orange-900",
+    libelle: "Ni commande (BC) ni import",
+    export: "Orange - ni BC ni import",
+    fondExcel: COULEURS_EXCEL.orangeLigne,
+    texteExcel: COULEURS_EXCEL.orangeTexte,
+  },
 };
 
 function couleurAlerte(stock: number, consommation3Mois: number, aUnBc: boolean, aUnImport: boolean): CouleurAlerte | null {
@@ -422,62 +448,87 @@ export default async function StockAlerteMpPage({
   const categorieOptions = optionsDistinctes(articles.map((article) => article.categorie));
   const sousFamilleOptions = optionsDistinctes(articles.map((article) => article.sous_famille));
 
-  const exportColumns = [
-    { label: "Categorie", key: "categorie" },
-    { label: "Sous famille", key: "sousFamille" },
-    { label: "Article", key: "article" },
-    { label: "Stock Depot E (moins TO)", key: "stock" },
-    { label: "Stock Depot E (avant TO)", key: "stockDepotE" },
-    { label: "TO deduits", key: "toDeduits" },
-    { label: "Unite", key: "unite" },
-    { label: "Consommation dernier mois", key: "consommation1Mois" },
-    { label: "Consommation dernier 3 mois", key: "consommation3Mois" },
-    { label: "Consommation dernier 6 mois", key: "consommation6Mois" },
-    { label: "Consommation dernier 12 mois", key: "consommation12Mois" },
-    { label: "Total entree (12 mois)", key: "entree12Mois" },
-    { label: "Total entree (3 mois)", key: "entree3Mois" },
-    { label: "Stock alert", key: "stockAlert" },
-    { label: "Commande (BC)", key: "commandeBc" },
-    { label: "Import", key: "import" },
-    { label: "Average consommation 12 mois", key: "averageConsommation" },
-    { label: "Utilisation produit", key: "utilisationProduit" },
-    { label: "Couleur alerte", key: "couleurAlerte" },
-  ];
-
-  const exportRows = alertes.map((alerte) => ({
-    categorie: alerte.categorie || "-",
-    sousFamille: alerte.sous_famille || "-",
-    article: alerte.nom_article,
-    stock: alerte.stock_actuel,
-    stockDepotE: alerte.stock_depot_e,
-    toDeduits: alerte.to_deduits,
-    unite: alerte.unite || "-",
-    consommation1Mois: alerte.consommation_1_mois,
-    consommation3Mois: alerte.consommation_3_mois,
-    consommation6Mois: alerte.consommation_6_mois,
-    consommation12Mois: alerte.consommation_12_mois,
-    entree12Mois: alerte.entree_12_mois,
-    entree3Mois: alerte.entree_3_mois,
-    stockAlert: alerte.min_stock,
-    commandeBc: alerte.bcRefs.length
-      ? alerte.bcRefs
-          .map((ref) => `${ref.code} - Qte commandee: ${ref.quantite} - 4D: ${ref.nDoss4d || "-"} / ERP: ${ref.nDossErp || "-"}`)
-          .join(" | ")
-      : "-",
-    import: alerte.importRefs.length
-      ? alerte.importRefs
-          .map(
-            (ref) =>
-              `4D: ${ref.nDoss4d || "-"} / ERP: ${ref.nDossErp || "-"} - Qte importee: ${ref.qteImportee} - Arrivee prevue: ${
-                ref.datePrevueReception ? formatDate(ref.datePrevueReception) : "-"
-              }`
-          )
-          .join(" | ")
-      : "-",
-    averageConsommation: Math.round((alerte.consommation_12_mois / 12) * 100) / 100,
-    utilisationProduit: alerte.utilisation_produit || "-",
-    couleurAlerte: alerte.couleur ? COULEURS_ALERTE[alerte.couleur].export : "-",
-  }));
+  // Excel : memes couleurs que l'ecran (ligne jaune / verte / orange, stock en rouge, consommations en bleu, entrees en vert, BC et dossiers
+  // d'import en bleu souligne), un BC / un import par ligne de la cellule, texte a la ligne, tout en haut a gauche - voir lib/classeur-stock-alert.ts
+  const aujourdhuiExcel = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-");
+  const filtresExcel = [
+    q ? `Article : ${q}` : "",
+    categoriesChoisies.length ? `Categorie : ${categoriesChoisies.join(", ")}` : "",
+    sousFamillesChoisies.length ? `Sous famille : ${sousFamillesChoisies.join(", ")}` : "",
+    hideLowThreshold ? "Stock alert a 1 ou moins cache" : "",
+  ]
+    .filter(Boolean)
+    .join(" - ");
+  const gris = { texte: COULEURS_EXCEL.gris };
+  const bleu = { texte: COULEURS_EXCEL.bleuConsommation, gras: true };
+  const vertEntree = { texte: COULEURS_EXCEL.vert, gras: true };
+  const donneesExcel: DonneesAlerte = {
+    titre: "Stock Alert MP",
+    sousTitre: `${alertes.length} article(s) en alerte (Depot E moins TO, stock egal ou inferieur au stock min) - au ${aujourdhuiExcel}. La ligne s'allume quand le stock est egal ou inferieur a la consommation des 3 derniers mois :`,
+    filtres: filtresExcel,
+    legende: (Object.keys(COULEURS_ALERTE) as CouleurAlerte[]).map((cle) => ({
+      libelle: `${COULEURS_ALERTE[cle].export.split(" - ")[0]} : ${COULEURS_ALERTE[cle].libelle}`,
+      fond: COULEURS_ALERTE[cle].fondExcel,
+      texte: COULEURS_ALERTE[cle].texteExcel,
+    })),
+    // Le style est donne PAR COLONNE : la page n'envoie qu'une valeur par cellule (1100 articles ou plus)
+    colonnes: [
+      { titre: "Categorie", largeur: 18, style: gris },
+      { titre: "Sous famille", largeur: 20, style: gris },
+      { titre: "Article", largeur: 44, style: { texte: COULEURS_EXCEL.texte, gras: true } },
+      // la pastille rouge du stock
+      { titre: "Stock Depot E (moins TO)", largeur: 17, style: { fond: COULEURS_EXCEL.rougeFond, texte: COULEURS_EXCEL.rougeFort, gras: true } },
+      { titre: "Stock Depot E (avant TO)", largeur: 17, style: gris },
+      { titre: "TO deduits", largeur: 12, style: gris },
+      { titre: "Unite", largeur: 10, style: gris },
+      { titre: "Consommation dernier mois", largeur: 16, style: bleu },
+      { titre: "Consommation dernier 3 mois", largeur: 16, style: bleu },
+      { titre: "Consommation dernier 6 mois", largeur: 16, style: bleu },
+      { titre: "Consommation dernier 12 mois", largeur: 16, style: bleu },
+      { titre: "Total entree (12 mois)", largeur: 15, style: vertEntree },
+      { titre: "Total entree (3 mois)", largeur: 15, style: vertEntree },
+      { titre: "Stock alert", largeur: 12, style: gris },
+      { titre: "Commande (BC)", largeur: 54 },
+      { titre: "Import", largeur: 62 },
+      { titre: "Average consommation 12 mois", largeur: 17, style: gris },
+      { titre: "Utilisation produit", largeur: 30, style: gris },
+      { titre: "Couleur alerte", largeur: 26, style: { texte: COULEURS_EXCEL.texte } },
+    ],
+    lignes: alertes.map((alerte) => ({
+      fond: alerte.couleur ? COULEURS_ALERTE[alerte.couleur].fondExcel : undefined,
+      cellules: [
+        alerte.categorie || "-",
+        alerte.sous_famille || "-",
+        alerte.nom_article,
+        alerte.stock_actuel,
+        alerte.stock_depot_e,
+        alerte.to_deduits,
+        alerte.unite || "-",
+        alerte.consommation_1_mois,
+        alerte.consommation_3_mois,
+        alerte.consommation_6_mois,
+        alerte.consommation_12_mois,
+        alerte.entree_12_mois,
+        alerte.entree_3_mois,
+        alerte.min_stock,
+        {
+          details: alerte.bcRefs.map((ref) => ({
+            code: ref.code,
+            reste: ` - Qte commandee: ${ref.quantite} - 4D: ${ref.nDoss4d || "-"} / ERP: ${ref.nDossErp || "-"}`,
+          })),
+        },
+        {
+          details: alerte.importRefs.map((ref) => ({
+            code: `4D: ${ref.nDoss4d || "-"} / ERP: ${ref.nDossErp || "-"}`,
+            reste: ` - Qte importee: ${ref.qteImportee} - Arrivee prevue: ${ref.datePrevueReception ? formatDate(ref.datePrevueReception) : "-"}`,
+          })),
+        },
+        Math.round((alerte.consommation_12_mois / 12) * 100) / 100,
+        alerte.utilisation_produit || "-",
+        alerte.couleur ? COULEURS_ALERTE[alerte.couleur].export : "-",
+      ],
+    })),
+  };
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#fffaf3_48%,#ffffff_100%)] px-6 py-8 text-slate-900 lg:px-10">
@@ -499,11 +550,7 @@ export default async function StockAlerteMpPage({
 
           <div className="flex items-center gap-3">
             <BackButton href="/stock/matiere-premiere/rapport" label="Retour rapport" />
-            <ExportExcelButton
-              rows={exportRows}
-              columns={exportColumns}
-              filename={`stock-alert-mp-${new Date().toISOString().slice(0, 10)}.xlsx`}
-            />
+            <ExportAlerteButton donnees={donneesExcel} nomFichier={`stock-alert-mp-${new Date().toISOString().slice(0, 10)}.xlsx`} />
             <RefreshButton />
           </div>
         </div>
