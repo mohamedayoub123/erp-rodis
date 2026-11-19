@@ -3,7 +3,7 @@ import { BackButton } from "@/app/_components/back-button";
 import { RefreshButton } from "@/app/_components/refresh-button";
 import { BoutonExportPdf } from "@/app/_components/bouton-export-pdf";
 import { CodeFluxCard, LEGENDE_FLUX } from "@/app/_components/code-flux-card";
-import { buildCodeFluxContext, fetchCodeFlux } from "@/lib/production-code-flux";
+import { buildCodeFluxContext, fetchCodeFluxParProduit } from "@/lib/production-code-flux";
 import { canViewPageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { redirect } from "next/navigation";
 
@@ -26,7 +26,9 @@ export default async function FluxParCodePage({ searchParams }: { searchParams: 
   const { code: codeParam } = await searchParams;
   const code = (codeParam || "").trim();
 
-  const flux = code ? await fetchCodeFlux(code, await buildCodeFluxContext()) : null;
+  // Un code tire sur plusieurs produits differents donne un bloc par produit (jamais leurs cartons additionnes)
+  const fluxList = code ? await fetchCodeFluxParProduit(code, await buildCodeFluxContext()) : [];
+  const flux = fluxList[0] ?? null;
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#e0f2fe_0%,#f0f9ff_40%,#ffffff_100%)] px-4 py-6 text-slate-900 lg:px-8">
@@ -112,7 +114,24 @@ export default async function FluxParCodePage({ searchParams }: { searchParams: 
                   </p>
                 </div>
               </div>
-              <CodeFluxCard flux={flux} />
+              {fluxList.length > 1 ? (
+                <section className="rounded-[1.75rem] border border-violet-200 bg-violet-50 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                  <p className="text-lg font-bold text-violet-900">
+                    Le code {flux.code} a ete tire sur {fluxList.length} produits differents : un bloc par produit, leurs
+                    quantites ne s&apos;additionnent pas.
+                  </p>
+                  <ul className="mt-2 list-disc pl-6 text-base text-violet-800">
+                    {fluxList.map((element, index) => (
+                      <li key={`${element.produit ?? "produit"}-${index}`}>
+                        {element.produit ?? "Produit inconnu"} : {element.avancement.conditionnement.fait} cartons conditionnes
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+              {fluxList.map((element, index) => (
+                <CodeFluxCard key={`${element.code}-${element.produit ?? "produit"}-${index}`} flux={element} />
+              ))}
             </>
           ) : (
             <section className="rounded-[1.75rem] border border-amber-200 bg-amber-50 p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">

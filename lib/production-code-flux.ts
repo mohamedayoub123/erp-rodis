@@ -285,25 +285,35 @@ async function fetchTosPourArticleLotDepot(
 // fetchDechetsByLigneCode) ; Conditionnement/Emballage viennent de
 // production_carton_entries/production_emballage_entries qui gardent UNE
 // ligne PAR FOURNEE avec leur propre machine/operateur, jamais ecrasees.
+//
+// ligneIds : quand le MEME code a ete tire sur des produits DIFFERENTS (ex : BB0360 sur "Creme PRECIOUS PERFECT 125grs" ET sur
+// "CREME PRECIOUS PERFECT 250ML"), chaque produit a son propre flux : seules les lignes de programme de CE produit comptent.
+// Sans ligneIds : tout ce qui porte le code (comportement d'avant).
 async function fetchProductionParCode(
-  code: string
+  code: string,
+  ligneIds?: number[]
 ): Promise<{ production: CodeFluxProduction; datePeremption: string | null; testLabo: CodeFluxTestLabo | null }> {
-  const [{ data: rapportRows }, { data: cartonRows }, { data: embRows }] = await Promise.all([
-    supabaseServer
-      .from("production_rapports")
-      .select(
-        "vrac_fabrique, date_saisie_fabrication, date_fabrication_conditionnement, date_peremption, machine, utilisateur_fabrication, preparateur, utilisateur_test_labo, date_prise_echantillon, date_saisie_test_labo, nom_labo, disposition_qualite, sous_derogation, ph, densite, viscosite, degre_alcool, stabilite, couleur, odeur, texture, taux_humidite, pression_atmospherique, temperature_test, motif_derogation, remarque"
-      )
-      .eq("code", code),
-    supabaseServer
-      .from("production_carton_entries")
-      .select("quantite, date_jour, chaine, zone, utilisateur_conditionnement, chef_ligne, chef_zone, ravitailleur, tireur")
-      .eq("code", code),
-    supabaseServer
-      .from("production_emballage_entries")
-      .select("quantite, date_jour, emballage_machine, emballage_operateur, emballage_chef_zone, emballage_scotcheuse")
-      .eq("code", code),
-  ]);
+  const restreint = Boolean(ligneIds && ligneIds.length > 0);
+  let rapportQuery = supabaseServer
+    .from("production_rapports")
+    .select(
+      "vrac_fabrique, date_saisie_fabrication, date_fabrication_conditionnement, date_peremption, machine, utilisateur_fabrication, preparateur, utilisateur_test_labo, date_prise_echantillon, date_saisie_test_labo, nom_labo, disposition_qualite, sous_derogation, ph, densite, viscosite, degre_alcool, stabilite, couleur, odeur, texture, taux_humidite, pression_atmospherique, temperature_test, motif_derogation, remarque"
+    )
+    .eq("code", code);
+  let cartonQuery = supabaseServer
+    .from("production_carton_entries")
+    .select("quantite, date_jour, chaine, zone, utilisateur_conditionnement, chef_ligne, chef_zone, ravitailleur, tireur")
+    .eq("code", code);
+  let embQuery = supabaseServer
+    .from("production_emballage_entries")
+    .select("quantite, date_jour, emballage_machine, emballage_operateur, emballage_chef_zone, emballage_scotcheuse")
+    .eq("code", code);
+  if (restreint && ligneIds) {
+    rapportQuery = rapportQuery.in("programme_ligne_id", ligneIds);
+    cartonQuery = cartonQuery.in("programme_ligne_id", ligneIds);
+    embQuery = embQuery.in("programme_ligne_id", ligneIds);
+  }
+  const [{ data: rapportRows }, { data: cartonRows }, { data: embRows }] = await Promise.all([rapportQuery, cartonQuery, embQuery]);
 
   const rapportsData = (rapportRows ?? []) as {
     vrac_fabrique: number | null;
@@ -554,9 +564,121 @@ function calculerAvancement(
   };
 }
 
+type LigneProgrammeFlux = {
+  id: number;
+  groupe_id: number | null;
+  produit: string | null;
+  article_id: number | null;
+  programe: string | null;
+  numero_lot: string | null;
+  numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
+  qt_carton: number | null;
+  vrac_a_fabriquer: number | null;
+  programme_termine: boolean | null;
+  vrac_termine: boolean | null;
+  carton_termine: boolean | null;
+  emballage_termine: boolean | null;
+};
+
+type LigneCodeTermine = { id: number; programme_ligne_id: number; code: string; stage: string };
+
+const COLONNES_LIGNE_PROGRAMME_FLUX =
+  "id, groupe_id, produit, article_id, programe, numero_lot, numero_lot_detail, qt_carton, vrac_a_fabriquer, programme_termine, vrac_termine, carton_termine, emballage_termine";
+
+function cleProduitFlux(produit: string | null): string {
+  return (produit ?? "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+// Un MEME code peut avoir ete tire sur des produits DIFFERENTS (cas reel : BB0360 = "Creme PRECIOUS PERFECT 125grs" sur sa ligne du
+// programme ET "CREME PRECIOUS PERFECT 250ML" sur une autre ligne de la meme chaine) : leurs cartons ne doivent pas s'additionner
+// (246 au lieu de 200 + 50). Les lignes qui ont REELLEMENT travaille ce code (saisies Fabrication / Conditionnement / Emballage,
+// ligne "code termine") sont regroupees par produit ; la ligne de depart reste la ligne de reference de SON groupe, qui passe en 1er.
+// Une ligne qui porte le code sans aucune saisie ne cree jamais un produit a part : le flux ne montre que ce qui a ete tire.
+async function grouperLignesParProduit(
+  code: string,
+  ligneDeBaseId: number,
+  termineRows: LigneCodeTermine[]
+): Promise<{ pl: LigneProgrammeFlux | null; ligneIds: number[] | undefined }[]> {
+  const ids = new Set<number>([ligneDeBaseId]);
+  // Lignes qui ont reellement travaille ce code (saisie ou "code termine") - la ligne de depart seule, sans rien, n'en fait pas partie
+  const lignesTravaillees = new Set<number>();
+  for (const t of termineRows) {
+    ids.add(t.programme_ligne_id);
+    lignesTravaillees.add(t.programme_ligne_id);
+  }
+  const saisies = await Promise.all(
+    ["production_rapports", "production_carton_entries", "production_emballage_entries", "production_vrac_entries"].map((table) =>
+      supabaseServer.from(table).select("programme_ligne_id").eq("code", code).limit(1000)
+    )
+  );
+  for (const { data } of saisies) {
+    for (const ligne of (data ?? []) as { programme_ligne_id: number | null }[]) {
+      if (ligne.programme_ligne_id === null) continue;
+      ids.add(ligne.programme_ligne_id);
+      lignesTravaillees.add(ligne.programme_ligne_id);
+    }
+  }
+
+  const { data: lignesData } = await supabaseServer
+    .from("programme_lignes")
+    .select(COLONNES_LIGNE_PROGRAMME_FLUX)
+    .in("id", [...ids]);
+  const lignes = (lignesData ?? []) as LigneProgrammeFlux[];
+  // Ligne de depart introuvable (supprimee) : comportement d'avant, un seul flux sans ligne de programme, tout ce qui porte le code
+  if (!lignes.some((ligne) => ligne.id === ligneDeBaseId)) return [{ pl: null, ligneIds: undefined }];
+
+  // Une ligne sans article_id mais au nom d'un produit deja identifie ailleurs rejoint ce produit
+  const articleParNom = new Map<string, number>();
+  for (const ligne of lignes) {
+    if (ligne.article_id !== null && ligne.produit) articleParNom.set(cleProduitFlux(ligne.produit), ligne.article_id);
+  }
+  const cleDeLaLigne = (ligne: LigneProgrammeFlux) => {
+    const articleId = ligne.article_id ?? (ligne.produit ? articleParNom.get(cleProduitFlux(ligne.produit)) ?? null : null);
+    return articleId !== null ? `article-${articleId}` : `produit-${cleProduitFlux(ligne.produit)}`;
+  };
+
+  const parProduit = new Map<string, LigneProgrammeFlux[]>();
+  for (const ligne of lignes) {
+    const cle = cleDeLaLigne(ligne);
+    parProduit.set(cle, [...(parProduit.get(cle) ?? []), ligne]);
+  }
+  const cleBase = cleDeLaLigne(lignes.find((ligne) => ligne.id === ligneDeBaseId) as LigneProgrammeFlux);
+
+  // Un produit dont aucune ligne n'a rien tire avec ce code (ex : la ligne du plan dit 250ml mais tout a ete tire sur le 500ml) n'a pas de
+  // flux a montrer a cote de celui qui a travaille - on ne le garde que si AUCUN produit n'a travaille ce code.
+  const entrees = [...parProduit.entries()];
+  const aTravaille = entrees.filter(([, lignesDuProduit]) => lignesDuProduit.some((ligne) => lignesTravaillees.has(ligne.id)));
+  const gardes = aTravaille.length > 0 ? aTravaille : entrees;
+
+  return gardes
+    .sort(([cleA, lignesA], [cleB, lignesB]) => {
+      if (cleA === cleBase) return -1;
+      if (cleB === cleBase) return 1;
+      return Math.min(...lignesA.map((l) => l.id)) - Math.min(...lignesB.map((l) => l.id));
+    })
+    .map(([cle, lignesDuProduit]) => ({
+      // Groupe de la ligne de depart : exactement la ligne d'avant. Autre produit : sa vraie ligne de programme (celle rattachee a un PL) d'abord.
+      pl:
+        cle === cleBase
+          ? (lignesDuProduit.find((ligne) => ligne.id === ligneDeBaseId) ?? lignesDuProduit[0])
+          : [...lignesDuProduit].sort((a, b) => Number(b.groupe_id !== null) - Number(a.groupe_id !== null) || a.id - b.id)[0],
+      ligneIds: lignesDuProduit.map((ligne) => ligne.id),
+    }));
+}
+
+// Flux de CHAQUE produit tire avec ce code (un seul le plus souvent). Page "Flux par Code" : un bloc par produit.
+export async function fetchCodeFluxParProduit(codeRaw: string, ctx: CodeFluxContext): Promise<CodeFlux[]> {
+  return fluxDuCode(codeRaw, ctx, true);
+}
+
+// Flux du code tel qu'il a toujours ete (pages PL / PD : un code = un bloc, sur la ligne de programme du code).
 export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Promise<CodeFlux | null> {
+  return (await fluxDuCode(codeRaw, ctx, false))[0] ?? null;
+}
+
+async function fluxDuCode(codeRaw: string, ctx: CodeFluxContext, tousLesProduits: boolean): Promise<CodeFlux[]> {
   const codeSaisi = codeRaw.trim();
-  if (!codeSaisi) return null;
+  if (!codeSaisi) return [];
 
   // ilike sans wildcard = comparaison exacte insensible a la casse - un
   // utilisateur qui tape "aa4256" doit retrouver le code stocke "AA4256",
@@ -565,7 +687,7 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
     .from("production_code_termine")
     .select("id, programme_ligne_id, code, stage")
     .ilike("code", codeSaisi);
-  const termineRows = (termineData ?? []) as { id: number; programme_ligne_id: number; code: string; stage: string }[];
+  const termineRows = (termineData ?? []) as LigneCodeTermine[];
 
   // Le vrai code stocke (casse exacte) - reutilise pour l'affichage et pour
   // matcher lots_stock.numero_lot plus bas (traceProduitFiniPourCode fait
@@ -578,33 +700,43 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
     programmeLigneId = termineRows[0].programme_ligne_id;
   } else {
     const trouve = await retrouverLigneDuCode(codeSaisi);
-    if (!trouve) return null;
+    if (!trouve) return [];
     code = trouve.code;
     programmeLigneId = trouve.programmeLigneId;
   }
-  const { data: plData } = await supabaseServer
-    .from("programme_lignes")
-    .select(
-      "id, groupe_id, produit, article_id, programe, numero_lot, numero_lot_detail, qt_carton, vrac_a_fabriquer, programme_termine, vrac_termine, carton_termine, emballage_termine"
-    )
-    .eq("id", programmeLigneId)
-    .maybeSingle();
-  const pl = plData as {
-    id: number;
-    groupe_id: number | null;
-    produit: string | null;
-    article_id: number | null;
-    programe: string | null;
-    numero_lot: string | null;
-    numero_lot_detail: { code: string; qt_vrac: number | null; qt_carton: number | null }[] | null;
-    qt_carton: number | null;
-    vrac_a_fabriquer: number | null;
-    programme_termine: boolean | null;
-    vrac_termine: boolean | null;
-    carton_termine: boolean | null;
-    emballage_termine: boolean | null;
-  } | null;
 
+  // Pages PL / PD : exactement le flux d'avant (la ligne du code, tout ce qui porte le code) - le decoupage par produit n'est que dans "Flux par Code"
+  if (!tousLesProduits) {
+    const { data: plData } = await supabaseServer
+      .from("programme_lignes")
+      .select(COLONNES_LIGNE_PROGRAMME_FLUX)
+      .eq("id", programmeLigneId)
+      .maybeSingle();
+    return [await construireFluxCode(code, plData as LigneProgrammeFlux | null, undefined, termineRows, ctx)];
+  }
+
+  const groupes = await grouperLignesParProduit(code, programmeLigneId, termineRows);
+  return Promise.all(
+    groupes.map(({ pl, ligneIds }) =>
+      construireFluxCode(
+        code,
+        pl,
+        ligneIds,
+        ligneIds ? termineRows.filter((t) => ligneIds.includes(t.programme_ligne_id)) : termineRows,
+        ctx
+      )
+    )
+  );
+}
+
+// ligneIds : les lignes de programme de CE produit (undefined = pas de decoupage, tout ce qui porte le code)
+async function construireFluxCode(
+  code: string,
+  pl: LigneProgrammeFlux | null,
+  ligneIds: number[] | undefined,
+  termineRows: LigneCodeTermine[],
+  ctx: CodeFluxContext
+): Promise<CodeFlux> {
   // MB de la PL = champ libre "Programme" de la ligne (ex : "MB5371/AYOUB") ; vide = pas de MB
   const mb = pl?.programe?.trim() ? pl.programe.trim() : null;
 
@@ -689,7 +821,7 @@ export async function fetchCodeFlux(codeRaw: string, ctx: CodeFluxContext): Prom
   }
 
   const { entreeProduction, sorties } = traceProduitFiniPourCode(ctx.webRows, ctx.mouvementInfoByRowId, pl?.article_id, code);
-  const { production, datePeremption, testLabo } = await fetchProductionParCode(code);
+  const { production, datePeremption, testLabo } = await fetchProductionParCode(code, ligneIds);
 
   const avancement = calculerAvancement(code, pl, production, new Set(termineRows.map((ligne) => ligne.stage)));
 
