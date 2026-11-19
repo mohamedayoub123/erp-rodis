@@ -7,6 +7,16 @@ import {
   calculerCartonsCasiers,
   moyenne,
 } from "@/lib/conditionnement-par-ligne";
+import { useRestaurationBrouillon } from "@/app/_components/brouillon-formulaire";
+
+// "3,5,12" -> {3, 5, 12} (numeros de casier valides seulement)
+function numerosCasiers(valeurs: string[]): Set<number> {
+  const numeros = valeurs
+    .flatMap((valeur) => valeur.split(","))
+    .map((valeur) => Number(valeur))
+    .filter((numero) => Number.isInteger(numero) && numero >= 1 && numero <= NB_CASIERS_MAX);
+  return new Set(numeros);
+}
 
 const CHAMP =
   "rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none";
@@ -45,6 +55,20 @@ export function ParLigneProduction({
   const [piecesParCasier, setPiecesParCasier] = useState("");
   const [cadence, setCadence] = useState<string[]>(() => Array(NB_RELEVES).fill(""));
   const [poids, setPoids] = useState<string[]>(() => Array(NB_RELEVES).fill(""));
+  const racine = useRef<HTMLDivElement>(null);
+
+  // Brouillon du formulaire : les casiers coches et les points deja mis sont remis apres une actualisation de la page
+  useRestaurationBrouillon(racine, (nomChamp, valeurs) => {
+    if (nomChamp === "casier") {
+      setCasiers(numerosCasiers(valeurs));
+      return true;
+    }
+    if (nomChamp === "points_casiers") {
+      setPoints(numerosCasiers(valeurs));
+      return true;
+    }
+    return false;
+  });
 
   // Casier COCHE + POINT = verrouille : impossible a decocher / a depointer, sauf pour l'admin.
   function verrouille(numero: number) {
@@ -118,7 +142,13 @@ export function ParLigneProduction({
   const moyennePoids = moyenne(poids.map(enNombre));
 
   return (
-    <div className="grid gap-6">
+    <div ref={racine} className="grid gap-6">
+      {/* Points des casiers : seulement pour le brouillon (pas de name : rien n'est envoye au serveur) */}
+      <input
+        type="hidden"
+        data-brouillon-nom="points_casiers"
+        value={[...points].sort((a, b) => a - b).join(",")}
+      />
       <div>
         <h3 className="mb-1 text-base font-bold text-slate-900">Casiers sortis</h3>
         <p className="mb-3 text-xs text-slate-500">

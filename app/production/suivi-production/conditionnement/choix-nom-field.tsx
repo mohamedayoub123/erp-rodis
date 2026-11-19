@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRestaurationBrouillon } from "@/app/_components/brouillon-formulaire";
 
 // Champ "Nom chef de zone" / "Nom chef de ligne" du Conditionnement : liste de choix (les noms se gerent dans Production > Noms
 // Conditionnement). On peut taper pour filtrer, mais seul un nom de la liste est accepte. Tant que la liste est vide (aucun nom
@@ -28,6 +29,14 @@ export function ChoixNomField({
   const [valeur, setValeur] = useState(strict ? (departExact ?? "") : defaultValue);
   const [ouvert, setOuvert] = useState(false);
   const champ = useRef<HTMLInputElement>(null);
+  const racine = useRef<HTMLDivElement>(null);
+
+  // Brouillon du formulaire : le nom deja choisi est remis apres une actualisation de la page
+  useRestaurationBrouillon(racine, (nomChamp, valeurs) => {
+    if (nomChamp !== name) return false;
+    setValeur(valeurs[0] ?? "");
+    return true;
+  });
 
   const saisi = valeur.trim().toLowerCase();
   const exact = noms.find((nom) => nom.toLowerCase() === saisi) ?? null;
@@ -43,7 +52,7 @@ export function ChoixNomField({
   );
 
   return (
-    <div className="relative">
+    <div ref={racine} className="relative">
       <input
         ref={champ}
         type="text"

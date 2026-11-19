@@ -17,6 +17,7 @@ import { ParLigneProduction } from "./par-ligne-production";
 import { ArretsParCause } from "./arrets-par-cause";
 import { SubmitButton } from "@/app/_components/submit-button";
 import { TimeTextInputMaintenant } from "@/app/_components/time-text-input-maintenant";
+import { BrouillonFormulaire } from "@/app/_components/brouillon-formulaire";
 
 // Meme liste que l'Entree simple (conditionnement/[ligneId]/page.tsx) - dupliquee volontairement pour ne
 // jamais faire deriver l'Entree simple en touchant ce fichier.
@@ -205,6 +206,8 @@ export default async function ConditionnementParLignePage({
             </Message>
           ) : (
             <form action={saveConditionnementParLigneAction} className="grid gap-6">
+              {/* Ce qui est deja rempli reste apres une actualisation de la page (efface a l'enregistrement) */}
+              <BrouillonFormulaire cle={`conditionnement-par-ligne:${ligne.id}:${code}`} erreur={erreur} />
               <input type="hidden" name="ligne_id" value={ligne.id} />
               <input type="hidden" name="code" value={code} />
 

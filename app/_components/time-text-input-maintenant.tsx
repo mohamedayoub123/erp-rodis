@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { calculerDecalageHorloge, formaterHeureTogo } from "@/lib/heure-togo";
+import { useRestaurationBrouillon } from "./brouillon-formulaire";
 import { heureServeurAction } from "./heure-serveur-actions";
 import {
   handleTimeKeyDown,
@@ -46,6 +47,14 @@ export function TimeTextInputMaintenant({
   className?: string;
 }) {
   const [state, setState] = useState<TimeMaskState>(() => parseTimeValue(defaultValue ?? ""));
+  const racine = useRef<HTMLDivElement>(null);
+
+  // Brouillon du formulaire : l'heure deja saisie est remise apres une actualisation de la page
+  useRestaurationBrouillon(racine, (nomChamp, valeurs) => {
+    if (nomChamp !== name) return false;
+    setState(parseTimeValue(valeurs[0] ?? ""));
+    return true;
+  });
 
   // Synchronise des l'ouverture de la page : au moment de l'appui, l'heure est deja calculable sans attente.
   useEffect(() => {
@@ -59,7 +68,7 @@ export function TimeTextInputMaintenant({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div ref={racine} className="flex items-center gap-2">
       <input
         type="text"
         name={name}

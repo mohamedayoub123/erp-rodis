@@ -50,6 +50,8 @@ export function ArretsParCause({ causes, classeChamp }: { causes: readonly Cause
                 step="1"
                 min="0"
                 inputMode="numeric"
+                // Pas de name (seul le total part au serveur) : le nom sert uniquement au brouillon du formulaire
+                data-brouillon-nom={`${cause.field}__${index + 1}`}
                 aria-label={`${cause.label} - arret ${index + 1} (minutes)`}
                 placeholder={`${index + 1}`}
                 value={valeurs[cause.field]?.[index] ?? ""}
