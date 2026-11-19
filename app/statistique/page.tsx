@@ -35,9 +35,9 @@ export default async function StatistiquePage() {
             >
               <span className="text-4xl">{"\u{1F4C8}"}</span>
               <p className="mt-4 text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
-                Statistique produit fini
+                Mouvement Stock PF
               </p>
-              <p className="mt-2 text-lg font-bold text-slate-900">Ventes par mois, par article</p>
+              <p className="mt-2 text-lg font-bold text-slate-900">Entrees et sorties par mois, par article</p>
             </Link>
           ) : null}
 

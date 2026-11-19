@@ -231,10 +231,10 @@ export default async function HistoriqueMouvementsPage({
                 ERP Rodis
               </p>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
-                Statistique ventes par mois
+                Mouvement Stock PF
               </h1>
               <p className="mt-2 text-sm text-slate-600">
-                Cette page montre combien on a vendu par mois avec filtre article et courbe.
+                Cette page montre les mouvements du stock produit fini (entrees et sorties) par mois, avec filtre article et courbe.
               </p>
             </div>
 

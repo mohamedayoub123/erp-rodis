@@ -974,7 +974,7 @@ export const PAGE_REGISTRY: PageDefinition[] = [
   {
     key: "historiqueMouvements",
     module: "Statistique",
-    label: "Statistique ventes par mois",
+    label: "Mouvement Stock PF",
     pathPrefixes: ["/historique-mouvements"],
     hasWrite: false,
   },
