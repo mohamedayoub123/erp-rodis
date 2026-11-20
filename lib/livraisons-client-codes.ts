@@ -1,0 +1,221 @@
+import { supabaseServer } from "@/lib/supabase-server";
+
+// Livraison par client (Gestion Stock PF > Rapport) : tous les codes (lots) livres a un client, avec l'article, la quantite et les dates.
+//
+// Source : les SORTIES de lots_stock (qte_sortie > 0). Chaque sortie porte dans sa note une ligne
+//   SORTIEWEB|date|code|livre pour|BL|preparateur|quantite|remarque|proforma      (livraison de commande ou sortie manuelle du web)
+//   SORTIEIMPORT|date|-|livre pour|BL|preparateur|quantite                        (ancien historique importe)
+// Le "livre pour" est le client d'une livraison de commande, ou le nom tape sur une sortie manuelle (meme lecture que la trace des sorties
+// de app/mouvements/shared.ts). Une note peut porter plusieurs lignes (un meme lot livre a plusieurs clients) : chaque ligne est lue.
+
+export type LigneLivraison = {
+  articleId: number;
+  article: string;
+  code: string;
+  dateFabrication: string | null;
+  // YYYY-MM-DD (date de la ligne SORTIE, sinon date du mouvement)
+  dateLivraison: string | null;
+  quantite: number;
+  client: string;
+};
+
+export type LivraisonParCode = {
+  cle: string;
+  articleId: number;
+  article: string;
+  code: string;
+  dateFabrication: string | null;
+  quantite: number;
+  nbLivraisons: number;
+  // dates de livraison distinctes, de la plus ancienne a la plus recente
+  dates: string[];
+  // noms ecrits dans les livraisons (plusieurs seulement si le texte cherche correspond a plusieurs noms)
+  clients: string[];
+};
+
+type SortieRow = {
+  id: number;
+  article_id: number | null;
+  numero_lot: string | null;
+  date_fabrication: string | null;
+  date_jour: string | null;
+  qte_sortie: number | null;
+  note: string | null;
+  articles: { nom_article: string } | { nom_article: string }[] | null;
+};
+
+type LigneNote = { date: string | null; code: string; livrePour: string; quantite: number };
+
+const DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+export function cleNom(value: string | null | undefined): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+// Lignes SORTIEWEB / SORTIEIMPORT d'une note, chacune avec sa propre quantite
+export function lignesSortieDeLaNote(note: string | null | undefined): LigneNote[] {
+  const lignes: LigneNote[] = [];
+  for (const brut of String(note ?? "").split(/\r?\n/)) {
+    const ligne = brut.trim();
+    if (!ligne.startsWith("SORTIEWEB|") && !ligne.startsWith("SORTIEIMPORT|")) continue;
+    const parts = ligne.split("|");
+    const livrePour = (parts[3] ?? "").trim();
+    if (!livrePour || livrePour === "-") continue;
+    const date = (parts[1] ?? "").trim();
+    const code = (parts[2] ?? "").trim();
+    lignes.push({
+      date: DATE_ISO.test(date) ? date : null,
+      code: code && code !== "-" ? code : "",
+      livrePour,
+      quantite: Number(parts[6] ?? 0) || 0,
+    });
+  }
+  return lignes;
+}
+
+function nomArticle(row: SortieRow): string {
+  return (Array.isArray(row.articles) ? row.articles[0]?.nom_article : row.articles?.nom_article) || "-";
+}
+
+// Lit toutes les livraisons dont le "livre pour" correspond au texte tape : le nom EXACT s'il existe (IPP ne ramene pas IPP SARL), sinon tous
+// les noms qui contiennent le texte (CAPT ramene CAPTINO et CAPTIN CAMEROUN, chaque ligne garde son nom). Un souci de lecture est renvoye dans
+// error (les lignes deja lues restent).
+export async function fetchLivraisonsClient(texte: string): Promise<{ lignes: LigneLivraison[]; error: string | null }> {
+  const recherche = texte.trim();
+  if (!recherche) return { lignes: [], error: null };
+
+  // % et _ sont des jokers du ilike : ils sont echappes pour etre cherches tels quels
+  const motif = `%${recherche.replace(/[\\%_]/g, "\\$&")}%`;
+  const rows: SortieRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("lots_stock")
+      .select("id, article_id, numero_lot, date_fabrication, date_jour, qte_sortie, note, articles!inner(nom_article)")
+      .gt("qte_sortie", 0)
+      .ilike("note", motif)
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) return { lignes: construireLignes(rows, recherche), error: error.message };
+    const chunk = (data ?? []) as unknown as SortieRow[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+  return { lignes: construireLignes(rows, recherche), error: null };
+}
+
+export function construireLignes(rows: SortieRow[], recherche: string): LigneLivraison[] {
+  const cle = cleNom(recherche);
+  const candidates: { row: SortieRow; lignes: LigneNote[] }[] = [];
+  let nomExact = false;
+  for (const row of rows) {
+    if (!row.article_id) continue;
+    const toutes = lignesSortieDeLaNote(row.note);
+    const retenues = toutes.filter((ligne) => cleNom(ligne.livrePour).includes(cle));
+    if (retenues.length === 0) continue;
+    if (retenues.some((ligne) => cleNom(ligne.livrePour) === cle)) nomExact = true;
+    candidates.push({ row, lignes: toutes });
+  }
+
+  const resultat: LigneLivraison[] = [];
+  for (const { row, lignes } of candidates) {
+    const retenues = lignes.filter((ligne) => (nomExact ? cleNom(ligne.livrePour) === cle : cleNom(ligne.livrePour).includes(cle)));
+    for (const ligne of retenues) {
+      // une seule ligne SORTIE dans la note : la quantite du mouvement fait foi (c'est ce qui est sorti du stock) ; plusieurs lignes (un meme lot
+      // livre a plusieurs clients) : la quantite de chaque ligne
+      const quantite = lignes.length === 1 ? Number(row.qte_sortie ?? 0) : ligne.quantite;
+      if (!(quantite > 0)) continue;
+      resultat.push({
+        articleId: row.article_id as number,
+        article: nomArticle(row),
+        code: (row.numero_lot ?? "").trim() || ligne.code || "-",
+        dateFabrication: row.date_fabrication,
+        dateLivraison: ligne.date ?? row.date_jour,
+        quantite,
+        client: ligne.livrePour,
+      });
+    }
+  }
+  return resultat;
+}
+
+// Filtre mois (YYYY-MM, inclus) : mois vide = pas de limite de ce cote. Une livraison sans date n'est gardee que sans filtre de mois.
+export function livraisonDansLesMois(ligne: LigneLivraison, moisDebut: string, moisFin: string): boolean {
+  if (!moisDebut && !moisFin) return true;
+  const mois = (ligne.dateLivraison ?? "").slice(0, 7);
+  if (!mois) return false;
+  if (moisDebut && mois < moisDebut) return false;
+  if (moisFin && mois > moisFin) return false;
+  return true;
+}
+
+export function grouperParCode(lignes: LigneLivraison[]): LivraisonParCode[] {
+  const groupes = new Map<string, LivraisonParCode>();
+  for (const ligne of lignes) {
+    const cle = `${ligne.articleId}::${ligne.code.toUpperCase()}`;
+    let groupe = groupes.get(cle);
+    if (!groupe) {
+      groupe = {
+        cle,
+        articleId: ligne.articleId,
+        article: ligne.article,
+        code: ligne.code,
+        dateFabrication: null,
+        quantite: 0,
+        nbLivraisons: 0,
+        dates: [],
+        clients: [],
+      };
+      groupes.set(cle, groupe);
+    }
+    groupe.quantite += ligne.quantite;
+    groupe.nbLivraisons += 1;
+    if (ligne.dateFabrication && (!groupe.dateFabrication || ligne.dateFabrication < groupe.dateFabrication)) {
+      groupe.dateFabrication = ligne.dateFabrication;
+    }
+    if (ligne.dateLivraison && !groupe.dates.includes(ligne.dateLivraison)) groupe.dates.push(ligne.dateLivraison);
+    if (!groupe.clients.some((nom) => cleNom(nom) === cleNom(ligne.client))) groupe.clients.push(ligne.client);
+  }
+  return [...groupes.values()]
+    .map((groupe) => ({ ...groupe, dates: [...groupe.dates].sort() }))
+    .sort(
+      (a, b) =>
+        a.article.localeCompare(b.article, "fr", { sensitivity: "base" }) ||
+        (a.dateFabrication ?? "").localeCompare(b.dateFabrication ?? "") ||
+        a.code.localeCompare(b.code, "fr", { sensitivity: "base", numeric: true })
+    );
+}
+
+// Noms proposes dans la liste du filtre client : la table des clients + les clients des commandes (une seule ecriture par nom, casse ignoree).
+// Ce qui a ete tape a la main sur une sortie (GHANA, MISE A JOUR STOCK...) reste cherchable en tapant le nom.
+export async function fetchNomsClients(): Promise<string[]> {
+  const noms = new Map<string, string>();
+  const ajouter = (valeur: string | null | undefined) => {
+    const nom = String(valeur ?? "").trim();
+    if (nom && !noms.has(cleNom(nom))) noms.set(cleNom(nom), nom);
+  };
+
+  const { data: clients } = await supabaseServer.from("clients").select("nom_client").limit(2000);
+  for (const row of (clients ?? []) as { nom_client: string | null }[]) ajouter(row.nom_client);
+
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabaseServer
+      .from("commandes")
+      .select("client")
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) break;
+    const chunk = (data ?? []) as { client: string | null }[];
+    for (const row of chunk) ajouter(row.client);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+  return [...noms.values()].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+}

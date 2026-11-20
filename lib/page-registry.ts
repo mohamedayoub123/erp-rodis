@@ -170,6 +170,15 @@ export const PAGE_REGISTRY: PageDefinition[] = [
     hasWrite: false,
     adminGroup: "Rapport (Produit Fini)",
   },
+  // Page absente de lib/pages-existantes.ts : fermee par defaut, seuls les admins y accedent tant qu'un admin ne l'accorde pas
+  {
+    key: "stockLivraisonClientPf",
+    module: "Stock",
+    label: "Livraison par client PF (codes livres)",
+    pathPrefixes: ["/stock/rapport/livraison-client"],
+    hasWrite: false,
+    adminGroup: "Rapport (Produit Fini)",
+  },
   {
     key: "stockMatierePremiere",
     module: "Stock",

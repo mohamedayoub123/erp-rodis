@@ -26,6 +26,13 @@ const TILES = [
     description:
       "Nb de camions par mois (en cours/BL/livre) et delai entre l'entree en cours et le marquage pret en stock.",
   },
+  {
+    label: "Livraison par client",
+    href: "/stock/rapport/livraison-client",
+    pageKey: "stockLivraisonClientPf",
+    icon: "\u{1F69A}",
+    description: "Ecris un client : tous les codes livres pour lui avec l'article et la quantite, filtre par mois et par article.",
+  },
 ] as const;
 
 export default async function RapportPfPage() {
