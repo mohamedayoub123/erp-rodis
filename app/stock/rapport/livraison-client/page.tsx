@@ -105,7 +105,8 @@ export default async function LivraisonClientPfPage({ searchParams }: { searchPa
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Livraison par client</h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
               Ecris un client : la liste des articles livres pour lui, puis tous les codes (lots) avec la quantite et les dates de livraison, y
-              compris les sorties de l&apos;ancien fichier Excel. Filtre par mois, annee et article.
+              compris les sorties de l&apos;ancien fichier Excel. Les codes sont classes par date de livraison, la plus recente en premier.
+              Filtre par mois, annee et article.
             </p>
           </div>
 

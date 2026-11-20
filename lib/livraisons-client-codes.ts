@@ -230,12 +230,15 @@ export function grouperParCode(lignes: LigneLivraison[]): LivraisonParCode[] {
     if (!groupe.clients.some((nom) => cleNom(nom) === cleNom(ligne.client))) groupe.clients.push(ligne.client);
     if (!groupe.origines.includes(ligne.origine)) groupe.origines.push(ligne.origine);
   }
+  // Ordre : par DATE DE LIVRAISON, la plus recente en premier (un code livre en plusieurs fois compte avec sa derniere livraison) ; a date
+  // egale, par article puis par code. Les codes sans date de livraison sont en dernier.
+  const derniereDate = (groupe: LivraisonParCode) => groupe.dates[groupe.dates.length - 1] ?? "";
   return [...groupes.values()]
     .map((groupe) => ({ ...groupe, dates: [...groupe.dates].sort() }))
     .sort(
       (a, b) =>
+        derniereDate(b).localeCompare(derniereDate(a)) ||
         a.article.localeCompare(b.article, "fr", { sensitivity: "base" }) ||
-        (a.dateFabrication ?? "").localeCompare(b.dateFabrication ?? "") ||
         a.code.localeCompare(b.code, "fr", { sensitivity: "base", numeric: true })
     );
 }
