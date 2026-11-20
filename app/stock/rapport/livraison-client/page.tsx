@@ -6,19 +6,30 @@ import { VoirToutBanner } from "@/app/_components/voir-tout-banner";
 import { matchesArticleSearch } from "@/lib/article-search";
 import { formatDate } from "@/lib/format-date";
 import {
+  articlesLivres,
   fetchLivraisonsClient,
   fetchNomsClients,
   grouperParCode,
-  livraisonDansLesMois,
+  groupesDuTexte,
+  livraisonDansLaPeriode,
+  type OrigineLivraison,
 } from "@/lib/livraisons-client-codes";
 import { canViewPageUser, getCurrentStockUser } from "@/lib/stock-auth";
 
-type SearchParams = Promise<{ client?: string; du?: string; au?: string; article?: string; tout?: string }>;
+type SearchParams = Promise<{ client?: string; mois?: string; annee?: string; article?: string; tout?: string }>;
 
 // Les premieres lignes par defaut, "Voir tout" affiche le reste (voir app/_components/voir-tout-banner.tsx) : un gros client a plusieurs
-// centaines de codes. Les totaux portent toujours sur tout.
+// centaines de codes. Les totaux et la liste des articles portent toujours sur tout.
 const LIMITE_LIGNES = 150;
-const MOIS_ISO = /^\d{4}-\d{2}$/;
+const MOIS = ["Janvier", "Fevrier", "Mars", "Avril", "Mai", "Juin", "Juillet", "Aout", "Septembre", "Octobre", "Novembre", "Decembre"];
+
+const STYLE_ORIGINE: Record<OrigineLivraison, string> = {
+  Commande: "bg-sky-100 text-sky-800",
+  "Sortie manuelle": "bg-amber-100 text-amber-800",
+  "Import Excel": "bg-violet-100 text-violet-800",
+};
+
+const CLASSE_LISTE = "rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-normal text-slate-900 outline-none";
 
 function nombre(valeur: number) {
   return valeur.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
@@ -44,11 +55,11 @@ export default async function LivraisonClientPfPage({ searchParams }: { searchPa
   }
 
   const client = (params.client || "").trim();
-  const moisDebut = MOIS_ISO.test(params.du || "") ? (params.du as string) : "";
-  const moisFin = MOIS_ISO.test(params.au || "") ? (params.au as string) : "";
+  const mois = /^(0[1-9]|1[0-2])$/.test(params.mois || "") ? (params.mois as string) : "";
+  const annee = /^\d{4}$/.test(params.annee || "") ? (params.annee as string) : "";
   const articleFiltre = (params.article || "").trim();
   const toutAffiche = params.tout === "1";
-  const hasFilters = Boolean(client || moisDebut || moisFin || articleFiltre);
+  const hasFilters = Boolean(client || mois || annee || articleFiltre);
 
   const [nomsClients, livraisons] = await Promise.all([
     fetchNomsClients(),
@@ -56,27 +67,31 @@ export default async function LivraisonClientPfPage({ searchParams }: { searchPa
   ]);
   const clientOptions = nomsClients.map((label, id) => ({ id, label }));
 
-  // Les articles proposes sont tous ceux livres a ce client (avant le filtre mois / article, pour que la liste ne change pas en filtrant)
-  const articleOptions = [...new Set(livraisons.lignes.map((ligne) => ligne.article))]
-    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
-    .map((label, id) => ({ id, label }));
+  // Les articles et les annees proposes sont tous ceux de ce client (avant le filtre mois / annee / article, pour que les listes ne changent pas
+  // en filtrant)
+  const articleOptions = articlesLivres(livraisons.lignes).map((label, id) => ({ id, label }));
+  const anneesDisponibles = [
+    ...new Set(livraisons.lignes.map((ligne) => (ligne.dateLivraison ?? "").slice(0, 4)).filter((valeur) => /^\d{4}$/.test(valeur))),
+  ].sort((a, b) => b.localeCompare(a));
+  if (annee && !anneesDisponibles.includes(annee)) anneesDisponibles.push(annee);
   const nomsTrouves = [...new Map(livraisons.lignes.map((ligne) => [ligne.client.trim().toLowerCase(), ligne.client.trim()])).values()].sort(
     (a, b) => a.localeCompare(b, "fr", { sensitivity: "base" })
   );
+  const explicationsRegroupement = client ? groupesDuTexte(client).map((groupe) => groupe.explication) : [];
 
   const lignesFiltrees = livraisons.lignes
-    .filter((ligne) => livraisonDansLesMois(ligne, moisDebut, moisFin))
+    .filter((ligne) => livraisonDansLaPeriode(ligne, mois, annee))
     .filter((ligne) => !articleFiltre || matchesArticleSearch(ligne.article, articleFiltre));
   const codes = grouperParCode(lignesFiltrees);
   const codesAffiches = toutAffiche ? codes : codes.slice(0, LIMITE_LIGNES);
   const quantiteTotale = codes.reduce((somme, ligne) => somme + ligne.quantite, 0);
-  const nbArticles = new Set(codes.map((ligne) => ligne.articleId)).size;
+  const listeArticles = articlesLivres(lignesFiltrees);
   const afficherClient = nomsTrouves.length > 1;
 
   const hrefVoirTout = `/stock/rapport/livraison-client?${new URLSearchParams({
     client,
-    ...(moisDebut ? { du: moisDebut } : {}),
-    ...(moisFin ? { au: moisFin } : {}),
+    ...(mois ? { mois } : {}),
+    ...(annee ? { annee } : {}),
     ...(articleFiltre ? { article: articleFiltre } : {}),
     tout: "1",
   }).toString()}`;
@@ -89,8 +104,8 @@ export default async function LivraisonClientPfPage({ searchParams }: { searchPa
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">ERP Rodis</p>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Livraison par client</h1>
             <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
-              Ecris un client : tous les codes (lots) livres pour lui, avec l&apos;article, la quantite et les dates de livraison. Filtre par mois
-              et par article.
+              Ecris un client : la liste des articles livres pour lui, puis tous les codes (lots) avec la quantite et les dates de livraison, y
+              compris les sorties de l&apos;ancien fichier Excel. Filtre par mois, annee et article.
             </p>
           </div>
 
@@ -103,24 +118,22 @@ export default async function LivraisonClientPfPage({ searchParams }: { searchPa
         <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <form className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[2fr_1fr_1fr_2fr_auto]">
             <SearchableFilterInput name="client" defaultValue={client} options={clientOptions} placeholder="Client..." />
-            <label className="flex flex-col gap-1 text-xs font-semibold text-slate-500">
-              Du mois
-              <input
-                type="month"
-                name="du"
-                defaultValue={moisDebut}
-                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-semibold text-slate-500">
-              Au mois
-              <input
-                type="month"
-                name="au"
-                defaultValue={moisFin}
-                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-normal text-slate-900 outline-none"
-              />
-            </label>
+            <select name="mois" defaultValue={mois} aria-label="Mois" className={CLASSE_LISTE}>
+              <option value="">Tous les mois</option>
+              {MOIS.map((nomMois, index) => (
+                <option key={nomMois} value={String(index + 1).padStart(2, "0")}>
+                  {nomMois}
+                </option>
+              ))}
+            </select>
+            <select name="annee" defaultValue={annee} aria-label="Annee" className={CLASSE_LISTE}>
+              <option value="">Toutes les annees</option>
+              {anneesDisponibles.map((valeur) => (
+                <option key={valeur} value={valeur}>
+                  {valeur}
+                </option>
+              ))}
+            </select>
             <SearchableFilterInput name="article" defaultValue={articleFiltre} options={articleOptions} placeholder="Article..." />
             <div className="flex gap-3">
               <button
@@ -153,15 +166,35 @@ export default async function LivraisonClientPfPage({ searchParams }: { searchPa
             </div>
             <div className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Articles</p>
-              <p className="mt-2 text-4xl font-black tracking-tight text-slate-900">{nombre(nbArticles)}</p>
+              <p className="mt-2 text-4xl font-black tracking-tight text-slate-900">{nombre(listeArticles.length)}</p>
             </div>
           </div>
         ) : null}
 
         {client && nomsTrouves.length > 1 ? (
-          <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Plusieurs noms contiennent &laquo;&nbsp;{client}&nbsp;&raquo; : {nomsTrouves.join(", ")}. Ecris le nom complet pour n&apos;avoir que celui-la.
-          </p>
+          explicationsRegroupement.length > 0 ? (
+            <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+              {explicationsRegroupement.join(" ")}
+            </p>
+          ) : (
+            <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Plusieurs noms contiennent &laquo;&nbsp;{client}&nbsp;&raquo; : {nomsTrouves.join(", ")}. Ecris le nom complet pour n&apos;avoir que
+              celui-la.
+            </p>
+          )
+        ) : null}
+
+        {client && !livraisons.error && listeArticles.length > 0 ? (
+          <section className="rounded-[2rem] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+            <h2 className="text-lg font-bold text-slate-900">Articles livres ({listeArticles.length})</h2>
+            <ul className="mt-4 grid gap-x-8 gap-y-2 text-sm text-slate-700 sm:grid-cols-2 xl:grid-cols-3">
+              {listeArticles.map((nomArticle) => (
+                <li key={nomArticle} className="border-b border-slate-100 pb-2">
+                  {nomArticle}
+                </li>
+              ))}
+            </ul>
+          </section>
         ) : null}
 
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
@@ -170,12 +203,12 @@ export default async function LivraisonClientPfPage({ searchParams }: { searchPa
               <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{livraisons.error}</p>
             </div>
           ) : !client ? (
-            <div className="px-6 py-8 text-sm text-slate-500">Choisis un client pour voir les codes qui lui ont ete livres.</div>
+            <div className="px-6 py-8 text-sm text-slate-500">Choisis un client pour voir les articles et les codes qui lui ont ete livres.</div>
           ) : codes.length === 0 ? (
             <div className="px-6 py-8 text-sm text-slate-500">
               {livraisons.lignes.length === 0
                 ? "Aucune livraison trouvee pour ce client."
-                : "Aucune livraison pour ces filtres (mois / article)."}
+                : "Aucune livraison pour ces filtres (mois / annee / article)."}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -187,6 +220,7 @@ export default async function LivraisonClientPfPage({ searchParams }: { searchPa
                     <th className="px-6 py-4 font-semibold">Quantite livree</th>
                     <th className="px-6 py-4 font-semibold">Date fabrication</th>
                     <th className="px-6 py-4 font-semibold">Date(s) de livraison</th>
+                    <th className="px-6 py-4 font-semibold">Origine</th>
                     {afficherClient ? <th className="px-6 py-4 font-semibold">Client</th> : null}
                   </tr>
                 </thead>
@@ -203,6 +237,15 @@ export default async function LivraisonClientPfPage({ searchParams }: { searchPa
                       <td className="px-6 py-4 text-slate-600">{formatDate(ligne.dateFabrication)}</td>
                       <td className="px-6 py-4 text-slate-600">
                         {ligne.dates.length > 0 ? ligne.dates.map((date) => formatDate(date)).join(", ") : "-"}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-1">
+                          {ligne.origines.map((origine) => (
+                            <span key={origine} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${STYLE_ORIGINE[origine]}`}>
+                              {origine}
+                            </span>
+                          ))}
+                        </div>
                       </td>
                       {afficherClient ? <td className="px-6 py-4 text-slate-600">{ligne.clients.join(", ")}</td> : null}
                     </tr>

@@ -31,7 +31,7 @@ const TILES = [
     href: "/stock/rapport/livraison-client",
     pageKey: "stockLivraisonClientPf",
     icon: "\u{1F69A}",
-    description: "Ecris un client : tous les codes livres pour lui avec l'article et la quantite, filtre par mois et par article.",
+    description: "Ecris un client : les articles et tous les codes livres pour lui (quantite, dates), filtre par mois, annee et article.",
   },
 ] as const;
 
