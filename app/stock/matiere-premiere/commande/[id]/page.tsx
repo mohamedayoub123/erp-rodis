@@ -15,6 +15,7 @@ import {
   createReceptionMpAction,
   deleteBcLigneFromDossierAction,
   deleteImportEvenementAction,
+  updateImportEvenementAction,
 } from "../actions";
 import { statutBcBadgeClass, type StatutBc } from "../../bc/constants";
 import { convertirEnFcfa } from "@/lib/prix-devise";
@@ -567,7 +568,7 @@ export default async function ImportMpDossierPage({
                       <th className="px-4 py-3 font-semibold">Date fabrication</th>
                       <th className="px-4 py-3 font-semibold">Date expiration</th>
                       <th className="px-4 py-3 font-semibold">Date reception</th>
-                      {canDelete ? <th className="px-4 py-3 font-semibold">Action</th> : null}
+                      {canEdit || canDelete ? <th className="px-4 py-3 font-semibold">Action</th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -612,12 +613,59 @@ export default async function ImportMpDossierPage({
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_fabrication)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_expiration)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDate(row.date_import)}</td>
-                          {canDelete ? (
+                          {canEdit || canDelete ? (
                             <td className="px-4 py-3">
-                              <form action={deleteImportEvenementAction}>
-                                <input type="hidden" name="import_id" value={row.id} />
-                                <DeleteIconButton label="Supprimer cet import" />
-                              </form>
+                              <div className="flex items-start gap-2">
+                                {canEdit ? (
+                                  <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                                    <summary className="cursor-pointer text-xs font-semibold text-slate-800">
+                                      Modifier
+                                    </summary>
+                                    <form action={updateImportEvenementAction} className="mt-2 grid w-64 gap-2">
+                                      <input type="hidden" name="import_id" value={row.id} />
+                                      {/* Si ce dossier n'a plus aucune reception apres le changement, on ouvre le nouveau dossier. */}
+                                      <input type="hidden" name="retour_dossier" value="1" />
+                                      <div className="grid gap-1 text-xs text-slate-500">
+                                        Date reception
+                                        <DateJmaFormField name="date_import" defaultValue={row.date_import} required />
+                                      </div>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Doss import 4D
+                                        <input
+                                          type="text"
+                                          name="n_doss_4d_import"
+                                          defaultValue={nDoss4d ?? ""}
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
+                                      <label className="grid gap-1 text-xs text-slate-500">
+                                        Doss import ERP
+                                        <input
+                                          type="text"
+                                          name="n_doss_erp_import"
+                                          defaultValue={nDossErp ?? ""}
+                                          className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
+                                        />
+                                      </label>
+                                      <p className="text-xs text-slate-500">
+                                        Deja entre en stock : la date et le dossier sont aussi corriges sur le lot en stock.
+                                      </p>
+                                      <SubmitButton
+                                        pendingLabel="Enregistrement..."
+                                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                                      >
+                                        Enregistrer
+                                      </SubmitButton>
+                                    </form>
+                                  </details>
+                                ) : null}
+                                {canDelete ? (
+                                  <form action={deleteImportEvenementAction}>
+                                    <input type="hidden" name="import_id" value={row.id} />
+                                    <DeleteIconButton label="Supprimer cet import" />
+                                  </form>
+                                ) : null}
+                              </div>
                             </td>
                           ) : null}
                         </tr>
@@ -642,7 +690,7 @@ export default async function ImportMpDossierPage({
                       {avecContenance ? (
                         <td className="px-4 py-3 font-semibold text-slate-900">{formaterM3(volumeTotalReceptions)}</td>
                       ) : null}
-                      <td colSpan={canDelete ? 4 : 3}></td>
+                      <td colSpan={canEdit || canDelete ? 4 : 3}></td>
                     </tr>
                   </tfoot>
                 </table>

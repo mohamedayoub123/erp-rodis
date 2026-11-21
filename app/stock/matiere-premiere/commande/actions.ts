@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase-server";
+import { logAudit } from "@/lib/audit-log";
+import { encodeDossierId } from "./dossier-id";
 import { canDeletePageUser, canWritePageUser, getCurrentStockUser } from "@/lib/stock-auth";
 import { STATUT_DOSSIER_MP_OPTIONS } from "./constants";
 import { DEVISE_OPTIONS } from "@/lib/devise-options";
@@ -813,6 +816,264 @@ export async function deleteBcLigneFromDossierAction(formData: FormData) {
   }
 
   revalidateCommandeMpPages();
+}
+
+type PaireDossier = { n4d: string | null; nErp: string | null };
+
+// Apres le changement de dossier d'une reception DEJA ENTREE EN STOCK : le suivi du dossier doit suivre, sinon le nouveau dossier
+// s'afficherait "Fabrication" (pas de ligne de statut) alors que du stock y est deja entre. Une reception met toujours son dossier a
+// "Receptionne Rodis" (voir createReceptionMpAction) : meme regle ici. Si l'ancien dossier n'a plus aucun import, il est renomme en
+// entier : il garde son statut, sa date prevue et ses conteneurs suivis au lieu de rester orphelins (un numero reutilise plus tard
+// retomberait sinon sur un statut final verrouille).
+async function suivreDossierApresChangement(ancien: PaireDossier, nouveau: PaireDossier, ancienVide: boolean) {
+  if (!nouveau.n4d && !nouveau.nErp) return;
+
+  const statutFinal = STATUT_DOSSIER_MP_OPTIONS[STATUT_DOSSIER_MP_OPTIONS.length - 1];
+  const ancienANumero = Boolean(ancien.n4d || ancien.nErp);
+
+  async function trouverStatut(paire: PaireDossier) {
+    let query = supabaseServer.from("dossiers_import_mp_statut").select("id, statut");
+    query = paire.n4d ? query.eq("n_doss_4d", paire.n4d) : query.is("n_doss_4d", null);
+    query = paire.nErp ? query.eq("n_doss_erp", paire.nErp) : query.is("n_doss_erp", null);
+    const { data } = await query.maybeSingle();
+    return data as { id: number; statut: string } | null;
+  }
+
+  const ligneNouveau = await trouverStatut(nouveau);
+  const ligneAncien = ancienANumero ? await trouverStatut(ancien) : null;
+  const maintenant = new Date().toISOString();
+
+  if (ligneNouveau) {
+    if (ligneNouveau.statut !== statutFinal) {
+      const { error } = await supabaseServer
+        .from("dossiers_import_mp_statut")
+        .update({ statut: statutFinal, updated_at: maintenant })
+        .eq("id", ligneNouveau.id);
+      if (error) throw new Error(error.message);
+    }
+    if (ancienVide && ligneAncien) {
+      const { error } = await supabaseServer.from("dossiers_import_mp_statut").delete().eq("id", ligneAncien.id);
+      if (error) throw new Error(error.message);
+    }
+  } else if (ancienVide && ligneAncien) {
+    const { error } = await supabaseServer
+      .from("dossiers_import_mp_statut")
+      .update({ n_doss_4d: nouveau.n4d, n_doss_erp: nouveau.nErp, statut: statutFinal, updated_at: maintenant })
+      .eq("id", ligneAncien.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabaseServer
+      .from("dossiers_import_mp_statut")
+      .insert([{ n_doss_4d: nouveau.n4d, n_doss_erp: nouveau.nErp, statut: statutFinal }]);
+    if (error) throw new Error(error.message);
+  }
+
+  if (ancienVide && ancienANumero) {
+    // Jamais bloquant : la table du Suivi conteneurs peut ne pas exister (SQL pas lance) ou avoir deja ce conteneur sur le nouveau dossier.
+    let suiviQuery = supabaseServer
+      .from("suivi_conteneurs_import")
+      .update({ n_doss_4d: nouveau.n4d, n_doss_erp: nouveau.nErp });
+    suiviQuery = ancien.n4d ? suiviQuery.eq("n_doss_4d", ancien.n4d) : suiviQuery.is("n_doss_4d", null);
+    suiviQuery = ancien.nErp ? suiviQuery.eq("n_doss_erp", ancien.nErp) : suiviQuery.is("n_doss_erp", null);
+    const { error: suiviError } = await suiviQuery;
+    if (suiviError) console.error("Deplacement du suivi conteneurs echoue:", suiviError.message);
+  }
+}
+
+// Corrige la DATE et/ou le DOSSIER 4D/ERP d'un evenement d'import - meme quand sa reception est DEJA ENTREE EN STOCK (avant, un
+// evenement receptionne etait ignore en silence : "Enregistrer" ne changeait rien). La quantite ne se corrige pas ici (supprimer puis
+// refaire la reception). Pour une reception deja en stock, le lot est corrige avec : numero de dossier, et date (date_jour et
+// date_reception portent la meme date, comme a la creation) ; l'ecriture d'achat est refaite a la nouvelle date, et le statut du
+// dossier suit (voir suivreDossierApresChangement). Un champ absent du formulaire n'est jamais modifie ; une date vide est ignoree.
+// "retour_dossier" (formulaire du detail d'un dossier) : si le dossier de cette page n'a plus aucun import apres le changement,
+// on ouvre le nouveau dossier au lieu d'une page introuvable.
+export async function updateImportEvenementAction(formData: FormData) {
+  const currentUser = await getCurrentStockUser();
+  const [peutModifierImport, peutModifierBc] = await Promise.all([
+    canWritePageUser(currentUser, "commandeMp"),
+    canWritePageUser(currentUser, "commandeBcMp"),
+  ]);
+
+  if (!peutModifierImport && !peutModifierBc) {
+    throw new Error("Cet utilisateur ne peut pas modifier les imports.");
+  }
+
+  const importId = Number(String(formData.get("import_id") || "0"));
+
+  if (!importId) {
+    throw new Error("Evenement d'import invalide.");
+  }
+
+  const { data: evenementRow, error: evenementError } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .select("id, lot_stock_id, n_doss_4d_import, n_doss_erp_import, date_import, numero_lot")
+    .eq("id", importId)
+    .maybeSingle();
+
+  if (evenementError || !evenementRow) {
+    throw new Error("Import introuvable.");
+  }
+
+  const evenement = evenementRow as {
+    lot_stock_id: number | null;
+    n_doss_4d_import: string | null;
+    n_doss_erp_import: string | null;
+    date_import: string | null;
+    numero_lot: string | null;
+  };
+  const lotId = evenement.lot_stock_id;
+
+  if (lotId !== null && !peutModifierImport) {
+    throw new Error(
+      "Cet import est deja entre en stock : seul un utilisateur qui peut modifier les imports peut corriger sa date ou son dossier."
+    );
+  }
+
+  const ancien: PaireDossier = { n4d: evenement.n_doss_4d_import, nErp: evenement.n_doss_erp_import };
+  const nouveau: PaireDossier = {
+    n4d: formData.has("n_doss_4d_import") ? parseOptionalText(formData, "n_doss_4d_import") : ancien.n4d,
+    nErp: formData.has("n_doss_erp_import") ? parseOptionalText(formData, "n_doss_erp_import") : ancien.nErp,
+  };
+  const nouvelleDate = parseOptionalText(formData, "date_import");
+
+  if (nouvelleDate && !/^\d{4}-\d{2}-\d{2}$/.test(nouvelleDate)) {
+    throw new Error("Date invalide.");
+  }
+
+  const dossierChange = nouveau.n4d !== ancien.n4d || nouveau.nErp !== ancien.nErp;
+  const dateChange = Boolean(nouvelleDate) && nouvelleDate !== (evenement.date_import || "").slice(0, 10);
+
+  if (!dossierChange && !dateChange) {
+    revalidateCommandeMpPages();
+    return;
+  }
+
+  type LotAvant = {
+    numero_lot: string | null;
+    n_doss_4d: string | null;
+    n_doss_erp: string | null;
+    date_jour: string | null;
+    date_reception: string | null;
+  };
+  let lotAvant: LotAvant | null = null;
+
+  // Stock d'abord : si le lot ne peut pas etre corrige, rien d'autre n'est touche.
+  if (lotId !== null) {
+    const { data: lotData } = await supabaseServer
+      .from("lots_stock_matiere_premiere")
+      .select("numero_lot, n_doss_4d, n_doss_erp, date_jour, date_reception")
+      .eq("id", lotId)
+      .maybeSingle();
+    lotAvant = (lotData as LotAvant | null) ?? null;
+
+    if (lotAvant) {
+      const miseAJourLot: Record<string, unknown> = {};
+      if (dossierChange) {
+        miseAJourLot.n_doss_4d = nouveau.n4d;
+        miseAJourLot.n_doss_erp = nouveau.nErp;
+      }
+      if (dateChange) {
+        miseAJourLot.date_jour = nouvelleDate;
+        miseAJourLot.date_reception = nouvelleDate;
+      }
+
+      const { error: lotError } = await supabaseServer
+        .from("lots_stock_matiere_premiere")
+        .update(miseAJourLot)
+        .eq("id", lotId);
+
+      if (lotError) {
+        throw new Error(lotError.message);
+      }
+    }
+  }
+
+  const miseAJourImport: Record<string, unknown> = {};
+  if (dossierChange) {
+    miseAJourImport.n_doss_4d_import = nouveau.n4d;
+    miseAJourImport.n_doss_erp_import = nouveau.nErp;
+  }
+  if (dateChange) {
+    miseAJourImport.date_import = nouvelleDate;
+  }
+
+  const { error: importError } = await supabaseServer
+    .from("bons_commande_mp_imports")
+    .update(miseAJourImport)
+    .eq("id", importId);
+
+  if (importError) {
+    // Le stock a deja ete corrige : on le remet comme avant pour ne pas laisser lot et import avec des valeurs differentes.
+    if (lotId !== null && lotAvant) {
+      await supabaseServer
+        .from("lots_stock_matiere_premiere")
+        .update({
+          n_doss_4d: lotAvant.n_doss_4d,
+          n_doss_erp: lotAvant.n_doss_erp,
+          date_jour: lotAvant.date_jour,
+          date_reception: lotAvant.date_reception,
+        })
+        .eq("id", lotId);
+    }
+    throw new Error(importError.message);
+  }
+
+  // Il reste des imports sur l'ancien dossier ? (apres la mise a jour ci-dessus)
+  let ancienVide = false;
+  if (dossierChange) {
+    let resteQuery = supabaseServer.from("bons_commande_mp_imports").select("id", { count: "exact", head: true });
+    resteQuery = ancien.n4d ? resteQuery.eq("n_doss_4d_import", ancien.n4d) : resteQuery.is("n_doss_4d_import", null);
+    resteQuery = ancien.nErp ? resteQuery.eq("n_doss_erp_import", ancien.nErp) : resteQuery.is("n_doss_erp_import", null);
+    const { count } = await resteQuery;
+    ancienVide = (count ?? 0) === 0;
+  }
+
+  if (lotId !== null) {
+    if (dossierChange) {
+      try {
+        await suivreDossierApresChangement(ancien, nouveau, ancienVide);
+      } catch (suiviError) {
+        // Le stock et l'import sont deja corriges : ne jamais faire echouer l'action pour le seul statut du dossier.
+        console.error("Mise a jour du statut du dossier apres correction echouee:", suiviError);
+      }
+    }
+
+    if (dateChange) {
+      // Meme precaution qu'a la reception : la comptabilite ne doit jamais bloquer la correction du stock.
+      try {
+        await recalculerEcritureAchatMp(lotId, currentUser);
+      } catch (comptaError) {
+        console.error("Ecriture comptable apres correction de date echouee:", comptaError);
+      }
+    }
+
+    const cible = lotAvant?.numero_lot || evenement.numero_lot || `import #${importId}`;
+    await logAudit({
+      utilisateur: currentUser,
+      module: "StockMP",
+      action: "modification",
+      cible,
+      resume: `Reception MP ${cible} corrigee (${[dateChange ? "date" : null, dossierChange ? "dossier" : null]
+        .filter(Boolean)
+        .join(" + ")})`,
+      avant: {
+        date_reception: lotAvant?.date_reception ?? evenement.date_import,
+        n_doss_4d: ancien.n4d,
+        n_doss_erp: ancien.nErp,
+      },
+      apres: {
+        date_reception: dateChange ? nouvelleDate : (lotAvant?.date_reception ?? evenement.date_import),
+        n_doss_4d: nouveau.n4d,
+        n_doss_erp: nouveau.nErp,
+      },
+    });
+  }
+
+  revalidateCommandeMpPages();
+
+  if (formData.get("retour_dossier") && dossierChange && ancienVide) {
+    redirect(`/stock/matiere-premiere/commande/${encodeDossierId(nouveau.n4d, nouveau.nErp)}`);
+  }
 }
 
 // Statut de suivi manuel d'un dossier Import (Fabrication -> Import ->

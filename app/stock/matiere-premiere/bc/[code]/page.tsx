@@ -9,20 +9,19 @@ import { SubmitButton } from "@/app/_components/submit-button";
 import { formatDate } from "@/lib/format-date";
 import { convertirEnFcfa } from "@/lib/prix-devise";
 import { DeviseTauxFormField } from "@/app/_components/devise-taux-input";
+import { DateJmaFormField } from "@/app/_components/date-jma-input";
 import {
   createImportEvenementAction,
   deleteCommandeBcLigneAction,
   markCommandeBcLigneTermineAction,
   updateCommandeBcGroupAction,
   updateCommandeBcLigneAction,
-  updateImportEvenementAction,
 } from "../actions";
-// La version bc/actions.ts est volontairement bloquee sur un evenement issu
-// d'une Reception (lot_stock_id non nul) pour ne jamais desynchroniser le
-// stock - celle-ci (deja utilisee sur Import MP) gere aussi ce cas en
-// retirant le lot de stock credite, donc supprimer une reception en double
-// fonctionne aussi depuis cette page BC.
-import { deleteImportEvenementAction } from "../../commande/actions";
+// Un evenement issu d'une Reception (lot_stock_id non nul) a credite du vrai
+// stock : suppression et correction (date, dossier) passent par les actions
+// de Import MP, qui retirent / corrigent aussi le lot en stock - donc elles
+// fonctionnent aussi depuis cette page BC.
+import { deleteImportEvenementAction, updateImportEvenementAction } from "../../commande/actions";
 import { computeStatutBc, statutBcBadgeClass } from "../constants";
 import { AddArticleForm } from "./add-article-form";
 
@@ -73,6 +72,7 @@ type ImportEvenementRow = {
   n_doss_erp_import: string | null;
   date_import: string | null;
   numero_import: string | null;
+  lot_stock_id: number | null;
 };
 
 async function fetchGroup(code: string) {
@@ -101,7 +101,9 @@ async function fetchImportsForLignes(ligneIds: number[]) {
   // creer une 2e).
   const { data } = await supabaseServer
     .from("bons_commande_mp_imports")
-    .select("id, bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, date_import, numero_import")
+    .select(
+      "id, bc_ligne_id, quantite_importee, n_doss_4d_import, n_doss_erp_import, date_import, numero_import, lot_stock_id"
+    )
     .in("bc_ligne_id", ligneIds)
     .order("id", { ascending: true });
 
@@ -285,9 +287,13 @@ export default async function CommandeBcMpDetailPage({
                                         </summary>
                                         <form
                                           action={updateImportEvenementAction}
-                                          className="mt-2 grid w-52 gap-2"
+                                          className="mt-2 grid w-64 gap-2"
                                         >
                                           <input type="hidden" name="import_id" value={imp.id} />
+                                          <div className="grid gap-1 text-xs text-slate-500">
+                                            {imp.lot_stock_id !== null ? "Date reception" : "Date import"}
+                                            <DateJmaFormField name="date_import" defaultValue={imp.date_import} required />
+                                          </div>
                                           <label className="grid gap-1 text-xs text-slate-500">
                                             Doss import 4D
                                             <input
@@ -306,6 +312,11 @@ export default async function CommandeBcMpDetailPage({
                                               className="rounded-xl border border-slate-200 px-2 py-1.5 text-sm"
                                             />
                                           </label>
+                                          {imp.lot_stock_id !== null ? (
+                                            <p className="text-xs text-slate-500">
+                                              Deja entre en stock : la date et le dossier sont aussi corriges sur le lot en stock.
+                                            </p>
+                                          ) : null}
                                           <SubmitButton
                                             pendingLabel="Enregistrement..."
                                             className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"

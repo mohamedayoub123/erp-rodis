@@ -384,36 +384,6 @@ export async function createImportEvenementAction(formData: FormData) {
   revalidateCommandeBcMpPages();
 }
 
-// Change les dossiers 4D/ERP d'un evenement d'import deja enregistre (pas la
-// quantite : pour corriger une quantite, supprimer puis recreer, ce qui
-// remet correctement a jour le "reste" de la ligne). Le filtre
-// lot_stock_id null protege un evenement issu d'une Reception (credite du
-// stock reel) qui ne doit jamais passer par cette action legere.
-export async function updateImportEvenementAction(formData: FormData) {
-  await requireEditAccess();
-
-  const importId = Number(String(formData.get("import_id") || "0"));
-
-  if (!importId) {
-    throw new Error("Evenement d'import invalide.");
-  }
-
-  const { error } = await supabaseServer
-    .from("bons_commande_mp_imports")
-    .update({
-      n_doss_4d_import: parseOptionalText(formData, "n_doss_4d_import"),
-      n_doss_erp_import: parseOptionalText(formData, "n_doss_erp_import"),
-    })
-    .eq("id", importId)
-    .is("lot_stock_id", null);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  revalidateCommandeBcMpPages();
-}
-
 // Modifie la quantite commandee et les dossiers 4D/ERP d'UNE ligne BC
 // (contrairement a updateCommandeBcGroupAction, qui n'ecrit que le dossier
 // et pour toutes les lignes du meme code).
