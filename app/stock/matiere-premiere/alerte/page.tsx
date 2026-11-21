@@ -39,8 +39,11 @@ type AlerteRow = {
   stock_depot_e: number;
   to_deduits: number;
   tos: TransferOrderEnCours[];
-  // Couleur de la ligne (voir couleurAlerte) : null = la ligne ne s'allume pas
+  // Couleur de la case Article (voir couleurAlerte) : null = la case ne s'allume pas
   couleur: CouleurAlerte | null;
+  // Le stock suffit pour combien de jours : stock x 365 / consommation des 12 derniers mois (meme formule que le rapport Rotation de Stock MP) ;
+  // null = aucune consommation sur 12 mois
+  jours_stock: number | null;
   min_stock: number;
   consommation_1_mois: number;
   consommation_3_mois: number;
@@ -177,20 +180,20 @@ function dossierKey(nDoss4d: string | null, nDossErp: string | null) {
   return `${nDoss4d ?? ""}|||${nDossErp ?? ""}`;
 }
 
-// La ligne d'un article s'allume quand son stock (Depot E moins TO) est egal ou inferieur a sa consommation des 3 derniers mois :
+// La case ARTICLE (pas toute la ligne) s'allume quand son stock (Depot E moins TO) est egal ou inferieur a sa consommation des 3 derniers mois :
 //  - JAUNE  : une commande (BC) et PAS d'import ;
 //  - VERT   : un import est en cours ;
 //  - ORANGE : ni commande (BC) ni import.
-// Sinon (stock au-dessus de la consommation des 3 mois) la ligne reste blanche.
+// Sinon (stock au-dessus de la consommation des 3 mois) la case reste blanche.
 type CouleurAlerte = "jaune" | "vert" | "orange";
 
 // fondExcel / texteExcel : les memes couleurs (yellow-200, green-200, orange-200) dans le fichier Excel
 const COULEURS_ALERTE: Record<
   CouleurAlerte,
-  { ligne: string; puce: string; libelle: string; export: string; fondExcel: string; texteExcel: string }
+  { cellule: string; puce: string; libelle: string; export: string; fondExcel: string; texteExcel: string }
 > = {
   jaune: {
-    ligne: "bg-yellow-200",
+    cellule: "bg-yellow-200",
     puce: "bg-yellow-200 text-yellow-900",
     libelle: "Commande (BC) sans import",
     export: "Jaune - BC sans import",
@@ -198,7 +201,7 @@ const COULEURS_ALERTE: Record<
     texteExcel: COULEURS_EXCEL.jauneTexte,
   },
   vert: {
-    ligne: "bg-green-200",
+    cellule: "bg-green-200",
     puce: "bg-green-200 text-green-900",
     libelle: "Import en cours",
     export: "Vert - import en cours",
@@ -206,7 +209,7 @@ const COULEURS_ALERTE: Record<
     texteExcel: COULEURS_EXCEL.vertTexte,
   },
   orange: {
-    ligne: "bg-orange-200",
+    cellule: "bg-orange-200",
     puce: "bg-orange-200 text-orange-900",
     libelle: "Ni commande (BC) ni import",
     export: "Orange - ni BC ni import",
@@ -214,6 +217,28 @@ const COULEURS_ALERTE: Record<
     texteExcel: COULEURS_EXCEL.orangeTexte,
   },
 };
+
+// Ordre des couleurs dans chaque sous-famille : le plus urgent d'abord (rien de commande, puis commande sans import, puis import en cours),
+// les articles non allumes a la fin
+const ORDRE_COULEURS = { orange: 0, jaune: 1, vert: 2, blanc: 3 } as const;
+
+// Ordre des CATEGORIES (demande explicite) : BASE, MP cosmetique, colorant cosmetique, article de conditionnement cosmetique, flacons verre, MP
+// plastique, colorant plastique, puis toutes les autres (par ordre alphabetique). Compare sans accent ni majuscule : "mp plastique" et
+// "MP PLASTIQUE" sont la meme categorie.
+function cleCategorie(valeur: string | null): string {
+  return (valeur ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim().toUpperCase();
+}
+const ORDRE_CATEGORIES = new Map<string, number>([
+  ["BASE", 0],
+  ["MP COSMETIQUE", 1],
+  ["COLORANT COSMETIQUE", 2],
+  ["ARTICLE DE CONDITIONNEMENT COSMETIQUE", 3],
+  ["FLACONS VERRE", 4],
+  ["FLACON VERRE", 4],
+  ["MP PLASTIQUE", 5],
+  ["COLORANT PLASTIQUE", 6],
+]);
+const RANG_AUTRES_CATEGORIES = 7;
 
 function couleurAlerte(stock: number, consommation3Mois: number, aUnBc: boolean, aUnImport: boolean): CouleurAlerte | null {
   if (!(stock <= consommation3Mois)) return null;
@@ -401,6 +426,7 @@ export default async function StockAlerteMpPage({
       const toDeduits = Math.round(((to?.reserve ?? 0) + (to?.enAttente ?? 0)) * 1e6) / 1e6 || 0;
       const stockApresTo = Math.round((stockDepotEReel - toDeduits) * 1e6) / 1e6 || 0;
       const consommation3Mois = consommationByPeriodAndArticle[3].get(article.id) ?? 0;
+      const consommation12Mois = consommationByPeriodAndArticle[12].get(article.id) ?? 0;
       const bcRefs = bcRefsByArticle.get(article.id) ?? [];
       const importRefs = [...(importRefsByArticle.get(article.id)?.values() ?? [])];
       return {
@@ -414,11 +440,12 @@ export default async function StockAlerteMpPage({
         to_deduits: toDeduits,
         tos: to?.tos ?? [],
         couleur: couleurAlerte(stockApresTo, consommation3Mois, bcRefs.length > 0, importRefs.length > 0),
+        jours_stock: consommation12Mois > 0 ? Math.max(0, stockApresTo) * 365 / consommation12Mois : null,
         min_stock: article.min_stock as number,
         consommation_1_mois: consommationByPeriodAndArticle[1].get(article.id) ?? 0,
         consommation_3_mois: consommation3Mois,
         consommation_6_mois: consommationByPeriodAndArticle[6].get(article.id) ?? 0,
-        consommation_12_mois: consommationByPeriodAndArticle[12].get(article.id) ?? 0,
+        consommation_12_mois: consommation12Mois,
         entree_12_mois: entree12MoisByArticle.get(article.id) ?? 0,
         entree_3_mois: entree3MoisByArticle.get(article.id) ?? 0,
         utilisation_produit: article.utilisation,
@@ -433,7 +460,18 @@ export default async function StockAlerteMpPage({
     .filter((row) => correspondALaListe(row.categorie, categoriesChoisies))
     .filter((row) => correspondALaListe(row.sous_famille, sousFamillesChoisies))
     .filter((row) => !hideLowThreshold || row.min_stock > 1)
-    .sort((a, b) => a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" }));
+    // Classement : 1) la categorie (BASE, MP cosmetique... voir ORDRE_CATEGORIES, les autres a la fin par nom) ; 2) la sous-famille (par nom) ;
+    // 3) dans chaque sous-famille la couleur, du plus urgent au moins urgent (orange, jaune, vert, puis blanc) ; 4) le nom d'article.
+    // L'Excel et les 150 premieres lignes affichees suivent le meme ordre.
+    .sort(
+      (a, b) =>
+        (ORDRE_CATEGORIES.get(cleCategorie(a.categorie)) ?? RANG_AUTRES_CATEGORIES) -
+          (ORDRE_CATEGORIES.get(cleCategorie(b.categorie)) ?? RANG_AUTRES_CATEGORIES) ||
+        cleCategorie(a.categorie).localeCompare(cleCategorie(b.categorie), "fr") ||
+        (a.sous_famille ?? "").localeCompare(b.sous_famille ?? "", "fr", { sensitivity: "base" }) ||
+        (a.couleur ? ORDRE_COULEURS[a.couleur] : ORDRE_COULEURS.blanc) - (b.couleur ? ORDRE_COULEURS[b.couleur] : ORDRE_COULEURS.blanc) ||
+        a.nom_article.localeCompare(b.nom_article, "fr", { sensitivity: "base" })
+    );
 
   const toutAffiche = params.tout === "1";
   const alertesAffichees = toutAffiche ? alertes : alertes.slice(0, LIMITE_LIGNES);
@@ -464,7 +502,7 @@ export default async function StockAlerteMpPage({
   const vertEntree = { texte: COULEURS_EXCEL.vert, gras: true };
   const donneesExcel: DonneesAlerte = {
     titre: "Stock Alert MP",
-    sousTitre: `${alertes.length} article(s) en alerte (Depot E moins TO, stock egal ou inferieur au stock min) - au ${aujourdhuiExcel}. La ligne s'allume quand le stock est egal ou inferieur a la consommation des 3 derniers mois :`,
+    sousTitre: `${alertes.length} article(s) en alerte (Depot E moins TO, stock egal ou inferieur au stock min) - au ${aujourdhuiExcel}. La case Article s'allume quand le stock est egal ou inferieur a la consommation des 3 derniers mois :`,
     filtres: filtresExcel,
     legende: (Object.keys(COULEURS_ALERTE) as CouleurAlerte[]).map((cle) => ({
       libelle: `${COULEURS_ALERTE[cle].export.split(" - ")[0]} : ${COULEURS_ALERTE[cle].libelle}`,
@@ -478,6 +516,8 @@ export default async function StockAlerteMpPage({
       { titre: "Article", largeur: 44, style: { texte: COULEURS_EXCEL.texte, gras: true } },
       // la pastille rouge du stock
       { titre: "Stock Depot E (moins TO)", largeur: 17, style: { fond: COULEURS_EXCEL.rougeFond, texte: COULEURS_EXCEL.rougeFort, gras: true } },
+      // le stock suffit pour combien de jours (stock x 365 / consommation 12 mois), a cote du stock
+      { titre: "Jours de stock", largeur: 12, style: { texte: COULEURS_EXCEL.texte, gras: true } },
       { titre: "Stock Depot E (avant TO)", largeur: 17, style: gris },
       { titre: "TO deduits", largeur: 12, style: gris },
       { titre: "Unite", largeur: 10, style: gris },
@@ -495,12 +535,13 @@ export default async function StockAlerteMpPage({
       { titre: "Couleur alerte", largeur: 26, style: { texte: COULEURS_EXCEL.texte } },
     ],
     lignes: alertes.map((alerte) => ({
-      fond: alerte.couleur ? COULEURS_ALERTE[alerte.couleur].fondExcel : undefined,
       cellules: [
         alerte.categorie || "-",
         alerte.sous_famille || "-",
-        alerte.nom_article,
+        // seule la case Article porte la couleur d'alerte (comme a l'ecran)
+        alerte.couleur ? { valeur: alerte.nom_article, style: { fond: COULEURS_ALERTE[alerte.couleur].fondExcel } } : alerte.nom_article,
         alerte.stock_actuel,
+        alerte.jours_stock === null ? "-" : Math.round(alerte.jours_stock),
         alerte.stock_depot_e,
         alerte.to_deduits,
         alerte.unite || "-",
@@ -597,13 +638,17 @@ export default async function StockAlerteMpPage({
         <section className="overflow-hidden rounded-[2rem] border border-black/5 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
           <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-6 py-3 text-xs">
             <span className="font-semibold text-slate-600">
-              La ligne s&apos;allume quand le stock (Depot E moins TO) est egal ou inferieur a la consommation des 3 derniers mois :
+              La case Article s&apos;allume quand le stock (Depot E moins TO) est egal ou inferieur a la consommation des 3 derniers mois :
             </span>
             {(Object.keys(COULEURS_ALERTE) as CouleurAlerte[]).map((cle) => (
               <span key={cle} className={`rounded-full px-3 py-1 font-semibold ${COULEURS_ALERTE[cle].puce}`}>
                 {COULEURS_ALERTE[cle].libelle}
               </span>
             ))}
+            <span className="font-semibold text-slate-500">
+              Classement : BASE, MP cosmetique, colorant cosmetique, article de conditionnement cosmetique, flacons verre, MP plastique, colorant
+              plastique, puis les autres ; dans chaque sous-famille : orange, jaune, vert, puis blanc.
+            </span>
           </div>
           {error ? (
             <div className="px-6 py-8">
@@ -627,6 +672,10 @@ export default async function StockAlerteMpPage({
                       Stock Depot E
                       <span className="block text-xs font-normal text-slate-400">moins les TO</span>
                     </th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">
+                      Jours de stock
+                      <span className="block text-xs font-normal text-slate-400">selon conso 12 mois</span>
+                    </th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Unite</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation dernier mois</th>
                     <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 font-semibold">Consommation dernier 3 mois</th>
@@ -643,15 +692,15 @@ export default async function StockAlerteMpPage({
                 </thead>
                 <tbody>
                   {alertesAffichees.map((alerte) => (
-                    <tr
-                      key={alerte.article_id}
-                      data-couleur={alerte.couleur ?? undefined}
-                      title={alerte.couleur ? COULEURS_ALERTE[alerte.couleur].libelle : undefined}
-                      className={`border-t border-slate-100 ${alerte.couleur ? COULEURS_ALERTE[alerte.couleur].ligne : ""}`}
-                    >
+                    <tr key={alerte.article_id} data-couleur={alerte.couleur ?? undefined} className="border-t border-slate-100">
                       <td className="px-6 py-4 text-slate-600">{alerte.categorie || "-"}</td>
                       <td className="px-6 py-4 text-slate-600">{alerte.sous_famille || "-"}</td>
-                      <td className="px-6 py-4 font-medium text-slate-900">{alerte.nom_article}</td>
+                      <td
+                        title={alerte.couleur ? COULEURS_ALERTE[alerte.couleur].libelle : undefined}
+                        className={`px-6 py-4 font-medium text-slate-900 ${alerte.couleur ? COULEURS_ALERTE[alerte.couleur].cellule : ""}`}
+                      >
+                        {alerte.nom_article}
+                      </td>
                       <td className="px-6 py-4">
                         <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
                           {formatNumber(alerte.stock_actuel)}
@@ -674,6 +723,12 @@ export default async function StockAlerteMpPage({
                             </ul>
                           </details>
                         ) : null}
+                      </td>
+                      <td
+                        title="Stock (Depot E moins TO) x 365 / consommation des 12 derniers mois"
+                        className="whitespace-nowrap px-6 py-4 font-semibold text-slate-900"
+                      >
+                        {alerte.jours_stock === null ? "-" : `${formatNumber(Math.round(alerte.jours_stock))} j`}
                       </td>
                       <td className="px-6 py-4 text-slate-600">{alerte.unite || "-"}</td>
                       <td className="px-6 py-4 font-semibold text-sky-700">
