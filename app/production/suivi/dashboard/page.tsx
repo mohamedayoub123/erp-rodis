@@ -1098,13 +1098,17 @@ export default async function PlanningDashboardPage({
                             {dash.finProgramme ? (
                             <FinProgrammeButton ligneId={row.ligne.id} code={row.code} action={markEmballageTermineAction} />
                             ) : null}
+                            {/* Efface les quantites d'un code : reserve aux admins (ayoub, mayoub), comme la suppression d'un programme entier. */}
+                            {isAdmin ? (
                             <form action={deleteCodeProgressAction}>
                               <input type="hidden" name="ligne_id" value={row.ligne.id} />
                               <input type="hidden" name="code" value={row.code} />
                               <DeleteIconButton
                                 label={`Supprimer ${row.code} (revient au Conditionnement)`}
+                                confirmMessage={`Effacer les quantites de cartons et d'emballage de ${row.code} ? Le code revient au Conditionnement. Le Test labo et la Fabrication ne sont pas touches.`}
                               />
                             </form>
+                            ) : null}
                           </div>
                         </td>
                         {canDeleteLigne ? (

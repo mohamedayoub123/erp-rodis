@@ -2037,17 +2037,19 @@ export async function saveEmballageRapportAction(formData: FormData) {
   }
 }
 
-// Bouton "Supprimer" sur la colonne Emballage du Dashboard : efface tout ce
-// qui a ete saisi pour CE code precis (carton produit en Conditionnement ET
-// quantite emballee), pour qu'il revienne dans la colonne Conditionnement
-// au lieu de rester bloque cote Emballage. Un code n'a que ce qu'il a lui
-// meme reellement produit (voir upsertRapport/le journal carton/emballage
-// scopes par code) - supprimer un code n'affecte jamais les 2 autres.
+// Bouton "Supprimer" sur la colonne Emballage du Dashboard : efface SEULEMENT les quantites saisies pour CE code precis (cartons
+// produits en Conditionnement ET quantites emballees), pour qu'il revienne dans la colonne Conditionnement au lieu de rester bloque cote
+// Emballage. La fiche du code (production_rapports : Test labo, detail de la Fabrication, dates) n'est JAMAIS touchee : avant, elle etait
+// supprimee avec le reste, ce qui effacait le Test labo et la Fabrication (cas reel AA9705 : le vrac restait mais sans Test labo, donc
+// impossible a choisir comme code vrac). Un code n'a que ce qu'il a lui meme reellement produit (journal carton/emballage scope par
+// code) - supprimer un code n'affecte jamais les 2 autres. La suppression est ecrite dans le journal (qui, quand, quelles quantites) ;
+// les cartons se restaurent depuis Admin > Historique (meme module que la suppression d'une entree carton).
 export async function deleteCodeProgressAction(formData: FormData) {
   const currentUser = await getCurrentStockUser();
 
-  if (!(await canWritePageUser(currentUser, "productionSuiviProductionEmballage"))) {
-    throw new Error("Cet utilisateur ne peut pas supprimer cette ligne.");
+  // Reserve aux comptes admin (ayoub, mayoub) : effacer les quantites d'un code a fait perdre du travail par erreur (cas AA9705).
+  if (!isAdminUser(currentUser) || !(await canWritePageUser(currentUser, "productionSuiviProductionEmballage"))) {
+    throw new Error("Seuls les comptes admin (ayoub, mayoub) peuvent effacer les quantites d'un code.");
   }
 
   const ligneId = Number(String(formData.get("ligne_id") || "0"));
@@ -2057,15 +2059,39 @@ export async function deleteCodeProgressAction(formData: FormData) {
     throw new Error("Ligne ou code invalide.");
   }
 
-  const [cartonResult, emballageResult, rapportResult] = await Promise.all([
+  // Ce qui va etre efface est lu d'abord : il est garde dans le journal.
+  const [cartonsAvantResult, emballagesAvantResult] = await Promise.all([
+    supabaseServer.from("production_carton_entries").select("*").eq("programme_ligne_id", ligneId).eq("code", code),
+    supabaseServer.from("production_emballage_entries").select("*").eq("programme_ligne_id", ligneId).eq("code", code),
+  ]);
+  const lectureEchouee = [cartonsAvantResult, emballagesAvantResult].find((result) => result.error);
+  if (lectureEchouee?.error) {
+    throw new Error(lectureEchouee.error.message);
+  }
+  const cartonsAvant = (cartonsAvantResult.data ?? []) as Record<string, unknown>[];
+  const emballagesAvant = (emballagesAvantResult.data ?? []) as Record<string, unknown>[];
+
+  const [cartonResult, emballageResult] = await Promise.all([
     supabaseServer.from("production_carton_entries").delete().eq("programme_ligne_id", ligneId).eq("code", code),
     supabaseServer.from("production_emballage_entries").delete().eq("programme_ligne_id", ligneId).eq("code", code),
-    supabaseServer.from("production_rapports").delete().eq("programme_ligne_id", ligneId).eq("code", code),
   ]);
 
-  const failed = [cartonResult, emballageResult, rapportResult].find((result) => result.error);
+  const failed = [cartonResult, emballageResult].find((result) => result.error);
   if (failed?.error) {
     throw new Error(failed.error.message);
+  }
+
+  if (cartonsAvant.length > 0 || emballagesAvant.length > 0) {
+    const somme = (lignes: Record<string, unknown>[]) => lignes.reduce((total, ligne) => total + Number(ligne.quantite ?? 0), 0);
+    await logAudit({
+      utilisateur: currentUser,
+      // Meme module que la suppression d'une entree carton : le bouton Restaurer de Admin > Historique remet les cartons.
+      module: "ProductionCartonEntries",
+      action: "suppression",
+      cible: code,
+      resume: `Dashboard, colonne Emballage : ${code} (ligne ${ligneId}) revient au Conditionnement - ${cartonsAvant.length} saisie(s) carton (${somme(cartonsAvant)}) et ${emballagesAvant.length} saisie(s) emballage (${somme(emballagesAvant)}) effacees ; Test labo et Fabrication non touches`,
+      avant: { entries: cartonsAvant, emballage: emballagesAvant },
+    });
   }
 
   revalidateRapportPages();
