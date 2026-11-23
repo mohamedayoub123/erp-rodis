@@ -302,13 +302,6 @@ function renderArticleManquantInsideTableau(
     }))
     .filter((section) => section.rows.length > 0);
 
-  const familiesEnManque = visibleSections.length;
-  const articlesEnManque = visibleSections.reduce((sum, section) => sum + section.rows.length, 0);
-  const totalManque = visibleSections.reduce(
-    (sum, section) => sum + section.rows.reduce((rowSum, row) => rowSum + Math.abs(row.reste), 0),
-    0
-  );
-
   // Meme donnees, meme formules que le rendu ecran juste en dessous -
   // aplaties en objets simples pour l'export Excel (bouton place dans
   // l'en-tete de la page).
@@ -423,21 +416,6 @@ function renderArticleManquantInsideTableau(
                 </button>
               </form>
             </div>
-          </div>
-        </section>
-
-        <section className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-[1.5rem] border border-slate-200 bg-white px-5 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-            <p className="text-[16px] font-medium uppercase tracking-[0.24em] text-slate-500">Familles en manque</p>
-            <p className="mt-2 text-3xl font-medium text-slate-950">{familiesEnManque}</p>
-          </div>
-          <div className="rounded-[1.5rem] border border-slate-200 bg-white px-5 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-            <p className="text-[16px] font-medium uppercase tracking-[0.24em] text-slate-500">Articles manquants</p>
-            <p className="mt-2 text-3xl font-medium text-slate-950">{articlesEnManque}</p>
-          </div>
-          <div className="rounded-[1.5rem] border border-slate-200 bg-white px-5 py-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-            <p className="text-[16px] font-medium uppercase tracking-[0.24em] text-slate-500">Total manque</p>
-            <p className="mt-2 text-3xl font-medium text-red-700">{formatQuantity(totalManque)}</p>
           </div>
         </section>
 
